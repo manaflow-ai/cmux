@@ -27,10 +27,10 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  async function open(variant: string, width = 640, height = 560) {
+  async function open(variant: string, width = 640, height = 560, entry = "new-tab.quick-model-menu") {
     const page = await browser.newPage({ viewport: { width, height } });
     const { port } = vite.httpServer!.address() as { port: number };
-    await page.goto(`http://127.0.0.1:${port}${galleryFrame("new-tab.quick-model-menu", { variant, width, height })}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant, width, height })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     return page;
   }
@@ -205,6 +205,18 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       const search = await bounds(page, ".acpmux-quick-search");
       expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("inline effort keeps the compact rail at its narrow geometry", async () => {
+    const page = await open("compact", 640, 560, "agent-pane.inline-model-effort");
+    try {
+      const rail = await bounds(page, ".acpmux-quick-rail");
+      expect(rail.width).toBeGreaterThanOrEqual(76);
+      expect(rail.width).toBeLessThan(110);
+      expect(await page.locator(".acpmux-quick-effort-segment").count()).toBeGreaterThan(0);
     } finally {
       await page.close();
     }

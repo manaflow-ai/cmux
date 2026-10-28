@@ -88,6 +88,59 @@ afterAll(() => {
 
 const variants = () => import("../src/agent-session/acpmux/modelVariants");
 
+test("the current model's inline effort pick returns focus to the prompt through ModelPicker", async () => {
+  const { ModelPicker } = await import("../src/agent-session/acpmux/ModelPicker");
+  const { PromptFocus } = await import("../src/agent-session/acpmux/promptFocus");
+  const prompt = document.createElement("textarea");
+  document.body.append(prompt);
+  const effortPicks: string[] = [];
+  const catalog = [
+    {
+      id: "claude",
+      name: "Claude Code",
+      models: [{ id: "claude-opus-5-5", name: "Opus 5.5", efforts: ["low", "high"] }],
+    },
+  ];
+  root = (await import("react-dom/client")).createRoot(host);
+  await act(async () =>
+    root!.render(
+      <PromptFocus.Provider value={() => prompt.focus()}>
+        <ModelPicker
+          catalog={catalog}
+          harness="claude"
+          model="claude-opus-5-5"
+          label="Opus 5.5"
+          efforts={[]}
+          recents={[]}
+          quick={{
+            effort: {
+              levels: [
+                { id: "low", name: "Low" },
+                { id: "high", name: "High" },
+              ],
+              current: "high",
+              onPick: (value) => effortPicks.push(value),
+            },
+          }}
+          harnessFixed
+          onCombo={() => undefined}
+          onLand={() => undefined}
+          onEffort={() => undefined}
+        />
+      </PromptFocus.Provider>,
+    ),
+  );
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const segment = host.ownerDocument.querySelector<HTMLElement>('[aria-label="Opus 5.5 · Low"]');
+  expect(segment).toBeDefined();
+  await act(async () => segment!.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(effortPicks).toEqual(["low"]);
+  expect(document.activeElement).toBe(prompt);
+  prompt.remove();
+});
+
 describe("groupVariants", () => {
   const rows = [
     { id: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro [New]" },

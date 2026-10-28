@@ -463,6 +463,9 @@ export function ModelPicker(props: ModelPickerProps) {
   // The compact menu's pick does the same once the menu has closed: while it is open it keeps the
   // keyboard on its rows, and its close leaves focus where the pick put it (ui/Menu.tsx).
   const quickPicked = useRef(false);
+  // Inline effort picks use the compact menu's close path, so the prompt receives focus after
+  // the harness option update just like a model pick.
+  const quickEffort = quick?.effort;
   const menuId = useId();
   const allHarnesses = useMemo(
     () => uniqueHarnesses(catalog.filter((entry) => entry.id !== "unii" || harness === "unii")),
@@ -1147,6 +1150,17 @@ export function ModelPicker(props: ModelPickerProps) {
             }}
             menu={{
               ...quick,
+              ...(quickEffort
+                ? {
+                    effort: {
+                      ...quickEffort,
+                      onPick: (value: string) => {
+                        quickPicked.current = true;
+                        quickEffort.onPick(value);
+                      },
+                    },
+                  }
+                : {}),
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
