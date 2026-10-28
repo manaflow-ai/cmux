@@ -305,7 +305,8 @@ def compile_commands(outputs):
                    **build_env(body_step, outputs),
                    "PATH": str(root / "bin") + ":/usr/bin:/bin",
                    "CAPTURE": str(capture), "RUNNER_TEMP": str(root),
-                   "GITHUB_ENV": str(root / "github-env"), "CHANNEL_ICON_NAME": "AppIcon-Nightly",
+                   "GITHUB_ENV": str(root / "github-env"),
+                   "GITHUB_STEP_SUMMARY": str(root / "step-summary"), "CHANNEL_ICON_NAME": "AppIcon-Nightly",
                    "IMPORT_VARIANT": "full", "SWIFT_IMPORT_FLAGS": "", "EMPTY_BROWSER_SOURCES": "false"}
             subprocess.run(["/bin/bash", "-c", script], cwd=root, env=env,
                            capture_output=True, text=True, check=True)
