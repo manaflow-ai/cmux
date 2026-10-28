@@ -135,6 +135,9 @@ struct EarlyTerminalKeysTests {
             window.makeFirstResponder(composer)
             controller.focus.send(.contentPresented(pane: paneKey))
             try await Task.sleep(for: .milliseconds(200))
+            // The next key comes while the composer has the keyboard: it waits too, and nothing held runs into the composer.
+            let next = try Self.key("b", keyCode: 11, in: window)
+            #expect(router.interceptKeyDown(next, in: window), "a key typed for the new terminal went on to another view: \(Self.held(h))")
             #expect(coordinator.replayedCount == before, "a key typed for the new terminal was run into another view: \(Self.held(h))")
             #expect(composer.string.isEmpty, "a key typed for the new terminal reached another text input")
         }
