@@ -22,6 +22,16 @@ struct AgentPaneUploadTests {
                                                       AgentPaneUploadBatchEntry(name: "large.bin", size: size)])))
     }
 
+    @Test func stagedUploadAccepts65LargeFiles() {
+        let size = 1_073_741_825
+        let entries = (0..<65).map { AgentPaneUploadBatchEntry(name: "part-\($0).bin", size: size) }
+        let manifest: [[String: Any]] = entries.map { ["name": $0.name, "size": $0.size] }
+        let request = AgentPaneRequest(body: ["method": "chat.upload.begin", "params": [
+            "name": "part-0.bin", "size": size, "batch": manifest,
+        ]])
+        #expect(request == .uploadStage(.begin(name: "part-0.bin", size: size, batchToken: nil, batch: entries)))
+    }
+
     @Test func stagedUploadRejectsNegativeFileAndBatchSizes() {
         for params: [String: Any] in [["name": "a", "size": -1],
                                      ["name": "a", "size": 0, "batch": [["name": "a", "size": -1]]]] {

@@ -69,7 +69,7 @@ RETAINED_BOUNDS = {
         "MAX_ATTACHMENT_BYTES": "Home original admission; removal requires streaming and multipart upload.",
     },
 }
-FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*BYTES|maximum\w*(?:File|Bytes|Stage)\w*)\b")
+FORBIDDEN = re.compile(r"\b(?:MAX_[A-Z0-9_]*(?:BYTES|SIZE)|maximum\w*(?:File|Bytes|Stage)\w*)\b")
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
 # chat.upload is decoded here despite the filename lacking upload/attachment.
@@ -145,7 +145,7 @@ def file_size(tokens: list[str]) -> bool:
     words = set(re.findall(r"[a-z]+", words))
     # These sizes bound one transfer unit, not the original or batch. In particular,
     # a named MAX_CHUNK_BYTES comparison can choose streaming for a large file.
-    return bool(words & {"size", "bytes"}) and not words & {"chunk", "chunks", "frame", "range"}
+    return bool(words & {"size", "bytes", "count", "length", "len"}) and not words & {"chunk", "chunks", "frame", "range"}
 
 
 def files(root: Path) -> list[Path]:

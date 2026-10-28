@@ -14,7 +14,7 @@ extension AgentPaneRequest {
             let batchToken = params["batchToken"] as? String
             var batch: [AgentPaneUploadBatchEntry]?
             if let list = params["batch"] as? [[String: Any]] {
-                guard !list.isEmpty, list.count <= 64 else { return .unsupported(method) }
+                guard !list.isEmpty else { return .unsupported(method) }
                 let parsed = list.compactMap { item -> (String, Int)? in
                     guard let n = item["name"] as? String, AgentPaneUpload.isFileName(n), let s = (item["size"] as? NSNumber)?.intValue,
                           s >= 0 else { return nil }
