@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "count": 526,
+  "count": 527,
   "sections": [
     {
       "id": "general",
@@ -3256,6 +3256,14 @@
             "max": 100,
             "unit": "count"
           }
+        },
+        {
+          "key": "sidebar.hoverCards.richDetails",
+          "title": "Show Rich Workspace Details",
+          "help": "Show prompts, needs-input state and workspace facts instead of the inner tabs when hovering a workspace.",
+          "kind": "toggle",
+          "default": false,
+          "group": "Sidebar"
         },
         {
           "key": "sidebar.hoverCards.sections.git",

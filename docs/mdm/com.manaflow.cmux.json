@@ -3706,6 +3706,12 @@
       "title" : "Workspace Card History Lines",
       "type" : "number"
     },
+    "sidebar.hoverCards.richDetails" : {
+      "default" : false,
+      "description" : "Show prompts, needs-input state and workspace facts instead of the inner tabs when hovering a workspace.",
+      "title" : "Show Rich Workspace Details",
+      "type" : "boolean"
+    },
     "sidebar.hoverCards.sections.git" : {
       "default" : true,
       "description" : "The workspace's branch and pull request.",
