@@ -3,7 +3,13 @@
 import type { AcpmuxSnapshot } from "./model";
 
 export function keepHandoff(current: AcpmuxSnapshot | undefined, next: AcpmuxSnapshot): AcpmuxSnapshot {
-  if (next.canHandoff && !next.handoff?.ready && next.sessionId === current?.sessionId && current.handoff?.record)
+  if (
+    next.canHandoff &&
+    !next.handoff?.ready &&
+    current &&
+    next.sessionId === current.sessionId &&
+    current.handoff?.record
+  )
     return { ...next, handoff: { ...next.handoff, record: current.handoff.record } };
   return next;
 }

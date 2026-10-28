@@ -7074,12 +7074,15 @@ function AcpmuxPane() {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
-    const presentation = snapshotFrames(nextFrame, (next) => setSnapshot((current) => keepHandoff(current, next)));
+    let activePresentation: ReturnType<typeof snapshotFrames> | undefined;
     const connectHost = async () => {
       // A Restart acpmux in flight: the old daemon is still there until it stops, and the restart
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
+      activePresentation?.stop();
+      const presentation = snapshotFrames(nextFrame, (next) => setSnapshot((current) => keepHandoff(current, next)));
+      activePresentation = presentation;
       try {
         acpmuxPerf.markAgent("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
@@ -7255,6 +7258,7 @@ function AcpmuxPane() {
           },
           () => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
+            presentation.stop();
             if (cancelled) return;
             reconnect = true;
             // A switch in flight runs again on the next client.
@@ -7947,6 +7951,7 @@ function AcpmuxPane() {
         // draws it now and starts on it with the first Send; no session opens before that.
         else if (harness && !client.adopted && client.startsOnSend) void harnessSwitch.switchTo(harness, host.cwd);
       } catch (error) {
+        presentation.stop();
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
@@ -8000,7 +8005,7 @@ function AcpmuxPane() {
     void connectHost();
     return () => {
       cancelled = true;
-      presentation.stop();
+      activePresentation?.stop();
       window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
       setStartModeSource(undefined);

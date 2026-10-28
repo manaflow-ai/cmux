@@ -16,10 +16,10 @@ function rig() {
 test("a daemon burst presents the latest snapshot once in the display frame", () => {
   const { presenter, shown, frames, paint } = rig();
   const first = { ...emptySnapshot(), sessionId: "chat", connection: "attached" };
-  const latest = {
+  const latest: AcpmuxSnapshot = {
     ...first,
     connection: "connected",
-    rows: [{ id: "user-1", version: 1, kind: "user" as const, text: "Sent" }],
+    rows: [{ id: "user-1", version: 1, at: 1, kind: "user" as const, text: "Sent" }],
   };
   presenter.push(first);
   presenter.push(latest);
@@ -66,4 +66,48 @@ test("a stopped connection cannot present its pending snapshot", () => {
   paint();
   presenter.push(emptySnapshot());
   expect(shown).toHaveLength(0);
+});
+
+test("a disconnected client cannot overwrite ready or error state while the replacement connects", () => {
+  const frames: (() => void)[] = [];
+  let shown = emptySnapshot();
+  const schedule = (run: () => void) => frames.push(run);
+  const publish = (next: AcpmuxSnapshot) => {
+    shown = next;
+  };
+  const old = snapshotFrames(schedule, publish);
+  old.push({ ...emptySnapshot(), sessionId: "old" });
+  old.stop();
+  shown = { ...emptySnapshot(), connection: "connecting: refused" };
+  const replacement = snapshotFrames(schedule, publish);
+  replacement.push({ ...emptySnapshot(), sessionId: "new" });
+  frames.shift()?.();
+  expect(shown.connection).toBe("connecting: refused");
+  expect(shown.sessionId).toBeUndefined();
+  frames.shift()?.();
+  expect(shown.sessionId).toBe("new");
+});
+
+test("coalescing keeps the current delivery failure and queued prompt intact", () => {
+  const { presenter, shown, paint } = rig();
+  presenter.push({ ...emptySnapshot(), sessionId: "chat" });
+  const next: AcpmuxSnapshot = {
+    ...emptySnapshot(),
+    sessionId: "chat",
+    rows: [
+      {
+        id: "user-1",
+        version: 2,
+        at: 1,
+        kind: "user",
+        text: "Sent",
+        delivery: { state: "failed", promptId: "prompt", sessionId: "chat", sentAt: 1, failedAt: 2, error: "refused" },
+      },
+    ],
+    queue: [{ id: "queued", prompt: "Keep this" }],
+  };
+  presenter.push(next);
+  paint();
+  expect(shown[0]!.rows[0]!.delivery?.error).toBe("refused");
+  expect(shown[0]!.queue).toEqual(next.queue);
 });
