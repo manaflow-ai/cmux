@@ -21,15 +21,48 @@ public nonisolated struct PageQuestionKeyTarget: Hashable, Sendable {
 /// the native pending-question/person-key checks remain required.
 nonisolated enum PageQuestionKeyScript {
     static let cleanup = "__cmuxQuestionKeyCleanup"
+    static let focusGuard = "__cmuxQuestionFocusGuard"
     static let maximumReplyBytes = ChromiumPageHostBridge.maximumPayloadBytes
 
     static func redemptionName(binding: String) -> String { binding + "_redeem" }
 
-    static func source(targets: [PageQuestionKeyTarget], nonce: String, binding: String, generation: Int) -> String {
+    /// Registered before the page loads, never run immediately in an existing document. Its
+    /// window capture listener precedes page listeners that could stop focusout propagation.
+    static func documentGuard(secret: String) -> String {
+        let value = ChromiumPageHostWire.jsonString
+        return """
+        (() => {
+          if (window !== window.top || Object.hasOwn(globalThis, '\(focusGuard)')) return;
+          const secret = \(value(secret));
+          const probe = new Event('__cmuxFocusProbe_' + secret);
+          const dispatch = EventTarget.prototype.dispatchEvent;
+          let focus = 0, acknowledged = 0;
+          const observe = (event) => { if (event === probe) ++acknowledged; else ++focus; };
+          window.addEventListener('focusout', observe, true);
+          window.addEventListener(probe.type, observe, true);
+          Object.defineProperty(globalThis, '\(focusGuard)', {value:Object.freeze({
+            read(key) {
+              if (key !== secret) return undefined;
+              const before = acknowledged;
+              dispatch.call(window, probe);
+              // document.open may keep this global while clearing window listeners. A marker
+              // without its early listener is never sufficient; do not reinstall it late.
+              return acknowledged === before + 1 ? focus : undefined;
+            }
+          })});
+        })();
+        """
+    }
+
+    static func source(targets: [PageQuestionKeyTarget], nonce: String, binding: String, generation: Int,
+                       guardSecret: String) -> String {
         let value = ChromiumPageHostWire.jsonString
         let allowed = targets.map { "[\(value($0.sessionID)),\(value($0.permissionID))]" }.joined(separator: ",")
         return """
         (() => {
+          const focusGuard = globalThis.\(focusGuard);
+          const guardSecret = \(value(guardSecret));
+          if (!Number.isSafeInteger(focusGuard?.read(guardSecret))) return false;
           if ((globalThis.__cmuxQuestionKeyGeneration ?? -1) >= \(generation)) return;
           globalThis.__cmuxQuestionKeyGeneration = \(generation);
           globalThis.\(cleanup)?.();
@@ -44,7 +77,6 @@ nonisolated enum PageQuestionKeyScript {
             if (!pending) return;
             pending.revoked = true;
             pending.observer.disconnect();
-            pending.field.removeEventListener('focusout', revoke, true);
             pending.field.removeEventListener('input', revoke, true);
             pending = undefined;
           };
@@ -62,6 +94,7 @@ nonisolated enum PageQuestionKeyScript {
             }
           };
           const valid = (snapshot) => !snapshot.revoked && snapshot.field.isConnected && snapshot.card.isConnected &&
+            focusGuard.read(guardSecret) === snapshot.focus &&
             snapshot.field === document.activeElement && snapshot.other.contains(snapshot.field) &&
             snapshot.card.contains(snapshot.other) && snapshot.other.getAttribute('data-row-editing') === 'true' &&
             snapshot.card.getAttribute('data-cmux-question-session') === snapshot.sessionID &&
@@ -95,6 +128,8 @@ nonisolated enum PageQuestionKeyScript {
             const permissionID = card.getAttribute('data-cmux-question-id');
             if (!allowed.has(JSON.stringify([sessionID, permissionID]))) return;
             revoke(); // Every newer genuine key revokes the previous unused proof.
+            const focus = focusGuard.read(guardSecret);
+            if (!Number.isSafeInteger(focus)) return;
             const replyJSON = card.getAttribute('data-cmux-question-enter-reply');
             if (typeof replyJSON !== 'string' || replyJSON.length > \(maximumReplyBytes)) return;
             let reply;
@@ -113,10 +148,9 @@ nonisolated enum PageQuestionKeyScript {
               'data-cmux-question-session', 'data-cmux-question-id', 'data-cmux-question-enter-reply', 'hidden'
             ]});
             observer.observe(other, {attributes:true, childList:true, attributeFilter:['data-row-editing']});
-            const snapshot = {card, field, other, ancestors, observer, sessionID, permissionID, replyJSON, text:field.value,
+            const snapshot = {card, field, other, ancestors, observer, sessionID, permissionID, replyJSON, text:field.value, focus,
               serial:++sequence, revoked:false};
             pending = snapshot;
-            field.addEventListener('focusout', revoke, true);
             field.addEventListener('input', revoke, true);
             // Capture runs before the card's handler. No page API receives a ticket or secret.
             post(JSON.stringify({ nonce, sequence, sessionID, permissionID, replyJSON }));
@@ -129,6 +163,7 @@ nonisolated enum PageQuestionKeyScript {
             delete globalThis[redemption];
             delete globalThis.\(cleanup);
           };
+          return true;
         })();
         """
     }

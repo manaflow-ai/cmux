@@ -32,6 +32,8 @@ final class ChromiumQuestionKeyChannel {
     private weak var page: (any PageChromiumPage)?
     private let owns: (URL?) -> Bool
     private let world = "cmux-question-" + UUID().uuidString
+    private let guardSecret = UUID().uuidString
+    private(set) var documentGuardPrepared = false
     private var binding: String?
     private var generation = 0
     private var context: Int?
@@ -49,6 +51,19 @@ final class ChromiumQuestionKeyChannel {
         self.owns = owns
     }
 
+    /// Await this during page setup, before its first load. No `runImmediately`: a loaded page
+    /// cannot prove our focus capture listener preceded its main-world listeners.
+    func prepareDocumentGuard() async throws {
+        guard !documentGuardPrepared, let page else { return }
+        let result = try await page.devTools("Page.addScriptToEvaluateOnNewDocument", params: [
+            "source": PageQuestionKeyScript.documentGuard(secret: guardSecret), "worldName": world,
+        ])
+        guard let identifier = ChromiumPageHostWire.object(result)?["identifier"] as? String, !identifier.isEmpty else {
+            throw PageError.unavailable("question key focus guard was not registered")
+        }
+        documentGuardPrepared = true
+    }
+
     /// The native owner must first invalidate its previous pending question/person-key witness.
     /// A callback proves only the DOM key target; the owner must also consume that native witness.
     func bind(_ target: PageQuestionKeyTarget, received: @escaping (PageQuestionKeySnapshot) -> Void) {
@@ -57,7 +72,7 @@ final class ChromiumQuestionKeyChannel {
 
     func bind(_ targets: [PageQuestionKeyTarget], received: @escaping (PageQuestionKeySnapshot) -> Void) {
         let allowed = Set(targets)
-        guard allowed.allSatisfy(\.isValid) else { invalidate(); return }
+        guard documentGuardPrepared, allowed.allSatisfy(\.isValid) else { invalidate(); return }
         if self.targets == allowed, nonce != nil {
             self.received = received
             return
@@ -99,11 +114,11 @@ final class ChromiumQuestionKeyChannel {
             ])
             guard live(generation), let sender = ChromiumPageHostWire.Sender(evaluation: sender), sender.isTop, owns(sender.url) else { return }
             let result = try await page.devTools("Runtime.evaluate", params: [
-                "expression": PageQuestionKeyScript.source(targets: targets, nonce: nonce, binding: binding, generation: generation),
-                "contextId": context, "silent": true,
+                "expression": PageQuestionKeyScript.source(targets: targets, nonce: nonce, binding: binding,
+                                                           generation: generation, guardSecret: guardSecret),
+                "contextId": context, "returnByValue": true, "silent": true,
             ])
-            guard let evaluation = ChromiumPageHostWire.object(result), evaluation["result"] is [String: Any] else { return }
-            installed = live(generation) && evaluation["exceptionDetails"] == nil
+            installed = live(generation) && ChromiumPageHostWire.evaluationIsTrue(result)
         } catch {
             // A closed or navigating page grants nothing. The next native pending update can rebind.
             if live(generation) { invalidate() }

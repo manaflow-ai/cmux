@@ -21,16 +21,13 @@ extension PageWebView {
     /// idempotent; a changed collection revokes unused snapshots before replacing its binding.
     @discardableResult
     public func bindQuestionKeyTargets(_ targets: [PageQuestionKeyTarget], received: @escaping (PageQuestionKeySnapshot) -> Void) -> Bool {
-        guard descriptor.id == PageDescriptor.agent.id, let chromiumSession, !isClosed else { return false }
+        guard descriptor.isAgentPage, let chromiumSession, !isClosed else { return false }
         guard !targets.isEmpty, targets.allSatisfy(\.isValid) else {
             chromiumSession.questionKeys?.invalidate()
             return targets.isEmpty
         }
-        if chromiumSession.questionKeys == nil {
-            let descriptor = descriptor
-            chromiumSession.questionKeys = ChromiumQuestionKeyChannel(page: chromiumSession.page, owns: descriptor.owns)
-        }
-        chromiumSession.questionKeys?.bind(targets, received: received)
+        guard let channel = chromiumSession.questionKeys, channel.documentGuardPrepared else { return false }
+        channel.bind(targets, received: received)
         return true
     }
 
@@ -38,7 +35,7 @@ extension PageWebView {
     /// reply in the issuing isolated context. No new target lookup or page-world request runs.
     /// The native caller must recheck its own pending state and person-key witness after awaiting.
     public func redeemQuestionKeySnapshot(_ snapshot: PageQuestionKeySnapshot) async -> Bool {
-        guard descriptor.id == PageDescriptor.agent.id, let channel = chromiumSession?.questionKeys, !isClosed else { return false }
+        guard descriptor.isAgentPage, let channel = chromiumSession?.questionKeys, !isClosed else { return false }
         return await channel.redeem(snapshot)
     }
 }

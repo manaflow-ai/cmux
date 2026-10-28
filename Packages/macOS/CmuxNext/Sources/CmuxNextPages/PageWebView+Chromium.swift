@@ -124,6 +124,12 @@ extension PageWebView {
                                                                        documentScripts: scripts.sources) {
                 _ = try await page.devTools(method, params: params)
             }
+            if descriptor.isAgentPage {
+                let descriptor = descriptor
+                let questionKeys = ChromiumQuestionKeyChannel(page: page, owns: descriptor.owns)
+                try await questionKeys.prepareDocumentGuard()
+                session.questionKeys = questionKeys
+            }
         } catch {
             session.end()
             fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")

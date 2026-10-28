@@ -12,10 +12,13 @@ struct ChromiumQuestionKeyChannelTests {
     private func page() -> FakeChromiumPage {
         let page = FakeChromiumPage()
         page.senderURL = Self.url
-        page.answer = { method, _ in
+        page.answer = { method, params in
             switch method {
             case "Page.getFrameTree": #"{"frameTree":{"frame":{"id":"main","url":"\#(Self.url)"}}}"#
             case "Page.createIsolatedWorld": #"{"executionContextId":73}"#
+            case "Page.addScriptToEvaluateOnNewDocument": #"{"identifier":"question-guard"}"#
+            case "Runtime.evaluate" where (params["expression"] as? String)?.contains("const nonce =") == true:
+                #"{"result":{"type":"boolean","value":true}}"#
             default: nil
             }
         }
@@ -24,7 +27,8 @@ struct ChromiumQuestionKeyChannelTests {
 
     private func install(_ channel: ChromiumQuestionKeyChannel, page: FakeChromiumPage,
                          targets: [PageQuestionKeyTarget]? = nil,
-                         received: @escaping (PageQuestionKeySnapshot) -> Void) async throws -> (binding: String, source: String) {
+                         received: @escaping (PageQuestionKeySnapshot) -> Void) async throws -> (binding: String, source: String, guardSource: String) {
+        try await channel.prepareDocumentGuard()
         let installed: Bool? = await PageTestWait.value("private question listener") { done in
             page.onCall = {
                 if page.calls.contains(where: { ($0.params["expression"] as? String)?.contains("const nonce =") == true }) { done(true) }
@@ -35,7 +39,8 @@ struct ChromiumQuestionKeyChannelTests {
         page.onCall = nil
         let binding = try #require(page.calls.last(where: { $0.method == "Runtime.addBinding" })?.params["name"] as? String)
         let source = try #require(page.calls.last(where: { ($0.params["expression"] as? String)?.contains("const nonce =") == true })?.params["expression"] as? String)
-        return (binding, source)
+        let guardSource = try #require(page.calls.first(where: { $0.method == "Page.addScriptToEvaluateOnNewDocument" })?.params["source"] as? String)
+        return (binding, source, guardSource)
     }
 
     private static func event(binding: String, payload: String, context: Int = 73) throws -> String {
@@ -47,12 +52,23 @@ struct ChromiumQuestionKeyChannelTests {
 
     /// Executes the actual isolated-world listener against a tiny DOM model. CEF's real
     /// `isTrusted`/world boundary is covered separately by the hosted browser integration.
-    private func scriptContext(binding: String, source: String) throws -> JSContext {
+    private func scriptContext(binding: String, source: String, guardSource: String? = nil,
+                               beforeBind: String = "") throws -> JSContext {
         let context = try #require(JSContext())
         context.evaluateScript("""
         var reports = [];
         var listener;
         var observers = [];
+        class Event {
+          constructor(type) { this.type = type; this.stopped = false; }
+          stopImmediatePropagation() { this.stopped = true; }
+        }
+        class EventTarget {
+          constructor() { this.listeners = new Map(); }
+          addEventListener(type, callback) { const all = this.listeners.get(type) ?? []; all.push(callback); this.listeners.set(type, all); }
+          dispatchEvent(event) { for (const callback of this.listeners.get(event.type) ?? []) { callback(event); if (event.stopped) break; } }
+        }
+        var window = new EventTarget(); window.top = window;
         const initialReply = '{"optionId":"allow","answers":{"Question":"My answer"}}';
         class Element {
           constructor() { this.attrs = {}; this.listeners = {}; this.parentNode = null; this.hidden = false; }
@@ -93,7 +109,8 @@ struct ChromiumQuestionKeyChannelTests {
           mutation({type:'childList', target:parent, removedNodes:[node]});
         }
         function focus(node) {
-          document.activeElement?.listeners.focusout?.();
+          const event = new Event('focusout'); window.dispatchEvent(event);
+          if (!event.stopped) document.activeElement?.listeners.focusout?.();
           document.activeElement = node;
         }
         var document = {
@@ -121,6 +138,8 @@ struct ChromiumQuestionKeyChannelTests {
           attribute(card, 'data-cmux-question-enter-reply', JSON.stringify(value));
         };
         """)
+        if let guardSource { context.evaluateScript(guardSource) }
+        context.evaluateScript(beforeBind)
         context.evaluateScript(source)
         #expect(context.exception == nil)
         return context
@@ -143,7 +162,7 @@ struct ChromiumQuestionKeyChannelTests {
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         var accepted: [PageQuestionKeySnapshot] = []
         let installed = try await install(channel, page: page) { accepted.append($0) }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("document.activeElement = composer; press();")
         #expect(isolated.evaluateScript("reports.length").toInt32() == 0)
@@ -171,7 +190,7 @@ struct ChromiumQuestionKeyChannelTests {
         let page = page()
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         let installed = try await install(channel, page: page) { _ in }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         isolated.evaluateScript("""
         press({isTrusted:false}); press({repeat:true}); press({isComposing:true});
         press({keyCode:229}); press({shiftKey:true}); press({ctrlKey:true}); press({altKey:true});
@@ -189,7 +208,7 @@ struct ChromiumQuestionKeyChannelTests {
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         var snapshots: [PageQuestionKeySnapshot] = []
         let installed = try await install(channel, page: page) { snapshots.append($0) }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("field.value = ''; reply(''); press();")
         let first = try #require(isolated.evaluateScript("reports[0]").toString())
@@ -212,7 +231,7 @@ struct ChromiumQuestionKeyChannelTests {
             let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
             var accepted = false
             let installed = try await install(channel, page: page) { _ in accepted = true }
-            let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+            let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
             isolated.evaluateScript("press()")
             let nonce = try #require(isolated.evaluateScript("reports[0]").toString())
             switch invalidation {
@@ -239,7 +258,7 @@ struct ChromiumQuestionKeyChannelTests {
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         var snapshots: [PageQuestionKeySnapshot] = []
         let installed = try await install(channel, page: page) { snapshots.append($0) }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("press()")
         let first = try #require(isolated.evaluateScript("reports[0]").toString())
@@ -262,7 +281,7 @@ struct ChromiumQuestionKeyChannelTests {
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         var snapshot: PageQuestionKeySnapshot?
         let installed = try await install(channel, page: page) { snapshot = $0 }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("press()")
         let report = try #require(isolated.evaluateScript("reports[0]").toString())
@@ -280,7 +299,7 @@ struct ChromiumQuestionKeyChannelTests {
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         var snapshots: [PageQuestionKeySnapshot] = []
         let installed = try await install(channel, page: page) { snapshots.append($0) }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("attribute(card, 'data-cmux-question-enter-reply', JSON.stringify({optionId:'allow', answers:{}, sessionId:'another'})); press();")
         #expect(isolated.evaluateScript("reports.length").toInt32() == 0)
@@ -297,9 +316,10 @@ struct ChromiumQuestionKeyChannelTests {
     }
 
     @Test func anOlderSetupCannotReplaceTheNewerPrivateListener() throws {
-        let older = PageQuestionKeyScript.source(targets: [Self.target], nonce: "old", binding: "oldBinding", generation: 1)
-        let newer = PageQuestionKeyScript.source(targets: [Self.target], nonce: "new", binding: "newBinding", generation: 2)
-        let isolated = try scriptContext(binding: "newBinding", source: newer)
+        let older = PageQuestionKeyScript.source(targets: [Self.target], nonce: "old", binding: "oldBinding", generation: 1, guardSecret: "test-focus-guard")
+        let newer = PageQuestionKeyScript.source(targets: [Self.target], nonce: "new", binding: "newBinding", generation: 2, guardSecret: "test-focus-guard")
+        let isolated = try scriptContext(binding: "newBinding", source: newer,
+                                         guardSource: PageQuestionKeyScript.documentGuard(secret: "test-focus-guard"))
         isolated.evaluateScript("globalThis.oldBinding = () => { throw Error('old proof'); }")
         isolated.evaluateScript(older)
         isolated.evaluateScript("press()")
@@ -313,7 +333,7 @@ struct ChromiumQuestionKeyChannelTests {
         let second = PageQuestionKeyTarget(sessionID: "session-one", permissionID: "question-two")
         var snapshots: [PageQuestionKeySnapshot] = []
         let installed = try await install(channel, page: page, targets: [Self.target, second]) { snapshots.append($0) }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("card.attrs['data-cmux-question-id'] = 'question-two'; press();")
         let report = try #require(isolated.evaluateScript("reports[0]").toString())
@@ -340,7 +360,7 @@ struct ChromiumQuestionKeyChannelTests {
         let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
         var captured: PageQuestionKeySnapshot?
         let installed = try await install(channel, page: page) { captured = $0 }
-        let isolated = try scriptContext(binding: installed.binding, source: installed.source)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
         redeemIn(isolated, page: page)
         isolated.evaluateScript("field.parentNode = null; press();")
         #expect(isolated.evaluateScript("reports.length").toInt32() == 0)
@@ -350,5 +370,77 @@ struct ChromiumQuestionKeyChannelTests {
         let snapshot = try #require(captured)
         #expect(await channel.redeem(snapshot))
         channel.invalidate()
+    }
+
+    @Test func anEarlierPageCaptureCannotHideFocusLeaveAndReturnFromTheDocumentStartGuard() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        var snapshots: [PageQuestionKeySnapshot] = []
+        let installed = try await install(channel, page: page) { snapshots.append($0) }
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource,
+                                         beforeBind: "window.addEventListener('focusout', event => event.stopImmediatePropagation(), true);")
+        redeemIn(isolated, page: page)
+        isolated.evaluateScript("press()")
+        let report = try #require(isolated.evaluateScript("reports[0]").toString())
+        channel.receive(try Self.event(binding: installed.binding, payload: report))
+        let old = try #require(snapshots.last)
+        isolated.evaluateScript("focus(composer); focus(field);")
+        #expect(!(await channel.redeem(old)))
+        isolated.evaluateScript("press()")
+        let freshReport = try #require(isolated.evaluateScript("reports[1]").toString())
+        channel.receive(try Self.event(binding: installed.binding, payload: freshReport))
+        #expect(await channel.redeem(try #require(snapshots.last)))
+        channel.invalidate()
+    }
+
+    @Test func anExistingDocumentWithoutTheEarlyGuardAndADocumentOpenResetFailClosed() async throws {
+        let page = page()
+        let channel = ChromiumQuestionKeyChannel(page: page, owns: { $0?.absoluteString == Self.url })
+        var snapshots: [PageQuestionKeySnapshot] = []
+        let installed = try await install(channel, page: page) { snapshots.append($0) }
+        let unarmed = try scriptContext(binding: installed.binding, source: installed.source)
+        unarmed.evaluateScript("press()")
+        #expect(unarmed.evaluateScript("reports.length").toInt32() == 0)
+        let isolated = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
+        redeemIn(isolated, page: page)
+        isolated.evaluateScript("press()")
+        let report = try #require(isolated.evaluateScript("reports[0]").toString())
+        channel.receive(try Self.event(binding: installed.binding, payload: report))
+        let old = try #require(snapshots.last)
+        // document.open clears window listeners while the isolated global may survive.
+        isolated.evaluateScript("window.listeners.clear();")
+        #expect(!(await channel.redeem(old)))
+        isolated.evaluateScript("press()")
+        #expect(isolated.evaluateScript("reports.length").toInt32() == 1)
+        let newDocument = try scriptContext(binding: installed.binding, source: installed.source, guardSource: installed.guardSource)
+        newDocument.evaluateScript("press()")
+        #expect(newDocument.evaluateScript("reports.length").toInt32() == 1, "a newly early-bootstrapped document works")
+        channel.invalidate()
+    }
+
+    @Test func theAgentHostAwaitsEarlyGuardRegistrationBeforeLoadingItsDocument() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("question-guard-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try Data("<!doctype html><title>Agent</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let hosting = FakeChromiumHosting()
+        var registeredBeforeLoad = false
+        hosting.onMade = { page in
+            page.onCall = {
+                if let call = page.calls.last, call.method == "Page.addScriptToEvaluateOnNewDocument",
+                   (call.params["source"] as? String)?.contains("const probe =") == true {
+                    registeredBeforeLoad = page.loaded.isEmpty && call.params["runImmediately"] == nil && call.params["worldName"] is String
+                }
+            }
+        }
+        let descriptor = PageDescriptor(id: "cmux.agent", resource: "agent", namespaces: [])
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [],
+                                           options: PageEngineOptions(chromiumAgentChat: true), chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        #expect(registeredBeforeLoad)
+        #expect(view.chromiumSession?.questionKeys?.documentGuardPrepared == true)
+        #expect(hosting.made.first?.loaded == [descriptor.url()])
+        view.close()
     }
 }
