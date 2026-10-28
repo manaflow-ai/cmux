@@ -1,4 +1,4 @@
-public import CmuxNextDaemon
+public import CmuxNextSettings
 import Foundation
 
 extension GitHubConnections {

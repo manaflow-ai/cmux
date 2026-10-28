@@ -3,7 +3,7 @@ import AppKit
 public import CmuxNextAccounts
 import CmuxNextCloud
 import CmuxNextCodeRouter
-import CmuxNextDaemon
+import CmuxNextSettings
 import Foundation
 import os
 import CmuxNextCompat
