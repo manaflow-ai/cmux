@@ -394,6 +394,10 @@ path = "tests/test_ci_select_package_tests.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_display_suites.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
