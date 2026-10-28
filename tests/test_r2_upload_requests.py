@@ -230,8 +230,9 @@ class R2UploadRequestsTests(unittest.TestCase):
                 self.send_header("Content-Length", str(1 << 30))
                 self.end_headers()
                 try:
+                    # Under one 64 KiB chunk in all, a byte at a time.
                     for _ in range(100):
-                        self.wfile.write(b"x" * (1 << 16))
+                        self.wfile.write(b"x")
                         self.wfile.flush()
                         time.sleep(0.05)
                 except OSError:

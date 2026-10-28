@@ -331,7 +331,9 @@ def _download(args: argparse.Namespace) -> int:
                 expected = response.headers.get("Content-Length")
                 size = 0
                 started = time.monotonic()
-                while chunk := response.read(1 << 16):
+                # read1 returns after at most one socket read, so a stream that trickles
+                # a byte at a time still reaches the deadline check.
+                while chunk := response.read1(1 << 16):
                     out.write(chunk)
                     size += len(chunk)
                     if time.monotonic() - started > deadline:
