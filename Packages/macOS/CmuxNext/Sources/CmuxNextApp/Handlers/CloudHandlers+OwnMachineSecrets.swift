@@ -58,14 +58,18 @@ extension CloudHandlers {
         return peer.url.flatMap(SSHMachineSecrets.destination(peerURL:)).map(PeerRoute.ssh) ?? .noSSH
     }
 
+    /// The delivery lock an own-machine delivery holds; a Cloud machine's waits for it (CloudHandlers+Machine).
+    static let ownMachineDeliveryKey = "own-machine"
+
     static func deliverSecretsToOwnMachine(_ id: String, names: [String]?, repo: String?, _ context: AppActionContext) throws {
         guard let names else { throw ActionFailure(message: CloudStrings.secretNamesRequired) }
         let cloud = context.services.cloud, work = context.services.work
         let ssh = sshMachine(id, context)
-        // One own-machine delivery at a time: names that look different (an ssh config alias, a peer's
-        // user@host) can be one account whose file each would replace, and no name here proves otherwise.
-        let key = "own-machine"
-        guard cloud.deliveringSecrets.insert(key).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
+        // One own-machine delivery at a time, and none beside a Cloud machine's: names that look different
+        // (an ssh config alias, a peer's user@host, a Cloud machine also reached over ssh) can be one
+        // account whose file each would replace, and no name here proves otherwise.
+        let key = ownMachineDeliveryKey
+        guard cloud.deliveringSecrets.isEmpty, cloud.deliveringSecrets.insert(key).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
         let check = "cmux cloud deliver-secrets --target machine:\(id) --names \(names.joined(separator: ","))"
         let pending: [String: ActionResultValue] = ["machine": .string(id), "status": .string("delivering"), "check": .string(check)]
         result("deliver secrets", context, pendingAfter: .seconds(30), pending: pending) {
@@ -112,6 +116,10 @@ extension CloudHandlers {
                 // Only the kind of failure: no error text near the values reaches a log or the caller.
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))
             }
+            // The machine may also be a Cloud machine whose file this replaced: its ledger no longer says
+            // what any machine holds, so the next Cloud delivery sends again instead of answering unchanged.
+            let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
+            try? await work.run(.userBlocking, mayBlock: .files) { try FileManager.default.removeItem(at: ledgerURL) }
             answer["status"] = .string("delivered")
             answer["delivered"] = .array(items.map { .string($0.name) })
             answer["written"] = .int(count)

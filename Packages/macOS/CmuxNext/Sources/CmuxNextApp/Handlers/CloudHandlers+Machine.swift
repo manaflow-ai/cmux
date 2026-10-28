@@ -429,7 +429,8 @@ extension CloudHandlers {
         let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
         // One delivery per machine at a time (plan, delivery and ledger together): an older run that
         // finished after a newer one would leave the older values on the machine but the newer in the ledger.
-        guard cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
+        // Not beside an own-machine delivery, which may reach this same machine over ssh.
+        guard !cloud.deliveringSecrets.contains(ownMachineDeliveryKey), cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
         // A delivery waits up to a minute on each of the receiver's answers, past the CLI's result deadline:
         // the answer is then `pending`, the delivery goes on, and running the command again says how it ended
         // (`unchanged` once delivered, or that one is still running).
