@@ -67,7 +67,7 @@ pub fn read_files(
         .collect()
 }
 
-/// One file part read whole from the owner and written to
+/// One file part streamed from the owner and written to
 /// `<root>/<hash>/<name>` (owner-only folder and file). An existing copy of
 /// the same bytes is reused. Never silently dropped: a failure keeps the
 /// reference with a note.
@@ -138,7 +138,7 @@ fn save(
     byte_count: u64,
     root: &Path,
 ) -> Result<PathBuf, String> {
-    use base64::Engine as _;
+    use sha2::{Digest, Sha256};
     if !cmux_conversation::is_sha256(hash) {
         return Err("bad hash".into());
     }
@@ -147,16 +147,78 @@ fn save(
     if std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() == byte_count) {
         return Ok(path);
     }
-    let data = port
-        .attachment(conversation, hash, "original", byte_count)
-        .map_err(|e| format!("reading it failed: {e}"))?;
-    let bytes = base64::engine::general_purpose::STANDARD
-        .decode(data.as_bytes())
-        .map_err(|e| format!("bad base64: {e}"))?;
-    drop(data);
     create_private_dir(&folder).map_err(|e| format!("making its folder failed: {e}"))?;
-    write_private(&path, &bytes).map_err(|e| format!("writing it failed: {e}"))?;
+    let mut incoming = IncomingFile::new(&path).map_err(|e| format!("writing it failed: {e}"))?;
+    let mut sink = VerifiedWriter {
+        out: &mut incoming.file,
+        hash: Sha256::new(),
+        remaining: byte_count,
+    };
+    port.attachment_into(conversation, hash, "original", byte_count, &mut sink)
+        .map_err(|e| format!("reading it failed: {e}"))?;
+    if sink.remaining != 0 || format!("{:x}", sink.hash.finalize()) != hash {
+        return Err("attachment size or hash mismatch".into());
+    }
+    incoming
+        .file
+        .sync_all()
+        .map_err(|e| format!("writing it failed: {e}"))?;
+    std::fs::rename(&incoming.path, &path).map_err(|e| format!("saving it failed: {e}"))?;
     Ok(path)
+}
+
+struct VerifiedWriter<'a> {
+    out: &'a mut std::fs::File,
+    hash: sha2::Sha256,
+    remaining: u64,
+}
+
+impl std::io::Write for VerifiedWriter<'_> {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        use sha2::Digest as _;
+        if bytes.len() as u64 > self.remaining {
+            return Err(std::io::Error::other("attachment exceeds declared length"));
+        }
+        let count = self.out.write(bytes)?;
+        self.hash.update(&bytes[..count]);
+        self.remaining -= count as u64;
+        Ok(count)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.out.flush()
+    }
+}
+
+/// Exclusive creation avoids clobbering another transfer; all error paths
+/// remove their own temporary file. Rename exposes only verified bytes.
+struct IncomingFile {
+    path: PathBuf,
+    file: std::fs::File,
+}
+
+impl IncomingFile {
+    fn new(path: &Path) -> std::io::Result<Self> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        let path = path.with_file_name(format!(
+            ".incoming-{}-{}",
+            std::process::id(),
+            NEXT.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+        let file = options.open(&path)?;
+        Ok(Self { path, file })
+    }
+}
+
+impl Drop for IncomingFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
 }
 
 fn create_private_dir(folder: &Path) -> std::io::Result<()> {
@@ -165,20 +227,6 @@ fn create_private_dir(folder: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
     builder.create(folder)
-}
-
-/// Writes through a temp file and renames, so a reader never sees half a file.
-fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    use std::io::Write as _;
-    let temp = path.with_file_name(format!(".incoming-{}", std::process::id()));
-    let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let mut out = options.open(&temp)?;
-    out.write_all(bytes)?;
-    out.sync_all()?;
-    std::fs::rename(&temp, path)
 }
 
 /// The user line with one reference per file appended, each on its own line.
@@ -194,8 +242,8 @@ pub fn logged_text(text: &str, files: &[TurnFile]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::Engine as _;
     use cmux_conversation::{Change, Op, Summary};
+    use sha2::{Digest, Sha256};
     use std::collections::BTreeMap;
 
     use crate::daemon::OpError;
@@ -204,6 +252,8 @@ mod tests {
     struct Owner {
         files: BTreeMap<String, Vec<u8>>,
         reads: usize,
+        generated_bytes: Option<u64>,
+        interrupt: bool,
     }
 
     impl ConversationPort for Owner {
@@ -222,25 +272,44 @@ mod tests {
         fn draft(&mut self, _: &str, _: &crate::draft::Draft) -> Result<(), OpError> {
             unreachable!()
         }
-        fn attachment(
+        fn attachment_into(
             &mut self,
             _: &str,
             hash: &str,
             variant: &str,
             _: u64,
-        ) -> Result<String, OpError> {
+            out: &mut dyn std::io::Write,
+        ) -> Result<(), OpError> {
             assert_eq!(variant, "original");
             self.reads += 1;
-            self.files
+            if let Some(mut remaining) = self.generated_bytes {
+                let chunk = [42; 64 * 1024];
+                while remaining > 0 {
+                    let count = remaining.min(chunk.len() as u64) as usize;
+                    out.write_all(&chunk[..count])
+                        .map_err(|e| OpError::Transport(e.to_string()))?;
+                    remaining -= count as u64;
+                    if self.interrupt {
+                        return Err(OpError::Transport("disconnected".into()));
+                    }
+                }
+                return Ok(());
+            }
+            let bytes = self
+                .files
                 .get(hash)
-                .map(|b| base64::engine::general_purpose::STANDARD.encode(b))
-                .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+                .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))?;
+            for chunk in bytes.chunks(7) {
+                out.write_all(chunk)
+                    .map_err(|e| OpError::Transport(e.to_string()))?;
+            }
+            Ok(())
         }
     }
 
-    fn part(hash: char, name: &str, mime: &str, bytes: u64) -> Part {
+    fn part(hash: &str, name: &str, mime: &str, bytes: u64) -> Part {
         Part::Attachment {
-            hash: hash.to_string().repeat(64),
+            hash: hash.into(),
             name: name.into(),
             mime_type: mime.into(),
             byte_count: bytes,
@@ -274,11 +343,12 @@ mod tests {
         let root = temp_root();
         let page = b"<!doctype html><p>hi</p>\n".to_vec();
         let mut owner = Owner::default();
-        owner.files.insert("a".repeat(64), page.clone());
+        let hash = format!("{:x}", Sha256::digest(&page));
+        owner.files.insert(hash.clone(), page.clone());
         let file = read_file(
             &mut owner,
             "c1",
-            &part('a', "index.html", "text/plain", page.len() as u64),
+            &part(&hash, "index.html", "text/plain", page.len() as u64),
             &root,
         )
         .unwrap();
@@ -294,7 +364,7 @@ mod tests {
         read_file(
             &mut owner,
             "c1",
-            &part('a', "index.html", "text/plain", page.len() as u64),
+            &part(&hash, "index.html", "text/plain", page.len() as u64),
             &root,
         )
         .unwrap();
@@ -305,12 +375,16 @@ mod tests {
     fn a_binary_and_a_dotfile_keep_their_names() {
         let root = temp_root();
         let mut owner = Owner::default();
-        owner.files.insert("b".repeat(64), vec![0, 1, 2, 0xff]);
-        owner.files.insert("c".repeat(64), b"export A=1\n".to_vec());
+        let binary_hash = format!("{:x}", Sha256::digest([0, 1, 2, 0xff]));
+        let dotfile_hash = format!("{:x}", Sha256::digest(b"export A=1\n"));
+        owner.files.insert(binary_hash.clone(), vec![0, 1, 2, 0xff]);
+        owner
+            .files
+            .insert(dotfile_hash.clone(), b"export A=1\n".to_vec());
         let binary = read_file(
             &mut owner,
             "c1",
-            &part('b', "state.sqlite", "application/octet-stream", 4),
+            &part(&binary_hash, "state.sqlite", "application/octet-stream", 4),
             &root,
         )
         .unwrap();
@@ -318,7 +392,7 @@ mod tests {
         let dotfile = read_file(
             &mut owner,
             "c1",
-            &part('c', ".zshrc", "text/plain", 11),
+            &part(&dotfile_hash, ".zshrc", "text/plain", 11),
             &root,
         )
         .unwrap();
@@ -329,12 +403,17 @@ mod tests {
     fn images_are_not_files_and_a_missing_file_says_why() {
         let root = temp_root();
         let mut owner = Owner::default();
-        assert!(!is_file_part(&part('d', "a.png", "image/png", 10)));
+        assert!(!is_file_part(&part(
+            &"d".repeat(64),
+            "a.png",
+            "image/png",
+            10
+        )));
         assert!(
             read_file(
                 &mut owner,
                 "c1",
-                &part('d', "a.png", "image/png", 10),
+                &part(&"d".repeat(64), "a.png", "image/png", 10),
                 &root
             )
             .is_none()
@@ -342,7 +421,7 @@ mod tests {
         let missing = read_file(
             &mut owner,
             "c1",
-            &part('e', "notes.pdf", "application/pdf", 10),
+            &part(&"e".repeat(64), "notes.pdf", "application/pdf", 10),
             &root,
         )
         .unwrap();
@@ -352,6 +431,74 @@ mod tests {
             "{}",
             missing.reference()
         );
+    }
+
+    #[test]
+    fn a_multichunk_original_streams_without_the_aggregate_api() {
+        let root = tempfile::tempdir().unwrap();
+        let byte_count = 9 * 1024 * 1024 + 17;
+        let chunk = [42; 64 * 1024];
+        let mut digest = Sha256::new();
+        let mut remaining = byte_count;
+        while remaining > 0 {
+            let count = remaining.min(chunk.len() as u64) as usize;
+            digest.update(&chunk[..count]);
+            remaining -= count as u64;
+        }
+        let hash = format!("{:x}", digest.finalize());
+        let mut owner = Owner {
+            generated_bytes: Some(byte_count),
+            ..Owner::default()
+        };
+        let saved = read_file(
+            &mut owner,
+            "c1",
+            &part(&hash, "archive.bin", "application/octet-stream", byte_count),
+            root.path(),
+        )
+        .unwrap();
+        let path = saved.path.expect("streamed file");
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), byte_count);
+        let mut input = std::fs::File::open(&path).unwrap();
+        let mut actual_hash = Sha256::new();
+        std::io::copy(&mut input, &mut actual_hash).unwrap();
+        assert_eq!(format!("{:x}", actual_hash.finalize()), hash);
+        assert_eq!(
+            std::fs::read_dir(path.parent().unwrap()).unwrap().count(),
+            1
+        );
+    }
+
+    #[test]
+    fn interrupted_or_invalid_originals_leave_no_file_or_temporary_bytes() {
+        for (declared, interrupt) in [
+            (100_000, false),
+            (200_000, false),
+            (150_000, false),
+            (150_000, true),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let mut owner = Owner {
+                generated_bytes: Some(150_000),
+                interrupt,
+                ..Owner::default()
+            };
+            // Incorrect hash also exercises validation after a complete transfer.
+            let hash = "a".repeat(64);
+            let saved = read_file(
+                &mut owner,
+                "c1",
+                &part(&hash, "archive.bin", "application/octet-stream", declared),
+                root.path(),
+            )
+            .unwrap();
+            assert!(saved.path.is_none());
+            assert!(saved.note.is_some());
+            assert_eq!(
+                std::fs::read_dir(root.path().join(hash)).unwrap().count(),
+                0
+            );
+        }
     }
 
     #[test]

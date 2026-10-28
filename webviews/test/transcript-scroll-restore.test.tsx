@@ -84,6 +84,16 @@ async function scrollAndRest(scroller: HTMLElement, top: number, anchors: Anchor
   jest.useFakeTimers();
   try {
     const reported = anchors.length;
+    // A reader scroll starts with input: a layout-driven scroll alone must not resume follow.
+    await act(
+      async () =>
+        void scroller.dispatchEvent(
+          new dom.window.KeyboardEvent("keydown", {
+            key: top < scroller.scrollTop ? "PageUp" : "End",
+            bubbles: true,
+          }),
+        ),
+    );
     scroller.scrollTop = top;
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     await act(async () => void jest.advanceTimersByTime(SCROLL_ANCHOR_SETTLE_MS - 1));

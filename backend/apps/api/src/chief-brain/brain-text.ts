@@ -80,8 +80,8 @@ export interface AttachmentMeta {
 
 /** Where a turn machine keeps the attachments of its turn (chief-brain-cc/attachments.ts writes them; under the agent user's home). */
 export const ATTACHMENT_DIR = "/home/chief/work/.attachments"
-/** The largest original a turn machine gets; a larger image or video gets its preview or poster, other files none. */
-export const ATTACHMENT_FILE_BYTES = 16 * 1024 * 1024
+/** Prefer a preview when a large image is opened by the model; its original is still staged. */
+const IMAGE_READ_BYTES_LIMIT = 16 * 1024 * 1024
 /** Image types the model reads as images; another image type (HEIC) goes as its preview. */
 const READABLE_IMAGES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"])
 const EXT: Readonly<Record<string, string>> = {
@@ -93,20 +93,20 @@ export const extensionOf = (mime: string | undefined) => EXT[mime ?? ""] ?? "bin
 const HASH = /^[0-9a-f]{64}$/
 
 /**
- * Which file of an attachment a turn machine gets: the original (small enough, and an image the model reads, or
- * any other file), the image's preview or the video's poster, or none. The file name holds the hash, and
+ * Which file to suggest opening first: a readable original, image preview or video poster.
+ * A derived image never replaces access to the original. The file name holds the hash, and
  * `.preview` / `.poster` for a derived image, so the stager knows what to fetch from the line alone.
  */
 export const attachmentFile = (a: AttachmentMeta): { readonly variant?: "preview" | "poster"; readonly file: string } | null => {
   if (!a.hash || !HASH.test(a.hash)) return null
   const mime = a.mime_type ?? ""
-  const small = typeof a.byte_count === "number" && a.byte_count > 0 && a.byte_count <= ATTACHMENT_FILE_BYTES
+  const small = typeof a.byte_count === "number" && a.byte_count > 0 && a.byte_count <= IMAGE_READ_BYTES_LIMIT
   const image = mime.startsWith("image/")
   const video = mime.startsWith("video/")
   if (small && (image ? READABLE_IMAGES.has(mime) : !video)) return { file: `${ATTACHMENT_DIR}/${a.hash}.${extensionOf(mime)}` }
   if (image && a.preview) return { variant: "preview", file: `${ATTACHMENT_DIR}/${a.hash}.preview.${extensionOf(a.preview.mime_type ?? "image/jpeg")}` }
   if (video && a.poster) return { variant: "poster", file: `${ATTACHMENT_DIR}/${a.hash}.poster.${extensionOf(a.poster.mime_type ?? "image/jpeg")}` }
-  return small ? { file: `${ATTACHMENT_DIR}/${a.hash}.${extensionOf(mime)}` } : null
+  return { file: `${ATTACHMENT_DIR}/${a.hash}.${extensionOf(mime)}` }
 }
 /** The attachment file paths a turn's input names (in the order they appear; a path once). */
 export const ATTACHMENT_PATH = /\/home\/chief\/work\/\.attachments\/([0-9a-f]{64})(?:\.(preview|poster))?\.([a-z0-9]{1,8})\b/g
@@ -121,7 +121,8 @@ export const attachmentLine = (a: AttachmentMeta, files: boolean): string => {
   const name = (a.name ?? "file").replace(/[\]\n\r]/g, " ")
   const facts = [a.mime_type ?? "", a.width && a.height ? `${a.width}x${a.height}` : "", a.duration_ms ? `${Math.round(a.duration_ms / 1000)} s` : "", sizeOf(a.byte_count)].filter(Boolean).join(" ")
   const at = files ? attachmentFile(a) : null
-  const file = at ? `, ${at.variant ? `${at.variant} image` : "file"} ${at.file}` : files ? ", too large to open here" : ""
+  const original = at?.variant ? `, file ${ATTACHMENT_DIR}/${a.hash}.${extensionOf(a.mime_type)}` : ""
+  const file = at ? `, ${at.variant ? `${at.variant} image` : "file"} ${at.file}${original}` : files ? ", file unavailable" : ""
   return `[attachment: ${name}${facts ? `, ${facts}` : ""}${file}]`
 }
 
