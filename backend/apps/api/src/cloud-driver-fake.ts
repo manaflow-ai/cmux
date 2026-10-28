@@ -1,4 +1,6 @@
 import type { SqlStore } from "@cmux/ownership"
+import { execKind } from "@cmux/cloud-env"
+import type { GuestExecResult } from "./cloud-driver-exec.ts"
 import { DriverError } from "./team-vm-driver.ts"
 import { createBody, LIST_PAGE, type CreateOptions, type EdgeTlsRule, type ListedVm, type RawCloudDriver, type VmResources, type VmTag } from "./cloud-driver.ts"
 
@@ -15,6 +17,10 @@ export class FakeCloudDriver implements RawCloudDriver {
     // Like Freestyle: inline rules of a create, deleted with the VM (`rule` is the whole rule, as sent).
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_tls (id TEXT PRIMARY KEY, vm TEXT NOT NULL, domain TEXT NOT NULL, rule TEXT NOT NULL)`)
     sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_file (vm TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL, mode INTEGER NOT NULL, PRIMARY KEY (vm, path))`)
+    // The scripted guest of environment builds: every exec in order, and how a detached build ends.
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_exec (n INTEGER PRIMARY KEY AUTOINCREMENT, vm TEXT NOT NULL, kind TEXT NOT NULL)`)
+    sql.exec(`CREATE TABLE IF NOT EXISTS cloud_fake_guest (id INTEGER PRIMARY KEY CHECK (id = 1), build_exit INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT '')`)
+    sql.exec(`INSERT OR IGNORE INTO cloud_fake_guest (id) VALUES (1)`)
   }
 
   private maybeFail() {
@@ -25,9 +31,22 @@ export class FakeCloudDriver implements RawCloudDriver {
     }
   }
 
-  /** The fake has no guest: a guest exec (the keyed acpmux start) fails as the provider's refusal. */
-  async execStdin(): Promise<never> {
-    throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+  /**
+   * A scripted guest for environment builds (the command as GuardedCloudSandbox sends it): the
+   * readiness probe passes, a detached build starts, and its poll answers the configured exit code
+   * and log. Any other command (the keyed acpmux start) fails as the provider's refusal, as before.
+   */
+  async execStdin(id: string, command: string): Promise<GuestExecResult> {
+    this.maybeFail()
+    const vm = this.sql.exec<{ name: string }>(`SELECT name FROM cloud_fake_vm WHERE id = ?`, id)[0]
+    if (!vm) throw new DriverError("cloud.provider.vm_missing", "fake provider: no such VM", true)
+    const kind = /bash -c 'true'$/.test(command) ? "probe" : execKind(command)
+    if (kind === "other") throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+    this.sql.exec(`INSERT INTO cloud_fake_exec (vm, kind) VALUES (?, ?)`, vm.name, kind)
+    const g = this.sql.exec<{ build_exit: number; log: string }>(`SELECT build_exit, log FROM cloud_fake_guest WHERE id = 1`)[0]!
+    if (kind === "start") return { exitCode: 0, stdout: "started\n", stderr: "" }
+    if (kind === "poll") return { exitCode: 0, stdout: `exit ${Number(g.build_exit)}\n${g.log}`, stderr: "" }
+    return { exitCode: 0, stdout: "", stderr: "" }
   }
 
   async find(name: string) {

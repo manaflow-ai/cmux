@@ -3,6 +3,8 @@ import {
   AUTOSIZE_SESSION_NEED,
   MAX_MEASURED_RUNS,
   TASK_NEEDS,
+  autosizeTag,
+  measuredRunFromMetadata,
   parseAutosizeRequest,
   pickMachineSize,
   toolchainFromRootFiles,
@@ -160,9 +162,48 @@ describe("parseAutosizeRequest", () => {
       .toEqual({ taskKind: "build", repo: { sizeMb: 12, rootFiles: ["Cargo.toml"] }, gpu: true });
   });
 
+  test("the repo key is lowercased", () => {
+    expect(parseAutosizeRequest({ repo: { key: "GitHub.com/Manaflow-AI/cmux" } })).toMatchObject({ repo: { key: "github.com/manaflow-ai/cmux" } });
+  });
+
   test("invalid fields are a field error", () => {
-    for (const value of [[], "build", { taskKind: "deploy" }, { taskKind: null }, { gpu: "yes" }, { repo: [] }, { repo: { sizeMb: -1 } }, { repo: { rootFiles: [1] } }]) {
+    for (const value of [[], "build", { taskKind: "deploy" }, { taskKind: null }, { gpu: "yes" }, { repo: [] }, { repo: { sizeMb: -1 } }, { repo: { rootFiles: [1] } },
+      { repo: { key: "" } }, { repo: { key: "has space" } }, { repo: { key: 7 } }]) {
       expect(typeof parseAutosizeRequest(value)).toBe("string");
     }
+  });
+});
+
+describe("measuredRunFromMetadata", () => {
+  const sm = pickMachineSize({ taskKind: "chat", planMemoryOptionsMb: PRO });
+  if (!sm.ok) throw new Error(sm.message);
+  const tag = autosizeTag("github.com/o/r", "chat", sm);
+
+  test("a tagged VM's peaks are one run; CPU is the mean busy cores", () => {
+    const peak = { providerVmId: "p", memoryUsedMb: 3500, diskUsedMb: 9000, cpuPercentSum: 150, cpuSamples: 2 };
+    expect(measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: peak }, "cmuxResourcePeak"))
+      .toEqual({ vcpus: 2, memoryMb: 4096, storageMb: 16384, peakMemoryMb: 3500, meanBusyCpus: 1.5, peakDiskMb: 9000 });
+  });
+
+  test("a run that filled its shape picks the next one up", () => {
+    // 3500 of 4096 MiB * 1.2 -> 5 GiB: md.
+    const run = measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 3500 } }, "cmuxResourcePeak")!;
+    expect(pick({ taskKind: "chat", measuredRuns: [run] }).pick).toBe("md");
+  });
+
+  test("a peak at 95% of the shape ran short on that axis, so the percentile cannot outvote it", () => {
+    const fine = Array.from({ length: 19 }, () => measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 1000 } }, "cmuxResourcePeak")!);
+    const oom = measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 3950 } }, "cmuxResourcePeak")!;
+    const full = measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 1000, diskUsedMb: 16000 } }, "cmuxResourcePeak")!;
+    expect(oom.ranShort).toBe("memory");
+    expect(full.ranShort).toBe("disk");
+    expect(pick({ taskKind: "chat", measuredRuns: [...fine, oom] }).pick).toBe("md");
+    expect(pick({ taskKind: "chat", measuredRuns: [...fine, full] }).pick).toBe("md");
+  });
+
+  test("no tag, no peaks, or a broken tag is no run", () => {
+    expect(measuredRunFromMetadata({ cmuxResourcePeak: { memoryUsedMb: 1 } }, "cmuxResourcePeak")).toBeNull();
+    expect(measuredRunFromMetadata({ cmuxAutosize: tag }, "cmuxResourcePeak")).toBeNull();
+    expect(measuredRunFromMetadata({ cmuxAutosize: { ...tag, vcpus: "2" }, cmuxResourcePeak: {} }, "cmuxResourcePeak")).toBeNull();
   });
 });

@@ -74,11 +74,20 @@ export const snapshotDelete = (config: CloudConfig, state: CloudState, params: u
   // The machine's creator or a team admin; once the machine is gone, the snapshot's own creator or a team admin (review P3).
   const owner = (source ? source.row : { creator: r.creator ?? "" }) as Parameters<typeof mayManage>[1]
   if (!mayManage(ctx.principal, owner)) return reject("auth.forbidden", "only the machine's creator or a team admin may delete its snapshots")
+  if (!ctx.idempotencyKey) return unavailable()
+  return snapshotRetire(config, state, stored, ledgerKey(ctx.principal.identity, ctx.idempotencyKey), ctx)
+}
+
+/**
+ * The delete of one snapshot row after its caller's checks: snapshot.delete (a person), an environment's
+ * delete, or CloudDO replacing an environment's snapshot with a newer build (system, cloud-environment.ts).
+ */
+export const snapshotRetire = (config: CloudConfig, state: CloudState, stored: StoredRow<SnapshotRow>, key: string, ctx: ReduceContext): ReduceResult<CloudState> => {
+  const r = stored.row
   if (r.status === "deleting" && r.transport !== "vm-api") return noChangePower(state, { deleted: true })
   if (Object.values(state.pending).some((e) => e.machine === r.machine) && r.status === "creating" && r.transport !== "vm-api") return reject("cloud.machine.busy", "the snapshot is still being taken; retry when it is ready", { snapshot: r.id })
-  if (!config.prefix || !ctx.idempotencyKey) return unavailable()
+  if (!config.prefix) return unavailable()
   const rev = state.rev + 1
-  const key = ledgerKey(ctx.principal.identity, ctx.idempotencyKey)
   const protocol = r.capture_protocol === 1 ? { capture_protocol: 1 as const } : {}
   const ledger: LedgerRow = { ...protocol, transport: r.transport ?? "direct", key, op: "snapshot_delete", machine: r.machine, provider_name: r.provider_name, state: "pending", provider_id: null, attempts: 0, error: null, created_at: ctx.now, updated_at: ctx.now, snapshot: r.id, snapshot_name: r.provider_name, snapshot_status: r.status }
   const pending = { ...state.pending }, cancelled: RowWrite[] = []
