@@ -27,6 +27,9 @@ const OUTPUT_MAX: usize = 64 * 1024;
 const STREAM_READ_MAX: u64 = 2 * OUTPUT_MAX as u64;
 /// A brokered `gh` is one bounded API call; it never waits for a person.
 pub const GH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+/// How late after the machine sent it a request may still reach the Mac and run, clock
+/// differences included. Past that the machine stopped waiting, so it never runs.
+pub const LINK_SLACK: std::time::Duration = std::time::Duration::from_secs(30);
 /// How many actions one peer (by name, across reconnects) may have running on the Mac at once.
 pub const OWNER_SLOTS: usize = 4;
 
@@ -89,6 +92,34 @@ pub struct GithubActionParams {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
+    /// Unix ms, by the machine's clock: when it stops waiting for the answer
+    /// ([`deadline_from`]). The lane sets it; the Mac starts nothing that could finish later.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deadline_ms: Option<u64>,
+}
+
+/// The deadline the lane gives an action it sends at `now_ms`.
+pub fn deadline_from(now_ms: u64) -> u64 {
+    now_ms + (GH_TIMEOUT + LINK_SLACK).as_millis() as u64
+}
+
+/// The Mac's check of a deadline at `now_ms`: refused when `gh` could still be running after it
+/// (the request came late, after a stalled or sleeping link, or the clocks differ).
+fn check_deadline(deadline: Option<u64>, now_ms: u64) -> Result<(), RpcError> {
+    let deadline = deadline.ok_or_else(|| invalid("deadlineMs is required"))?;
+    let run = GH_TIMEOUT.as_millis() as u64;
+    if now_ms + run > deadline {
+        let late = format!(
+            "the request reached the Mac too late to run (over {}s after this machine sent it, \
+             or the two clocks differ by that much); nothing was done",
+            LINK_SLACK.as_secs()
+        );
+        return Err(RpcError::new(-32043, late).with_data(json!({"reason": "github.expired"})));
+    }
+    if deadline > now_ms + run + 2 * LINK_SLACK.as_millis() as u64 {
+        return Err(invalid("deadlineMs is further ahead than an action waits"));
+    }
+    Ok(())
 }
 
 fn invalid(message: impl Into<String>) -> RpcError {
@@ -347,6 +378,7 @@ pub async fn serve_owner(peer: &str, params: Value) -> Result<Value, RpcError> {
     let request: GithubActionParams = serde_json::from_value(params)
         .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
     validate(&request)?;
+    check_deadline(request.deadline_ms, crate::store::now_ms())?;
     let result = execute(&request).await;
     let session = request.session_id.as_deref().unwrap_or("-");
     let status = if result.is_ok() { "allowed" } else { "failed" };

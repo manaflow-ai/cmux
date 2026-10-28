@@ -124,7 +124,10 @@ async fn lane_asking(
                 _ => json!({}),
             };
             let mut lines = vec![Message::ok(id, result).to_line()];
-            let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action.clone()).to_line();
+            // As a lane sends it: with the time it stops waiting (`deadline_from`).
+            let mut action = action.clone();
+            action["deadlineMs"] = json!(acpmux::store::now_ms() + 90_000);
+            let ask = Message::request(json!("lane-1"), GITHUB_ACTION, action).to_line();
             match when {
                 Ask::BeforeInitialize if m == method::INITIALIZE => lines.insert(0, ask),
                 Ask::BeforeWatch if m == method::INITIALIZE => lines.push(ask),

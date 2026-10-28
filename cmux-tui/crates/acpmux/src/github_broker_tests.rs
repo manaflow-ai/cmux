@@ -10,6 +10,7 @@ fn req(action: GithubAction) -> GithubActionParams {
         issue: None,
         title: None,
         body: None,
+        deadline_ms: None,
     }
 }
 
@@ -115,4 +116,19 @@ fn every_github_token_is_cut_out_whole_or_cut_off() {
     assert_eq!(redact_github_tokens(text), want);
     assert_eq!(redact_github_tokens("xghp_kept é ok"), "xghp_kept é ok");
     assert_eq!(redact_github_tokens("(ghp_q)…"), "([redacted])…");
+}
+
+/// The review of the lane part at 1ea8bb6: a request held up on a stalled or sleeping link
+/// reached the Mac after the machine stopped waiting, and ran.
+#[test]
+fn the_mac_starts_nothing_the_machine_stopped_waiting_for() {
+    let sent = 1_000_000;
+    let deadline = Some(deadline_from(sent));
+    assert!(check_deadline(deadline, sent).is_ok());
+    assert!(check_deadline(deadline, sent + LINK_SLACK.as_millis() as u64).is_ok());
+    let e = check_deadline(deadline, sent + LINK_SLACK.as_millis() as u64 + 1).unwrap_err();
+    assert_eq!(e.data.unwrap()["reason"], "github.expired");
+    assert_eq!(check_deadline(None, sent).unwrap_err().code, -32602);
+    let far = Some(deadline_from(sent + 2 * LINK_SLACK.as_millis() as u64 + 1));
+    assert_eq!(check_deadline(far, sent).unwrap_err().code, -32602);
 }
