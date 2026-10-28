@@ -95,6 +95,7 @@ struct CodexAutoNamingArgumentsTests {
         #expect(!overrides.contains(where: { $0.contains("http_headers") }))
         #expect(!overrides.contains(where: { $0.contains("subrouter-extra") }))
         #expect(!overrides.contains(where: { $0.contains("subrouter2") }))
+        #expect(!overrides.contains(where: { $0.contains("127.0.0.1:9998") || $0.contains("127.0.0.1:9999") }))
         #expect(!overrides.contains(where: { $0.contains("sensitive-value") }))
         #expect(!args.joined(separator: " ").contains("secret"))
         #expect(!args.joined(separator: " ").contains("api-secret"))
