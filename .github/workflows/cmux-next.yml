@@ -5518,7 +5518,7 @@ jobs:
     concurrency:
       group: ${{ format('cmux-next-dev-landing-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runs_on != '' && fromJSON(needs.dev-landing-place.outputs.runs_on) || 'blacksmith-12vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.dev-landing-place.outputs.runs_on != '' && fromJSON(needs.dev-landing-place.outputs.runs_on) || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 60
     permissions:
       actions: read

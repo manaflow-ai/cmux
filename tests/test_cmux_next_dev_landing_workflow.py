@@ -43,7 +43,9 @@ class WorkflowTests(unittest.TestCase):
     def test_runs_on_takes_the_placement_then_blacksmith(self):
         runs_on = self.jobs["dev-landing-compile"]["runs-on"]
         self.assertIn("fromJSON(needs.dev-landing-place.outputs.runs_on)", runs_on)
-        self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-12vcpu-macos-26'"), runs_on)
+        # With no placement at all (the placing job failed), the larger-capacity 6 vCPU label, never 12 vCPU
+        # alone: it started nothing from about 02:11Z on 2026-10-28 (tests/test_ci_runs_on_fallback.py).
+        self.assertTrue(runs_on.rstrip(" }").endswith("'blacksmith-6vcpu-macos-26'"), runs_on)
         self.assertIn("needs.dev-landing-place.outputs.runner_label", self.jobs["dev-landing-compile"]["env"]["CMUX_NEXT_RUNNER"])
 
     def test_the_compile_records_its_app_where_the_dev_run_looks(self):

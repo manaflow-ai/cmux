@@ -20,12 +20,20 @@ This guard covers every workflow:
   forty dispatches in 13 minutes, nx-chat's two fallback compiles among them,
   each with 0 jobs. The group must be keyed per pull request, commit, run or
   branch ref. cancel-in-progress is allowed only where the key is the pull
-  request or the ref, where the cancelled run is a superseded head.
+  request or the ref, where the cancelled run is a superseded head;
+- no runs-on lands on blacksmith-12vcpu-macos-26 when every picker before it
+  answers nothing. That label started no job from about 02:11Z on 2026-10-28
+  (and for hours on 10-20 and 10-26) while 61 cmux jobs queued on it; GitHub
+  never moves a queued job. A job may still take 12 vCPU from a picker that
+  skips a stalled label (next_macos_cascade.py, simple_pool_picker.py,
+  nightly_sign_runner.py), never as its literal last resort. A variable naming
+  12 vCPU is checked where its value is known, by ci-repo-variables.yml.
 """
 
 from __future__ import annotations
 
 import re
+import sys
 import unittest
 from pathlib import Path
 
@@ -33,6 +41,22 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / ".github" / "workflows"
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+import runs_on_labels  # noqa: E402
+
+# Blacksmith's 12 vCPU macOS 26 label: 5 slots, and stalled for hours on 2026-10-20, -26 and -28.
+LARGE_MAC = "blacksmith-12vcpu-macos-26"
+# What a picker job, an input or a matrix leg gives a runs-on; '' when the picker answered nothing.
+PICKER_CONTEXTS = ("needs", "inputs", "steps", "matrix", "env", "jobs", "strategy")
+# Jobs that keep the label as their literal last resort, and why. Keyed signing takes a literal Blacksmith label by
+# policy (tests/test_ci_release_sdk_lane.sh: "never a repository variable"); a stall-aware Blacksmith pick for it
+# needs a new `actions: read` picker job, which is a workflow-permission change for Leo, not this test.
+LARGE_MAC_LAST_RESORT = {
+    "release.yml#build-sign-notarize": "keyed release signing on a literal Blacksmith label; runs from main",
+    "repair-v0-64-25-helper-rpaths.yml#repair": "keyed one-off repair, dispatch from main only",
+    "cmux-next-dev-daily.yml#sign": "keyed DEV signing; main's copy, which runs, picks a moving label",
+}
 
 # One machine: a per-runner glaeda label, or a mini or perf host's name.
 SINGLE_HOST = re.compile(
@@ -247,9 +271,40 @@ def evicting(name: str, concurrency: object) -> str | None:
     return None
 
 
+def lands_on_large_mac(job: dict) -> bool:
+    """Whether a job can run on LARGE_MAC with every picker before it silent (vars unknown or unset)."""
+    if LARGE_MAC not in runs_on_text(job) and LARGE_MAC not in yaml.safe_dump(job.get("strategy") or {}):
+        return False
+    runs_on = job.get("runs-on")
+    if isinstance(runs_on, dict):
+        runs_on = [runs_on.get("group", ""), *([runs_on.get("labels")] if isinstance(runs_on.get("labels"), str)
+                                                 else runs_on.get("labels") or [])]
+    if "matrix." in runs_on_text(job) and LARGE_MAC in yaml.safe_dump(job.get("strategy") or {}):
+        return True
+    return LARGE_MAC in {str(label) for label in runs_on_labels.resolve_labels(runs_on, silent=PICKER_CONTEXTS)}
+
+
 class RunsOnFallbackTests(unittest.TestCase):
     def test_workflows_are_found(self) -> None:
         self.assertIn("cmux-next.yml", {path.name for path in workflows()})
+
+    def test_no_job_falls_back_to_the_large_blacksmith_mac(self) -> None:
+        failures, seen = [], set()
+        for path in workflows():
+            for job_id, job in (load(path).get("jobs") or {}).items():
+                key = f"{path.name}#{job_id}"
+                try:
+                    hit = lands_on_large_mac(job)
+                except ValueError as error:
+                    hit = True
+                    key += f" (unreadable: {error})"
+                if hit and key in LARGE_MAC_LAST_RESORT:
+                    seen.add(key)
+                elif hit:
+                    failures.append(key)
+        self.assertEqual(failures, [], f"{LARGE_MAC} stalls for hours at a time: take it only from a picker that "
+                                       "skips a stalled label, with an owned Mac or blacksmith-6vcpu-macos-26 last")
+        self.assertEqual(set(LARGE_MAC_LAST_RESORT) - seen, set(), "an exception no job needs any more: drop it")
 
     def test_no_runs_on_names_one_machine(self) -> None:
         failures = []
@@ -385,6 +440,18 @@ class RunsOnFallbackTests(unittest.TestCase):
         self.assertTrue(SINGLE_HOST.search("runs-on: cmux22"))
         self.assertFalse(SINGLE_HOST.search("glaeda-side-std-xcode-26.6"))
         self.assertFalse(SINGLE_HOST.search("blacksmith-6vcpu-macos-26"))
+        # The large-Mac rule: a literal last resort fails; a picker's answer, or a 6 vCPU last resort, passes.
+        owner = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
+        self.assertTrue(lands_on_large_mac({"runs-on": "blacksmith-12vcpu-macos-26"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
+                                                       "'blacksmith-12vcpu-macos-26' }}"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ " + owner + "vars.X || 'blacksmith-12vcpu-macos-26' }}"}))
+        self.assertTrue(lands_on_large_mac({"runs-on": "${{ matrix.pool }}",
+                                            "strategy": {"matrix": {"pool": ["blacksmith-12vcpu-macos-26"]}}}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.runner || "
+                                                        "'blacksmith-6vcpu-macos-26' }}"}))
+        self.assertFalse(lands_on_large_mac({"runs-on": "${{ " + owner + "needs.p.outputs.large == 'true' && "
+                                                        "'blacksmith-12vcpu-macos-26' || 'blacksmith-6vcpu-macos-26' }}"}))
 
 
 if __name__ == "__main__":

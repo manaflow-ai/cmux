@@ -130,6 +130,29 @@ class PickerTests(unittest.TestCase):
         self.assertEqual((json.loads(result["runs_on"]), result["pool"]), ("blacksmith-12vcpu-macos-26", "blacksmith"))
         self.assertEqual(reads, 5, "looks at t=0,30,60,90,120 and no later")
 
+    def test_the_overflow_skips_a_stalled_blacksmith_label(self):
+        # 2026-10-28: blacksmith-12vcpu-macos-26 started nothing from about 02:11Z; landings kept overflowing onto it.
+        now = place.dt.datetime(2026, 10, 28, 15, 40, tzinfo=place.dt.timezone.utc)
+
+        def snap(waits):
+            return {"generated_at": "2026-10-28T15:39:00Z",
+                    "pools": {label: {"queued": 1 if wait else 0, "oldest_queued_minutes": wait}
+                              for label, wait in waits.items()}}
+
+        large, small = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26"
+        cases = ((snap({large: 926}), small), (snap({large: 2}), large), (None, large))
+        for snapshot, expected in cases:
+            with self.subTest(snapshot=snapshot):
+                now_reads = [0.0]
+                result = place.place(self.env(), lambda: [], lambda host: [], sleep=lambda s: now_reads.__setitem__(0, now_reads[0] + s),
+                                     clock=lambda: now_reads[0], read_snapshot=lambda: snapshot, now=now)
+                self.assertEqual((json.loads(result["runs_on"]), result["pool"]), (expected, "blacksmith"))
+        # An unreadable snapshot keeps the configured label; a non-Blacksmith label is never re-picked.
+        def broken():
+            raise OSError("rate limit")
+        self.assertEqual(place.overflow_label(large, broken, now)[0], large)
+        self.assertEqual(place.overflow_label("macos-26", lambda: snap({}), now), ("macos-26", ""))
+
     def test_a_mac_freed_during_the_wait_is_taken(self):
         def runners(read):
             return [runner("cmux13-glaeda-4", SIDE, busy=read < 3)]
