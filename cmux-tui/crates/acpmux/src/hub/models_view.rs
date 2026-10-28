@@ -155,9 +155,9 @@ fn picker_models(reported: &[(String, String)], models: &[Value]) -> Vec<String>
         }
         let model = models.iter().find(|model| {
             model["id"] == id.as_str()
-                || model["aliases"].as_array().is_some_and(|aliases| {
-                    aliases.iter().any(|alias| alias == id.as_str())
-                })
+                || model["aliases"]
+                    .as_array()
+                    .is_some_and(|aliases| aliases.iter().any(|alias| alias == id.as_str()))
         });
         if let Some(id) = model.and_then(|model| model["id"].as_str())
             && !top.iter().any(|known| known == id)
@@ -216,11 +216,12 @@ impl Hub {
                 models.push(json!({"id": "default", "name": "default (agent's choice)"}));
             }
             super::model_availability::mark_unavailable(&mut models, name, &refused);
-            let top = if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
-                Some(picker_models(&reported, &models))
-            } else {
-                None
-            };
+            let top =
+                if live.is_some() || (profile.kind == HarnessKind::Acp && !reported.is_empty()) {
+                    Some(picker_models(&reported, &models))
+                } else {
+                    None
+                };
             let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
             if let Some(top) = top {
                 entry["topModels"] = json!(top);

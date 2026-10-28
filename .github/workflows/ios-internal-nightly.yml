@@ -50,7 +50,7 @@ jobs:
   pick-archive-runner:
     name: Pick the archive runner
     if: github.repository == 'manaflow-ai/cmux' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/rc/cnx-ios-builder'
-    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 10
     # The routing App key, as every other runner picker reads it.
     environment: ci-routing-agent

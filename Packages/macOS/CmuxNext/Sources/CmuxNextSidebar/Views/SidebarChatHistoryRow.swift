@@ -178,10 +178,13 @@ final class SidebarChatHistoryRow: NSView {
         super.layout()
         let size = meta.isHidden ? .zero : meta.intrinsicContentSize
         let metaWidth = ceil(size.width)
-        meta.frame = NSRect(x: bounds.width - Metrics.space2 - metaWidth, y: (bounds.height - size.height) / 2, width: metaWidth, height: size.height)
+        // The meta's text ends `space2` from the edge; its frame adds the label's padding around
+        // the text (a frame the size of the text alone clipped its last glyph).
+        let metaText = NSRect(x: bounds.width - Metrics.space2 - metaWidth, y: (bounds.height - size.height) / 2, width: metaWidth, height: size.height)
+        meta.frame = meta.frame(forAlignmentRect: metaText)
         let h = ceil(title.intrinsicContentSize.height)
         let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
-        let trailing = meta.isHidden ? bounds.width - Metrics.space2 : meta.frame.minX - Metrics.space2
+        let trailing = meta.isHidden ? bounds.width - Metrics.space2 : metaText.minX - Metrics.space2
         title.frame = NSRect(x: x, y: (bounds.height - h) / 2, width: max(0, trailing - x), height: h)
     }
 }

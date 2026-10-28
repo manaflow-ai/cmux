@@ -126,6 +126,19 @@ enum HomeStrings {
                defaultValue: "Hi, I'm Chief, your assistant in cmux. Tell me what you want done.\nI handle quick things myself. Bigger jobs go to agents, each in its own workspace you can watch and join.\nTo start, type below or pick a suggestion.",
                bundle: .module)
     }
+    /// A new Chief's first message when the person has other Chiefs: it asks what to focus on.
+    static var chiefIntroFocus: String {
+        String(localized: "home.firstRun.introFocus",
+               defaultValue: "Hi, I'm a new Chief. What should I focus on?\nTell me a project, a repo or a kind of work, and I'll stick to it so I don't overlap with your other Chiefs.",
+               bundle: .module)
+    }
+    /// The text of the intro `kind` (``ChiefIntroStore`` picks it).
+    static func chiefIntro(_ kind: ChiefIntroKind) -> String {
+        switch kind {
+        case .welcome: firstRunIntro
+        case .askFocus: chiefIntroFocus
+        }
+    }
     /// The first-run row that shows the floating Chief pet (`home.toggleChiefPet`).
     static var firstRunShowPet: String {
         String(localized: "home.firstRun.showPet", defaultValue: "Show Chief Pet", bundle: .module)

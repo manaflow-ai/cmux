@@ -15,6 +15,8 @@ public final class RemoteVNCSession {
     /// The record's address; the Keychain key for its sign-in.
     public let endpoint: VNCEndpoint
     private let store = RemoteVNCCredentialStore()
+    /// A Cloud machine's desktop: a fresh transport over the app's Cloud tunnel per session.
+    private let makeTransport: (@Sendable () -> any RFBTransport)?
     private var demo: VNCDemoServer?
     private var demoPort: UInt16?
     private var demoStart: Task<Void, Never>?
@@ -24,11 +26,42 @@ public final class RemoteVNCSession {
     /// `demoHost`: the reserved host name served by the loopback demo desktop.
     public init(record: RemoteViewTabRecord, port: UInt16, demoHost: String) {
         self.record = record
+        makeTransport = nil
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
         endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
         if host == demoHost { demo = VNCDemoServer() }
+    }
+
+    /// A Cloud machine's desktop (`via=cloud`): its VNC server, reached by `makeTransport`.
+    public init(cloudRecord record: RemoteViewTabRecord, makeTransport: @escaping @Sendable () -> any RFBTransport) {
+        self.record = record
+        self.makeTransport = makeTransport
+        endpoint = VNCEndpoint(host: record.host, port: 5901)
+        // A lost path to a Cloud desktop reconnects by itself (the tunnel or the machine's link
+        // blinked); a Stop, a sign-in refusal or a closed tab does not.
+        source.onEnded { [weak self] end in
+            guard case .connectionLost = end else { return }
+            Task { @MainActor in self?.reconnectAfterLoss() }
+        }
+    }
+
+    /// Tries since the last session that streamed; sets the next wait (1, 2, 4, 8, then 10 s).
+    private var lostTries = 0
+    private var retry: Task<Void, Never>?
+
+    private func reconnectAfterLoss() {
+        guard makeTransport != nil, !closed, retry == nil else { return }
+        let wait = Duration.seconds(min(10, 1 << min(lostTries, 3)))
+        lostTries += 1
+        retry = Task { [weak self] in
+            // wakeup-allow: one cancellable backoff wait before a reconnect; Stop and close cancel it.
+            try? await Task.sleep(for: wait)
+            guard let self, !Task.isCancelled else { return }
+            retry = nil
+            connect()
+        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -43,6 +76,12 @@ public final class RemoteVNCSession {
     /// Connects with the saved sign-in (or none; the host may not need one).
     public func connect() {
         guard !closed else { return }
+        if let makeTransport {
+            source.connect(to: endpoint, credentials: VNCCredentials(), transport: makeTransport()) { [weak self] in
+                Task { @MainActor in self?.lostTries = 0 }
+            }
+            return
+        }
         guard let demo else {
             source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
             return
@@ -68,12 +107,16 @@ public final class RemoteVNCSession {
 
     /// Stop, a hidden tab.
     public func stop() {
+        retry?.cancel()
+        retry = nil
         source.stop()
     }
 
     /// The tab closed: the demo server goes too.
     public func close() {
         closed = true
+        retry?.cancel()
+        retry = nil
         source.stop()
         demoStart?.cancel()
         demo?.stop()
@@ -83,7 +126,9 @@ public final class RemoteVNCSession {
     /// Reconnect or Sign In pressed. After a sign-in failure it asks for the
     /// user name and password first, in a sheet on `window`.
     public func reconnect(in window: NSWindow?) {
-        if case .ended(.signInRequired) = source.status.state {
+        // A Cloud desktop only ever goes over the app's Cloud tunnel: no sign-in sheet, whose
+        // connect would be plain TCP to the record's host.
+        if makeTransport == nil, case .ended(.signInRequired) = source.status.state {
             promptForSignIn(in: window)
         } else {
             connect()
