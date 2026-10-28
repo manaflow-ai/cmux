@@ -29,6 +29,8 @@ struct Shared {
     deletes: Mutex<VecDeque<u16>>,
     /// Runs once as the next `PUT` is answered.
     on_put: Mutex<Option<Box<dyn FnOnce() + Send>>>,
+    /// Overrides the next successful `PUT`'s URL base (used to exercise bad room responses).
+    url_base_once: Mutex<Option<String>>,
     host_tokens: AtomicU64,
 }
 
@@ -126,18 +128,30 @@ fn serve(stream: TcpStream, shared: &Shared, seen: &Sender<Seen>, base: &str) {
                 shared.on_put.lock().unwrap().take().unwrap()();
                 let n = shared.host_tokens.fetch_add(1, Ordering::SeqCst) + 1;
                 let id = path.rsplit('/').next().unwrap_or_default();
+                let url_base = shared
+                    .url_base_once
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap_or_else(|| format!("{base}/g/{id}"));
                 (
                     200,
-                    json!({"host_token": format!("host-token-{n}"), "url_base": format!("{base}/g/{id}")}),
+                    json!({"host_token": format!("host-token-{n}"), "url_base": url_base}),
                 )
             }
             Some(status) => (status, json!({})),
             None => {
                 let n = shared.host_tokens.fetch_add(1, Ordering::SeqCst) + 1;
                 let id = path.rsplit('/').next().unwrap_or_default();
+                let url_base = shared
+                    .url_base_once
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap_or_else(|| format!("{base}/g/{id}"));
                 (
                     200,
-                    json!({"host_token": format!("host-token-{n}"), "url_base": format!("{base}/g/{id}")}),
+                    json!({"host_token": format!("host-token-{n}"), "url_base": url_base}),
                 )
             }
         },
@@ -308,6 +322,43 @@ fn a_delete_the_room_refuses_stays_queued_and_is_retried_until_acknowledged() {
         "a DELETE after the room's 200",
         |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
     );
+}
+
+#[test]
+fn a_delete_stops_retrying_after_share_expiry_even_with_its_host_token() {
+    let room = FakeRoom::start(&[]);
+    room.shared.deletes.lock().unwrap().push_back(503);
+    let (_fake, mux, surface, mut owner) = bridged("room-delete-expiry", &room);
+    let share = create(&mut owner, surface)["data"].clone();
+    room.request("PUT");
+    let revoke = json!({"cmd":"agent-session-share-revoke", "share_id":share["share_id"]});
+    assert_eq!(owner.request(revoke)["ok"], true);
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "host-token-1");
+
+    // A revoked room operation is bounded by the share's expiry even when its host token is
+    // available. The first 503 leaves it queued; once the local clock passes expiry, no retry is
+    // sent and the queued operation is settled.
+    shares_of(&mux).advance(Duration::from_secs(2 * 86_400));
+    room.none(
+        "a DELETE after the share expired",
+        |s| matches!(s, Seen::Request { method, .. } if method == "DELETE"),
+    );
+    assert_eq!(state(&mut owner)["state"], "revoked");
+}
+
+#[test]
+fn a_room_rejects_a_cross_origin_guest_url() {
+    let room = FakeRoom::start(&[]);
+    *room.shared.url_base_once.lock().unwrap() = Some("https://evil.example/g/not-the-room".into());
+    let (_fake, _mux, surface, mut owner) = bridged("room-bad-url", &room);
+    let reply = create(&mut owner, surface);
+    assert_code(&reply, "share.room_unreachable");
+    let (_, _, _) = room.request("PUT");
+    // The invalid first answer is rejected; the retry's valid answer is cleaned up because the
+    // create call already returned a failure and never handed its link to a guest.
+    room.request("PUT");
+    room.request("DELETE");
 }
 
 #[test]
