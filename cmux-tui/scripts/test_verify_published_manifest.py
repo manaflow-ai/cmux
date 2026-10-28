@@ -57,6 +57,9 @@ class StreamResponse(FakeResponse):
         self.then = then
 
     def read(self, size: int = -1) -> bytes:
+        raise AssertionError("a binary is read with read1, which returns what has come so far")
+
+    def read1(self, size: int = -1) -> bytes:
         if self.chunks:
             return self.chunks.pop(0)
         if self.then is not None:
@@ -338,6 +341,38 @@ class VerifyPublishedManifestTests(TestCase):
                     self.assertIsNone(seen[2][1], "a read that starts over asks for the whole object")
                 else:
                     self.assertEqual(len(seen), 2)
+
+    def test_a_stalled_read_with_no_length_still_resumes(self) -> None:
+        """A chunked answer gives no Content-Length; the 206 that resumes it gives the length."""
+        def serve(n: int, range_header: str | None) -> StreamResponse:
+            if n == 1:
+                return StreamResponse([self.PAYLOAD[:600]], then=TimeoutError("The read operation timed out"))
+            total = len(self.PAYLOAD)
+            return StreamResponse([self.PAYLOAD[600:]], status=206, headers={
+                "Content-Range": f"bytes 600-{total - 1}/{total}"})
+
+        seen, opener = self.stalling_binary(serve)
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            self.verify_binaries()
+        self.assertEqual([range_header for _, range_header in seen], [None, "bytes=600-"])
+
+    def test_a_range_answer_that_does_not_fit_the_request_starts_over(self) -> None:
+        total = len(self.PAYLOAD)
+        for content_range, content_length in (
+            (f"bytes 600-700/{total}", None),  # ends before the last byte
+            (f"bytes 600-{total - 1}/{total}", "5"),  # Content-Length disagrees with the range
+            (f"bytes 600-{total - 1}/{total + 1}", None),  # another length
+        ):
+            with self.subTest(content_range=content_range, content_length=content_length):
+                headers = {"Content-Range": content_range}
+                if content_length is not None:
+                    headers["Content-Length"] = content_length
+                answers = [self.stall_at(600), StreamResponse([self.PAYLOAD[600:]], status=206, headers=headers),
+                           self.whole()]
+                seen, opener = self.stalling_binary(lambda n, range_header: answers.pop(0))
+                with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+                    self.verify_binaries()
+                self.assertEqual([range_header for _, range_header in seen], [None, "bytes=600-", None])
 
     def test_a_trickling_read_is_cut_and_resumed(self) -> None:
         def serve(n: int, range_header: str | None) -> StreamResponse:

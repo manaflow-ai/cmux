@@ -56,8 +56,9 @@ RETRY_PAUSE_SECONDS = 5
 # the same URL three times and every read stalled: the CDN serves one cache key
 # from one transfer, so a retry of the same URL waits on the transfer that
 # stalled. A read that brings new bytes is progress; the fetch fails after
-# FETCH_ATTEMPTS reads in a row bring none, or once FETCH_DEADLINE_SECONDS have
-# passed. A read that trickles is cut after READ_ATTEMPT_SECONDS and resumed, as
+# FETCH_ATTEMPTS reads in a row bring none, or when the next read would start
+# past FETCH_DEADLINE_SECONDS (a read already started may run its own limit
+# out). A read that trickles is cut after READ_ATTEMPT_SECONDS and resumed, as
 # the R2 downloads of #26752 are.
 FETCH_ATTEMPTS = 5
 READ_ATTEMPT_SECONDS = 120
@@ -410,12 +411,12 @@ def _read_url(
 def _read_url_once(
     url: str, body: _Body, *, max_bytes: int, headers_out: dict[str, str] | None
 ) -> None:
-    """Read url into body. Resume from the bytes already read only when the length is
-    known, so a resumed read can be checked against it; otherwise read from the start."""
+    """Read url into body, asking only for the bytes after those already read. Those
+    bytes are kept only when the server answers 206 with a Content-Range that starts
+    there, ends at the last byte and names the same length (or, when no earlier answer
+    gave a length, names it now); any other answer starts over from byte 0."""
 
-    if body.total is None:
-        body.restart()
-    elif len(body.data) >= body.total:
+    if body.total is not None and len(body.data) >= body.total:
         return
     offset = len(body.data)
     headers = {
@@ -444,8 +445,14 @@ def _read_url_once(
                     raise ManifestError(f"{url} has an invalid Content-Length")
             if getattr(response, "status", 200) == 206:
                 match = CONTENT_RANGE_RE.fullmatch(str(response_headers.get("Content-Range", "")))
-                if match is None or int(match.group(1)) != offset or (
-                    body.total is not None and int(match.group(3)) != body.total
+                start, end, total = (int(value) for value in match.groups()) if match else (-1, -1, -1)
+                if (
+                    not offset
+                    or start != offset
+                    or end != total - 1
+                    or end < start
+                    or (body.total is not None and total != body.total)
+                    or (content_length is not None and content_length != end - start + 1)
                 ):
                     asked = f"bytes {offset}- of {body.total}"
                     body.restart()
@@ -453,13 +460,15 @@ def _read_url_once(
                         f"could not fetch {url}: asked for {asked}, got range "
                         f"{response_headers.get('Content-Range')!r}; reading from the start"
                     )
-                body.total = int(match.group(3))
+                body.total = total
             else:
                 # A whole answer: the server did not take the Range, or none was asked.
                 body.restart()
                 offset = 0
                 body.total = content_length
-            if content_length is not None and offset + content_length > max_bytes:
+            if (content_length is not None and offset + content_length > max_bytes) or (
+                body.total is not None and body.total > max_bytes
+            ):
                 raise ManifestError(f"{url} exceeds the {max_bytes}-byte size limit")
             # read1 returns what has come so far, so a trickle cannot hold one
             # call past the read's deadline (#26752 reads R2 the same way).
@@ -472,6 +481,10 @@ def _read_url_once(
                 body.received += len(chunk)
                 if len(body.data) > max_bytes:
                     raise ManifestError(f"{url} exceeds the {max_bytes}-byte size limit")
+                # A read that has every byte is kept even past the limit: the
+                # digest is checked on it all the same, and reading it again would
+                # only wait on the same edge. Each read1 call returns within the
+                # 30 s socket timeout, so a read ends at most that long after its limit.
                 done = body.total is not None and len(body.data) >= body.total
                 if not done and time.monotonic() - started > READ_ATTEMPT_SECONDS:
                     raise _TransientFetchError(
