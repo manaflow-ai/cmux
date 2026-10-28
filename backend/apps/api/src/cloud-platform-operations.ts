@@ -1,6 +1,6 @@
 import type { SqlStore } from "@cmux/ownership"
 import { ledgerKey } from "./domains/cloud.ts"
-import { platformPrincipal, refused, platformMetadata, platformShape, PLATFORM_MACHINE_LABEL, type PlatformHost, type PlatformReply } from "./cloud-platform.ts"
+import { platformPrincipal, refused, platformMetadata, PLATFORM_MACHINE_LABEL, type PlatformHost, type PlatformReply } from "./cloud-platform.ts"
 import type { PlatformMachine, PlatformShape } from "./platform-machines.ts"
 
 /** Durable continuations above the ordinary Cloud ledger: no provider calls bypass submit.
@@ -15,6 +15,7 @@ interface Operation {
   image?: string
   target: PlatformShape
   labels: Record<string, string>
+  confirmedShape?: PlatformShape
   phase: "capture" | "create" | "size" | "cleanup" | "done" | "failed"
   snapshot?: string
   child?: string
@@ -70,15 +71,21 @@ export class PlatformOperations {
     }
     return undefined
   }
-  metadata(host: PlatformHost, id: string): PlatformReply<PlatformMachine> {
+  async metadata(host: PlatformHost, id: string): Promise<PlatformReply<PlatformMachine>> {
     const m = host.machine(id)
     if (!m) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
     const o = this.forMachine(host, id)
-    if (!o) return platformMetadata(m)
-    const resize = host.ledger(ledgerKey(platformPrincipal(host.team, o.user).identity, this.stepKey(o, "resize")))
-    const actual = platformShape(resize?.state === "pending" && resize.size_before ? resize.size_before : m.size)
-    if (o.phase !== "done") return { ok: true, value: { id, region: "global", state: o.error ? "failed" : "starting", shape: actual ?? o.target, targetShape: o.target } }
-    return platformMetadata(m)
+    if (o && o.phase !== "done") return { ok: true, value: { id, region: "global", state: o.error ? "failed" : "starting", shape: o.confirmedShape ?? o.target, targetShape: o.target } }
+    const metadata = platformMetadata(m)
+    if (!metadata.ok || (m.status !== "running" && m.status !== "paused")) return metadata
+    // Legacy create can retain the requested size when its best-effort resource read failed.
+    // Running/paused answers never present that reservation as confirmed provider capacity.
+    const actual = await host.resources(m).catch(() => null)
+    if (!actual) return refused("cloud.machine.shape_unknown", "the provider has not confirmed this machine's resources", true)
+    const current = host.machine(id)
+    if (!current) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
+    const fresh = platformMetadata(current)
+    return fresh.ok ? { ok: true, value: { ...fresh.value, shape: actual } } : fresh
   }
   busy(host: PlatformHost, id: string): boolean {
     const o = this.forMachine(host, id)
@@ -109,7 +116,7 @@ export class PlatformOperations {
         if (!source || source.platform !== true || source.creator !== user) return refused("cloud.machine.not_found", "no such setup machine in this team", false)
         if (source.transport === "vm-api") return refused("cloud.provider.unsupported", "this machine belongs to another provider transport", false)
         if (this.busy(host, source.id) || (source.status !== "running" && source.status !== "paused")) return refused("cloud.machine.not_running", "the source must finish starting before forking", true)
-        target = platformShape(source.size) ?? undefined
+        target = await host.resources(source).catch(() => null) ?? undefined
       }
       if (!target) return refused("cloud.machine.shape_unknown", "the machine's resources are not known yet", true)
       // Install the alarm before recording any work; a crash can leave a harmless alarm, never an
@@ -191,18 +198,31 @@ export class PlatformOperations {
       else if (resize?.state === "pending") return
       else if (resize && resize.state !== "done") fail(resize.error?.message ?? "machine resize failed")
       else {
-        const actual = platformShape(m.size)
+        const actual = await host.resources(m).catch(() => null)
         if (!actual) return
-        if (larger(actual, o.target)) fail("the image is larger than the requested shape; Freestyle only supports growing")
-        else if (sameShape(actual, o.target)) { o.phase = "cleanup"; this.put(o) }
-        else if (m.status === "running") {
-          const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: o.target.vcpu, memory_mb: o.target.memGiB * 1024, disk_mb: o.target.diskGiB * 1024 } }, "resize")
-          if (r && !r.retryable) fail(r.message)
-          // Never publish intent's requested resources as completed; the ledger must confirm it.
-          if (ledger("resize")?.state === "done") { o.phase = "cleanup"; this.put(o) }
+        o.confirmedShape = actual
+        this.put(o)
+        // A destroy may have arrived while the resource lookup was awaited.
+        if (o.phase === "size") {
+          if (larger(actual, o.target)) fail("the image is larger than the requested shape; Freestyle only supports growing")
+          else if (sameShape(actual, o.target)) { o.phase = "cleanup"; this.put(o) }
+          else if (m.status === "running" && !resize) {
+            const r = await submit("cloud.machine.resize", { machine: m.id, size: { cpu: o.target.vcpu, memory_mb: o.target.memGiB * 1024, disk_mb: o.target.diskGiB * 1024 } }, "resize")
+            if (r && !r.retryable) fail(r.message)
+            if (ledger("resize")?.state === "done") {
+              const confirmed = await host.resources(m).catch(() => null)
+              if (confirmed) {
+                o.confirmedShape = confirmed
+                if (larger(confirmed, o.target)) fail("the resized machine exceeds the requested shape")
+                else if (sameShape(confirmed, o.target)) o.phase = "cleanup"
+                this.put(o)
+              }
+            }
+          }
         }
       }
     }
+
     if (o.phase !== "cleanup") return
     if (o.error && o.child) {
       const m = host.machine(o.child)
