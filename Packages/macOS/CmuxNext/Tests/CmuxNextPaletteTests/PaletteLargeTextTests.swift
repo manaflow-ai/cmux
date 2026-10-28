@@ -126,6 +126,13 @@ struct PaletteLargeTextTests {
             #expect(text.frame.height >= PaletteText.height(text) - 0.5, "\(label): \"\(text.stringValue)\" is squeezed to \(text.frame.height) pt")
             #expect(text.frame.minY >= -0.5 && text.frame.maxY <= parent.bounds.height + 0.5,
                     "\(label): \"\(text.stringValue)\" spans \(text.frame.minY)...\(text.frame.maxY) in a \(parent.bounds.height) pt row")
+            if isChrome(text) {
+                // Chips and footer buttons are sized to their words; they never truncate them.
+                let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+                let natural = text.cell?.cellSize(forBounds: unbounded).width ?? 0
+                #expect(text.frame.width >= natural - 0.5,
+                        "\(label): \"\(text.stringValue)\" is \(text.frame.width) pt wide and needs \(natural) pt")
+            }
         }
         #expect(labels > rows, "\(label): \(labels) labels")
 
@@ -159,6 +166,11 @@ struct PaletteLargeTextTests {
         #expect(style?.lineBreakMode == .byTruncatingTail, "\(label): the Search placeholder truncates with an ellipsis, on one line")
         #expect(field.frame.minY >= -0.5 && field.frame.maxY <= bar.bounds.height + 0.5,
                 "\(label): the field spans \(field.frame.minY)...\(field.frame.maxY) in a \(bar.bounds.height) pt bar")
+    }
+
+    /// A label in the search bar (scope chips, breadcrumb) or the footer (page, crumbs, buttons).
+    private static func isChrome(_ view: NSView) -> Bool {
+        sequence(first: view, next: \.superview).contains { $0 is PaletteSearchBar || $0 is PaletteFooterView }
     }
 
     private static func textFields(in view: NSView) -> [NSTextField] {
