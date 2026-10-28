@@ -187,11 +187,15 @@ import Testing
 
     /// A digit chord whose digit-row key types another character that is itself bound here
     /// (Cmd-6 on French - PC, whose 6 key types -, where Cmd-- zooms out): the typed character
-    /// wins, as in every Mac app, so the digit is shadowed on that layout. Counted, not checked.
-    static func isShadowedDigit(_ shortcut: Shortcut, code: UInt16, on layout: Layout, in registry: ActionRegistry) -> Bool {
-        guard shortcut.key.first?.isNumber == true, let typed = layout.keys[code]?.base, typed != shortcut.key else { return false }
-        return registry.resolveShortcut(for: KeyInput(keyCode: code, modifiers: shortcut.modifiers, text: typed, ignoringModifiers: typed,
-                                                      unshifted: typed)) != nil
+    /// wins, as in every Mac app. Such a key must then take the US step of that character; nil
+    /// when the digit is not shadowed.
+    static func shadowingStep(_ shortcut: Shortcut, code: UInt16, on layout: Layout, in registry: ActionRegistry) -> String? {
+        guard shortcut.key.first?.isNumber == true, let typed = layout.keys[code]?.base, typed != shortcut.key,
+              registry.resolveShortcut(for: KeyInput(keyCode: code, modifiers: shortcut.modifiers, text: typed, ignoringModifiers: typed,
+                                                     unshifted: typed)) != nil,
+              let usCode = keyCode(for: Shortcut(typed, modifiers: shortcut.modifiers), on: us),
+              let usKey = key(usCode, shortcut.modifiers, on: us) else { return nil }
+        return step(usKey, after: [], in: registry)
     }
 
     static func registry(_ context: ActionContext = []) -> ActionRegistry {
@@ -228,9 +232,13 @@ import Testing
                   let usKey = Self.key(usCode, shortcut.modifiers, on: Self.us),
                   let expected = registry.resolveShortcut(for: usKey)?.id,
                   let code = Self.keyCode(for: shortcut, on: layout),
-                  let key = Self.key(code, shortcut.modifiers, on: layout),
-                  !Self.isShadowedDigit(shortcut, code: code, on: layout, in: registry) else { continue }
+                  let key = Self.key(code, shortcut.modifiers, on: layout) else { continue }
             checked += 1
+            if let shadowing = Self.shadowingStep(shortcut, code: code, on: layout, in: registry) {
+                let got = Self.step(key, after: [], in: registry)
+                if got != shadowing { wrong.append("\(shortcut.displayString) (key \(code), shadowed): \(got), not \(shadowing)") }
+                continue
+            }
             let resolved = registry.resolveShortcut(for: key)?.id
             if resolved != expected {
                 wrong.append("\(shortcut.displayString) (key \(code), types \(key.text ?? "nil")): \(resolved?.rawValue ?? "nothing"), not \(expected)")
@@ -264,10 +272,10 @@ import Testing
         var wrong: [String] = []
         for shortcut in Self.defaultChords(in: registry) {
             guard let usCode = Self.keyCode(for: shortcut, on: Self.us), let usKey = Self.key(usCode, shortcut.modifiers, on: Self.us),
-                  let code = Self.keyCode(for: shortcut, on: layout), let key = Self.key(code, shortcut.modifiers, on: layout),
-                  !Self.isShadowedDigit(shortcut, code: code, on: layout, in: registry) else { continue }
+                  let code = Self.keyCode(for: shortcut, on: layout), let key = Self.key(code, shortcut.modifiers, on: layout) else { continue }
             checked += 1
-            let expected = Self.step(usKey, after: [], in: registry), got = Self.step(key, after: [], in: registry)
+            let expected = Self.shadowingStep(shortcut, code: code, on: layout, in: registry) ?? Self.step(usKey, after: [], in: registry)
+            let got = Self.step(key, after: [], in: registry)
             if got != expected { wrong.append("\(shortcut.displayString) (key \(code)): \(got), not \(expected)") }
         }
         #expect(checked > 10, "only \(checked) default chords checked on \(layout.name)")

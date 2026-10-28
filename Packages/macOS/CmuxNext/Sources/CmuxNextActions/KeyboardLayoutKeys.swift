@@ -46,13 +46,14 @@ public final class KeyboardLayoutKeys {
     nonisolated static func readASCIICapableLayout() -> [UInt16: String] {
         // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
         guard let source = unsafe TISCopyCurrentASCIICapableKeyboardLayoutInputSource()?.takeRetainedValue() else { return [:] }
-        return characters(of: source, asciiOnly: true)
+        return characters(of: source, asciiOnly: true, command: false)
     }
 
     /// What each key of `source` (virtual key codes 0-127 but the keypad) types with no modifier
-    /// and no dead-key state, when that is one printable character (`asciiOnly`: one printable
-    /// ASCII character), lowercase. The one reading of a layout's keys (`KeyCodeLayout` uses it too).
-    public nonisolated static func characters(of source: TISInputSource, asciiOnly: Bool) -> [UInt16: String] {
+    /// (`command`: with Command alone, the layout's Command key map) and no dead-key state, when
+    /// that is one printable character (`asciiOnly`: one printable ASCII character), lowercase. The
+    /// one reading of a layout's keys (`KeyCodeLayout` uses it too).
+    public nonisolated static func characters(of source: TISInputSource, asciiOnly: Bool, command: Bool) -> [UInt16: String] {
         // SAFETY: the layout data property is a CFData owned by `source` (Get rule), which the
         // caller holds for this call, so it and its bytes stay alive to the end of it.
         guard let pointer = unsafe TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return [:] }
@@ -66,12 +67,14 @@ public final class KeyboardLayoutKeys {
         var map: [UInt16: String] = [:]
         var chars = [UniChar](repeating: 0, count: 4)
         let limit: UniChar = asciiOnly ? 0x7F : UniChar.max
+        // UCKeyTranslate's modifier state: Carbon's EventModifiers >> 8 (cmdKey is 1 << 8).
+        let modifierState: UInt32 = command ? UInt32(cmdKey >> 8) : 0
         for keyCode in UInt16(0)..<128 where !(kVK_ANSI_KeypadDecimal...kVK_ANSI_Keypad9).contains(Int(keyCode)) {
             var deadKeyState: UInt32 = 0
             var length = 0
             // SAFETY: `layout` is valid for this call (above); UCKeyTranslate writes at most
             // chars.count (the max passed) units into `chars` and one count into `length`.
-            let status = unsafe UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()),
+            let status = unsafe UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown), modifierState, UInt32(LMGetKbdType()),
                                                OptionBits(1 << kUCKeyTranslateNoDeadKeysBit), &deadKeyState, chars.count, &length, &chars)
             guard status == noErr, length == 1, chars[0] > 0x20, chars[0] != 0x7F, chars[0] < limit else { continue }
             map[keyCode] = String(utf16CodeUnits: chars, count: length).lowercased()

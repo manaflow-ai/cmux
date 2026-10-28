@@ -28,6 +28,8 @@ struct GhosttyKeyBindingLayer {
     var defaults: [GhosttyHostKeybind]
     /// Table key names of physical keys (`KeyCodeLayout.currentKeyNames`).
     var keyNames: [UInt16: String]
+    /// The same for a Command trigger (`KeyCodeLayout.currentCommandKeyNames`); nil: ``keyNames``.
+    var commandKeyNames: [UInt16: String]?
 
     /// A terminal has the keyboard and Ghostty sees its keys (the dispatcher
     /// delivers a Ghostty entry's key to the terminal then).
@@ -52,7 +54,7 @@ struct GhosttyKeyBindingLayer {
 
     /// The probe Ghostty's binding set matches for a table key: the physical
     /// key named `shortcut.key` and the codepoint it types (nil: no key).
-    static func probe(for shortcut: Shortcut, keyNames: [UInt16: String]) -> GhosttyKeyProbe? {
+    static func probe(for shortcut: Shortcut, keyNames: [UInt16: String], commandKeyNames: [UInt16: String]? = nil) -> GhosttyKeyProbe? {
         guard let code = keyNames.filter({ $0.value == shortcut.key }).keys.min() else { return nil }
         let scalars = shortcut.key.unicodeScalars
         // Function keys (arrows, Home) type nothing: Ghostty matches them by the physical key.
@@ -96,8 +98,10 @@ extension KeyRouter {
     /// Ghostty's own defaults (`defaults`, a config with no user files) into
     /// the registry's binding table.
     func loadGhosttyKeybinds(_ binds: [GhosttyHostKeybind], defaults: [GhosttyHostKeybind], claims: [Shortcut] = [],
-                             keyNames: [UInt16: String] = KeyCodeLayout.currentKeyNames()) {
-        KeyBindingLoader(registry).loadGhostty(GhosttyKeyBindingLayer(binds: binds, defaults: defaults, keyNames: keyNames).entries,
+                             keyNames: [UInt16: String] = KeyCodeLayout.currentKeyNames(),
+                             commandKeyNames: [UInt16: String]? = KeyCodeLayout.currentCommandKeyNames()) {
+        let layer = GhosttyKeyBindingLayer(binds: binds, defaults: defaults, keyNames: keyNames, commandKeyNames: commandKeyNames)
+        KeyBindingLoader(registry).loadGhostty(layer.entries,
                                                claims: claims)
     }
 }
@@ -135,9 +139,10 @@ final class GhosttyKeybindSync {
     private func load() {
         guard let router else { return }
         let runtime = GhosttyRuntime.shared
-        let keyNames = KeyCodeLayout.currentKeyNames()
+        let keyNames = KeyCodeLayout.currentKeyNames(), commandKeyNames = KeyCodeLayout.currentCommandKeyNames()
         let binds = runtime.hostKeybinds, defaults = runtime.defaultHostKeybinds
-        router.loadGhosttyKeybinds(binds, defaults: defaults, claims: router.registry.keyBindingLayers.ghosttyClaims, keyNames: keyNames)
+        router.loadGhosttyKeybinds(binds, defaults: defaults, claims: router.registry.keyBindingLayers.ghosttyClaims, keyNames: keyNames,
+                                   commandKeyNames: commandKeyNames)
         let files = runtime.loadedConfigFiles
         claimsTask?.cancel()
         claimsTask = Task { [weak self, launchImages] in
@@ -148,11 +153,11 @@ final class GhosttyKeybindSync {
             guard !Task.isCancelled, let router = self?.router else { return }
             // The keys cmux has defaults on, asked of the user's Ghostty config.
             let probes = GhosttyKeyBindingLayer.defaultKeys(RegistryKeyBindings(router.registry).table).compactMap { key in
-                GhosttyKeyBindingLayer.probe(for: key, keyNames: keyNames).map { (key, $0) }
+                GhosttyKeyBindingLayer.probe(for: key, keyNames: keyNames, commandKeyNames: commandKeyNames).map { (key, $0) }
             }
             let claimed = runtime.userClaimedKeys(probes.map(\.1), texts: texts)
             let claims = zip(probes, claimed).compactMap { probe, isClaimed in isClaimed ? probe.0 : nil }
-            router.loadGhosttyKeybinds(binds, defaults: defaults, claims: claims, keyNames: keyNames)
+            router.loadGhosttyKeybinds(binds, defaults: defaults, claims: claims, keyNames: keyNames, commandKeyNames: commandKeyNames)
         }
     }
 }

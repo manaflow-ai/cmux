@@ -189,9 +189,10 @@ import Testing
                 if got == step {
                     chordsPassing += 1
                 } else if shortcut.key.first?.isNumber == true, let typed = key.text, typed != shortcut.key,
-                          registries[index].resolveShortcut(for: KeyInput(keyCode: code, modifiers: shortcut.modifiers, text: typed,
-                                                                           ignoringModifiers: typed, unshifted: typed)) != nil {
-                    // The digit key types a character bound here (Cmd-6 on French - PC is Cmd--): it wins.
+                          let usCode = Self.keyCode(for: Shortcut(typed, modifiers: shortcut.modifiers), on: us, ascii: nil),
+                          got == Self.step(Self.key(usCode, shortcut.modifiers, on: us, ascii: nil), in: registries[index]), got != "none" {
+                    // The digit key types a character bound here (Cmd-6 on French - PC is Cmd--): it runs what
+                    // that character runs on US, as in every Mac app.
                     chordsShadowed += 1
                     shadowed["\(shortcut.displayString) on \(layout.id)", default: 0] += 1
                 } else {

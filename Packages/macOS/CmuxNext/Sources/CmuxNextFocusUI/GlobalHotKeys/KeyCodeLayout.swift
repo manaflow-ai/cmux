@@ -80,6 +80,17 @@ package struct KeyCodeLayout: Sendable {
     /// Return, Tab, Space, Escape, Delete and the navigation keys by their
     /// key-equivalent characters.
     package static func currentKeyNames() -> [UInt16: String] {
+        keyNames(typed: typedKeys())
+    }
+
+    /// ``currentKeyNames()`` for a Command chord: what each key types with Command, on a layout
+    /// with a Command key map (Dvorak - QWERTY ⌘, Russian: QWERTY), else the same names.
+    package static func currentCommandKeyNames() -> [UInt16: String] {
+        keyNames(typed: typedKeys(command: true))
+    }
+
+    /// The table key names for a layout whose main-row keys type `typed`.
+    package static func keyNames(typed: [(code: UInt16, key: String)]) -> [UInt16: String] {
         var names: [UInt16: String] = [:]
         for (key, code) in ansi.codes where key != Shortcut.deleteKey { names[UInt16(code)] = key }
         let navigation: [(Int, Int)] = [(kVK_Home, NSHomeFunctionKey), (kVK_End, NSEndFunctionKey), (kVK_PageUp, NSPageUpFunctionKey),
@@ -87,15 +98,16 @@ package struct KeyCodeLayout: Sendable {
         for (code, character) in navigation {
             if let scalar = UnicodeScalar(UInt32(character)) { names[UInt16(code)] = String(Character(scalar)) }
         }
-        for (code, key) in typedKeys() { names[code] = key }
+        for (code, key) in typed { names[code] = key }
         return names
     }
 
     /// What each main-row key types unshifted on the selected layout, by
     /// ascending key code; empty when the layout cannot be read
     /// (`KeyboardLayoutKeys.characters(of:asciiOnly:)`, the one reading of a layout's keys).
-    private static func typedKeys() -> [(code: UInt16, key: String)] {
+    private static func typedKeys(command: Bool = false) -> [(code: UInt16, key: String)] {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return [] }
-        return KeyboardLayoutKeys.characters(of: source, asciiOnly: false).sorted { $0.key < $1.key }.map { (code: $0.key, key: $0.value) }
+        return KeyboardLayoutKeys.characters(of: source, asciiOnly: false, command: command).sorted { $0.key < $1.key }
+            .map { (code: $0.key, key: $0.value) }
     }
 }
