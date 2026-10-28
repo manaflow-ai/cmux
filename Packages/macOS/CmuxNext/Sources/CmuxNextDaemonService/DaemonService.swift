@@ -130,7 +130,7 @@ public final class DaemonService {
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
 
     static func startupAfterRetry(_ startup: DaemonStartupState) -> DaemonStartupState {
-        startup
+        startup.isUnavailable ? .connecting : startup
     }
 
     /// Clears the previous first-connect failure before a user retry wakes the

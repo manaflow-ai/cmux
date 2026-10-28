@@ -100,7 +100,7 @@ public struct SSHConnectionMachine: Hashable, Sendable {
             status = .offline
             blocked = true
         case .attemptStarted:
-            if status == .connected || status == .reconnecting { status = .connecting }
+            if status != .offline { status = .connecting }
         case .probed(let need):
             guard need != .none else { return }
             status = .needsInstall(need)
