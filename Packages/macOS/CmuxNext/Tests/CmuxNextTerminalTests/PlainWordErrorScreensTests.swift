@@ -6,7 +6,7 @@ import Testing
 /// terminal's "other build" banner speak plain words (audit 4, P12): never the internal process name
 /// "cmux-tui" or "build", in English and in Japanese, and the banner of a shell another version of cmux
 /// runs says what the person can do about it.
-@Suite struct PlainWordErrorScreensTests {
+@MainActor @Suite struct PlainWordErrorScreensTests {
     /// The CmuxNext Sources folder, from this file's path.
     private static let sources = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().appending(path: "Sources")
