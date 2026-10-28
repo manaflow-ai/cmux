@@ -42,42 +42,11 @@ extension WindowManager {
     }
 }
 
-/// The window a command runs against, resolved ONCE at its entrypoint from the input itself (the
-/// multi-window P0, Lawrence 2026-10-28: "keyboard shortcuts dont work, and clicking on
-/// home/workspaces might bring me to the wrong window. we need to completely eliminate this error
-/// class"). Chrome runs every command against an explicit `Browser*` (`BrowserWindowInterface`),
-/// the window the input came from; it never asks "which window is current" later. This is that.
-///
-/// This file is the one place that reads AppKit's window state to decide a window
-/// (`guardrails.py` implicit-window: `IMPLICIT_WINDOW_RESOLVERS`). Everything else gets a window
-/// from its input: ``ActionInvocation/windowID`` (set here when the run starts and kept for the
-/// run's tasks in ``ActionRunScope/windowID``), the view's own window, or an explicit argument.
-struct WindowTarget: Hashable {
-    /// What named the window, in the resolver's order (``WindowManager/resolveTarget(for:)``).
-    enum Source: String, Hashable {
-        /// The input named it: the view's own window (a sidebar row, the Home button, a tab strip),
-        /// the CLI's `--window`, a window action's target, or the run this one is nested in.
-        case named
-        /// The window the event in dispatch came from (`WindowManager.dispatching(eventFrom:_:)`),
-        /// or the window that event's own action brought forward.
-        case event
-        /// A person's run with no event window (a menu item): the key window at the run's start,
-        /// which is the key window at the menu's event.
-        case keyWindowAtEntry
-        /// The window that owns the run's target object (its workspace or tab).
-        case targetOwner
-        /// The window the person used last, recorded by that window when it (or a window it owns)
-        /// became key (``WindowManager/didActivate(_:)``); never the key window read later.
-        case lastPersonActive
-        /// The front open window in the registry's recency (the person's last window was closed).
-        case front
-        /// The launch window before the restore registered it (it shows the connecting state).
-        case launch
-    }
-
-    let id: String
-    let source: Source
-}
+// The window a command runs against (`WindowTarget`, CmuxNextActions), resolved ONCE at its entrypoint from
+// the input itself (multiwindow.md). This file is the one place that reads AppKit's window state to decide a
+// window (`guardrails.py` implicit-window: `IMPLICIT_WINDOW_RESOLVERS`). Everything else gets a window from its
+// input: `ActionInvocation.windowID` (set here when the run starts and kept for the run's tasks in
+// `ActionRunScope.windowID`), the view's own window, or an explicit argument.
 
 extension WindowManager {
     /// THE resolver: the window an action run acts in, in this order (multiwindow.md 1):
