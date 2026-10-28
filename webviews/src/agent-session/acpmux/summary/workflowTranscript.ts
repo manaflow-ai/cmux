@@ -54,7 +54,10 @@ export class WorkflowTranscript {
   loading = false;
   failed = false;
   get canLoadOlder() {
-    return (this.pages[0]?.start ?? 0) > 0;
+    return !this.failed && !this.loading && (this.pages[0]?.start ?? 0) > 0;
+  }
+  get historyFrom() {
+    return this.pages[0]?.start;
   }
   get truncated() {
     return this.pages.some((page) => page.truncated);

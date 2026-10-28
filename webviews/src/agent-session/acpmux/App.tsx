@@ -8922,7 +8922,13 @@ function AcpmuxPane() {
                                                       ? workflowTranscript.canLoadOlder
                                                       : !childRows && snapshot.canLoadOlder
                                                   }
-                                                  historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                                  historyFrom={
+                                                    workflowTranscript.rows
+                                                      ? workflowTranscript.historyFrom
+                                                      : childRows
+                                                        ? undefined
+                                                        : snapshot.historyFrom
+                                                  }
                                                   onLoadOlder={() =>
                                                     workflowTranscript.rows
                                                       ? workflowTranscript.loadOlder()

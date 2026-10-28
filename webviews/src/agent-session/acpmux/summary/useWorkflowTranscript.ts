@@ -79,6 +79,7 @@ export function useWorkflowTranscript(
   return {
     rows,
     canLoadOlder: reader?.canLoadOlder ?? false,
+    historyFrom: reader?.historyFrom,
     loadOlder: () => reader?.loadOlder() ?? Promise.resolve(),
   };
 }

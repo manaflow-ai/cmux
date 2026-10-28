@@ -222,11 +222,15 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
 
 test("failed older-history reads disable automatic retry until a progress refresh succeeds", async () => {
   let calls = 0;
-  const reader = new WorkflowTranscript(request, async () => {
-    calls += 1;
-    if (calls === 2) throw new Error("disconnected");
-    return page(2, 4, 4, [text("tail")]);
-  }, () => {});
+  const reader = new WorkflowTranscript(
+    request,
+    async () => {
+      calls += 1;
+      if (calls === 2) throw new Error("disconnected");
+      return page(2, 4, 4, [text("tail")]);
+    },
+    () => {},
+  );
   await reader.refresh();
   expect(reader.canLoadOlder).toBe(true);
   await reader.loadOlder();
