@@ -36,6 +36,13 @@ What it does not see (it reads text, not a type-checked program):
   check-release-switch-paths.py --list                 # every offender and the not-judged, exit 0
   check-release-switch-paths.py --rev HEAD --base B     # only offenders HEAD has and no BASE has
   check-release-switch-paths.py --explain NAME          # the hops followed for one feature
+
+What it does not see (each is "not judged" or "ok", never a refusal): a switch whose code compiles in Release but can
+never run there (the host-mode switches before they became benchOnly: their supervisor is nil in Release); a switch
+whose value goes into a name in more than MAX_NAME_FILES files (a rename onto a common name hides it); a handle read
+indirectly (a gate list, a stored handle); a property that runs code when set or read (didSet, a getter); a chain past
+MAX_HOPS. An offender is refused only with proof: no read and no handle anywhere, every read under a #if Release does
+not compile, or every use the walk reached under such a #if.
 """
 from __future__ import annotations
 
@@ -621,8 +628,11 @@ class Checker:
         return self.parsed[path]
 
     def read_sites(self, names: list[str]) -> dict[str, list[tuple[Source, int]]]:
-        """{feature: [(file, offset of the read call's start)]} for switch reads of NAMES."""
+        """{feature: [(file, offset of the read call's start)]} for switch reads of NAMES. Also fills
+        ``live_handles``: the features whose handle (`.name`, `Feature.name`) Release code names anywhere, read or
+        not (a gate list, a stored handle)."""
         sites: dict[str, list[tuple[Source, int]]] = {n: [] for n in names}
+        self.live_handles: set[str] = set()
         if not names:
             return sites
         hits = self.tree.files_with_words(set(names), self.roots)
@@ -632,6 +642,8 @@ class Checker:
                 continue
             src = self.source(path)
             for match in member.finditer(src.masked):
+                if src.is_live(match.start()):
+                    self.live_handles.add(match.group(1))
                 call = self._enclosing_read_call(src.masked, match.start())
                 if call is not None:
                     sites[match.group(1)].append((src, call))
@@ -664,9 +676,12 @@ class Checker:
         if not sites and feature.process == "both":
             return Verdict(feature, "not judged", "no switch read in the app; its daemon side (Rust) is not checked",
                            trail)
+        if not sites and feature.name in getattr(self, "live_handles", set()):
+            return Verdict(feature, "not judged", "no direct switch read, but Release code names its handle (a gate "
+                           "list or a stored handle the walk does not follow)", trail)
         if not sites:
             return Verdict(feature, "offender", "no switch read (isEnabled, resolution(of:), effectiveLocalOverride) "
-                           "in the sources", trail)
+                           "and no mention of its handle in the sources", trail)
         live_sites = [(s, o) for s, o in sites if s.is_live(o)]
         for src, off in sites:
             trail.append(f"read {src.path}:{src.line_of(off)}{'' if src.is_live(off) else ' (not in Release)'}")
@@ -689,6 +704,7 @@ class Checker:
         chain: list[str] = []
         dead_uses: list[str] = []
         skipped: list[str] = []
+        unmodeled: list[str] = []  # a followed property whose declaration runs code (didSet, willSet, a getter)
         for _hop in range(MAX_HOPS):
             frontier = [f for f in dict.fromkeys(frontier) if f not in seen]
             if not frontier:
@@ -717,8 +733,12 @@ class Checker:
                     trail.append(f"{name}: in {len(files)} files, not followed")
                     skipped.append(f"`{name}` ({len(files)} files)")
                     continue
+                observed = re.compile(r"\bvar\s+" + re.escape(name) + r"\b[^\n{=]*(?:=[^\n{]*)?\{\s*(?:didSet|willSet|get|set)\b"
+                                      r"|\bvar\s+" + re.escape(name) + r"\s*:\s*[^\n={]+\{(?!\s*(?:didSet|willSet))")
                 for path in files:
                     src = self.source(path)
+                    if observed.search(src.masked):
+                        unmodeled.append(f"`{name}` ({path})")
                     for use in re.finditer(r"(?<![\w$])" + re.escape(name) + r"\b", src.masked):
                         ctx = self._use(src, use)
                         if ctx is None or ctx.kind == "capture":
@@ -743,8 +763,10 @@ class Checker:
         # no use at all, or ran out of hops, cannot tell a no-op switch from a use this text walk does not model (a
         # memberwise init read elsewhere, a `didSet`, `.init(...)` shorthand, a chain over MAX_HOPS): not judged, so
         # correct code is never refused.
-        if not dead_uses:
-            why = "ran out of hops" if frontier else "found no use it can follow"
+        if not dead_uses or frontier or unmodeled:
+            why = ("ran out of hops" if frontier else
+                   f"reached a property that runs code when set or read ({', '.join(unmodeled[:3])})" if unmodeled
+                   else "found no use it can follow")
             return Verdict(feature, "not judged", f"read in Release; the walk through {names} {why}", trail)
         where = f"; its uses are only under #if Release does not compile ({', '.join(dead_uses[:6])}" + (
             ", ..." if len(dead_uses) > 6 else "") + ")"
