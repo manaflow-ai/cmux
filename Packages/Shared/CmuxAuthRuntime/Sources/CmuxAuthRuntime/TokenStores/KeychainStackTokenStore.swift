@@ -77,9 +77,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     /// from a signed-out store. Session restore asks this first so a Keychain
     /// that is briefly unreadable (locked, or busy right after the app was
     /// replaced by an update) keeps the session instead of signing the user
-    /// out. A missing entitlement is also unavailable: the fallback file store
-    /// may contain the only copy of the session, and a legacy account can fail
-    /// independently of the current account.
+    /// out. Only temporary failures count: a status that never clears (a
+    /// missing entitlement, a corrupt item, a failed access check) would keep
+    /// a session with no usable token forever, so it reads as an empty store
+    /// and ``FallbackTokenStore`` consults the file fallback. A legacy account
+    /// can fail independently of the current account.
     public func isReadable() async -> Bool {
         if cachedRefreshToken != nil { return true }
         lastReadWasDefinitive = true
@@ -112,10 +114,11 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         lastReadWasDefinitive = true
     }
 
-    /// Whether a Keychain read status definitively says whether an item exists.
+    /// Whether a Keychain read status is final. Only a temporary failure (the
+    /// Keychain is locked or busy) is not; it clears without user action.
     static func isDefinitiveReadStatus(_ status: Int32) -> Bool {
 #if canImport(Security)
-        return status == errSecSuccess || status == errSecItemNotFound
+        return status != errSecInteractionNotAllowed && status != errSecNotAvailable
 #else
         return true
 #endif

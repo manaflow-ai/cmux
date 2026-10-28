@@ -44,19 +44,20 @@ struct KeychainStackTokenStoreTests {
         #expect(result as? Data == unrelatedToken)
     }
 
-    /// https://github.com/manaflow-ai/cmux/issues/25628: a Keychain read that
-    /// A status other than success or item-not-found is not an empty store, so
-    /// session restore must preserve the cached session until the Keychain can
-    /// answer definitively. This includes a missing entitlement: the file
-    /// fallback may contain the only copy of the session.
-    @Test func onlyDefinitiveReadStatusesCountAsReadable() {
+    /// https://github.com/manaflow-ai/cmux/issues/25628: a locked or busy
+    /// Keychain is not an empty store, so session restore preserves the cached
+    /// session until it can answer. A failure that never clears (a missing
+    /// entitlement, a corrupt item, a failed access check) is final: treating
+    /// it as unavailable would keep a session with no usable token forever.
+    @Test func onlyTemporaryReadFailuresCountAsUnreadable() {
         #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecSuccess))
         #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecItemNotFound))
         #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecInteractionNotAllowed))
         #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecNotAvailable))
-        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecMissingEntitlement))
-        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecDecode))
-        #expect(!KeychainStackTokenStore.isDefinitiveReadStatus(errSecParam))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecMissingEntitlement))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecDecode))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecAuthFailed))
+        #expect(KeychainStackTokenStore.isDefinitiveReadStatus(errSecParam))
     }
 
     @Test func fileFallbackStoreIsAlwaysReadable() async {

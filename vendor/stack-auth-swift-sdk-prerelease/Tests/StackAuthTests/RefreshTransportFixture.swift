@@ -10,7 +10,7 @@ actor RefreshTransportFixture {
     private var requests: [RefreshFixtureURLProtocol] = []
     private var started: [CheckedContinuation<Void, Never>] = []
     private(set) var count = 0
-    private var response: (Int, String)?
+    private var response: (status: Int, token: String, headers: [String: String])?
 
     func session() async -> URLSession {
         await Self.routes.register(self, host: host)
@@ -21,7 +21,7 @@ actor RefreshTransportFixture {
 
     func receive(_ request: RefreshFixtureURLProtocol) {
         count += 1
-        if let response { request.respond(status: response.0, token: response.1) }
+        if let response { request.respond(status: response.status, token: response.token, headers: response.headers) }
         else { requests.append(request) }
         let waiters = started
         started = []
@@ -33,11 +33,11 @@ actor RefreshTransportFixture {
         await withCheckedContinuation { started.append($0) }
     }
 
-    func release(status: Int = 200, token: String) {
-        response = (status, token)
+    func release(status: Int = 200, token: String, headers: [String: String] = [:]) {
+        response = (status, token, headers)
         let pending = requests
         requests = []
-        for request in pending { request.respond(status: status, token: token) }
+        for request in pending { request.respond(status: status, token: token, headers: headers) }
     }
 
     func close() async { await Self.routes.remove(host: host) }

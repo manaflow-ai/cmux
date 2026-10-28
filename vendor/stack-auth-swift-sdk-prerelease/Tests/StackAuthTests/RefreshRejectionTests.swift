@@ -235,7 +235,10 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         let oldRefresh = Task { await client.getOrFetchLikelyValidTokens() }
         await fixture.waitForRequest()
         await client.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "new-session")
-        await fixture.release(status: 401, token: "unused")
+        await fixture.release(
+            status: 401, token: "unused",
+            headers: ["x-stack-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"]
+        )
         _ = await oldRefresh.value
         await fixture.release(status: 200, token: RefreshLifecycleTests.fresh)
 
@@ -273,9 +276,13 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         #expect(kept == nil)
     }
 
-    @Test func unnamedRejectionKeepsTheSession() async {
-        let kept = await refreshTokenAfterRefresh(answering: .init(status: 401, body: ""))
-        #expect(kept == "session")
+    /// A Stack rejection that names no error still ends a dead session;
+    /// keeping it would leave the user signed in with a token that never
+    /// refreshes.
+    @Test(arguments: ["", "{}", #"{"message":"Unauthorized"}"#])
+    func unnamedRejectionClearsTheSession(_ body: String) async {
+        let kept = await refreshTokenAfterRefresh(answering: .init(status: 401, body: body))
+        #expect(kept == nil)
     }
 
     private func testClock(_ clock: RefreshTestClock) -> TokenRefreshClock {

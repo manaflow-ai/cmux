@@ -400,9 +400,14 @@ actor APIClient {
                     ? .sessionEnded
                     : .requestRejected(code: knownErrorCode)
             }
+            // An empty rejection names nothing the client could fix, so the
+            // token is dead. A body that is not JSON (a captive portal or proxy
+            // page) did not come from Stack and must not end the session.
             guard let bodyText = String(data: body, encoding: .utf8),
-                  !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
+                  !bodyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return .sessionEnded
+            }
+            guard let json = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] else {
                 return .requestRejected(code: nil)
             }
             if let code = nonEmpty(json["code"] as? String) {
@@ -415,7 +420,7 @@ actor APIClient {
                     ? .sessionEnded
                     : .requestRejected(code: oauthError)
             }
-            return .requestRejected(code: nil)
+            return .sessionEnded
         }
 
         private static func nonEmpty(_ value: String?) -> String? {
@@ -437,9 +442,9 @@ actor APIClient {
     enum RefreshOutcome {
         /// The server minted a new access token.
         case success(accessToken: String)
-        /// The server rejected the refresh token itself (HTTP 400/401 naming the
-        /// token, e.g. `REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED` or `invalid_grant`.
-        /// The refresh token will never work again;
+        /// The server rejected the refresh token itself: HTTP 400/401 naming the
+        /// token (`REFRESH_TOKEN_NOT_FOUND_OR_EXPIRED`, `invalid_grant`) or
+        /// naming no error at all. The refresh token will never work again;
         /// clearing is correct.
         case definitivelyRejected
         /// The refresh could not be completed for a reason that is not the token's

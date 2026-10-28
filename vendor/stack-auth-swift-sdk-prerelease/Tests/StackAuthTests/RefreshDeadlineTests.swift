@@ -62,7 +62,7 @@ import Testing
         await fixture.release(status: status, token: RefreshLifecycleTests.fresh)
         let pair = await client.getOrFetchLikelyValidTokens()
         #expect(pair.accessToken == (status == 200 ? RefreshLifecycleTests.fresh : nil))
-        #expect(await store.getStoredRefreshToken() == "session")
+        #expect(await store.getStoredRefreshToken() == (status == 401 ? nil : "session"))
         #expect(await fixture.count == 1)
         session.invalidateAndCancel()
         await fixture.close()
