@@ -22,6 +22,8 @@ public final class NativePopupHost {
     public var keepsOpen: (NSEvent) -> Bool = { _ in false }
     /// The popup closed by a dismiss rule; ``hide()`` does not call it.
     public var onDismiss: (() -> Void)?
+    /// Called when a close's fade ends and the panel has left the screen.
+    public var onOrderedOut: (() -> Void)?
     /// The control the popup opened from (screen), which it grows from and shrinks toward.
     public private(set) var anchor: CGRect = .zero
     /// Fading out after a hide: gone for the owner and for tests.
@@ -113,6 +115,7 @@ public final class NativePopupHost {
             panel.orderOut(nil)
             panel.resetPopupScale()
             self?.isClosing = false
+            self?.onOrderedOut?()
         }
     }
 

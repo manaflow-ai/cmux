@@ -71,6 +71,8 @@ final class ExtensionsMenuController {
             return button.bounds.contains(button.convert(event.locationInWindow, from: nil))
         }
         popup.onDismiss = { [weak self] in self?.closed() }
+        // Rows that changed while the bubble faded out are committed once it has left.
+        popup.onOrderedOut = { [weak self] in self?.warmPanel() }
         manifests.onLoad = { [weak self] in
             guard let self else { return }
             // A manifest that loads after a prepare changes rows; a closed bubble commits them
