@@ -485,7 +485,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-      recordMeasuredRun(memory, imageSelection.size, user.id, created.providerVmId);
+      recordMeasuredRun(memory, imageSelection.size, user.id, created);
       const attach = createAttachBlock({
         entry: created,
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
@@ -596,12 +596,12 @@ function recordMeasuredRun(
   sized: { readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null },
   booted: { readonly name: string } | null | undefined,
   userId: string,
-  providerVmId: string,
+  vm: { readonly provider: string; readonly providerVmId: string },
 ): void {
   // Only a machine that boots at the picked shape is a run of the pick.
   const tag = sized.tag;
   if (!tag || !sized.pick || booted?.name !== sized.pick.pick) return;
-  runAfterResponse(() => runVmWorkflow(tagMeasuredRun({ userId, providerVmId, tag })).then(() => undefined));
+  runAfterResponse(() => runVmWorkflow(tagMeasuredRun({ userId, provider: vm.provider, providerVmId: vm.providerVmId, tag })).then(() => undefined));
 }
 
 /**

@@ -27,7 +27,7 @@ export function listMeasuredRuns(input: { readonly userId: string; readonly repo
 }
 
 /** Tags the owner's new VM as a run of the pick, so its peaks count for the next one. */
-export function tagMeasuredRun(input: { readonly userId: string; readonly providerVmId: string; readonly tag: AutosizeTag }) {
+export function tagMeasuredRun(input: { readonly userId: string; readonly provider: string; readonly providerVmId: string; readonly tag: AutosizeTag }) {
   return Effect.gen(function* () {
     const repo = yield* VmRepository;
     if (!repo.tagAutosizeRun) return false;

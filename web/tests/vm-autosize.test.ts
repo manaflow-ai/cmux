@@ -182,13 +182,23 @@ describe("measuredRunFromMetadata", () => {
   test("a tagged VM's peaks are one run; CPU is the mean busy cores", () => {
     const peak = { providerVmId: "p", memoryUsedMb: 3500, diskUsedMb: 9000, cpuPercentSum: 150, cpuSamples: 2 };
     expect(measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: peak }, "cmuxResourcePeak"))
-      .toEqual({ vcpus: 2, memoryMb: 4096, peakMemoryMb: 3500, meanBusyCpus: 1.5, peakDiskMb: 9000 });
+      .toEqual({ vcpus: 2, memoryMb: 4096, storageMb: 16384, peakMemoryMb: 3500, meanBusyCpus: 1.5, peakDiskMb: 9000 });
   });
 
   test("a run that filled its shape picks the next one up", () => {
     // 3500 of 4096 MiB * 1.2 -> 5 GiB: md.
     const run = measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 3500 } }, "cmuxResourcePeak")!;
     expect(pick({ taskKind: "chat", measuredRuns: [run] }).pick).toBe("md");
+  });
+
+  test("a peak at 95% of the shape ran short on that axis, so the percentile cannot outvote it", () => {
+    const fine = Array.from({ length: 19 }, () => measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 1000 } }, "cmuxResourcePeak")!);
+    const oom = measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 3950 } }, "cmuxResourcePeak")!;
+    const full = measuredRunFromMetadata({ cmuxAutosize: tag, cmuxResourcePeak: { memoryUsedMb: 1000, diskUsedMb: 16000 } }, "cmuxResourcePeak")!;
+    expect(oom.ranShort).toBe("memory");
+    expect(full.ranShort).toBe("disk");
+    expect(pick({ taskKind: "chat", measuredRuns: [...fine, oom] }).pick).toBe("md");
+    expect(pick({ taskKind: "chat", measuredRuns: [...fine, full] }).pick).toBe("md");
   });
 
   test("no tag, no peaks, or a broken tag is no run", () => {

@@ -60,14 +60,15 @@ dbTest("a tagged run with peaks is read back by the next pick", async () => {
   const pick = pickMachineSize({ taskKind: "build", repo: { rootFiles: ["Package.swift"] }, planMemoryOptionsMb: [4096, 8192, 16384] });
   if (!pick.ok) throw new Error(pick.message);
   for (const id of ids) {
-    expect(await run(tagMeasuredRun({ userId: user, providerVmId: `provider-${id}`, tag: autosizeTag(repoKey, "build", pick) }))).toBe(true);
+    expect(await run(tagMeasuredRun({ userId: user, provider: "gcp", providerVmId: `provider-${id}`, tag: autosizeTag(repoKey, "build", pick) }))).toBe(false);
+    expect(await run(tagMeasuredRun({ userId: user, provider: "freestyle", providerVmId: `provider-${id}`, tag: autosizeTag(repoKey, "build", pick) }))).toBe(true);
   }
   // Still running: its peaks so far are not a finished run.
   expect(await run(listMeasuredRuns({ userId: user, repoKey, taskKind: "build" }))).toEqual([]);
   await sql`update cloud_vms set status = 'destroyed', destroyed_at = now() where user_id = ${user}`;
   // ids[1] never reported a sample: it is not a measured run.
   const runs = await run(listMeasuredRuns({ userId: user, repoKey, taskKind: "build" }));
-  expect(runs).toEqual([{ vcpus: 8, memoryMb: 16384, peakMemoryMb: 7000, meanBusyCpus: 3, peakDiskMb: 9000 }]);
+  expect(runs).toEqual([{ vcpus: 8, memoryMb: 16384, storageMb: 65536, peakMemoryMb: 7000, meanBusyCpus: 3, peakDiskMb: 9000 }]);
   expect(await run(listMeasuredRuns({ userId: user, repoKey, taskKind: "test" }))).toEqual([]);
   expect(await run(listMeasuredRuns({ userId: `${user}-other`, repoKey, taskKind: "build" }))).toEqual([]);
   // 7000 MiB * 1.2 -> 9 GiB: lg, from the one run.

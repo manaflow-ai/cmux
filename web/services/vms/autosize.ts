@@ -251,11 +251,12 @@ export const autosizeTag = (repoKey: string, taskKind: AutosizeTaskKind, pick: A
 
 const finite = (value: unknown): number | undefined => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined);
 
+/** A run whose peak reached this share of its memory or disk ran short on it (no OOM signal reaches the control plane yet). */
+export const RAN_SHORT_FRACTION = 0.95;
+
 /**
  * One measured run from a VM's metadata: its tag and its peaks. Null when the
- * VM has no tag or no sample ever reached the control plane. A run that
- * filled its memory or disk needs no flag: a peak past 84% of the shape plus
- * the 20% margin is already above it, so the next pick goes up a shape.
+ * VM has no tag or no sample ever reached the control plane.
  */
 export function measuredRunFromMetadata(metadata: Readonly<Record<string, unknown>>, peakKey: string): MeasuredRun | null {
   const tag = metadata[AUTOSIZE_METADATA_KEY] as Record<string, unknown> | undefined;
@@ -264,10 +265,14 @@ export function measuredRunFromMetadata(metadata: Readonly<Record<string, unknow
   const vcpus = finite(tag.vcpus);
   const memoryMb = finite(tag.memoryMb);
   if (!vcpus || !memoryMb) return null;
+  const storageMb = finite(tag.storageMb);
   const peakMemoryMb = finite(peak.memoryUsedMb);
   const peakDiskMb = finite(peak.diskUsedMb);
   const cpuSum = finite(peak.cpuPercentSum);
   const cpuSamples = finite(peak.cpuSamples);
   const meanBusyCpus = cpuSum !== undefined && cpuSamples ? (cpuSum / cpuSamples / 100) * vcpus : undefined;
-  return { vcpus, memoryMb, peakMemoryMb, meanBusyCpus, peakDiskMb };
+  const ranShort = peakMemoryMb !== undefined && peakMemoryMb >= memoryMb * RAN_SHORT_FRACTION
+    ? "memory" as const
+    : peakDiskMb !== undefined && storageMb && peakDiskMb >= storageMb * RAN_SHORT_FRACTION ? "disk" as const : undefined;
+  return { vcpus, memoryMb, storageMb, peakMemoryMb, meanBusyCpus, peakDiskMb, ...(ranShort ? { ranShort } : {}) };
 }

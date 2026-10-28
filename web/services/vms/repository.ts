@@ -443,6 +443,7 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   /** Marks the owner's VM as an auto-sized run of a repo and task kind (autosize.ts AutosizeTag). */
   readonly tagAutosizeRun?: (input: {
     readonly userId: string;
+    readonly provider: string;
     readonly providerVmId: string;
     readonly tag: AutosizeTag;
   }) => Effect.Effect<boolean, VmDatabaseError>;
@@ -2189,6 +2190,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         providerMetadata: sql`${cloudVms.providerMetadata} || ${JSON.stringify({ [AUTOSIZE_METADATA_KEY]: input.tag })}::jsonb`,
       }).where(and(
         eq(cloudVms.userId, input.userId),
+        eq(cloudVms.provider, input.provider as CloudVmRow["provider"]),
         eq(cloudVms.providerVmId, input.providerVmId),
         ne(cloudVms.status, "destroyed"),
       )).returning({ id: cloudVms.id });
