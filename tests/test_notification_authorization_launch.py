@@ -41,7 +41,7 @@ class AuthorizationLaunchTests(unittest.TestCase):
         extra += declaration((package / 'UserNotificationAuthorizationStatus.swift').read_text(),
                              'public enum UserNotificationAuthorizationStatus')
         # The framework bridge initializer isn't used by this headless boundary.
-        
+
         names = ['func markWindowSetupComplete()', 'func refreshAuthorizationStatus()',
                  'private func ensureAuthorization(', 'private func requestAuthorizationIfNeeded(',
                  'static func authorizationState(', 'static func shouldRequestAuthorization(',
