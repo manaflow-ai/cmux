@@ -1,8 +1,9 @@
 //! An orphaned `server ensure` owner (a killed probe's, as on aws-m4pro-5)
 //! must not spin. Its clients going away mid-request leaves it idle; on
-//! macOS, its executable's volume being force-removed makes it exit at once
-//! (headless/exe_revoke_exit.rs) instead of faulting on its own code pages
-//! at about 100% system time per thread, as the two leaked owners did.
+//! macOS, its executable's volume being force-removed ends it at once
+//! (headless.rs `fatal_faults_end_the_owner`) instead of leaving its threads
+//! faulting on their own code pages at about 100% system time each, as the
+//! two leaked owners did.
 
 #![cfg(any(target_vendor = "apple", target_os = "linux"))]
 
@@ -13,10 +14,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// How long an owner may take to exit once its executable is revoked. The
-/// watcher wakes on the kernel's revoke event and exits without running the
-/// owner's teardown, so it takes milliseconds; 10 s is `ENSURE_DEADLINE` and
-/// leaves room for a loaded runner. Without the watcher it never exits.
+/// How long an owner may take to exit once its executable's volume is gone.
+/// The kernel ends it on the first fault on a page it can no longer read,
+/// within milliseconds of a thread running code it had not run; 10 s is
+/// `ENSURE_DEADLINE` and leaves room for a loaded runner. With a fault
+/// handler installed it never exits.
 #[cfg(target_os = "macos")]
 const EXIT_BOUND: Duration = Duration::from_secs(10);
 
