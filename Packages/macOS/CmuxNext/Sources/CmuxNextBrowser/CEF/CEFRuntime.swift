@@ -551,7 +551,7 @@ final class CEFRuntime {
             chromiumSpareOff: !spareWindow.chromiumStarting(placeholderSupported: shim.placeholderSupported() == 1),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment, builtInExtensions: builtInPlan.folders,
-            builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1),
+            builtInExtensionsAtFirstTab: builtInLoader.start(builtInPlan.folders, forkSupports: shim.extLoadLaterSupported() == 1) == .atFirstTab,
             keepsUnpackedEnabled: builtInPlan.keepsUnpackedEnabled, pageSiteCaps: CEFPageSchemes.siteCaps(CEFPageSchemes.firstParty),
             sharedRendererMemoryCaps: sharedRendererMemoryCaps
         )
