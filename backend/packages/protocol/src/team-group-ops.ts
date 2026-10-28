@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { UserId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Cloud groups (plans/cmux-next/cloud-groups-DESIGN.md, slice 1): a sidebar group whose record lives

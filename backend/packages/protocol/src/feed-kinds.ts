@@ -1,7 +1,7 @@
 import { Exit, Schema } from "effect"
 import { checkSubsetSchema, checkSubsetValue, type SubsetResult } from "./feed-schema-subset.ts"
 import { OpRisk } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * The feed kind registry (plans/cmux-next/feed.md 3.4): each built-in kind has

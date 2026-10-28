@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { ConversationId, ParticipantId } from "./ops-home-schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Participant avatars (capability participant-avatars-v1 on the local owner; the same ops on the

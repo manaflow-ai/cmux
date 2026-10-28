@@ -3,7 +3,7 @@ import { automationCapabilityOps } from "./automation-caps.ts"
 import { MachineId } from "./cloud-machine-ops.ts"
 import { ConversationId } from "./ops-home-schemas.ts"
 import { DisplayName, HostId, TeamId, UserId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Automation shape v1 (spec cloud-and-automations.md "Data"). The SchedulerDO

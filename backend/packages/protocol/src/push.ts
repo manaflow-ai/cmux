@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Device push targets (identity spec section 2: a device holds its push

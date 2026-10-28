@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { HostId, Revision, TeamId, UserId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * cmux-next Cloud machines (plans/cmux-next/cloud-client-contract.md 1.2, 1.3 and 1.7;

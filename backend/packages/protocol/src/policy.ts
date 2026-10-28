@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { IntegrationProvider, RepoPattern } from "./integrations.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Team policy (spec/enterprise.md section 4): one typed record per team,

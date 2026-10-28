@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { APPROVAL, APPROVAL_DOC, CloudMachine, CloudMachineSize, KEY, LIMITED, MachineName, PROVIDER, SnapshotId, cloudMutation, cloudRead } from "./cloud-machine-ops.ts"
 import { Revision, UserId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Cloud environments (plans/cmux-next/cloud-environments-DESIGN.md): a repository, a setup script

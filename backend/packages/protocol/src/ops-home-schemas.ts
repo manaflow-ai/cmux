@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Home messaging wire schemas (plans/cmux-next/home-messaging.md sections 2 and 4), matching

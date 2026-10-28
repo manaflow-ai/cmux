@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { ServerNetworkState } from "./server-network.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isMinLength, isPattern } from "./json-checks.ts"
 
 /** Public prefixed ids (cli.md C7). 20 lowercase hex characters after the prefix. */
 const prefixedId = (prefix: string, identifier: string, description: string) =>
@@ -45,8 +45,8 @@ export const OpClass = Schema.Literals([...OP_RISKS, "cloud-link", "vm-self"]).a
 export const PublicJwk = Schema.Struct({
   kty: Schema.Literal("EC"),
   crv: Schema.Literal("P-256"),
-  x: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43)),
-  y: Schema.String.check(Schema.isMinLength(43), Schema.isMaxLength(43))
+  x: Schema.String.check(isMinLength(43), Schema.isMaxLength(43)),
+  y: Schema.String.check(isMinLength(43), Schema.isMaxLength(43))
 }).annotate({ identifier: "PublicJwk", description: "ES256 (P-256) public key of an install." })
 
 /** What a paired server says it is (`optchat-chief-brain`: it runs a user's Chief); lowercase words joined by hyphens. */

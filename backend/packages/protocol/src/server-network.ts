@@ -1,5 +1,5 @@
 import { Schema } from "effect"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 export const NativeTenantId = Schema.String.check(isPattern(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/)).annotate({ identifier: "NativeTenantId" })
 export const NativeMeshId = Schema.String.check(isPattern(/^mesh_[0-9a-hjkmnp-tv-z]{26}$/)).annotate({ identifier: "NativeMeshId" })

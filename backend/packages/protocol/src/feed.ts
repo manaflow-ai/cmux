@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { FeedAttachment } from "./feed-kinds.ts"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * The feed (plans/cmux-next/feed.md): one per-user list of notices and

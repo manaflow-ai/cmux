@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import type { CloudOpDef } from "./op-def.ts"
 import { InstallId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isMinLength, isPattern } from "./json-checks.ts"
 
 /**
  * Ops only CloudDO itself submits (plans/cmux-next/state-placement.md 5.2). Not exported to the
@@ -64,7 +64,7 @@ export const CloudAbandonedClearParams = Schema.Struct({
   key: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(256)),
   by: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(128)),
   by_email: Schema.NullOr(Schema.String.check(Schema.isMaxLength(320))),
-  reason: Schema.String.check(Schema.isMinLength(8), Schema.isMaxLength(500)),
+  reason: Schema.String.check(isMinLength(8), Schema.isMaxLength(500)),
   at: Schema.Int
 })
 

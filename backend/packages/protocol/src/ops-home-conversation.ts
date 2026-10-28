@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { def } from "./op-def.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isMinLength, isPattern } from "./json-checks.ts"
 import {
   ClientToken,
   ConversationCommit,
@@ -67,8 +67,8 @@ export const DmOpen = def({
   params: Schema.Struct({
     peer: Schema.Union([
       ParticipantId,
-      Schema.Struct({ email: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(254)) }),
-      Schema.Struct({ phone: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(32)) })
+      Schema.Struct({ email: Schema.String.check(isMinLength(3), Schema.isMaxLength(254)) }),
+      Schema.Struct({ phone: Schema.String.check(isMinLength(3), Schema.isMaxLength(32)) })
     ])
   }),
   result: Schema.Struct({ conversation: ConversationSummary }),
@@ -334,8 +334,8 @@ export const InviteCreate = def({
   params: Schema.Struct({
     ...conv,
     address: Schema.Union([
-      Schema.Struct({ email: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(254)) }),
-      Schema.Struct({ phone: Schema.String.check(Schema.isMinLength(3), Schema.isMaxLength(32)) })
+      Schema.Struct({ email: Schema.String.check(isMinLength(3), Schema.isMaxLength(254)) }),
+      Schema.Struct({ phone: Schema.String.check(isMinLength(3), Schema.isMaxLength(32)) })
     ]),
     display_name: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(80)),
     locale: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(35))),

@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { InstallId, TeamId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * The team VM (plans/cmux-next/team-vm-plan.md S2, spec/team-vm.md). TeamVmDO, one per team,

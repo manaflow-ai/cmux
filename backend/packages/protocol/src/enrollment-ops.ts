@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { InstallId, TeamId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Device enrollment (spec/enterprise.md 5.4, decision E3): a team admin makes

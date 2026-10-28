@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { DisplayName, InstallId, TeamId, UserId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Integration connections (spec integrations.md). The ConnectionDO of the

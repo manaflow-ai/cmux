@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors } from "./op-def.ts"
 import { TeamId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Enterprise SSO, slice 2c-1: email domain ownership (spec/enterprise.md 3.4).

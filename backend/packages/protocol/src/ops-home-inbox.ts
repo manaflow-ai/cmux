@@ -2,7 +2,7 @@ import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { ConversationId, ConversationKind, InboxEntry, ParticipantId, Seq, Timestamp } from "./ops-home-schemas.ts"
 import { HostId, InstallId } from "./schemas.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Inbox (UserDO stream `inbox:<user>`), chiefs (UserDO), the chief wake queue (MuxDO) and Home

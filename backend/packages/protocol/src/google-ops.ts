@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
 import { ConnectionId } from "./integrations.ts"
-import { isPattern } from "./json-pattern.ts"
+import { isPattern } from "./json-checks.ts"
 
 /**
  * Google Calendar and Gmail ops (spec integrations.md "APIs and ops", D14,
