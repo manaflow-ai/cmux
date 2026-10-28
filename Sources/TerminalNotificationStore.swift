@@ -807,14 +807,15 @@ final class TerminalNotificationStore: ObservableObject {
         }
     }
 
-    func handleApplicationDidBecomeActive() {
+    @discardableResult
+    func handleApplicationDidBecomeActive() -> Task<Void, Never>? {
         logAuthorization("app became active deferred=\(hasDeferredAuthorizationRequest)")
         if hasDeferredAuthorizationRequest {
             hasDeferredAuthorizationRequest = false
             ensureAuthorization(origin: .settingsButton) { _, _ in }
-            return
+            return nil
         }
-        refreshAuthorizationStatus()
+        return refreshAuthorizationStatus()
     }
 
     @discardableResult

@@ -63,31 +63,25 @@ struct TerminalNotificationAuthorizationRefreshTests {
         })
     }
 
-    /// Lets any main-actor refresh task started so far run to completion.
-    private func drainMainActor() async {
-        for _ in 0..<20 { await Task.yield() }
-    }
-
     @Test
-    func initialRefreshWaitsForWindowSetup() async {
+    func initialRefreshWaitsForWindowSetup() async throws {
         let provider = StatusProvider()
         let store = makeStore(provider: provider)
 
-        await drainMainActor()
         #expect(provider.reads == 0)
         #expect(store.authorizationState == .unknown)
 
-        await store.markWindowSetupComplete()?.value
+        let initialRefresh = try #require(store.markWindowSetupComplete())
+        await initialRefresh.value
         #expect(provider.reads == 1)
         #expect(store.authorizationState == .denied)
 
         #expect(store.markWindowSetupComplete() == nil)
-        await drainMainActor()
         #expect(provider.reads == 1)
     }
 
     @Test
-    func activationBeforeWindowSetupDoesNotPublish() async {
+    func activationBeforeWindowSetupDoesNotPublish() async throws {
         let provider = StatusProvider()
         provider.result = .success(.notDetermined)
         let notificationCenter = NotificationCenter()
@@ -95,8 +89,8 @@ struct TerminalNotificationAuthorizationRefreshTests {
         let (recorder, stopObserving) = observePublications(of: store, notificationCenter: notificationCenter)
         defer { stopObserving() }
 
-        store.handleApplicationDidBecomeActive()
-        await drainMainActor()
+        let activationRefresh = try #require(store.handleApplicationDidBecomeActive())
+        await activationRefresh.value
         #expect(provider.reads == 0)
         #expect(store.authorizationState == .unknown)
         #expect(recorder.changes == 0)
@@ -104,7 +98,6 @@ struct TerminalNotificationAuthorizationRefreshTests {
 
         // The startup and activation requests share the gate and run as one refresh.
         await store.markWindowSetupComplete()?.value
-        await drainMainActor()
         #expect(provider.reads == 1)
         #expect(store.authorizationState == .notDetermined)
         #expect(recorder.changes == 1)
@@ -112,7 +105,7 @@ struct TerminalNotificationAuthorizationRefreshTests {
     }
 
     @Test
-    func activationAfterWindowSetupRefreshesImmediately() async {
+    func activationAfterWindowSetupRefreshesImmediately() async throws {
         let provider = StatusProvider()
         let notificationCenter = NotificationCenter()
         let store = makeStore(provider: provider, notificationCenter: notificationCenter)
@@ -120,11 +113,13 @@ struct TerminalNotificationAuthorizationRefreshTests {
         let (recorder, stopObserving) = observePublications(of: store, notificationCenter: notificationCenter)
         defer { stopObserving() }
 
-        provider.result = .success(.authorized)
-        store.handleApplicationDidBecomeActive()
-        await drainMainActor()
+        // Provisional permission exercises allowed-state publication without
+        // requesting a badge upgrade from the runner's real notification center.
+        provider.result = .success(.provisional)
+        let activationRefresh = try #require(store.handleApplicationDidBecomeActive())
+        await activationRefresh.value
         #expect(provider.reads == 2)
-        #expect(store.authorizationState == .authorized)
+        #expect(store.authorizationState == .provisional)
         #expect(recorder.changes == 1)
         #expect(recorder.posts == 1)
     }
