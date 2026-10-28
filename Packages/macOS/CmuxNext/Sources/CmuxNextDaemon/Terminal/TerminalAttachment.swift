@@ -157,7 +157,11 @@ public actor TerminalAttachment: TerminalByteChannel {
                       localHistory: Bool, images: Bool, clientName: String,
                       device: TerminalSizingDevice?, createIntent: UInt64) async throws {
         let sink = sink
-        transport.start(onEvent: { name, line, _ in sink.deliver(name: name, line: line) },
+        // The reader hands each line to the connection's decode lane: a snapshot or a replay always decodes there,
+        // never on the reader. The sink never waits there; the reader waits after the line for the view's queue,
+        // its lane and a held marker (p05-ipc-144).
+        transport.start(dispatch: sink.dispatch,
+                        onEvent: { name, line, _ in sink.deliver(name: name, line: line) },
                         onClose: { sink.close($0) })
         // Both in one round trip; the attach below needs the identity.
         let replies = await transport.pipeline([
