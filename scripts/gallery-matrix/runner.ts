@@ -261,6 +261,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A page that is not a stage (the gallery shell) may ask for time to settle its own frames.
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
+    if (typeof params.auditClick === "string") await page.locator(params.auditClick).first().click();
+    if (typeof params.auditWait === "string") await page.locator(params.auditWait).first().waitFor({ state: "visible" });
     if (typeof params.auditScroll === "string") {
       await page.locator(params.auditScroll).first().evaluate((element) => { element.scrollTop = element.scrollHeight; });
     }
