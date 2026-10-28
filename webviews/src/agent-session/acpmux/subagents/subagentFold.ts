@@ -582,15 +582,16 @@ export class SubagentFold {
       // ToolSearch is hidden from the child view, so it cannot settle the visible reply. Keep
       // the marker until a rendered tool or thought actually follows it.
       const hidden = hiddenCall(this.hiddenCalls, `${id}\u0000${call}`, update);
+      const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       // A page opened after a ToolSearch started has only its title-less result. Treat a result
       // with no renderable content as hidden too, matching direct transcript folding.
-      const unknownHiddenResult = update?.sessionUpdate === "tool_call_update" && showsNothing(update);
+      const unknownHiddenResult =
+        update?.sessionUpdate === "tool_call_update" && !tools.has(call) && showsNothing(update);
       replySettled = !hidden && !unknownHiddenResult && this.pendingReplySummaries.delete(id);
       if (hidden || unknownHiddenResult) {
         this.bump(id);
         return;
       }
-      const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       const settled =
         update.status === undefined ? tools.get(call) : update.status === "completed" || update.status === "failed";
       // New tools and every update of a settled tool change the summary, even without a status.
