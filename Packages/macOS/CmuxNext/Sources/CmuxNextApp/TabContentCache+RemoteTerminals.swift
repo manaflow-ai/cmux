@@ -16,6 +16,9 @@ extension TabContentCache {
         guard let generation = daemon.store.generation else { return nil }
         let validity = "remote#\(daemon.machineID)#\(ref.terminalID.rawValue)#\(resource.rawValue)#\(generation.rawValue)"
         if let entry = terminals[key], entry.validity == validity { return entry }
+        // The terminal's session restarted: the new view shows what the old one showed until it draws.
+        let identity = "remote#\(daemon.machineID)#\(ref.terminalID.rawValue)#\(resource.rawValue)"
+        let carried = terminals[key].flatMap { $0.terminalIdentity == identity ? $0.session.carriedFrame() : nil }
         discardTerminal(key)
         let target = DaemonTerminalIO.Target(
             attachment: .unplaced(terminalResourceID: resource, generation: generation),
@@ -30,9 +33,11 @@ extension TabContentCache {
                                       lowersHiddenOutput: streamFocus != nil)
         // It lays out after a Ghostty config change only while its tab is visible.
         session.view.followConfig(node(for: key), on: mainWork)
+        if let carried { session.holdCarriedFrame(carried) }
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: TerminalAttachment.unresolvedSurface, mainWork: mainWork)
+        entry.terminalIdentity = identity
         terminals[key] = entry
         session.delegate = sessionDelegate
         session.isRenderingSuspended = !render

@@ -907,18 +907,20 @@ pub fn shown_url(url: &str) -> String {
 /// Whether a query item's key (percent-decoded, any case) is `token`.
 fn is_token_key(key: &str) -> bool {
     let mut decoded = Vec::with_capacity(key.len());
-    let bytes = key.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%'
-            && i + 2 < bytes.len()
-            && let Ok(byte) = u8::from_str_radix(&key[i + 1..i + 3], 16)
+    let mut rest = key.as_bytes();
+    while let Some((&first, tail)) = rest.split_first() {
+        // An escape is `%` and two hex digits. Reading them as bytes, not
+        // as `&key[..]`, never cuts through a multi-byte character.
+        if first == b'%'
+            && let Some((hex, after)) = tail.split_at_checked(2)
+            && let Some(byte) =
+                std::str::from_utf8(hex).ok().and_then(|hex| u8::from_str_radix(hex, 16).ok())
         {
             decoded.push(byte);
-            i += 3;
+            rest = after;
         } else {
-            decoded.push(bytes[i]);
-            i += 1;
+            decoded.push(first);
+            rest = tail;
         }
     }
     decoded.eq_ignore_ascii_case(b"token")
@@ -980,6 +982,9 @@ mod remote_config_tests {
             lift_query_token("ws://h:1/?%74oken=abc&x=1"),
             ("ws://h:1/?x=1".to_owned(), Some("abc".to_owned()))
         );
+        // A `%` before a multi-byte character is not an escape, and reading
+        // it never cuts through the character.
+        assert_eq!(lift_query_token("ws://h:1/?%é=2&x=1"), ("ws://h:1/?%é=2&x=1".to_owned(), None));
     }
 
     #[test]

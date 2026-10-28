@@ -10,6 +10,7 @@
 //! [`JsonExt::field`] and [`JsonExt::item`] read like `value["key"]` and
 //! `value[0]` (Null when absent) without the index operator, so the panic
 //! lints stay at 0 and a reader sees that no read can panic.
+//! [`JsonExt::field_mut`] is `&mut value["key"]` without the index operator.
 
 use serde_json::{Map, Value};
 use std::sync::{Mutex, MutexGuard, PoisonError, RwLock, RwLockReadGuard, RwLockWriteGuard};
@@ -54,6 +55,9 @@ pub trait JsonExt {
     /// `value[key]` for reading: Null when the key is absent or `self` is
     /// not an object.
     fn field(&self, key: &str) -> &Value;
+    /// `&mut value[key]`: the field, inserted as Null when absent; a null
+    /// value becomes an object first. `None` for any other non-object.
+    fn field_mut(&mut self, key: &str) -> Option<&mut Value>;
     /// `value[index]` for reading: Null when `self` is not an array or the
     /// index is past its end.
     fn item(&self, index: usize) -> &Value;
@@ -89,6 +93,9 @@ impl JsonExt for Value {
     fn field(&self, key: &str) -> &Value {
         self.get(key).unwrap_or(&JSON_NULL)
     }
+    fn field_mut(&mut self, key: &str) -> Option<&mut Value> {
+        Some(self.object_mut()?.entry(key).or_insert(Value::Null))
+    }
     fn item(&self, index: usize) -> &Value {
         self.get(index).unwrap_or(&JSON_NULL)
     }
@@ -117,6 +124,7 @@ impl StrExt for str {
 #[cfg(test)]
 mod tests {
     use super::{JsonExt, StrExt};
+    use serde_json::Value;
     use serde_json::json;
 
     #[test]
@@ -136,6 +144,14 @@ mod tests {
         assert!(v.field("s").field("x").is_null());
         assert!(v.field("a").field("b").item(9).is_null());
         assert!(json!("string").item(0).is_null());
+    }
+
+    #[test]
+    fn field_mut_inserts_null_and_turns_null_into_an_object() {
+        let mut v = Value::Null;
+        assert_eq!(v.field_mut("a"), Some(&mut Value::Null));
+        assert_eq!(v, json!({"a": null}));
+        assert!(json!([1]).field_mut("a").is_none());
     }
 
     #[test]

@@ -522,10 +522,15 @@ mod unix {
                 0
             }
             Err(error) => {
-                eprintln!("{}", error["message"].as_str().unwrap_or("error"));
+                eprintln!("{}", error_message(&error));
                 1
             }
         }
+    }
+
+    /// The `message` of a host error reply; "error" when it has none.
+    fn error_message(error: &Value) -> &str {
+        error.get("message").and_then(Value::as_str).unwrap_or("error")
     }
 
     /// A request whose answer is not printed (cleanup).
@@ -576,20 +581,22 @@ mod unix {
                 "terminal": caller_terminal(),
             }),
         ) {
-            eprintln!("{}", error["message"].as_str().unwrap_or("error"));
+            eprintln!("{}", error_message(&error));
             return 1;
         }
-        let mut params = json!({"session": options.session, "code": code});
+        let mut params = serde_json::Map::new();
+        params.insert("session".to_owned(), json!(options.session));
+        params.insert("code".to_owned(), json!(code));
         if let Some(max) = options.max_output {
-            params["maxOutput"] = json!(max);
+            params.insert("maxOutput".to_owned(), json!(max));
         }
         if let Some(ms) = options.timeout_ms {
-            params["timeoutMs"] = json!(ms);
+            params.insert("timeoutMs".to_owned(), json!(ms));
         }
-        match request(&mut stream, 2, "browser.repl.eval", params) {
+        match request(&mut stream, 2, "browser.repl.eval", Value::Object(params)) {
             Ok(result) => {
-                print!("{}", result["output"].as_str().unwrap_or(""));
-                match result["error"].as_str() {
+                print!("{}", result.get("output").and_then(Value::as_str).unwrap_or(""));
+                match result.get("error").and_then(Value::as_str) {
                     Some(error) => {
                         eprintln!("{error}");
                         1
@@ -598,7 +605,7 @@ mod unix {
                 }
             }
             Err(error) => {
-                eprintln!("{}", error["message"].as_str().unwrap_or("error"));
+                eprintln!("{}", error_message(&error));
                 1
             }
         }

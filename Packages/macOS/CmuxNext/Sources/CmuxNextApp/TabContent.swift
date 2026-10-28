@@ -132,6 +132,9 @@ final class TerminalEntry {
     private(set) var themeKey: TerminalThemeKey
     /// A provisional view follows its tab's surface until the daemon's arrives (``TabContentCache/awaitConfirm(_:of:daemon:)``).
     var confirmation: ServiceObservation<Bool>?
+    /// The daemon terminal this view shows, whatever the daemon's generation (its `term_` id or the tab's content id,
+    /// else its surface handle): a replacement view of the same terminal keeps showing this one's frame (``TabContentCache/terminal(for:daemon:)``).
+    var terminalIdentity: String?
     weak var confirming: TabModel? // the tab record that task watches
     /// This surface's theme scope, under its pane's workspace scope.
     let themeScope = ThemeScope(level: .terminal)
