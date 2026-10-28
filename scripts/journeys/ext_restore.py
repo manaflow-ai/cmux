@@ -207,6 +207,15 @@ def step_close_seeded(journey, step):
     return {"closed": closed}
 
 
+# Front to back: one line per on-screen window at layer 0 (owner, pid, x, y, w, h).
+WINDOW_ORDER_JXA = """
+ObjC.import('CoreGraphics');
+const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));
+list.filter(w => w.kCGWindowLayer === 0).map(w => [w.kCGWindowOwnerName, w.kCGWindowOwnerPID, w.kCGWindowBounds.X,
+  w.kCGWindowBounds.Y, w.kCGWindowBounds.Width, w.kCGWindowBounds.Height].join(' ')).join('\\n');
+"""
+
+
 def step_restore_diagnose(journey, step):
     """Evidence of what the window draws now, whatever the journey's result (a `finally` step): the full
     `debug.surfaces` (each pane's frame hold, surface, drawing, layers and render counters), `debug.input`, a
@@ -227,6 +236,11 @@ def step_restore_diagnose(journey, step):
         saved["window"] = True
     except (D.StepError, OSError, ValueError) as error:
         saved["window"] = str(error)[-200:]
+    # The window server's on-screen windows, front to back (owner, pid, layer, bounds): whether another app's
+    # window covers ours, which AppKit then reports occluded and the terminals stop drawing (by design).
+    order = D.subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOW_ORDER_JXA],
+                             capture_output=True, text=True, timeout=60)
+    (out / "diag-order.txt").write_text(order.stdout + order.stderr)
     done = D.subprocess.run(["/usr/bin/sample", str(journey.app.pid), "3", "-mayDie", "-file", str(out / "diag-app-sample.txt")],
                             capture_output=True, text=True, timeout=60)
     saved["sample"] = done.returncode == 0
