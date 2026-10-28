@@ -225,6 +225,23 @@ async fn auto_host(hub: &Arc<Hub>, brief: &str) -> Result<Option<String>, String
     }
 }
 
+/// A dispatch's `host` that is this machine: `auto`, `local`, or its own name.
+fn names_this_host(host: &str) -> bool {
+    use crate::placement::canonical;
+    matches!(host, "auto" | "local") || canonical(host) == canonical(crate::hub::host_label())
+}
+
+/// A brief row as `conn` may see it: a peer daemon's connection gets no `suggestedHost`, a peer
+/// of this host (a row it replays may be one a local caller dispatched).
+fn brief_for(conn: &Conn, mut row: Value) -> Value {
+    if conn.origin == Origin::Peer
+        && let Some(obj) = row.as_object_mut()
+    {
+        obj.remove("suggestedHost");
+    }
+    row
+}
+
 async fn dispatch_brief(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -254,7 +271,17 @@ async fn dispatch_brief(
         .unwrap_or("auto")
         .to_owned();
     let forwarded = params.get("forwarded").and_then(Value::as_bool) == Some(true);
-    let host = if forwarded || selected == "local" {
+    // A peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`):
+    // its brief runs on this host. `auto` weighs no peer, and any other host is refused with one
+    // answer, whether this host has a peer of that name or not, up or down.
+    let from_peer = conn.origin == Origin::Peer;
+    if from_peer && !forwarded && !names_this_host(&selected) {
+        return Err(RpcError::invalid_params(format!(
+            "a peer's dispatch runs on this host only: host {selected:?} is not this host; pass host \"local\" or \"auto\""
+        ))
+        .with_data(json!({"reason": "dispatch.peer_host"})));
+    }
+    let host = if forwarded || from_peer || selected == "local" {
         None
     } else if selected == "auto" {
         auto_host(hub, &brief).await.map_err(|why| {
@@ -414,6 +441,7 @@ async fn dispatch_brief(
     .await?;
     super::trust_gate::check(hub, conn.origin, method::SESSION_NEW, &new_params, None).await?;
     if let Some(existing) = hub.briefs.claim(&id, idempotency) {
+        let existing = brief_for(conn, existing);
         return Ok(
             json!({"brief":existing,"event":crate::hub::dispatch::event("dispatch", &existing),"replayed":true}),
         );
@@ -488,15 +516,16 @@ async fn dispatch_brief(
         .and_then(Value::as_str)
         .map(str::to_owned);
     // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
+    // A peer daemon's connection hears that this host is over its budget, and of no other host.
     let suggestion = match &pressure {
-        Some(_) => {
+        Some(_) if !from_peer => {
             let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
             let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
             (!flag("overloaded") && !flag("local"))
                 .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
                 .flatten()
         }
-        None => None,
+        _ => None,
     }
     .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
     let row = hub
