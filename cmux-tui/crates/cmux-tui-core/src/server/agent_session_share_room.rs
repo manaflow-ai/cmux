@@ -542,7 +542,9 @@ pub(super) fn expired(shares: &LinkShares) {
             .collect::<Vec<_>>()
     };
     for id in ids {
-        let Some(v) = view(&mux, &id) else { continue };
+        if view(&mux, &id).is_none() {
+            continue;
+        }
         // A restart may have lost the owner's token. Cleanup still runs in a single worker so a
         // transient persistence failure is retried with backoff instead of losing the operation.
         delete(&mux, &id, None);
