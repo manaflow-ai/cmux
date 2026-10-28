@@ -37,6 +37,29 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
 
   const bounds = async (page: Page, selector: string) => (await page.locator(selector).boundingBox())!;
 
+  test("More models grows with the viewport and shares one body scroll", async () => {
+    const heights: number[] = [];
+    for (const height of [400, 1000]) {
+      const page = await open("opencode-more-models", 640, height);
+      try {
+        const menu = await bounds(page, ".acpmux-quick-menu");
+        heights.push(menu.height);
+        expect(menu.y + menu.height).toBeLessThanOrEqual(height);
+        expect(await page.locator(".acpmux-quick-more-list").evaluate((node) => getComputedStyle(node).overflowY)).toBe(
+          "visible",
+        );
+        await page.locator(".acpmux-quick-body").evaluate((node) => {
+          node.scrollTop = node.scrollHeight;
+        });
+        await page.getByRole("menuitemradio", { name: /Sample Model 40/ }).waitFor();
+      } finally {
+        await page.close();
+      }
+    }
+    expect(heights[1]!).toBeGreaterThan(480);
+    expect(heights[1]!).toBeGreaterThan(heights[0]! + 200);
+  });
+
   test("downward Claude menu ends immediately after Fast even with ten distinct harnesses", async () => {
     const page = await open("claude-many-harnesses");
     try {
