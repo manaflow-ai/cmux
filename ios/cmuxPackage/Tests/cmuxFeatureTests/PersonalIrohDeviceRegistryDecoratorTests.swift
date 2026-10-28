@@ -107,6 +107,22 @@ struct PersonalIrohDeviceRegistryDecoratorTests {
         #expect(try await devices(registry).map(\.deviceId) == ["mac-b"])
     }
 
+    @Test("a scope change during route merging invalidates the personal snapshot")
+    func scopeChangeDuringRouteMergeInvalidatesSnapshot() async throws {
+        let fixture = RegistryScopeFixture()
+        let provider = makeProvider(fixture)
+        #expect((await provider.discoverLiveMacs()).count == 1)
+        let registry = PersonalIrohDeviceRegistryDecorator(
+            catalog: provider.routeCatalog,
+            knownRoutes: { _, _ in
+                await fixture.set(scope: "account-b:team-b", directory: directory(macID: "mac-b"))
+                return []
+            }
+        )
+
+        #expect(await registry.freshRoutes(forMacDeviceID: "mac-a", instanceTag: "default") == nil)
+    }
+
     private func makeProvider(_ fixture: RegistryScopeFixture) -> MobileIrxDiscoveryProvider {
         MobileIrxDiscoveryProvider(
             preferredTag: "default", compatibilityPolicy: nil,
