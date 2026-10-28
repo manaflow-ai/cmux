@@ -3,12 +3,18 @@
 //! an instance that was replaced or removed never speaks after the one that replaced it; a
 //! replacement in the same state sends no repeat; a removal sends its last `offline`
 //! (`error: "removed"`) only while the removed instance still speaks for the name; and a
-//! watcher that fell behind the feed gets every name's last note again (`snapshot`).
+//! watcher that fell behind the feed gets every name's last note again (`snapshot`). The
+//! notes have their own feed (`subscribe`), so a burst of them never pushes a harness reload
+//! out of the harness feed's buffer.
+//!
+//! What it holds: one entry per peer that runs, and the last note of at most
+//! `REMOVED_KEPT` removed names (the oldest removal goes first), so a daemon that leases many
+//! short-lived peers does not grow it without bound.
 
 use crate::no_panic::LockExt;
 use crate::protocol::peer_state::{PeerLinkState, PeerStateChanged};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use tokio::sync::broadcast;
 
@@ -22,31 +28,57 @@ pub const STATE_EVENTS_FEATURE: &str = "peerStateEvents";
 /// The `error` of a removed peer's last note.
 pub const REMOVED: &str = "removed";
 
+/// How many removed names keep their last note for a watcher that fell behind.
+pub const REMOVED_KEPT: usize = 64;
+
+/// The notes a watcher may fall behind by before it gets a `snapshot` instead.
+const FEED: usize = 256;
+
 struct Last {
     /// The instance (`Peer::generation`) that speaks for the name; None once it was removed.
     speaker: Option<u64>,
     note: PeerStateChanged,
 }
 
+#[derive(Default)]
+struct Table {
+    by_name: HashMap<String, Last>,
+    /// The removed names in `by_name`, oldest removal first.
+    removed: VecDeque<String>,
+}
+
+impl Table {
+    fn forget_removal(&mut self, name: &str) {
+        self.removed.retain(|n| n != name);
+    }
+}
+
 pub struct PeerStates {
     to: broadcast::Sender<Value>,
-    /// One entry per name a peer ran under in this daemon's life, a removed one's included:
-    /// a handful, never pruned.
-    last: Mutex<HashMap<String, Last>>,
+    last: Mutex<Table>,
+}
+
+impl Default for PeerStates {
+    fn default() -> Self {
+        Self { to: broadcast::channel(FEED).0, last: Mutex::new(Table::default()) }
+    }
 }
 
 impl PeerStates {
-    pub fn new(to: broadcast::Sender<Value>) -> Self {
-        Self { to, last: Mutex::new(HashMap::new()) }
+    /// The notes from now on, each marked `STATE_NOTE` (`server/harness_admin.rs` `watch_note`).
+    pub fn subscribe(&self) -> broadcast::Receiver<Value> {
+        self.to.subscribe()
     }
 
     /// Instance `generation` speaks for `name` from now on, in `state`: sent unless it is the
     /// state last sent for the name (a replacement in the same state is no change).
     pub fn register(&self, name: &str, generation: u64, now: Observed) {
         let mut last = self.last.lock_or_recover();
-        let previous = last.get(name).map(|l| l.note.state);
+        let previous = last.by_name.get(name).map(|l| l.note.state);
         let note = now.note(name);
-        last.insert(name.to_owned(), Last { speaker: Some(generation), note: note.clone() });
+        last.forget_removal(name);
+        last.by_name
+            .insert(name.to_owned(), Last { speaker: Some(generation), note: note.clone() });
         if previous != Some(note.state) {
             self.send(note);
         }
@@ -56,7 +88,8 @@ impl PeerStates {
     /// not the last one sent.
     pub fn changed(&self, name: &str, generation: u64, now: Observed) {
         let mut last = self.last.lock_or_recover();
-        let Some(entry) = last.get_mut(name).filter(|l| l.speaker == Some(generation)) else {
+        let Some(entry) = last.by_name.get_mut(name).filter(|l| l.speaker == Some(generation))
+        else {
             return;
         };
         if entry.note.state == now.state {
@@ -70,7 +103,8 @@ impl PeerStates {
     /// unless another instance speaks for the name by now.
     pub fn removed(&self, name: &str, generation: u64, last_seen: Option<u64>) {
         let mut last = self.last.lock_or_recover();
-        let Some(entry) = last.get_mut(name).filter(|l| l.speaker == Some(generation)) else {
+        let Some(entry) = last.by_name.get_mut(name).filter(|l| l.speaker == Some(generation))
+        else {
             return;
         };
         let gone =
@@ -78,12 +112,18 @@ impl PeerStates {
         entry.speaker = None;
         entry.note = gone.note(name);
         self.send(entry.note.clone());
+        last.removed.push_back(name.to_owned());
+        while last.removed.len() > REMOVED_KEPT {
+            if let Some(oldest) = last.removed.pop_front() {
+                last.by_name.remove(&oldest);
+            }
+        }
     }
 
     /// Every name's last note, marked for the feed, for a watcher that fell behind it.
     pub fn snapshot(&self) -> Vec<Value> {
         let last = self.last.lock_or_recover();
-        let mut notes: Vec<&PeerStateChanged> = last.values().map(|l| &l.note).collect();
+        let mut notes: Vec<&PeerStateChanged> = last.by_name.values().map(|l| &l.note).collect();
         notes.sort_by(|a, b| a.peer.cmp(&b.peer));
         notes.into_iter().map(marked).collect()
     }
@@ -139,8 +179,8 @@ mod tests {
     /// sends no repeat, and a change of the replacement goes out.
     #[test]
     fn a_replacement_speaks_alone_and_repeats_nothing() {
-        let (tx, mut rx) = broadcast::channel(64);
-        let states = PeerStates::new(tx);
+        let states = PeerStates::default();
+        let mut rx = states.subscribe();
         states.register("b", 1, seen(Connecting));
         states.changed("b", 1, seen(Reconnecting));
         // Reconnect: a new instance, still reconnecting.
@@ -157,8 +197,8 @@ mod tests {
     /// ended after a new one took its name says nothing, and the removed one stays silent.
     #[test]
     fn a_removal_is_the_last_word_only_for_the_instance_that_speaks() {
-        let (tx, mut rx) = broadcast::channel(64);
-        let states = PeerStates::new(tx);
+        let states = PeerStates::default();
+        let mut rx = states.subscribe();
         states.register("b", 1, seen(Connected));
         states.register("b", 2, seen(Connecting));
         states.removed("b", 1, None);
@@ -175,8 +215,7 @@ mod tests {
     /// A watcher that fell behind gets each name's last note, a removed one's included.
     #[test]
     fn the_snapshot_has_every_names_last_note() {
-        let (tx, _rx) = broadcast::channel(64);
-        let states = PeerStates::new(tx);
+        let states = PeerStates::default();
         states.register("a", 1, seen(Connected));
         states.register("b", 2, seen(Connected));
         states.removed("b", 2, None);
@@ -190,5 +229,27 @@ mod tests {
             [("a", Connected), ("b", Offline)]
         );
         assert_eq!(notes[1].error.as_deref(), Some(REMOVED));
+    }
+
+    /// Removed names keep their last note up to `REMOVED_KEPT`, the oldest removal going first;
+    /// a name added again is no longer a removal.
+    #[test]
+    fn removed_names_are_kept_up_to_a_bound() {
+        let states = PeerStates::default();
+        for g in 0..(REMOVED_KEPT as u64 + 10) {
+            let name = format!("lease-{g}");
+            states.register(&name, g, seen(Connected));
+            states.removed(&name, g, None);
+        }
+        states.register("lease-20", 1000, seen(Connecting));
+        let names: Vec<String> = states
+            .snapshot()
+            .into_iter()
+            .map(|v| v[STATE_NOTE]["peer"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(names.len(), REMOVED_KEPT, "{names:?}");
+        assert!(!names.contains(&"lease-0".to_owned()), "the oldest removal went first");
+        assert!(names.contains(&"lease-20".to_owned()), "added again: it runs");
+        assert!(names.contains(&format!("lease-{}", REMOVED_KEPT + 9)), "the newest is kept");
     }
 }
