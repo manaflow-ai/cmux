@@ -38,7 +38,11 @@ import Testing
         let person: Person
         let folder: URL
         /// What the socket server read for each connection (``ControlConnectionPeers``).
-        let lineages: Mutex<[ControlConnectionID: ControlConnectionPeers.Lineage]>
+        let lineages: Lineages
+    }
+
+    final class Lineages: Sendable {
+        let map = Mutex([ControlConnectionID: ControlConnectionPeers.Lineage]())
     }
 
     private func fixture(answer: CredentialVault.EntryAnswer? = nil) throws -> Fixture {
@@ -46,7 +50,7 @@ import Testing
         let secrets = MemorySecrets()
         let vault = CredentialVault(secrets: secrets, folder: folder)
         let person = Person(answer: answer)
-        let lineages = Mutex([ControlConnectionID: ControlConnectionPeers.Lineage]())
+        let lineages = Lineages()
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: ActionRegistry(catalog: [])), settings: nil,
@@ -54,7 +58,7 @@ import Testing
         router.register(vault.controlMethods(ask: { request in
             person.asked.withLock { $0.append(request) }
             return person.answer
-        }, lineage: { connection in lineages.withLock { $0[connection] } }))
+        }, lineage: { connection in lineages.map.withLock { $0[connection] } }))
         return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, lineages: lineages)
     }
 
@@ -234,7 +238,7 @@ import Testing
         let underAgent = ControlConnectionID(rawValue: 11), underChief = ControlConnectionID(rawValue: 12)
         let outside = ControlConnectionID(rawValue: 13), unknown = ControlConnectionID(rawValue: 14)
         let person = ControlConnectionID(rawValue: 15)
-        f.lineages.withLock {
+        f.lineages.map.withLock {
             $0[underAgent] = .init(insideCmux: true, executables: ["cmux", "zsh", "2.1.30", "acpmux", "cmux"])
             $0[underChief] = .init(insideCmux: true, executables: ["cmux", "optchat-chief", "cmux"])
             $0[outside] = .init(insideCmux: false, executables: ["cmux", "zsh"])

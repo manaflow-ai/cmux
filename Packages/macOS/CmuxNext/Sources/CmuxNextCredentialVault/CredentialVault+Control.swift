@@ -119,7 +119,7 @@ nonisolated enum VaultControl {
     typealias Lineage = CredentialVault.Lineage
 
     static func methods(vault: CredentialVault, ask: @escaping Ask, lineage: @escaping Lineage) -> [ControlMethod] {
-        let caller = { (call: ControlCall) throws -> CredentialVault.Caller in try Self.caller(call, lineage: lineage) }
+        let caller: @Sendable (ControlCall) throws -> CredentialVault.Caller = { call in try Self.caller(call, lineage: lineage) }
         return [
             .async("vault.list") { _ in
                 return ["secrets": .array(try run { try vault.list() }.sorted { $0.key < $1.key }.map { json(name: $0.key, $0.value) })]
