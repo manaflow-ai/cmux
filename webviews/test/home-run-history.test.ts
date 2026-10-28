@@ -176,10 +176,10 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     answers: [],
   });
   const byAgent: Record<string, ReturnType<typeof raw>[]> = {
-    // Three rows from one agent share the first page's boundary. The adapter must return all
-    // three because the next owner cursor is strict and cannot ask for the remainder of a tie.
+    // Rows from both agents share the first page's boundary. The adapter must return all of them
+    // because the next owner cursor is strict and cannot ask for the remainder of a tie.
     agent_a: [raw("a3", "agent_a", 30), raw("a2", "agent_a", 30), raw("a1", "agent_a", 30), raw("a0", "agent_a", 20)],
-    agent_b: [raw("b3", "agent_b", 25), raw("b2", "agent_b", 15), raw("b1", "agent_b", 5)],
+    agent_b: [raw("b3", "agent_b", 30), raw("b2", "agent_b", 25), raw("b1", "agent_b", 15)],
   };
   const socket = {
     async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -217,14 +217,15 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
     conversation: "cloud-conv",
     limit: 2,
   });
-  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "a2", "a1"]);
+  expect(first.runs.map((entry) => entry.id)).toEqual(["a3", "a2", "a1", "b3"]);
   expect(first.hasMore).toBe(true);
+  const firstCursor = Math.min(...first.runs.map((entry) => entry.startedAt));
   const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
     conversation: "cloud-conv",
     limit: 2,
-    beforeStartedAt: 25,
+    beforeStartedAt: firstCursor,
   });
-  expect(second.runs.map((entry) => entry.id)).toEqual(["b3", "a0"]);
+  expect(second.runs.map((entry) => entry.id)).toEqual(["b2", "a0"]);
   expect(
     requests
       .filter((request) => request.command === "cloud-conversation-runs")
@@ -233,6 +234,74 @@ test("cloud run pages forward the cursor and keep a skewed second agent paginabl
   expect(
     requests
       .filter((request) => request.command === "cloud-conversation-runs")
-      .every((request) => request.params.before_started_at === undefined || request.params.before_started_at === 25),
+      .every(
+        (request) => request.params.before_started_at === undefined || request.params.before_started_at === firstCursor,
+      ),
   ).toBe(true);
+});
+
+test("cloud pages do not lose a same-agent tie larger than the owner page", async () => {
+  const raw = (id: string, started: number) => ({
+    id,
+    conversation: "cloud-ties",
+    author: "agent_a",
+    status: "done",
+    started_at: started,
+    updated_at: started,
+    rev: 1,
+    step_count: 0,
+    answers: [],
+  });
+  const tieIds = Array.from({ length: 101 }, (_, index) => `tie-${index}`);
+  const runs = [...tieIds.map((id) => raw(id, 30)), raw("older", 20)];
+  const requests: Record<string, unknown>[] = [];
+  const socket = {
+    async request<T>(command: string, params: Record<string, unknown> = {}): Promise<T> {
+      requests.push({ command, ...params });
+      if (command === "identify") return { capabilities: ["cloud-conversation-runs-v1"] } as T;
+      if (command !== "cloud-conversation-runs") return {} as T;
+      const before = typeof params.before_started_at === "number" ? params.before_started_at : Number.MAX_SAFE_INTEGER;
+      const available = runs.filter((entry) => entry.started_at < before);
+      const limit = Number(params.limit);
+      return { runs: available.slice(0, limit), has_more: available.length > limit } as T;
+    },
+  };
+  const home = new DaemonHomeClient(socket as never);
+  const cloud = (
+    home as unknown as {
+      cloud: {
+        known: Set<string>;
+        entries: Map<string, Record<string, unknown>>;
+        heads: Map<string, Record<string, unknown>>;
+      };
+    }
+  ).cloud;
+  cloud.known.add("cloud-ties");
+  cloud.entries.set("cloud-ties", {
+    conversation: "cloud-ties",
+    kind: "group",
+    title: "Cloud ties",
+  });
+  cloud.heads.set("cloud-ties", {
+    id: "cloud-ties",
+    participants: [{ id: "agent_a", kind: "agent", display_name: "A" }],
+  });
+
+  const first = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
+    conversation: "cloud-ties",
+    limit: 2,
+  });
+  const cursor = Math.min(...first.runs.map((entry) => entry.startedAt));
+  const second = await home.call<{ runs: Run[]; hasMore: boolean }>(HomeOps.runs, {
+    conversation: "cloud-ties",
+    limit: 2,
+    beforeStartedAt: cursor,
+  });
+  // The Cloud endpoint caps each owner page at 100 and exposes only a timestamp cursor. A tie
+  // larger than that page cannot be completed by a strict `before_started_at` request; document
+  // the bounded behavior until the Cloud protocol gains a composite cursor.
+  expect(first.runs.filter((entry) => entry.startedAt === 30)).toHaveLength(100);
+  expect(first.hasMore).toBe(true);
+  expect(second.runs.map((entry) => entry.id)).toEqual(["older"]);
+  expect(requests.some((request) => request.before_started_at === cursor)).toBe(true);
 });

@@ -597,7 +597,8 @@ impl ConversationStore {
     }
 
     /// The newest runs of a conversation (before `before_started_at`), or the
-    /// runs whose `turn` is one of `turns`.
+    /// runs whose `turn` is one of `turns`. Timestamp pages include all ties
+    /// at the limit so the next strict `before_started_at` cursor skips none.
     pub(crate) fn runs(
         &mut self,
         conversation: &str,
@@ -625,17 +626,21 @@ impl ConversationStore {
         let before = before_started_at.map(to_i64).transpose()?.unwrap_or(i64::MAX);
         let mut statement = self.connection.prepare(
             "SELECT run_json FROM conversation_run WHERE conversation = ?1 AND started_at < ?2
-             ORDER BY started_at DESC, run DESC LIMIT ?3",
+             ORDER BY started_at DESC, run DESC",
         )?;
-        let mut runs = statement
-            .query_map(params![conversation, before, i64::from(limit) + 1], |row| {
-                row.get::<_, String>(0)
-            })?
-            .map(|json| Ok(serde_json::from_str(&json?)?))
-            .collect::<anyhow::Result<Vec<Run>>>()?;
-        let has_more = runs.len() > limit as usize;
-        runs.truncate(limit as usize);
-        Ok((runs, has_more))
+        let mut runs: Vec<Run> = Vec::new();
+        for json in
+            statement.query_map(params![conversation, before], |row| row.get::<_, String>(0))?
+        {
+            let run: Run = serde_json::from_str(&json?)?;
+            if runs.len() >= limit as usize
+                && runs.last().is_some_and(|last| last.started_at != run.started_at)
+            {
+                return Ok((runs, true));
+            }
+            runs.push(run);
+        }
+        Ok((runs, false))
     }
 
     /// One run and its steps written after `after_rev`, oldest write first.

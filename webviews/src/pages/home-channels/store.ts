@@ -145,6 +145,8 @@ export class HomeChannelsStore {
   readonly live = new LiveBook();
   /** Runs whose steps are being read now (one read at a time per run). */
   private readonly loadingRuns = new Set<string>();
+  /** Serialize historical step reads, including reads requested by mounted run cards. */
+  private runReadTail: Promise<void> = Promise.resolve();
   /** Runs whose step read failed, with the run revision it failed at: read again only after the
    * run changed (a missing run or an owner without runs is not asked in a loop). */
   private readonly failedRuns = new Map<string, number>();
@@ -542,7 +544,12 @@ export class HomeChannelsStore {
   openThread(root: string | undefined): Promise<void> {
     const threadView = root ? { root, messages: [], hasMore: false, loading: true } : undefined;
     if (!root || this.snapshot.threadsSeen.has(root)) this.set({ thread: root, threadView });
-    else this.set({ thread: root, threadView, threadsSeen: new Set(this.snapshot.threadsSeen).add(root) });
+    else
+      this.set({
+        thread: root,
+        threadView,
+        threadsSeen: new Set(this.snapshot.threadsSeen).add(root),
+      });
     return root ? this.loadThread(root, 0) : Promise.resolve();
   }
 
@@ -615,7 +622,9 @@ export class HomeChannelsStore {
     const pending = this.snapshot.pending.find((entry) => entry.key === key);
     if (!pending) return;
     const again = { ...pending, failed: false };
-    this.set({ pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)) });
+    this.set({
+      pending: this.snapshot.pending.map((entry) => (entry.key === key ? again : entry)),
+    });
     void this.deliver(again);
   }
 
@@ -926,7 +935,10 @@ export class HomeChannelsStore {
       const tail = view.hasMore
         ? threadIncoming.filter((m) => view.messages.some((k) => k.seq === m.seq))
         : threadIncoming;
-      patch.threadView = { ...view, messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER) };
+      patch.threadView = {
+        ...view,
+        messages: mergeMessages(view.messages, tail, Number.MAX_SAFE_INTEGER),
+      };
     }
     if (batch.presence)
       for (const entry of batch.presence) {
@@ -996,7 +1008,9 @@ export class HomeChannelsStore {
   private async loadLive(conversation: string): Promise<void> {
     if (!this.client) return;
     try {
-      const snapshot = await this.client.call<HomeLiveSnapshot | null>(HomeOps.live, { conversation });
+      const snapshot = await this.client.call<HomeLiveSnapshot | null>(HomeOps.live, {
+        conversation,
+      });
       if (snapshot && snapshot.type === "run.live") this.live.snapshot(this.withAuthor(snapshot) as HomeLiveSnapshot);
     } catch {
       // No live text: the run card and the typing row show what the runs and typing say.
@@ -1048,6 +1062,8 @@ export class HomeChannelsStore {
    * without runs answers nothing: the page shows no run cards. */
   private async loadRuns(conversation: string, messages: readonly HomeMessage[], newest: boolean): Promise<void> {
     if (!this.client) return;
+    const generation = this.generation;
+    const life = this.life;
     const agents = new Set(
       (this.snapshot.conversations.get(conversation)?.participants ?? [])
         .filter((participant) => participant.kind === "agent")
@@ -1070,10 +1086,14 @@ export class HomeChannelsStore {
       let beforeStartedAt: number | undefined;
       let page = 0;
       for (;;) {
-        const params: Record<string, unknown> = { conversation, limit: newest && page === 0 ? 20 : 50 };
+        const params: Record<string, unknown> = {
+          conversation,
+          limit: newest && page === 0 ? 20 : 50,
+        };
         page += 1;
         if (beforeStartedAt !== undefined) params.beforeStartedAt = beforeStartedAt;
         const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
+        if (generation !== this.generation || life !== this.life) return;
         history.push(...list.runs);
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
@@ -1086,6 +1106,7 @@ export class HomeChannelsStore {
         beforeStartedAt = oldestRun;
       }
       const lists = await Promise.all(reads);
+      if (generation !== this.generation || life !== this.life) return;
       const direct = lists.flatMap((list) => list.runs);
       const byKey = new Map<string, HomeRun>();
       for (const run of [...direct, ...history]) byKey.set(`${run.author}\0${run.id}`, run);
@@ -1105,7 +1126,12 @@ export class HomeChannelsStore {
         return relevant;
       });
       this.runs.setRuns(relevantRuns);
-      for (const run of relevantRuns) void this.loadRunSteps(run);
+      for (const run of relevantRuns) {
+        if (generation !== this.generation || life !== this.life) return;
+        // A summary can contribute activity state without any row in the loaded transcript.
+        if (run.answers.some((answer) => messageIds.has(answer)) || directKeys.has(`${run.author}\0${run.id}`))
+          await this.loadRunSteps(run);
+      }
     } catch {
       // Runs are display only; a host or owner without them shows plain messages.
     }
@@ -1117,8 +1143,19 @@ export class HomeChannelsStore {
     if (!this.client || this.loadingRuns.has(key)) return;
     const failed = this.failedRuns.get(key);
     if (failed !== undefined && failed >= run.rev) return;
+    const held = this.runs.get(run.conversation, run.author, run.id);
+    if (held?.complete && held.run.rev >= run.rev && held.run.stepCount >= run.stepCount) return;
+    const generation = this.generation;
+    const life = this.life;
+    const previous = this.runReadTail;
+    let release!: () => void;
+    this.runReadTail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     this.loadingRuns.add(key);
     try {
+      await previous;
+      if (generation !== this.generation || life !== this.life) return;
       // The local owner pages by revision; a Cloud brain (keyed by its Chief) by seq.
       let afterRev = 0;
       let afterSeq = 0;
@@ -1132,6 +1169,7 @@ export class HomeChannelsStore {
           afterRev,
           afterSeq,
         });
+        if (generation !== this.generation || life !== this.life) return;
         latest = read.run;
         steps.push(...read.steps);
         afterRev = Math.max(afterRev, ...read.steps.map((step) => step.rev));
@@ -1145,6 +1183,7 @@ export class HomeChannelsStore {
       this.failedRuns.set(key, run.rev);
     } finally {
       this.loadingRuns.delete(key);
+      release();
     }
   };
 

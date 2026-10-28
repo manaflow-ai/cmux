@@ -1579,7 +1579,8 @@ impl Brain {
         }
     }
 
-    /// Display reports on arrival, including quiet reports, without waiting for another Chief turn.
+    /// Display reports on arrival without changing the Chief turn's status. A separate completed
+    /// report record stays anchored to the assignment's question even if its original run was pruned.
     /// The owner upserts stable step ids, so a redelivery updates the same row.
     fn show_reports(&mut self, spawn: &str) {
         let Some(record) = self.state.spawns.get(spawn) else {
@@ -1605,14 +1606,13 @@ impl Brain {
                 } else {
                     &sub.answers
                 };
-                let mut run = match &turn {
-                    Some(turn) => json!({"id": turn, "status": "done"}),
-                    None => json!({"id": format!("reports:{spawn}"), "status": "done",
-                        "started_at": record.started_ms, "answers": answers}),
-                };
-                if turn.is_none()
-                    && let Some((root, _)) = self.reply_thread(&conversation, answers)
-                {
+                let mut run = json!({
+                    "id": crate::run::report_run_id(turn.as_deref().unwrap_or(spawn)),
+                    "status": "done",
+                    "started_at": record.started_ms.max(sub.run_ms),
+                    "answers": answers,
+                });
+                if let Some((root, _)) = self.reply_thread(&conversation, answers) {
                     run["thread_root"] = json!(root);
                 }
                 let steps = crate::run::report_notes(
