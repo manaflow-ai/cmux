@@ -440,28 +440,29 @@ def run_loaded(args):
     signal.signal(signal.SIGTERM, bm.interrupted)
     wipe_state(args.app)
     root = tempfile.mkdtemp(prefix="idle-cost-")
-    acpmux_home = os.path.join(root, "acpmux")
-    fake_agent = os.path.join(HERE, "idle_cost_agent.py")  # fake_agent.py plus the `stream:` prompt
-    seeded = load.seed_store(acpmux_home, args.load_sessions, args.load_closed, bm.FAKE_AGENT_ID, root)
-    env = dict(item.split("=", 1) for item in args.env)
-    env["ACPMUX_HOME"] = acpmux_home
-    pid, sock, scratch = bm.launch(args.app, json.loads(args.config), env)
-    app = bm.App(args.app, sock)
-    peer, results = None, []
+    agent = os.path.join(HERE, "idle_cost_agent.py")  # fake_agent.py plus the `stream:` prompt
+    peer, results, scratch = load.PeerDaemon(args.app, root, agent), [], None
     counts = {"remote": args.load_remote, "local": args.load_local, "streaming": args.load_streaming,
               "tabs": args.load_tabs, "rate": args.stream_rate}
     stream_s = args.settle + args.measure + 900  # the replies stream through the whole window
     try:
-        reached, peer = load.open_load(app, args.app, fake_agent, root,
-                                       lambda i: base.replace("127.0.0.1", f"t{i}.localhost") + f"/static.html?n={i}",
-                                       counts, stream_s)
+        # The remote machine first: it writes the chats the app's store is seeded with.
+        peer.start()
+        seeded = load.seed_store(os.path.join(root, "acpmux"), args.load_sessions, args.load_closed, *peer.templates())
+        env = dict(item.split("=", 1) for item in args.env)
+        env["ACPMUX_HOME"] = os.path.join(root, "acpmux")
+        pid, sock, scratch = bm.launch(args.app, json.loads(args.config), env)
+        app = bm.App(args.app, sock)
+        reached = load.open_load(app, args.app, agent, peer,
+                                 lambda i: base.replace("127.0.0.1", f"t{i}.localhost") + f"/static.html?n={i}",
+                                 counts, stream_s)
         reached.update(seeded)
         print(f"PERF-IDLE-COST-LOAD {json.dumps(reached)}", flush=True)
         time.sleep(args.settle)  # test script: let the app settle
         pages = (rpc(sock, "debug.cef", {"pages": True}) or {}).get("pages")
         roles = renderer_roles(pages or [], bm.owned(pid, args.app))
         time.sleep(5)  # test script: the debug read's own work ends before the window
-        result = measure_processes(pid, args.app, "loaded", args.measure, roles, peer.pids() if peer else set())
+        result = measure_processes(pid, args.app, "loaded", args.measure, roles, peer.pids())
         result["load"] = reached
         result["renderer_roles"] = "debug.cef pages" if pages is not None else "none (a build without debug.* methods)"
         sha = subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip()
@@ -472,10 +473,10 @@ def run_loaded(args):
         print("\n".join(perf_rows(result, None, result["harness"])))
         print("PERF-IDLE-COST-TABLE-END", flush=True)
     finally:
-        if peer:
-            peer.stop()
+        peer.stop()
         bm.end_bundle(args.app)
-        shutil.rmtree(scratch, ignore_errors=True)
+        if scratch:
+            shutil.rmtree(scratch, ignore_errors=True)
         shutil.rmtree(root, ignore_errors=True)
     if args.out:
         with open(args.out, "w") as handle:

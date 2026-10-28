@@ -2,7 +2,7 @@
 """bench_power.py `loaded` (the shared idle-cost bench): renderer roles come from `debug.cef` pages
 by renderer client id, the per-role numbers sum their processes (p95 over the summed 1 s steps),
 the peer's processes stay out, and the Performance-table rows carry before, after and delta.
-idle_cost_load.seed_store writes a store acpmux lists: closed chats keep a log, folders owner-only."""
+idle_cost_load.seed_store copies the template chats under new ids, folders owner-only."""
 
 from __future__ import annotations
 
@@ -80,18 +80,26 @@ class LoadedTests(unittest.TestCase):
     def test_seed_store(self):
         home = tempfile.mkdtemp()
         try:
-            seeded = load.seed_store(os.path.join(home, "acpmux"), 10, 0.6, "fake", "/tmp")
+            def template(sid, status):
+                meta = json.dumps({"schema": "acpmux.session.v1", "id": sid, "name": "t", "status": status, "turnCount": 1})
+                log = json.dumps({"seq": 1, "kind": "turn_started", "msg": {"session": sid}}) + "\n"
+                return {"id": sid, "meta": meta.encode(), "events": {"000000.ndjson": log.encode()}}
+            seeded = load.seed_store(os.path.join(home, "acpmux"), 10, 0.6, template("tmpl-a", "ready"), template("tmpl-c", "closed"))
             self.assertEqual(seeded, {"sessions": 10, "closed": 6, "idle": 4})
             root = Path(home, "acpmux", "sessions")
             metas = [json.loads(p.read_text()) for p in sorted(root.glob("*/session.json"))]
-            self.assertEqual([m["status"] for m in metas].count("closed"), 6)
+            self.assertEqual(sorted(m["status"] for m in metas), ["closed"] * 6 + ["idle"] * 4)
+            self.assertEqual(len({m["id"] for m in metas}), 10)
             for folder in root.iterdir():
-                self.assertTrue((folder / "events" / "000000.ndjson").stat().st_size > 0)
+                meta = json.loads((folder / "session.json").read_text())
+                self.assertEqual(meta["id"], folder.name)
+                log = (folder / "events" / "000000.ndjson").read_text()
+                self.assertIn(folder.name, log)
+                self.assertNotIn("tmpl-", log)
                 self.assertEqual(stat.S_IMODE(folder.stat().st_mode), 0o700)
                 self.assertEqual(stat.S_IMODE((folder / "session.json").stat().st_mode), 0o600)
         finally:
             shutil.rmtree(home)
-
 
 if __name__ == "__main__":
     unittest.main()

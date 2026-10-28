@@ -6,23 +6,29 @@ about 650 MB and 23-50% CPU, the Chromium GPU process 820 MB and 15-20%, two hid
 to 10%, the acpmux daemon 700 MB with thousands of chats listed. Every fix for that needs its
 before and after from one load, so this builds that load in a fresh home:
 
-  seed_store   before launch: `sessions` chats in the app's acpmux store (ACPMUX_HOME), a
-               `closed` share of them closed and the rest idle (no agent process; a prompt
-               respawns it), each with one answered turn on disk.
-  PeerDaemon   after launch: a second acpmux daemon from the same bundle on its own home, its
-               chats on the test agent, mirrored by the app's daemon as the peer `bench-remote`
-               over loopback WebSocket. It stands in for an ssh host; its processes are the
-               remote machine's and are left out of the numbers.
-  open_load    `remote` chats on that peer and `local` chats on the app's own daemon, each in its
-               own workspace; `streaming` of them get a reply that keeps streaming through the
-               measured window; `tabs` Chromium tabs of local sites, each shown once; Home and
-               New Tab in a workspace of their own; then the first idle local chat is shown.
+  PeerDaemon   before launch: a second acpmux daemon (a copy of the bundle's binary, so the bench's
+               launch and teardown never take it for the app's) on its own home, with the test
+               agent. It stands in for an ssh host: the app's daemon mirrors it as the peer
+               `bench-remote` over loopback WebSocket, and its processes are left out of the numbers.
+  templates    on that daemon: one chat with an answered turn and one closed after its turn. Their
+               session.json and event logs are what the daemon itself wrote.
+  seed_store   before launch: `sessions` copies of them in the app's acpmux store (ACPMUX_HOME),
+               each under its own id, a `closed` share closed and the rest idle (no agent process;
+               a prompt respawns it).
+  open_load    after launch: `remote` chats on the peer and `local` chats on the app's own daemon,
+               each in its own workspace, shown once; `streaming` of them get a reply that keeps
+               streaming through the measured window; `tabs` Chromium tabs of local sites, each
+               shown once; Home and the New Tab page in a workspace of their own; then the first
+               idle local chat is shown.
 
+A remote chat opens the way `acpmux new --host H --group G` opens one (cli/run/launch.rs
+show_in_group): its mirrored id, without a host; this Mac's acpmux forwards it to the peer.
 Every count reached goes into the report, so a short load shows, never passes silently.
 macOS only, on a fleet mini (bench_power.py launches the app).
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import shutil
@@ -32,13 +38,13 @@ import sys
 import tempfile
 import threading
 import time
+import uuid
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_memory as bm  # noqa: E402  (App, FakeChats, FAKE_AGENT_ID, process_table)
 
 PEER = "bench-remote"
-REPLY = "I read the build scripts, moved the shared steps into one helper and ran the suite again. " * 12
 
 
 def private_dir(path: str):
@@ -46,49 +52,49 @@ def private_dir(path: str):
     os.chmod(path, 0o700)  # acpmux refuses a state folder another user can write
 
 
-def private_write(path: str, text: str):
+def private_write(path: str, data: bytes):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as handle:
-        handle.write(text)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
 
 
-def seed_store(home: str, count: int, closed_share: float, harness: str, cwd: str) -> dict:
-    """`count` chats in the store of the acpmux home `home`, as a long-used daemon lists them.
+def read_chat(home: str, session: str) -> dict:
+    """A chat as its daemon stored it: session.json and its event log segments."""
+    folder = os.path.join(home, "sessions", session)
+    with open(os.path.join(folder, "session.json"), "rb") as handle:
+        meta = handle.read()
+    events = {}
+    for path in sorted(glob.glob(os.path.join(folder, "events", "*.ndjson"))):
+        with open(path, "rb") as handle:
+            events[os.path.basename(path)] = handle.read()
+    if not events:
+        raise RuntimeError(f"chat {session} has no event log in {folder}")
+    return {"id": session, "meta": meta, "events": events}
 
-    A closed chat with no log reads as purged and is skipped, so each gets its turn's records."""
+
+def seed_store(home: str, count: int, closed_share: float, answered: dict, closed: dict) -> dict:
+    """`count` chats in the store of the acpmux home `home`, as a long-used daemon lists them:
+    copies of the `answered` and `closed` template chats (read_chat), each under its own id."""
     root = os.path.join(home, "sessions")
     private_dir(home)
     private_dir(root)
-    closed = int(round(count * closed_share))
+    closed_count = int(round(count * closed_share))
     now = int(time.time() * 1000)
     for i in range(count):
-        session = f"01a1dc00-0000-7000-8000-{i:012x}"
-        status = "closed" if i < closed else "idle"
+        template = closed if i < closed_count else answered
+        session = str(uuid.UUID(int=(0x01A1DC00 << 96) | (0x7000 << 64) | (0x8 << 60) | i))
+        swap = lambda data: data.replace(template["id"].encode(), session.encode())  # noqa: E731
+        meta = json.loads(swap(template["meta"]))
         at = now - (count - i) * 60_000  # one a minute, oldest first
-        prompt = f"idle-cost chat {i}: tidy the build scripts"
-        agent = f"fake-seed-{i}"
-        records = [
-            {"seq": 1, "at": at, "dir": "out", "kind": "session/prompt",
-             "msg": {"jsonrpc": "2.0", "id": 1, "method": "session/prompt",
-                     "params": {"sessionId": agent, "prompt": [{"type": "text", "text": prompt}]}}},
-            {"seq": 2, "at": at + 1, "dir": "in", "kind": "agent_message_chunk",
-             "msg": {"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent, "update": {
-                 "sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": REPLY}}}}},
-            {"seq": 3, "at": at + 2, "dir": "in", "kind": "session/prompt",
-             "msg": {"jsonrpc": "2.0", "id": 1, "result": {"stopReason": "end_turn"}}},
-        ]
-        if status == "closed":
-            records.append({"seq": 4, "at": at + 3, "dir": "mux", "kind": "status", "msg": {"status": "closed"}})
-        meta = {"schema": "acpmux.session.v1", "id": session, "name": f"idle-cost-{i}", "harness": harness,
-                "cwd": cwd, "status": status, "createdAt": at, "updatedAt": at + len(records),
-                "lastSeq": len(records), "eventCount": len(records), "turnCount": 1,
-                "title": f"Idle-cost chat {i}", "lastPrompt": prompt, "preview": REPLY[:120]}
+        meta.update({"id": session, "name": f"idle-cost-{i}", "title": f"Idle-cost chat {i}", "createdAt": at,
+                     "updatedAt": at + 1000, "status": "closed" if template is closed else "idle"})
         folder = os.path.join(root, session)
         private_dir(folder)
         private_dir(os.path.join(folder, "events"))
-        private_write(os.path.join(folder, "session.json"), json.dumps(meta))
-        private_write(os.path.join(folder, "events", "000000.ndjson"), "".join(json.dumps(r) + "\n" for r in records))
-    return {"sessions": count, "closed": closed, "idle": count - closed}
+        private_write(os.path.join(folder, "session.json"), json.dumps(meta, indent=2).encode())
+        for name, data in template["events"].items():
+            private_write(os.path.join(folder, "events", name), swap(data))
+    return {"sessions": count, "closed": closed_count, "idle": count - closed_count}
 
 
 def rpc(path: str, method: str, params: dict, timeout: float = 60):
@@ -124,10 +130,13 @@ def bundled_acpmux(bundle: str) -> str:
 
 
 class PeerDaemon:
-    """The load's remote machine: an acpmux daemon from the bundle on a home of its own."""
+    """The load's remote machine: the bundle's acpmux, copied out, on a home of its own."""
 
-    def __init__(self, bundle: str, root: str, fake_agent: str):
-        self.binary = bundled_acpmux(bundle)
+    def __init__(self, bundle: str, root: str, agent: str):
+        bin_dir = os.path.join(root, "peer-bin")
+        os.makedirs(bin_dir, exist_ok=True)
+        self.binary = os.path.join(bin_dir, "acpmux")
+        shutil.copy2(bundled_acpmux(bundle), self.binary)
         self.home = os.path.join(root, "peer-acpmux")
         private_dir(self.home)
         self.socket_dir = tempfile.mkdtemp(prefix="icp", dir="/tmp")  # a socket path must stay short
@@ -137,11 +146,12 @@ class PeerDaemon:
         self.env = {"HOME": person, "USER": os.environ.get("USER", ""), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",
                     "TMPDIR": self.socket_dir + "/", "ACPMUX_HOME": self.home, "ACPMUX_SOCKET": self.socket,
                     "ACPMUX_LOGIN_ENV": "0"}
-        self.fake_agent = os.path.abspath(fake_agent)
+        self.agent = os.path.abspath(agent)
         self.process: subprocess.Popen | None = None
+        self.entry: dict = {}
 
-    def start(self) -> dict:
-        """Starts the daemon and registers the test agent; returns the peer entry for `_acpmux/peer_add`."""
+    def start(self):
+        """Starts the daemon and registers the test agent; `entry` is its `_acpmux/peer_add` params."""
         log = open(os.path.join(self.home, "daemon.log"), "a")
         self.process = subprocess.Popen([self.binary, "daemon", "run", "--ready-fd", "1", "--log", "warn"],
                                         env=self.env, stdout=subprocess.PIPE, stderr=log, stdin=subprocess.DEVNULL,
@@ -173,9 +183,34 @@ class PeerDaemon:
         if not listen or not token:
             raise SystemExit(f"idle-cost: the peer acpmux listens on {listen!r} with token {bool(token)}")
         rpc(self.socket, "_acpmux/harness/add", {"id": bm.FAKE_AGENT_ID, "displayName": "Idle-cost bench",
-                                                  "command": sys.executable, "args": [self.fake_agent],
+                                                  "command": sys.executable, "args": [self.agent],
                                                   "protocol": "acp", "replace": True})
-        return {"name": PEER, "url": f"ws://{listen}", "token": token, "peerToken": peer_token, "wait": True}
+        self.entry = {"name": PEER, "url": f"ws://{listen}", "token": token, "peerToken": peer_token, "wait": True}
+
+    def acpmux(self, *words: str, timeout: float = 120) -> subprocess.CompletedProcess:
+        return subprocess.run([self.binary, *words], capture_output=True, text=True, timeout=timeout, env=self.env)
+
+    def new_chat(self, text: str) -> str | None:
+        """A chat on the test agent whose first turn has ended; its session id."""
+        made = self.acpmux("new", "--json", "-d", "-m", bm.FAKE_AGENT_ID, text)
+        try:
+            session = json.loads(made.stdout)["sessionId"]
+        except (ValueError, KeyError):
+            print(f"   peer acpmux new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+            return None
+        self.acpmux("wait", session, "--timeout", "60", timeout=90)
+        return session
+
+    def templates(self) -> tuple[dict, dict]:
+        """One answered chat and one closed chat, as this daemon stored them (seed_store's templates)."""
+        answered = self.new_chat("idle-cost template: tidy the build scripts")
+        closed = self.new_chat("idle-cost template: tidy the build scripts")
+        if not answered or not closed:
+            raise SystemExit("idle-cost: the peer acpmux made no template chats")
+        killed = self.acpmux("kill", closed)
+        if killed.returncode != 0:
+            raise SystemExit(f"idle-cost: acpmux kill: {(killed.stdout + killed.stderr).strip()[:300]}")
+        return read_chat(self.home, answered), read_chat(self.home, closed)
 
     def pids(self) -> set[int]:
         """The daemon and every process under it: the remote machine's, never the app's."""
@@ -213,12 +248,12 @@ def new_session(cli: str, env: dict, text: str) -> str | None:
         return None
 
 
-def stream(cli: str, env: dict, session: str, seconds: float, rate: float) -> bool:
-    """Starts a reply that streams for `seconds` (the test agent's `stream:`), without waiting for it."""
-    sent = subprocess.run([cli, "acp", "send", "--no-wait", session, f"stream: {int(seconds)} {rate}"],
+def stream(argv: list[str], env: dict, session: str, seconds: float, rate: float) -> bool:
+    """Starts a reply that streams for `seconds` (idle_cost_agent.py's `stream:`), without waiting for it."""
+    sent = subprocess.run(argv + ["send", "--no-wait", session, f"stream: {int(seconds)} {rate}"],
                           capture_output=True, text=True, timeout=60, env=env)
     if sent.returncode != 0:
-        print(f"   acp send {session}: {(sent.stdout + sent.stderr).strip()[:300]}", file=sys.stderr)
+        print(f"   send {session}: {(sent.stdout + sent.stderr).strip()[:300]}", file=sys.stderr)
     return sent.returncode == 0
 
 
@@ -234,8 +269,8 @@ def open_workspace(app: bm.App, session: str) -> str | None:
     return created[0]
 
 
-def remote_rows(app_socket: str, want: int, seconds: float = 90) -> list[str]:
-    """The ids the app's daemon lists for the peer's chats, once it lists `want` of them."""
+def remote_rows(app_socket: str, want: set[str], seconds: float = 90) -> list[str]:
+    """The ids the app's daemon lists for the peer's chats `want`, once it lists them all."""
     deadline, ids = time.monotonic() + seconds, []
     while time.monotonic() < deadline:
         try:
@@ -243,38 +278,34 @@ def remote_rows(app_socket: str, want: int, seconds: float = 90) -> list[str]:
         except (OSError, RuntimeError) as error:
             print(f"   _acpmux/sessions: {error}", file=sys.stderr)
             rows = []
-        ids = [row.get("sessionId") or row.get("id") for row in rows
-               if row.get("peer") == PEER or str(row.get("sessionId") or row.get("id") or "").startswith(PEER + "/")]
-        ids = [value for value in ids if value]
-        if len(ids) >= want:
+        ids = [row.get("sessionId") for row in rows if row.get("peer") == PEER and (
+            row.get("sessionId") in want or str(row.get("qualifiedSessionId") or "").split("/")[-1] in want)]
+        if len(ids) >= len(want):
             break
         time.sleep(2)  # test script: waiting for the peer's chats to reach the app's daemon
-    return ids
+    return [value for value in ids if value]
 
 
-def open_load(app: bm.App, bundle: str, fake_agent: str, root: str, page_url, counts: dict, stream_s: float) -> tuple[dict, PeerDaemon]:
-    """Opens the load in the launched app (see the module); returns what it reached and the peer."""
-    reached = {"remote_chats": 0, "local_chats": 0, "streaming": 0, "browser_tabs": 0, "home": False, "new_tab": False,
-               "peer": False}
-    chats = bm.FakeChats(app, bundle, fake_agent)  # the test agent on the app's daemon, and its socket
+def open_load(app: bm.App, bundle: str, agent: str, peer: PeerDaemon, page_url, counts: dict,
+              stream_s: float) -> dict:
+    """Opens the load in the launched app (see the module); returns what it reached."""
+    reached = {"remote_chats": 0, "local_chats": 0, "streaming": 0, "browser_tabs": 0, "home": False,
+               "new_tab_page": False, "peer": False}
+    chats = bm.FakeChats(app, bundle, agent)  # the test agent on the app's daemon, and its socket
     app_socket = chats.env["ACPMUX_SOCKET"]
-    peer = PeerDaemon(bundle, root, fake_agent)
-    peer_env = dict(os.environ, ACPMUX_HOME=peer.home, ACPMUX_SOCKET=peer.socket)
     streaming_left = counts["streaming"]
     try:
-        entry = peer.start()
-        made = [s for s in (new_session(app.cli_path, peer_env, f"remote chat {i}") for i in range(counts["remote"])) if s]
-        rpc(app_socket, "_acpmux/peer_add", entry, timeout=120)
+        made = [s for s in (peer.new_chat(f"remote chat {i}") for i in range(counts["remote"])) if s]
+        rpc(app_socket, "_acpmux/peer_add", peer.entry, timeout=120)
         reached["peer"] = True
-        listed = remote_rows(app_socket, len(made))
-        for index, session in enumerate(listed[:counts["remote"]]):
-            if open_workspace(app, session) or open_workspace(app, f"{PEER}/{session}"):
+        for session in remote_rows(app_socket, set(made)):
+            if open_workspace(app, session):
                 reached["remote_chats"] += 1
-        # One remote chat streams (on its own machine; the app mirrors it), the rest stream locally.
-        if streaming_left and made and stream(app.cli_path, peer_env, made[0], stream_s, counts["rate"]):
+        # One remote chat streams on its own machine (the app mirrors it); the rest stream here.
+        if streaming_left and made and stream([peer.binary], peer.env, made[0], stream_s, counts["rate"]):
             reached["streaming"] += 1
             streaming_left -= 1
-    except (OSError, RuntimeError, subprocess.SubprocessError, SystemExit) as error:
+    except (OSError, RuntimeError, subprocess.SubprocessError) as error:
         # The local load still runs; the report shows how many remote chats opened.
         print(f"   remote load: {error}", file=sys.stderr)
     first_idle = None
@@ -284,7 +315,7 @@ def open_load(app: bm.App, bundle: str, fake_agent: str, root: str, page_url, co
         if not workspace:
             continue
         reached["local_chats"] += 1
-        if streaming_left and stream(app.cli_path, chats.env, session, stream_s, counts["rate"]):
+        if streaming_left and stream([app.cli_path, "acp"], chats.env, session, stream_s, counts["rate"]):
             reached["streaming"] += 1
             streaming_left -= 1
         elif first_idle is None:
@@ -303,11 +334,12 @@ def open_load(app: bm.App, bundle: str, fake_agent: str, root: str, page_url, co
     for tab in tabs:
         app.run("tab.focus", target=tab)
         time.sleep(1)  # test script: let the shown page load
-    # Home and New Tab, in their own workspace.
+    # Home and the New Tab page, in their own workspace (`newTab` is New Workspace; `newTab.page` the page).
     app.run("workspace.newAtBottom")
     app.run("workspace.selectLast")
-    reached["home"] = not (app.run("home.tab").get("error"))
-    reached["new_tab"] = not (app.run("newTab").get("error"))
+    for key, action in (("home", "home.tab"), ("new_tab_page", "newTab.page")):
+        response = app.run(action)
+        reached[key] = not (response.get("error") or response.get("code"))
     if first_idle:
         app.action("goToWorkspace", workspace=first_idle)
-    return reached, peer
+    return reached
