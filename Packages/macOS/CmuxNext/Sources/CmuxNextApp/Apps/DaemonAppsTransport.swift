@@ -162,4 +162,16 @@ final class DaemonAppsTransport: AppsTransport {
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine] {
         AppsWireDecoding.logs(try await send(AppsLogsRequest(app: app, follow: follow)))
     }
+
+    func webCall(app: String, op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON {
+        AppJSON(try await send(AppsWebCallRequest(app: app, op: op, args: args.daemonValue), timeout: Self.runTimeout))
+    }
+
+    func webLog(app: String, level: String, message: String) async throws(AppsTransportError) {
+        _ = try await send(AppsWebLogRequest(app: app, level: level, message: message))
+    }
+
+    func registryPut(app: String, version: String, sha256: String, files: [String: String]) async throws(AppsTransportError) {
+        _ = try await send(AppsRegistryPutRequest(app: app, version: version, sha256: sha256, files: files), timeout: Self.runTimeout)
+    }
 }

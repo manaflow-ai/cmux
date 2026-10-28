@@ -11,6 +11,8 @@ public nonisolated enum AppSource: String, Sendable, Hashable, CaseIterable {
     case bundled
     /// A `local/` development app.
     case local
+    /// An approved App Store app the person got (custom-panes-DESIGN.md 6.4).
+    case registry
 }
 
 /// One app in the supervisor's install mirror (one `apps-list` entry, and

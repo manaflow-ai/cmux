@@ -3,8 +3,10 @@ public import Foundation
 /// What the supervisor pushes to the client.
 public nonisolated enum AppsTransportEvent: Sendable, Hashable {
     case availability(AppsAvailability)
-    /// `apps-changed {revision}`: the install mirror moved; list again.
-    case changed(revision: UInt64?)
+    /// `apps-changed {revision, app?, transaction?}`: the install mirror or the
+    /// catalog moved; list again. `app` with transaction `local-reload` (a file
+    /// of a local app changed) or `registry-put` names the app whose files changed.
+    case changed(revision: UInt64?, app: String? = nil, transaction: String? = nil)
     /// `apps-scene {mount_id, ops, reset?}`. `reset` (the supervisor
     /// restarted the app host and re-mounted, after a crash or a grant
     /// change) means: drop the mount's tree and apply `ops` to an empty one.
@@ -43,4 +45,10 @@ public protocol AppsTransport: AnyObject {
     /// connection the daemon verified as the cmux app.
     func run(app: String, op: String, args: AppJSON, origin: AppOrigin, idempotencyKey: String) async throws(AppsTransportError) -> AppJSON
     func logs(app: String, follow: Bool) async throws(AppsTransportError) -> [AppLogLine]
+    /// `apps-web-call`: one `cmux.call` of the app's web pane (custom-panes-DESIGN.md 3).
+    func webCall(app: String, op: String, args: AppJSON) async throws(AppsTransportError) -> AppJSON
+    /// `apps-web-log`: one console line of the app's web pane.
+    func webLog(app: String, level: String, message: String) async throws(AppsTransportError)
+    /// `cmux.apps.registry.put`: an approved App Store bundle for the supervisor's catalog.
+    func registryPut(app: String, version: String, sha256: String, files: [String: String]) async throws(AppsTransportError)
 }

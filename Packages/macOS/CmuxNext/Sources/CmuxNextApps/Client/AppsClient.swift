@@ -33,6 +33,9 @@ public final class AppsClient {
     public private(set) var rejections: [String: String] = [:]
     public private(set) var hostStates: [String: (state: AppHostState, reason: String?)] = [:]
     public private(set) var logs: [String: [AppLogLine]] = [:]
+    /// Counts the times each app's files changed on disk (a local app saved, an App
+    /// Store bundle replaced); a web pane reloads when its app's count moves.
+    public private(set) var fileRevisions: [String: Int] = [:]
     /// An `apps-list` of the current connection landed: until then no app is
     /// known, and surfaces show why instead of "not installed".
     public private(set) var hasList = false
@@ -46,6 +49,8 @@ public final class AppsClient {
     @ObservationIgnored var nextMount = 1
     /// Mount, unmount and user events go out one after another, in order.
     @ObservationIgnored var tail: Task<Void, Never>?
+    /// Web pane console lines go out one after another, in order.
+    @ObservationIgnored var webLogTail: Task<Void, Never>?
     @ObservationIgnored private var listing: Task<Void, Never>?
     /// The availability epoch the client last connected for (one `connected()` per epoch).
     @ObservationIgnored private var connectedEpoch: Int?
@@ -53,6 +58,8 @@ public final class AppsClient {
     @ObservationIgnored var followed: Set<String> = []
     @ObservationIgnored let keyPrefix = UUID().uuidString.prefix(8).lowercased()
     static let logLimit = 500
+    /// `apps-changed` transactions that mean the app's files changed.
+    static let fileTransactions: Set<String> = ["local-reload", "registry-put"]
 
     public init(transport: any AppsTransport) {
         self.transport = transport
@@ -158,7 +165,10 @@ public final class AppsClient {
                 connectedEpoch = nil
                 disconnected()
             }
-        case .changed:
+        case let .changed(_, app, transaction):
+            if let app, let transaction, Self.fileTransactions.contains(transaction) {
+                fileRevisions[app, default: 0] += 1
+            }
             refresh()
         case let .scene(mountID, ops, reset):
             guard let model = mounts[mountID]?.model else { return }
