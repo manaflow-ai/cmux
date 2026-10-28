@@ -179,7 +179,13 @@ ${css}
             railDirection: getComputedStyle(railList).flexDirection,
             tabRects: [...menu.querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")].map((tab) => {
               const rect = tab.getBoundingClientRect();
-              return { left: rect.left, right: rect.right, top: rect.top, width: rect.width, height: rect.height };
+              return {
+                left: rect.left,
+                right: rect.right,
+                top: rect.top,
+                width: rect.width,
+                height: rect.height,
+              };
             }),
           };
         });
@@ -354,7 +360,8 @@ ${css}
                 (index + 1) +
                 "</button>",
             ).join("");
-            node.style.cssText += ";display:flex;flex-direction:row;gap:4px;width:max-content;min-width:max-content;padding:6px";
+            node.style.cssText +=
+              ";display:flex;flex-direction:row;gap:4px;width:max-content;min-width:max-content;padding:6px";
           });
           await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
             const node = rail as HTMLElement;
@@ -381,7 +388,12 @@ ${css}
               },
               side,
             );
-            await page.waitForTimeout(20);
+            await page.waitForFunction((position) => {
+              const viewport = document.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
+              if (!viewport) return false;
+              const expected = position === "start" ? 0 : viewport.scrollWidth - viewport.clientWidth;
+              return Math.abs(viewport.scrollLeft - expected) < 1;
+            }, side);
             return page.$eval(".acpmux-mp-rail-viewport", (node) => {
               const viewport = node as HTMLElement;
               const box = viewport.getBoundingClientRect();
@@ -391,7 +403,10 @@ ${css}
                 clip: getComputedStyle(viewport).clipPath,
                 hits: points.map(
                   (x) =>
-                    document.elementFromPoint(x, box.top + box.height / 2)?.closest(".acpmux-mp-rail-tab")?.getAttribute("data-tab-index") ?? null,
+                    document
+                      .elementFromPoint(x, box.top + box.height / 2)
+                      ?.closest(".acpmux-mp-rail-tab")
+                      ?.getAttribute("data-tab-index") ?? null,
                 ),
               };
             });
@@ -477,7 +492,12 @@ ${css}
             const bar = node.getBoundingClientRect();
             const steer = node.querySelector<HTMLElement>(".acpmux-steer")!;
             const rect = steer.getBoundingClientRect();
-            return { barRight: bar.right, right: rect.right, client: steer.clientWidth, scroll: steer.scrollWidth };
+            return {
+              barRight: bar.right,
+              right: rect.right,
+              client: steer.clientWidth,
+              scroll: steer.scrollWidth,
+            };
           });
           expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
           expect(geometry.right).toBeLessThanOrEqual(geometry.barRight + 1);
