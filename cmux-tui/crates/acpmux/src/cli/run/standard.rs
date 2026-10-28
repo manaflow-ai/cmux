@@ -363,11 +363,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let probe = std::env::var("ACPMUX_SESSION_ID").is_ok_and(|id| !id.is_empty())
                 && crate::probe_prompt::is_probe(&args.prompt.join(" "));
             let ephemeral = one_shot && (args.ephemeral || (probe && args.name.is_none()));
+            // Keep a grouped one-shot session durable until its sidebar open
+            // succeeds. If the app is unavailable, the error's retry command
+            // must still be able to open the session that received the prompt.
+            let grouped_ephemeral = ephemeral && args.group.is_some();
             // The daemon purges an ephemeral session when this connection ends
             // (`server/ephemeral.rs`), however the CLI exits: killed during the
             // turn, by a caller's timeout, or a lost connection. The kill after
             // the reply below stays the normal path.
-            if ephemeral {
+            if ephemeral && !grouped_ephemeral {
                 meta["ephemeral"] = json!(true);
             }
             if let Some((w, _)) = &launch.worktree {
@@ -397,7 +401,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let v = match reused.clone() {
                 Some(info) => info,
-                None => match if ephemeral || probe {
+                None => match if (ephemeral && !grouped_ephemeral) || (probe && !grouped_ephemeral)
+                {
                     client.request_parentless(method::SESSION_NEW, p).await
                 } else {
                     client.request(method::SESSION_NEW, p).await
@@ -534,7 +539,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // exact command in the error.
                     let show_error = show().err();
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
-                    if ephemeral {
+                    if ephemeral && (!grouped_ephemeral || show_error.is_none()) {
                         let _ = client
                             .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
                             .await;
