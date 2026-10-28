@@ -32,10 +32,12 @@ ENV = {
 }
 
 
-def feed(*items: tuple[int, str, int]) -> str:
+def feed(*items: tuple, channel: dict | None = None) -> str:
+    channel = channel or {}
     body = "".join(
-        f'<item><sparkle:version>{build}</sparkle:version><enclosure url="{url}" length="{length}" '
-        f'sparkle:edSignature="sig"/></item>' for build, url, length in items)
+        f'<item><sparkle:version>{build}</sparkle:version>'
+        + (f"<sparkle:channel>{channel[build]}</sparkle:channel>" if build in channel else "")
+        + f'<enclosure url="{url}" length="{length}" sparkle:edSignature="sig"/></item>' for build, url, length in items)
     return ('<?xml version="1.0"?><rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">'
             f"<channel>{body}</channel></rss>")
 
@@ -177,6 +179,17 @@ class KeepEarlierBuildsTests(FeedWriteCase):
         before = self.path.read_bytes()
         self.assertEqual(self.run_with([feed((150, "c", 4)).encode()], [0]), 0)
         self.assertEqual(self.path.read_bytes(), before)
+
+    def test_a_build_that_landed_meanwhile_replaces_an_older_kept_one(self) -> None:
+        # Ours was combined from an older read ([200, 150]); the live feed now has 190 above 150.
+        self.path.write_text(feed((200, "a", 5), (150, "c", 4)), encoding="utf-8")
+        self.assertEqual(self.run_with([feed((190, "b", 5), (150, "c", 4)).encode()], [0]), 0)
+        self.assertIn(190, self.builds())
+
+    def test_a_dev_tagged_build_is_never_the_kept_one(self) -> None:
+        live = feed((180, "d", 1), (150, "c", 4), channel={180: "cmux-next-dev", 150: "cmux-next"}).encode()
+        self.assertEqual(self.run_with([live], [0]), 0)
+        self.assertEqual(self.builds(), [200, 150])
 
     def test_a_lost_race_keeps_from_the_feed_it_read_last(self) -> None:
         first, second = feed((100, "x", 1)).encode(), feed((180, "y", 1), (100, "x", 1)).encode()

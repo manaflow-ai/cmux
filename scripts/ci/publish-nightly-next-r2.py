@@ -58,6 +58,8 @@ CONFLICT = 3
 KEEP_BUILDS = 2
 ITEM = re.compile(rb"[ \t]*<item>.*?</item>[ \t]*\n?", re.S)
 ITEM_VERSION = re.compile(rb"<sparkle:version>\s*(\d+)\s*</sparkle:version>")
+ITEM_CHANNEL = re.compile(rb"<sparkle:channel>\s*([^<]*?)\s*</sparkle:channel>")
+NIGHTLY_CHANNELS = (None, b"cmux-next")  # what a Nightly-ring app is offered (untagged or cmux-next)
 _sleep = time.sleep
 
 
@@ -198,22 +200,33 @@ def item_builds(xml: bytes) -> list[tuple[re.Match, int]]:
     return found
 
 
+def nightly_item(item: bytes) -> bool:
+    channel = ITEM_CHANNEL.search(item)
+    return (channel.group(1) if channel else None) in NIGHTLY_CHANNELS
+
+
 def keep_earlier_builds(ours: bytes, live: bytes, keep: int = KEEP_BUILDS) -> bytes:
-    """OURS, plus the live feed's newest items below OURS' newest build that OURS lacks, newest first,
-    until it holds KEEP builds. Each kept item is copied byte for byte after OURS' last item."""
+    """OURS, plus the live feed's items for the KEEP - 1 newest builds below OURS' newest build that a
+    Nightly-ring app is offered (untagged or cmux-next), counted over both feeds, that OURS lacks.
+
+    Counting over both feeds means a feed combined from an older read (a lost race) still takes a
+    build that landed meanwhile. A Dev-tagged (cmux-next-dev) item is never kept: a Nightly app rejects
+    it, so it could not serve a rollback. Each kept item is copied byte for byte after OURS' last item."""
     mine = item_builds(ours)
     if not mine:
         return ours
     have = {build for _, build in mine}
     newest = max(have)
-    added = []
-    for match, build in sorted(item_builds(live), key=lambda entry: entry[1], reverse=True):
-        if len(have) >= keep:
-            break
-        if build < newest and build not in have:
+    theirs = [(match, build) for match, build in item_builds(live) if nightly_item(match.group(0))]
+    earlier = {build for match, build in mine if build < newest and nightly_item(match.group(0))}
+    earlier |= {build for _, build in theirs if build < newest}
+    wanted = set(sorted(earlier, reverse=True)[:keep - 1]) - have
+    added, taken = [], set()
+    for match, build in sorted(theirs, key=lambda entry: entry[1], reverse=True):
+        if build in wanted and build not in taken:
             item = match.group(0)
             added.append(item if item.endswith(b"\n") else item + b"\n")
-            have.add(build)
+            taken.add(build)
     if not added:
         return ours
     end = mine[-1][0].end()
