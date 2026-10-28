@@ -179,10 +179,17 @@ public final class SandboxRunFollower {
         if !silent { tell(id, SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
     }
 
-    /// Runs ``onEnd`` for ended Run `id`, then marks it told.
+    /// Runs ``onEnd`` for ended Run `id`, then marks it told. A replayed end is marked by its
+    /// listener (``markTold(_:)``) once its banner is handled: that may take a moment (a read of the
+    /// delivered banners), and a quit inside it must leave the end to the next launch.
     private func tell(_ id: String, _ end: SandboxRunEnd) {
         onEnd?(end)
-        guard let index = ended.lastIndex(where: { $0.record.id == id }) else { return }
+        if !end.replayed { markTold(id) }
+    }
+
+    /// The end of Run `id` was told (its banner posted, found delivered, or held back by the settings).
+    public func markTold(_ id: String) {
+        guard let index = ended.lastIndex(where: { $0.record.id == id }), !ended[index].told else { return }
         ended[index].told = true
         save()
     }

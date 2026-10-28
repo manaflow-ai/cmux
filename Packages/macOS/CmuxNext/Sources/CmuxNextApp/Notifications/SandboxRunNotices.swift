@@ -58,12 +58,15 @@ final class SandboxRunNotices {
     func ended(_ end: SandboxRunEnd) {
         let snapshot = (try? JSONSerialization.jsonObject(with: end.snapshot)) as? [String: Any] ?? [:]
         for view in services.map({ Array($0.agentTabs.views.values) }) ?? [] { view.model.sandboxRuns.settle(key: end.record.key, snapshot: snapshot) }
-        guard end.replayed, let desktop = services?.notifications.desktop else { return post(end) }
-        // An end told again after a crash: its banner may already be in Notification Center.
+        guard end.replayed else { return post(end) }
+        // An end told again after a crash: its banner may already be in Notification Center. It is
+        // marked told only after this, so a quit before leaves it to the next launch.
+        let follower = follower
         // task-owner: one read of the delivered banners for this replayed end
         Task { @MainActor [weak self] in
-            if await desktop.isDelivered(Self.bannerPrefix + end.record.id) { return }
-            self?.post(end)
+            let delivered = await self?.services?.notifications.desktop.isDelivered(Self.bannerPrefix + end.record.id) ?? false
+            if !delivered { self?.post(end) }
+            follower.markTold(end.record.id)
         }
     }
 

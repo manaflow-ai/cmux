@@ -191,6 +191,14 @@ struct SandboxRunNoticeTests {
         relaunched.account("u1")
         #expect(ends.all.map(\.outcome) == [.succeeded])
         #expect(ends.all.first?.record.task == "Fix the flaky test\nthen push")
+        #expect(ends.all.first?.replayed == true)
+        // A replayed end stays untold until its listener handled the banner: a quit before that
+        // leaves it to the next launch.
+        #expect(relaunched.endedRun("r1")?.told == false)
+        let (beforeMark, beforeMarkEnds) = follower(server, defaults: defaults)
+        beforeMark.account("u1")
+        #expect(beforeMarkEnds.all.count == 1)
+        beforeMark.markTold("r1")
         // Told: a later launch tells nothing again.
         let (again, againEnds) = follower(server, defaults: defaults)
         again.account("u1")
