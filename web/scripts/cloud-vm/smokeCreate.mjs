@@ -2,6 +2,35 @@ import { setTimeout as delay } from "node:timers/promises";
 
 /** Maximum time the canary waits for a create continuation to become visible. */
 export const CREATE_VM_RETRY_BUDGET_MS = 8 * 60 * 1_000;
+export const CREATE_VM_REQUEST_TIMEOUT_MS = 45_000;
+
+/** Read a response body without allowing cancellation or timeout to strand a canary. */
+export async function readResponseText(response, { signal, timeoutMs = CREATE_VM_REQUEST_TIMEOUT_MS } = {}) {
+  const body = response.text();
+  body.catch(() => {});
+  let timer;
+  let abort;
+  const stopped = new Promise((_, reject) => {
+    abort = () => {
+      const cancellation = response.body?.cancel?.(signal?.reason);
+      cancellation?.catch?.(() => {});
+      reject(signal?.reason instanceof Error ? signal.reason : new Error("Cloud VM response read aborted"));
+    };
+    if (signal?.aborted) abort();
+    else signal?.addEventListener("abort", abort, { once: true });
+    timer = setTimeout(() => {
+      const cancellation = response.body?.cancel?.();
+      cancellation?.catch?.(() => {});
+      reject(new Error(`Cloud VM response body exceeded ${timeoutMs} ms`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([body, stopped]);
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", abort);
+  }
+}
 
 /**
  * Build the authenticated VM create request used by the smoke runner.
@@ -20,7 +49,7 @@ export function createVmRequest({ targetUrl, authHeaders, provider, image, fetch
       headers: { ...authHeaders, "content-type": "application/json", "idempotency-key": idempotencyKey },
       body: JSON.stringify(body),
     }, undefined, signal);
-    const text = await response.text();
+    const text = await readResponseText(response, { signal });
     let parsed;
     try {
       parsed = JSON.parse(text);

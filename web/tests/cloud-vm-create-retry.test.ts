@@ -1,8 +1,38 @@
 import { describe, expect, test } from "bun:test";
 
-import { createVmRequest, createVmWithRetry } from "../scripts/cloud-vm/smokeCreate.mjs";
+import {
+  createVmRequest,
+  createVmWithRetry,
+  readResponseText,
+} from "../scripts/cloud-vm/smokeCreate.mjs";
+import { stackServerAppOptions } from "../scripts/cloud-vm/stackConfig.mjs";
 
 describe("Cloud VM smoke create retry", () => {
+  test("keeps the publishable client key optional for production canaries", () => {
+    expect(stackServerAppOptions({ projectId: "project", secretServerKey: "secret" })).toEqual({
+      projectId: "project",
+      secretServerKey: "secret",
+    });
+    expect(stackServerAppOptions({ projectId: "project", publishableClientKey: "client", secretServerKey: "secret" })).toEqual({
+      projectId: "project",
+      publishableClientKey: "client",
+      secretServerKey: "secret",
+    });
+  });
+
+  test("aborts a stalled response body and cancels its stream", async () => {
+    const controller = new AbortController();
+    let cancelled = false;
+    const response = {
+      body: { cancel: async () => { cancelled = true; } },
+      text: () => new Promise<string>(() => {}),
+    };
+    const pending = readResponseText(response as unknown as Response, { signal: controller.signal, timeoutMs: 1_000 });
+    controller.abort(new Error("test cancellation"));
+    await expect(pending).rejects.toThrow("test cancellation");
+    expect(cancelled).toBe(true);
+  });
+
   test("caller preserves the idempotency key and payload across retries", async () => {
     const responses = [
       { status: 503, body: { error: "vm_operation_in_progress", phase: "create", retryable: true } },

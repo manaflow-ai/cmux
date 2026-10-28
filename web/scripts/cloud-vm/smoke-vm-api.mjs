@@ -13,7 +13,12 @@ import {
   requireEnvKeys,
 } from "./projects.mjs";
 import { classifyCodexCanaryOutcome, edgeCanaryProblems } from "./canaryOutcome.mjs";
-import { CREATE_VM_RETRY_BUDGET_MS, createVmRequest, createVmWithRetry } from "./smokeCreate.mjs";
+import {
+  CREATE_VM_RETRY_BUDGET_MS,
+  createVmRequest,
+  createVmWithRetry,
+} from "./smokeCreate.mjs";
+import { stackServerAppOptions } from "./stackConfig.mjs";
 
 const usage = "Usage: smoke-vm-api.mjs [web-dir] <staging|production> [--create] [--snapshot-check] [--provider freestyle|default] [--image <manifest image id or version>] [--url https://preview.example] [--vercel-curl] [--skip-attach] [--paid] [--edge-check] [--claude-check] [--zero-token] [--sweep-older-than-minutes <n>] [--result-file <path>]";
 const args = process.argv.slice(2);
@@ -295,14 +300,13 @@ try {
   const env = loadTargetEnv(project);
   requireEnvKeys(env, [
     "NEXT_PUBLIC_STACK_PROJECT_ID",
-    "NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY",
     "STACK_SECRET_SERVER_KEY",
   ], `${project.projectName} smoke`);
   const projectId = env.NEXT_PUBLIC_STACK_PROJECT_ID;
-  const publishableClientKey = env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY;
+  const publishableClientKey = env.NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY?.trim();
   const secretServerKey = env.STACK_SECRET_SERVER_KEY;
 
-  const app = new StackServerApp({ projectId, publishableClientKey, secretServerKey });
+  const app = new StackServerApp(stackServerAppOptions({ projectId, publishableClientKey, secretServerKey }));
   const emailPrefix = `cmux-${project.stackLabel}-smoke+`;
   const swept = sweepOlderThanMinutes === null
     ? null
