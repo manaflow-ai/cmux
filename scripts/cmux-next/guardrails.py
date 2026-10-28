@@ -5313,24 +5313,33 @@ RULES += IMPLICIT_WINDOW_RULES
 # own measured stage in debug.input). Chrome's equivalent: input goes to the RenderWidgetHost that owns the target
 # and is queued there (InputRouterImpl), never re-injected into the browser's event loop.
 # Covered: `<x>.sendEvent(` / `NSApp.postEvent(` on a key event (or an event the line's context does not prove is a
-# pointer event), a keyboard CGEvent (`CGEvent(keyboardEventSource:`), and its post (`.post(tap:`, `postToPid`,
+# pointer event: an event of unknown type counts, so LaunchPictureInput's held clicks count until a hint or the
+# seam shows them), a keyboard CGEvent (`CGEvent(keyboardEventSource:`), and its post (`.post(tap:`, `postToPid`,
 # `CGEventPost`). Not covered: mouse, scroll and other pointer events (the innermost block around the call, or its
-# function, names a mouse or scroll event and no key event), `super.sendEvent(` in an override (a pass-through,
-# not a replay), and Tests. Debug and bench handlers count unless they live in the seam.
+# function, names a mouse or scroll event and no key event; a run-loop wake `otherEvent`), `super.sendEvent(` in an
+# override (a pass-through, not a replay), and Tests. Known gaps: direct responder delivery (`firstResponder?.keyDown(
+# with:)`, `performKeyEquivalent`, `interpretKeyEvents`) and new calls of an existing replay helper
+# (`KeyRouter.replay`, `TerminalSurfaceView.resendKey`, `DebugNativeInput.sendThroughApp`) are not seen; review them. Debug and bench handlers count unless they live in the seam.
 # Two rules, local pre-push tier only (Lawrence 2026-10-23: no new CI gates): `key-replay` (added lines) and
 # `key-replay-record` (KEY_REPLAY_BASELINE's per-file count only goes down; CountRecord).
 # The block owns its lines from here to `RULES += KEY_REPLAY_RULES`.
 KEY_REPLAY_SEAMS: tuple[str, ...] = ()  # the InputReplay seam (hold-class-result.md names it); none yet: nothing new
 KEY_REPLAY_BASELINE = "scripts/cmux-next/key-replay-baseline.tsv"
 KEY_REPLAY_ALLOW = re.compile(r"//\s*key-replay-allow:\s*\S")
-EVENT_DISPATCH = re.compile(r"(?:\.\s*|(?<![\w.]))(?P<verb>sendEvent|postEvent)\s*\(")
+# A call or a method reference (`held.forEach(NSApp.sendEvent)`, `let resend = NSApp.postEvent`).
+EVENT_DISPATCH = re.compile(r"(?:\.\s*|(?<![\w.]))(?P<verb>sendEvent|postEvent)\b(?!\s*:)")
 KEY_CGEVENT = re.compile(r"\bCGEvent\s*\(\s*keyboardEventSource\s*:")
 CGEVENT_POST = re.compile(r"\.\s*post\s*\(\s*tap\s*:|\.\s*postToPid\s*\(|\bCGEventPost(?:ToPid)?\s*\(")
 KEY_REPLAY_LINE = re.compile("|".join(p.pattern for p in (EVENT_DISPATCH, KEY_CGEVENT, CGEVENT_POST)))
+# Event-specific names only: `makeKey()`, `isKey`, `cacheKey` or a `key` variable say nothing about the event.
 KEY_HINT = re.compile(r"\.keyDown\b|\.keyUp\b|\.flagsChanged\b|\bkeyEvent\s*\(|keyboardEventSource|\bkeyCode\b|"
-                      r"charactersIgnoringModifiers|[kK]ey(?:Down|Up)\b|\b(?:key|keys|held|typed)\b|[a-z]Key\b")
-POINTER_HINT = re.compile(r"(?i)mouse|scroll|click|drag|wheel|pointer|hover|trackpad|swipe|magnify|gesture|pressure")
+                      r"charactersIgnoringModifiers|[kK]ey(?:Down|Up)\b|\bflagsChanged\s*\(")
+POINTER_HINT = re.compile(r"(?i)mouse|scroll|click|drag|wheel|pointer|hover|trackpad|swipe|magnify|gesture|pressure|"
+                          r"rotate|touch|tablet|cursorUpdate")
+# Events that are neither keys nor pointers: a run-loop wake (`NSEvent.otherEvent(with: .applicationDefined, ...)`).
+OTHER_EVENT_HINT = re.compile(r"\botherEvent\s*\(|\.(?:applicationDefined|appKitDefined|systemDefined|periodic)\b")
 FUNCTION_STOP = re.compile(r"\b(?:func|init|deinit|subscript)\b|\b(?:var|let)\s+\w+\s*:")
+TYPE_STOP = re.compile(r"(?:^|[\s)])(?:(?:distributed\s+)?actor|class|struct|enum|extension|protocol)\s+[A-Za-z_]")
 
 
 def key_replay_kind(lines: list[str], index: int, prefix: str) -> str:
@@ -5338,17 +5347,27 @@ def key_replay_kind(lines: list[str], index: int, prefix: str) -> str:
     line itself, then each enclosing block from the innermost out to its function, read from the block's opener to
     the call; the first that names a key event is a key, the first that names only a pointer event is a pointer.
     One that names neither is a key: a re-dispatch must show it is not one."""
-    code = code_of(lines[index])
-    if KEY_HINT.search(code):
-        return "key"
-    if POINTER_HINT.search(code):
-        return "pointer"
-    for _, number in enclosing_openers(lines, index, FUNCTION_STOP, prefix):
-        context = "\n".join(code_of(lines[j]) for j in range(number - 1, index + 1))
-        if KEY_HINT.search(context):
+    def kind(text: str) -> str | None:
+        if KEY_HINT.search(text):
             return "key"
-        if POINTER_HINT.search(context):
+        if POINTER_HINT.search(text) or OTHER_EVENT_HINT.search(text):
             return "pointer"
+        return None
+
+    found = kind(code_of(lines[index]))
+    if found:
+        return found
+    # Each block's whole statement header (a signature over lines, a default-argument closure inside one), never a
+    # type's body: the context ends at the function, so another method's names never decide.
+    for opener, number in enclosing_openers(lines, index, re.compile(r"(?!)"), prefix):
+        header, start = statement_header(lines, number, opener)
+        if TYPE_STOP.search(header) and not FUNCTION_STOP.search(header):
+            break
+        found = kind("\n".join(code_of(lines[j]) for j in range(start, index + 1)))
+        if found:
+            return found
+        if FUNCTION_STOP.search(header):
+            break
     return "key"
 
 
@@ -5358,7 +5377,7 @@ def key_replay_debt(version: Version, index: int) -> tuple[bool, list[int]]:
         return True, []
     for match in itertools.chain(EVENT_DISPATCH.finditer(code), CGEVENT_POST.finditer(code)):
         before = code[:match.start()]
-        if re.search(r"\b(?:func|super\s*)\s*$", before.rstrip(".").rstrip()) or re.search(r"\bsuper\s*\.\s*$", before):
+        if re.search(r"\bfunc\s*$", before) or re.search(r"\bsuper\s*$", before):
             continue  # a declaration, or an override handing the event on: no replay
         if key_replay_kind(version.lines, index, before) == "key":
             return True, []
@@ -5368,7 +5387,7 @@ def key_replay_debt(version: Version, index: int) -> tuple[bool, list[int]]:
 KEY_REPLAY_MATCHER = Matcher(KEY_REPLAY_LINE, KEY_REPLAY_ALLOW, key_replay_debt)
 KEY_REPLAY_RECORD = CountRecord(
     "key-replay", KEY_REPLAY_BASELINE, KEY_REPLAY_MATCHER, lambda: KEY_REPLAY_SEAMS,
-    r"sendEvent|postEvent|keyboardEventSource|post\(tap|postToPid|CGEventPost", "key re-dispatches")
+    r"sendEvent|postEvent|keyboardEventSource|post *\( *tap|postToPid|CGEventPost", "key re-dispatches")
 KEY_REPLAY_RULES = (
     Rule("key-replay", "A key event re-dispatched outside the InputReplay seam: `NSApp.sendEvent` / "
          "`NSApplication.shared.sendEvent` / `window.sendEvent` / `<x>.sendEvent(` of a key event, `NSApp.postEvent` of "

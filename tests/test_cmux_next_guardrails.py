@@ -1198,6 +1198,31 @@ class KeyReplayRuleTests(Fixture):
             with self.subTest(how=how):
                 self.assertEqual(self.add(text), [])
 
+    def test_review_cases_pointer_forwarders_with_key_words_pass(self):
+        # Review of 3b5d397080b: `makeKey()`, `isKey`, a `key` variable or another method's keyDown never make a
+        # pointer forwarder a key replay; a run-loop wake is not a key.
+        cases = {
+            "makeKey": "override func mouseDown(with event: NSEvent) {\n    window?.makeKey()\n    target.sendEvent(event)\n}\n",
+            "a key variable": ("override func rightMouseDown(with event: NSEvent) {\n    for (key, click) in pendingClicks {\n"
+                               "        target.sendEvent(click)\n    }\n}\n"),
+            "a signature over lines": ("final class Forwarder {\n    override func keyDown(with event: NSEvent) { handle(event) }\n"
+                                       "    func forwardDrag(\n        _ event: NSEvent,\n        to target: NSWindow\n"
+                                       "    ) {\n        target.sendEvent(event)\n    }\n}\n"),
+            "a run-loop wake": ("func wake() {\n    guard let event = NSEvent.otherEvent(with: .applicationDefined, location: .zero,\n"
+                                "        modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil, subtype: 0, data1: 0, data2: 0)\n"
+                                "    else { return }\n    NSApp.postEvent(event, atStart: true)\n}\n"),
+            "a touch forwarder": "override func touchesBegan(with event: NSEvent) {\n    parent?.sendEvent(event)\n}\n",
+        }
+        for how, text in cases.items():
+            with self.subTest(how=how):
+                self.assertEqual(self.add(text), [])
+
+    def test_review_cases_method_references_are_refused(self):
+        for code in ("held.forEach(NSApp.sendEvent)", "let resend = NSApp.postEvent"):
+            with self.subTest(code=code):
+                self.assertEqual(self.add(f"func flush(_ held: [NSEvent]) {{\n    {code}\n}}\n"),
+                                 [("key-replay", [f"KeyRouter+Held.swift: {code}"])])
+
     def test_debug_and_bench_handlers_count_and_tests_do_not(self):
         text = "func f(_ event: NSEvent) {\n    NSApp.sendEvent(event)\n}\n"
         self.assertEqual(self.add(text, f"{APP}/Control/DebugKeyBench.swift"),
