@@ -1,3 +1,4 @@
+import Darwin
 import Testing
 @testable import CMUXAgentLaunch
 
@@ -110,5 +111,54 @@ struct AgentHookDeliveryPolicyTests {
     func pidEnvironmentKey() {
         #expect(policy.pidEnvironmentVariable(agentName: "claude") == "CMUX_CLAUDE_PID")
         #expect(policy.pidEnvironmentVariable(agentName: "future-agent") == "CMUX_FUTURE_AGENT_PID")
+    }
+
+    @Test("A hook adopts the live PID once the mapped process is gone")
+    func hookPIDFollowsReplacedProcess() {
+        let mapped = 25_087
+        let live = 97_938
+        // A live mapped process still wins: a wrapper or relay can report a
+        // different ancestor for the same pane.
+        #expect(policy.preferredEventPID(
+            agentName: "opencode",
+            mappedPID: mapped,
+            inferredPID: live,
+            isRunning: { _ in true }
+        ) == mapped)
+        // Reopening a session in a new process must move the record, or restore
+        // liveness keeps reading the dead generation as an exited agent.
+        #expect(policy.preferredEventPID(
+            agentName: "opencode",
+            mappedPID: mapped,
+            inferredPID: live,
+            isRunning: { $0 != mapped }
+        ) == live)
+        #expect(policy.preferredEventPID(
+            agentName: "opencode",
+            mappedPID: nil,
+            inferredPID: live,
+            isRunning: { _ in false }
+        ) == live)
+        #expect(policy.preferredEventPID(
+            agentName: "opencode",
+            mappedPID: mapped,
+            inferredPID: nil,
+            isRunning: { _ in false }
+        ) == mapped)
+        // Codex keeps preferring the live invocation PID outright.
+        #expect(policy.preferredEventPID(
+            agentName: "codex",
+            mappedPID: mapped,
+            inferredPID: live,
+            isRunning: { _ in true }
+        ) == live)
+    }
+
+    @Test("Process liveness accepts this process and rejects invalid PIDs")
+    func processLivenessProbe() {
+        #expect(AgentHookDeliveryPolicy.processIsRunning(Int(getpid())))
+        #expect(!AgentHookDeliveryPolicy.processIsRunning(0))
+        #expect(!AgentHookDeliveryPolicy.processIsRunning(-1))
+        #expect(!AgentHookDeliveryPolicy.processIsRunning(Int(Int32.max)))
     }
 }

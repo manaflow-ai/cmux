@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 
 /// Defines which agent hook events may use asynchronous queued delivery.
@@ -143,5 +144,40 @@ public struct AgentHookDeliveryPolicy: Sendable {
             return environmentPID
         }
         return invocationAgentPID
+    }
+
+    /// Chooses the PID to persist for a hook event.
+    ///
+    /// A runtime can reopen the same session id in a new process (OpenCode's
+    /// `--session`), so a PID that is no longer alive must not keep winning:
+    /// restore liveness reads the stale generation as "the agent exited" and
+    /// retires the pane's auto-resume binding.
+    ///
+    /// - Parameters:
+    ///   - agentName: The hook's agent key.
+    ///   - mappedPID: The PID already stored for the session, if any.
+    ///   - inferredPID: The live PID that ran this hook, if any.
+    ///   - isRunning: Reports whether a PID still names a live process.
+    public func preferredEventPID(
+        agentName: String,
+        mappedPID: Int?,
+        inferredPID: Int?,
+        isRunning: (Int) -> Bool
+    ) -> Int? {
+        if agentName == "codex" {
+            return inferredPID ?? mappedPID
+        }
+        guard let mappedPID, mappedPID > 0 else { return inferredPID }
+        guard let inferredPID, inferredPID > 0, inferredPID != mappedPID else {
+            return mappedPID
+        }
+        return isRunning(mappedPID) ? mappedPID : inferredPID
+    }
+
+    /// Reports whether `pid` names a live process.
+    public static func processIsRunning(_ pid: Int) -> Bool {
+        guard pid > 0, pid <= Int(Int32.max) else { return false }
+        if Darwin.kill(pid_t(pid), 0) == 0 { return true }
+        return errno == EPERM
     }
 }
