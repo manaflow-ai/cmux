@@ -81,8 +81,8 @@ final class AccountsService: AccountsServices {
     var client: CodeRouterClient? {
         let cloud = services.cloud
         let auth = cloud.auth, labels = labels
-        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
-                                teamID: { await auth.teamID }, labeler: { await labels.labeler() })
+        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, account: auth,
+                                labeler: { await labels.labeler() })
     }
 
     // MARK: AccountsServices
@@ -169,6 +169,10 @@ final class AccountsService: AccountsServices {
 
 /// Settings > Accounts drives the same Cloud sign-in as every other entry point.
 extension CloudAuth: CmuxAccountSource {}
+
+extension CloudAuth: CodeRouterAccountSource {
+    public var codeRouterAccountID: String? { isSignedIn ? user?.id : nil }
+}
 
 /// Fixture mode: no Keychain item exists.
 private struct NoKeychain: KeychainProbing {
