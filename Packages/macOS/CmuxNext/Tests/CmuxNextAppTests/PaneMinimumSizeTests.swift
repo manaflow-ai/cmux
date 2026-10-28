@@ -57,7 +57,7 @@ import Testing
         #expect(split == SplitID("x") && ratio < 0.01, "\(change)")
         let folded = layout.settingRatio(ratio, for: split)
         let style = LayoutStyle()
-        let frames = SplitGeometry.layout(try #require(folded.tree(containing: PaneID("p1"))), in: CGRect(x: 0, y: 0, width: 1200, height: 800), style: style)
+        let frames = SplitGeometry.layout(try #require(folded.tree(containing: SplitID("x"))), in: CGRect(x: 0, y: 0, width: 1200, height: 800), style: style)
         #expect(try #require(frames.panes[PaneID("p1")]).width <= style.collapsedPaneExtent + 0.5)
         let back = try #require(PaneResize.change(for: PaneID("p1"), direction: .right, in: folded))
         guard case let .splitRatio(_, grown) = back else {
