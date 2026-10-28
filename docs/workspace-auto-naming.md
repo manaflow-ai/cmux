@@ -44,7 +44,7 @@ The other hook integrations are intentionally skipped for now:
 
 ## Session priority difficulty
 
-The same Claude `Stop` hook also runs the session priority difficulty check when `automation.sessionPriority` is on. It is gated and throttled separately from naming; see [Automatic difficulty](configuration.md#automatic-difficulty).
+The same Claude `Stop` hook also runs the session priority difficulty check when `automation.sessionPriority` is on, after naming's pass. It is gated and throttled separately from naming, keeps its own state in `~/.cmuxterm/claude-difficulty-assessments.json`, and always uses Claude, whatever `automation.autoNamingAgent` picks; see [Automatic difficulty](configuration.md#automatic-difficulty).
 
 ## Mechanics
 
