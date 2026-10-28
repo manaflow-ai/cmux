@@ -700,6 +700,8 @@ struct MachinesPanelView: View {
                     requestCoderouterRefresh()
                     return
                 }
+                await CoderouterAppCLISession.sweepAllStaleSessionsOffMainActor(base: session.baseDirectory)
+                try Task.checkCancellation()
                 sessionDirectory = try session.makeSessionDirectory(
                     kind: CoderouterAppCLISession.addSession,
                     credentials: credentials,

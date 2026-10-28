@@ -181,6 +181,14 @@ struct CoderouterAppCLISession: Sendable {
         }
     }
 
+    /// Performs the potentially unbounded directory scan away from the main
+    /// actor before a caller creates a new session directory.
+    static func sweepAllStaleSessionsOffMainActor(base: URL = defaultBaseDirectory) async {
+        await Task.detached(priority: .utility) {
+            sweepAllStaleSessions(base: base)
+        }.value
+    }
+
     /// Runs `body` with a CLI runner bound to the app's session for `teamID`.
     /// The private configuration is removed when `body` returns or throws.
     func withSession<T>(
@@ -191,6 +199,8 @@ struct CoderouterAppCLISession: Sendable {
     ) async throws -> T {
         guard let executable else { throw CoderouterCLIFailure.notInstalled }
         let credentials = try await credentials.credentials(expectedAccountID: expectedAccountID)
+        try Task.checkCancellation()
+        await Self.sweepAllStaleSessionsOffMainActor(base: baseDirectory)
         try Task.checkCancellation()
         let directory = try makeSessionDirectory(
             kind: Self.readSession,
@@ -263,8 +273,7 @@ struct CoderouterAppCLISession: Sendable {
         kind: SessionKind,
         credentials: CoderouterAppCredentials,
         teamID: String,
-        teamName: String?,
-        now: Date = Date()
+        teamName: String?
     ) throws -> URL {
         let fileManager = FileManager.default
         let root = kind.root(in: baseDirectory)
@@ -275,7 +284,6 @@ struct CoderouterAppCLISession: Sendable {
             throw CoderouterCLIFailure.unavailable
         }
         try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
-        Self.sweepStaleSessions(root: root, olderThan: kind.staleAge, now: now)
         let directory = root.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: false, attributes: [.posixPermissions: 0o700])
         do {
