@@ -8,6 +8,7 @@ import { newTabHeadline } from "../agent-session/acpmux/newtab/headline.experime
 import { hoverActions } from "../ui/hoverActions.experiment";
 import { toolErrorLook } from "../agent-session/acpmux/conversation/toolError.experiment";
 import { threadMinimapLayout } from "../agent-session/acpmux/threadMinimap/layout.experiment";
+import { threadMinimapHeight } from "../agent-session/acpmux/threadMinimap/height.experiment";
 import { threadMinimapLit } from "../agent-session/acpmux/threadMinimap/lit.experiment";
 import { threadMinimapMark } from "../agent-session/acpmux/threadMinimap/mark.experiment";
 import { chatMinimapPlaceholder } from "../agent-session/acpmux/chatMinimap/placeholder.experiment";
@@ -27,6 +28,7 @@ export const EXPERIMENTS: readonly Experiment[] = [
   hoverActions,
   startedSessionCards,
   threadMinimapLayout,
+  threadMinimapHeight,
   newTabHeadline,
   threadMinimapLit,
   threadMinimapMark,

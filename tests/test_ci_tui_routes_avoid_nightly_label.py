@@ -179,7 +179,7 @@ def test_daemon_tests_never_take_a_mac() -> None:
     # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
     # promotion gate runs on Blacksmith Linux on every attempt, so no re-run
     # reaches the nightly label, the side lane or the promote pool
-    # (tests/test_cmux_tui_daemon_tests_linux.py).
+    # (tests/test_cmux_tui_daemon_tests_gate.py).
     runs_on = load("cmux-tui-artifacts.yml")["jobs"]["cmux-next-daemon-tests"]["runs-on"]
     for owned in ("1", ""):
         for context in contexts(CI_PR_POOL_OWNED=owned, CI_NEXT_DAEMON_POOL=DAEMON_LABEL):

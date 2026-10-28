@@ -105,6 +105,8 @@ final class AppServices {
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
+    /// Settings > Machines' "Dedicated agent machine" switch on each Cloud machine (acpmux vmHost).
+    private(set) lazy var cloudVmHost = CloudVmHostStore(api: cloud.api)
     let machineHealth = MachineHealthStore()
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
@@ -362,6 +364,11 @@ final class AppServices {
     private(set) lazy var accounts = AccountsService(services: self)
     /// Agent harness profiles (Settings > Agents, `agent.harness.*`), through acpmux.
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
+    /// Every harness's icon (user 12922) for the tab strip and sidebar, and their drawings.
+    private(set) lazy var harnessIcons = HarnessIconBook(environment: { [weak self] in self.flatMap(QuitAgents.environment) })
+    let harnessIconArtwork = HarnessIconArtwork()
+    /// The drawn harness icons the tab strip and sidebar mappings take.
+    var harnessIconLookup: HarnessIconLookup { harnessIconArtwork.lookup(for: harnessIcons.icons) }
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
     /// The `cmux://session/<id>` question before a link opens a new agent tab.
@@ -492,7 +499,9 @@ final class AppServices {
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
             let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
-            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
+            // Nil (a blocked proxied tab, a remote-localhost route that cannot start) leaves the page
+            // blank (TabContentCache.chromiumConfiguration), never on this Mac's localhost.
+            return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) }
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }
         cache.onRelease = { [weak self] key in

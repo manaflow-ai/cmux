@@ -6,6 +6,7 @@
 
 mod activity;
 pub(crate) mod admission;
+mod adopted_fences;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
@@ -65,6 +66,7 @@ mod models_view;
 mod paging;
 mod personal_stats;
 mod policy_mode;
+mod policy_source;
 mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -115,6 +117,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
@@ -136,7 +139,8 @@ pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
-pub use remote_sandbox::vm_host_peer_approves;
+pub mod vm_boundary;
+pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
 pub mod vm_host;
 pub(crate) use start_gate::host_label;
@@ -161,6 +165,8 @@ mod trust_wait;
 mod turn_git;
 mod turn_usage;
 mod turns;
+#[cfg(test)]
+mod turns_copy_stop_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;
@@ -245,6 +251,11 @@ pub(super) struct PendingPermission {
     pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
+    /// The agent's JSON-RPC id for the request, when the agent asked. A
+    /// matching `$/cancel_request` withdraws this prompt.
+    pub(super) agent_request: Option<Id>,
+    /// The hosted child generation that owns `agent_request`.
+    pub(super) agent_host_incarnation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -403,6 +414,8 @@ pub struct Hub {
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
+    /// A chat closed: wakes the log retention worker (`retention.rs`).
+    pub(super) retention_wake: Arc<Notify>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -448,6 +461,9 @@ pub struct Hub {
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
     /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// Fault injection for integration tests; never replaces the keeper's pinned bwrap.
+    #[cfg(target_os = "linux")]
+    pub(super) linux_bwrap_probe: StdMutex<Option<PathBuf>>,
     /// Where `vm_host.rs` reads the creation marker (`/`; a folder in tests).
     pub(super) vm_marker_root: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
@@ -456,13 +472,23 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
-    /// Held (read) by a family message from its last check to its write, and an answer from
-    /// its check to its delivery; an MDM off push takes it (write) once the off is stored
+    /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
+    pub(super) full_access_pushes: tokio::sync::Mutex<()>,
+    /// Held (read) by a family message or an ancestor's answer from its last check until it is
+    /// written to the agent; an MDM off push takes it (write) once the off is stored
     /// (`full_access_bound.rs` `family_gate`).
-    pub(super) family_gate: tokio::sync::RwLock<()>,
+    pub(super) family_gate: Arc<tokio::sync::RwLock<()>>,
+    /// Bumped by an off push that waited too long on the gate: its holders cut their message.
+    pub(super) family_cut: tokio::sync::watch::Sender<u64>,
+    /// The fence of an ancestor's answer, by permission id, for the write that delivers it
+    /// (`subsession_answer.rs`).
+    pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
+    /// Tests only: a pause while a prompt's model-sized copies are made (`turns::agent_blocks`).
+    #[cfg(test)]
+    pub(super) copy_seam: full_access_bound::WriteSeam,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -573,6 +599,7 @@ impl Hub {
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
             queues_resumed: AtomicBool::new(false),
+            retention_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -595,13 +622,20 @@ impl Hub {
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            #[cfg(target_os = "linux")]
+            linux_bwrap_probe: StdMutex::new(None),
             vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,
-            family_gate: tokio::sync::RwLock::new(()),
+            full_access_pushes: tokio::sync::Mutex::new(()),
+            family_gate: Arc::new(tokio::sync::RwLock::new(())),
+            family_cut: tokio::sync::watch::channel(0).0,
+            answer_fences: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
+            #[cfg(test)]
+            copy_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -695,18 +729,24 @@ impl Hub {
     }
 
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("store list failed: {e}");
-                return;
+        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
+        else {
+            // Adoption still reaches every host this list hid: an off push waits for it
+            // (`full_access_turned_off`).
+            if deferred {
+                self.adoption_ready.send_replace(false);
             }
+            return;
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let hosted = Self::live_host_sessions();
+        let read = Self::read_live_host_sessions();
+        // Records that can not be read may hide a host whose lines adoption holds again: an off
+        // push waits for adoption then too (`full_access_turned_off`).
+        let unknown = read.is_none();
+        let hosted = read.unwrap_or_default();
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && !hosted.is_empty() {
+        if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -715,6 +755,8 @@ impl Hub {
                 adopting: hosted.clone(),
                 hosted: hosted.clone(),
             };
+        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
+        self.settle_legacy_grants(&mut metas);
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
             // An agent whose host still runs keeps its saved status until adoption reaches it:
@@ -856,6 +898,7 @@ impl Hub {
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            cancels: AtomicU64::new(0),
             status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
@@ -1320,6 +1363,9 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            if status == SessionStatus::Closed {
+                self.retention_wake();
+            }
         }
         true
     }

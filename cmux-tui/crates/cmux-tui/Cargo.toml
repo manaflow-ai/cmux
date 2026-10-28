@@ -134,6 +134,10 @@ rusqlite.workspace = true
 tokio.workspace = true
 windows-sys = { workspace = true, features = ["Win32_System_LibraryLoader"] }
 
+[build-dependencies]
+# build.rs reads the browser registry's ids and names.
+serde_json.workspace = true
+
 [dev-dependencies]
 cmux-pty.workspace = true
 cmux-unix-socket = { workspace = true, features = ["test-support"] }
