@@ -9,7 +9,8 @@ The schema decides every rule through `x-oracle-*` annotations collected while i
 a keyword applies only from a subschema that passed (a `oneOf` branch that does not match marks nothing).
 An invalid snapshot is refused, never normalized. The rules run in the README's normalization order:
 
-  1 volatile  drop a field marked `x-oracle-volatile: {reason, task}`; nothing else drops
+  1 volatile  drop a field marked `x-oracle-volatile: {reason, task}`; nothing else drops but
+    drop      the caller's `Context.drop` pointers (an engine arm drops the tabs' engine, p15-oracle-113)
   2 rewrite   `x-oracle-rewrite: path` -> `$ROOT`, `$HOME`; `url` -> `$WEB` (`--root/--home/--web`)
   3 time      `x-oracle-time: {unit, epoch: fixture}` -> offset from the fixture epoch (`--epoch-ms`);
               on `meta.clock: wall` the value is marked not comparable
@@ -81,6 +82,8 @@ APP_ROOT_VARIABLE = "CMUX_NEXT_ORACLE_ROOT"
 RULES: Dict[str, str] = {
     "volatile": "the schema marks the field x-oracle-volatile; its reason names the nondeterministic source "
     "(wall clock, pid, publish counts). Only schema-marked fields are dropped.",
+    "drop": "the caller compares runs that differ in this field by design (oracle.py --engine arms differ in "
+    "every tab's engine, p15-oracle-113): Context.drop leaves it out before set order and id labels see it.",
     "rewrite": "per-case state roots, HOME and loopback fixture ports are fresh for every run "
     "(hermetic per-case env); only fields marked x-oracle-rewrite change, and the rest of the string is kept.",
     "time": "virtual-clock times (p15-oracle-185) are compared as offsets from the fixture epoch; a wall clock "
@@ -885,12 +888,24 @@ def validate(instance: Any, schema: Any) -> List[str]:
 @dataclass(frozen=True)
 class Context:
     """The run's nondeterministic prefixes (several values per token cover realpath aliases such as
-    /private/tmp) and the fixture epoch of the virtual clock in ms (0: times are already offsets)."""
+    /private/tmp), the fixture epoch of the virtual clock in ms (0: times are already offsets), and the
+    instance pointers the caller drops (`drop`, a `*` segment matches any member or index): fields its runs
+    differ in by design, left out in step 1 so that no set order or id label depends on them."""
 
     root: Tuple[str, ...] = ()
     home: Tuple[str, ...] = ()
     web: Tuple[str, ...] = ()
     epoch_ms: int = 0
+    drop: Tuple[str, ...] = ()
+
+
+def _drop_patterns(drop: Sequence[str]) -> List[Tuple[str, ...]]:
+    patterns = []
+    for text in drop:
+        if not isinstance(text, str) or not text.startswith("/") or text == "/":
+            raise OracleError(f"Context.drop {text!r} is not a JSON pointer below the root")
+        patterns.append(tuple(part.replace("~1", "/").replace("~0", "~") for part in text[1:].split("/")))
+    return patterns
 
 
 def app_environment(ctx: Context) -> Dict[str, str]:
@@ -1020,6 +1035,7 @@ class _Lifter:
         self.schema = schema
         self.ctx = ctx
         self.rewriter = _Rewriter(ctx)
+        self.drops = _drop_patterns(ctx.drop)
         self.default_decimals = _precision_decimals(schema.precision_default)
         self.explain: List[Dict[str, Any]] = []
         self.sites: Dict[Tuple[str, str], List[str]] = {}
@@ -1043,6 +1059,9 @@ class _Lifter:
         if "x-oracle-volatile" in annotations.get((), {}):
             raise OracleError("/: x-oracle-volatile marks the whole snapshot")
         return self.lift(instance, ())
+
+    def dropped_by_caller(self, at: Path_) -> bool:
+        return any(len(p) == len(at) and all(want in ("*", str(got)) for want, got in zip(p, at)) for p in self.drops)
 
     def ref(self, kind: Any, raw: Any, at: Path_) -> _Ref:
         if isinstance(raw, bool) or not isinstance(raw, (str, int)):
@@ -1176,6 +1195,10 @@ class _Lifter:
         for name, item in value.items():
             child = at + (name,)
             child_ann = self.ann.get(child, {})
+            if self.drops and self.dropped_by_caller(child):
+                self.dropped += _node_count(item)
+                self.note("drop", child)
+                continue
             volatile = child_ann.get("x-oracle-volatile")
             if volatile is not None:
                 self.dropped += _node_count(item)
@@ -2718,6 +2741,36 @@ def selftest(seed: int, out: Any) -> int:
         for trial in range(8):
             other = canonicalize(renamed_example(example, annotations, random.Random(f"{seed}:real:{trial}")), real)
             assert other.sha256 == base.sha256, "the real example changes under id renaming and set order"
+
+    @case
+    def caller_drop_comes_before_set_order() -> None:
+        # Two panes whose set order the engine decides ("engine" sorts before "url"): an engine arm drops it
+        # first, so both arms order and label the panes alike (oracle.py --engine, p15-oracle-113).
+        real = Schema.load(DEFAULT_SCHEMA)
+        example = parse_json(EXAMPLE_SNAPSHOT.read_text(encoding="utf-8"))
+        tab = example["facets"]["tabs"]["panes"][0]["tabs"][0]
+
+        def arm(engines: Tuple[str, str]) -> Any:
+            doc = json.loads(json.dumps(example))
+            doc["facets"]["tabs"]["panes"] = [
+                {"pane": f"pane_{n:032x}", "selected": f"tab_{n + 16:032x}",
+                 "tabs": [{**tab, "tab": f"tab_{n + 16:032x}", "engine": engine, "url": f"$WEB/{name}.html"}]}
+                for n, engine, name in ((0xa1, engines[0], "a"), (0xa2, engines[1], "b"))]
+            return doc
+
+        neutral = Context(drop=("/facets/tabs/panes/*/tabs/*/engine",))
+        webkit, chromium = arm(("webkit", "webkit")), arm(("webkit", "cef"))
+        def urls(result: Result) -> List[str]:
+            return [p["tabs"][0]["url"] for p in result.value["facets"]["tabs"]["panes"]]
+
+        assert urls(canonicalize(webkit, real)) != urls(canonicalize(chromium, real)), "dropping it after is too late"
+        a, b = canonicalize(webkit, real, neutral), canonicalize(chromium, real, neutral)
+        assert a.text == b.text, "the engine decided the pane order"
+        assert urls(a) == ["$WEB/a.html", "$WEB/b.html"], urls(a)
+        assert not any("engine" in t for p in a.value["facets"]["tabs"]["panes"] for t in p["tabs"])
+        drops = [e["pointer"] for e in a.explain if e["rule"] == "drop"]
+        assert drops == ["/facets/tabs/panes/0/tabs/0/engine", "/facets/tabs/panes/1/tabs/0/engine"], drops
+        refused(lambda: canonicalize(webkit, real, Context(drop=("facets",))), "not a JSON pointer")
 
     @case
     def validate_api_for_case_schemas() -> None:

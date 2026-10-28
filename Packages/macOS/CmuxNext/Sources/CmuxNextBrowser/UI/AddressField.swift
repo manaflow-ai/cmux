@@ -99,6 +99,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
 
     /// The I-beam over the text at rest and while editing (`OmnibarPointer`);
     /// while editing the field editor adds its own I-beam over its text.
+    // cursor-rects-allow: yields to the field editor's own I-beam rects while editing; the omnibar row's move tracker (ArrowCursorView) owns the cursor outside the key window
     override func resetCursorRects() {
         if isFieldEditorActive {
             super.resetCursorRects()
@@ -124,7 +125,7 @@ final class AddressField: ChromeTextField, OmnibarFieldSurface {
     /// field shows (a field editor is up only while the bar has the keys).
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.recolorText() }
+        visibilityNode.deferAppearance(owner: Self.appearanceKey) { [weak self] in self?.recolorText() }
     }
 
     /// The ``visibilityNode`` key of the field's deferred restyle.

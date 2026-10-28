@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import CoreServices
 public import Foundation
 
@@ -30,13 +31,24 @@ public struct FolderWatcher: FolderWatching {
     /// Changes held for a reader that lags; past this the oldest is dropped and a rescan follows.
     static let bufferLimit = 64
 
-    /// Makes a watcher. `latency` defaults to 50 ms.
-    public init(latency: CFTimeInterval = 0.05) { self.latency = latency }
+    /// The line that made the watcher: each of its watches is in the arm census under it (Debug and bench builds,
+    /// startup-queue.py arms, p08-startup-085).
+    private let file: StaticString
+    private let line: UInt
+
+    /// Makes a watcher. `latency` defaults to 50 ms; leave `file` and `line` to their defaults.
+    public init(latency: CFTimeInterval = 0.05, file: StaticString = #fileID, line: UInt = #line) {
+        self.latency = latency
+        self.file = file
+        self.line = line
+    }
 
     public func changes(in folder: URL) -> AsyncStream<FolderChange> {
         // Bounded: when the reader lags so far that a change is dropped, a rescan follows it.
         AsyncStream(bufferingPolicy: .bufferingNewest(Self.bufferLimit)) { continuation in
-            let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, continuation: continuation)
+            let census = ArmCensusWatch(.watcher, owner: "FolderWatcher", file: file, line: line)
+            let box = FolderWatchStream(folder: Self.realFolder(folder), latency: latency, census: census,
+                                        continuation: continuation)
             continuation.onTermination = { _ in box.stop() }
             box.start()
         }

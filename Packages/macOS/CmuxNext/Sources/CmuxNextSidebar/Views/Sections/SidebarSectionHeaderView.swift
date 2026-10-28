@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 
 /// The title row of a titled pinned section. A click collapses or expands
 /// it; the chevron shows on hover and while collapsed.
@@ -31,11 +32,16 @@ final class SidebarSectionHeaderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    /// A drag from a press (window points): true once the region drags.
-    var onDragged: ((NSPoint, NSEvent) -> Bool)?
+    /// A drag from a press to a point (window points): true once the region drags.
+    var onDragged: ((NSPoint, NSPoint) -> Bool)?
     var onDragEnded: (() -> Void)?
     private var pressLocation: NSPoint?
     private var didDrag = false
+    /// The running drag's moves, once per frame on the window's drag frames (the press past the threshold acts at once).
+    private(set) lazy var dragMoves = PointerFrameDrag(owner: "SidebarSectionHeaderView.drag", view: self) { [weak self] point in
+        guard let self, let start = self.pressLocation else { return }
+        _ = onDragged?(start, point)
+    }
 
     nonisolated override var isFlipped: Bool { true }
     nonisolated override var wantsUpdateLayer: Bool { true }
@@ -95,15 +101,18 @@ final class SidebarSectionHeaderView: NSView {
     override func mouseDown(with event: NSEvent) {
         pressLocation = event.locationInWindow
         didDrag = false
+        dragMoves.began()
     }
 
-    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); past the threshold the section moves
     override func mouseDragged(with event: NSEvent) {
-        guard let pressLocation, onDragged?(pressLocation, event) == true else { return }
+        guard let pressLocation else { return }
+        if didDrag { return dragMoves.dragged(event) }
+        guard onDragged?(pressLocation, event.locationInWindow) == true else { return }
         didDrag = true
     }
 
     override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending point lands before the drop
         defer { pressLocation = nil; didDrag = false }
         guard pressLocation != nil else { return }
         if didDrag { onDragEnded?() } else { onPress?() }

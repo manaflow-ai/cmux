@@ -103,7 +103,7 @@ extension SidebarListViewComponents {
         return layout.revealExtent(id: id, row: .block(section), span: frame.map { (row.y + $0.minY, $0.height) }, height: height)
     }
     func scrollClip(to y: CGFloat, animated: Bool) {
-        enclosingScrollView?.scrollContent(toY: y, animated: animated) { [weak self] in self?.realizeVisibleRows() }
+        enclosingScrollView?.scrollContent(toY: y, animated: animated, reach: realizedOverscan) { [weak self] in self?.realizeVisibleRows() }
     }
 }
 

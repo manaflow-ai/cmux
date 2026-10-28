@@ -9,7 +9,6 @@ public final class CmuxDialogButtonView: NSButton {
     /// The key that presses this button, drawn after its title (u2647); nil draws none.
     public let keyHint: CmuxDialogKeyHint?
     private var isHovering = false { didSet { refresh() } }
-    private var tracking: NSTrackingArea?
     private var hasFocus = false { didSet { refresh() } }
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
@@ -31,6 +30,7 @@ public final class CmuxDialogButtonView: NSButton {
         // VoiceOver reads the key after the title; the label stays the title (automation finds it).
         setAccessibilityHelp(hint?.spokenName)
         heightAnchor.constraint(equalToConstant: CmuxDialogMetrics.buttonHeight).isActive = true
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self))
         refresh()
     }
 
@@ -88,17 +88,11 @@ public final class CmuxDialogButtonView: NSButton {
                       height: CmuxDialogMetrics.buttonHeight)
     }
 
-    public override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
     public override func mouseEntered(with event: NSEvent) { isHovering = true }
     public override func mouseExited(with event: NSEvent) { isHovering = false }
 
+    // visibility-walk-allow: one restyle of the button's own colors and title, O(1) per button and no layout of
+    // its own; AppKit draws only buttons on screen, and moving into a window restyles it again
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

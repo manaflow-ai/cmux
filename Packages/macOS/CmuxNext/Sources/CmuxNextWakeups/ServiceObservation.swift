@@ -104,6 +104,7 @@ public final class ServiceObservation<Value> {
     nonisolated deinit {
         guard armed else { return }
         let signal = self.signal
+        // main-hop-allow: the observation's own disarm from a deinit that may run off main; inline on main
         MainDelivery().run { signal.epoch &+= 1 }
     }
 
@@ -126,10 +127,12 @@ public final class ServiceObservation<Value> {
         generation &+= 1
         armed = true
         let armedGeneration = generation, signal = self.signal, observed = self.read, causes = work.causes
+        // view-observation-allow: this is ServiceObservation itself, the recipe R-obs target
         return withObservationTracking {
             _ = signal.epoch
             return observed()
         } onChange: { @Sendable [weak self] in
+            // main-hop-allow: the observation's own onChange: inline in the change's turn on main, where it only marks it dirty for its classed flush
             MainDelivery().run { [weak self] in
                 guard let self else {
                     causes.noteReleasedTrackingFire()

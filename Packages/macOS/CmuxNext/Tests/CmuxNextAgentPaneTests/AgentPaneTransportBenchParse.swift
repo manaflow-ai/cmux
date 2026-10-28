@@ -1,3 +1,4 @@
+import CmuxNextTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -5,6 +6,7 @@ import Testing
 /// The cost of the full JSON parse and re-encode (the id swap, ad349 round 6 and 7) and of the
 /// duplicate-key check, on real-shaped large replies, the largest page frame, and the small
 /// notification of the burst bench. Runs only under scripts/measure/pane-native-transport.sh (the bench's switch).
+/// With CMUX_PERF_RESULT_DIR every run's time is result-v1 (lab story swift-agent-pane-transport).
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
 struct AgentPaneTransportBenchParse {
     /// An `_acpmux/events` page: `count` transcript events of about `textBytes` of text each.
@@ -34,8 +36,8 @@ struct AgentPaneTransportBenchParse {
     }
 
 
-    /// Median and maximum milliseconds of `runs` runs.
-    nonisolated static func time(_ runs: Int, _ body: () -> String?) -> (median: Double, max: Double) {
+    /// Median and maximum milliseconds of `runs` runs, and every run's milliseconds in run order.
+    nonisolated static func time(_ runs: Int, _ body: () -> String?) -> (median: Double, max: Double, samples: [Double]) {
         var samples: [Double] = []
         for _ in 0..<runs {
             let start = ContinuousClock.now
@@ -43,11 +45,12 @@ struct AgentPaneTransportBenchParse {
             let elapsed = ContinuousClock.now - start
             samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
         }
-        samples.sort()
-        return (samples[samples.count / 2], samples.last ?? 0)
+        let sorted = samples.sorted()
+        return (sorted[sorted.count / 2], sorted.last ?? 0, samples)
     }
 
-    @Test func theIdSwapCost() {
+    @Test func theIdSwapCost() throws {
+        let results = try PerfResultWriter()
         let frames: [(String, String, Int)] = [
             ("notification-300B", #"{"jsonrpc":"2.0","method":"session/update","params":{"s":12,"update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"\#(String(repeating: "x", count: 200))"}}}}"#, 2000),
             ("events-1MB", Self.eventsPage(count: 1000, textBytes: 1000), 20),
@@ -62,6 +65,8 @@ struct AgentPaneTransportBenchParse {
             let full = Self.time(runs) { Self.full(text) }
             // The duplicate-key check that every page frame passes first.
             let check = Self.time(runs) { AcpmuxJSONKeys.refuses(Array(text.utf8)) ? nil : "" }
+            try results?.record("swift.agent_pane_parse.\(name).full", unit: .ms, samples: full.samples)
+            try results?.record("swift.agent_pane_parse.\(name).check", unit: .ms, samples: check.samples)
             print(String(format: "PANE-PARSE %@ bytes=%d full_ms=%.3f full_max_ms=%.3f check_ms=%.3f check_max_ms=%.3f",
                          name, text.utf8.count, full.median, full.max, check.median, check.max))
         }
@@ -91,6 +96,10 @@ struct AgentPaneTransportBenchParse {
             cpu.append(Double(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) &- cpu0) / 1e6)
             wall.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
             #expect(error == nil, "\(String(describing: error))")
+        }
+        if let results = try PerfResultWriter() {
+            try results.record("swift.agent_pane_parse.prompt-20MB.main_cpu", unit: .ms, samples: cpu)
+            try results.record("swift.agent_pane_parse.prompt-20MB.wall", unit: .ms, samples: wall)
         }
         cpu.sort()
         wall.sort()
