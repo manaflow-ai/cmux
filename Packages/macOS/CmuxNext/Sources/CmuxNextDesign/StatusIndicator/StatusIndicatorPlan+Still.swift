@@ -19,6 +19,25 @@ nonisolated extension StatusIndicatorPlan {
         return plan
     }
 
+    /// `plan` with a shape of its own where it would say `state` by color alone (audit 4, P4; WCAG
+    /// 1.4.1): a plain dot for an error or a pause would read as waiting's dot in another color, so
+    /// in every look an error draws a crossed ring and a pause an empty ring (the shapes plan's,
+    /// ``stillPlan(_:style:)``), in their colors. With the system's "Differentiate without color"
+    /// (`withoutColor`), waiting's dot draws its figure too (an exclamation mark, a hand, a key, a
+    /// question bubble). A set's own mark, a ring of known progress and every moving mark stay.
+    static func shaped(_ plan: StatusIndicatorPlan, for state: StatusIndicatorState, style: StatusIndicatorStyle,
+                       withoutColor: Bool) -> StatusIndicatorPlan {
+        guard plan.glyph == .dot, plan.animation == nil else { return plan }
+        switch state {
+        case .error, .paused(progress: nil):
+            return stillPlan(state, style: style)
+        case .waiting where withoutColor:
+            return stillPlan(state, style: style)
+        default:
+            return plan
+        }
+    }
+
     /// The shapes plan for `state` (Leo 2026-10-13: "What if they were just colors or symbols or
     /// some text"): every state its own `StatusMark` shape, so no two read apart by color alone.
     static func stillPlan(_ state: StatusIndicatorState, style: StatusIndicatorStyle) -> StatusIndicatorPlan {

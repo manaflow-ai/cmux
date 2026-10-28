@@ -90,11 +90,15 @@ public nonisolated struct StatusIndicatorPlan: Hashable, Sendable {
     /// set (`staticLookPlan`); `staticShapes` picks its shapes over the
     /// Static set's glyphs.
     /// `working` restyles agent work that would turn as an arc (`StatusWorkingLook`).
+    /// No state is told apart by color alone (``shaped(_:for:style:withoutColor:)``); `withoutColor`
+    /// is the system's "Differentiate without color" (`StatusIndicatorConfig.differentiateWithoutColor`).
     public static func make(_ state: StatusIndicatorState, style: StatusIndicatorStyle, animates: Bool,
                             set: StatusIconSet = .current, isStatic: Bool = false,
-                            staticShapes: Bool = false, working: StatusWorkingLook = .spinner) -> StatusIndicatorPlan {
-        if isStatic { return staticLookPlan(state, style: style, shapes: staticShapes) }
+                            staticShapes: Bool = false, working: StatusWorkingLook = .spinner,
+                            withoutColor: Bool = false) -> StatusIndicatorPlan {
+        if isStatic { return shaped(staticLookPlan(state, style: style, shapes: staticShapes), for: state, style: style, withoutColor: withoutColor) }
         var plan = working.restyle(set.plan(for: state) ?? staticPlan(state, style: style), for: state)
+        plan = shaped(plan, for: state, style: style, withoutColor: withoutColor)
         if !animates {
             plan.animation = nil
             // The Codex-like set's still work mark is a whole ring, not a stopped arc (Leo's team,

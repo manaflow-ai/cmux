@@ -30,4 +30,35 @@ import Testing
             }
         }
     }
+
+    /// With "Differentiate without color" on, waiting, error, paused and success each draw a shape of
+    /// their own in every set and style, and waiting is never a plain dot.
+    @Test func withoutColorEveryStateHasItsOwnShape() {
+        let states: [StatusIndicatorState] = [.waiting, .error, .paused(progress: nil), .success]
+        for set in StatusIconSet.allCases {
+            for style in StatusIndicatorStyle.allCases {
+                for isStatic in [false, true] {
+                    let glyphs = states.map {
+                        StatusIndicatorPlan.make($0, style: style, animates: true, set: set, isStatic: isStatic, withoutColor: true).glyph
+                    }.filter { $0 != .none }
+                    #expect(Set(glyphs).count == glyphs.count, "two states share a shape in \(set), \(style), static \(isStatic): \(glyphs)")
+                    #expect(glyphs.first != .dot, "waiting is a plain dot in \(set), \(style)")
+                }
+            }
+        }
+    }
+
+    /// The default look keeps waiting's dot (WORKING-AND-LOADING-INDICATORS): only the system option changes it.
+    @Test func waitingKeepsItsDotUnlessTheSystemAsks() {
+        #expect(StatusIndicatorPlan.make(.waiting, style: .arc, animates: true).glyph == .dot)
+        #expect(StatusIndicatorPlan.make(.waiting, style: .arc, animates: true, withoutColor: true).glyph == .mark(.glyph(.exclamation)))
+        #expect(StatusIndicatorPlan.make(.waiting(kind: .permission), style: .arc, animates: true, withoutColor: true).glyph
+            == .mark(.glyph(.hand)))
+    }
+
+    /// The config carries the system option, so every indicator host passes it to the plan.
+    @Test func theConfigCarriesDifferentiateWithoutColor() {
+        #expect(!StatusIndicatorConfig().differentiateWithoutColor)
+        #expect(StatusIndicatorConfig(differentiateWithoutColor: true).differentiateWithoutColor)
+    }
 }

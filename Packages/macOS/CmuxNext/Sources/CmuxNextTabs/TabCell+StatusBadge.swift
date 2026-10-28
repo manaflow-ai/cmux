@@ -20,11 +20,15 @@ extension TabCell {
 
     /// The set's mark for the badge, or nil where the dot stays. The static
     /// look (`StatusIndicatorConfig.isStatic`) always draws a mark: each
-    /// state its own shape, never a dot told apart by color alone.
+    /// state its own shape, never a dot told apart by color alone; so does the system's
+    /// "Differentiate without color" (`StatusIndicatorConfig.differentiateWithoutColor`).
     func statusBadgePlan(config: StatusIndicatorConfig) -> StatusIndicatorPlan? {
-        guard config.iconSet != .current || config.isStatic, let state = statusBadgeState else { return nil }
+        // An error's badge is a crossed ring in every look: a red dot reads as the orange one by color alone.
+        guard let state = statusBadgeState,
+              config.iconSet != .current || config.isStatic || config.differentiateWithoutColor || state == .error else { return nil }
         let plan = StatusIndicatorPlan.make(state, style: config.settings.style, animates: false, set: config.iconSet, isStatic: config.isStatic,
-                                            staticShapes: config.staticShapes, working: config.workingLook)
+                                            staticShapes: config.staticShapes, working: config.workingLook,
+                                            withoutColor: config.differentiateWithoutColor)
         return plan.glyph == .none ? nil : plan
     }
 

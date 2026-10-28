@@ -18,7 +18,8 @@ extension TabCell: StatusIndicatorConfigClient {
         // spinners on screen turning opposite ways).
         return StatusIndicatorPlan.make(item.indicator, style: config.style(hint: item.busyStyle),
                                         animates: config.animatesLoops && isWindowVisible, set: config.iconSet, isStatic: config.isStatic,
-                                        staticShapes: config.staticShapes, working: config.workingLook)
+                                        staticShapes: config.staticShapes, working: config.workingLook,
+                                        withoutColor: config.differentiateWithoutColor)
     }
 
     /// Creates, updates or removes the indicator for the current item and
