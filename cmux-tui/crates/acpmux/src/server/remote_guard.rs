@@ -169,8 +169,9 @@ pub(super) fn owner_policy_host(
 
 /// Mark a policy request forwarded from a local person connection. Any
 /// caller-supplied grant is removed first, so a remote client cannot smuggle
-/// the marker through the forwarding daemon. The local person key signs the
-/// exact session, policy, and source host that the peer will receive.
+/// the marker through the forwarding daemon. The authenticated peer link
+/// secret signs the exact session, policy, and source host that the peer will
+/// receive.
 pub(super) fn mark_policy_forwarded(
     peer: &crate::peer::Peer,
     origin: super::Origin,
