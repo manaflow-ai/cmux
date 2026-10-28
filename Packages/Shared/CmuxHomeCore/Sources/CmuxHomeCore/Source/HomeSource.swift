@@ -148,11 +148,11 @@ public protocol HomeSource: Sendable {
     /// sender sends plain text to an owner that does not (an older daemon).
     func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool
 
-    /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
-    /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
     /// Persisted agent messages, including finished runs; unsupported owners return none.
     func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun]
 
+    /// Asks the owner of `conversation` for its live run snapshot (`run.live`),
+    /// which arrives as a `.live(.snapshot)` event: on open and after a missed frame.
     func requestLive(of conversation: ConversationID) async
 
     /// The talk steps of a running run as its rows hold them (id, text), for reply

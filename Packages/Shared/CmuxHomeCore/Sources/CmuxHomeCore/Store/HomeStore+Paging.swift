@@ -39,6 +39,7 @@ extension HomeStore {
     public func close(_ id: ConversationID) {
         guard pager.close(id) else { return }
         agentMessageReads.removeValue(forKey: id)?.cancel()
+        agentMessageRefreshes.remove(id)
         agentMessages[id] = nil
         mirror.endTranscript(id)
         bumpTranscript(id)

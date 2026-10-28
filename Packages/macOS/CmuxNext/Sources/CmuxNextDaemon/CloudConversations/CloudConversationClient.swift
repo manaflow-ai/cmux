@@ -18,6 +18,11 @@ public protocol CloudConversationCommands: Sendable {
     func runRows(_ conversation: String, agent: String, run: String) async throws -> ConversationRunRows?
     /// Persisted run summaries of one Chief, including finished runs.
     func runs(_ conversation: String, agent: String, oldestStartedAt: Double) async throws -> [ConversationRunSummary]
+    /// Same summary read with the loaded reply keys for this author. The
+    /// default preserves lightweight test/fallback endpoints; the real client
+    /// uses these keys to decide when it has crossed the visible time window.
+    func runs(_ conversation: String, agent: String, oldestStartedAt: Double,
+              expectedTurns: Set<String>) async throws -> [ConversationRunSummary]
     /// `cloud-requests-list`: the account's open message requests.
     func messageRequests() async throws -> [CloudMessageRequest]
     /// `cloud-conversation-typing`: the person's typing in a subscribed conversation.
@@ -45,6 +50,16 @@ public struct CloudConversationClient: CloudConversationCommands {
     /// 2 s control-plane deadline is too short for a Worker round trip. A
     /// timed-out mutation has an unknown outcome and is resent with its key.
     public static let networkTimeout: Duration = .seconds(30)
+
+    /// Returns the strict timestamp cursor for the next summary page. Cloud
+    /// pagination has no composite cursor yet, so a non-advancing or invalid
+    /// boundary must terminate rather than spin or repeat a page.
+    @usableFromInline
+    internal static func nextRunsCursor(hasMore: Bool, startedAt: [Double], before: UInt64?) -> UInt64? {
+        guard hasMore, let oldest = startedAt.min(), oldest.isFinite, oldest < Double(UInt64.max),
+              let next = UInt64(exactly: oldest), before.map({ next < $0 }) ?? true else { return nil }
+        return next
+    }
 
     public init(_ connection: DaemonConnection) {
         self.connection = connection
@@ -160,17 +175,32 @@ public struct CloudConversationClient: CloudConversationCommands {
     }
 
     public func runs(_ conversation: String, agent: String, oldestStartedAt: Double) async throws -> [ConversationRunSummary] {
+        try await runs(conversation, agent: agent, oldestStartedAt: oldestStartedAt, expectedTurns: [])
+    }
+
+    public func runs(_ conversation: String, agent: String, oldestStartedAt: Double,
+                     expectedTurns: Set<String>) async throws -> [ConversationRunSummary] {
         guard await connection.identity?.supports(DaemonCapability.cloudConversationRuns.rawValue) == true else { return [] }
         var result: [ConversationRunSummary] = []
         var before: UInt64?
+        var unresolved = expectedTurns
+        // A run can start before the visible transcript window and still answer a loaded
+        // question. Scan the endpoint's finite history instead of stopping at the oldest
+        // message timestamp, then HomeAgentRunWindow filters to loaded anchors. This keeps
+        // step hydration bounded to matching runs; the endpoint's documented equal-timestamp
+        // limit remains its owner's responsibility.
         // wakeup-allow: every iteration awaits a network request; EOF, a nonadvancing cursor, or cancellation ends pagination.
         while !Task.isCancelled {
             let page = try await network(CloudConversationRunsRequest(conversation: conversation, agent: agent, beforeStartedAt: before))
             result += page.runs
-            guard page.hasMore == true, let oldest = page.runs.compactMap(\.startedAt).min(),
-                  oldest.isFinite, oldest > max(0, oldestStartedAt), oldest < Double(UInt64.max) else { break }
-            guard let next = UInt64(exactly: oldest) else { break }
-            guard before.map({ next < $0 }) ?? true else { break }
+            unresolved.subtract(page.runs.compactMap(\.turn))
+            // Once all loaded reply keys are found, the time window bounds the
+            // remaining scan. A manual message with no run leaves `unresolved`
+            // nonempty and therefore scans the endpoint's finite history.
+            let oldest = page.runs.compactMap(\.startedAt).min()
+            if unresolved.isEmpty, let oldest, oldest <= oldestStartedAt { break }
+            guard let next = Self.nextRunsCursor(hasMore: page.hasMore == true,
+                                                 startedAt: page.runs.compactMap(\.startedAt), before: before) else { break }
             before = next
         }
         return result
@@ -192,6 +222,10 @@ public struct CloudConversationClient: CloudConversationCommands {
 
 extension CloudConversationCommands {
     public func runs(_ conversation: String, agent: String, oldestStartedAt: Double) async throws -> [ConversationRunSummary] { [] }
+    public func runs(_ conversation: String, agent: String, oldestStartedAt: Double,
+                     expectedTurns: Set<String>) async throws -> [ConversationRunSummary] {
+        try await runs(conversation, agent: agent, oldestStartedAt: oldestStartedAt)
+    }
     /// Fakes without message requests: none.
     public func messageRequests() async throws -> [CloudMessageRequest] { [] }
 

@@ -69,6 +69,7 @@ struct HomeAgentMessagesTests {
                              parts: [.text("text")], createdAt: date)
         let window = HomeAgentRunWindow(messages: [loaded])
         #expect(window.oldestMessageAt == date)
+        #expect(window.turnsByAuthor[chief] == [IdempotencyKey("reply-key")])
         #expect(window.contains(turn: "reply-key", answers: []))
         #expect(window.contains(turn: nil, answers: ["question"]))
         #expect(!window.contains(turn: "unloaded-key", answers: ["unloaded-question"]))

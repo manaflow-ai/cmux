@@ -51,6 +51,7 @@ public final class HomeStore {
     @ObservationIgnored var transcriptCache: [ConversationID: (version: Int, me: ParticipantID, items: [TranscriptItem])] = [:]
     @ObservationIgnored var agentMessages: [ConversationID: HomeAgentMessages] = [:]
     @ObservationIgnored var agentMessageReads: [ConversationID: Task<Void, Never>] = [:]
+    @ObservationIgnored var agentMessageRefreshes: Set<ConversationID> = []
     @ObservationIgnored var liveBook = HomeLiveBook()
     /// Conversations whose `run.live` request is out (one at a time).
     @ObservationIgnored var liveRequests: Set<ConversationID> = []
@@ -216,6 +217,7 @@ public final class HomeStore {
         stopped = true
         for read in agentMessageReads.values { read.cancel() }
         agentMessageReads.removeAll()
+        agentMessageRefreshes.removeAll()
         eventTask?.cancel()
         eventTask = nil
         resendTask?.cancel()

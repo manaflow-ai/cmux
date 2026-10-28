@@ -10,7 +10,11 @@ extension HomeStore {
 
     /// One bounded read per shown conversation. Closing or stopping cancels it; reopen gets a new read.
     func requestAgentMessages(_ conversation: ConversationID) {
-        guard agentMessageReads[conversation] == nil, pager.isShown(conversation) else { return }
+        guard pager.isShown(conversation), !stopped else { return }
+        guard agentMessageReads[conversation] == nil else {
+            agentMessageRefreshes.insert(conversation)
+            return
+        }
         let epoch = pager.epoch(conversation)
         let window = HomeAgentRunWindow(messages: mirror.windows[conversation]?.messages ?? [])
         let owner = source
@@ -25,7 +29,8 @@ extension HomeStore {
             // A history page may arrive while this request is in flight. Follow the newly
             // loaded window once the previous read ends instead of dropping that request.
             let current = HomeAgentRunWindow(messages: self.mirror.windows[conversation]?.messages ?? [])
-            if current != window { self.requestAgentMessages(conversation) }
+            let refresh = self.agentMessageRefreshes.remove(conversation) != nil
+            if refresh || current != window { self.requestAgentMessages(conversation) }
         }
     }
 }
