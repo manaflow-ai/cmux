@@ -2,14 +2,14 @@ public import AppKit
 public import CmuxNextWakeups
 
 /// A window's ``FrameInputCoalescer`` on a fake link whose frames come only when a test calls
-/// ``frame()``, handed out by ``coalescers`` for every window (p04-input-030's coalescer, for the
+/// ``frame``, handed out by ``coalescers`` for every window (p04-input-030's coalescer, for the
 /// per-frame pointer tests of p04-input-031, 033 and 037).
 ///
 /// ```swift
-/// let frames = FrameInputTestRig()
+/// let frames = FrameInputTestRig
 /// view.hoverFrameInput = frames.coalescers
 /// view.mouseMoved(with: move) // the leading edge hovers now; later moves wait
-/// frames.frame()              // the trailing hover lands
+/// frames.frame              // the trailing hover lands
 /// ```
 @MainActor
 public final class FrameInputTestRig {

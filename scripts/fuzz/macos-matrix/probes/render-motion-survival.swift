@@ -4,7 +4,7 @@
 // that keeps its springs and adds them to a new backing layer? It is a real app (NSApplication running, launched
 // through LaunchServices), so it also enters full screen, which a `swift test` process cannot.
 // Each case springs a view from one frame to another (mass 1, critically damped, initial velocity 0, additive),
-// applies one event, then reads presentation() at 25, 50 and 75 % of the way. Error: the largest miss of
+// applies one event, then reads presentation at 25, 50 and 75 % of the way. Error: the largest miss of
 // position and size, past one frame of travel either side of the read. Limit 0.5 pt.
 // Exit 0 when every motion container case holds its spring, 1 when one loses it, 2 when it cannot test. The
 // backing layer's numbers are data. Self-contained: AppKit and QuartzCore only (the host stands in for

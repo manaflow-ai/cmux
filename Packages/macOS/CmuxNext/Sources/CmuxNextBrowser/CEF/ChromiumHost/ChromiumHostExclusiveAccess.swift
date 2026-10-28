@@ -34,7 +34,7 @@ protocol ChromiumHostExclusiveAccessWire: AnyObject {
 /// - A keyboard lock holds keys only while its page is in fullscreen, as Chrome activates it only in
 ///   tab fullscreen: a page cannot take cmux's shortcuts outside it, and a lock asked for before the
 ///   fullscreen stays pending, with Escape the page's (`HandleUserPressedEscape` answers false while
-///   `!IsKeyboardLockActive()`).
+///   `!IsKeyboardLockActive`).
 /// - Leaving the keyboard ends the pointer lock (`RenderWidgetHostViewMac` loses it with the focus),
 ///   and so do the window resigning key and the app resigning active
 ///   (`RenderWidgetHostViewMac::SetActive(false)` unlocks the pointer); showing another page or leaving

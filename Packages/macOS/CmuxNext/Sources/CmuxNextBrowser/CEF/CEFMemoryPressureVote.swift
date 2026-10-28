@@ -1,7 +1,7 @@
 public import CmuxNextCompat
 import CmuxNextSignposts
 
-/// cmux's vote in Chromium's memory pressure aggregator (p07-memory-051): the memory coordinator's level
+/// cmux's vote in Chromium's memory pressure aggregator: the memory coordinator's level
 /// (``MemoryPressureVoteSource/pressureVote``) reaches the fork's `cmux_memory_pressure_vote`, one
 /// `MemoryPressureVoter` that the fork makes with `MultiSourceMemoryPressureMonitor::CreateVoter`
 /// (components/memory_pressure/multi_source_memory_pressure_monitor.h) next to the platform voter that
@@ -12,7 +12,7 @@ import CmuxNextSignposts
 ///
 /// One call per change of the vote, none for a repeated one. Chromium starts with no cmux voter, which is
 /// the same as a vote of none: a vote of normal before any other makes no call. A vote made before
-/// Chromium runs is sent once it is ready (``chromiumDidStart()``). On a fork without the call the shim
+/// Chromium runs is sent once it is ready (``chromiumDidStart``). On a fork without the call the shim
 /// returns at once and nothing changes in Chromium.
 ///
 /// Each call is one ``SignpostName/cefMemoryPressureVote`` interval on the main thread: the synchronous part

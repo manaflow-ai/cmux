@@ -7,7 +7,7 @@ import Testing
 /// repaints on `needsDisplay` only, never because its size changed. AppKit's default
 /// (`.duringViewResize`) ran every row's `updateLayer` on each frame of a sidebar or split resize,
 /// although the rows only set layer colors. Geometry that follows the size (a badge's radius, a
-/// group line's shape) is set in `layout()`, which a size change asks for, so nothing shows stale
+/// group line's shape) is set in `layout`, which a size change asks for, so nothing shows stale
 /// or stretched. Chromium does the same split: paint invalidation is separate from a layout's size
 /// change (third_party/blink/renderer/core/paint/paint_invalidator.cc).
 @MainActor @Suite(.serialized)

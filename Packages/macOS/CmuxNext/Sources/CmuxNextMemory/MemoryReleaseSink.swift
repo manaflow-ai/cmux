@@ -10,20 +10,20 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///
 /// A release slice runs on the main thread inside a 2 ms budget, so it only unlinks; the free of a
 /// CGImage, Data or IOSurface it held happens here (Chrome's `DeleteSoon`,
-/// `base/task/sequenced_task_runner.h`). The queue is serial, so ``relieveHeap()`` runs after every
+/// `base/task/sequenced_task_runner.h`). The queue is serial, so ``relieveHeap`` runs after every
 /// drop made before it: the allocators see the pages those frees left empty.
 ///
 /// The heap relief is `malloc_zone_pressure_relief(nil, 0)`, which relieves every registered zone
 /// that has a `pressure_relief`. PartitionAlloc's zone has none (`g_mac_malloc_zone.pressure_relief
 /// = nullptr`, `partition_alloc/shim/allocator_shim_override_apple_default_zone.h`), so the
 /// in-process CEF heap is not relieved by it; that takes the fork's purge (Chrome's
-/// `partition_alloc::MemoryReclaimer::Instance()->ReclaimAll()`, `partition_alloc/memory_reclaimer.h`),
-/// which the fork does not export yet. Until the follow-up task "Fork PartitionAlloc purge" (after
-/// p07-memory-069) adds that entry and passes it in AppServices+Memory.swift, the app's
+/// `partition_alloc::MemoryReclaimer::Instance->ReclaimAll`, `partition_alloc/memory_reclaimer.h`),
+/// which the fork does not export yet. Until the follow-up task "Fork PartitionAlloc purge"
+///  adds that entry and passes it in AppServices+Memory.swift, the app's
 /// ``HeapRelief/system(partitionAllocPurge:)`` gets nil.
 ///
 /// ```swift
-/// let sink = MemoryReleaseSink()
+/// let sink = MemoryReleaseSink
 /// let coordinator = MemoryCoordinator(pressure: pressure, slicer: slicer, releaseSink: sink)
 /// let cache = PreviewImageCache(registry: coordinator, sink: sink)
 /// ```

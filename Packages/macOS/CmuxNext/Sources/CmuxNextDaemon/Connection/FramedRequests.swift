@@ -1,7 +1,7 @@
 import CmuxNextIPC
 import Foundation
 
-/// How one connection sends typed v12 commands once `ipc-frames-v2` is granted (p05-ipc-092;
+/// How one connection sends typed v12 commands once `ipc-frames-v2` is granted (
 /// cmux-tui/spec/transports.md, "Binary frames").
 ///
 /// A REQUEST frame carries the request's JSON line without its `\n`; its header names the method by the id

@@ -23,7 +23,7 @@
 //! and a refused proof is `client_hello.refused` (no retry). Either prover sets the
 //! connection's `verified_app`; neither changes its `peer_key`.
 //!
-//! Features (p12-perf-process-150): the daemon outlives the app, so a role
+//! Features: the daemon outlives the app, so a role
 //! `main` hello may carry the app's daemon features, `features: {hash,
 //! values: {name: bool}}` (its `daemon` and `both` features). The reply's
 //! `features: {hash, applied, pending}` says what the daemon did

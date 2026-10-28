@@ -16,27 +16,27 @@ import Darwin
 /// posted task to its post site the same way (base/task/common/task_annotator.cc, `TaskAnnotator::WillQueueTask`
 /// with the task's `posted_from`).
 ///
-/// Not seen here: GCD blocks (`DispatchQueue.global().async`, which p08-startup.md section 6 counts in the source),
+/// Not seen here: GCD blocks (`DispatchQueue.global.async`, which p08-startup.md section 6 counts in the source),
 /// BackgroundWork lane items (they run on the lanes' own serial queues) and main-actor jobs (queue Q11).
 ///
 /// The hook gives each job to the runtime's own enqueue (`original`) right after the record, so scheduling does not
-/// change; after ``freeze()`` it costs one atomic load. A record claims a slot with one atomic add and writes the
+/// change; after ``freeze`` it costs one atomic load. A record claims a slot with one atomic add and writes the
 /// slot's fields and stack (`backtrace_async`: no lock, no allocation) before it publishes the slot with a release
 /// store. Debug and bench-hooks builds only, and armed only by ``environmentKey``. The hook word is taken only when it
-/// is free; in an armed launch the trace's `ConcurrencyHook` (p09-observability-123) finds it taken.
+/// is free; in an armed launch the trace's `ConcurrencyHook` finds it taken.
 ///
 /// Memory safety: each buffer is one allocation made and initialized by init at its full size and never freed,
 /// because the hook may call in for the life of the process; the census keeps its address as an integer and makes the
 /// pointer at each use. A slot index comes only from the claim in ``record(taskID:priority:onMain:)``, which is checked
 /// against ``capacity``; a bitmap word index is checked against the bitmap's size. A slot's fields are written once, by
-/// the thread that claimed it, before the release store of its ready word; ``snapshot()`` reads them only after an
+/// the thread that claimed it, before the release store of its ready word; ``snapshot`` reads them only after an
 /// acquire load of that word finds it set.
 ///
 /// ```swift
 /// let census = GlobalJobCensus.armed(environment: ProcessInfo.processInfo.environment, processStartNanos: start)
 /// census?.freeze(after: order.startup)
 /// // later, off main:
-/// let report = GlobalJobCensusReport(census.snapshot()) { addresses in frames(addresses) }
+/// let report = GlobalJobCensusReport(census.snapshot) { addresses in frames(addresses) }
 /// ```
 public final class GlobalJobCensus: Sendable {
     /// The runtime's enqueue the hook hands each job to (Swift calling convention).

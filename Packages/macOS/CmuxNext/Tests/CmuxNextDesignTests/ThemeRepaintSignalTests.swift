@@ -2,11 +2,11 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// p15-oracle-134: DesignSettings lives in CmuxNextAppearance, which knows no theme store, so a change
+/// DesignSettings lives in CmuxNextAppearance, which knows no theme store, so a change
 /// every theme payload reads (calm mode's hover fills, the terminal's face) is the
 /// ``AppearanceSignals/Signal/themeRepaint`` signal, and the store the composition root hands the
 /// signals to repaints on it (`ThemeStore.repaint(following:)`). Before the move the settings called
-/// `ThemeScope.app.store.repaintAll()` themselves.
+/// `ThemeScope.app.store.repaintAll` themselves.
 @MainActor @Suite struct ThemeRepaintSignalTests {
     @MainActor private final class Responder: ThemeResponsive {
         var repaints = 0

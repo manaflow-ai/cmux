@@ -5,7 +5,7 @@ import CmuxNextCompat
 @testable import CmuxNextTrace
 import Testing
 
-/// A parent window's geometry change is one `cef.geometry` slice (p09-observability-038, perf-hot `cef-geometry`):
+/// A parent window's geometry change is one `cef.geometry` slice (perf-hot `cef-geometry`):
 /// the catcher sync inside it takes no slice of its own, and a change reported inside the window's layout pass
 /// writes its slice once the pass ends. The overlay layer records into the test's own trace runtime.
 @MainActor @Suite(.serialized) struct WindowOverlayGeometryTraceTests {

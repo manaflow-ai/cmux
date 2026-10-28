@@ -1,14 +1,14 @@
 import AppKit
 import CmuxNextDesign
 
-/// Strip pans at O(1) per input event (p03-rendering-026, behind `motion.renderServer`). The strip's
+/// Strip pans at O(1) per input event (behind `motion.renderServer`). The strip's
 /// hosts and dividers sit in the strip container (`StripClipContainerView`, the motion container), and
 /// their rings and dims in its companion plane (`StripChromePlane`); a pan event sets the translation of
 /// the two layers and nothing else: no host, divider or ring frame, no layout, no overlay sync, no
 /// tracking area, no display frame. Their frames commit once, at the gesture's end, at the offset it
 /// springs to, and the fling is a render-server spring of the translation from where the strip shows,
 /// with the release velocity. Pointer input lands the strip where it shows before any view reads it
-/// (``landStripWhereItShows()``). Chrome's model: the compositor scrolls the layer per input event and
+/// (``landStripWhereItShows``). Chrome's model: the compositor scrolls the layer per input event and
 /// the main thread commits at its next frame (`cc/input/threaded_input_handler.cc`), and a fling is a
 /// compositor animation (`cc/input/scroll_offset_animations_impl.h`).
 ///

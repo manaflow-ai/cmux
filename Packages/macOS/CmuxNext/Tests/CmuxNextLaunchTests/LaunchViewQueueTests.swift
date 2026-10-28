@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The web views of the agent tabs a launch shows (p08-startup-042): none is made before the first
+/// The web views of the agent tabs a launch shows: none is made before the first
 /// frame (each tab draws its picture there); until startup completes, each is made only in its own
 /// afterFirstFrame post, the focused pane's first, and a tab outside a focused pane that shows a
 /// drawing terminal posts only once the pane region is ready. After completion a view is made at once.

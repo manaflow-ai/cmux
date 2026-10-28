@@ -85,7 +85,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
     /// Chromium Host: the page did not handle the Command or Control chord whose key frame had
-    /// input seq `seq` (KEY_UNHANDLED with b bit 1, p01-process-030); cmux runs the action it held
+    /// input seq `seq` (KEY_UNHANDLED with b bit 1); cmux runs the action it held
     /// for the page or re-dispatches the key to its menus.
     case keyUnhandledChord(browser: Int32, seq: UInt32)
     /// An extension install or permission prompt (fork API 12); prompt 0

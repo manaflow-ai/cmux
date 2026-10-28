@@ -13,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p06-scheduler-346 (rule 9): one case per migrated owner class of the remaining targets' sweep.
+/// One case per migrated owner class of the remaining targets' sweep.
 ///
 /// - The cookie consent panel's answer is one outcome the import awaits off main: a panel that goes away without an
 ///   answer denies, and the first answer is the only one.
@@ -21,7 +21,7 @@ import Testing
 ///   ready is given up at the limit, and a ready line answers with no wait for the limit.
 /// - The Computer Use helper follows `computerUse` from the settings file's first load, one apply at a time, the
 ///   newest value only.
-/// - The Task Manager's next sample waits on its visible `MainDeadline`, and stop() ends the sampling.
+/// - The Task Manager's next sample waits on its visible `MainDeadline`, and stop ends the sampling.
 /// - The import cards follow cmux coming forward through the app's one AppEvents fan-out, not an observer of their own,
 ///   and a stale scan runs again when cmux comes forward.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct RemainingTargetsSchedulerSweepTests {

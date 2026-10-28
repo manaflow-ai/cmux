@@ -12,7 +12,7 @@ import Testing
 /// remote browser children start on a `ProcessLauncher` queue, never on the caller's thread (Chromium's
 /// content/browser/child_process_launcher_helper.cc), and run at the launcher's child priority. Each start
 /// here comes from the main actor through an injected ``SpawnProbe``: a start that spawned by itself (the old
-/// `process.run()` on the caller's actor) records no spawn and fails the test.
+/// `process.run` on the caller's actor) records no spawn and fails the test.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct ProcessLaunchOffMainTests {
     /// The one spawn a start makes: off the main thread, the child at `childPriority`.

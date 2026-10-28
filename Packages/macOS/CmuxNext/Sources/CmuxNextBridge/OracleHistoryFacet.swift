@@ -2,10 +2,10 @@
 public import CmuxNextDaemon
 public import CmuxNextOracle
 
-/// The oracle's `history` facet (p15-oracle-042, schemas/oracle/snapshot-v1.schema.json `history`): the closed items
+/// The oracle's `history` facet (schemas/oracle/snapshot-v1.schema.json `history`): the closed items
 /// Recently Closed, Search Tabs and Reopen Closed can bring back, newest first. Chromium's TabRestoreService keeps
 /// that list in memory, newest first, and reads its file only when it loads
-/// (components/sessions/core/tab_restore_service_impl.cc, `TabRestoreServiceImpl::entries()`). Here the daemon owns
+/// (components/sessions/core/tab_restore_service_impl.cc, `TabRestoreServiceImpl::entries`). Here the daemon owns
 /// the closed history (`closed-history-v2`) and the app mirrors its items from `session.events`
 /// (`DaemonStore.closedItems`); the facet reads that mirror in the snapshot's main-actor turn and never the disk or
 /// a database.

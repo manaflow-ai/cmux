@@ -5,8 +5,8 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// The output lane is a checked Sendable (p10-stability-052): its surface is a constant and work on the
-/// lane reaches it only while the lane is open, so after ``TerminalOutputLane/close()`` (the fence before
+/// The output lane is a checked Sendable: its surface is a constant and work on the
+/// lane reaches it only while the lane is open, so after ``TerminalOutputLane/close`` (the fence before
 /// `ghostty_surface_free`) nothing queued earlier or later touches the surface. The lane's parse is the
 /// test's recorder, so no Ghostty surface is made.
 @Suite(.timeLimit(.minutes(1))) struct TerminalOutputLaneFenceTests {

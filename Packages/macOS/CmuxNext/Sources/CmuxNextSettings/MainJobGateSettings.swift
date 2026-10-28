@@ -1,5 +1,5 @@
 /// `debug.mainJobGate` in cmux-next.json: whether main-actor jobs wait behind a person's pending
-/// input (p04-input-076, feature `mainJobGate`). Off, the runtime hook is not installed.
+/// input (feature `mainJobGate`). Off, the runtime hook is not installed.
 ///
 /// ```jsonc
 /// "debug": {

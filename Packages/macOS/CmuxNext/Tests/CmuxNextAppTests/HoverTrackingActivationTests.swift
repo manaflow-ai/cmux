@@ -55,8 +55,8 @@ struct HoverTrackingActivationTests {
         ]
     }
 
-    /// The view's hover areas (each of them follows the visible rect): made once in its init
-    /// (p03-rendering-109), so they are read after an update that must add nothing new. A cursor-only
+    /// The view's hover areas (each of them follows the visible rect): made once in its init,
+    /// so they are read after an update that must add nothing new. A cursor-only
     /// area (``NSView/addCursorUpdateArea(_:)``, key window as the cursor rect was) tracks no hover.
     private static func addedAreas(_ view: NSView) -> [NSTrackingArea] {
         view.frame = NSRect(x: 0, y: 0, width: 240, height: 40)

@@ -3,7 +3,7 @@ import CmuxNextTrace
 import Dispatch
 import Foundation
 
-/// The decode sequence of one connection (p05-ipc-144). The reader only cuts lines and routes them; each event's
+/// The decode sequence of one connection. The reader only cuts lines and routes them; each event's
 /// decode, each reply's resolution, a snapshot inflate and a bulk decode run here, in wire order. Chrome's IO
 /// thread does the same: `ChannelProxy::Context::OnMessageReceived` (ipc/ipc_channel_proxy.cc) only posts each
 /// message to its listener's task runner, and `MultiplexRouter` (mojo/public/cpp/bindings/lib/multiplex_router.cc)
@@ -16,7 +16,7 @@ import Foundation
 /// heavy one carries the reader's class and so raises the queue to it until it runs (GCD's QoS override of a
 /// serial queue, Chrome's `UpdatePriority` of a sequence).
 ///
-/// Bounded: the reader waits (``waitForRoom()``, after each line and outside its hang scope) while more than
+/// Bounded: the reader waits (``waitForRoom``, after each line and outside its hang scope) while more than
 /// ``highWater`` line bytes are queued, until they drain to ``lowWater``. Lane items never wait on a consumer (a
 /// bounded consumer's wait is the reader's, ``EventDispatch/readerWait``), so that wait always ends.
 ///
@@ -149,7 +149,7 @@ struct EventDispatch: Sendable {
         self.readerWait = readerWait
     }
 
-    /// Every event decodes on the lane's queue: a control connection's events and the other roles' (p05-ipc-144:
+    /// Every event decodes on the lane's queue: a control connection's events and the other roles' (
     /// control decode on a serial queue, never on the reader).
     static var control: EventDispatch { control(readerWait: nil) }
 

@@ -2,8 +2,8 @@
 import CmuxNextOracle
 import Testing
 
-/// The path rewrite a capture applies before it hashes a `derive: sha256` field with `x-oracle-rewrite: path`
-/// (p15-oracle-042): the same rule as normalize.py's `_Rewriter` (`rewrite_only_marked_fields`,
+/// The path rewrite a capture applies before it hashes a `derive: sha256` field with `x-oracle-rewrite: path`:
+/// the same rule as normalize.py's `_Rewriter` (`rewrite_only_marked_fields`,
 /// `longest_prefix_wins`), so a hash matches the one normalize would make from the rewritten text.
 /// Run: `swift test --filter OraclePathsTests`.
 @Suite struct OraclePathsTests {

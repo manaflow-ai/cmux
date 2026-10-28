@@ -71,7 +71,7 @@ extension AppDelegate {
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
         FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
-        // The shared chunks into memory on the files lane, so WebKit page views get them in one turn (p13-webui-093).
+        // The shared chunks into memory on the files lane, so WebKit page views get them in one turn.
         WebBundleOverlay.shared.readBundledShared(on: services.work)
         services.configureChromiumSpares()
         services.cache.cef.setAdBlockerAtFirstTab(services.features.isEnabled(.chromiumAdBlockerAtFirstTab))

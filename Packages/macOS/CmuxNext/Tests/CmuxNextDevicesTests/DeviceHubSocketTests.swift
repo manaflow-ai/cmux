@@ -152,8 +152,8 @@ final class EventLog: @unchecked Sendable {
         #expect(connection.sent.first == #"{"type":"ping"}"#)
     }
 
-    /// The keepalive is a DemandTimer armed on read silence (p14-energy-019c): it asks a tenth of its
-    /// interval as tolerance (p14-energy-066c), every frame from the server pushes it back, and it pings only
+    /// The keepalive is a DemandTimer armed on read silence: it asks a tenth of its
+    /// interval as tolerance, every frame from the server pushes it back, and it pings only
     /// after a whole interval with no frame, then again an interval after that.
     @Test(.timeLimit(.minutes(1))) func theKeepalivePingsOnlyAfterSilence() async throws {
         let connection = FakeConnection([])
@@ -196,7 +196,7 @@ final class EventLog: @unchecked Sendable {
         }
         try await clock.waitForSleeper()
         #expect(clock.sleepRequests.last?.deadline.offset == .seconds(30))
-        // A tenth of the interval, not WakeLeeway's 1 s cap (p14-energy-066c).
+        // A tenth of the interval, not WakeLeeway's 1 s cap.
         #expect(clock.sleepRequests.last?.tolerance == .seconds(3))
 
         // A frame at 20 s moves the ping to 50 s: nothing is due at 30 s.

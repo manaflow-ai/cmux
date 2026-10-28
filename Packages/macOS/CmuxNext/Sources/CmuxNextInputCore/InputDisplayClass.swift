@@ -1,6 +1,6 @@
 /// The display a batch of inputs was presented on, as a row label: its highest refresh rate and
-/// whether the rate varies (ProMotion, adaptive sync: the minimum and maximum refresh differ,
-/// p04-input-003). Estimated presentation times on a variable-rate display are less exact, so
+/// whether the rate varies (ProMotion, adaptive sync: the minimum and maximum refresh differ).
+/// Estimated presentation times on a variable-rate display are less exact, so
 /// rows are kept apart per display and labelled (p04-input.md, DC12 "VRR rows labelled").
 public struct InputDisplayClass: Sendable, Hashable, Codable {
     /// The highest refresh rate, in whole hertz (0 when unknown).

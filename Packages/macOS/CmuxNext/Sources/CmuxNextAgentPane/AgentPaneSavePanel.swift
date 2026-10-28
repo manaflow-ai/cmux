@@ -21,7 +21,7 @@ final class AgentPaneSavePanel {
         panel.nameFieldStringValue = save.suggestedName
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
-        // A sheet on the pane's window, else a free panel: never a nested modal loop (p02-threads-132).
+        // A sheet on the pane's window, else a free panel: never a nested modal loop.
         // A panel dropped without its handler (abandoned) chose nothing.
         let chosen = (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             if let window {

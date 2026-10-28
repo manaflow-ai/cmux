@@ -2,7 +2,7 @@
 import CmuxNextOracle
 import Testing
 
-/// The settings facet (p15-oracle-039): the applied config's hash, its non-default keys and the motion arm in the
+/// The settings facet: the applied config's hash, its non-default keys and the motion arm in the
 /// schema's shape, read in the snapshot's main-actor turn; with no settings controller it is not-comparable with
 /// its task, never an empty pass. Run: `swift test --filter OracleSettingsFacetTests`.
 @MainActor

@@ -4,8 +4,8 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// Toggle Omnibar with `motion.renderServer` on lays out once and moves on the render server
-/// (p03-rendering-102): the page resizes once per toggle on both engines, the rows slide as additive
+/// Toggle Omnibar with `motion.renderServer` on lays out once and moves on the render server:
+/// the page resizes once per toggle on both engines, the rows slide as additive
 /// `position.y` springs over the page's own background and the row fades as an additive opacity; a
 /// page in its own window lands with the views over it and only the rows move; with the overlays gate
 /// off the change lands in one frame. With the switch off (the default) no render spring runs.

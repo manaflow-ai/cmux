@@ -1,19 +1,19 @@
 import CmuxNextCompat
 public import Foundation
 
-/// The main-thread part of the next report (p12-perf-process-043): the active time
+/// The main-thread part of the next report: the active time
 /// (``ActiveTimeLedger``) and what the watchdog's main-turn and input-queueing histograms counted
 /// since the last queued report. The histograms (`MainTurnHistogram` in CmuxNextControl) count from
 /// launch, so a report sends the difference from the read the last queued report ended at, as
 /// Chrome's `HistogramSnapshotManager` sends each upload's `SnapshotDelta`
 /// (base/metrics/histogram_snapshot_manager.cc): the server adds reports, so a count goes once.
 ///
-/// ``take()`` reads without changing anything; ``commit(_:)`` advances the active time and the
+/// ``take`` reads without changing anything; ``commit(_:)`` advances the active time and the
 /// baseline once that report is queued, so a report dropped before it is queued loses nothing.
-/// ``saved()`` keeps what is not yet sent across a quit (``merge(_:)`` at the next launch).
+/// ``saved`` keeps what is not yet sent across a quit (``merge(_:)`` at the next launch).
 ///
 /// ```swift
-/// let taken = ledger.take()
+/// let taken = ledger.take
 /// let report = builder.build(context: context, watchdog: aggregate, metricKit: inputs, mainThread: taken.input)
 /// // queue the body, then:
 /// ledger.commit(taken)

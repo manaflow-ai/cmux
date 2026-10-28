@@ -152,7 +152,7 @@ final class HomeLinkPreviewProvider: HomeLinkPreviewing {
 
     /// The tab with durable id `id` and its pane, on any machine, for one card read.
     private static func locate(_ id: String, in services: AppServices) -> (TabModel, PaneModel)? {
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), read once per card; no scan, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, read once per card; no scan, no observation
         services.locateTab(id)
     }
 

@@ -102,7 +102,7 @@ struct ChromiumPageHostBridgeTests {
         #expect(context.evaluateScript("ran.join(',')").toString() == "1,3,4")
     }
 
-    /// p01-process-232: the page script and every document script go in one new-document script, so a page's setup
+    /// The page script and every document script go in one new-document script, so a page's setup
     /// is four host round trips before its first load however many scripts it has; the page script runs first.
     @Test func setupTurnsOnTheDomainsBeforeTheBindingAndScripts() {
         let calls = ChromiumPageHostBridge.setupCalls(handlers: ["cmuxPagePainted"], documentScripts: ["one()", "two()"])

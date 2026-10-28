@@ -53,8 +53,7 @@ fn connection_writers_and_surface_reader_are_echo_path_threads() {
         client.request(json!({"cmd": "attach-surface", "surface": attached.id, "mode": "render"}));
     assert_eq!(render["ok"], true, "{render}");
 
-    // A local PTY reads on its owner's read loop, not a thread of its own
-    // (p07-memory-095).
+    // A local PTY reads on its owner's read loop, not a thread of its own.
     let reader = crate::mux::terminal_work::read_loop::READ_LOOP_THREAD;
     for name in ["mux-line-out", "mux-attach-out", "mux-render-attach-out", reader] {
         assert_rows(name, ECHO_PATH_QOS);

@@ -3,15 +3,15 @@ import CmuxNextDesign
 public import CmuxNextWakeups
 public import Foundation
 
-/// The Home list's two launch files, read together on a launch lane from `main` while AppKit starts
-/// (p08-startup-076): the conversations' ``HomeCache`` (`home.json` and its windows) and the list's
+/// The Home list's two launch files, read together on a launch lane from `main` while AppKit starts:
+/// the conversations' ``HomeCache`` (`home.json` and its windows) and the list's
 /// ``HomeSidebarLaunchCache`` (`sidebar.json`). The main thread never reads them: the Home list's first
 /// frame takes ``value`` when the read has ended, and otherwise seeds the list on the read's completion
 /// (the theme background until then), as Chrome reads a profile's files on a blocking sequence and runs
 /// what needs them from the loaded callback (chrome/browser/profiles/profile_impl.cc).
 ///
 /// ```swift
-/// let read = HomeListLaunchRead.start(owner: home.session, caches: caches, on: work)  // main()
+/// let read = HomeListLaunchRead.start(owner: home.session, caches: caches, on: work)  // main
 /// if let value = read.value { store.primeFromCache(value.conversations) }           // never waits
 /// ```
 public nonisolated struct HomeListLaunchRead: Sendable {

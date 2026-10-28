@@ -6,7 +6,7 @@ import CmuxNextInput
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// A tab or workspace drag's ghost drawn at the pointer resampled at each frame's time (p04-input-040, feature
+/// A tab or workspace drag's ghost drawn at the pointer resampled at each frame's time (feature
 /// `resampledDrags`), as Chromium resamples rAF-aligned input (`MainThreadEventQueue::HandleEventResampling`,
 /// `ui/base/prediction/linear_resampling.cc`): the drop target, the window order, autoscroll and the release read
 /// the real pointer, so the drop is the same with the resampler on and off.

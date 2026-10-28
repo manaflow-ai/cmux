@@ -7,7 +7,7 @@ import Testing
 /// The daemon socket writer of the key-carrying connection (terminal attach) is on the key echo path: most
 /// typed keys (`TerminalAttachment.enqueueInput`) go through its drain queue, and the frame that shows the
 /// echo waits for it. Every other connection, the control link included (commands, replies, automation and
-/// sidebar events; p04-input-059), stays below user-interactive, so its traffic never shares a keystroke's
+/// sidebar events), stays below user-interactive, so its traffic never shares a keystroke's
 /// class. Two key paths still use the control link and so run at user-initiated: pre-attach input of a new
 /// split (`send {terminal_id}` from `CreatingTerminalInput`, until p04-input-058) and a TUI's Command chords
 /// (`send-key` from `TerminalHooks`). (threading-model.md, QoS table: userInteractive is the main thread and
@@ -69,7 +69,7 @@ import Testing
         #expect(buffer == Array("k\n".utf8))
     }
 
-    /// A terminal attach's writer drains on its view's input queue (p04-input-058): while that queue runs
+    /// A terminal attach's writer drains on its view's input queue: while that queue runs
     /// nothing, nothing reaches the socket; once it runs, the bytes do. So a key written from the input queue
     /// goes to `write(2)` on that serial queue, not after a second hop to a writer queue of its own.
     @Test func aWriterWithATargetDrainsOnIt() throws {

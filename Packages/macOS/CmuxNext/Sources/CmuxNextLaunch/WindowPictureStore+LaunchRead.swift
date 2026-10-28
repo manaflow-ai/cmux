@@ -4,8 +4,8 @@ public import CmuxNextWakeups
 public import CoreGraphics
 public import Foundation
 
-/// The launch's read of the front window's picture (p08-startup-058), which the first frame shows until the live
-/// window is built under it (p08-startup-059). Chrome does this on Android (`StartupPaintPreview`,
+/// The launch's read of the front window's picture, which the first frame shows until the live
+/// window is built under it. Chrome does this on Android (`StartupPaintPreview`,
 /// chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreviewHelper.java): only the first
 /// restored tab gets its capture, read and decoded off the UI thread before it is shown.
 ///
@@ -17,13 +17,13 @@ public import Foundation
 /// `kCGImageSourceShouldCacheImmediately`), so the main thread gets pixels ready to draw. The first frame asks with
 /// ``takeFront(matching:launch:)``, the only way out of the store, so the launch rules always apply
 /// (WindowPictureStore+LaunchRules.swift); it never waits. The picture is handed out once and dropped at startup
-/// complete when nobody took it (``dropFront()``; a decoded window picture is tens of MB).
+/// complete when nobody took it (``dropFront``; a decoded window picture is tens of MB).
 ///
 /// ```swift
 /// let pictures = WindowPictureStore(state: stateDirectory, work: work)
-/// pictures.prefetchFront({ frontWindow() }) { DebugTimings.markLaunch($0) }
-/// order.startup.whenComplete { _ in pictures.dropFront() }
-/// _ = await pictures.frontFinished()   // the first window orders in once the read has ended
+/// pictures.prefetchFront({ frontWindow }) { DebugTimings.markLaunch($0) }
+/// order.startup.whenComplete { _ in pictures.dropFront }
+/// _ = await pictures.frontFinished   // the first window orders in once the read has ended
 /// let facts = WindowPictureStore.LaunchFacts(savedPicture: settings.snapshot.savedPicture,
 ///                                            recovered: crashRecovery.recovery.isRestart,
 ///                                            incognitoLeftovers: incognitoLedger.mayHaveLeftovers)
@@ -82,7 +82,7 @@ extension WindowPictureStore {
     }
 
     /// Whether the read found a picture, once it has ended (the caller suspends; no thread waits), without handing
-    /// it out: the first window orders in on it (p08-startup-059). False when there is none, or it was taken or
+    /// it out: the first window orders in on it. False when there is none, or it was taken or
     /// dropped. It gives no pixels: those come only through ``takeFront(matching:launch:)``.
     @discardableResult
     public func frontFinished() async -> Bool {

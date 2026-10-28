@@ -2,7 +2,7 @@
 //! p07-memory-090).
 //!
 //! Chrome's `sql::Database` registers a memory pressure listener per
-//! connection and its `TrimMemory()` (sql/database.cc) calls
+//! connection and its `TrimMemory` (sql/database.cc) calls
 //! `sqlite3_db_release_memory` on that connection, on the connection's own
 //! sequence; it never calls the process-wide `sqlite3_release_memory`. Here
 //! each long-lived connection of the owner is one lossless consumer in the

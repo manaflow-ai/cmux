@@ -5,7 +5,7 @@ import Testing
 
 /// p05-ipc-024's acceptance, checked against the code it replaces: the generated
 /// `cmux.protocol/2` requests and CmuxNextIPC's `ResourceRequestLine` write the same bytes as
-/// today's hand-built `ResourceRequestEnvelope(...).line()` for the same call
+/// today's hand-built `ResourceRequestEnvelope(...).line` for the same call
 /// (DaemonConnection+TerminalResource `writeTerminal`, +Notifications `clearNotifications(terminal:)`,
 /// +ColumnUpdate's `screen.get`), so tasks 045 and 047 can move call sites over without changing a
 /// line. ResourceRequestLineTests in CmuxNextIPCTests keeps the literal lines as documentation.

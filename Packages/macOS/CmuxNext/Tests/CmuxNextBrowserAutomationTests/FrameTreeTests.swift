@@ -3,7 +3,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// `frames.list` reads WebKit's frame tree with the root kept on the main actor (p10-stability-058:
+/// `frames.list` reads WebKit's frame tree with the root kept on the main actor (
 /// no `@unchecked Sendable` box through the continuation): a page with one iframe gives the main
 /// frame first, then the iframe under it.
 @MainActor

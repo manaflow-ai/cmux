@@ -4,8 +4,8 @@ import CmuxNextDesign
 /// One of the strip's nested scrollers: a row column or a scroll area.
 typealias NestedScroller = ScrollerPanContainerView.Scroller
 
-/// Rows and scroll areas pan by translation (p04-input-050, behind `motion.renderServer`), as the strip
-/// does (p03-rendering-026, `ScreenContentView+StripPan.swift`). Each strip column whose rows overflow and
+/// Rows and scroll areas pan by translation (behind `motion.renderServer`), as the strip
+/// does (`ScreenContentView+StripPan.swift`). Each strip column whose rows overflow and
 /// each scroll area of the strip has a motion container (`ScrollerPanContainerView`) that holds its hosts
 /// and dividers, and a chrome plane that holds their rings and dims. A trackpad pan event of the scroller
 /// sets the translation of the two layers and nothing else: no host, divider or ring frame, no layout, no
@@ -13,7 +13,7 @@ typealias NestedScroller = ScrollerPanContainerView.Scroller
 /// until the gesture ends, when they are laid out once at the offset the fling springs to, and the fling
 /// is a render-server spring of the container's translation from where they show, with the release
 /// velocity (``startScrollerFling(_:)``). Pointer input lands a scroller that shows moved first
-/// (``landStripWhereItShows()``), so AppKit's hit test and `convert` read frames that agree with what
+/// (``landStripWhereItShows``), so AppKit's hit test and `convert` read frames that agree with what
 /// shows. Chrome gives every nested scroller its own scroll transform node and moves it per input event
 /// (`cc/trees/transform_node.h` `scroll_offset`, `cc/input/threaded_input_handler.cc`), and flings it as
 /// a compositor animation (`cc/input/scroll_offset_animations_impl.h`).

@@ -1,4 +1,4 @@
-// A hidden diff tab's page may be discarded (`memoryDiscardInternalPages`, p07-memory-026): the host
+// A hidden diff tab's page may be discarded (`memoryDiscardInternalPages`): the host
 // asks `cmux.diff.viewState` first and gives the answer back as the next page's `payload.viewState`.
 // The page saves the file at the top and how far into it, the files the reader unfolded that open
 // folded, and the options that last for the tab.

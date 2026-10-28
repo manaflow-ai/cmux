@@ -1,7 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 
-/// The host's presentation feedback (task p04-input-066). The host reports when the frame that shows an input
+/// The host's presentation feedback. The host reports when the frame that shows an input
 /// reached the display, by the input's event time (`inputPresented`, from the fork's presentation feedback); the
 /// session hands each report to ``InputPresented``, which in the app is the input latency tracker's
 /// `hostPresented(eventNanos:at:)`, as Chrome's browser closes an input's latency at the presentation feedback of the

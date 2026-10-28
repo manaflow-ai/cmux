@@ -1,9 +1,9 @@
 //! `server-stats`: where the daemon spends its time. Also `server-threads`
 //! and `server-blocking` (the plan's `server.threads` and
-//! `server.blocking`, p02-threads-203): the thread registry, work lanes and
+//! `server.blocking`): the thread registry, work lanes and
 //! blocking site table of `cmux_threads`, each read from one snapshot and
 //! rendered after every lock is released. And the forwarder of the
-//! `server-diagnostic-site` events (p02-threads-233).
+//! `server-diagnostic-site` events.
 
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Weak};

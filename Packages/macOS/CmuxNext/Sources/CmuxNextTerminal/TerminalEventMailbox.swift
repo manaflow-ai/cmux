@@ -3,7 +3,7 @@ import CmuxNextTerminalGeometry
 
 /// What one session's events loop and output lane changed for the main actor since its last pass:
 /// the announced grid, the connection status, the "Sized for" chip, an exit, queued content and the
-/// restore counters, latest wins per field (p03-rendering-085).
+/// restore counters, latest wins per field.
 ///
 /// The loop never waits for main: it posts here and goes on with the next event, and the first post
 /// after a pass asks for one main turn (``deliver``), which the session runs on its frame through the
@@ -13,11 +13,11 @@ import CmuxNextTerminalGeometry
 /// per tab and applies it on a timer, and Blink's `MainThreadEventQueue`
 /// (third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc) coalesces continuous
 /// events to the next frame while a discrete one first flushes what waits: the session's surface swap
-/// takes the mailbox first (``TerminalSession/applyEvents()``).
+/// takes the mailbox first (``TerminalSession/applyEvents``).
 ///
 /// ```swift
 /// mailbox.post { $0.status = .connected }   // from the events loop
-/// if let pending = mailbox.take() { apply(pending) }   // on main
+/// if let pending = mailbox.take { apply(pending) }   // on main
 /// ```
 nonisolated final class TerminalEventMailbox: Sendable {
     /// The changes waiting for the main actor.

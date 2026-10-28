@@ -1,6 +1,6 @@
 public import AppKit
 
-/// Keys typed while a window shows its launch picture (p08-startup-061), the terminal stand-in buffer. A key changes
+/// Keys typed while a window shows its launch picture, the terminal stand-in buffer. A key changes
 /// only this buffer in its turn and asks the window to build its focused pane's slice in the next frame
 /// (``begin(window:shell:raise:)``); it never builds the window. Two kinds of key wait here:
 ///
@@ -21,7 +21,7 @@ public import AppKit
 /// keys.begin(window: "w1", shell: window) { pane in slices.raise(pane) }   // the picture frame (pane nil: not known)
 /// keys.holdUndecided(event, window: "w1")                                  // no focus yet
 /// keys.hold(event, for: .init(window: "w1", pane: "p", tab: "t"))          // a terminal still a picture
-/// keys.retry()                                                             // a focus settle, the pane's first frame
+/// keys.retry                                                             // a focus settle, the pane's first frame
 /// keys.end(window: "w1")                                                   // the picture left
 /// ```
 @MainActor

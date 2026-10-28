@@ -11,7 +11,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// Each source of the key router's cached key facts (p04-input-053), through the real router under an equal
+/// Each source of the key router's cached key facts, through the real router under an equal
 /// focus: an input the lookups are built from rebuilds them once and names itself; a flag of an object a build
 /// found follows that object on the next key with no rebuild. A unit test has no terminal, browser or page pane
 /// for a build to find, so the copy mode, suggestion list, readiness and Chromium page window tests put those

@@ -178,12 +178,12 @@ public final class ControlSocketServer: Sendable {
     }
 
     /// Starts accepting on `listener`, bound earlier on a lane
-    /// (``bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``, p08-startup-019), which
+    /// (``bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``), which
     /// also made the compatibility link: this call publishes and resumes the accept source and starts
     /// the path watches on `acceptQueue`, with no file work. An access mode of `off` discards the
-    /// listener and throws `disabled`, as ``start()`` does; a running server discards it. A listener
+    /// listener and throws `disabled`, as ``start`` does; a running server discards it. A listener
     /// bound for another path, file mode or link is discarded and the server binds its own
-    /// (``start()``). A listener already discarded or taken throws `discarded`: its owner decided it
+    /// (``start``). A listener already discarded or taken throws `discarded`: its owner decided it
     /// does not serve (quit), so the server never binds again in its place.
     public func start(adopting listener: ControlSocketListener) throws {
         guard configuration.accessMode != .off else {

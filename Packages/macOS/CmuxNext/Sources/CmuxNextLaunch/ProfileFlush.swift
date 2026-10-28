@@ -9,13 +9,13 @@ import os
 import CmuxNextProfileRuntimeC
 #endif
 
-/// The profile build's two profiles from one run (p08-startup-103, plans/cmux-next/chrome-parity/p08-startup.md
+/// The profile build's two profiles from one run (plans/cmux-next/chrome-parity/p08-startup.md
 /// section F): `launch.profraw` holds the counters from process start to startup complete, `rest.profraw`
 /// those from then to `debug.pgo_flush` before quit. The scenario runner (050) merges both into
 /// `cmux-next.profdata` and keeps the launch profile's functions for the order file (109).
 ///
 /// At startup complete ``writeLaunchProfile(when:)`` writes the counters to the launch file and resets them.
-/// ``writeRestProfile()`` writes the rest file now. Each write names its file as the runtime's file, writes,
+/// ``writeRestProfile`` writes the rest file now. Each write names its file as the runtime's file, writes,
 /// then names the exit file (``Files/exit``), whatever the outcome: the runtime's own write at exit opens
 /// its file for writing, so it must never be a file this type wrote or reported. Both writes are file I/O
 /// on the `.files` lane at one priority, which runs one item at a time in post order: the rest write
@@ -30,7 +30,7 @@ import CmuxNextProfileRuntimeC
 /// ```swift
 /// let flush = ProfileFlush(launchedOn: work)           // profile build only: the compiler-rt runtime
 /// flush.writeLaunchProfile(when: order.startup)        // launch.profraw at startup complete
-/// let rest = try await flush.writeRestProfile()        // debug.pgo_flush, before quit
+/// let rest = try await flush.writeRestProfile        // debug.pgo_flush, before quit
 /// ```
 public final class ProfileFlush: Sendable {
     /// Which of the two profiles.

@@ -13,15 +13,15 @@ import Foundation
 /// `@concurrent` function and evaluates it on the main actor, one at a time, so events never
 /// reorder. A ``Gate`` holds the FIFO at a point: the page's reply to a message it posted must
 /// reach the page after the events sent before it and before the events sent after it, as when
-/// every script was evaluated synchronously. ``reset()`` drops what is queued (the router closed:
+/// every script was evaluated synchronously. ``reset`` drops what is queued (the router closed:
 /// those envelopes belong to cancelled subscriptions of an old document).
 ///
-/// On frames (``deliverOnFrames(_:)``, p06-scheduler-222) envelopes wait for the next frame, and
+/// On frames (``deliverOnFrames(_:)``) envelopes wait for the next frame, and
 /// each run of them between two gates reaches the page as one `receiveMany` script: 20 envelopes
 /// in a frame are 1 evaluate. Chrome's renderer main thread takes the browser's IPC the same way,
 /// with input and IPC aligned to the begin-frame (third_party/blink/renderer/platform/scheduler/
 /// main_thread/main_thread_scheduler_impl.cc). A gate does not wait for the frame: what is queued
-/// ahead of it goes at once, so a reply keeps its turn; ``flush()`` does the same for a built-in
+/// ahead of it goes at once, so a reply keeps its turn; ``flush`` does the same for a built-in
 /// command, a host call, a script the view runs itself (``PageWebView/callPageScript(_:arguments:)``,
 /// ``PageWebView/callPageFunction(_:arguments:)``) or a hidden page's release as it shows. The frame
 /// runs in the class of the highest cause that asked for it since it was asked

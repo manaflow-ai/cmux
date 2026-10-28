@@ -12,7 +12,7 @@ import Testing
 /// renderer thread has drawn it by then; the main thread never waits for it; and no commit shows an older
 /// frame after a newer one (Ghostty orders the pre-commit present and the renderer's own by one frame sequence).
 ///
-/// The resize is the app's: a container's `layout()` sets the terminal's frame in AppKit's display cycle, which
+/// The resize is the app's: a container's `layout` sets the terminal's frame in AppKit's display cycle, which
 /// runs inside Core Animation's commit (a divider drag, a window resize, a split). A run-loop observer added
 /// there runs after that commit; the presenter's pass must still run before it.
 ///

@@ -31,7 +31,7 @@ pub(super) fn handle_resource_line(
     span: &mut RequestSpan<'_>,
 ) -> bool {
     // The gate runs on the connection's control sequence, never on its
-    // reader (p05-ipc-086): an owner lookup here must not delay a read.
+    // reader: an owner lookup here must not delay a read.
     debug_assert_off_reader();
     let mut envelope = match envelope {
         Ok(envelope) => envelope,

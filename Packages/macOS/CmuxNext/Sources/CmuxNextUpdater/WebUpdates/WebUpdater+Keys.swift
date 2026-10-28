@@ -6,9 +6,9 @@ extension WebUpdater {
     public enum KeySource: Sendable {
         /// These keys (tests).
         case keys(WebUpdateKeys)
-        /// This build's `web-update-keys.json` (``WebUpdateKeys/loadBundled()``), read on the files lane of
+        /// This build's `web-update-keys.json` (``WebUpdateKeys/loadBundled``), read on the files lane of
         /// the app's one `BackgroundWork` the first time a pointer needs it, never in a static initializer
-        /// on whichever thread asks first (p02-threads-122).
+        /// on whichever thread asks first.
         case bundled(BackgroundWork)
     }
 

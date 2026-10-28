@@ -3,12 +3,12 @@ import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
-/// The launch window while its saved picture is its first frame (p08-startup-059, plans/cmux-next/chrome-parity/
+/// The launch window while its saved picture is its first frame (plans/cmux-next/chrome-parity/
 /// p08-startup.md section 3A, P2): the window at its saved frame, its live `WindowMaterialView` and one
 /// ``LaunchPictureView``. Nothing else of the window exists in that frame; once it is committed the window's
 /// controller is built in the same window behind the picture (afterFirstFrame posts, `LaunchWindowBuild`), and the
-/// picture leaves region by region at each region's first meaningful content (``LaunchPictureRegions``,
-/// p08-startup-060), all of it at most ``bound`` later.
+/// picture leaves region by region at each region's first meaningful content (``LaunchPictureRegions``),
+/// all of it at most ``bound`` later.
 ///
 /// Chrome shows the first restored tab's saved capture until its live page paints and lets the tab load as usual
 /// when the capture is not ready (chrome/android/java/src/org/chromium/chrome/browser/paint_preview/
@@ -18,17 +18,17 @@ public import CmuxNextWakeups
 /// 1. ``start(_:on:mainWork:then:)``: waits for the picture's read (a lane task; the reply is a posted main task)
 ///    at most ``wait`` (a `MainDeadline`). The main thread never waits.
 /// 2. The caller takes the picture and matches its meta; then ``show(_:in:scope:present:startup:build:)``, or
-///    ``skip()`` for today's path (no picture, none in time, another window's, a mismatch).
+///    ``skip`` for today's path (no picture, none in time, another window's, a mismatch).
 /// 3. ``adopt(root:reveal:)``: the controller was built in the window; the picture goes over its root and its
-///    regions are handed out. ``buildFinished()`` once the live views behind it are built.
+///    regions are handed out. ``buildFinished`` once the live views behind it are built.
 ///
 /// ```swift
 /// let phase = LaunchPicturePhase(deadlines: deadlines) { DebugTimings.markLaunch($0) }
-/// phase.start({ _ = await pictures.frontFinished() }, on: work, mainWork: mainWork) { _ in
-///     guard let front = pictures.takeFront(), matches(front) else { return phase.skip(); makeController() }
+/// phase.start({ _ = await pictures.frontFinished }, on: work, mainWork: mainWork) { _ in
+///     guard let front = pictures.takeFront, matches(front) else { return phase.skip; makeController }
 ///     phase.show(front.image, in: window, scope: scope, present: { window.orderFront(nil) }, startup: startup) {
 ///         let regions = phase.adopt(root: makeController(in: window).root, reveal: reveal)
-///         build(behind: regions) { phase.buildFinished() }
+///         build(behind: regions) { phase.buildFinished }
 ///     }
 /// }
 /// ```

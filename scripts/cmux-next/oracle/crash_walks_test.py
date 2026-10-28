@@ -422,7 +422,7 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(cw.render_expectations(text, cw.expectation_lines(records)), text)
 
     def test_the_crash_expectations_are_the_recorded_results_and_lint_clean(self) -> None:
-        import expectations  # noqa: PLC0415 - sibling (p15-oracle-007)
+        import expectations  # noqa: PLC0415 - sibling
 
         path = cw.expectations_path(cw.CRASH_DIR)
         records = cw.read_kill_points(cw.CRASH_DIR)

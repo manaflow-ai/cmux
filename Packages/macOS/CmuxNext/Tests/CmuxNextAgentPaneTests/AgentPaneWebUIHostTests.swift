@@ -6,7 +6,7 @@ import Testing
 @testable import CmuxNextAgentPane
 import CmuxNextWakeups
 
-/// p13-webui-009: an agent pane on the page host opens its page through the host it is given (the
+/// An agent pane on the page host opens its page through the host it is given (the
 /// app's `AppServices.webUI`), not the static `PageWebView.chromiumHosting`, so the host knows the
 /// page and its Chromium host makes it.
 @Suite(.serialized)
@@ -41,7 +41,7 @@ struct AgentPaneWebUIHostTests {
         #expect(webKitPage.engineDecision != .chromium)
     }
 
-    /// p13-webui-073: the pane has no WebKit host of its own to fall back to. A page the host
+    /// The pane has no WebKit host of its own to fall back to. A page the host
     /// refuses (a root that is not the agent page's registered one) makes no pane at all.
     @Test func aPageTheHostRefusesMakesNoPane() throws {
         let file = try #require(AgentPageTestRoot.page)

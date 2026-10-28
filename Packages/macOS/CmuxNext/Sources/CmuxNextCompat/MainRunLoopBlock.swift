@@ -2,8 +2,8 @@ public import Foundation
 
 /// Main-actor work queued on the main run loop, to run on a later pass of it.
 ///
-/// It replaces the hand-written `CFRunLoopPerformBlock(CFRunLoopGetMain(), mode)`, whose block
-/// asserts the main actor with `assumeIsolated`, plus `CFRunLoopWakeUp(CFRunLoopGetMain())`: the
+/// It replaces the hand-written `CFRunLoopPerformBlock(CFRunLoopGetMain, mode)`, whose block
+/// asserts the main actor with `assumeIsolated`, plus `CFRunLoopWakeUp(CFRunLoopGetMain)`: the
 /// main-thread proof lives here once, and callers write a plain `@MainActor` closure. It is the
 /// one raw main run-loop hop of the package; other hops (`MainRunLoopHop` in CmuxNextControl)
 /// call it.
@@ -16,18 +16,18 @@ public import Foundation
 ///
 /// ```swift
 /// MainRunLoopBlock.perform { [weak self] in
-///     self?.showExtensionsMenu()
+///     self?.showExtensionsMenu
 /// }
 /// ```
 ///
 /// A block can be kept and queued again, for example once per request:
 ///
 /// ```swift
-/// let refresh = MainRunLoopBlock { [weak self] in self?.refresh() }
-/// refresh.perform()
+/// let refresh = MainRunLoopBlock { [weak self] in self?.refresh }
+/// refresh.perform
 /// ```
 ///
-/// The block's work runs in a ``MainCallbackClass`` (p04-input-080): with one from the app's
+/// The block's work runs in a ``MainCallbackClass``: with one from the app's
 /// main-thread scheduler it runs as a task of its class, and work that is not input or frame waits
 /// behind a person's pending input. The default, ``MainCallbackClass/immediate``, runs it in the
 /// callout with no class; it stays only until the call sites name a class (tasks 081 and 082), and
@@ -111,7 +111,7 @@ public nonisolated struct MainRunLoopBlock: Sendable {
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `body`, timed by the launch's main-job census with this post site's stack when a launch armed it
-    /// (`CMUX_NEXT_MAIN_JOB_CENSUS`, p08-startup-080); unchanged otherwise, and once the census is frozen or full.
+    /// (`CMUX_NEXT_MAIN_JOB_CENSUS`); unchanged otherwise, and once the census is frozen or full.
     private static func censused(_ body: @escaping @MainActor () -> Void) -> @MainActor () -> Void {
         guard let ring = MainJobRing.installed(),
               let slot = ring.recordEnqueue(.runLoopBlock, priority: MainJobRing.currentPriority) else { return body }

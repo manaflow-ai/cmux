@@ -4,9 +4,9 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
-/// The request side of ``DaemonConnection``'s quiet handoff, with no actor (p05-ipc-091).
+/// The request side of ``DaemonConnection``'s quiet handoff, with no actor.
 ///
-/// A request takes no lock: ``enter(passes:)`` counts it in flight, then reads the hold flag; ``leave()``
+/// A request takes no lock: ``enter(passes:)`` counts it in flight, then reads the hold flag; ``leave``
 /// uncounts it, then reads whether a handoff waits for quiet. A handoff sets the hold flag, then reads the
 /// count. All four use sequentially consistent order, so a request that missed the flag was counted before
 /// the handoff read the count. The waiting lists (held requests, handoffs waiting for quiet or for their
@@ -53,7 +53,7 @@ final class QuietHandoffGate: Sendable {
     private let quietWanted = Atomic<Bool>(false)
     private let waits = Mutex(Waits())
     private let observe: @Sendable (Wait) -> Void
-    /// Told each time the count of requests in flight leaves or reaches 0 (p14-energy-064: the
+    /// Told each time the count of requests in flight leaves or reaches 0 (the
     /// heartbeat asks on its shown cadence while a request waits for its reply). It is told with the
     /// gate, not the edge: edges of two threads can arrive out of order, so it reads
     /// ``requestsInFlight`` under its own lock and the last reader sees the latest count.

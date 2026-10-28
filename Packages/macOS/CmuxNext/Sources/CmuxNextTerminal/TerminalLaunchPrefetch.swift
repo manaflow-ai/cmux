@@ -4,7 +4,7 @@ import Foundation
 import Metal
 
 /// The first terminal's costs that need no surface, paid on a launch thread while main reads the settings and
-/// builds the config (p08-startup-091, feature `terminalLaunchPrefetch`), as Chrome starts the GPU process and
+/// builds the config (feature `terminalLaunchPrefetch`), as Chrome starts the GPU process and
 /// warms its font cache before the first tab asks (content/browser/gpu/gpu_process_host.cc,
 /// skia/ext/font_utils.cc):
 ///

@@ -22,11 +22,11 @@ extension StripClipContainerView: PanMotionContainer {
     var clipsSubviews: Bool { true }
 }
 
-/// The motion container of one of the strip's nested scrollers (p04-input-050, behind
+/// The motion container of one of the strip's nested scrollers (behind
 /// `motion.renderServer`): a column whose rows overflow, or a horizontal scroll area. Its pane hosts and
 /// dividers sit in it, and its rows' or cells' rings and dims sit in ``chromePlane`` in the overlay
 /// plane; a pan event of the scroller sets the translation of the two layers' `sublayerTransform` and
-/// nothing else, as the strip container does for a strip pan (p03-rendering-026), and the fling after it
+/// nothing else, as the strip container does for a strip pan, and the fling after it
 /// is a render-server spring of that translation along the scroller's axis. A scroll area's
 /// container also clips its hosts to the area's window, one rect for every host of the area, so no
 /// host carries a mask for it. Chrome gives each nested scroller its own transform node under its own
@@ -38,7 +38,7 @@ extension StripClipContainerView: PanMotionContainer {
 /// is in the strip container: moving a host between the two keeps its frame. AppKit does not know the
 /// translation, so pointer input never reaches a view while it shows one: a press, a pointer move, a new
 /// gesture or a wheel notch first lays the scroller out where it shows
-/// (`ScreenContentView.landStripWhereItShows()`).
+/// (`ScreenContentView.landStripWhereItShows`).
 final class ScrollerPanContainerView: NSView, PanMotionContainer {
     /// The scroller a container moves.
     nonisolated enum Scroller: Hashable, Sendable {

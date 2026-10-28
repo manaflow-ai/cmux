@@ -5,9 +5,9 @@ import Foundation
 import Testing
 
 /// The GitHub poll is a repeating background activity (`NSBackgroundActivityScheduler` in the app,
-/// a fake here, p14-energy-066b): a refresh at start, one per run of the activity, a new activity on a
+/// a fake here): a refresh at start, one per run of the activity, a new activity on a
 /// new interval, and a stop that also stops the refresh that is running. Under Energy Saver the
-/// activity runs every four intervals, and while no feed surface shows it is invalidated (p14-energy-032).
+/// activity runs every four intervals, and while no feed surface shows it is invalidated.
 @MainActor
 @Suite(.serialized) struct GitHubFeedSourcePollTests {
     /// Answers notification `n` (ETag `n-<n>`) to the n-th call, records each call's ETag, and

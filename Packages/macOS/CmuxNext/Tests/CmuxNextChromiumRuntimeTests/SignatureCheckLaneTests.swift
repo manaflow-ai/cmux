@@ -5,7 +5,7 @@ import Testing
 
 /// p02-threads-053 (plans/cmux-next/chrome-parity/p02-threads.md, maybe-main-blocking): a pack item's code-signature
 /// check hashes every file of the item and waits on the Security daemons, so it runs on the app's system lane, never
-/// on the thread of the installer that awaits it (Chrome posts such work with `base::MayBlock()`), at the install
+/// on the thread of the installer that awaits it (Chrome posts such work with `base::MayBlock`), at the install
 /// job's priority. A check that never ran is ``ChromiumRuntimeInstallError/cancelled``, not a signature failure.
 @Suite(.timeLimit(.minutes(1))) struct SignatureCheckLaneTests {
     @Test func anUnsignedItemIsRefusedOnTheSystemLane() async throws {

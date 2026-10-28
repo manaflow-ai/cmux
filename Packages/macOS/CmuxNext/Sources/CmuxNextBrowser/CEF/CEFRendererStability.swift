@@ -9,7 +9,7 @@ extension CEFEngine {
 }
 
 extension RendererStability {
-    /// Follows a Chromium tab's "Page unresponsive" state across one change of its state machine (p09-observability-108,
+    /// Follows a Chromium tab's "Page unresponsive" state across one change of its state machine (
     /// the tab's `machine` setter): the state turning on opens the tab's span, turning off ends it with how it ended
     /// (``BrowserTabStateMachine/unresponsiveEnd(from:to:)``). The renderer's RENDER_UNRESPONSIVE / RESPONSIVE events,
     /// the person's Wait, a renderer end and a new navigation all reach the state through the reducer, so this one

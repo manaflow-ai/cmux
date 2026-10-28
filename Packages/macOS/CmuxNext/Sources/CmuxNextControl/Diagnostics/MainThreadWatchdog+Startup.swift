@@ -3,12 +3,12 @@ import CmuxNextCompat
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// The launch's part of the watchdog (p08-startup-088): `main()` makes it first and starts it before
+/// The launch's part of the watchdog: `main` makes it first and starts it before
 /// LaunchWarmup, so a launch stall is listed from the first statement on; each stall before startup
 /// completes names its launch phase and startup task (``startupTasks``, `startup_phase` and
 /// `startup_task` in `debug.hangs`).
 ///
-/// `main()` runs before the main run loop first runs, so the run-loop heartbeat cannot split it into
+/// `main` runs before the main run loop first runs, so the run-loop heartbeat cannot split it into
 /// turns. Each of its launch steps is its own turn instead, as Chrome watches each task in its own
 /// scope (`base/threading/hang_watcher.h`, `WatchHangsInScope`). AppKit sends
 /// `applicationDidFinishLaunching` from inside `-[NSApplication run]`, in a run-loop turn the heartbeat

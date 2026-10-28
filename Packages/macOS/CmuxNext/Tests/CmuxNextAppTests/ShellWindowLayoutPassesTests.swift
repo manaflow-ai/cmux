@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// p14-energy-054: views that follow an ancestor's move (remote page popups, the Home transcript's pixel
+/// Views that follow an ancestor's move (remote page popups, the Home transcript's pixel
 /// snap) read their place after the window's layout pass, not after each event. The shell window tells its
 /// `WindowLayoutPasses` once per outermost pass, and a window update (each key) tells it nothing.
 @MainActor @Suite(.serialized) struct ShellWindowLayoutPassesTests {

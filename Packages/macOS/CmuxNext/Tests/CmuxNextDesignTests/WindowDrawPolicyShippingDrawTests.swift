@@ -1,7 +1,7 @@
 @testable import CmuxNextDesign
 import Testing
 
-/// idle-budget's shipping measurement mode (p14-energy-100): an automation launch with
+/// idle-budget's shipping measurement mode: an automation launch with
 /// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` stops drawing occluded windows, as a user's launch does, and
 /// stays an automation launch for everything else (notifications, attention).
 @Suite struct WindowDrawPolicyShippingDrawTests {

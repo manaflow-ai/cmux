@@ -4,12 +4,12 @@ import CmuxNextDesignTokens
 import QuartzCore
 import Testing
 
-/// chrome-parity p03-rendering-104: the main-thread writes a gate's view motion makes per frame.
+/// The main-thread writes a gate's view motion makes per frame.
 ///
 /// A counting view (and its backing layer) records every frame and alpha write. Each case starts a
 /// change, waits for the first display frame after its turn (the turn's own writes and commit are
 /// not per frame), and counts what the view takes from there until it lands. The closure path
-/// (`animate(.hover, in:) { view.animator()... }`, a SwiftUI-animation `NSAnimationContext` on 15 and
+/// (`animate(.hover, in:) { view.animator... }`, a SwiftUI-animation `NSAnimationContext` on 15 and
 /// later, a timed group on 14) is the before: its counts are printed as `motion-gate-main-work` lines
 /// for the commit and the plan. The layer path (`animate(_:in:frame:alpha:completion:)`) must write 0.
 @MainActor @Suite(.serialized) struct MotionGateMainWorkTests {

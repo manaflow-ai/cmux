@@ -1,4 +1,4 @@
-// A page clock on a document and timers the test moves (ui/pageClock.ts, p14-energy-060), for a
+// A page clock on a document and timers the test moves (ui/pageClock.ts), for a
 // poll that must run no timer while its page is hidden.
 import { type LifecycleDocument, PageLifecycle } from "../../src/pages/shared/pageLifecycle";
 import { type ClockTimers, PageClock } from "../../src/ui/pageClock";

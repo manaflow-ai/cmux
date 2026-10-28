@@ -17,7 +17,7 @@ import WebKit
 ///
 /// Ready: the claimed document shows settings rows with enabled controls (a row enables its controls
 /// only after the owner's values arrive through the claim's routes) and no read-only banner. The page records the moment on
-/// its own clock (`Date.now()`, wall-clock milliseconds), so the coarse host poll
+/// its own clock (`Date.now`, wall-clock milliseconds), so the coarse host poll
 /// that reads it adds nothing to the number. With CMUX_PERF_RESULT_DIR every claim is result-v1 (lab story
 /// swift-page-claim-ready).
 @MainActor

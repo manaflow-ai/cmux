@@ -1,5 +1,5 @@
 //! Every thread this crate starts runs under the process's
-//! [`cmux_panic_log::Supervisor`] (p10-stability-112).
+//! [`cmux_panic_log::Supervisor`].
 //!
 //! The daemon's workers share the mux, the journal and the registry, so a
 //! worker that fails takes the process down with [`Fatal`]: the panic hook has

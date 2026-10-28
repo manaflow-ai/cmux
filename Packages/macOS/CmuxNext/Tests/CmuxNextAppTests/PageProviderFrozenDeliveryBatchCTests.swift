@@ -10,7 +10,7 @@ import CmuxNextWakeups
 private typealias PageJSON = CmuxNextSettings.JSONValue
 
 /// The `.ordered` streams of p13-webui-026, each through a real ``PageRouter`` hold: the page is
-/// hidden (``PageRouter/holdDelivery()``), the real provider sends, and on release the page gets
+/// hidden (``PageRouter/holdDelivery``), the real provider sends, and on release the page gets
 /// every event in order with no `gap` and no ``PageProvider/eventDeliveryDropped(stream:data:publicationID:)``.
 /// Each test is one reason a stream may not keep only its newest event: the icon picker's first
 /// event carries the symbol catalog, Cloud's machine deltas, the file page's look deltas, and

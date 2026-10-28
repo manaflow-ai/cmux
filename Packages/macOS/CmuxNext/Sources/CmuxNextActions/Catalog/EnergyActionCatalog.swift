@@ -10,7 +10,7 @@ nonisolated enum EnergyActionCatalog: ActionCatalogGroup {
     }
 }
 
-/// One of Energy Saver's session actions. The `cmux energy` CLI group (p14-energy-033) and MCP offer
+/// One of Energy Saver's session actions. The `cmux energy` CLI group and MCP offer
 /// both, with the palette: the design's CLI/MCP parity (p14-energy.md, D).
 public nonisolated enum EnergySaverAction: CaseIterable, Sendable, Hashable {
     /// `energy.saver.turnOffForNow`: holds the saver off until the battery -> AC edge or a change of

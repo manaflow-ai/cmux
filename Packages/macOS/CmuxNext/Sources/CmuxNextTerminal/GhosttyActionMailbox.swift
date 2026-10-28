@@ -49,20 +49,20 @@ extension GhosttyAction {
 }
 
 /// One surface's Ghostty state actions (title, working directory, progress, scrollbar, search counts),
-/// applied once per frame of its window, latest wins per ``GhosttyActionSlot``
-/// (p04-input-079). A streaming program sends a scrollbar and often a title on every app tick; the
+/// applied once per frame of its window, latest wins per ``GhosttyActionSlot``.
+/// A streaming program sends a scrollbar and often a title on every app tick; the
 /// surface's model now changes once per frame however many came.
 ///
 /// Chrome does the same twice: `Browser::ScheduleUIUpdate` (chrome/browser/ui/browser.cc) keeps one
 /// pending set of changes per tab and applies it once, and Blink's `MainThreadEventQueue`
 /// (third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc) coalesces continuous
 /// input to the next frame while a discrete event first flushes what is queued. A discrete action here
-/// calls ``flush()`` and runs in its own turn, so it sees, and keeps its order after, every state
+/// calls ``flush`` and runs in its own turn, so it sees, and keeps its order after, every state
 /// action Ghostty sent before it.
 ///
 /// Its ``FrameClient`` is a batch client (it keeps ticking at the stall rate for an occluded window),
 /// made with the first action and active only while one waits: an idle surface has no frame client.
-/// The client follows the surface's tab node (p06-scheduler-218): while nobody sees the terminal, what
+/// The client follows the surface's tab node: while nobody sees the terminal, what
 /// waits stays held, latest wins per slot, and applies once in the first frame after it shows. A title
 /// (``GhosttyActionSlot/waitsWhileHidden``) still applies at the next frame, after what waits before it
 /// (a hidden
@@ -76,7 +76,7 @@ extension GhosttyAction {
 ///     _ = view.applyAction(action)
 /// }
 /// mailbox.post(.scrollbar(bar), in: .scrollbar)   // waits for the frame
-/// mailbox.flush()                                  // before a discrete action
+/// mailbox.flush                                  // before a discrete action
 /// ```
 @MainActor
 final class GhosttyActionMailbox {

@@ -25,7 +25,7 @@ import Testing
 /// - a payload held until the end of the case still has its bytes after later reads reuse the pooled
 ///   read buffers (the no-copy slices of OUTPUT, SNAPSHOT and REPLAY at or above 4 KiB).
 ///
-/// The run is a CmuxFuzzSupport `FuzzRun` (p10-stability-016): `CMUX_FUZZ_SEED` and
+/// The run is a CmuxFuzzSupport `FuzzRun`: `CMUX_FUZZ_SEED` and
 /// `CMUX_FUZZ_ITERATIONS` change it, `CMUX_FUZZ_SECONDS` or `CMUX_FUZZ_DEADLINE` make it a long run,
 /// a failed case prints the variables that replay it, and with `CMUX_FUZZ_ARTIFACTS` set a trap
 /// leaves the case it was in behind (`FrameFuzz.reader.inflight`).

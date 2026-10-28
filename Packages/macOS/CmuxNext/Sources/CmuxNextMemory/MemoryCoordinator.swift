@@ -8,7 +8,7 @@ public import CmuxNextWakeups
 ///
 /// A port of Chrome's `base/memory_coordinator/` (the registry and `memory_consumer.h`'s two calls)
 /// with the limits of `memory_saver_memory_coordinator_policy.cc`, as ``MemoryLimitPolicy`` states.
-/// cmux differs from Chrome in how it releases: Chrome calls `OnReleaseMemory()` on every consumer
+/// cmux differs from Chrome in how it releases: Chrome calls `OnReleaseMemory` on every consumer
 /// in the pressure event's turn; cmux keeps the main thread inside its frame budget, so:
 ///
 /// - A level change sets the new limits at once (``MemoryConsumer/updateMemoryLimit(_:)``, which
@@ -30,7 +30,7 @@ public import CmuxNextWakeups
 ///   utility-QoS queue. Each escalation to critical asks the sink for one heap relief when that
 ///   level's release pass has finished; warning, a repeated level, or a level that leaves critical
 ///   before the pass ends asks for none.
-/// - Hysteresis (p07-memory-070): after the level falls, lossless consumers keep the limits of the
+/// - Hysteresis: after the level falls, lossless consumers keep the limits of the
 ///   stricter ``limitLevel`` until the level has not changed for ``limitRiseDelay`` (30 s, one
 ///   ``MainDeadline`` one-shot that each change resets); a rise back cancels the wait. Only limits a
 ///   release already ran at are held, so a level that comes back before its release still releases
@@ -49,7 +49,7 @@ public import CmuxNextWakeups
 /// - While no cmux window is visible (``isAppHidden``) there is no frame to protect, and the hidden
 ///   app's frames come only on the frame scheduler's stall deadline (2 ms per 100 ms). Slices then
 ///   take 8 ms each, back to back on main-queue turns from the injected ``MemoryReleaseTurns``.
-///   Input (``inputDidArrive()``) or a window that shows puts the next slice back on a frame, at 2 ms;
+///   Input (``inputDidArrive``) or a window that shows puts the next slice back on a frame, at 2 ms;
 ///   once a frame slice passes with no input since the one before, a hidden app goes back to turns.
 ///   ``followApp(windows:input:)`` feeds both from the app's windows and input tap.
 ///
@@ -57,13 +57,13 @@ public import CmuxNextWakeups
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
 /// schedule: the pressure events, the app's visibility and input calls, the slicer's frames and
 /// turns, and the hysteresis and working-set one-shots are its only inputs. The level is also its
-/// vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), next to
+/// vote in in-process Chromium's pressure aggregator (``pressureVote``), next to
 /// Chromium's own platform voter.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(
 ///     pressure: memoryPressure, mode: .medium, slicer: frameSlicer, turns: mainTurns,
-///     releaseSink: MemoryReleaseSink())
+///     releaseSink: MemoryReleaseSink)
 /// coordinator.followApp(windows: appVisibility.shownWindows, input: inputTap)
 /// let cache = PreviewImageCache(sink: coordinator.releaseSink)
 /// registration = MemoryConsumerRegistration(

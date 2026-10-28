@@ -1,4 +1,4 @@
-// Input on Chromium's UI thread the way Chrome runs it (task p04-input-065,
+// Input on Chromium's UI thread the way Chrome runs it (
 // plans/cmux-next/chrome-parity/p04-input.md (H)): on the user-input queue,
 // with the OS event's time. Needs no CEF: tests/host_user_input_test.cpp
 // (scripts/cmux-next/tests/chromium-host-wire.test.sh) compiles it alone.
@@ -11,7 +11,7 @@
 // CefPostTask(TID_UI), the default queue. InputTasks chooses the queue once,
 // at start, and is the host's one input path: HostInput's Post
 // (chromium_host_input_ring.h, started by task p01-process-042) is
-// `[&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); }`.
+// `[&input_tasks](std::function<void> task) { input_tasks.Post(std::move(task)); }`.
 // Both queues refuse a task only once Chromium's UI thread is shut down. A
 // refused task is dropped, not posted again to the other queue: its batch
 // never runs, so HostInput's BatchGate stays shut, the reader takes no more

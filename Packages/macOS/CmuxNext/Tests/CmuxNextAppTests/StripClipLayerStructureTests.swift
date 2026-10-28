@@ -4,7 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextLayout
 import Testing
 
-/// The strip's clip as layer structure (p03-rendering-023, plans/cmux-next/chrome-parity/p03-rendering.md):
+/// The strip's clip as layer structure (plans/cmux-next/chrome-parity/p03-rendering.md):
 /// the strip's panes sit in a container whose layer masks to its bounds, the docks stack above it, no
 /// pane computes or carries a clip of its own on a spring frame, and a zoom moves no host. A page drawing
 /// in its own window still leaves out the panes in front of it, read at its clip read

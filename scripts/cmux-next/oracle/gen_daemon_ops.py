@@ -94,7 +94,7 @@ GENERATOR = "scripts/cmux-next/oracle/gen_daemon_ops.py"
 SCHEMA_REF = "../../../../schemas/oracle/case-v1.schema.json"
 COVERAGE = "coverage.json"
 TUNING = "_tuning.json"
-# p15-oracle-068: the generated repositories a case names in fixture.repo, and their builder.
+# The generated repositories a case names in fixture.repo, and their builder.
 REPO_FIXTURES = REPO / "tests" / "oracle" / "fixtures" / "git"
 
 # Task 061-070 families: the first segment of an operation name picks its family directory. A new first
@@ -157,7 +157,7 @@ REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 REPO_CAPABILITY = "git_repo"
 # The call step's snapshots unless a tuning says otherwise (a call that stops the daemon has no settled one).
 CALL_CHECKPOINTS = ("before", "settled")
-# p15-oracle-206: the success case's same-key retry of its call, checked by invariants.py I10.
+# The success case's same-key retry of its call, checked by invariants.py I10.
 CALL_STEP = "call"
 RETRY_STEP = "retry"
 # Operations whose success ends the daemon process, so no daemon is left to answer a same-key retry.
@@ -1076,7 +1076,7 @@ TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "after",
 TUNING_AGENTS = frozenset({"mock", "none"})
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
 KIND_ONLY_KEYS = {"error": "error", "details": "error", "gap": "success"}
-# A gap names the task that closes it (WORK.tsv ids, p15-oracle-204).
+# A gap names the task that closes it (WORK.tsv ids).
 TASK_ID = re.compile(r"\bp\d{2}-[a-z]+-\d{3}[a-z]?\b")
 WAIT_PREDICATES = frozenset({"exists", "absent", "empty", "nonEmpty", "changed"})
 WAIT_OPS = frozenset({"gt", "gte", "lt", "lte", "contains", "lengthEquals"})
@@ -2732,7 +2732,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             calls = {}
             for kind in ("success", "error"):
                 case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
-                # workspace.run (p15-oracle-209) waits on the new tab after the call, so the call is not the last step.
+                # workspace.run waits on the new tab after the call, so the call is not the last step.
                 calls[kind] = next(step for step in case["steps"] if step["id"] == CALL_STEP)
                 self.assertEqual(calls[kind]["args"]["method"], operation)
                 self.assertEqual(case["requires"], ["resource_api"], f"{operation} {kind}")

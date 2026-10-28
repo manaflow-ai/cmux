@@ -28,9 +28,9 @@ import os
 /// files lane runs one item per priority in post order (`LaneScheduler`'s
 /// `perPriority` policy), so the rollback check and the write of one store
 /// never interleave with another store, a promotion or a load. The fetch
-/// (task p12-perf-process-093) hands verified bytes to ``store(_:)``; they
+/// hands verified bytes to ``store(_:)``; they
 /// apply at the next launch, where the composition root reads both copies
-/// with ``load()`` and safe mode (task 094) picks one.
+/// with ``load`` and safe mode (task 094) picks one.
 public nonisolated final class FeatureRemoteStore: Sendable {
     /// One document as fetched: its bytes and their base64 signature. On disk,
     /// a JSON object with `data` (base64) and `signature`.

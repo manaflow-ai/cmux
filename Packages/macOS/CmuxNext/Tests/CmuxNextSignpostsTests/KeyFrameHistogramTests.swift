@@ -5,7 +5,7 @@ import CmuxNextTrace
 import Foundation
 import Testing
 
-/// `key.frame.<target>` (p09-observability-054): each committed key records one sample, from its key-down (the
+/// `key.frame.<target>`: each committed key records one sample, from its key-down (the
 /// event's timestamp) to the end of its commit, for its target; a missed key, a key while the keystroke-timing gate
 /// is closed and a runtime with no store record nothing. The signposter's clock is a counter the test moves.
 @MainActor

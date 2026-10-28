@@ -626,6 +626,6 @@ mod api_compat {
         }
     }
 
-    /// Wire id rules (p05-ipc-012).
+    /// Wire id rules.
     mod wire;
 }

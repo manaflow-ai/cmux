@@ -1,4 +1,4 @@
-//! The framed IPC grant rules (p05-ipc-060; spec/transports.md "Framed IPC
+//! The framed IPC grant rules (spec/transports.md "Framed IPC
 //! grants"): what `identify` advertises and what `set-client-info` grants to a
 //! local, bridged, unverified, WebSocket, remote-entry and page-relay
 //! connection, and to a client one API revision behind. Every request takes
@@ -125,7 +125,7 @@ fn mux(name: &str) -> Arc<Mux> {
 fn ipc_grant_unbound_transports_are_never_advertised_or_granted() {
     let mux = Mux::new_for_test("ipc-grant-unbound", crate::SurfaceOptions::default());
     let local = Connection::local(&mux);
-    // The stream table is bound (p05-ipc-074); no frame reader or ring yet.
+    // The stream table is bound; no frame reader or ring yet.
     assert_eq!(local.advertised(), ["attach-streams-v1"]);
     assert_eq!(local.ask(13)["ok"], true);
     assert_eq!(local.granted(), ["attach-streams-v1"]);

@@ -3,8 +3,8 @@
 /// displays all count as not shown, as in ``VisibilityNode/isVisible``).
 ///
 /// Background polls that only feed what a window shows (the GitHub feed, the web-updates check)
-/// book nothing while nothing shows and run what came due once a window shows again
-/// (p14-energy-032), the way Chromium stops a page's work while its WebContents is hidden or
+/// book nothing while nothing shows and run what came due once a window shows again,
+/// the way Chromium stops a page's work while its WebContents is hidden or
 /// occluded (`content/public/browser/visibility.h`, `WebContentsImpl::UpdateWebContentsVisibility`).
 ///
 /// The app's visibility root owns one and tracks each window's node when the window is made. A
@@ -14,9 +14,9 @@
 /// window shows no feed.
 ///
 /// ```swift
-/// let shown = ShownWindows()
+/// let shown = ShownWindows
 /// shown.track(window.visibility)
-/// let token = shown.observe { anyShown in anyShown ? poll.resume() : poll.pause() }
+/// let token = shown.observe { anyShown in anyShown ? poll.resume : poll.pause }
 /// ```
 @MainActor public final class ShownWindows {
     /// Whether one tracked window is visible now. O(1): the visible set is kept, never walked.

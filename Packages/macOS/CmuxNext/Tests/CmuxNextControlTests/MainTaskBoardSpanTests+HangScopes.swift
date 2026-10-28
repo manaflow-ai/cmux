@@ -7,7 +7,7 @@ import Darwin
 import Foundation
 import Testing
 
-// Hang scopes per class (p06-scheduler-203): Chrome's per-scope hang deadlines
+// Hang scopes per class: Chrome's per-scope hang deadlines
 // (base/threading/hang_watcher.h, `WatchHangsInScope`) on every scheduled main-thread task. A task
 // past its class's deadline is recorded once with its owner, class, location and stack, without
 // crashing; a nested run loop (menu tracking, a modal panel, a drag) invalidates the scopes, as

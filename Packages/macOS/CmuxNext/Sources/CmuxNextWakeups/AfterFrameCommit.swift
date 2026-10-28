@@ -42,15 +42,15 @@ public struct AfterFrameCommit: Sendable {
 }
 
 /// A main run-loop turn of its own right after the current pass's commit, asked for once per frame:
-/// the budgeted batch's turn under the after-commit placement (p06-scheduler-201, ``BudgetedBatchPlacement``).
-/// ``request()`` adds a one-shot observer after every other observer of this pass's before-waiting
+/// the budgeted batch's turn under the after-commit placement (``BudgetedBatchPlacement``).
+/// ``request`` adds a one-shot observer after every other observer of this pass's before-waiting
 /// phase (Core Animation's commit included); it queues the body on the main run loop and wakes it, so
 /// the body runs in the next pass, which the turn meter counts as a turn of its own. Requests made
 /// before the body runs are one. It never polls and never sleeps.
 ///
 /// ```swift
-/// let turn = AfterFrameCommitTurn { [weak self] in self?.runBudgetTurn() }
-/// turn.request()   // in the tick: the batch runs after the tick's commit
+/// let turn = AfterFrameCommitTurn { [weak self] in self?.runBudgetTurn }
+/// turn.request   // in the tick: the batch runs after the tick's commit
 /// ```
 @MainActor
 public final class AfterFrameCommitTurn {

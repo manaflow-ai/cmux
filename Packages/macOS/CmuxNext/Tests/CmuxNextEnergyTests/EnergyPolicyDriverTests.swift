@@ -3,8 +3,8 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The setting and the power inputs reach the app's one ``EnergyPolicySource`` through the driver
-/// (p14-energy-024): nothing before both are known, then each change of either re-resolves.
+/// The setting and the power inputs reach the app's one ``EnergyPolicySource`` through the driver:
+/// nothing before both are known, then each change of either re-resolves.
 @MainActor
 struct EnergyPolicyDriverTests {
     static let lowBattery = EnergyInputs(onBattery: true, hasBattery: true, batteryPercent: 10)
@@ -19,7 +19,7 @@ struct EnergyPolicyDriverTests {
         #expect(source.policy == EnergyPolicy(onBattery: true))
     }
 
-    /// `energySaver` is a `both` feature (p12-perf-process-150): with a local daemon its session value waits for
+    /// `energySaver` is a `both` feature: with a local daemon its session value waits for
     /// the daemon's answer, so nothing publishes with the app's launch value first, and the value never flips.
     @Test func anUnknownFeaturePublishesNothingUntilTheSessionValueAndNeverFlips() {
         let source = EnergyPolicySource()
@@ -138,7 +138,7 @@ struct EnergyPolicyDriverTests {
         observation.cancel()
     }
 
-    /// "Turn Off for Now" and "Turn On Again" (p14-energy-025) publish at once, and a later input with
+    /// "Turn Off for Now" and "Turn On Again" publish at once, and a later input with
     /// no battery -> AC edge keeps the hold.
     @Test func turnOffForNowPublishesAtOnceAndTurnOnNowEndsIt() {
         let source = EnergyPolicySource()

@@ -6,8 +6,8 @@ import Testing
 /// pacer and acpmux connection, on one stand-in acpmux that sends every open connection an idle watch
 /// frame ``framesPerChatPerSecond`` times a second (10 chats: 25 frames/s, the rate the plan names for
 /// today's hidden chats). It counts the frames the host receives, the open connections and the page calls
-/// while the chats are hidden, then frozen (``AgentPaneFramePacer/pageDidFreeze()`` and
-/// ``AgentPaneTransport/closeWhileFrozen()``, what AgentPageHibernation does at the freeze), and the
+/// while the chats are hidden, then frozen (``AgentPaneFramePacer/pageDidFreeze`` and
+/// ``AgentPaneTransport/closeWhileFrozen``, what AgentPageHibernation does at the freeze), and the
 /// reconnects per thaw. Fails when frozen chats keep a connection or receive 1 frame/s or more, or a thaw
 /// takes other than one reconnect. Run: `scripts/measure/acpmux-overhead.sh bench=hidden [n=10]`
 /// (CMUX_ACPMUX_HIDDEN_BENCH=1, CMUX_ACPMUX_HIDDEN_CHATS=N). Output: ACPMUX-HIDDEN lines.

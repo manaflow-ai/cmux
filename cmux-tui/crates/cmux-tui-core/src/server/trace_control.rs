@@ -1,4 +1,4 @@
-//! `trace-start`, `trace-stop` and `trace-status` (p09-observability-015):
+//! `trace-start`, `trace-stop` and `trace-status`:
 //! the daemon starts, stops or reports its own trace recording and forwards
 //! the call to the holder (only on a TRACE_CONTROL link), to every live
 //! terminal host whose record advertises trace control, and to acpmux when it

@@ -11,7 +11,7 @@ import Testing
     static let ids = ["a", "b", "c", "d"]
     static let kinds: [TerminalDeviceKind] = [.mac, .iphone]
 
-    /// One operation sequence, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One operation sequence, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try operationSequence(&rng)

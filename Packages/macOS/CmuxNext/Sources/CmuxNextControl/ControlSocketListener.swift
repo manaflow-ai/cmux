@@ -3,12 +3,12 @@ public import CmuxNextWakeups
 import Darwin
 
 /// A control socket bound and listening at ``path`` that no server accepts on yet
-/// (``ControlSocketServer/bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``,
-/// p08-startup-019), with the path's owner lock and the compatibility link the bind made.
+/// (``ControlSocketServer/bindListener(path:protectStateDirectory:compatibilityLink:accessMode:)``),
+/// with the path's owner lock and the compatibility link the bind made.
 ///
 /// One owner of the descriptor and the lock at a time: a server takes both once
 /// (``ControlSocketServer/start(adopting:)``); a listener nobody took is closed, its socket file and
-/// link removed (only while they are still this one's) and its lock released by ``discard()`` or
+/// link removed (only while they are still this one's) and its lock released by ``discard`` or
 /// when it is released.
 public final class ControlSocketListener: Sendable {
     /// Where the socket file is.
@@ -61,7 +61,7 @@ public final class ControlSocketListener: Sendable {
 }
 
 /// The control socket's bind, begun on a ``BackgroundWork`` lane right after the launch's settings
-/// read and handed to the main thread when it is done (p08-startup-019, feature
+/// read and handed to the main thread when it is done (feature
 /// `controlSocketEarlyBind`). The control service adopts its listener after its methods are
 /// registered, so the main thread never runs the owner check, the bind or the link.
 ///

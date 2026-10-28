@@ -1,4 +1,4 @@
-//! Pending streams (p05-ipc-087; plans/cmux-next/chrome-parity/p05-ipc.md,
+//! Pending streams (plans/cmux-next/chrome-parity/p05-ipc.md,
 //! sections 1.2 and 3.2): a client may send a stream's INPUT and requests
 //! right behind the request that opens it, without waiting for its reply.
 //!
@@ -30,7 +30,7 @@
 //! router queues the messages of an endpoint that has no client bound yet,
 //! then dispatches them in order when one attaches
 //! (mojo/public/cpp/bindings/lib/multiplex_router.cc, `ProcessIncomingMessage`
-//! returns false while `!endpoint->client()`, `AttachEndpointClient` then
+//! returns false while `!endpoint->client`, `AttachEndpointClient` then
 //! `ProcessTasks`). A message for an interface id the router never saw is a
 //! validation error that closes the pipe.
 
@@ -466,7 +466,7 @@ impl StreamEndpoint {
         }
     }
 
-    /// Writes an INPUT frame's bytes as `send` writes them (p05-ipc-078),
+    /// Writes an INPUT frame's bytes as `send` writes them,
     /// under the connection's cause, caller class and request path, as a
     /// request runs. A failure is the stream's `input-failed`, once per end
     /// of its terminal.

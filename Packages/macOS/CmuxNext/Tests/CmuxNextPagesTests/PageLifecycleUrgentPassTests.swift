@@ -2,9 +2,9 @@ import CmuxNextHibernation
 @testable import CmuxNextPages
 import Testing
 
-/// ``PageLifecycle``'s side of the app's one urgent pass over tabs, chats and pages (p13-webui-092): it
+/// ``PageLifecycle``'s side of the app's one urgent pass over tabs, chats and pages: it
 /// offers the hidden pages nothing keeps and whose discard frees an engine page
-/// (``PageLifecycle/urgentCandidates()``), discards the one the ranker chose at once, with no page call
+/// (``PageLifecycle/urgentCandidates``), discards the one the ranker chose at once, with no page call
 /// and no lifecycle pass (``PageLifecycle/urgentDiscard(_:)``), and with `memoryUrgentDiscardRanking`
 /// (``PageLifecycle/leavesCriticalEventToUrgentPass``) leaves the critical event's discard to that pass:
 /// its own passes discard nothing until one urgent pace interval after it.

@@ -7,7 +7,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Testing
 
-/// p06-scheduler-221: the overlay layer and its host observed `NSWindow.didUpdateNotification`, so every
+/// The overlay layer and its host observed `NSWindow.didUpdateNotification`, so every
 /// event of the window (each key typed) re-ran the layer's after-pass work, its placement check and the
 /// host's child order check, with no overlay change. They now act on the specific notices (the window's
 /// own through its `WindowEvents`, a page window's appear, hide, move or key), and a layout depth counts

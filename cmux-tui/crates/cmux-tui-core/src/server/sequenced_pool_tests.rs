@@ -1,7 +1,7 @@
-//! The sequenced pool (p05-ipc-073): per-sequence FIFO with no overlap,
+//! The sequenced pool: per-sequence FIFO with no overlap,
 //! independent sequences, blocking compensation from the blocking sites,
 //! fences, caps, worker start failures, no idle wakeups and a thread count
-//! independent of the number of sequences; delayed tasks (p05-ipc-079).
+//! independent of the number of sequences; delayed tasks.
 
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

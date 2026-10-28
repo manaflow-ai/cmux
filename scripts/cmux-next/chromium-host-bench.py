@@ -1168,7 +1168,7 @@ def run_inproc(rpc, url):
     return tab
 
 
-FIRST_WHEEL_LIMIT_US = 500  # p01-process-042: the first wheel tick of a gesture leaves cmux in < 0.5 ms
+FIRST_WHEEL_LIMIT_US = 500  # The first wheel tick of a gesture leaves cmux in < 0.5 ms
 
 
 def route_report(rpc):
@@ -1663,7 +1663,7 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
-    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # The overlay host re-adds its panel above no page across those event cycles in host mode:
     # debug.overlay reorders_per_event stays 0.
     rpc("debug.overlay", {"reset": True})
     fronts = []
@@ -1678,7 +1678,7 @@ def run_helper(rpc, url, inproc_tab):
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
-    # The host's page windows are detached and its own windows never ordered in (task p01-process-053): with the
+    # The host's page windows are detached and its own windows never ordered in: with the
     # page shown and after the clicks, the window server lists no window of the host on screen.
     host_windows = on_screen_windows(host_pid) if host_pid else None
     identity["host_windows_on_screen"] = {"count": None if host_windows is None else len(host_windows),

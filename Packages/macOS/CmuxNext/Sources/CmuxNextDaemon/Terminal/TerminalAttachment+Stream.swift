@@ -4,7 +4,7 @@ import CmuxNextWakeups
 public import Foundation
 import os
 
-/// A terminal view as a client-minted stream on the app's control connection (attach-streams-v1, p05-ipc-095;
+/// A terminal view as a client-minted stream on the app's control connection (attach-streams-v1;
 /// cmux-tui/spec/events.md "Attach streams"). Chrome runs every interface of a renderer over one message pipe
 /// as associated endpoints: the side that associates one picks its id, the endpoint is bound before its first
 /// message can arrive, and closing it sends the peer a notification after its last message
@@ -173,7 +173,7 @@ extension TerminalAttachment {
             self.decoder = decoder
         }
 
-        /// How the reader hands this view's lines to its connection's decode lane (p05-ipc-144): a snapshot, a
+        /// How the reader hands this view's lines to its connection's decode lane: a snapshot, a
         /// replay or a large line always decodes on the lane, small output inline while the lane is idle; after
         /// each line the reader waits for the view (its queue's bound, its output lane, a held marker), so a lane
         /// item never waits on it.

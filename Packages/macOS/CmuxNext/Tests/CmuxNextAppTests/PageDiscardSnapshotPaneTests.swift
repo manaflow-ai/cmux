@@ -4,7 +4,7 @@ import AppKit
 import Foundation
 import Testing
 
-/// A page discarded in place (p13-webui-030) shows its hide-time snapshot in the key's turn: the pane
+/// A page discarded in place shows its hide-time snapshot in the key's turn: the pane
 /// that switches to it holds no paint (the snapshot is its first frame), so the page is visible at
 /// once and the tab it leaves goes in the same swap. Runs a real pane in a window.
 @MainActor @Suite(.serialized) struct PageDiscardSnapshotPaneTests {

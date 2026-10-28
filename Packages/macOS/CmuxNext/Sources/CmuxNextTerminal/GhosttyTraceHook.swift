@@ -4,7 +4,7 @@ import CmuxNextTrace
 public import CmuxNextWakeups
 import GhosttyNextKit
 
-/// cmux's end of ghostty-next's trace hook (p09-observability-048, -049): the renderer's own frames in the
+/// cmux's end of ghostty-next's trace hook (-049): the renderer's own frames in the
 /// app's trace ring and the frame marks of its key echoes, in Release builds too.
 ///
 /// Ghostty keeps one process-wide pointer to an embedder-owned record `{callback, ctx}`
@@ -18,15 +18,15 @@ import GhosttyNextKit
 ///   ``TypingLatencyProbe/SurfaceKey/traceID``, begin arg1 the flow of the press whose echo it draws (0: none),
 ///   so a STRESS trace shows it between `app.output.parsed` and `frame.commit`;
 /// - `frame.gpu_done` (instant) from the frame's Metal completion handler, arg0 the surface, arg1 its seq;
-/// - the first `CONTENTS_SET` of each frame: the surface's ``TerminalEchoStage/contentsSet()`` while the
+/// - the first `CONTENTS_SET` of each frame: the surface's ``TerminalEchoStage/contentsSet`` while the
 ///   contents gate is open, and the probe's ``TypingLatencyProbe/Mark/contents`` for the surface's parsed
-///   presses (key.echo_frame's sample end, p09-observability-054). Once the app gave the hook its presents
+///   presses (key.echo_frame's sample end). Once the app gave the hook its presents
 ///   (``connect(on:presents:)``), a frame handed over before its GPU work ended marks its commit
 ///   `awaitsGPU`, and its completion posts those flows to ``FramePresentEstimate/gpuDidFinish(flow:atNanos:)``.
 ///
-/// The record is installed only while something reads it (``refreshDemand()``): an echo stage sink, the
+/// The record is installed only while something reads it (``refreshDemand``): an echo stage sink, the
 /// typing probe's recording or its `key.echo_frame` sampling (``TypingLatencyProbe/samplesEchoFrames``, which
-/// the first ``refreshDemand()`` turns on, so the record stays installed and a handoff between samples pays one
+/// the first ``refreshDemand`` turns on, so the record stays installed and a handoff between samples pays one
 /// load), or the `ghostty` or `frame` trace category, followed from their observers (``followDemand(post:)``);
 /// otherwise Ghostty's pointer is null and each event site pays one load. Whether the linked libghostty has the
 /// hook is fixed when the app is built: the `GHOSTTY_TRACE_HOOK` condition (`ghosttyNextKitCapabilities` in

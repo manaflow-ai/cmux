@@ -5,11 +5,11 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// The layout's remaining per-event pointer sites at most twice per frame (p04-input-088): a canvas pane
+/// The layout's remaining per-event pointer sites at most twice per frame: a canvas pane
 /// drag (`setCanvasFrame`), a canvas pan, the strip scrollbar's thumb drag (`onDrag`, feature
 /// `pointerFrameDrags`) and the focus-follows-mouse hover (feature `pointerFrameHover`) take a frame
 /// interval's first event in its own turn and the rest once at the frame, to the latest point, on the
-/// window's FrameInputCoalescer (p04-input-030; Chromium's rAF-aligned input,
+/// window's FrameInputCoalescer (Chromium's rAF-aligned input,
 /// `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). The state after the
 /// release equals what one move per event left, the release lands the pending move first, and a thumb
 /// drag's release velocity reads every point at its event's time.

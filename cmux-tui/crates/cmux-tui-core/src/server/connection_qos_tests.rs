@@ -287,7 +287,7 @@ fn a_signed_app_hello_reclasses_its_processs_connections() {
 /// the automation cause for the connection's lines, and that cause runs its
 /// requests at Utility (crate::request_qos). The control task that posted
 /// the item ran on a shared pool worker inside a scope of the connection's
-/// class, which leaves the worker's row at its declared class (p05-ipc-073).
+/// class, which leaves the worker's row at its declared class.
 #[test]
 fn an_automation_connections_clear_history_runs_at_its_cause_on_the_work_pool() {
     let mux = crate::Mux::new_for_test("connection-qos-dispatch", crate::SurfaceOptions::default());

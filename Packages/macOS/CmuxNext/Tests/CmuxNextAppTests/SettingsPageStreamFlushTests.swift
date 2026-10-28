@@ -9,7 +9,7 @@ import Testing
 @testable import CmuxNextApp
 
 /// A Settings page state stream follows its state through a ServiceObservation on the app's scheduler
-/// (p06-scheduler-309, recipe R-obs), not a loop with no class: the value at the subscription is the
+/// (recipe R-obs), not a loop with no class: the value at the subscription is the
 /// page's own read, a burst of changes is one event at the next frame with the newest value, and a
 /// value equal to the first one is still an event after a change. The page's router holds the events
 /// while the page is hidden, so the follower runs whether or not the page shows.

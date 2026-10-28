@@ -34,7 +34,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     /// Every URL the host loaded, in order.
     public private(set) var loaded: [URL] = []
-    /// How many times the host reloaded the document (``reload()``; p13-webui-039 and p07-memory-049 both read it).
+    /// How many times the host reloaded the document (``reload``; p13-webui-039 and p07-memory-049 both read it).
     public private(set) var reloads = 0
     /// The last zoom the host set; nil before any.
     public private(set) var zoom: Double?

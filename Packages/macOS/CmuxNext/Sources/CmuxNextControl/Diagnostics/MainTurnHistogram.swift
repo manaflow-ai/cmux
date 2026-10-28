@@ -153,7 +153,7 @@ public final class MainTurnHistogram: Sendable {
     }
 }
 
-/// The main-turn and input-queueing histograms (task p12-perf-process-031): a turn is a run-loop wake to
+/// The main-turn and input-queueing histograms: a turn is a run-loop wake to
 /// the end of its before-waiting phase, the heartbeat's own stamps; an input's queueing is its OS event
 /// time to its first dispatch (`sendEvent`), the queue part of Chromium's `kQueueAndExecution`
 /// (content/browser/scheduler/responsiveness/calculator.h).

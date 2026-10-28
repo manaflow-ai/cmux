@@ -228,7 +228,7 @@ def opened(app, action):
 
 class FamilyTests(unittest.TestCase):
     def test_closes_every_gap_that_needs_one_of_its_contexts(self):
-        # Holds before and after apply_gap_closures.py (p15-oracle-087) drops the closed ids from the baseline: each
+        # Holds before and after apply_gap_closures.py drops the closed ids from the baseline: each
         # closed id is still listed with its context's reason or gone, and no gap left needs only this family's contexts.
         needing = {ident for ident, why in GAPS.items()
                    if why.startswith(NEEDS) and set(why[len(NEEDS):].split(", ")) <= set(files.CONTEXTS)}

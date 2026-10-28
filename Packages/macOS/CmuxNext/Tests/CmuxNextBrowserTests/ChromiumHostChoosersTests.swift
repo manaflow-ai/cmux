@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextDesign
 import Testing
 
-/// The host's color chooser, device choosers and screen-share picker in cmux (p01-process-228): each
+/// The host's color chooser, device choosers and screen-share picker in cmux: each
 /// request gets one answer by token, Chromium's own end gets none, and a page no pane shows never waits.
 @MainActor
 @Suite struct ChromiumHostChoosersTests {

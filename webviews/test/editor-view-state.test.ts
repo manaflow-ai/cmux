@@ -1,4 +1,4 @@
-// A hidden code editor tab's page may be discarded (`memoryDiscardInternalPages`, p07-memory-026):
+// A hidden code editor tab's page may be discarded (`memoryDiscardInternalPages`):
 // right before, the host asks `cmux.editor.viewState`; the page reports any edit it has not
 // reported yet (so the host keeps a tab with unsaved edits) and answers Monaco's view state. The
 // next page gets it back as the config's `viewState`, applied once the file is in the view and

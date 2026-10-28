@@ -8,13 +8,13 @@ import Foundation
 /// choices. `FuzzRun` seeds one per iteration (`derivedSeed`), so the suites keep
 /// their seeds and iteration counts but explore other inputs than their old private
 /// generators, which drew every iteration from one stream. Replaying bytes, each choice reads
-/// the next bytes of the input (eight for `next()`, as few as the range needs for
+/// the next bytes of the input (eight for `next`, as few as the range needs for
 /// `below(_:)`, little endian), as LLVM's `FuzzedDataProvider`
 /// (compiler-rt/include/fuzzer/FuzzedDataProvider.h) does; a coverage-guided fuzzer
-/// then drives the same test body through each suite's `oneInput(_:)`
-/// (p10-stability-182). Once the input is used up, the bounded draws (`below`,
+/// then drives the same test body through each suite's `oneInput(_:)`.
+/// Once the input is used up, the bounded draws (`below`,
 /// `byte`, `bytes`, `text`, `int(in:)`) give 0 or empty, so loops sized by a draw
-/// end, and `next()` goes on with a fixed xorshift stream: the standard library's
+/// end, and `next` goes on with a fixed xorshift stream: the standard library's
 /// `random(in:using:)` rejects some values and draws again, and a generator that
 /// gave 0 forever would never let it finish.
 public struct FuzzRNG: RandomNumberGenerator, Sendable {

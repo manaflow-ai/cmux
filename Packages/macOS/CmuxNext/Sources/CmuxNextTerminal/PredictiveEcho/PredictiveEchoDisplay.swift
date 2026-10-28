@@ -35,17 +35,17 @@ protocol PredictiveEchoHost: AnyObject {
     func showPredictions(_ cells: [PredictiveEcho.Cell], cursor: PredictiveEcho.Position?)
 }
 
-/// Shows a terminal's echo predictions (p04-input-046): it feeds ``PredictiveEcho`` the bytes each key
+/// Shows a terminal's echo predictions: it feeds ``PredictiveEcho`` the bytes each key
 /// sent and the grid Ghostty draws, and puts the predicted cells on the host's overlay, a cmux layer
 /// over the surface. Not Ghostty's preedit, which cannot show a backspace over a cell.
 ///
 /// - A key turn: ``keySent(_:)`` with the bytes the key wrote, once Ghostty sent them. The
 ///   prediction shows in that key's frame.
 /// - Any other write (a paste, a mouse or focus report, an input method's commit outside a key):
-///   ``otherInput()`` drops every prediction and starts a new epoch, so nothing shows until an echo
+///   ``otherInput`` drops every prediction and starts a new epoch, so nothing shows until an echo
 ///   confirms again. It reads no grid: it runs inside Ghostty's write callback.
 /// - Each display frame while predictions wait: when Ghostty presented a new frame or a prediction's
-///   deadline came, the grid is read once and the echo is matched (``frame()``).
+///   deadline came, the grid is read once and the echo is matched (``frame``).
 /// - Nothing is predicted, and nothing shows, while an input method composes, secure input is on or
 ///   the background is translucent.
 /// - A resize or a font size change while predictions show (``PredictiveEchoGeometry``) drops them:

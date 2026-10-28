@@ -5,12 +5,12 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// The login shell's environment is captured after startup (p08-startup-034): with a remembered
+/// The login shell's environment is captured after startup: with a remembered
 /// copy, neither starting the daemon nor a new terminal runs `$SHELL -l -i` before startup
 /// completes; with nothing remembered the capture starts at once, warm daemon or cold.
 ///
 /// `captureStarted` is read on the cache's actor right after the call under test, so a capture
-/// task made by that call is always seen (the base's `immediate()` made one).
+/// task made by that call is always seen (the base's `immediate` made one).
 @Suite(.timeLimit(.minutes(1)))
 struct LoginEnvironmentLaterTests {
     @Test func aRememberedEnvironmentStartsNoCaptureUntilStart() async {

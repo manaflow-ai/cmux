@@ -2,7 +2,7 @@ import AppKit
 
 /// The live page views, for the generic page debug verb and the key dispatcher's lookups.
 ///
-/// ``WebUIHost`` owns one; a test's host owns its own (``init()``). ``processWide`` is the registry
+/// ``WebUIHost`` owns one; a test's host owns its own (``init``). ``processWide`` is the registry
 /// of views made with `PageWebView(...)` directly, and the app's host lists its views there too,
 /// so the static lookups (the debug verbs) see every page while the static forwarders remain;
 /// p13-webui-010 removes them and its static stores.
@@ -28,7 +28,7 @@ public final class PageRegistry {
     }
 
     /// The registry of views made outside a ``WebUIHost`` and of the app's host, until
-    /// p13-webui-010. Each read is a new handle on the same process-wide stores.
+    /// Each read is a new handle on the same process-wide stores.
     public static var processWide: PageRegistry { PageRegistry(processWide: ()) }
 
     private var liveViews: NSHashTable<PageWebView> { ownViews ?? Self.views }

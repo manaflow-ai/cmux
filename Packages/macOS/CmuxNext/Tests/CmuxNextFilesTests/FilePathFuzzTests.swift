@@ -5,7 +5,7 @@ import Testing
 
 /// Text a person types or pastes into the Files pane (Go to Folder, the filter field, Rename
 /// Items) and the names it makes from it: every input gives a value that keeps its contract, never
-/// a trap (p10-stability-030). Seeded property tests on CmuxFuzzSupport (long mode:
+/// a trap. Seeded property tests on CmuxFuzzSupport (long mode:
 /// CMUX_FUZZ_SECONDS), the shape of Chromium's url_parse_fuzzer over GURL
 /// (url/url_parse_fuzzer.cc): pieces of paths and URLs, joined at random.
 struct FilePathFuzzTests {
@@ -31,7 +31,7 @@ struct FilePathFuzzTests {
     }
 
     /// One input of a property its first choice picks, replayed from bytes: the entry a Linux
-    /// libFuzzer target (p10-stability-182) calls; CmuxNextFiles builds in the Linux tier.
+    /// libFuzzer target calls; CmuxNextFiles builds in the Linux tier.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(6) {

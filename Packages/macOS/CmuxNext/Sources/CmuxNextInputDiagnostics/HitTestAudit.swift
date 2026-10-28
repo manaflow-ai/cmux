@@ -4,14 +4,14 @@ internal import Foundation
 internal import ObjectiveC
 
 /// What window hit testing costs, per input event, per hit test and per `-hitTest:` implementation, for
-/// `debug.input hittest` (p04-input-098, MQ-hittest). Debug and bench builds only (`DEBUG || CMUX_BENCH_HOOKS`): no
-/// other build compiles the hooks, and ``install()`` returns false there.
+/// `debug.input hittest` (MQ-hittest). Debug and bench builds only (`DEBUG || CMUX_BENCH_HOOKS`): no
+/// other build compiles the hooks, and ``install`` returns false there.
 ///
-/// Nothing is hooked until someone asks: ``install()`` scans the loaded classes off the main thread, replaces
+/// Nothing is hooked until someone asks: ``install`` scans the loaded classes off the main thread, replaces
 /// `-[NSView hitTest:]` and every subclass's own `hitTest:` with a recording one, and subscribes to the input tap to
-/// bracket each event. Each ``report()`` while installed scans again when the runtime's class count changed since
+/// bracket each event. Each ``report`` while installed scans again when the runtime's class count changed since
 /// (a framework loaded later, such as CEF, or a generic Swift view class registered on first use) and hooks the new
-/// overrides. ``uninstall()`` stops recording at once, cancels the subscriptions and puts every original IMP
+/// overrides. ``uninstall`` stops recording at once, cancels the subscriptions and puts every original IMP
 /// back. A build that never asks, or asked and uninstalled, runs AppKit's and the app's own IMPs and has no tap
 /// subscription: no cost at all.
 ///
@@ -39,10 +39,10 @@ internal import ObjectiveC
 ///
 /// ```swift
 /// let audit = HitTestAudit(input: services.inputTap)
-/// _ = await audit.install()
+/// _ = await audit.install
 /// // ... a STRESS scroll and click bench ...
-/// let json = try await audit.report().jsonData()
-/// await audit.uninstall()
+/// let json = try await audit.report.jsonData
+/// await audit.uninstall
 /// ```
 public final class HitTestAudit {
     /// Whether this build has the hooks (`DEBUG || CMUX_BENCH_HOOKS`).
@@ -256,7 +256,7 @@ public nonisolated struct HitTestAuditThresholds: Sendable, Equatable, Codable {
     }
 }
 
-/// `debug.input` action `hittest` (p04-input-098): the first request installs the audit's hooks and answers the
+/// `debug.input` action `hittest`: the first request installs the audit's hooks and answers the
 /// empty report; each later one answers what was recorded since that install. `reset` uninstalls and clears, so
 /// the next request installs again. `since_launch` changes nothing: recording starts at the install.
 ///

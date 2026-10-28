@@ -1,8 +1,8 @@
 import CmuxNextWakeups
 import Testing
 
-/// p10-stability-088: FirstOutcome's waits are OnceContinuations. Each waiter gets the first value: a second
-/// `value()` made before the resolve no longer replaces the first waiter's continuation (which left that task
+/// FirstOutcome's waits are OnceContinuations. Each waiter gets the first value: a second
+/// `value` made before the resolve no longer replaces the first waiter's continuation (which left that task
 /// waiting for ever), and a wait after the resolve returns at once.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct FirstOutcomeTests {
     @Test func everyWaiterBeforeTheResolveGetsTheFirstValue() async {

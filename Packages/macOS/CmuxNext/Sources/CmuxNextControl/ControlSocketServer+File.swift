@@ -95,11 +95,11 @@ extension ControlSocketServer {
         }
     }
 
-    /// Binds the control socket at `path` and listens, without accepting (p08-startup-019). The app
+    /// Binds the control socket at `path` and listens, without accepting. The app
     /// calls it on a lane, so the owner check, the bind and the compatibility link never run on the
     /// main thread; the server adopts the listener once its methods are registered (``start(adopting:)``).
     ///
-    /// The rules of ``start()``: the state folder is made (and, with `protectStateDirectory`, checked
+    /// The rules of ``start``: the state folder is made (and, with `protectStateDirectory`, checked
     /// and tightened to 0700), the owner lock is taken (``lockOwner(_:)``: a live instance's path is
     /// never taken, also while its listen queue is full), a stale socket is reclaimed
     /// (``reclaimStalePath(_:)``), and the file gets `mode` in a private directory before it is renamed

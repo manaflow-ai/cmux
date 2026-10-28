@@ -4,7 +4,7 @@ public import CmuxNextTrace
 import CmuxNextWakeups
 public import Foundation
 
-/// Where a schema 3 report's field data comes from (p09-observability-063): this process's metrics store and
+/// Where a schema 3 report's field data comes from: this process's metrics store and
 /// its earlier launches' files (tasks 052 and 053), and the black-box rings of the app, the daemon and the
 /// hosts that are still running.
 ///
@@ -20,7 +20,7 @@ public import Foundation
 /// ```swift
 /// let sources = HangReportFieldSources(runtime: .shared, metricsDirectory: metricsFolder,
 ///                                      rings: .init(directories: [traceFolder]))
-/// let delta = await sources.currentDelta()
+/// let delta = await sources.currentDelta
 /// ```
 public actor HangReportFieldSources {
     /// Whether the process `pid` that started at `startMicros` (µs since 1970) still runs.

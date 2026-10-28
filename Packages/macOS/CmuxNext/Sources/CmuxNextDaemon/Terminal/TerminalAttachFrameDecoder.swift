@@ -1,7 +1,7 @@
 import Foundation
 
 /// Turns one attach stream's frames into channel events, in stream order, on the reader thread
-/// (attach-frames-v1, p05-ipc-097; cmux-tui `server/attach_frames.rs` and `server/snapshot_frames.rs`).
+/// (attach-frames-v1; cmux-tui `server/attach_frames.rs` and `server/snapshot_frames.rs`).
 ///
 /// Every attach frame's aux is an absolute PTY offset, and consecutive OUTPUT frames are contiguous, so the
 /// decoder knows the offset of the next output byte and sees a gap the moment bytes are lost, as Chrome's

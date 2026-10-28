@@ -1,5 +1,5 @@
 // The Chromium Host's side of the control channel
-// (plans/cmux-next/chrome-parity/p01-process.md 3.1-3.2, task p01-process-013):
+// (plans/cmux-next/chrome-parity/p01-process.md 3.1-3.2):
 // every message from cmux becomes one call of the real shim
 // (CEFShim/src/shim_*.mm, linked into the host) through the generated
 // host_dispatch.inc, and every shim event goes back as one EVENT, after the
@@ -50,8 +50,7 @@
 //                                              the value (KeepPageVisibility) and applies
 //                                              it when it detaches the page window, and
 //                                              holds its App Nap activity while a page is
-//                                              shown (host_page_activity.h, task
-//                                              p14-energy-128)
+//                                              shown (host_page_activity.h)
 //   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
@@ -88,8 +87,8 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters; for a
 //              password reveal one bytes field, the password, or no field when
 //              the shim found none (or 64 reveals wait already).
-//              That REPLY is the only place the password crosses (task
-//              p01-process-025): no log, trace or counter here names its fields.
+//              That REPLY is the only place the password crosses:
+// no log, trace or counter here names its fields.
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
 //   kOpEvent   CMUX_SHIM_COLOR_CHOOSER, _DEVICE_CHOOSER, _DESKTOP_MEDIA: an
@@ -409,7 +408,7 @@ class HostContext {
   bool HandleLayerHosting(const control::Message& message);
   // kOpBrowserSetPageVisibility, before its generated case: keeps cmux's
   // value for the browser, since the fork takes none until the page window
-  // is detached (task p01-process-220), and keeps it for the browser's
+  // is detached, and keeps it for the browser's
   // Chromium window in page_windows_, so a page that shows has the activity
   // before the fork draws it. False past kMaxPageVisibilities.
   bool KeepPageVisibility(const control::Message& message);

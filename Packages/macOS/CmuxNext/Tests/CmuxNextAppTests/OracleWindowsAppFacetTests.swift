@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// The app's `windows` facet (p15-oracle-041): the app list provides it; it orders the window manager's windows
+/// The app's `windows` facet: the app list provides it; it orders the window manager's windows
 /// by the registry's recency (an unregistered launch window first), names as key and main the controller that
 /// owns AppKit's key and main window (a page window or sheet over it counts as it), and a wait on it wakes on
 /// AppKit's window notifications. Run: `swift test --filter OracleWindowsAppFacetTests`.

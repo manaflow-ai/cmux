@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 
 /// Windows' ``FrameInputCoalescer``s on a fake link whose frames come only when a test calls
-/// ``frame()``, handed out by ``coalescers`` (p04-input-030's coalescer, for the overlay host, agent
+/// ``frame``, handed out by ``coalescers`` (p04-input-030's coalescer, for the overlay host, agent
 /// cursor, thin scroller, hover reveal and hover card hover of p04-input-036). By default every window
 /// shares ``coalescer``; `perWindow` gives each window its own, as the App's windows have.
 @MainActor

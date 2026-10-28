@@ -59,7 +59,7 @@ struct ControlTopologyIncrementalTests {
         #expect(topology.workspaces.flatMap(\.panes).flatMap(\.tabs).contains { $0.title == "changed" })
     }
 
-    /// p06-scheduler-340 (rule 9): an entry's change tells its owner in the change's own turn, where the owner only
+    /// An entry's change tells its owner in the change's own turn, where the owner only
     /// queues its classed publish. Before, each change first queued an unclassed main job (`Task { @MainActor in }`).
     @Test func anEntrysChangeTellsTheOwnerInTheChangesTurn() {
         let store = Self.store()

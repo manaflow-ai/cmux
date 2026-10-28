@@ -1,6 +1,6 @@
 public import Foundation
 
-/// A ``ChromiumHostSupervising`` that reports when its host ends (p08-startup-046). The runtime
+/// A ``ChromiumHostSupervising`` that reports when its host ends. The runtime
 /// follows it from its adopt (`CEFRuntime.adopt`): every page the host showed gets the crash
 /// state of its end, the runtime attaches again at its next start, and cmux keeps running, as
 /// Chrome keeps the browser up when a child process dies and shows each of its tabs a sad tab

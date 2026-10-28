@@ -197,9 +197,9 @@ public actor BrowserVisitLog {
     }
 }
 
-/// The log's SQLite page cache as a memory consumer (`memorySqliteTrim`, p07-memory-090).
+/// The log's SQLite page cache as a memory consumer (`memorySqliteTrim`).
 ///
-/// Chrome's `sql::Database` frees its page cache under memory pressure (`TrimMemory()` in
+/// Chrome's `sql::Database` frees its page cache under memory pressure (`TrimMemory` in
 /// sql/database.cc calls `sqlite3_db_release_memory` on the connection's own sequence). Here both
 /// calls run on this actor, the connection's only owner: a limit below 100 % lowers the cache cap
 /// (`PRAGMA cache_size`, about 2 MB at 100 %), and a release frees the clean pages no statement holds.

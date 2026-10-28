@@ -3,9 +3,9 @@ import Foundation
 @testable import CmuxNextSidebar
 import Testing
 
-/// `SidebarDocStore.show` in chunks (p06-scheduler-200, feature `sidebarDocChunkedShow`): a show of 400 rows that no
+/// `SidebarDocStore.show` in chunks (feature `sidebarDocChunkedShow`): a show of 400 rows that no
 /// person's change asked for is built as visible tasks on the main-thread scheduler that stop when
-/// `MainFrameBudget.shouldYield()` says so, keep to the visible share of each frame, and end with the same projection a
+/// `MainFrameBudget.shouldYield` says so, keep to the visible share of each frame, and end with the same projection a
 /// show at once makes. A person's change shows at once.
 @MainActor @Suite(.serialized) struct SidebarDocChunkedShowTests {
     typealias Fixture = SidebarDocReorderProjectionCostTests

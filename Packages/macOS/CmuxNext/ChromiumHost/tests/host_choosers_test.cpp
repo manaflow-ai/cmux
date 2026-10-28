@@ -1,4 +1,4 @@
-// Checks the Chromium Host's chooser handlers (task p01-process-228,
+// Checks the Chromium Host's chooser handlers (
 // src/host_choosers.h): the payload encoders and decoders alone, then end to
 // end with the real dispatcher (src/host_dispatch.mm) and a fake shim on one
 // end of a socket pair and the real remote shim (client/, loaded as the

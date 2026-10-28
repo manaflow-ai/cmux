@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// libghostty's side of Energy Saver (p14-energy-114): sends the app's saver state to
+/// libghostty's side of Energy Saver: sends the app's saver state to
 /// `ghostty_app_set_energy_saver` on each edge of ``EnergyPolicy/isSaver``, as Chrome's
 /// `BatterySaverModeManager` throttles frame sinks only when the mode changes
 /// (chrome/browser/performance_manager/user_tuning/battery_saver_mode_manager.cc,
@@ -11,7 +11,7 @@ import Foundation
 ///
 /// libghostty starts with the saver off, so a saver that stays off makes no call, and a policy change
 /// that leaves the saver as it was (power source, sleep, the reason) makes none either. A state the
-/// runtime could not take (no app yet) is sent by ``refresh()`` once the app starts.
+/// runtime could not take (no app yet) is sent by ``refresh`` once the app starts.
 @MainActor
 final class GhosttyEnergySaver {
     /// Sends `on` to libghostty; false when no app runs to take it.

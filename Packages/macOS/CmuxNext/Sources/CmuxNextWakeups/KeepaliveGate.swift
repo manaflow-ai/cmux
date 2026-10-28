@@ -1,6 +1,6 @@
 import CmuxNextCompat
 
-/// A socket owner's reading of the Mac's sleep and wake in the ``EnergyPolicy`` (p14-energy-120):
+/// A socket owner's reading of the Mac's sleep and wake in the ``EnergyPolicy``:
 /// its keepalive holds while its ``Hold`` says so (the Mac sleeps, or also its displays), and
 /// each new ``EnergyPolicy/networkResumes`` (a wake that found a satisfied network path) closes the
 /// open connection once when it was open through the sleep, so the owner's retry loop reconnects
@@ -14,7 +14,7 @@ import CmuxNextCompat
 /// `OnNetworkChanged`). A connection that slept is a dead TCP stream the OS has not reported yet, so
 /// here the owner reconnects at once instead of waiting for a heartbeat to miss.
 ///
-/// The owner calls ``follow(_:)`` once, ``opened(close:resume:)`` and ``closed()`` around each
+/// The owner calls ``follow(_:)`` once, ``opened(close:resume:)`` and ``closed`` around each
 /// connection, arms its keepalive inside ``whileAwake(_:)``, and spaces its attempts with
 /// ``retryWait(_:timer:)``. A gate with no source never pauses and never reconnects.
 public final class KeepaliveGate: Sendable {

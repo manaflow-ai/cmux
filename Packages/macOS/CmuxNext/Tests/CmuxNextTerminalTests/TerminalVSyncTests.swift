@@ -7,7 +7,7 @@ import GhosttyNextKit
 import QuartzCore
 import Testing
 
-/// Ghostty surfaces paced from their display's VSyncHub thread (p03-rendering-083, ``TerminalVSync``): a surface
+/// Ghostty surfaces paced from their display's VSyncHub thread (``TerminalVSync``): a surface
 /// holds a subscription only while it draws, on its own display's clock; Ghostty's wanted edge arms it, and the first
 /// tick after Ghostty stops wanting frames is empty and disarms it. The source is a fake that counts live
 /// subscriptions, except in the hub test, which runs a real ``VSyncHub`` with a fake link on its real thread.

@@ -1,4 +1,4 @@
-// Hang detection of the Chromium Host's UI thread (task p01-process-084,
+// Hang detection of the Chromium Host's UI thread (
 // plans/cmux-next/chrome-parity/p01-process.md design items 7 and 8). Needs no
 // CEF: tests/host_hang_watcher_test.cpp (scripts/cmux-next/tests/
 // chromium-host-wire.test.sh) compiles it alone; host_hang_watcher.mm puts it

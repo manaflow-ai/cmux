@@ -6,10 +6,10 @@ import QuartzCore
 /// infinite Core Animation loops (NightSky's twinkle, Motion's spinners) and
 /// playing video layers (BackdropVideoView's `AVPlayerLooper`). `debug.layers`
 /// with `frame_sources: true` reports both at each end of an idle window
-/// (scripts/cmux-next/idle-budget.py's power sessions, p14-energy-096).
+/// (scripts/cmux-next/idle-budget.py's power sessions).
 ///
 /// Chrome's model: the compositor keeps asking for begin-frames while
-/// `cc::AnimationHost::NeedsTickAnimations()` (cc/animation/animation_host.cc)
+/// `cc::AnimationHost::NeedsTickAnimations` (cc/animation/animation_host.cc)
 /// says an animation runs, so an idle page with one is never idle. Here the
 /// render server ticks these loops, so a layer walk is the only way to name them.
 extension RenderStats {

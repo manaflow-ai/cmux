@@ -1,5 +1,5 @@
 #![cfg(unix)]
-//! Attach streams hold no thread per view (p05-ipc-079): 50 byte views, 50
+//! Attach streams hold no thread per view: 50 byte views, 50
 //! render views and 50 snapshot views attached as client-minted streams
 //! (attach-streams-v1) on one connection of a real daemon socket add at most
 //! 2 threads to the process, and every view still gets its live output. A

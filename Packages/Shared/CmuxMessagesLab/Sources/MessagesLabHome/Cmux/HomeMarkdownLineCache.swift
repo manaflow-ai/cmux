@@ -4,7 +4,7 @@
 /// change are never parsed again (the inline parser and the bare-link scan were the largest part
 /// of a token's main-thread work: plans/cmux-next/home-streaming-perf-DESIGN.md). Bounded: the
 /// cache empties past `limit` lines or past `budget` bytes, and `HomeStreamMappers.keep` drops it
-/// with its reply. It is not in the host's memory consumer (p07-memory-081): it lives only while its
+/// with its reply. It is not in the host's memory consumer: it lives only while its
 /// reply streams on screen, so its fixed cap is the whole bound. Main thread only (the projection's).
 final class HomeMarkdownLineCache { // memory: fixed 4096 lines, 768 KiB, one per streaming reply
     private var lines: [String: HomeMarkdown.Output] = [:]

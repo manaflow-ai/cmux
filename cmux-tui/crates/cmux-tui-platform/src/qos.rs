@@ -1,4 +1,4 @@
-//! Daemon request QoS (p06-scheduler-035): a request runs at the class of
+//! Daemon request QoS: a request runs at the class of
 //! its cause, and a lowered thread is raised before it waits for a ranked
 //! lock and while it holds one, so a frontend request never waits behind a
 //! UTILITY thread.
@@ -21,7 +21,7 @@
 //!   (`pthread_set_qos_class_self_np` through [`cmux_threads::QosScope`])
 //!   rather than taking an override (`pthread_override_qos_class_start_np`),
 //!   the call for raising another thread: the change is then visible to
-//!   `qos_class_self()`, the thread registry and the Linux nice value alike.
+//!   `qos_class_self`, the thread registry and the Linux nice value alike.
 //! - [`spawn_outside_request`]: a thread started during a request runs at
 //!   its creator's own class ([`outside_request_class`]), not the request's
 //!   (a new thread inherits its creator's class on macOS and its nice value

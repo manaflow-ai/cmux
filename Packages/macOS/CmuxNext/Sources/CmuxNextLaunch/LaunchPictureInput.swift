@@ -2,16 +2,16 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextWakeups
 
-/// Input while the first window shows its launch picture (p08-startup-061): the edges of the picture phase
+/// Input while the first window shows its launch picture: the edges of the picture phase
 /// (``LaunchPicturePhase``) reach the key router's stand-in buffer (``LaunchPictureKeys``), and a click on a part of
 /// the picture still over the live root (``LaunchPictureRegions``) is held (``LaunchPictureClicks``).
 /// - `launch_picture_shown` (this init): the buffer begins for the window; a key or a click raises the window's
-///   build behind the picture (``LaunchWindowBuild/raise()``, a userBlocking post, never in the input's turn).
+///   build behind the picture (``LaunchWindowBuild/raise``, a userBlocking post, never in the input's turn).
 /// - The pane region's first content: the buffer gives the waiting keys to their terminals.
 /// - A part leaves at its region's first content: its held clicks go again at the same window point, now to the live
 ///   view under it, unless what the window shows or its size changed since, or they waited more than ``clickLimit``.
 ///   At the bound a part's clicks are dropped: its region has no content.
-/// - The picture left (``finish()``): the held clicks are dropped and the buffer ends for the window, in its own turn
+/// - The picture left (``finish``): the held clicks are dropped and the buffer ends for the window, in its own turn
 ///   (the picture can leave inside the root's layout, where no key is delivered).
 ///
 /// Chrome's startup paint preview does the same with a tap on the capture: it waits for the live tab, which gets it
@@ -19,8 +19,8 @@ public import CmuxNextWakeups
 /// chrome/android/java/src/org/chromium/chrome/browser/paint_preview/TabbedPaintPreview.java).
 ///
 /// ```swift
-/// let input = LaunchPictureInput(window: id, shell: window, keys: keys, reveal: reveal, mainWork: mainWork) { shownModel() }
-/// phase.whenRemoved { input.finish() }
+/// let input = LaunchPictureInput(window: id, shell: window, keys: keys, reveal: reveal, mainWork: mainWork) { shownModel }
+/// phase.whenRemoved { input.finish }
 /// // once the controller's root is under the picture:
 /// input.holdClicks(on: picture, regions: regions)
 /// input.build = build

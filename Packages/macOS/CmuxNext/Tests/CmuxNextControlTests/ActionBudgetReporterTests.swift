@@ -145,7 +145,7 @@ import Testing
     }
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    /// p02-threads-122: the Debug line's symbol map (a file read and an inflate through the checked seam) is
+    /// The Debug line's symbol map (a file read and an inflate through the checked seam) is
     /// read on the files lane, never on the reporter's cooperative-pool task, where it is a pool violation.
     @MainActor
     @Test func theSymbolMapIsReadOnTheFilesLaneNotThePool() async throws {
@@ -172,7 +172,7 @@ import Testing
 }
 
 /// p06-scheduler-340 (rule 9, the automation class): a report reads the monitor's main-actor counters in one automation
-/// task on the app's scheduler. Before, `counts()` hopped with `MainActor.run`, an unclassed main job that ran inside
+/// task on the app's scheduler. Before, `counts` hopped with `MainActor.run`, an unclassed main job that ran inside
 /// the person's input response.
 @MainActor
 @Suite(.serialized, .timeLimit(.minutes(1))) struct ActionBudgetReporterSchedulingTests {

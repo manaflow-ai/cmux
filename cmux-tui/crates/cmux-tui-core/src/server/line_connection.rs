@@ -19,9 +19,9 @@
 //! (mojo/public/cpp/bindings/message.h) ends the sender: nothing after the
 //! bad byte is interpreted.
 //!
-//! REQUEST and CANCEL frames go to [`frame_dispatch`] (p05-ipc-071), and so
+//! REQUEST and CANCEL frames go to [`frame_dispatch`], and so
 //! do INPUT frames, which queue on the stream they name until its opener is
-//! answered ([`pending_streams`], p05-ipc-087).
+//! answered ([`pending_streams`]).
 
 use std::fmt;
 
@@ -129,7 +129,7 @@ pub(super) fn serve_line_connection(
 pub(super) trait FrameLane {
     /// Whether `client` holds the frames grant now. Asked again for every
     /// frame, before it is cut: a later `set-client-info` or `client-hello`
-    /// can end the grant (p05-ipc-060), and frame payloads are not
+    /// can end the grant, and frame payloads are not
     /// revision-translated. Never asked on a connection that cannot carry
     /// frames (not a local Unix socket, or an admission that sees only lines).
     fn granted(&self, mux: &Mux, client: u64) -> bool;
@@ -248,7 +248,7 @@ pub(super) fn serve_connection(
         let _end = WriterEnd { writer: writer_close, socket: writer_socket };
         let _hang_watch =
             cmux_hang_watch::register_thread(cmux_hang_watch::ThreadKind::Io, "mux-line-out");
-        // Every ready item up to 256 KiB leaves in one writev (p05-ipc-088).
+        // Every ready item up to 256 KiB leaves in one writev.
         let mut batch = Vec::new();
         // mq14-allow: the writer's idle wait for its own queue (BoundedOutbound::recv_batch).
         while writer_outbound.recv_batch(&mut batch) {

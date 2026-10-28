@@ -8,7 +8,7 @@ import WebKit
 
 /// The wakeups of a frozen WebKit page's WebContent process (`CMUX_PAGE_FREEZE_WAKEUPS=1`, live on a
 /// Mac with a window server; p13-webui-028's test phase). A page with a 90 ms interval timer (about
-/// 11 wakeups/s while it shows) is hidden in its window and frozen (``PageWebView/freezePage()``);
+/// 11 wakeups/s while it shows) is hidden in its window and frozen (``PageWebView/freezePage``);
 /// after WebKit's hidden-page throttling settles, its process wakes at most 0.2 times a second.
 /// The counter is `ri_interrupt_wkups` (``ProcessUsage/interruptWakeups(of:)``), the one Chrome
 /// reports as idle wakeups (base/process/process_metrics_apple.mm). With CMUX_PERF_RESULT_DIR both rates are

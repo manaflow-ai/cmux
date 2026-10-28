@@ -19,7 +19,7 @@ private final class DirtyClock {
     var nanos: UInt64 = 0
 }
 
-/// `debug.input` action `dirty` (p04-input-093): the first request installs the hooks, the tap
+/// `debug.input` action `dirty`: the first request installs the hooks, the tap
 /// subscription and the run-loop observers and `reset` removes them all; a dirty call in an input turn
 /// counts under its view's relation to the target, off-target rows first; calls outside a turn and
 /// calls inside another hooked call do not count; a pass inside the event's dispatch (a tracking loop)

@@ -5,7 +5,7 @@ import CmuxNextSignposts
 import CmuxNextTrace
 
 /// Opt-in keystroke-to-frame timeline for terminal keys (`CMUX_NEXT_TYPING_PROBE=<csv path>`, or key
-/// flows started with ``startFlows()``). Off by default: every hop then costs one load of
+/// flows started with ``startFlows``). Off by default: every hop then costs one load of
 /// ``isEnabled``.
 ///
 /// Each key-down opens a sample with its own flow id (this process's pid in the high 32 bits), and up to
@@ -25,7 +25,7 @@ import CmuxNextTrace
 ///   order, so a write goes to its surface's oldest unwritten press (``inputWritten(on:)``) and a send to
 ///   the oldest written, unsent press (``openFlow``), never to whichever key was pressed last.
 /// - The send carries that press's flow, and the daemon's `output` event names the press it echoes
-///   (p09-observability-018), so the decode marks that press (``outputDecoded(flow:)``) and the attach
+///  , so the decode marks that press (``outputDecoded(flow:)``) and the attach
 ///   stream carries the flow with the chunk to the session and the lane (``mark(_:flow:)``). The surface's
 ///   frame then marks the presses on it whose echo was parsed (``mark(_:surface:)``).
 /// - A daemon without exact flows names no press: the newest press sent takes the decode and older
@@ -33,11 +33,11 @@ import CmuxNextTrace
 ///
 /// `commit_ms` is the end of the first main run-loop turn after dispatch, past Core Animation's commit
 /// observer: the frame that carries what the key changed in an AppKit text view (the Home composer, the
-/// omnibar). A sample that has no terminal echo to wait for (``closeAtCommit()``) is written at that
+/// omnibar). A sample that has no terminal echo to wait for (``closeAtCommit``) is written at that
 /// commit; one whose key never reached a terminal, or gave Ghostty no bytes, is written there unfinished.
 ///
-/// Key-press flows (scripts/cmux-next/trace.py) start and stop at run time (``startFlows()``,
-/// ``stopFlows()``), as Chromium turns trace categories on in a running browser
+/// Key-press flows (scripts/cmux-next/trace.py) start and stop at run time (``startFlows``,
+/// ``stopFlows``), as Chromium turns trace categories on in a running browser
 /// (base/trace_event/trace_log.h, `TraceLog::SetEnabled`). `CMUX_NEXT_TRACE_FLOWS=<dir>` is only the
 /// launch default (``startFlows(launchEnvironment:)`` at the composition root; the daemon gets it as
 /// `CMUX_TRACE_FLOWS`). While flows are on, every hop a sample records, plus ``keyReachedTerminal(_:display:)``
@@ -46,7 +46,7 @@ import CmuxNextTrace
 /// mark the same press on the same clock. No CSV is written without `CMUX_NEXT_TYPING_PROBE`.
 ///
 /// Nothing is sampled while the trace runtime's keystroke-timing gate is closed (secure keyboard entry,
-/// ``TraceRuntime/isKeyTimingSuppressed``, p09-observability-128): a key-down then drops every open press
+/// ``TraceRuntime/isKeyTimingSuppressed``): a key-down then drops every open press
 /// unwritten and opens none, no hop is recorded and ``openFlow`` is nil, so the daemon, the terminal host and
 /// the holder write no `key.echo` hop for a key typed into a password prompt.
 ///

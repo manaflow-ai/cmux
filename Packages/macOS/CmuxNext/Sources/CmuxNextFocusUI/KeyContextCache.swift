@@ -23,10 +23,10 @@ public nonisolated protocol KeyContextStamp: Equatable {
 }
 
 /// Each window's key facts behind a generation counter, so a run of chords with no change builds
-/// them once (p04-input-053). An entry is reused while the cache's generation is the one it was built
+/// them once. An entry is reused while the cache's generation is the one it was built
 /// at and the window's current stamp equals the stored one; ``invalidate(_:)`` bumps the generation
 /// for a change no stamp shows (a focus settle). Chromium keys its DOM-derived caches the same way:
-/// `Document::DomTreeVersion()` (third_party/blink/renderer/core/dom/document.h) is a counter every
+/// `Document::DomTreeVersion` (third_party/blink/renderer/core/dom/document.h) is a counter every
 /// mutation bumps, and a cache built at an older version is rebuilt on its next read.
 @MainActor
 public final class KeyContextCache<Stamp: KeyContextStamp, Value> {

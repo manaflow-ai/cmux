@@ -2,14 +2,13 @@ import Atomics
 
 /// A value read once, on a lane before its readers come, then held in memory: a file the bundle ships, the
 /// running code's signature. The owner reads it on a `BackgroundWork` lane at launch
-/// (`work.post(.userVisible, mayBlock: .files) { value.load() }`), so a main-thread reader finds it in memory.
+/// (`work.post(.userVisible, mayBlock: .files) { value.load }`), so a main-thread reader finds it in memory.
 /// Chrome installs its process-wide tables the same way, once, before readers come
 /// (`base::FeatureList::SetInstance`, base/feature_list.h).
 ///
 /// A read before the load (a test, or a reader that beat the lane) runs `read` itself, through the checked
 /// seams it uses, so on the main thread the blocking detector records it; the first value stored wins. It
-/// replaces a static initializer that blocked whichever thread asked first while the others waited
-/// (p02-threads-122).
+/// replaces a static initializer that blocked whichever thread asked first while the others waited.
 public nonisolated final class PreloadedValue<Value: Sendable>: Sendable {
     private final class Installed: Sendable {
         let value: Value

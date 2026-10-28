@@ -30,7 +30,7 @@ public import Foundation
 ///   any of its frames (renderer client ids against the helper's `--renderer-client-id`). Same-site tabs
 ///   can share one renderer: each of them shows its whole usage, and the renderer's `tabs` name all of
 ///   them. In process only: with the Chromium Host on, the renderers are the host's children and no
-///   tab lists one (p14-energy-124a).
+///   tab lists one.
 ///
 /// Top-level keys are snake_case (the spec's); the fields inside them are the camelCase names of the
 /// values they report (`policy.isSaver` is ``EnergyPolicy/isSaver``), which is what
@@ -297,13 +297,13 @@ extension EnergyReport {
     /// Its inputs, by wire name.
     static let simulatedInputNames: Set<String> = ["on_battery", "percent", "thermal", "low_power", "suspended"]
 
-    /// `debug.energy.simulate {on_battery?, percent?, thermal?, low_power?, suspended?}` (p14-energy-123, Debug
+    /// `debug.energy.simulate {on_battery?, percent?, thermal?, low_power?, suspended?}` (Debug
     /// and bench builds only): `apply` lays these inputs over the Mac's in the energy monitor, so the policy
     /// resolves as on a Mac in that state; inputs not given follow the Mac. `low_power` and `thermal` go
     /// through the Mac's own seams (the Low Power Mode and thermal overrides), so every reader sees them.
     /// Each call replaces the previous simulation; `{clear: true}` hands `apply` nil, which restores the
     /// Mac's inputs and the overrides held before. A simulated power source never ends "Turn Off Energy
-    /// Saver for Now". Answers ``report()`` for the state right after the change. Fleet Macs have no
+    /// Saver for Now". Answers ``report`` for the state right after the change. Fleet Macs have no
     /// battery: the energy test phase checks the `auto` saver's `battery` reason with
     /// `{on_battery: true, percent: 15}` (scripts/cmux-next/energy-test-phase.py, D7 auto).
     ///

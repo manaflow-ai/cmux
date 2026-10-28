@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 
 extension WindowOcclusionChecker {
     /// A started checker of every window that has a ``WindowOcclusionFamily``, which tells each family
-    /// when its window goes off screen and comes back (p03-rendering-097, feature `windowOcclusionFamily`).
+    /// when its window goes off screen and comes back (feature `windowOcclusionFamily`).
     /// It is Chrome's checker pass (``WindowOcclusionRule``, web_contents_occlusion_checker_mac.mm):
     /// AppKit's state, or one opaque cmux window in front covering the window, the same-size case
     /// AppKit does not report (crbug.com/883031). A new window joins at the next pass, which its

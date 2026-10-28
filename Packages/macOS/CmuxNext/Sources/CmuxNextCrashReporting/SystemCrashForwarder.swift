@@ -90,7 +90,7 @@ public final class SystemCrashForwarder: Sendable {
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.crash-forwarder", qos: .utility)
     private let watcher = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    /// The folder watch's record in the launch's arm census (Debug and bench builds, p08-startup-085).
+    /// The folder watch's record in the launch's arm census (Debug and bench builds).
     private let census: ArmCensusWatch
 
     /// - Parameters:

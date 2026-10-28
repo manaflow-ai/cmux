@@ -1,4 +1,4 @@
-//! One thread waits for every child's exit (p02-threads-237).
+//! One thread waits for every child's exit.
 //!
 //! A thread per child blocked in `waitpid` costs a stack and a registry row for
 //! each terminal. Chromium has none on macOS: `EnsureProcessTerminated`
@@ -40,9 +40,9 @@
 //!
 //! ```ignore
 //! let reaper = Reaper::new("mux", Arc::clone(&work))?;
-//! if let Err(unwatched) = reaper.watch(child.id(), Box::new(move |status| record(status))) {
+//! if let Err(unwatched) = reaper.watch(child.id, Box::new(move |status| record(status))) {
 //!     // Nothing waits for the child: the caller's own fallback.
-//!     return Err(unwatched.into_error());
+//!     return Err(unwatched.into_error);
 //! }
 //! ```
 

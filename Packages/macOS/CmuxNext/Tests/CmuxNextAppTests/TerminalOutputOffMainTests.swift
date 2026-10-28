@@ -11,7 +11,7 @@ import Testing
 /// `GHOSTTY_SURFACE_IO_MANUAL` (its IO does not answer queries), so Ghostty parses a device
 /// attributes query on the output lane and writes its reply back to the IO; the reply arriving while
 /// the main thread is blocked proves the output was parsed without it. Grid steps, statuses and chips
-/// take the same off-main path (p03-rendering-085): the events loop never waits for the main actor.
+/// take the same off-main path: the events loop never waits for the main actor.
 @MainActor @Suite(.serialized) struct TerminalOutputOffMainTests {
     @Test func outputIsParsedWhileTheMainThreadIsBusy() async throws {
         _ = NSApplication.shared

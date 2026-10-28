@@ -257,7 +257,7 @@ public final class WebUpdater {
 
     /// The last cmux window went away: the booked check goes (a running one books none). A window
     /// showing again books the next one an interval after the last, at once when that has passed
-    /// (p14-energy-032; Chromium runs a hidden page's due work once it shows).
+    /// (Chromium runs a hidden page's due work once it shows).
     public func noteShown(_ shown: Bool) {
         guard shown != self.shown else { return }
         self.shown = shown

@@ -2,12 +2,12 @@ public import AppKit
 import QuartzCore
 public import CmuxNextDesignTokens
 
-/// A layer-backed view's frame and alpha moved on the render server (chrome-parity p03-rendering-104).
+/// A layer-backed view's frame and alpha moved on the render server.
 ///
 /// The view's `frame` and `alphaValue` take their targets once, in the call's turn, so hit testing,
 /// layout, tracking areas and the next change read the rest values. Its layer then shows the change
 /// with additive animations (``RenderSpring``) from the old values, so the main thread writes nothing
-/// per frame (rule 1, plans/cmux-next/chrome-parity/p03-rendering.md). An `animator()` change in a
+/// per frame (rule 1, plans/cmux-next/chrome-parity/p03-rendering.md). An `animator` change in a
 /// SwiftUI-animation `NSAnimationContext` (the closure `animate(_:in:_:completion:)`) is AppKit's to
 /// step instead; MotionGateMainWorkTests records what it writes per frame.
 ///

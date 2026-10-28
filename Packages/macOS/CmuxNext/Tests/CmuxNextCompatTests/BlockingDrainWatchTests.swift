@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 /// Each job of the blocking detector's drain queue runs inside the watch the composition root sets (one
-/// hang-watch scope on the `blocking.drain` lane, p09-observability-070), so a sink or a stack resolution
+/// hang-watch scope on the `blocking.drain` lane), so a sink or a stack resolution
 /// that hangs the drain is reported. Compat sits below the hang watch, so the watch is a closure here.
 @Suite(.serialized)
 struct BlockingDrainWatchTests {

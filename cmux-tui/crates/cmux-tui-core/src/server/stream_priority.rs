@@ -1,9 +1,9 @@
-//! Stream visibility priority (p05-ipc-142; p05-ipc.md 3.4 "Stream
+//! Stream visibility priority (p05-ipc.md 3.4 "Stream
 //! visibility"): `set-stream-priority {stream, focused|visible|hidden}` ranks
 //! one client-minted attach stream against the others of its connection.
 //!
 //! Chrome ranks a renderer's work by what the person sees: the focused
-//! widget's input and frames come first, a hidden widget gets `WasHidden()`
+//! widget's input and frames come first, a hidden widget gets `WasHidden`
 //! and produces no frames while its renderer keeps running
 //! (content/browser/renderer_host/render_widget_host_impl.cc), and its task
 //! runners move to a lower priority with

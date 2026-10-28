@@ -32,7 +32,7 @@ extension PageWebView {
     /// `viewDidHide` or `viewDidMoveToWindow`). Chromium: the page is frozen once. WebKit stays in its
     /// window (no detach; p13-webui-029 measures one): its view is hidden, which stops its frames,
     /// and all of WebKit's hidden-page throttling is on until the thaw. A frozen page's providers
-    /// stop their sources (``PageRouter/pageWillFreeze()``).
+    /// stop their sources (``PageRouter/pageWillFreeze``).
     ///
     /// - Returns: True when the page is frozen (a second call makes no second engine call); false
     ///   when refused: the page shows, its Chromium page is still starting, or the engine did not

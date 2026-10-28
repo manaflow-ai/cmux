@@ -8,7 +8,7 @@ import CmuxNextWakeups
 
 extension SSHService {
     /// The app's SSH machines (`AppServices.ssh`), made on first use (the `SSH.start` post, a remote
-    /// action), never in init (p08-startup-021), as Chrome makes a keyed service on its first
+    /// action), never in init, as Chrome makes a keyed service on its first
     /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
     /// The install offer and the current remote-hosts policy are set before any reader gets it.
     static func made(for services: AppServices) -> SSHService {
@@ -32,7 +32,7 @@ extension SSHService {
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        // SSH is made on first use (a run, a menu's check), never at binding.
         let available: @MainActor () -> String? = { context.services.ssh.unavailableReason }
         let hasMachine: @MainActor () -> String? = { context.services.ssh.unavailableReason ?? (context.services.ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in

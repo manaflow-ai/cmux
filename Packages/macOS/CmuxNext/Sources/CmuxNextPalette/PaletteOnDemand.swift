@@ -1,22 +1,22 @@
 public import CmuxNextActions
 public import CmuxNextWakeups
 
-/// The App's command palette, built at its first use (p08-startup-023), as Chrome makes a keyed service
+/// The App's command palette, built at its first use, as Chrome makes a keyed service
 /// at its first `GetForProfile` (components/keyed_service/core/keyed_service_factory.cc) and posts the
 /// rest of its launch work after startup (chrome/browser/after_startup_task_utils.cc).
 ///
 /// Launch builds no ``PaletteController``: owners add their pages and providers to ``sources`` before it
 /// exists, the palette's actions are bound to closures that build it when they run
-/// (``bindRegistryActions()``), ``postBuild(on:)`` builds it right after the first frame, and a palette
+/// (``bindRegistryActions``), ``postBuild(on:)`` builds it right after the first frame, and a palette
 /// key before that builds it in the key's turn.
 ///
 /// ```swift
-/// let palettes = PaletteOnDemand(registry: registry, sources: { PaletteSources() }) { sources in
+/// let palettes = PaletteOnDemand(registry: registry, sources: { PaletteSources }) { sources in
 ///     PaletteController(registry: registry, sources: sources)
 /// }
 /// palettes.sources.actionPages["tab.search"] = page  // builds nothing
 /// palettes.whenBuilt { $0.onPresented = report }
-/// palettes.bindRegistryActions()
+/// palettes.bindRegistryActions
 /// palettes.postBuild(on: startup)
 /// ```
 public final class PaletteOnDemand {

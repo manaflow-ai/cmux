@@ -70,13 +70,13 @@ extension WindowRootView {
                                                                ridesTrailingEdge: sidebarSide == .right)
     }
 
-    /// A render-server slide (`SidebarContainerView.slideFollowers`, chrome-parity p03-rendering-100): notes
+    /// A render-server slide (`SidebarContainerView.slideFollowers`): notes
     /// where the window's views beside the sidebar show before the slide's one layout; the closure, called
     /// after it, springs each one the layout moved from there to rest on the sidebar's spring. The card,
     /// the title and the shade's cut-out ride the card's shift (the shade's path reaches past the window's
     /// sides, so the moved shade leaves no strip unshaded). The top row's toolbar band, its buttons and the
     /// accessories after it spring their x, width and opacity from where they showed, as each frame of the
-    /// main-thread slide places them (`layout()`), and the strips under the top row spring their tabs'
+    /// main-thread slide places them (`layout`), and the strips under the top row spring their tabs'
     /// traffic-light inset with the card (`topRowStripsSlide`). The rail style's content sits beside the
     /// rail: the open moves nothing.
     func followSidebarSlide() -> () -> [RenderSpring.Move] {

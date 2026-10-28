@@ -6,7 +6,7 @@ import QuartzCore
 import CmuxNextWakeups
 import Testing
 
-/// The tab-drop highlight on the render server (chrome-parity p03-rendering-032, `motion.renderServer`
+/// The tab-drop highlight on the render server (`motion.renderServer`
 /// on): a drag across three zones is three `RenderSpring` retargets of the outline ring, one per event
 /// that moves the target, and the display frames never step the highlight. With the switch off it moves
 /// and steps as before.

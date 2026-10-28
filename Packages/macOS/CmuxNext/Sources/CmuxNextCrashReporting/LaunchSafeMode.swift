@@ -9,7 +9,7 @@ public import Foundation
 /// ``Beacon``'s): the app's run marker (`AppRunMarker`) supplies the previous run and records this one's startup.
 ///
 /// The launch caches are read on the files lane from `main`, beside the run marker's own launch read and before the
-/// marker writes this run's `run.json` (p08-startup-075): each read asks the launch's one ``Gate``, and the first ask
+/// marker writes this run's `run.json`: each read asks the launch's one ``Gate``, and the first ask
 /// writes this launch's ``Beacon`` before any cache is read, so a launch a cache ends before its marker is counted.
 ///
 /// Chrome's `VariationsSafeModeTracker` model: the clean-exit beacon (components/metrics/clean_exit_beacon.cc) marks
@@ -20,7 +20,7 @@ public import Foundation
 /// ```swift
 /// let safeMode = LaunchSafeMode.after(startupComplete: false, incompleteLaunches: 1, endedAsAsked: false,
 ///                                     machineRestarted: false)   // the second run in a row: reason crashStreak
-/// let pictures = BrowserLaunchPictures(state: state, work: work, reader: LaunchFileReader().gated { safeMode.readsLaunchCaches })
+/// let pictures = BrowserLaunchPictures(state: state, work: work, reader: LaunchFileReader.gated { safeMode.readsLaunchCaches })
 /// ```
 public nonisolated struct LaunchSafeMode: Equatable, Sendable {
     /// Runs in a row ended before their startup completed that make the next launch skip the caches.

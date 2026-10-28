@@ -76,7 +76,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     /// `hangWatch`: watches each line the attachment's reader handles (`DaemonService.hangWatch`).
     /// `screenChanged`: told after each step this view maps (output, replay, grid, link status), so the oracle's
     /// `terminals` facet waits wake (`AppServices.terminalScreenChanged`; nil in Release).
-    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane (p05-ipc-142).
+    /// `streamFocus`: the app's one focused terminal view, whose stream rides the input lane.
     init(target: Target, resizes: ResizeCoordinator, visible: Bool = true, gate: TerminalTargetGate? = nil,
          createIntent: UInt64 = 0, creatingInput: CreatingTerminalInput? = nil,
          burstTrace: BurstTrace? = nil, policyBlocked: @escaping @Sendable () -> Bool = { false },

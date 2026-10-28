@@ -8,14 +8,14 @@ import Darwin
 import Foundation
 import Testing
 
-/// Chromium Host REPLY frames awaited by token (`CEFHostReplies` in CEFReplyWaiters.swift, task
-/// p01-process-018) and read by `CEFHostReplyFields`: the golden body that
+/// Chromium Host REPLY frames awaited by token (`CEFHostReplies` in CEFReplyWaiters.swift)
+/// and read by `CEFHostReplyFields`: the golden body that
 /// ChromiumHost/src/chromium_host_tlv.h's TlvWriter encodes, replies before and after the await,
 /// the decode off the main thread, malformed shapes, the deadline on a manual clock, cancellation,
 /// a second wait on a token, and the host's exit.
 ///
 /// A wait registers in the turn its task first runs (every call up to the suspension is on the
-/// main actor), so ``afterQueuedWork()`` returning means every wait started before it is waiting.
+/// main actor), so ``afterQueuedWork`` returning means every wait started before it is waiting.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct CEFReplyWaitersTests {
     /// TlvWriter: I32(-2), Str(NULL), Str("hé"), I32Array({3, -1}), I64(0x0102030405060708),
     /// F64(1.5), StrList({"a", NULL}), Bytes(NULL), as EncodeFields writes them.

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextDaemon
 
-/// p05-ipc-044: ``DaemonEvent/decode(name:line:)`` parses an event line once. The connection's
+/// ``DaemonEvent/decode(name:line:)`` parses an event line once. The connection's
 /// counting decoder sees one decode per event: the name picks the payload type, and that parse
 /// also gives the `unknown` payload of a line whose fields do not match. Before, `layout-changed`
 /// with a layout, a pairing event and every mismatched line cost two.

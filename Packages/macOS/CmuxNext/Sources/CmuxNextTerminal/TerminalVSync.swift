@@ -29,8 +29,8 @@ extension VSyncHub: TerminalVSyncSource {
 
 nonisolated extension VSyncHub.Subscription: TerminalVSyncSubscription {}
 
-/// Paces one Ghostty surface from its display's ``VSyncHub`` thread (ghostty-next external vsync,
-/// p03-rendering-082), so the app runs one display link per display instead of one Ghostty link per
+/// Paces one Ghostty surface from its display's ``VSyncHub`` thread (ghostty-next external vsync),
+/// so the app runs one display link per display instead of one Ghostty link per
 /// surface (DC1).
 ///
 /// Chrome's form: `components/viz/service/frame_sinks/external_begin_frame_source_mac.cc` registers a
@@ -56,11 +56,11 @@ nonisolated extension VSyncHub.Subscription: TerminalVSyncSubscription {}
 ///   ``DisplayClock/stallsBeforeRebuild`` in a row it rebuilds the link, or, when no link can be made,
 ///   leaves it for the main display's clock or the linkless deadline. Ticks do not touch the deadline; it
 ///   reads whether one came.
-/// - ``close()`` runs before `ghostty_surface_free`: no tick reaches the surface after it returns.
+/// - ``close`` runs before `ghostty_surface_free`: no tick reaches the surface after it returns.
 ///   Ghostty's callback reaches the pacer through the surface's ``SurfaceBridge``, which owns it.
 ///
 /// One `Mutex` holds the state. A tick keeps it across `ghostty_surface_vsync`, which only notifies the
-/// renderer thread, so ``close()`` cannot return while a tick is inside Ghostty; nothing else calls out
+/// renderer thread, so ``close`` cannot return while a tick is inside Ghostty; nothing else calls out
 /// with it held.
 nonisolated final class TerminalVSync: Sendable {
     /// The linkless deadline's period: Chrome's `BeginFrameArgs::DefaultInterval()`, 60 Hz

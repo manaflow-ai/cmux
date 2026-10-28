@@ -24,15 +24,15 @@ public protocol LaunchWindowPane: AnyObject {
     func launchArea(in picture: NSView) -> CGRect
 }
 
-/// Builds the launch window's live views behind its picture, slice by slice (p08-startup-060,
+/// Builds the launch window's live views behind its picture, slice by slice (
 /// plans/cmux-next/chrome-parity/p08-startup.md section 3A, P4), each slice its own afterFirstFrame post (budgeted
 /// per frame at `MainWorkClass.visible`, behind input), so no main turn builds the whole window:
 ///
-/// 1. The window's controller with its sidebar rows (the caller's post, before ``start()``).
+/// 1. The window's controller with its sidebar rows (the caller's post, before ``start``).
 /// 2. ``tabStrips``: the shown workspace's layout and every pane's tab strip, no content.
 /// 3. ``focusedPane``: the focused pane's content; its terminal attaches first.
 /// 4. ``visiblePane``, once per other pane on screen, in layout order.
-/// 5. ``live``: the window follows its workspace; no part comes later (``LaunchPictureRegions/seal()``).
+/// 5. ``live``: the window follows its workspace; no part comes later (``LaunchPictureRegions/seal``).
 ///
 /// Each pane gets a part of the picture over its area when its strip is mounted; the part leaves at that pane's own
 /// first meaningful content, once the launch reveal shows its strip and content views (so a part never uncovers a
@@ -43,8 +43,8 @@ public protocol LaunchWindowPane: AnyObject {
 /// ```swift
 /// let build = LaunchWindowBuild(window: controller, regions: regions, reveal: reveal, post: { name, work in
 ///     startup.post(.afterFirstFrame, name, on: .main, work)
-/// }) { phase.buildFinished() }
-/// build.start()
+/// }) { phase.buildFinished }
+/// build.start
 /// ```
 @MainActor
 public final class LaunchWindowBuild {
@@ -98,7 +98,7 @@ public final class LaunchWindowBuild {
         post(Self.tabStrips) { [self] in mountStrips() }
     }
 
-    /// A key or a click waits on the picture (p08-startup-061, ``LaunchPictureInput``): the tab strips and the focused
+    /// A key or a click waits on the picture (``LaunchPictureInput``): the tab strips and the focused
     /// pane are built in one `urgent` post, never in the input's turn, ahead of the frame-budgeted slices; each slice
     /// still runs once. Later calls do nothing.
     public func raise() {

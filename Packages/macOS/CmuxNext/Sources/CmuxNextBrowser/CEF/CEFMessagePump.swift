@@ -17,7 +17,7 @@ import Foundation
 /// request for "now" runs on the next run loop pass, never synchronously
 /// inside the CEF call that made it, and never waits for the queue's timer.
 /// The timer is owned, re-armed for each request and invalidated by
-/// `stop()`; there is no `asyncAfter`.
+/// `stop`; there is no `asyncAfter`.
 ///
 /// While a shown frame is late (`RenderStarvationGuard`, Chrome's
 /// `kRenderingStarved`) a pump with the guard runs one pass per late frame;
@@ -36,7 +36,7 @@ import Foundation
 /// takes no late frame's slice; pending keys to the page with the keyboard and input after a page
 /// input do not hold it (Chromium acks the page's input inside the pump), pending pointer input does.
 ///
-/// With a frame deadline (``CEFPumpFrameDeadline``, task p03-rendering-116) a due pass then runs only
+/// With a frame deadline (``CEFPumpFrameDeadline``) a due pass then runs only
 /// to the frame's commit, or waits for the next frame, a person's input turn or a plan apply's commit.
 ///
 /// Each timer fire is one main wake in the wakeup ledger (owner ``ledgerOwner``) with the reason it

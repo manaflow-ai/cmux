@@ -4,7 +4,7 @@ import GhosttyNextKit
 import QuartzCore
 
 /// Puts each resized terminal's frame at its new size into the Core Animation commit that carries the
-/// size, when the renderer thread has drawn it by then, and never waits for it (p03-rendering-084,
+/// size, when the renderer thread has drawn it by then, and never waits for it (
 /// ghostty-integration-DESIGN.md G1; feature `terminalPreCommitPresent`).
 ///
 /// A host-sized Ghostty surface draws a new size's frame on its renderer thread, text reflowed, and

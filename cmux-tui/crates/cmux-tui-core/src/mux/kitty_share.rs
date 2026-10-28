@@ -1,4 +1,4 @@
-//! The process Kitty byte total and how terminals share it (p07-memory-073,
+//! The process Kitty byte total and how terminals share it (
 //! plans/cmux-next/chrome-parity/p07-memory.md).
 //!
 //! A terminal may store `MAX_KITTY_IMAGE_BYTES` of images, and the daemon

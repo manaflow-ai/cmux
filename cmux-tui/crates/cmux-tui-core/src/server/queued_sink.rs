@@ -254,7 +254,7 @@ impl MessageSink for QueuedSink {
     fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {
         match self.control {
             Some(SinkControl::Unix(_)) => self.outbound.push_frame(header, text),
-            // Frames are granted only to local Unix peers (p05-ipc-060).
+            // Frames are granted only to local Unix peers.
             Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "frames ride only a local Unix connection",

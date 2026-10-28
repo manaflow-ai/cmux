@@ -7,7 +7,7 @@ import CmuxNextWakeups
 /// Every off-main request posted a block to the main run loop and woke it, even a delayed request
 /// whose deadline came after the pump's armed fire: the main thread woke only to keep the earlier
 /// deadline. Such a request is now kept here with no wake, and the main thread merges it into its
-/// schedule the next time it touches the pump (``take()``: before every pass and every re-arm),
+/// schedule the next time it touches the pump (``take``: before every pass and every re-arm),
 /// so it is never lost, whatever CEF reports after the pass, and a stale block that moves the
 /// armed fire later (a request posted before the drop but run after it) cannot strand it.
 ///
@@ -17,11 +17,11 @@ import CmuxNextWakeups
 /// - With an armed deadline already due, it goes through (the timer may be firing now).
 /// - A delayed request is kept, with no wake, only while the armed deadline is in the future and
 ///   not later than the request's own. Both are uptime nanoseconds: a fork that reports absolute run
-///   times (p14-energy-046) is compared as sent, a whole-millisecond delay from the caller's now.
+///   times is compared as sent, a whole-millisecond delay from the caller's now.
 /// - A fork's "no delayed work" keeps nothing and wakes nothing: an armed fire then runs one pass that
 ///   finds nothing due.
 ///
-/// The decision and the main thread's ``take()`` hold one lock, so a request is either merged by
+/// The decision and the main thread's ``take`` hold one lock, so a request is either merged by
 /// the next take or decided against the deadline that take publishes; none falls between them.
 /// A request that goes through is one main wake, recorded in the wakeup ledger (owner
 /// `CEFMessagePump`, reason `cross-thread request`); a kept one is a counter (``kept``).

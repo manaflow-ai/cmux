@@ -4,8 +4,8 @@ public import Foundation
 import os
 public import Sentry
 
-/// Writes each Sentry event of this launch as one envelope file instead of sending it
-/// (p09-observability-086). DEBUG and bench builds only: Release compiles none of it.
+/// Writes each Sentry event of this launch as one envelope file instead of sending it.
+/// DEBUG and bench builds only: Release compiles none of it.
 ///
 /// `CMUX_NEXT_SENTRY_RECORDER=<dir>` turns it on (``init(environment:)``); ``CrashReporter`` then installs it
 /// on its options. Events still pass the scrubber and the cmux-next labels first, so a file holds exactly

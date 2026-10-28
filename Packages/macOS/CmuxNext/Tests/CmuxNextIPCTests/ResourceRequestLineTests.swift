@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import CmuxNextIPC
 
-/// The generated `cmux.protocol/2` bindings (CmuxNextWireGen's ResourceEmitter, p05-ipc-024) and
+/// The generated `cmux.protocol/2` bindings (CmuxNextWireGen's ResourceEmitter) and
 /// the envelope builder `ResourceRequestLine` write the same lines the hand-built
 /// `ResourceRequestEnvelope` writes today, and read responses into typed results and errors.
 ///
-/// Each golden line spells out what `ResourceRequestEnvelope(...).line()` in CmuxNextDaemon
+/// Each golden line spells out what `ResourceRequestEnvelope(...).line` in CmuxNextDaemon
 /// encodes for the same call (DaemonConnection+TerminalResource `writeTerminal`, +Notifications
 /// `clearNotifications(terminal:)`, +ColumnUpdate's `screen.get`): sorted keys, unescaped
 /// slashes, the id as a decimal string, `machine` and `session` filled in as `current`.

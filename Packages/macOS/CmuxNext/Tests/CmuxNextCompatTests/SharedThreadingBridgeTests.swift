@@ -3,7 +3,7 @@ import CmuxThreading
 import Foundation
 import Testing
 
-/// The bridge that makes the app's blocking detector CmuxThreading's hook (p02-threads-130): the detector installs
+/// The bridge that makes the app's blocking detector CmuxThreading's hook: the detector installs
 /// it once per process, a shared package's kind is recorded under the app kind of the same name, and in Debug a
 /// shared `blockingCall` or a contended shared `Mutex` wait on the main thread is recorded like the app's own.
 /// Each test that records binds its own table (``BlockingViolationTable/scoped``).

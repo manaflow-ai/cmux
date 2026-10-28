@@ -12,8 +12,8 @@ import os
 /// acpmux's host budget, and the level the windows' top-row indicator shows.
 ///
 /// Stop condition: it runs while a window's indicator subscribes
-/// (`subscribe()`: the feature `hostPressure` is on and that window can be seen), and
-/// stops when the last one unsubscribes (every window hidden, minimized, occluded or closed) and at quit (`stop()`). Cleanup: the monitor ends its
+/// (`subscribe`: the feature `hostPressure` is on and that window can be seen), and
+/// stops when the last one unsubscribes (every window hidden, minimized, occluded or closed) and at quit (`stop`). Cleanup: the monitor ends its
 /// subscription to the app's memory pressure feed, cancels its timer and any read in flight, and drops
 /// a level change still queued.
 ///

@@ -6,7 +6,7 @@ import IOSurface
 import QuartzCore
 import Testing
 
-/// The terminal cursor on the render server (p03-rendering-091): Ghostty's present puts the cursor cell on its
+/// The terminal cursor on the render server: Ghostty's present puts the cursor cell on its
 /// layer in the frame's own transaction, main takes only the newest cell's blink, the blink runs only through
 /// ``LoopVisibility`` while shown and the motion gate allows blinks, follows a change of the motion settings at
 /// once, and a moved cursor is seen at once.

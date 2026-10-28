@@ -6,7 +6,7 @@ import CmuxScreenKit
 import Foundation
 import Testing
 
-/// p06-scheduler-335: Mac Screen's owners on the scheduler (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9):
+/// Mac Screen's owners on the scheduler (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9):
 /// app notices through the app's one observer per name, hidden views repaint once on show, deadlines carry a class,
 /// and side effects still run while nothing shows.
 @MainActor

@@ -3,7 +3,7 @@ import CmuxNextTrace
 import CmuxNextWakeups
 import Testing
 
-/// The action timing names the running action and its entrypoint in the crash-key page (p09-observability-078,
+/// The action timing names the running action and its entrypoint in the crash-key page (
 /// Chrome's `ScopedCrashKeyString`): set for the run's synchronous work, the outer run's back after it.
 @MainActor
 struct ActionRunPageCrashKeysTests {

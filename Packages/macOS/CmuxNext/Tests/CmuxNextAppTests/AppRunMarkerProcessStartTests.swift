@@ -4,7 +4,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// p09-observability-079: `run.json` carries the run's kernel process start, the value its black box and
+/// `run.json` carries the run's kernel process start, the value its black box and
 /// crash-key page headers carry, so the next launch puts only that process's files on its crash event.
 struct AppRunMarkerProcessStartTests {
     @Test func theProcessStartRoundTripsThroughRunJSON() throws {

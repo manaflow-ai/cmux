@@ -49,7 +49,7 @@ extension TerminalAttachment {
     }
 
     /// Attach lines whose decode is bulk: a snapshot (its history chunks inflate) and a byte replay. They always
-    /// decode on the connection's decode lane, never on its reader (p05-ipc-144).
+    /// decode on the connection's decode lane, never on its reader.
     static let bulkEvents: Set<String> = ["snapshot", "vt-state", "resized"]
 
     /// The reader's weighing of one attach line (``EventDispatch/weigh``), from its name and size only: bulk

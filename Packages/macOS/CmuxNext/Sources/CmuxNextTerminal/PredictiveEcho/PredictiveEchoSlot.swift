@@ -4,7 +4,7 @@ import CmuxNextCopyMode
 import CmuxNextWakeups
 import GhosttyNextKit
 
-/// A terminal session's echo predictions (`terminal.predictiveEcho`, p04-input-046). It rides on the
+/// A terminal session's echo predictions (`terminal.predictiveEcho`). It rides on the
 /// session's ``TerminalInputSink``, so every surface the session swaps in shares it; it works on the
 /// surface that took the last key.
 ///
@@ -15,7 +15,7 @@ import GhosttyNextKit
 ///   surface's keyDown the bytes belong to that key; any other write (a paste, a report, the CLI's
 ///   text) drops the predictions. The callback may run with Ghostty's terminal lock held, so nothing
 ///   here reads the grid inside it.
-/// - The view's `noteKeyTaken()` ends the key (``keyTaken(by:)``): its bytes go to the display, which
+/// - The view's `noteKeyTaken` ends the key (``keyTaken(by:)``): its bytes go to the display, which
 ///   reads the grid and shows the prediction in the key's frame.
 /// - It draws on a ``PredictiveEchoOverlay`` over the surface and ticks the display once per frame of
 ///   the surface's window while predictions wait for their echo.

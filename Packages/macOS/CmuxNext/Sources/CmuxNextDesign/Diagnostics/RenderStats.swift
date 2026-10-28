@@ -4,7 +4,7 @@ import ObjectiveC
 import QuartzCore
 
 /// Render work counted per owner class while a counting bench is armed:
-/// view frame sets, `layout()` calls, `updateLayer`/`draw(_:)` damage (rects
+/// view frame sets, `layout` calls, `updateLayer`/`draw(_:)` damage (rects
 /// and area in points), layer contents sets, window-server calls
 /// (`-[NSWindow setFrame:display:]`, `setAlphaValue:`) and tracking-area adds.
 ///
@@ -13,17 +13,17 @@ import QuartzCore
 /// while `record_rendering_stats` is on, and `cc::DamageTracker`
 /// (cc/trees/damage_tracker.cc) names the layers that damaged a frame. Here the
 /// hooks exist only in `DEBUG || CMUX_BENCH_HOOKS` builds and are installed only
-/// while armed; ``disarm()`` puts every original IMP back. In Release ``arm()``
+/// while armed; ``disarm`` puts every original IMP back. In Release ``arm``
 /// returns false and no hook is compiled.
 ///
 /// Method IMPs are process-wide, so the app has one instance: the composition
 /// root (AppControl) makes it and passes it to every probe (`debug.frames`,
 /// `debug.damage`), whose arms nest on it.
 ///
-/// The hooks go in and out off the main thread: ``arm()`` starts the class
+/// The hooks go in and out off the main thread: ``arm`` starts the class
 /// scan (kept while the runtime's class count stays the same) and the IMP
 /// swaps (each flushes method caches: about 0.8 s for all, on the fleet in
-/// Debug), and ``ready()`` waits for them; ``disarm()`` stops the counting at
+/// Debug), and ``ready`` waits for them; ``disarm`` stops the counting at
 /// once and queues the swaps back. Each method is hooked on its root class
 /// (`NSView`, `CALayer`, `NSWindow`) and on every subclass that defines its
 /// own, except `drawRect:` and `updateLayer`, which are hooked on
@@ -41,8 +41,8 @@ import QuartzCore
 /// (AppKit sends `setFrameOrigin:` and `setFrameSize:`).
 ///
 /// A producer that presents its frames itself, off the main thread and through no
-/// `setContents:` (a terminal's renderer with renderer-owned frames,
-/// p03-rendering-093), counts each shown frame as a contents set of its owner
+/// `setContents:` (a terminal's renderer with renderer-owned frames),
+/// counts each shown frame as a contents set of its owner
 /// through ``presentedFrames``, from the thread its presentation feedback runs
 /// on, as Chrome counts a frame at its presentation feedback
 /// (`viz::Display::DidReceivePresentationFeedback`, components/viz/service/display/display.cc).

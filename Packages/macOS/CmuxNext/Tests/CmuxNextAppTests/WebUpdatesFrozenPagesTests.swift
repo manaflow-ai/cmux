@@ -6,12 +6,12 @@ import Foundation
 @testable import CmuxNextWebUpdates
 import Testing
 
-/// The web update safe point with frozen pages (p13-webui-071, p13-webui.md 3.C). With feature
+/// The web update safe point with frozen pages (p13-webui.md 3.C). With feature
 /// `webUpdateReloadOnShow` it asks only the pages the page host shows, so a hidden or frozen page,
 /// which cannot answer, never holds the swap; the swap reloads the shown page and leaves the others
 /// to reload when they show. Without it every page that holds a document is asked and reloads.
 /// A stale page that shows is asked first and reloads only when it allows it, so a reload never loses
-/// what it holds (``WebUpdates/askShownStale()``).
+/// what it holds (``WebUpdates/askShownStale``).
 @MainActor @Suite(.serialized)
 struct WebUpdatesFrozenPagesTests {
     /// A page as the safe point sees it: whether it shows, what it answers, what the swap did to it.

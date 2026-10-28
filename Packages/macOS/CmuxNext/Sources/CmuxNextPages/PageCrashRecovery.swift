@@ -19,7 +19,7 @@ package final class PageCrashRecovery {
     var groups: PageCrashGroups?
     /// The page's WebKit view joined the host's shared WebContent processes (``WebProcessGroups``).
     var sharesWebKitProcess = false
-    /// Where the page's WebKit content-process ends go as stability events (p09-observability-108); its host sets the
+    /// Where the page's WebKit content-process ends go as stability events; its host sets the
     /// app's one (``WebUIHost/rendererStability``), nil records none.
     var stability: RendererStability?
     private var own = PageCrashReloads()

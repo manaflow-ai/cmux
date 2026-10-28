@@ -1,13 +1,13 @@
 import AppKit
 import CmuxNextDesign
 
-/// Visibility from the motion plan (chrome-parity p03-rendering-106). A visibility pass reads the whole way each
-/// pane goes from now to its rest (``ScreenContentView/displayedSweeps()``), so the pass at a change's apply covers
+/// Visibility from the motion plan. A visibility pass reads the whole way each
+/// pane goes from now to its rest (``ScreenContentView/displayedSweeps``), so the pass at a change's apply covers
 /// both ends of its motion and every overshoot between: a pane that enters is visible in the change's turn, one that
 /// leaves stays visible until the motion lands, and the pass at the landing narrows to the rest. This plan is the
 /// rest of what the pass reads: the rests (one reconcile pass), each camera's rest, the bounds, and whether a motion
 /// is in flight. A display frame that changes none of it changes no pane's presence, so the root runs no pass on it
-/// (`LayoutRootView.updateVisibilityIfPlanChanged()`). A camera a pan holds is left out: the pan's own events run
+/// (`LayoutRootView.updateVisibilityIfPlanChanged`). A camera a pan holds is left out: the pan's own events run
 /// the pass when a pane enters or leaves (`LayoutRootView+Scroll`, `ScreenContentView.panKeepsVisibility`).
 /// Chromium's window occlusion works the same way (`ui/aura/window_occlusion_tracker.cc`): a window with a running
 /// animation counts as visible and occludes nothing (`WindowIsAnimated`) over its whole animation, and occlusion
@@ -21,7 +21,7 @@ nonisolated struct ScreenVisibilityPlan: Equatable {
     var areas: [SplitID: CGFloat]
     var inFlight: Bool
     var flinging: Bool
-    /// A row or scroll area fling runs on the render server (p04-input-050): the sweep holds its whole way.
+    /// A row or scroll area fling runs on the render server: the sweep holds its whole way.
     var scrollersFlinging: Bool
 }
 

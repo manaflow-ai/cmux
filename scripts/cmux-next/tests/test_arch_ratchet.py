@@ -512,7 +512,7 @@ class SingletonTests(Repo):
     def test_a_nested_type_shadows_the_system_type_of_its_name_in_its_own_file(self):
         # p06-scheduler-004 review: CmuxNextFeatures' value struct `Feature` holds a nested `enum Process`; Swift
         # resolves `Process` inside `Feature` to that enum, so a generated `static let x = Feature(...)` holds no
-        # Foundation.Process. Another file of the package that says `Process()` still means Foundation's.
+        # Foundation.Process. Another file of the package that says `Process` still means Foundation's.
         self.write(f"{SRC}/CmuxNextDomain/Feature.swift",
                    "public struct Feature: Sendable {\n    public enum Process: String, Sendable {\n        case app\n    }\n"
                    "    public let process: Process\n    public static let local = Feature(process: .app)\n}\n")

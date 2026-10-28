@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// The input latency ledger (p04-input-002): rows per kind x target x entrypoint x presentation
+/// The input latency ledger: rows per kind x target x entrypoint x presentation
 /// source whose bucket counts add up, skipped stages that add no sample, Chrome's drop of non-key
 /// inputs with no frame update, lost slots counted, and cc's scroll jank formula
 /// (cc/metrics/scroll_jank_dropped_frame_tracker.cc), with a frame split across batches and a
@@ -386,7 +386,7 @@ struct InputLatencyLedgerTests {
     }
 
     @Test func aScrollThatSpansATakeIsMeasuredAsOneScroll() throws {
-        // p04-input-010: a report takes deltas (UMA's histogram_snapshot_manager.cc); cc's
+        // A report takes deltas (UMA's histogram_snapshot_manager.cc); cc's
         // ScrollJankDroppedFrameTracker keeps its state, so the frame after the take is judged
         // against the frame before it, not skipped as a scroll's first frame.
         let start: UInt64 = 1_000 * Self.ms

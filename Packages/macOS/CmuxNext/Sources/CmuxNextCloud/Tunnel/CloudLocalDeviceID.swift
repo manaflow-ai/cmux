@@ -1,14 +1,14 @@
 public import CmuxNextWakeups
 import Foundation
 
-/// This Mac's install id on the main thread (p08-startup-076), kept once known, so a focus move does no file I/O.
+/// This Mac's install id on the main thread, kept once known, so a focus move does no file I/O.
 /// The launch's read (``CloudDeviceIDSource``) has it; when that read failed, the next ask reads `device-id` again on
 /// a files lane, so one failure to make it at launch never lasts the session. The main thread never reads the file
 /// itself, except with no launch read of these paths (tests), where the first ask reads it.
 ///
 /// ```swift
 /// let deviceID = CloudLocalDeviceID(paths: paths, launch: environment.cloudDeviceID, work: work, mainWork: mainWork)
-/// let id = try deviceID.id()   // never waits; `.notReadYet` while a read runs
+/// let id = try deviceID.id   // never waits; `.notReadYet` while a read runs
 /// ```
 @MainActor
 public final class CloudLocalDeviceID {

@@ -2,12 +2,12 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// The launch picture over the live root, region by region (p08-startup-060, plans/cmux-next/chrome-parity/
+/// The launch picture over the live root, region by region (plans/cmux-next/chrome-parity/
 /// p08-startup.md section 3A, P4). The one ``LaunchPictureView`` that was the window's first frame stays over the live
 /// root while the root is built behind it, masked: each part covers one region of the window (the sidebar, one
 /// visible pane) and leaves at that region's own first meaningful content; the rest of the window (the title row,
-/// the gutters, the screen bar) leaves with the last part, once no part comes later (``seal()``). The bound
-/// (``LaunchPicturePhase/bound``) takes every part down (``leaveAll()``).
+/// the gutters, the screen bar) leaves with the last part, once no part comes later (``seal``). The bound
+/// (``LaunchPicturePhase/bound``) takes every part down (``leaveAll``).
 ///
 /// Chrome's Android startup keeps its first tab's capture until that tab's first meaningful paint, then fades it out
 /// (chrome/android/java/src/org/chromium/chrome/browser/paint_preview/StartupPaintPreview.java). A cmux window has many
@@ -15,14 +15,14 @@ import CmuxNextDesign
 ///
 /// The mask holds one opaque layer per part over its area and one even-odd layer for the rest of the picture; a part
 /// leaves when its layer fades to clear through the `Motion.panes` gate (`.fadeOut`; one frame with animations off).
-/// The areas are read again at each ``layout()`` (the root's layout calls it). Once the rest left, `finished` runs
+/// The areas are read again at each ``layout`` (the root's layout calls it). Once the rest left, `finished` runs
 /// (after the fade), and the phase takes the picture away.
 ///
 /// ```swift
-/// let regions = LaunchPictureRegions(picture: picture) { phase.remove() }
+/// let regions = LaunchPictureRegions(picture: picture) { phase.remove }
 /// let sidebar = regions.add { picture in sidebarView.convert(sidebarView.bounds, to: picture) }
 /// reveal.whenProduced(.sidebar) { regions.leave(sidebar) }
-/// regions.seal()
+/// regions.seal
 /// ```
 @MainActor
 public final class LaunchPictureRegions {
@@ -50,7 +50,7 @@ public final class LaunchPictureRegions {
     /// The bound took the picture down (``leaveAll()``): no part left for its content.
     private var isExpired = false
     private var finished: (@MainActor () -> Void)?
-    /// Runs as a part or the rest leaves (p08-startup-061, ``LaunchPictureInput``'s held clicks): its name
+    /// Runs as a part or the rest leaves (``LaunchPictureInput``'s held clicks): its name
     /// (``holder(at:)``) and whether its region drew its content (false at the bound).
     var partLeft: (@MainActor (_ holder: String, _ drawn: Bool) -> Void)?
     /// The whole picture left: every part and the rest.

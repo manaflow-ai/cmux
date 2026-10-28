@@ -1,5 +1,5 @@
 //! The daemon-wide sequenced pool (plans/cmux-next/chrome-parity/p05-ipc.md
-//! section 3.4, task p05-ipc-073).
+//! section 3.4).
 //!
 //! Chrome runs a process's work as tasks on sequences of one ThreadPool
 //! ("We prefer sequences to threads", docs/threading_and_tasks.md): a
@@ -117,7 +117,7 @@ impl SequencePriority {
     }
 
     /// The workers' QoS class. Input runs at the request class until the
-    /// PL-qos exception row raises it (p05-ipc-080).
+    /// PL-qos exception row raises it.
     const fn qos(self) -> ThreadQos {
         match self {
             Self::Input | Self::Control => REQUEST_THREAD_QOS,
@@ -198,8 +198,8 @@ type Task = Box<dyn FnOnce() + Send + 'static>;
 
 type SpawnFn = dyn Fn(&'static str, ThreadQos, Task) -> io::Result<()> + Send + Sync;
 
-/// Starts a detached worker thread: a supervised thread (Fatal,
-/// p10-stability-112) by default, a stand-in that fails in tests. A task's
+/// Starts a detached worker thread: a supervised thread (Fatal)
+/// by default, a stand-in that fails in tests. A task's
 /// own panic is caught in the worker loop; a failure of the worker itself
 /// ends the process.
 #[derive(Clone)]

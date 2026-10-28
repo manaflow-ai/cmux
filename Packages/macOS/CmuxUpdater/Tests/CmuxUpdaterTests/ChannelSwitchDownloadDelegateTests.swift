@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxUpdater
 
 /// The channel-switch download delegate keeps its continuation, move error and early completion in
-/// one `Mutex<State>` (p10-stability-060), so it is plainly `Sendable`. These drive each state
+/// one `Mutex<State>`, so it is plainly `Sendable`. These drive each state
 /// transition through the URLSession delegate entry points with an unresumed task. The time limit
 /// turns a lost resume (a continuation kept in `State` but never taken) into a failure, not a hang.
 @Suite(.timeLimit(.minutes(1))) struct ChannelSwitchDownloadDelegateTests {

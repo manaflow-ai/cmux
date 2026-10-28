@@ -1,21 +1,21 @@
 public import CmuxNextCompat
 
-/// The `blocking_sites` part of the next report (p12-perf-process-226): what the blocking detector's main-thread
+/// The `blocking_sites` part of the next report: what the blocking detector's main-thread
 /// sites counted since the last queued report. The detector's counters run from launch (a known site's repeat is
 /// one relaxed atomic increment, no stack), so a report sends the difference from the read the last queued report
 /// ended at, as ``MainThreadReportLedger`` does for the turn histograms and Chrome's `HistogramSnapshotManager`
 /// sends each upload's delta (base/metrics/histogram_snapshot_manager.cc): the server adds reports, so a call is
 /// counted once.
 ///
-/// ``take()`` reads without changing anything; ``commit(_:)`` moves the baseline of the sites that report sent once
+/// ``take`` reads without changing anything; ``commit(_:)`` moves the baseline of the sites that report sent once
 /// it is queued, so a site past the report's top ``HangReport/maxBlockingSites`` stays pending for a later one.
 /// A `debug.blocking reset` zeroes the counters and adds one to the read's reset count, which puts every baseline
-/// back at zero. ``saved()`` keeps what is not yet sent across a quit (``merge(_:)`` at the next launch). A build
+/// back at zero. ``saved`` keeps what is not yet sent across a quit (``merge(_:)`` at the next launch). A build
 /// without the detector reads no site, so its reports carry none.
 ///
 /// ```swift
 /// let ledger = BlockingSiteLedger(sites: { detector.mainThreadRead })
-/// let taken = ledger.take()
+/// let taken = ledger.take
 /// let report = builder.build(context: context, watchdog: aggregate, metricKit: inputs, blockingSites: taken.sites)
 /// // queue the body, then:
 /// ledger.commit(taken)
