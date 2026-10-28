@@ -2,11 +2,6 @@ import CMUXAgentLaunch
 import CmuxControlSocket
 import Foundation
 
-private struct BoundedLayoutResult {
-    let layout: SessionWorkspaceLayoutSnapshot
-    let isEmpty: Bool
-}
-
 /// What `SessionSnapshotImportTrust` removed or held back from an imported
 /// session file.
 struct SessionSnapshotImportTrustReport: Equatable, Sendable {
@@ -71,6 +66,11 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
 /// Snapshots read from another install's own session file (a channel import)
 /// keep full trust and do not go through this.
 enum SessionSnapshotImportTrust {
+    private struct BoundedLayoutResult {
+        let layout: SessionWorkspaceLayoutSnapshot
+        let isEmpty: Bool
+    }
+
     /// Built-in Vault registrations, keyed by id. File content is never used
     /// for these; the app's own definition replaces it.
     static var builtInRegistrationsByID: [String: CmuxVaultAgentRegistration] {

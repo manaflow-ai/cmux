@@ -119,7 +119,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         }
         switch Self.readRegularFile(atPath: fileURL.path, maximumBytes: Self.maximumImportableSnapshotBytes) {
         case .data(let data):
-            guard case .allowed = Self.jsonIsWithinDecodeLimits(data) else {
+            guard Self.jsonIsWithinDecodeLimits(data) else {
                 return .failure(.resourceLimitExceeded(fileURL))
             }
             return importableSnapshot(data: data, fileURL: fileURL)
@@ -181,12 +181,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
     private static var maximumJSONNesting: Int { 512 }
     private static var maximumJSONStructuralTokens: Int { 1_000_000 }
 
-    private enum JSONDecodeLimitCheck {
-        case allowed
-        case rejected
-    }
-
-    private static func jsonIsWithinDecodeLimits(_ data: Data) -> JSONDecodeLimitCheck {
+    private static func jsonIsWithinDecodeLimits(_ data: Data) -> Bool {
         var nesting = 0
         var structuralTokens = 0
         var inString = false
@@ -197,7 +192,7 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
         for byte in data {
             if expectedContinuationBytes > 0 {
                 guard byte >= minimumContinuationByte, byte <= maximumContinuationByte else {
-                    return .rejected
+                    return false
                 }
                 expectedContinuationBytes -= 1
                 minimumContinuationByte = 0x80
@@ -228,17 +223,17 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             default:
                 // Reject UTF-16/32, invalid UTF-8, and other encodings before
                 // the byte scanner can mistake a low byte for JSON syntax.
-                return .rejected
+                return false
             }
             if byte < 0x20,
                byte != 0x09, byte != 0x0A, byte != 0x0D, byte != 0x20 {
-                return .rejected
+                return false
             }
             if inString {
                 if escaped {
                     escaped = false
                 } else if byte < 0x20 {
-                    return .rejected
+                    return false
                 } else if byte == 92 { // backslash
                     escaped = true
                 } else if byte == 34 { // quote
@@ -252,22 +247,22 @@ public struct SessionSnapshotRepository<SnapshotValue: SessionSnapshotRepresenti
             case 91, 123: // [ or {
                 structuralTokens += 1
                 nesting += 1
-                if nesting > maximumJSONNesting { return .rejected }
+                if nesting > maximumJSONNesting { return false }
             case 93, 125: // ] or }
                 structuralTokens += 1
                 nesting -= 1
-                if nesting < 0 { return .rejected }
+                if nesting < 0 { return false }
             case 58, 44: // : or ,
                 structuralTokens += 1
             default:
                 break
             }
-            if structuralTokens > maximumJSONStructuralTokens { return .rejected }
+            if structuralTokens > maximumJSONStructuralTokens { return false }
         }
         guard expectedContinuationBytes == 0, !inString, nesting == 0 else {
-            return .rejected
+            return false
         }
-        return .allowed
+        return true
     }
 
     private func importableSnapshot(
