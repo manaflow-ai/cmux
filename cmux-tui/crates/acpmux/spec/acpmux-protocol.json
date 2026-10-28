@@ -704,6 +704,18 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/queue_approve",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/queue_decline",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/draft_get",
       "params": true,
       "result": true
@@ -3200,6 +3212,11 @@
           ],
           "description": "The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,\n`author.rs`), null for the owner's and for an agent's message: an app shows it under their\nname and offers none of its own actions on it (only they change it, `queue.not_author`).\nKept across a restart and by their own edit."
         },
+        "awaitingOwner": {
+          "default": false,
+          "description": "A person's prompt that waits for the chat's owner (`author.approval: \"owner\"`): the queue\nruns past it until the owner approves it (`_acpmux/queue_approve`, naming `revision`) or\ndeclines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.",
+          "type": "boolean"
+        },
         "client": {
           "type": "string"
         },
@@ -3233,12 +3250,20 @@
           "minimum": 0,
           "type": "integer"
         },
+        "revision": {
+          "default": 0,
+          "description": "Its version for the owner's approval: 0 when queued, one more at each edit by its author.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "turnId": {
           "type": "string"
         }
       },
       "required": [
         "author",
+        "awaitingOwner",
         "client",
         "fromAgent",
         "held",
@@ -3246,6 +3271,7 @@
         "prompt",
         "promptId",
         "queuedAt",
+        "revision",
         "turnId"
       ],
       "type": "object"

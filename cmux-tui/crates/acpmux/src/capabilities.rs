@@ -85,6 +85,11 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "chat-presence-v1", wire: &[method::MUX_TYPING, method::MUX_PRESENCE] },
     // Edit or remove a queued prompt, and send a steer now (`hub/queue_edit.rs`).
     Capability { id: "queue-edit-v1", wire: &[method::MUX_QUEUE_EDIT, method::MUX_QUEUE_REMOVE] },
+    // A person's prompt waits for the owner, who approves or declines it (`hub/queue_approve.rs`).
+    Capability {
+        id: "queue-approval-v1",
+        wire: &[method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE],
+    },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",

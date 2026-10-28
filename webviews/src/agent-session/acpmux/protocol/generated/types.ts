@@ -586,6 +586,12 @@ export type QueuedPromptSummary = {
    * Kept across a restart and by their own edit.
    */
   author: (QueuedAuthor | null);
+  /**
+   * A person's prompt that waits for the chat's owner (`author.approval: "owner"`): the queue
+   * runs past it until the owner approves it (`_acpmux/queue_approve`, naming `revision`) or
+   * declines it (`_acpmux/queue_decline`). The owner's pane draws Approve and Decline on it.
+   */
+  awaitingOwner: boolean;
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
@@ -599,6 +605,8 @@ export type QueuedPromptSummary = {
   prompt: string;
   promptId: string;
   queuedAt: number;
+  /** Its version for the owner's approval: 0 when queued, one more at each edit by its author. */
+  revision: number;
   turnId: string;
 } & Record<string, unknown>;
 

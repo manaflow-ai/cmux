@@ -16,6 +16,11 @@ mod lost_start;
 #[path = "queue_waiting.rs"]
 mod queue_waiting;
 
+// `_acpmux/queue_approve` and `_acpmux/queue_decline`: a person's prompt waits for the owner.
+#[path = "queue_approve.rs"]
+mod queue_approve;
+pub(super) use queue_approve::approved_error;
+
 // `_meta.acpmux.supersede`: a prompt replaces its sender's queued one under the same key.
 #[path = "supersede.rs"]
 pub(super) mod supersede;
@@ -43,6 +48,15 @@ pub struct QueuedPrompt {
     pub(super) steer: bool,
     /// Waited behind a turn that failed (`pause_queue`): it waits until the queue is resumed.
     pub(super) held: bool,
+    /// A person's prompt that waits for the owner (`author.rs` `approval`, `queue_approve.rs`):
+    /// skipped like a held one until approved, never steered.
+    pub(super) awaiting_owner: bool,
+    /// Its version for the owner's approval: 0 when queued, one more at each edit by its author
+    /// (`queue_edit.rs`). `_acpmux/queue_approve` names the one the owner saw.
+    pub(super) revision: u64,
+    /// Set by `_acpmux/queue_decline` before it is withdrawn: its `session/prompt` answers
+    /// `queue.declined`.
+    pub(super) declined: Arc<std::sync::atomic::AtomicBool>,
     /// Sent now (`put_next`): a turn that fails as it stops does not hold it.
     pub(super) sent_now: bool,
     /// Set when it went in with an earlier agent message's turn (`digest.rs`): its waiting task
@@ -59,6 +73,11 @@ impl QueuedPrompt {
     /// The person who sent it (`author.rs`), `None` for the owner or an agent.
     pub(super) fn sender(&self) -> Option<&str> {
         crate::author::of_provenance(self.run.provenance.as_ref())
+    }
+
+    /// It waits aside, not for its place: a failed turn holds it, or it waits for the owner.
+    pub(super) fn aside(&self) -> bool {
+        self.held || self.awaiting_owner
     }
 }
 
@@ -111,6 +130,11 @@ pub(super) struct Slot<'a> {
     pub(super) no_queue: bool,
 }
 
+/// What a queued prompt's task waits on (`enqueue`): its withdrawal, the turn it joined
+/// (`digest.rs`), and whether the owner declined it.
+type Waits =
+    (Arc<Notify>, Arc<StdMutex<Option<super::digest::Joined>>>, Arc<std::sync::atomic::AtomicBool>);
+
 /// What a prompt's `session/prompt` answers.
 pub(super) type Answer = Result<Value, RpcError>;
 
@@ -139,7 +163,7 @@ pub(super) fn withdrawn_reply(prompt_id: &str, turn_id: &str) -> Value {
 /// queue's lock.
 fn queue_waits(session: &Session) -> bool {
     let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    queue.iter().any(|q| !q.held)
+    queue.iter().any(|q| !q.aside())
 }
 
 impl Hub {
@@ -166,7 +190,7 @@ impl Hub {
             i.map(|i| {
                 let turn_id = ids.remove(i).1;
                 let q = queue.iter().find(|q| q.turn_id == turn_id);
-                (turn_id, q.map(|q| (q.withdraw.clone(), q.joined.clone())))
+                (turn_id, q.map(|q| (q.withdraw.clone(), q.joined.clone(), q.declined.clone())))
             })
         };
         let (turn_id, withdraw) = match restored {
@@ -189,20 +213,28 @@ impl Hub {
                 if p.agent.is_some() {
                     self.release_held_agent_messages(session);
                 }
-                // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
-                let held = session.queue().iter().filter(|q| q.held).count() as u64;
-                let waiting = session.turn().is_some() || session.queued() > held;
+                // Prompts a failed turn holds (`pause_queue`) or that wait for the owner do not
+                // hold up a new one. A prompt that waits for the owner (its provenance's
+                // `approval`, `author.rs`) always queues.
+                let held = session.queue().iter().filter(|q| q.aside()).count() as u64;
+                let awaiting_owner = crate::author::awaits_owner(p.provenance);
+                let waiting = session.turn().is_some() || session.queued() > held || awaiting_owner;
                 // It never queues: busy when the queue's own test says it would wait. The turn
                 // lock is tried below, and the queue read again under it.
                 if p.no_queue && waiting {
                     return Err(Err(super::auto_resume::retry_turn::busy()));
                 }
+                if awaiting_owner {
+                    queue_approve::held_cap(session, p.provenance).map_err(Answer::Err)?;
+                }
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
                     let waits = self.enqueue(session, &p, position, &turn_id);
-                    accept(
-                        json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
-                    );
+                    let mut accepted = json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position});
+                    if awaiting_owner {
+                        accepted["awaitingOwner"] = json!(true);
+                    }
+                    accept(accepted);
                     waits
                 });
                 (turn_id, withdraw)
@@ -269,7 +301,7 @@ impl Hub {
                 }
             }
         };
-        let (withdraw, joined) = withdraw;
+        let (withdraw, joined, declined) = withdraw;
         // A steer the agent cannot take goes next, and stops the turn that runs now, unless it was
         // aimed at a turn that has ended since: the one running now is another prompt's.
         if p.interrupt {
@@ -291,6 +323,9 @@ impl Hub {
                     let went_in = joined.lock().unwrap_or_else(|e| e.into_inner()).clone();
                     let answer = match went_in {
                         Some(went_in) => super::digest::joined_reply(&went_in, p.prompt_id).await,
+                        None if declined.load(Ordering::SeqCst) => {
+                            Err(queue_approve::declined_error(p.prompt_id, &turn_id))
+                        }
                         None => Ok(withdrawn_reply(p.prompt_id, &turn_id)),
                     };
                     if session.queue().iter().any(|q| q.turn_id == turn_id) {
@@ -354,15 +389,11 @@ impl Hub {
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
     /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
     /// agent message's turn (then `joined` is set, `digest.rs`).
-    fn enqueue(
-        &self,
-        session: &Arc<Session>,
-        p: &Slot<'_>,
-        position: u64,
-        turn_id: &str,
-    ) -> (Arc<Notify>, Arc<StdMutex<Option<super::digest::Joined>>>) {
+    fn enqueue(&self, session: &Arc<Session>, p: &Slot<'_>, position: u64, turn_id: &str) -> Waits {
         let withdraw = Arc::new(Notify::new());
         let joined = Arc::new(StdMutex::new(None));
+        let declined = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let awaiting_owner = crate::author::awaits_owner(p.provenance);
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // The sender's prompts under its key leave under the lock that puts this one in
         // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
@@ -401,6 +432,9 @@ impl Hub {
                 resume: false,
                 steer: false,
                 held: false,
+                awaiting_owner,
+                revision: 0,
+                declined: declined.clone(),
                 sent_now: false,
                 joined: joined.clone(),
                 requeued: false,
@@ -422,6 +456,11 @@ impl Hub {
         }
         if let Some(key) = p.supersede {
             queued["supersede"] = json!(key);
+        }
+        // It waits for the owner (`queue_approve.rs`); a restart keeps it waiting.
+        if awaiting_owner {
+            queued["awaitingOwner"] = json!(true);
+            queued["revision"] = json!(0);
         }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
@@ -455,7 +494,7 @@ impl Hub {
                 json!({"promptId": p.prompt_id, "order": order}),
             );
         }
-        (withdraw, joined)
+        (withdraw, joined, declined)
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -493,14 +532,15 @@ impl Hub {
                 () = withdraw.notified() => return Wait::Withdrawn,
                 () = moved.as_mut() => continue,
             };
-            // Prompts a failed turn holds wait wherever they are; the first other one is next. Read
-            // with the lock held: the turn that just ended may have held this one.
+            // Prompts a failed turn holds, or that wait for the owner, wait wherever they are; the
+            // first other one is next. Read with the lock held: the turn that just ended may have
+            // held this one.
             let (head, held, provenance) = {
                 let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 let mine = queue.iter().find(|q| q.turn_id == turn_id);
-                let held = mine.is_some_and(|q| q.held);
+                let held = mine.is_some_and(QueuedPrompt::aside);
                 let provenance = mine.and_then(|q| q.run.provenance.clone());
-                let head = queue.iter().find(|q| !q.held).is_none_or(|q| q.turn_id == turn_id);
+                let head = queue.iter().find(|q| !q.aside()).is_none_or(|q| q.turn_id == turn_id);
                 (head, held, provenance)
             };
             let moving = session.moving().is_some();
@@ -725,8 +765,13 @@ impl Hub {
         self.append(session, "mux", "queue_removed", msg);
         // Finish the best-effort append before settlement can evict the retry identity.
         if removed.restored {
+            let answer = if removed.declined.load(Ordering::SeqCst) {
+                Err(queue_approve::declined_error(prompt_id, &removed.turn_id))
+            } else {
+                Ok(withdrawn_reply(prompt_id, &removed.turn_id))
+            };
             if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
-                outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
+                outcome.send_replace(Some(answer));
             }
             prompt_ledger::prune(ledger);
         }
@@ -751,6 +796,9 @@ impl Hub {
         "queue_paused",
         "queue_resumed",
         "queue_order",
+        // The owner's answer to a prompt that waits for them (`queue_approve.rs`).
+        "queue_approved",
+        "queue_declined",
         // What settles a dequeued prompt (`lost_start.rs`).
         "turn_result",
         "prompt_refused",
@@ -774,6 +822,8 @@ impl Hub {
         let mut waiting = queue_waiting::Waiting::default();
         let mut order = queue_waiting::Order::default();
         let mut held: std::collections::HashSet<String> = Default::default();
+        // The revision of each prompt the owner approved (`queue_approve.rs`).
+        let mut approved: HashMap<String, Option<u64>> = Default::default();
         // A move that began and neither committed nor aborted (`transfer_out.rs`); a chat
         // moved here was the source's until its `imported` record.
         let mut moving: Option<String> = None;
@@ -831,8 +881,14 @@ impl Hub {
                     "dequeued" | "user_message" if unstarted.holds(turn_id) => {
                         unstarted.lead(&mut order);
                     }
-                    "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
+                    "dequeued" | "queue_removed" | "queue_declined" | "user_message"
+                    | "turn_started" => {
                         waiting.remove_turn(turn_id);
+                    }
+                    "queue_approved" => {
+                        if let Some(id) = e.msg.get("promptId").and_then(Value::as_str) {
+                            approved.insert(id.to_owned(), e.msg["revision"].as_u64());
+                        }
                     }
                     // An edit (`queue_edit.rs`): the prompt and its rules replace the queued ones,
                     // and it has no `_meta.provenance` (the person rewrote it), unless the edit
@@ -848,6 +904,9 @@ impl Hub {
                                 "displayParts",
                                 "images",
                                 "pasted",
+                                // An edit of a prompt that waits for the owner waits again.
+                                "awaitingOwner",
+                                "revision",
                             ] {
                                 if let Some(value) = e.msg.get(k) {
                                     q.msg[k] = value.clone();
@@ -967,6 +1026,12 @@ impl Hub {
                 resume: true,
                 steer: false,
                 held: held.contains(&prompt_id),
+                // Its approval counts for the revision the owner saw, which an edit since
+                // replaced.
+                awaiting_owner: e.msg.get("awaitingOwner") == Some(&Value::Bool(true))
+                    && approved.get(&prompt_id) != Some(&e.msg["revision"].as_u64()),
+                revision: e.msg["revision"].as_u64().unwrap_or(0),
+                declined: Default::default(),
                 sent_now: false,
                 joined: Arc::new(StdMutex::new(None)),
                 requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),

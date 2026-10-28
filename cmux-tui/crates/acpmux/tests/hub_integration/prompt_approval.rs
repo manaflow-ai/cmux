@@ -1,0 +1,200 @@
+//! A guest's prompt waits for the owner (Share with guest, hq#4766, `hub/queue_approve.rs`): an
+//! author with `approval: "owner"` queues it, never steered in, and the queue runs past it until
+//! the owner approves it at the revision they saw (`_acpmux/queue_approve`) or declines it
+//! (`_acpmux/queue_decline`, its `session/prompt` answering `queue.declined`). Only the owner
+//! answers; the guest edits (a new revision, still waiting) or removes it, and nothing else of
+//! theirs runs it. A restart keeps all of it.
+
+use super::prompt_provenance::{Client, by, hub, hub_env, prompt, reason};
+use acpmux::config::{Config, StoreMode};
+use acpmux::hub::Hub;
+use serde_json::{Value, json};
+use std::path::Path;
+use std::sync::Arc;
+
+const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+
+fn guest() -> Value {
+    json!({"id": "guest:k3x9", "name": "Cy", "approval": "owner"})
+}
+
+/// The guest's prompt `id`.
+fn held(session: &str, id: &str, text: &str) -> Value {
+    by(prompt(session, id, text, None), Some(&guest()))
+}
+
+fn answer(session: &str, id: &str, revision: Option<u64>) -> Value {
+    let mut params = json!({"sessionId": session, "promptId": id, "_meta": {"acpmux": {}}});
+    if let Some(revision) = revision {
+        params["revision"] = json!(revision);
+    }
+    params
+}
+
+fn edit(session: &str, id: &str, op: &str) -> Value {
+    let params = json!({"sessionId": session, "promptId": id, "op": op, "text": "my rewrite",
+                        "index": 0, "_meta": {"acpmux": {}}});
+    by(params, Some(&guest()))
+}
+
+/// The session summary's queue.
+fn queue(hub: &Arc<Hub>, session: &str) -> Vec<Value> {
+    let summary = hub.session_summary(&hub.resolve(session).unwrap());
+    summary["queue"].as_array().cloned().unwrap_or_default()
+}
+
+async fn ran(c: &mut Client, session: &str, id: &str) -> bool {
+    c.records(session, "user_message").await.iter().any(|m| m["promptId"] == id)
+}
+
+/// Its steer asks to go into the running turn; it waits for the owner instead, the owner's own
+/// prompt runs past it, and the owner's approval at its revision runs it under its author.
+#[tokio::test]
+async fn a_guests_prompt_waits_while_the_owners_run_past_it() {
+    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    let mut steer = held(&session, "g-1", "guest words");
+    steer["_meta"]["acpmux"]["steer"] = json!(true);
+    steer["_meta"]["acpmux"]["interrupt"] = json!(true);
+    let waiting = c.queue(steer.clone()).await;
+    // A resend of the same id waits for the first: no second copy.
+    let again = c.send("session/prompt", steer).await;
+    let dup = c.until(|v| v["method"] == "_acpmux/prompt_accepted").await;
+    assert_eq!(dup["params"]["duplicate"], true, "{dup}");
+    let listed = queue(&hub, &session);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!(listed[0]["awaitingOwner"], true, "{listed:?}");
+    assert_eq!(listed[0]["revision"], 0, "{listed:?}");
+    let owner = c.queue(prompt(&session, "p-owner", "owner words", None)).await;
+    c.cancel(&session).await;
+    assert!(c.reply_to(owner).await.get("error").is_none());
+    assert!(!ran(&mut c, &session, "g-1").await, "it ran before the owner approved it");
+    let queued = c.records(&session, "queued").await;
+    let queued = queued.iter().find(|m| m["promptId"] == "g-1").expect("its queued record");
+    assert_eq!((&queued["awaitingOwner"], &queued["revision"]), (&json!(true), &json!(0)));
+
+    let authored = by(answer(&session, "g-1", Some(0)), Some(&guest()));
+    let refused = c.reply("_acpmux/queue_approve", authored).await;
+    assert_eq!(reason(&refused), "queue.owner_only", "{refused}");
+    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(1))).await;
+    assert_eq!(reason(&stale), "queue.stale", "{stale}");
+    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    // Both answers, in either order.
+    for _ in 0..2 {
+        let done = c.until(|v| [waiting, again].iter().any(|id| v.get("id") == Some(&json!(id))));
+        assert!(done.await.get("error").is_none());
+    }
+    let message = c.user_message(&session, "g-1").await;
+    assert_eq!(message.pointer("/_meta/provenance/from"), Some(&json!("guest:k3x9")));
+    assert_ne!(message["steer"], true, "it went in as a steer: {message}");
+    let late = c.reply("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    assert_eq!(reason(&late), "queue.not_found", "{late}");
+    assert_eq!(late.pointer("/error/data/decided"), Some(&json!("approved")), "{late}");
+}
+
+#[tokio::test]
+async fn a_declined_prompt_answers_declined_and_never_runs() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    // Nothing runs: it waits for the owner all the same.
+    let waiting = c.queue(held(&session, "g-1", "guest words")).await;
+    let authored = by(answer(&session, "g-1", None), Some(&guest()));
+    let refused = c.reply("_acpmux/queue_decline", authored).await;
+    assert_eq!(reason(&refused), "queue.owner_only", "{refused}");
+    c.call("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    let declined = c.reply_to(waiting).await;
+    assert_eq!(reason(&declined), "queue.declined", "{declined}");
+    let again = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    assert_eq!(again.pointer("/error/data/decided"), Some(&json!("declined")), "{again}");
+    c.call("session/prompt", prompt(&session, "p-after", "after", None)).await;
+    assert!(!ran(&mut c, &session, "g-1").await, "a declined prompt ran");
+    assert_eq!(c.records(&session, "queue_declined").await.len(), 1);
+}
+
+/// The guest edits (a new revision, still waiting) and removes it; their move, send now and
+/// interrupt are refused, the owner's edit too, and their edit once it is approved.
+#[tokio::test]
+async fn the_guest_edits_or_removes_it_and_nothing_else() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.busy(&session).await;
+    c.queue(held(&session, "g-1", "guest words")).await;
+    for op in ["move", "send_now", "interrupt"] {
+        let value = c.reply("_acpmux/queue_edit", edit(&session, "g-1", op)).await;
+        assert_eq!(reason(&value), "queue.awaiting_owner", "{op}: {value}");
+    }
+    let mut owners = edit(&session, "g-1", "update");
+    owners["_meta"]["acpmux"] = json!({});
+    assert_eq!(reason(&c.reply("_acpmux/queue_edit", owners).await), "queue.not_author");
+    assert_eq!(c.call("_acpmux/queue_edit", edit(&session, "g-1", "update")).await["ok"], true);
+    let listed = queue(&hub, &session);
+    assert_eq!((&listed[0]["awaitingOwner"], &listed[0]["revision"]), (&json!(true), &json!(1)));
+    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    assert_eq!(reason(&stale), "queue.stale", "the owner approved words they never saw");
+    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(1))).await;
+    let late = c.reply("_acpmux/queue_edit", edit(&session, "g-1", "update")).await;
+    assert_eq!(reason(&late), "queue.approved", "{late}");
+    let remove = by(answer(&session, "g-1", None), Some(&guest()));
+    assert_eq!(c.call("_acpmux/queue_remove", remove).await["removed"], true);
+    let gone = c.reply("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    assert_eq!(gone.pointer("/error/data/decided"), Some(&json!("removed")), "{gone}");
+
+    // At most 16 wait for the owner at once, per author.
+    for i in 0..16 {
+        c.queue(held(&session, &format!("g-cap-{i}"), "more")).await;
+    }
+    let over = c.reply("session/prompt", held(&session, "g-cap-16", "one more")).await;
+    assert_eq!(reason(&over), "queue.too_many_held", "{over}");
+    c.cancel(&session).await;
+}
+
+fn durable(dir: &Path) -> Arc<Hub> {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "codex"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "approve-all"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Local;
+    let store = acpmux::store::open(&cfg.store, dir).unwrap();
+    Hub::new(cfg, store)
+}
+
+/// A restart between the guest's edit and the owner's approval keeps it waiting at the new
+/// revision; the owner's own prompt still runs past it, and the approval runs it.
+#[tokio::test]
+async fn a_held_prompt_survives_a_restart_at_its_revision() {
+    let dir = std::env::temp_dir().join(format!("acpmux-approval-{}", uuid::Uuid::now_v7()));
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    c.queue(held(&session, "g-1", "guest words")).await;
+    c.call("_acpmux/queue_edit", edit(&session, "g-1", "update")).await;
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = durable(&dir);
+    let mut c = Client::open(&hub);
+    hub.resume_queues();
+    c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
+    let listed = queue(&hub, &session);
+    assert_eq!(listed.len(), 1, "{listed:?}");
+    assert_eq!((&listed[0]["awaitingOwner"], &listed[0]["revision"]), (&json!(true), &json!(1)));
+    assert!(!ran(&mut c, &session, "g-1").await, "a restart ran it");
+    let stale = c.reply("_acpmux/queue_approve", answer(&session, "g-1", Some(0))).await;
+    assert_eq!(reason(&stale), "queue.stale", "{stale}");
+    c.call("_acpmux/queue_approve", answer(&session, "g-1", Some(1))).await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    while !ran(&mut c, &session, "g-1").await {
+        assert!(std::time::Instant::now() < deadline, "the approved prompt never ran");
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(c.user_message(&session, "g-1").await["text"], "my rewrite");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
