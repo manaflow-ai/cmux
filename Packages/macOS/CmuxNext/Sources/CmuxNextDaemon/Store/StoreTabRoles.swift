@@ -10,7 +10,9 @@ public import Observation
 /// ``StoreIndex`` reports each tab record it keys or drops, and the record reports a change of the
 /// fields a role reads (`kind`, `conversation`, `url`, `faviconURL`). The revisions move once per
 /// publish (`DaemonStore.publishTabListChange`, once per apply and per intent shown) and only for a
-/// net change: a re-key, an overlay lift and restore, or a rebuild of the same tree moves neither.
+/// net change: a re-key or a rebuild of the same tree moves neither. A pending create of a chat or
+/// browser tab can move one at an apply: the overlay's restore makes a new provisional record for it
+/// (`IntentOverlay`), and a record is filed by identity.
 @MainActor @Observable public final class StoreTabRoles {
     /// What a chat member contributes: its tab id and acpmux session, nil for a blank chat record. The id too: a
     /// record dropped and another made in one apply may reuse its `ObjectIdentifier`.
