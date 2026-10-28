@@ -38,6 +38,7 @@ enum CommandPaletteOverlayState: Equatable, Sendable {
     case closed
     case palette
     case agentInbox
+    case findTmuxWindow
 
     var isCommandPalettePresented: Bool {
         self != .closed

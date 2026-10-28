@@ -169,6 +169,7 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     func resumeAfterInteractiveAuth() {}
     @discardableResult func seedPane(paneId: Int, clearScrollback: Bool) -> UUID? { nil }
     func reseedPaneWithFullHistory(paneId: Int) async -> RemoteTmuxFullHistorySeedOutcome { .failed }
+    func queryOutcome(_ command: String, timeout: Double) async -> RemoteTmuxRawQueryOutcome { .unanswered }
     func unsubscribePanePath(paneId: Int) {}
     func unsubscribePaneReflow(paneId: Int) {}
     func unsubscribePaneHeader(paneId: Int) {}

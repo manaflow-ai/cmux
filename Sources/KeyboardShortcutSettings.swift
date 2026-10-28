@@ -105,6 +105,7 @@ enum KeyboardShortcutSettings {
         case goToWorkspace
         case commandPalette
         case agentInbox
+        case findTmuxWindow
         case openChief
         case commandPaletteNext
         case commandPalettePrevious
@@ -265,6 +266,7 @@ enum KeyboardShortcutSettings {
             case .goToWorkspace: return String(localized: "menu.file.goToWorkspace", defaultValue: "Go to Workspace…")
             case .commandPalette: return String(localized: "menu.file.commandPalette", defaultValue: "Command Palette…")
             case .agentInbox: return String(localized: "shortcut.agentInbox.label", defaultValue: "Show Agent Inbox")
+            case .findTmuxWindow: return String(localized: "shortcut.findTmuxWindow.label", defaultValue: "Find tmux Window…")
             case .openChief: return String(localized: "shortcut.openChief.label", defaultValue: "Open Chief")
             case .commandPaletteNext: return String(localized: "shortcut.commandPaletteNext.label", defaultValue: "Command Palette: Next")
             case .commandPalettePrevious: return String(localized: "shortcut.commandPalettePrevious.label", defaultValue: "Command Palette: Previous")
@@ -489,6 +491,8 @@ enum KeyboardShortcutSettings {
                 return StoredShortcut(key: "p", command: true, shift: true, option: false, control: false)
             case .agentInbox:
                 return StoredShortcut(key: "i", command: true, shift: true, option: false, control: false)
+            case .findTmuxWindow:
+                return StoredShortcut(key: "f", command: true, shift: true, option: false, control: true)
             case .openChief:
                 return StoredShortcut(key: "c", command: true, shift: true, option: false, control: false)
             case .commandPaletteNext:
@@ -1253,11 +1257,6 @@ enum SystemWideHotkeySettings {
         }
         return shortcut
     }
-}
-
-struct CarbonHotKeyRegistration: Equatable {
-    let keyCode: UInt32
-    let modifiers: UInt32
 }
 
 final class SystemWideHotkeyController {

@@ -395,4 +395,9 @@ extension RemoteTmuxControlConnection {
             command, timeout: timeout, reconnectOnTimeout: reconnectOnTimeout
         ).lines
     }
+
+    /// ``RemoteTmuxSessionSource/queryOutcome(_:timeout:)``: one command, its reply, no reconnect on timeout.
+    func queryOutcome(_ command: String, timeout: Double) async -> RemoteTmuxRawQueryOutcome {
+        await queryOutcomeWithTimeout(command, timeout: timeout, reconnectOnTimeout: false)
+    }
 }
