@@ -681,6 +681,84 @@ fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
 
 
 #[test]
+fn startup_resumes_pending_deletes_when_revoking_provisioning_shares_cannot_be_saved() {
+    let room = FakeRoom::start(&[]);
+    let root = std::env::temp_dir()
+        .join(format!("cmux-room-start-unsaved-{}", crate::workspace_registry::new_uuid_v4()));
+    let options = crate::SurfaceOptions::default();
+    let mux = Mux::open_persistent("start-unsaved", options.clone(), &root).unwrap();
+    let directory = mux.session_state_directory().unwrap();
+    let shares = shares_of(&mux);
+    let expires_at = shares.now().saturating_add(3_600_000);
+    let record = |id: &str, state, token: &str, ops: Vec<Value>| LinkShare {
+        share_id: id.into(),
+        session: SESSION.into(),
+        surface: 1,
+        created_at: expires_at.saturating_sub(3_600_000),
+        expires_at,
+        uses_left: 1,
+        state,
+        secret_sha256: String::new(),
+        provision_key: None,
+        room: Some(json!({"url": room.url, "host_token": token})),
+        pending_room_ops: ops,
+        guests: Vec::new(),
+    };
+    shares
+        .with(Some(&directory), |all, _| {
+            all.push(record("pending", ShareState::Revoked, "pending-host", vec![
+                json!({"op": "delete"}),
+            ]));
+            all.push(record("provisioning", ShareState::Provisioning, "provisioning-host", vec![]));
+            Ok(((), true))
+        })
+        .unwrap();
+    mux.shutdown();
+    drop(mux);
+
+    let mux = Mux::open_persistent("start-unsaved", options, &root).unwrap();
+    let shares = shares_of(&mux);
+    // The startup write that revokes the provisioning share fails; the share already queued for
+    // deletion still has its durable host token and must be cleaned up.
+    shares.refuse_writes.store(true, Ordering::Relaxed);
+    start_link_share_bridge(&mux, Some(&room.url));
+    let mut bearers = vec![room.request("DELETE").1, room.request("DELETE").1];
+    bearers.sort();
+    assert_eq!(bearers, ["pending-host", "provisioning-host"]);
+    shares.refuse_writes.store(false, Ordering::Relaxed);
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_late_host_token_reaches_the_delete_worker_already_in_flight() {
+    let room = FakeRoom::start(&[]);
+    room.shared.deletes.lock().unwrap().push_back(503);
+    let gate = room.block_deletes();
+    let (_fake, mux, surface, _owner) = bridged("room-late-handoff", &room);
+    let shares = shares_of(&mux);
+    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
+    // A worker with only the owner's token is waiting on the room.
+    let entered = room.watch_delete();
+    delete(&mux, &id, Some(Held::Owner(Zeroizing::new(OWNER_TOKEN.to_owned()))));
+    entered.recv_timeout(WAIT).expect("the owner's DELETE enters the room");
+    // The in-flight PUT answers while writes fail: its host token cannot reach the record.
+    shares.refuse_writes.store(true, Ordering::Relaxed);
+    delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
+    let (released, wake) = &*gate;
+    *released.lock().unwrap() = true;
+    wake.notify_all();
+    let (_, first, _) = room.request("DELETE");
+    assert_eq!(first, OWNER_TOKEN);
+    let (_, second, _) = room.request("DELETE");
+    assert_eq!(second, "late-host", "the owning worker retries with the handed host token");
+    shares.refuse_writes.store(false, Ordering::Relaxed);
+}
+
+#[test]
 fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
     let room = FakeRoom::start(&[]);
     let (_fake, mux, surface, _owner) = bridged("room-late-capacity", &room);
