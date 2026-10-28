@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import Darwin
 import Foundation
 import Testing
 
@@ -173,7 +174,7 @@ struct CloudGitHubSetupTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: bin.appendingPathComponent("cmux").path)
         let path = root.appendingPathComponent("a.sock").path
         let listener = socket ? try Self.listen(at: path) : -1
-        defer { if listener >= 0 { close(listener) } }
+        defer { if listener >= 0 { Darwin.close(listener) } }
         let script = CloudGitHubSetup.appCommand(at: path) + "\necho 'cmux-gh: logged_in'"
         let ran = try Self.run("/bin/sh", ["-c", script], environment: ["PATH": bin.path + ":/usr/bin:/bin", "SEEN": seen.path])
         #expect(ran.output == expected + (expected.contains("unavailable") ? "cmux-gh: logged_in\n" : ""))
@@ -384,7 +385,7 @@ struct CloudGitHubSetupTests {
 
     /// A listening Unix socket at `path` (what `[ -S ]` tests); the caller closes it.
     static func listen(at path: String) throws -> Int32 {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
         var address = sockaddr_un()
         address.sun_family = sa_family_t(AF_UNIX)
         let bytes = Array(path.utf8)
@@ -393,9 +394,9 @@ struct CloudGitHubSetupTests {
             for (index, byte) in bytes.enumerated() { raw[index] = byte }
         }
         let bound = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
-        guard bound == 0, Darwin.listen(fd, 1) == 0 else { close(fd); throw CocoaError(.fileWriteUnknown) }
+        guard bound == 0, Darwin.listen(fd, 1) == 0 else { Darwin.close(fd); throw CocoaError(.fileWriteUnknown) }
         return fd
     }
 
