@@ -397,8 +397,12 @@ final class AgentPageHibernation {
     }
 
     /// Thaws a frozen page (shown, its turn started, a push for it, or about to be released).
+    /// The page is found by itself too: its tab may have got another key since it froze (a
+    /// provisional tab created), and the entry keeps the old key until the next plan.
     private func thaw(_ key: String) {
-        guard let entry = frozenPages.removeValue(forKey: key) else { return }
+        let view = store()?.existingView(key)
+        let frozenKey = frozenPages[key] != nil ? key : view.flatMap { view in frozenPages.first { $0.value.view === view }?.key }
+        guard let frozenKey, let entry = frozenPages.removeValue(forKey: frozenKey) else { return }
         entry.view?.model.transport.willDeliver = nil
         entry.control.setFrozen(false)
         logger.debug("thawed agent page \(key, privacy: .public)")

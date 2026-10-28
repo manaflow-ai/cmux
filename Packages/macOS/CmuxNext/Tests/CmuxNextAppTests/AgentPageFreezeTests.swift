@@ -220,9 +220,10 @@ struct AgentPageFreezeTests {
         rig.records["tab_real"] = rig.records["tab_provisional"]
         rig.tabs.rekey("tab_provisional", to: "tab_real")
         rig.tabs.aliases["tab_provisional"] = nil
-        rig.hibernation.replan()
         #expect(rig.tabs.existingView("tab_real") === view)
-        #expect(!control.frozen, "a page whose tab got its real key stayed frozen and forgotten")
+        // With no plan since the rekey, a push still finds the page.
+        try #require(view.model.transport.willDeliver, "the rekeyed page lost its wake")()
+        #expect(!control.frozen, "a push did not wake the rekeyed page")
         #expect(rig.hibernation.frozen.isEmpty)
 
         // Hidden under its new key: it freezes again, and the quit's collection thaws it.
@@ -233,9 +234,24 @@ struct AgentPageFreezeTests {
         #expect(!control.frozen, "the quit's collection did not reach the rekeyed page")
         rig.hibernation.holdAwake(false)
         #expect(control.frozen)
-        // A push for it finds the page by itself.
-        try #require(view.model.transport.willDeliver)()
-        #expect(!control.frozen, "a push did not wake the rekeyed page")
+    }
+
+    /// Its workspace hibernates right after the rekey, with no plan between: the release asks the
+    /// page what it holds, so the page thaws first even though its frozen entry has the old key.
+    @Test func aRekeyedFrozenChatThawsBeforeItsWorkspaceReleasesIt() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        let view = try rig.hiddenChat("tab_provisional", session: "s-rekey-release")
+        advance(rig, seconds: 31)
+        let control = try #require(page(rig, "tab_provisional"))
+        #expect(control.frozen)
+        rig.records["tab_real"] = rig.records["tab_provisional"]
+        rig.tabs.rekey("tab_provisional", to: "tab_real")
+        rig.tabs.aliases["tab_provisional"] = nil
+        #expect(rig.tabs.existingView("tab_real") === view)
+        #expect(rig.hibernation.releaseForWorkspace("tab_real") == nil)
+        #expect(!control.frozen, "the rekeyed page was asked for its state while frozen")
+        #expect(rig.hibernation.frozen.isEmpty)
     }
 
     /// Release asks the page what it holds and for its frame: a frozen page thaws first.
