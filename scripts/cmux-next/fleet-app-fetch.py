@@ -7,7 +7,7 @@ The controller's artifact store gives a signed URL for sha256:HEX (tailnet only,
 zip is checked against HEX before it is unpacked. $CI_SHARED_CACHE_DIR/fleet-app-fetch/<HEX>/ keeps the unpacked app
 for later steps on the same worker.
 """
-import argparse, glob, hashlib, json, os, shutil, subprocess, sys, urllib.request
+import argparse, glob, hashlib, json, os, shutil, subprocess, sys, urllib.error, urllib.request
 
 CONTROLLER = os.environ.get("CMUX_CEF_STORE_URL", "http://100.89.225.106:18765").rstrip("/")
 
@@ -24,11 +24,18 @@ def fetch(sha, dest):
                 subprocess.run(["ditto", apps[0], target], check=True)
             print(f"fleet-app-fetch: {sha[:12]} from the worker cache", file=sys.stderr)
             return target
-    with urllib.request.urlopen(f"{CONTROLLER}/v1/artifacts/sha256:{sha}/url", timeout=30) as reply:
-        url = json.load(reply)["url"]
+    # The store's signed URL; an artifact that is only in the controller's cache (a build whose zip never reached the
+    # store: /url answers 404) comes through the controller's proxy route instead.
+    try:
+        with urllib.request.urlopen(f"{CONTROLLER}/v1/artifacts/sha256:{sha}/url", timeout=30) as reply:
+            url = json.load(reply)["url"]
+    except urllib.error.HTTPError as error:
+        if error.code != 404:
+            raise
+        url = f"{CONTROLLER}/v1/artifacts/sha256:{sha}"
     os.makedirs(dest, exist_ok=True)
     zip_path = os.path.join(dest, f"{sha}.zip")
-    subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "3", "--max-time", "1200",
+    subprocess.run(["curl", "--fail", "--silent", "--show-error", "--location", "--retry", "3", "--max-time", "1200", "-A", "cmux-ci",
                     "-o", zip_path, url], check=True)
     digest = hashlib.sha256()
     with open(zip_path, "rb") as handle:
