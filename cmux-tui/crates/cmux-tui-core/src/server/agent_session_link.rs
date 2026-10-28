@@ -10,7 +10,7 @@
 //! thread, which may block (backpressure): acpmux then fills its own bounded
 //! per-connection queue and reports `_acpmux/lagged`.
 
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
@@ -90,10 +90,13 @@ impl AcpmuxLink {
         });
         let pending = link.pending.clone();
         let closed = link.closed.clone();
-        std::thread::Builder::new()
-            .name("mux-acpmux-link".into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || read_loop(reader, pending, closed, on_inbound))?;
+        // Requests wait in `call` for the replies it reads: their class.
+        cmux_threads::spawn_with_stack(
+            "mux-acpmux-link",
+            crate::thread_qos::ThreadType::Interactive.qos(),
+            THREAD_STACK_BYTES,
+            move || read_loop(reader, pending, closed, on_inbound),
+        )?;
         Ok(link)
     }
 

@@ -13,7 +13,7 @@
   "repeats": 1,
   "seconds": 240,
   "needs": ["debug:debug.omnibar", "debug:debug.key", "debug:debug.focus", "debug:debug.frames", "debug:debug.hangs",
-            "debug:debug.timings", "debug:debug.view_churn", "debug:debug.agent_pane", "env:CMUX_NEXT_TYPING_PROBE"],
+            "debug:debug.timings", "debug:debug.agent_pane", "env:CMUX_NEXT_TYPING_PROBE"],
   "hot_paths": ["omnibar-key"],
   "owner": "Performance Lead",
   "component": "Browser>Omnibar"

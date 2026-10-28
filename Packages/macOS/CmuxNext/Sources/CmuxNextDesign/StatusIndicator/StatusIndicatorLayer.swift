@@ -1,5 +1,6 @@
 public import AppKit
 public import QuartzCore
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// The one status indicator every surface draws (sidebar rows and group
@@ -206,7 +207,7 @@ public final class StatusIndicatorLayer {
         case .arc:
             removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
-            shape.path = CGPath(ellipseIn: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2), transform: nil)
+            shape.path = CGPath.ellipse(in: shape.bounds.insetBy(dx: thickness / 2, dy: thickness / 2))
             shape.fillColor = nil
             shape.lineWidth = thickness
             shape.strokeStart = 0
@@ -214,11 +215,11 @@ public final class StatusIndicatorLayer {
         case .ring(let progress):
             removeNative(); removeBraille(); removeDots()
             let track = makeTrack(frame: rect)
-            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness)
+            track.path = StatusGlyphGeometry.ringPath(in: track.bounds, thickness: thickness).cgPath
             track.lineWidth = thickness
             track.opacity = Float(config.trackOpacity)
             let shape = makeGlyph(frame: rect)
-            shape.path = StatusGlyphGeometry.ringPath(in: shape.bounds, thickness: thickness)
+            shape.path = StatusGlyphGeometry.ringPath(in: shape.bounds, thickness: thickness).cgPath
             shape.fillColor = nil
             shape.lineWidth = thickness
             shape.strokeStart = 0
@@ -235,13 +236,13 @@ public final class StatusIndicatorLayer {
             removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
             let side = rect.width * config.dotScale
-            shape.path = CGPath(ellipseIn: CGRect(x: (rect.width - side) / 2, y: (rect.height - side) / 2, width: side, height: side), transform: nil)
+            shape.path = CGPath.ellipse(in: CGRect(x: (rect.width - side) / 2, y: (rect.height - side) / 2, width: side, height: side))
             shape.lineWidth = 0
             shape.strokeEnd = 1
         case .check:
             removeTrack(); removeNative(); removeBraille(); removeDots()
             let shape = makeGlyph(frame: rect)
-            shape.path = StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: shape.bounds))
+            shape.path = StatusGlyphGeometry.checkPath(in: StatusGlyphGeometry.checkRect(in: shape.bounds)).cgPath
             shape.fillColor = nil
             shape.lineWidth = max(thickness, 1.25)
             shape.lineJoin = .round

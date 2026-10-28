@@ -6,8 +6,8 @@ pub async fn run(client: Arc<Client>, initial: Option<String>) -> Result<()> {
     let mut client = client;
     // Read UI preferences without probing or changing harness configuration.
     let path = crate::config::Config::path();
-    let cfg: crate::config::Config = if path.exists() {
-        serde_json::from_str(&std::fs::read_to_string(&path)?)?
+    let cfg: crate::config::Config = if tokio::fs::try_exists(&path).await.unwrap_or(false) {
+        serde_json::from_str(&tokio::fs::read_to_string(&path).await?)?
     } else {
         Default::default()
     };

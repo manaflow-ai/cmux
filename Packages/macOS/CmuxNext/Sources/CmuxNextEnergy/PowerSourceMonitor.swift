@@ -56,12 +56,15 @@ nonisolated final class PowerSourceMonitor: Sendable {
         var cancel: @Sendable (_ token: Int32) -> Void
         /// Runs work on the monitor's queue.
         var post: @Sendable (_ work: @escaping @Sendable () -> Void) -> Void
-        /// Runs work on the main actor: inline on the main thread, else on the main queue's next turn.
+        /// Runs work on the main actor, called from the monitor's queue.
         var toMain: @Sendable (_ work: @escaping @MainActor @Sendable () -> Void) -> Void
 
-        /// IOKit and notify(3) on the app's one power-source queue.
-        static func live() -> System {
+        /// IOKit and notify(3) on the app's one power-source queue; a reading reaches the main actor as one
+        /// `visible` task on `mainWork` (it changes the energy policy and the low-battery card the person sees),
+        /// so it waits behind the person's input like any posted task.
+        static func live(mainWork: MainWorkScheduler) -> System {
             let queue = DispatchQueue.checked(label: "com.cmuxterm.next.energy.power-source", qos: .utility)
+            let owner = mainWork.board.owner("Energy.powerSource")
             return System(hasPowerSource: { PowerSourceMonitor.hasPowerSourceService() },
                           read: { PowerSourceMonitor.read() },
                           register: { name, handler in
@@ -73,7 +76,7 @@ nonisolated final class PowerSourceMonitor: Sendable {
                           },
                           cancel: { token in _ = notify_cancel(token) },
                           post: { work in queue.async(execute: work) },
-                          toMain: { work in MainDelivery().run(work) })
+                          toMain: { work in mainWork.postFromAnyThread(.visible, owner: owner, work) })
         }
     }
 
@@ -100,7 +103,7 @@ nonisolated final class PowerSourceMonitor: Sendable {
     private let system: System
     private let state = Mutex(State())
 
-    init(system: System = .live()) {
+    init(system: System) {
         self.system = system
     }
 

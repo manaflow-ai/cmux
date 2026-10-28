@@ -1,0 +1,20 @@
+{
+  "id": "daemon-terminal-create",
+  "tier": "linux",
+  "description": "New terminal on a release cmux-tui built at the commit (cmux-tui/scripts/bench-terminal-create.py): new-tab, split right and new-workspace, request to reply, to the shell's exec and (debug spans) to the daemon's first printable output, and the processes and resident memory each open terminal costs.",
+  "command": ["cmux-tui/scripts/bench-terminal-create.py", "--build", "--rounds", "40", "--spans"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "daemon\\.terminal_create\\.(new_tab|split_right|new_workspace)\\.(reply|exec|first_text)", "unit": "ms",
+     "better": "lower"},
+    {"name": "daemon\\.terminal_create\\.per_terminal\\.host_processes", "unit": "count", "better": "lower"},
+    {"name": "daemon\\.terminal_create\\.per_terminal\\.(host_rss|daemon_rss)", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 60,
+  "needs": ["file:cmux-tui/scripts/daemon_bench_lab.py", "file:cmux-tui/crates/cmux-tui-util/src/debug_spans.rs"],
+  "owner": "PL-daemon",
+  "component": "Daemon>Terminals"
+}
