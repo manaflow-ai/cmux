@@ -329,8 +329,8 @@ import Testing
         world.services.keyWindowSource = { nil }  // no window is key: the app is in the background
         windows.didActivate(world.w1)              // window 1 was key once, long ago
         let shell2 = try #require(world.w2.window), shell3 = try #require(world.w3.window)
-        windows.dispatching(eventFrom: shell2) {}  // the person clicks into window 2 (it never becomes key)
-        windows.dispatching(eventFrom: shell3) {}  // then into window 3
+        windows.dispatching(eventFrom: shell2, activates: true) {}  // the person clicks into window 2 (it never becomes key)
+        windows.dispatching(eventFrom: shell3, activates: true) {}  // then into window 3
         world.w2.window?.close()                   // window 2 closes
         try #require(!windows.controllers.contains { $0 === world.w2 })
         world.probe.reset()
@@ -338,6 +338,25 @@ import Testing
         _ = registry.perform("splitDown", invocation: Self.invocation("splitDown", origin: .script, registry: registry))
         await world.probe.drain()
         #expect(world.probe.now["splitDown"] == world.w3.state.id, "a script's split acted in \(world.name(world.probe.now["splitDown"]))")
+    }
+
+    /// A right-click or a Command-click on window 3 in the background brings nothing forward on macOS: the app's
+    /// window order stays, so a script still acts in window 1, the front window.
+    @Test func aRightClickLeavesTheAppsWindowOrder() async throws {
+        let world = try Self.world()
+        defer { world.close() }
+        let windows = world.services.windows
+        world.services.keyWindowSource = { nil }
+        windows.didActivate(world.w1)
+        let shell3 = try #require(world.w3.window)
+        let right = try #require(NSEvent.mouseEvent(with: .rightMouseDown, location: .zero, modifierFlags: [], timestamp: 1,
+                                                    windowNumber: shell3.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        let commandClick = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero, modifierFlags: [.command], timestamp: 2,
+                                                           windowNumber: shell3.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+        for event in [right, commandClick] {
+            windows.dispatching(eventFrom: shell3, activates: WindowManager.activatesWindow(event)) {}
+        }
+        #expect(windows.registry.value.recency.first == world.w1.state.id, "a right-click or Command-click reordered the app's windows")
     }
 
     /// The same when the app ordered window 3 in front (`WindowActivation.show`) and no window became key.

@@ -23,10 +23,12 @@ public nonisolated struct WindowTarget: Hashable, Sendable {
         /// The window that owns the run's target object (its workspace or tab).
         case targetOwner
         /// The app's most recently active window, from its own window order (the registry's recency: every
-        /// key change, order-in and person's key or click updates it); never the key window read later.
-        case lastPersonActive
-        /// The window that last became key, when the order lists no open window (a launch window not
-        /// registered yet).
+        /// key change, order-in and person's key or plain click updates it); never the key window read later.
+        case appOrder
+        /// The window that last became key or got the person's input, when the order lists no open window
+        /// (a launch window not registered yet).
+        case lastActive
+        /// The newest window when neither names one.
         case front
         /// The launch window before the restore registered it (it shows the connecting state).
         case launch

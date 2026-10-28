@@ -940,7 +940,7 @@ final class AppServices {
         }
         (NSApp as? CmuxApplication)?.dispatchScope = { [weak self] event, body in
             guard let self else { return body() }
-            windows.dispatching(eventFrom: event.window, body)
+            windows.dispatching(eventFrom: event.window, activates: WindowManager.activatesWindow(event), body)
         }
         (NSApp as? CmuxApplication)?.actionTargetOverride = { [weak self] action, found in
             self?.keyRouter.pasteTarget(for: action, found: found, in: NSApp.keyWindow)

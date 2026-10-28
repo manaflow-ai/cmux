@@ -46,11 +46,12 @@ import Testing
         harness.services.keyWindowSource = { shellB }
         windows.didActivate(harness.b)  // B became key: the window records it
         #expect(windows.active === harness.b, "outside an event the window the person used last decides")
-        let during = windows.dispatching(eventFrom: shellA) { windows.active }
+        let during = windows.dispatching(eventFrom: shellA, activates: true) { windows.active }
         #expect(during === harness.a, "a click in window A ran its action in window \(during === harness.b ? "B" : "?")")
         // The click was the person's: window A is the app's most recently active window from now (its own order),
         // whatever window AppKit still names key.
         #expect(windows.active === harness.a, "after a click in window A the app still acts in window B")
+        #expect(windows.eventOriginWindow == nil, "the event's scope did not end with its dispatch")
     }
 
     /// An action the event runs that makes another window key on purpose (New Window, Select Next

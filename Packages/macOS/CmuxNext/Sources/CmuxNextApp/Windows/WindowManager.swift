@@ -31,8 +31,8 @@ final class WindowManager {
     /// Per-window state by window id, for every registered window.
     var states: [String: WindowState] = [:]
     /// The window the person used last, recorded by the window itself when it or a window it owns
-    /// became key (``didActivate(_:)``): the resolver's fallback (WindowTarget.swift), never the
-    /// key window read at a later time.
+    /// became key (``didActivate(_:)``) or got the person's key or plain click (``noteInput(in:)``): the
+    /// resolver's fallback (WindowTarget.swift), never the key window read at a later time.
     private(set) weak var lastActive: WindowController?
     /// The cmux window the event in dispatch came from (`dispatching(eventFrom:_:)`).
     var eventOrigin: EventOrigin?
@@ -159,6 +159,16 @@ final class WindowManager {
             current = candidate.sheetParent ?? candidate.parent
         }
         return nil
+    }
+
+    /// The person's key or plain click is in `controller`'s window (`dispatching(eventFrom:activates:_:)`): it is the
+    /// most recently active window, without following it as an action run's own forward (a replayed event inside
+    /// a run never moves the run). One compare per event once it is.
+    func noteInput(in controller: WindowController) {
+        guard lastActive !== controller || registry.value.recency.first != controller.state.id else { return }
+        lastActive = controller
+        if keepsOrder { return }
+        registry.apply { $0.activate(controller.state.id); return WindowRegistry.Changes() }
     }
 
     func didActivate(_ controller: WindowController) {

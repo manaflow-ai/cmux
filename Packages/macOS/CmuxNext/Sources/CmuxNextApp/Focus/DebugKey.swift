@@ -123,7 +123,7 @@ enum DebugKey {
         // As in AppKit's dispatch, the menu gate sees this key as the current event.
         // As `CmuxApplication.sendEvent` does for a real key: the key's dispatch acts in the window it
         // was typed in (`WindowManager.dispatching(eventFrom:_:)`), whatever window is key.
-        let (handledBy, action) = services.windows.dispatching(eventFrom: window) { services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
+        let (handledBy, action) = services.windows.dispatching(eventFrom: window, activates: true) { services.keyRouter.dispatchingSynthetic(event) { () -> (String, JSONValue) in
             if services.routeKeyDown(event, window) {
                 return ("app", services.keyRouter.lastInterception.map { verdict($0)["action"] ?? .null } ?? .null)
             } else if isChord, window.performKeyEquivalent(with: event) {

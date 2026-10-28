@@ -21,16 +21,23 @@ extension WindowManager {
     /// Only a window this app's own code makes key during the dispatch (New Window, Select Next
     /// Window: `WindowActivation.show`) takes over.
     /// A window no cmux window owns leaves ``active`` as it was.
-    func dispatching<T>(eventFrom window: NSWindow?, _ body: () throws -> T) rethrows -> T {
+    /// `activates`: the event is one that activates its window for a person (a key-down, a plain left click):
+    /// the window is the app's most recently active one from now, also when it never becomes key (the app in
+    /// the background, a capture slot). A right-click or a Command-click on a background window brings
+    /// nothing forward on macOS, so it leaves the app's window order as it is.
+    func dispatching<T>(eventFrom window: NSWindow?, activates: Bool = false, _ body: () throws -> T) rethrows -> T {
         let previous = eventOrigin
         defer { eventOrigin = previous }
         if let window, let controller = owner(of: window) {
             eventOrigin = EventOrigin(controller: controller)
-            // The person's key or click is in this window: it is the app's most recently active window from now,
-            // also when it never becomes key (the app in the background, a capture slot). One compare per event.
-            if lastActive !== controller || registry.value.recency.first != controller.state.id { didActivate(controller) }
+            if activates { noteInput(in: controller) }
         }
         return try body()
+    }
+
+    /// Whether `event` activates its window for a person (``dispatching(eventFrom:activates:_:)``).
+    static func activatesWindow(_ event: NSEvent) -> Bool {
+        event.type == .keyDown || (event.type == .leftMouseDown && !event.modifierFlags.contains(.command))
     }
 
     /// The window the event in dispatch came from; nil outside an event's dispatch.
@@ -92,10 +99,10 @@ extension WindowManager {
         // The app's most recently active window from its own window order (Chrome's last active browser
         // window): every key change, order-in and person's key or click updates it. Never the key window read now.
         if let front = registry.value.recency.lazy.compactMap({ self.controller(for: $0) }).first(where: { $0.window != nil }) {
-            return WindowTarget(id: front.state.id, source: .lastPersonActive)
+            return WindowTarget(id: front.state.id, source: .appOrder)
         }
         if let lastActive, controllers.contains(where: { $0 === lastActive }) {
-            return WindowTarget(id: lastActive.state.id, source: .front)
+            return WindowTarget(id: lastActive.state.id, source: .lastActive)
         }
         if let launch = launchWindowID, awaitsRestore(launch) { return WindowTarget(id: launch, source: .launch) }
         // An unregistered window (the launch window between its build and its registration): the newest.
@@ -117,7 +124,7 @@ extension WindowManager {
 
     /// The window the person is in, for app-wide state only one window publishes (the registry's focus
     /// context, the location trail, the key rule for child windows): the window of the event in
-    /// dispatch, else the window that last became key, as it recorded it. Never an action run's
+    /// dispatch, else the window that last became key or got the person's key or plain click. Never an action run's
     /// window: a run in window A that brings window B forward makes B the window the person is in.
     var personWindow: WindowController? {
         if let origin = eventOriginWindow { return origin }
