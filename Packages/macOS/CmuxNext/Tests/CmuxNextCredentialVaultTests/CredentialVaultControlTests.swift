@@ -432,7 +432,9 @@ import Testing
         let stage = try await call(f, "vault.resolve", ["names": ["STAGE_DB"]], connection: socket).get()
         #expect(stage.objectValue?["values"]?.objectValue?["STAGE_DB"] == "postgres://stage-secret")
 
-        // The request ends before the person answers: no answer, nothing held against the next ask.
+        // The request ends before the person answers: no answer, but no fresh sheet at once either
+        // (fifth review: a caller dropped and reopened the same sheet until a click landed).
+        f.clock.advance(.seconds(11))
         f.approver.hangs.withLock { $0 = true }
         let closing = ControlConnectionID(rawValue: 32)
         let pending = Task { await self.call(f, "vault.remove", ["name": "STAGE_DB"], connection: closing) }
@@ -444,8 +446,19 @@ import Testing
         #expect(error(await pending.value)?.code == "vault.not_approved")
         #expect(try f.secrets.value(for: "STAGE_DB") != nil)
         f.approver.hangs.withLock { $0 = false }
+        let held = await call(f, "vault.remove", ["name": "STAGE_DB"], connection: socket)
+        #expect(error(held)?.message == CredentialVaultStrings.approvalCooldown, "\(held)")
+        f.clock.advance(.seconds(11))
         let removed = try await call(f, "vault.remove", ["name": "STAGE_DB"], connection: socket).get()
-        #expect(removed.objectValue?["existed"] == true, "the person's own next ask shows its sheet at once")
+        #expect(removed.objectValue?["existed"] == true, "after the cooldown the next ask shows its sheet")
+
+        // A request whose connection closed before its sheet opened shows it for no one.
+        f.approver.hangs.withLock { $0 = true }
+        let gone = ControlConnectionID(rawValue: 34)
+        ControlConnectionClosures.shared.closed(gone)
+        #expect(error(await call(f, "vault.remove", ["name": "PROD_DB"], connection: gone))?.code == "vault.not_approved")
+        f.approver.hangs.withLock { $0 = false }
+        #expect(try f.secrets.value(for: "PROD_DB") != nil)
     }
 
     /// Fourth review: a remove or scope change of a name the vault does not hold showed a sheet,

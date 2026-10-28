@@ -13,7 +13,7 @@ public final class CmuxDialogButtonView: NSButton {
     private var hasFocus = false { didSet { refresh() } }
     /// When the button came on screen (`systemUptime`): a click-only button takes no click
     /// before ``armDelay`` has passed, so a click aimed at what was there before cannot land on it.
-    private var shownAt: TimeInterval?
+    private(set) var shownAt: TimeInterval?
     static let armDelay: TimeInterval = 0.5
 
     /// A button drawing `hint` after its title. The hint only labels the key: the host
@@ -113,6 +113,12 @@ public final class CmuxDialogButtonView: NSButton {
         super.viewDidMoveToWindow()
         shownAt = window == nil ? nil : ProcessInfo.processInfo.systemUptime
         refresh()
+    }
+
+    /// A click-only button takes no click that only brings its window forward: the person sees
+    /// the dialog before a click can press it, however long it waited behind another window or app.
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        button.clickOnly ? false : super.acceptsFirstMouse(for: event)
     }
 
     public override func mouseDown(with event: NSEvent) {

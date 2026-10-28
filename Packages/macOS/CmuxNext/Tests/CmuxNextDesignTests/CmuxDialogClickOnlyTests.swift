@@ -44,9 +44,11 @@ struct CmuxDialogClickOnlyTests {
         allow.keyDown(with: space)
         #expect(pressed.isEmpty, "Space does not press it")
 
-        let shown = ProcessInfo.processInfo.systemUptime
+        let shown = try #require(allow.shownAt, "armed from when it came on screen")
         #expect(!allow.takesClick(at: shown + 0.1), "a click aimed at what was there before does not land")
         #expect(allow.takesClick(at: shown + CmuxDialogButtonView.armDelay + 0.1))
+        #expect(!allow.acceptsFirstMouse(for: nil), "a click that only brings the window forward does not press it")
+        #expect(try #require(dialog.buttonViews.first { $0.button.id == "cancel" }).takesClick(at: shown), "other buttons are unchanged")
     }
 
     @Test func aDialogThatDoesNotFocusItsFieldStartsOnCancel() throws {

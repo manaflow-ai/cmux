@@ -6,10 +6,12 @@ import Foundation
 /// secret kept for them, and every store, delete or scope change. The socket cannot tell the
 /// person's own `cmux` from an agent's: an agent can leave out its `caller`, run under a bundled
 /// `cmux`, or type into the person's terminal. So the person answers on a native cmux sheet that
-/// only they can press (the App's `debug.dialog` and `debug.key` may not answer it; release builds
-/// have neither), as `cmux settings set --confirm` does. Agent-scoped uses need no sheet.
+/// only they can press (while it is open the App's `debug.dialog` may not answer it and its synthetic
+/// mouse and key verbs refuse to run; release builds have none of them), as `cmux settings set
+/// --confirm` does. Agent-scoped uses need no sheet.
 ///
-/// Allow takes only a pointer click, and none in its first half second on screen: no key presses
+/// Allow takes only a pointer click, none in its first half second on screen and none that only
+/// brings its window forward: no key presses
 /// it and it never has the keyboard (Cancel does), so typing meant for a terminal or the composer
 /// when the sheet appears, or a click aimed at what was there, never approves. Every text on
 /// it is the vault's own or a vault name; the program a caller names is reduced to a name.

@@ -154,8 +154,9 @@ nonisolated enum VaultControl {
                 let scope = try scope(call.params)
                 let note = try optionalText(call.params, "note")
                 let by = try caller(call)
-                // The sheet says Save or Replace; the write holds to what it said (Save never replaces).
+                // The sheet says Save or Replace and the scope; the write holds to what it said (Save never replaces).
                 var onlyNew = false
+                var stored = scope
                 if by.consumer == .user, CredentialVault.isValidName(name), call.connection != .inProcess {
                     let index = try run { try vault.list() }
                     let existing = index[name]
@@ -166,8 +167,9 @@ nonisolated enum VaultControl {
                     let effective = scope ?? existing?.scope ?? CredentialVault.Consumer.allCases
                     try await gate.allowed(.store(name: name, replaces: existing != nil, scope: effective), call, vault: vault, by: by, event: "set")
                     onlyNew = existing == nil
+                    stored = effective
                 }
-                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: by, onlyNew: onlyNew) }
+                let replaced = try run { try vault.set(name, value: value, scope: stored, note: note, by: by, onlyNew: onlyNew) }
                 return ["stored": .string(name), "replaced": .bool(replaced)]
             }.withDeadline(deadline),
             .async("vault.scope") { call in
@@ -269,8 +271,9 @@ nonisolated enum VaultControl {
     /// The person's sheets for one set of methods (approvals and `vault.request`): one open at a
     /// time. After the person declines one, the same ask is refused without a sheet for
     /// ``backoff`` and any ask for ``cooldown``, so a caller cannot keep sheets in front of them
-    /// until a click lands. A sheet the request ended first (its deadline, Ctrl-C) counts as no
-    /// answer: nothing is held against the next ask. The app's in-process approvals never get here.
+    /// until a click lands. A sheet the request ended first (its deadline, Ctrl-C) holds any ask for
+    /// ``cooldown`` as well, so dropping a request and asking again brings no fresh sheet at once.
+    /// The app's in-process approvals never get here.
     final class ApprovalGate: Sendable {
         static let backoff: Duration = .seconds(30)
         static let cooldown: Duration = .seconds(10)
@@ -322,6 +325,7 @@ nonisolated enum VaultControl {
                 throw Self.refusal(busy, names: names)
             }
             let task = Task { @MainActor in try await show() }
+            // Its connection may have closed already: then the sheet ends at once.
             let token = ControlConnectionClosures.shared.add(call.connection) { task.cancel() }
             let result = await withTaskCancellationHandler { await task.result } onCancel: { task.cancel() }
             ControlConnectionClosures.shared.remove(token)
@@ -332,10 +336,8 @@ nonisolated enum VaultControl {
             state.withLock { state in
                 state.open = false
                 state.refusedUntil = state.refusedUntil.filter { $0.value > done }
-                if no {
-                    state.refusedUntil[key] = done.advanced(by: Self.backoff)
-                    state.quietUntil = done.advanced(by: Self.cooldown)
-                }
+                if no { state.refusedUntil[key] = done.advanced(by: Self.backoff) }
+                if no || ended { state.quietUntil = done.advanced(by: Self.cooldown) }
             }
             if ended { return nil }
             return try result.get()

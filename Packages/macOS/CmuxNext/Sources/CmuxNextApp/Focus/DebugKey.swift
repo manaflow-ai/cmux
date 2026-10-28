@@ -5,7 +5,6 @@ import CmuxNextAgentPane
 import CmuxNextSettings
 import CmuxNextBridge
 import CmuxNextBrowser
-import CmuxNextDesign
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -58,11 +57,6 @@ enum DebugKey {
             return .object(["count": JSONValue(router.interceptions),
                             "action": router.lastInterception.map { .string($0.action.rawValue) } ?? .null,
                             "ran": router.lastInterception.map { .bool($0.ran) } ?? .null])
-        }
-        // A dialog only the person answers (a Credential Vault approval, a pairing) takes no
-        // synthetic key while it is open, in any window: `debug.dialog` refuses it the same way.
-        if CmuxDialogCenter.shared.records.contains(where: { $0.visible && $0.spec.identifier.map(DebugDialog.userOnly.contains) == true }) {
-            return .object(["error": .string("a dialog that answers only to the user is open")])
         }
         let windowID = params["window"]?.stringValue
         let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID })

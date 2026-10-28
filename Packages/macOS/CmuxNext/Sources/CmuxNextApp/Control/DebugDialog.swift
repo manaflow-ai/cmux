@@ -32,6 +32,15 @@ enum DebugDialog {
                                         SessionLinkGate.dialogIdentifier, CredentialVault.entrySheetIdentifier,
                                         CredentialVault.approvalSheetIdentifier, CredentialVaultPageRoute.deleteDialogIdentifier]
 
+    /// The refusal every synthetic-input verb (`debug.mouse`, `debug.key`, `debug.view_key`,
+    /// `debug.agent_cursor.click_tag`) returns while a dialog only the person answers is open, in
+    /// any window: a scripted click or key could press its button or type into its field (a Credential
+    /// Vault approval releases a secret). Nil when none is open.
+    static var userOnlyInputRefusal: JSONValue? {
+        guard CmuxDialogCenter.shared.records.contains(where: { $0.visible && $0.spec.identifier.map(userOnly.contains) == true }) else { return nil }
+        return .object(["error": .string("a dialog that answers only to the user is open")])
+    }
+
     /// Text fields whose value a report never shows (a password, a vault secret): their ids per dialog.
     static func secureFields(_ spec: CmuxDialogSpec) -> Set<String> {
         Set(spec.fields.compactMap { field in

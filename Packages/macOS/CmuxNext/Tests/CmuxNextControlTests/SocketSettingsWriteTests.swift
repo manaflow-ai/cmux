@@ -177,6 +177,21 @@ import Testing
         #expect(try await settings.file.value(at: ["history", "terminalCommands"]) == nil)
     }
 
+    /// cmux issue 26412, fifth review: a request whose connection closed before it registered its
+    /// close handler kept its sheet up for nobody. A handler added after the close runs at once.
+    @Test func aHandlerAddedAfterItsConnectionClosedRunsAtOnce() {
+        let closures = ControlConnectionClosures()
+        let early = Box(), late = Box(), live = Box()
+        let connection = ControlConnectionID(rawValue: 77)
+        _ = closures.add(connection) { early.flag.withLock { $0 = true } }
+        closures.closed(connection)
+        #expect(early.flag.withLock { $0 })
+        _ = closures.add(connection) { late.flag.withLock { $0 = true } }
+        #expect(late.flag.withLock { $0 }, "the connection is gone: nobody waits for this request")
+        _ = closures.add(ControlConnectionID(rawValue: 78)) { live.flag.withLock { $0 = true } }
+        #expect(!live.flag.withLock { $0 }, "another connection is untouched")
+    }
+
     final class Box: Sendable { let flag = Mutex(false) }
 
     /// A managed key is refused on the socket, schema key or not.
