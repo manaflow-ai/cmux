@@ -96,12 +96,20 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
     const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
     await page.setContent(`<!doctype html><html><head><style>
       html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); color: white; }
+      :root { --agent-text: rgb(240, 240, 240); }
       ${shellCss}
     </style></head><body>
       <header class="acpmux-floating-header"><button class="acpmux-header-tool" aria-pressed="true">list</button></header>
     </body></html>`);
-    const colors = await page.locator(".acpmux-header-tool").evaluate((button) => {
-      const style = getComputedStyle(button);
+    const button = page.locator(".acpmux-header-tool");
+    await button.hover();
+    const hoverColors = await button.evaluate((node) => {
+      const style = getComputedStyle(node);
+      return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
+    });
+    expect(hoverColors).toEqual({ background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" });
+    const colors = await button.evaluate((node) => {
+      const style = getComputedStyle(node);
       return { background: style.backgroundColor, shadow: style.boxShadow, border: style.borderTopWidth };
     });
     expect(colors).toEqual({ background: "rgba(0, 0, 0, 0)", shadow: "none", border: "0px" });
