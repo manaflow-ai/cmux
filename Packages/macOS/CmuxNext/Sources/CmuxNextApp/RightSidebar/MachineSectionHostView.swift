@@ -18,7 +18,9 @@ final class MachineSectionHostView: NSView, RightSidebarRefreshing {
         let registry = services.registry
         section = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: { id in
             registry.perform("workspace.newOnMachine", invocation: ActionInvocation(arguments: ["machine": .string(id)]))
-        }, addMachine: { registry.perform("device.add") }))
+        }, addMachine: { registry.perform("device.add") }, newWorkspaceMenuItem: { id in
+            registry.makeContextMenuItem(for: "workspace.newOnMachine", in: .machineSection, arguments: ["machine": .string(id)])
+        }))
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         section.translatesAutoresizingMaskIntoConstraints = false
         addSubview(section)

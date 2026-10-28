@@ -81,7 +81,9 @@ import Testing
 
     private static func section(_ opened: @escaping @MainActor (String) -> Void = { _ in },
                                 add: @escaping @MainActor () -> Void = {}) -> MachineSectionView {
-        let view = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: opened, addMachine: add))
+        let view = MachineSectionView(actions: MachineSectionView.Actions(newWorkspace: opened, addMachine: add, newWorkspaceMenuItem: { _ in
+            NSMenuItem(title: "registry row", action: nil, keyEquivalent: "")
+        }))
         view.frame = NSRect(x: 0, y: 0, width: 280, height: 400)
         return view
     }
@@ -126,9 +128,11 @@ import Testing
         let down = try #require(view.rowViews["h1"])
         #expect(!down.newButton.isEnabled)
         #expect(down.newButton.accessibilityPerformPress() == false)
-        #expect(down.contextMenu().items.first?.isEnabled == false)
+        #expect(down.contextMenu()?.items.first?.isEnabled == false)
         #expect(opened == ["c1"])
-        #expect(row.contextMenu().items.map(\.title) == [AddMachineStrings.newWorkspace])
+        #expect(row.contextMenu()?.items.map(\.title) == [AddMachineStrings.newWorkspace])
+        // With no registry row the machine has no right-click menu (no inline fallback).
+        #expect(MachineSectionRowView(newWorkspace: { _ in }).contextMenu() == nil)
     }
 
     @Test func addMachineRunsItsAction() {

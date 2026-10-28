@@ -13,10 +13,15 @@ public final class MachineSectionView: NSView {
         public var newWorkspace: @MainActor (String) -> Void
         /// Add Machine… (`device.add`).
         public var addMachine: @MainActor () -> Void
+        /// A machine's right-click row New Workspace on This Machine, from the action registry (a
+        /// registered action, never an inline selector); nil leaves the row without a menu.
+        public var newWorkspaceMenuItem: @MainActor (String) -> NSMenuItem?
 
-        public init(newWorkspace: @escaping @MainActor (String) -> Void, addMachine: @escaping @MainActor () -> Void) {
+        public init(newWorkspace: @escaping @MainActor (String) -> Void, addMachine: @escaping @MainActor () -> Void,
+                    newWorkspaceMenuItem: @escaping @MainActor (String) -> NSMenuItem? = { _ in nil }) {
             self.newWorkspace = newWorkspace
             self.addMachine = addMachine
+            self.newWorkspaceMenuItem = newWorkspaceMenuItem
         }
     }
 
@@ -72,7 +77,8 @@ public final class MachineSectionView: NSView {
                 next.append((MachineSectionHeaderView(title: title), next.isEmpty ? 0 : Metrics.space4))
             }
             for row in group.rows {
-                let view = rowViews[row.id] ?? MachineSectionRowView(newWorkspace: actions.newWorkspace)
+                let view = rowViews[row.id] ?? MachineSectionRowView(newWorkspace: actions.newWorkspace,
+                                                                     menuItem: actions.newWorkspaceMenuItem)
                 view.configure(row, showsStateLine: style.showsStateLine)
                 live[row.id] = view
                 next.append((view, next.last?.view is MachineSectionHeaderView ? Metrics.space1 : 0))
@@ -162,6 +168,7 @@ final class MachineSectionRowView: NSView {
     private let spinner = StatusIndicatorView.spinner()
     let newButton: MachineSectionIconButton
     private let newWorkspace: @MainActor (String) -> Void
+    private let menuItem: @MainActor (String) -> NSMenuItem?
     private(set) var row = MachineSectionRow(id: "", name: "", isConnected: false, isLocal: false)
     private(set) var showsStateLine = false
     private var tracking: NSTrackingArea?
@@ -170,8 +177,9 @@ final class MachineSectionRowView: NSView {
     private var buttonFocused = false
     private var iconSize: CGFloat = 0
 
-    init(newWorkspace: @escaping @MainActor (String) -> Void) {
+    init(newWorkspace: @escaping @MainActor (String) -> Void, menuItem: @escaping @MainActor (String) -> NSMenuItem? = { _ in nil }) {
         self.newWorkspace = newWorkspace
+        self.menuItem = menuItem
         newButton = MachineSectionIconButton(icon: .actionAdd, label: AddMachineStrings.newWorkspace)
         super.init(frame: .zero)
         icon.imageScaling = .scaleProportionallyDown
@@ -301,18 +309,17 @@ final class MachineSectionRowView: NSView {
 
     override func menu(for event: NSEvent) -> NSMenu? { contextMenu() }
 
-    /// The row's right-click menu: New Workspace on This Machine (disabled while the link is down).
-    func contextMenu() -> NSMenu {
-        let menu = NSMenu()
-        let item = NSMenuItem(title: AddMachineStrings.newWorkspace, action: #selector(menuNewWorkspace), keyEquivalent: "")
-        item.target = self
+    /// The row's right-click menu: New Workspace on This Machine, the registry's row for
+    /// `workspace.newOnMachine` on this machine (disabled while the link is down); nil without one.
+    func contextMenu() -> NSMenu? {
+        guard let item = menuItem(row.id) else { return nil }
+        item.title = AddMachineStrings.newWorkspace
         item.isEnabled = row.isConnected
+        let menu = NSMenu()
         menu.autoenablesItems = false
         menu.addItem(item)
         return menu
     }
-
-    @objc private func menuNewWorkspace() { runNewWorkspace() }
 
     @objc private func accessibilityNewWorkspace() -> Bool {
         guard row.isConnected else { return false }
@@ -320,14 +327,13 @@ final class MachineSectionRowView: NSView {
         return true
     }
 
+    // NSView's willOpenMenu and didCloseMenu do nothing, so these call no super.
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        super.willOpenMenu(menu, with: event)
         menuOpen = true
         reveal()
     }
 
     override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
-        super.didCloseMenu(menu, with: event)
         menuOpen = false
         reveal()
     }
