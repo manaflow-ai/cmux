@@ -4,7 +4,7 @@ type Status = boolean | undefined;
 const invert = (value: Status): Status => (value === undefined ? undefined : !value);
 
 export function shellCommands(text: string): string[] {
-  text = text.replace(/\\\n/g, " ");
+  text = text.replace(/\\\n/g, "");
   const tokens = text.match(/&&|\|\||\$\(|[;\n&|()]|(?:(?:\\[^\s]|(?!\$\()[^\s;&|()]))+/g) ?? [];
   const commands: string[] = [];
   let at = 0;
@@ -95,16 +95,21 @@ export function shellCommands(text: string): string[] {
       status = undefined;
     } else {
       const words: string[] = [];
+      let substitutionStatus: Status;
       while (at < tokens.length && ![";", "\n", "&", "&&", "||", "|", "(", ")"].includes(tokens[at]!)) {
         if (tokens[at] === "$(") {
           at++;
-          list(active, [")"], depth);
+          substitutionStatus = list(active, [")"], depth);
           if (tokens[at] === ")") at++;
           words.push("$()");
         } else words.push(tokens[at++]!);
       }
       if (active && words.length) commands.push(`${negate ? "! " : ""}${words.join(" ")}`);
-      status = words.length === 1 && ["true", "false", ":"].includes(words[0]!) ? words[0] !== "false" : undefined;
+      status = words.length === 1 && ["true", "false", ":"].includes(words[0]!)
+        ? words[0] !== "false"
+        : words.length > 0 && words.every((word) => /^[A-Za-z_]\w*=$/.test(word) || word === "$()")
+          ? substitutionStatus
+          : undefined;
     }
     return { status, negate };
   };
@@ -135,7 +140,7 @@ export function isPullRequestCommand(command: string): boolean {
       } else if (name === "nohup" && words[at] === "--") at++;
       continue;
     }
-    if (word === "$(") continue;
+    if (word === "$(") || word === "$()") continue;
     if (name !== "timeout") return ["gh", "glaeda-gh", "gh-merge-green"].includes(name);
     at++;
     while (words[at]?.startsWith("-")) {

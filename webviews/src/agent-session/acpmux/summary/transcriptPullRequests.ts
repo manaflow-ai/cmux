@@ -273,10 +273,13 @@ function toolFindings(tool: Tool): Finding[] {
       const action = match[1] ?? match[2];
       const target = callTarget(match[3] ?? "");
       if (!target) continue;
-      const titleMatch = action === "edit" ? TITLE.exec(match[0]) : undefined;
+      const titleMatch = action === "edit" ? TITLE.exec(command) : undefined;
       const title =
-        outputTitle(tool) ??
-        (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
+        (action === "edit" && calls.length === 1 ? titleMatch : undefined)
+          ? (titleMatch![1] ?? titleMatch![2] ?? titleMatch![3])?.replace(/\\(.)/g, "$1")
+          : action === "view" && calls.length === 1
+            ? outputTitle(tool)
+            : undefined;
       found.push({
         how: "touched",
         ref: target.ref,
