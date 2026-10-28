@@ -640,7 +640,7 @@
 .cv-received-actions:has([aria-haspopup="menu"][data-popup-open]) {
   opacity: 1;
 }
-.cv-received-actions [aria-haspopup="menu"][data-popup-open] {
+.cv-received-actions :is([aria-haspopup="menu"][aria-expanded="true"], [aria-haspopup="menu"][data-popup-open]) {
   color: var(--cv-text);
   background: color-mix(in srgb, var(--cv-fg) 6%, transparent);
 }

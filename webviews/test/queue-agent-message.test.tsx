@@ -219,9 +219,25 @@ test("the received card says when it is read and keeps the queue row's actions i
   expect(note?.textContent).toBe(t("message.readAfterTurn"));
   expect(actionsGroup).not.toBeNull();
   const trigger = actionsGroup!.querySelector<HTMLButtonElement>('[aria-haspopup="menu"]')!;
+  const triggerStyle = () => {
+    const style = getComputedStyle(trigger);
+    return { color: style.color, background: style.backgroundColor };
+  };
   expect(getComputedStyle(actionsGroup!).opacity).toBe("0");
+  const closedTrigger = triggerStyle();
+  trigger.setAttribute("aria-expanded", "true");
+  expect(getComputedStyle(actionsGroup!).opacity).toBe("1");
+  const expandedTrigger = triggerStyle();
+  for (const key of ["color", "background"] as const) {
+    if (closedTrigger[key] && expandedTrigger[key]) expect(expandedTrigger[key]).not.toBe(closedTrigger[key]);
+  }
+  trigger.removeAttribute("aria-expanded");
   trigger.setAttribute("data-popup-open", "");
   expect(getComputedStyle(actionsGroup!).opacity).toBe("1");
+  const popupTrigger = triggerStyle();
+  for (const key of ["color", "background"] as const) {
+    if (expandedTrigger[key] && popupTrigger[key]) expect(popupTrigger[key]).toBe(expandedTrigger[key]);
+  }
   expect(host.querySelector(".acpmux-queued, .cv-spinner, [data-spinner]")).toBeNull();
   await act(async () => host.querySelector<HTMLButtonElement>("button.cv-received__name")!.click());
   expect(calls).toEqual(["open s-1"]);
