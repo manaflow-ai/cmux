@@ -115,6 +115,10 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # split-spring.sh and pane-overflow-fade.sh build the app: pin the pool's Xcode.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Set up Bun for the native fade proof
         if: inputs.parts == 'pane-overflow-fade'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2

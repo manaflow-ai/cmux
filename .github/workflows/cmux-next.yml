@@ -2449,7 +2449,10 @@ jobs:
             exit 1
           }
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          [[ -x "$client" ]] || no_verdict "$client is not installed on runner $RUNNER_NAME"
+          if ! [[ -x "$client" ]]; then
+            no_verdict "$client is not installed on runner $RUNNER_NAME"
+            exit 1  # no_verdict exits already; this keeps the guard's shape visible
+          fi
           status=0
           "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
           case "$status" in
@@ -4323,7 +4326,7 @@ jobs:
         run: |
           set -uo pipefail
           client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
-          if [[ ! -x "$client" ]]; then
+          if ! [[ -x "$client" ]]; then
             echo "::warning title=Fast fleet compile check::cmux-ci is not installed on $RUNNER_NAME; the Mac fallback will run."
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
             exit 0
