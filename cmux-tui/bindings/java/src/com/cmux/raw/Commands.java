@@ -325,6 +325,7 @@ public final class Commands {
     public static final CommandMetadata SET_SIZE_COUNTS = new CommandMetadata("set-size-counts", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SIZE_POLICY = new CommandMetadata("set-size-policy", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_SPLIT_RATIO = new CommandMetadata("set-split-ratio", Authority.CONTROL, 8, null, StreamKind.NONE, Map.ofEntries(Map.entry("transaction", 9L)), Map.ofEntries(Map.entry("transaction", "layout-undo-v1")));
+    public static final CommandMetadata SET_STREAM_PRIORITY = new CommandMetadata("set-stream-priority", Authority.FRONTEND, 12, "attach-streams-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TAB_PINNED = new CommandMetadata("set-tab-pinned", Authority.CONTROL, 12, "tab-metadata-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_COMMAND_HISTORY = new CommandMetadata("set-terminal-command-history", Authority.LOCAL_ADMIN, 12, "terminal-command-history-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata SET_TERMINAL_IDLE_POLICY = new CommandMetadata("set-terminal-idle-policy", Authority.CONTROL, 12, "terminal-idle-close-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -693,6 +694,7 @@ public final class Commands {
         values.put("set-size-counts", SET_SIZE_COUNTS);
         values.put("set-size-policy", SET_SIZE_POLICY);
         values.put("set-split-ratio", SET_SPLIT_RATIO);
+        values.put("set-stream-priority", SET_STREAM_PRIORITY);
         values.put("set-tab-pinned", SET_TAB_PINNED);
         values.put("set-terminal-command-history", SET_TERMINAL_COMMAND_HISTORY);
         values.put("set-terminal-idle-policy", SET_TERMINAL_IDLE_POLICY);

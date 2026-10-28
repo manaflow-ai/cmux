@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Lists the Chrome Web Store extensions of a Chromium profile.
 ///
@@ -10,14 +11,9 @@ public import Foundation
 /// default-installed and unpacked extensions are left out: they cannot be
 /// reinstalled from the store.
 public struct ChromiumExtensionsReader {
-    private let fileManager: FileManager
 
-    /// Creates a reader with the filesystem used to read extension metadata.
-    ///
-    /// - Parameter fileManager: Filesystem access for discovery.
-    public init(fileManager: FileManager = FileManager()) {
-        self.fileManager = fileManager
-    }
+    /// Creates a reader of extension metadata.
+    public init() {}
 
     /// Chrome's own apps that ship with every profile.
     let builtIns: Set<String> = [
@@ -39,7 +35,7 @@ public struct ChromiumExtensionsReader {
     public func read(profile: URL) -> [ImportedExtension] {
         var settings: [String: [String: Any]] = [:]
         for name in ["Preferences", "Secure Preferences"] {
-            guard let data = fileManager.contents(atPath: profile.appending(path: name).path),
+            guard let data = FileManager.checked.contents(atPath: profile.appending(path: name).path),
                   let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let extensions = (root["extensions"] as? [String: Any])?["settings"] as? [String: Any] else { continue }
             for (id, value) in extensions {
@@ -48,7 +44,7 @@ public struct ChromiumExtensionsReader {
             }
         }
         let installed = profile.appending(path: "Extensions")
-        let folders = (try? fileManager.contentsOfDirectory(atPath: installed.path)) ?? []
+        let folders = (try? FileManager.checked.contentsOfDirectory(atPath: installed.path)) ?? []
         let ids = Set(settings.keys).union(folders).filter(ImportedExtension.isValidID).subtracting(builtIns)
         return ids.compactMap { id -> ImportedExtension? in
             let entry = settings[id] ?? [:]
@@ -75,11 +71,11 @@ public struct ChromiumExtensionsReader {
 
     /// The manifest in the highest version folder.
     func latestManifest(_ extensionFolder: URL) -> Manifest? {
-        let versions = (try? fileManager.contentsOfDirectory(atPath: extensionFolder.path)) ?? []
+        let versions = (try? FileManager.checked.contentsOfDirectory(atPath: extensionFolder.path)) ?? []
         let sorted = versions.sorted { $0.compare($1, options: .numeric) == .orderedDescending }
         for version in sorted {
             let folder = extensionFolder.appending(path: version, directoryHint: .isDirectory)
-            if let data = fileManager.contents(atPath: folder.appending(path: "manifest.json").path),
+            if let data = FileManager.checked.contents(atPath: folder.appending(path: "manifest.json").path),
                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 return Manifest(json: json, folder: folder)
             }
@@ -95,7 +91,7 @@ public struct ChromiumExtensionsReader {
         let locales = [manifest.json["default_locale"] as? String, "en", "en_US"].compactMap { $0 }
         for locale in locales {
             let file = manifest.folder.appending(path: "_locales/\(locale)/messages.json")
-            guard let data = fileManager.contents(atPath: file.path),
+            guard let data = FileManager.checked.contents(atPath: file.path),
                   let messages = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             // Message keys are case-insensitive.
             if let entry = messages.first(where: { $0.key.lowercased() == key })?.value as? [String: Any],

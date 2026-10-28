@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextAppearance
 
 /// A text field on the theme's field fill (`Palette.chromeBackground`, a `Palette.separator`
 /// hairline) instead of AppKit's bezel, which draws the system's colors whatever the room's

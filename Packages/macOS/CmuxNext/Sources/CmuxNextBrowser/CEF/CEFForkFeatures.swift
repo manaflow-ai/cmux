@@ -14,11 +14,10 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// The first fork API with `cmux_cef_set_energy_saver` (p14-energy-029): the p14 bundle.
     static let energySaverForkAPI: Int32 = p14BundleForkAPI
 
-    /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` (manaflow-ai/cef
-    /// `cp/p13-webui-011` at 17a7f8ff, `libcef/browser/cmux/cmux_page_groups.cc`). That commit has no
-    /// number of its own: the fork train ledger (`scripts/cmux-next/cef-fork-train.json`, p07-memory 074)
-    /// gives each unnumbered export the train's API, 32. This gate moves with the train's number.
-    static let pageSiteSharingForkAPI: Int32 = 32
+    /// The first fork API that reads PL-memory's `cmux-page-scheme-process-per-site` and has
+    /// `cmux_page_scheme_set_group` (p13-webui-011, `libcef/browser/cmux/cmux_page_groups.cc`). The fork
+    /// train (p13-webui-086, manaflow-ai/cef `cp/p13-webui-086`) numbers it 42; 32 is the resize fence's.
+    static let pageSiteSharingForkAPI: Int32 = 42
 
     /// The first fork API with `cmux_tab_set_visibility` (p06-scheduler-212): the tab's visibility tree node caps
     /// its WebContents' visibility, and a capture keeps a hidden tab painting (`IncrementCapturerCount`). Max + 1 of
@@ -26,16 +25,17 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     static let tabVisibilityForkAPI: Int32 = 37
 
     /// The first fork API with `cmux_browser_capture` (p13-webui-077): a page's surface copy with no DevTools agent.
-    /// Max + 1 of the numbers the app claims (37 is ``tabVisibilityForkAPI``); the fork train (p13-webui-086)
-    /// confirms it with its pin.
-    static let surfaceCopyForkAPI: Int32 = 38
+    /// The fork train (p13-webui-086, manaflow-ai/cef `cp/p13-webui-086`) numbers it 40; 38 and 39 are the train's
+    /// renderer-less placeholder (017) and in-place discard (018).
+    static let surfaceCopyForkAPI: Int32 = 40
     /// The first fork API with `cmux_shim_tab_send_mouse_move` (`CefBrowserHost::SendMouseMoveEvent`): the same fork
     /// line as the surface copy (p13-webui-077 adds both), numbered by the train with it.
     static let mouseMoveForkAPI: Int32 = surfaceCopyForkAPI
     /// The first fork API with `cmux_tab_page_push` and `cmuxPageListen` (p13-webui-079, manaflow-ai/cef
     /// `cp/p13-webui-079` on `cp/p06-scheduler-212`): a string to a cmux-page document's receiver, with no script.
-    /// Max + 1 of the fork lines and of the numbers the app claims (38 is ``surfaceCopyForkAPI``).
-    static let pagePushForkAPI: Int32 = 39
+    /// The fork train (p13-webui-086) reserves 43 for it, after its 38-42 (42 is ``pageSiteSharingForkAPI``); the
+    /// 079 commit's own header says 38, which the train renumbers when it merges it.
+    static let pagePushForkAPI: Int32 = 43
 
     /// The first fork API whose page window joins the app's Core Animation commit only for a deadline
     /// the app set (`cmux_browser_set_resize_sync`). With none, `UpdateWindowGeometry` does not call

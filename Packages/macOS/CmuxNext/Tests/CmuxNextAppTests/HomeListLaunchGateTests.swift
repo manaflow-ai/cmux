@@ -26,7 +26,7 @@ import Testing
         let cached = snapshot
         let gate = DispatchSemaphore(value: 0)
         environment.homeListRead = HomeListLaunchRead(owner: owner, caches: caches, conversations: HomeCache.standard(owner: owner, caches: caches),
-                                                      sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches),
+                                                      sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: BackgroundWork()),
                                                       on: BackgroundWork()) {
             gate.wait()
             return HomeListLaunchRead.Value(conversations: cached)

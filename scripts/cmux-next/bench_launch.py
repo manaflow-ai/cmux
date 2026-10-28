@@ -490,7 +490,8 @@ BENCH_HOOKS_MARKER = b"CMUX_BENCH_HOOKS_BUILD"
 PERF_LAB_MEASURE_VERSION = 2
 # The configs each kind of bundle can be. A bench-hooks executable is `bench` or `bench-checks` (bench plus
 # CMUX_BLOCKING_CHECKS, task 147), and nothing in it tells the two apart: the Info.plist key below does.
-BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",)}
+# A sanitizer bundle (reload.sh --config asan|tsan|ubsan) has none: its timings measure the sanitizer.
+BUNDLE_CONFIGS = {"debug": ("debug",), "bench-hooks": ("bench", "bench-checks"), "release": ("release",), "sanitizer": ()}
 # The `scripts/reload.sh --config` name a tagged app was built with (reload.sh stamps it; p08-startup task 006 reads it).
 BUILD_CONFIG_KEY = "CMUXBuildConfiguration"
 
@@ -502,9 +503,12 @@ class RecordError(RuntimeError):
 
 def bundle_kind(app, binary):
     """`debug` when Xcode's `<name>.debug.dylib` is beside the main executable (a Debug build keeps its code there),
-    `bench-hooks` when the executable carries the bench-hooks marker, else `release`."""
+    `sanitizer` when the bundle embeds a sanitizer runtime, `bench-hooks` when the executable carries the bench-hooks
+    marker, else `release`."""
     if glob.glob(os.path.join(app, "Contents/MacOS/*.debug.dylib")):
         return "debug"
+    if glob.glob(os.path.join(app, "Contents/Frameworks/libclang_rt.*_osx_dynamic.dylib")):
+        return "sanitizer"
     import mmap
     with open(binary, "rb") as f:
         if os.fstat(f.fileno()).st_size == 0:
@@ -520,6 +524,8 @@ def build_config(app, binary, stated=None):
     agree with the others and with the executable."""
     kind = bundle_kind(app, binary)
     allowed = BUNDLE_CONFIGS[kind]
+    if not allowed:
+        raise RecordError(f"bench-launch: {app} is a {kind} build; its timings are never a perf result")
     stamped = info_plist(app).get(BUILD_CONFIG_KEY)
     if stamped is not None and stamped not in allowed:
         raise RecordError(f"bench-launch: {app} says {BUILD_CONFIG_KEY}={stamped!r}, but it is a {kind} bundle "

@@ -143,13 +143,13 @@ public nonisolated struct AcpmuxQuitProof {
     /// window; accepted in the durable review).
     static func lockState(_ url: URL) -> LockState {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let fd = unsafe open(url.path, O_RDWR | O_CLOEXEC)
+        let fd = unsafe blockingOpen(url.path, O_RDWR | O_CLOEXEC)
         if fd < 0 { return errno == ENOENT ? .free : .unknown }
         defer { close(fd) }
         // One retry covers an interrupted call (EINTR); anything else decides.
         for _ in 0..<2 {
-            if flock(fd, LOCK_EX | LOCK_NB) == 0 {
-                flock(fd, LOCK_UN)
+            if blockingFlock(fd, LOCK_EX | LOCK_NB) == 0 {
+                _ = blockingFlock(fd, LOCK_UN)
                 return .free
             }
             if errno == EWOULDBLOCK { return .held }

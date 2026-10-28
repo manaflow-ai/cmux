@@ -1068,6 +1068,8 @@ def sent_result(export: Export, sent: str) -> str:
 
 
 WIRE_NUMBER = {"i": "I32", "u": "U32", "l": "I64", "d": "F64"}
+# Number fields of a record struct (an R argument): C type -> wire kind.
+RECORD_NUMBER = {"int": "i", "unsigned int": "u", "int64_t": "l"}
 
 
 def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str], ind: str) -> None:
@@ -1091,14 +1093,19 @@ def client_encode(a: Arg, w: str, structs: dict[str, list[Arg]], lines: list[str
             if f[0] == "b":
                 lines.append(f"{ind}  {w}.Bytes({n}[i].{f[1]}, {n}[i].{f[2]});")
             else:
-                lines.append(f"{ind}  {w}.I64({n}[i].{f[1]});")
+                lines.append(f"{ind}  {w}.{WIRE_NUMBER[f[0]]}({n}[i].{f[1]});")
         lines.append(f"{ind}}}")
     elif k in ("A", "B"):
         lines.append(f"{ind}{w}.I32(static_cast<int32_t>({a.pair.var}));")
 
 
+def record_has_bytes(a: Arg, structs: dict[str, list[Arg]]) -> bool:
+    """Whether a record argument carries strings (the host keeps them in `<arg>_s` and wipes them)."""
+    return any(f[0] == "b" for f in record_fields(structs[a.ctype[6:-1]]))
+
+
 def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
-    """(b, pointer, length) or (l, name, '') per wire field of a struct."""
+    """(b, pointer, length), or (i|u|l, name, '') for an int, unsigned int or int64_t, per wire field of a struct."""
     out, i = [], 0
     while i < len(fields):
         f = fields[i]
@@ -1106,8 +1113,8 @@ def record_fields(fields: list[Arg]) -> list[tuple[str, str, str]]:
         if f.ctype == "const char*" and nxt is not None and nxt.name == f.name + "_length":
             out.append(("b", f.name, nxt.name))
             i += 2
-        elif f.ctype == "int64_t":
-            out.append(("l", f.name, ""))
+        elif f.ctype in RECORD_NUMBER:
+            out.append((RECORD_NUMBER[f.ctype], f.name, ""))
             i += 1
         else:
             raise Failure(f"cannot marshal the struct field '{f.decl}'")
@@ -1283,7 +1290,8 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
         nb = sum(1 for f in fields if f[0] == "b")
         lines.append(f"      const int32_t {n}_n = r.I32();")
         lines.append(f"      if (!r.ok() || {n}_n < 0 || {n}_n > kMaxRecords) return false;")
-        lines.append(f"      std::vector<std::string> {n}_s(static_cast<size_t>({n}_n) * {nb});")
+        if nb:
+            lines.append(f"      std::vector<std::string> {n}_s(static_cast<size_t>({n}_n) * {nb});")
         lines.append(f"      std::vector<{struct}> {n}(static_cast<size_t>({n}_n));")
         lines.append(f"      for (size_t i = 0; i < {n}.size(); ++i) {{")
         slot = 0
@@ -1298,7 +1306,7 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
                 # A browser id in a record is cmux's, as a browser argument is: mapped to Chromium's.
                 lines.append(f"        {n}[i].{f[1]} = ctx.Browser(static_cast<int32_t>(r.I64()));")
             else:
-                lines.append(f"        {n}[i].{f[1]} = r.I64();")
+                lines.append(f"        {n}[i].{f[1]} = r.{WIRE_NUMBER[f[0]]}();")
         lines.append("      }")
         return f"{n}.data(), {n}_n"
     if k in ("A", "B"):
@@ -1410,7 +1418,7 @@ def host_case(op: Op, model: Model) -> list[str]:
             lines.append("      (void)call_result;")
     host_refresh(op, model, lines)
     lines.append(answer)
-    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R"]
+    lines += [f"      Wipe({a.var}_s);" for a in e.wire if a.kind == "R" and record_has_bytes(a, model.header.structs)]
     lines += ["      return true;", "    }"]
     return lines
 
