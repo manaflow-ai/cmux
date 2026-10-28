@@ -80,14 +80,10 @@ const runsFor = (params) => {
   if (params.workflow_id !== 'cmux-next.yml' || params.event !== 'push' || params.branch !== 'feat-cmux-next') {
     throw new Error(`unexpected run lookup ${JSON.stringify(params)}`);
   }
-  const pushRun = (sha) => ({
-    id: position(sha) + 1000, head_sha: sha, head_branch: 'feat-cmux-next', event: 'push',
+  return [{
+    id: position(params.head_sha) + 1000, head_sha: params.head_sha, head_branch: 'feat-cmux-next', event: 'push',
     path: '.github/workflows/cmux-next.yml', head_repository: { full_name: 'manaflow-ai/cmux' },
-    created_at: new Date(Date.UTC(2026, 0, 1, 0, position(sha))).toISOString(),
-  });
-  // Without head_sha: every push run, newest first (the newest-green fallback, #24697).
-  if (params.head_sha === undefined) return history.slice().reverse().map(pushRun);
-  return [pushRun(params.head_sha)];
+  }];
 };
 const actions = {
   listWorkflowRuns: async (params) => ({ data: { workflow_runs: runsFor(params), total_count: runsFor(params).length } }),
@@ -200,12 +196,8 @@ def move_condition() -> str:
 
 def substitute(text: str, sha: str) -> str:
     """Evaluate the expressions this test understands for a promotion request."""
-    # A request sets the input, so its branch wins over the event branches after it
-    # (nightly.yml's run-name names a scheduled run there, #24647).
     text = re.sub(
-        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)"
-        r"(?:\s*\|\|\s*github\.event_name\s*==\s*'\w+'\s*&&\s*format\('[^']*',\s*github\.event\.\w+\))*"
-        r"\s*\|\|\s*''\s*\}\}",
+        r"\$\{\{\s*inputs\.promote_nightly_next_sha\s*&&\s*format\('([^']*)',\s*inputs\.promote_nightly_next_sha\)\s*(?:\|\|\s*github\.event_name\s*==\s*'schedule'\s*&&\s*format\('[^']*',\s*github\.event\.schedule\)\s*)?\|\|\s*''\s*\}\}",
         lambda match: match.group(1).replace("{0}", sha),
         text,
     )
@@ -336,16 +328,15 @@ def test_a_newer_request_after_an_older_one_still_wins() -> None:
     assert result["writes"] == [RUNNING, NEWER], [short(sha) for sha in result["writes"]]
 
 
-def test_a_cancelled_request_without_a_green_compile_is_not_promoted() -> None:
-    """Recovered requests pass the same guard (Release compile admission) as the input.
-
-    UNGREEN itself never lands; since #24697 its request promotes the newest green
-    commit under it (NEWER) instead of being refused."""
+def test_a_cancelled_request_without_a_green_compile_is_still_promoted() -> None:
+    """Recovered requests pass the same guard as the input. With G2 off (#25786)
+    a missing Release compile no longer refuses: the promoted commit's own
+    nightly build is the compile gate, so the newest evicted commit wins."""
     requests, dispatch_runs = queue(RUNNING, [UNGREEN, OLDER])
     result = run_promotions(requests, dispatch_runs, not_green=[UNGREEN])
     assert result["failed"] == [], result["failed"]
-    assert UNGREEN not in result["writes"], [short(sha) for sha in result["writes"]]
-    assert result["target"] == NEWER, short(result["target"])
+    assert result["target"] == UNGREEN, short(result["target"])
+    assert OLDER not in result["writes"], [short(sha) for sha in result["writes"]]
 
 
 def test_a_request_cancelled_by_a_person_is_not_promoted() -> None:
@@ -396,17 +387,12 @@ def test_the_promote_job_can_read_the_cancel_annotation() -> None:
 
 
 def main() -> None:
-    test_one_writer_for_every_request()
-    test_a_late_older_request_does_not_drop_a_cancelled_newer_one()
-    test_a_newer_request_after_an_older_one_still_wins()
-    test_a_cancelled_request_without_a_green_compile_is_not_promoted()
-    test_a_request_cancelled_by_a_person_is_not_promoted()
-    test_a_failed_recovery_scan_still_promotes_the_admitted_commit()
-    test_an_unreadable_cancel_annotation_still_promotes_the_admitted_commit()
-    test_one_unreadable_cancel_annotation_keeps_the_other_evicted_requests()
-    test_the_promote_job_can_read_the_cancel_annotation()
-    print("PASS: nightly-next promotion queue")
-
+    # Every test_ function runs: a hand-kept list dropped the ungreen case
+    # without anyone noticing (#24590).
+    tests = [value for name, value in globals().items() if name.startswith("test_")]
+    for test in tests:
+        test()
+    print(f"PASS: nightly-next promotion queue ({len(tests)} cases)")
 
 if __name__ == "__main__":
     main()

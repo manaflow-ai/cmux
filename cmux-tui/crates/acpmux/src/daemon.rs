@@ -24,6 +24,11 @@ use router_owner::{ensure_router, release_router};
 pub(crate) mod login_placement;
 #[cfg(target_os = "macos")]
 pub(crate) mod login_session;
+// Reports to the Cloud agent's socket, which only Cloud machines (Linux) have; decided on
+// every Unix so its tests run on the Mac too.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_handoff;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -125,6 +130,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
+    // A capture fixture that cannot be read stops the start: a capture must
+    // never show this host's harnesses in its place (`harness_fixture.rs`).
+    crate::harness_fixture::check().map_err(|why| anyhow!(why))?;
     let login_env = crate::login_env::requested();
     anyhow::ensure!(
         opts.dev_origins.is_empty() || dev_origins_permitted(cfg!(debug_assertions), opts.dev),
@@ -319,6 +327,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.watches.open(&home().join("watches.json"));
     }
     crate::hub::watches::Watches::start(&hub);
+    // The Macs whose app may allow here over the peer link (`hub/mac_approvers.rs`).
+    hub.person.macs.open(home().join(crate::hub::mac_approvers::FILE));
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -354,7 +364,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     })));
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
-    // (default 300; 0 keeps every harness running).
+    // (default 120, `hub::IDLE_CHILD`; 0 keeps every harness running).
     if let Some(secs) =
         std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok())
     {
@@ -501,7 +511,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             }
             {
                 let hub = hub.clone();
-                tokio::spawn(async move { hub.load_logs_async().await });
+                tokio::spawn(async move {
+                    hub.load_logs_async().await;
+                    // Once every log is read: a pass reads only chats whose log is loaded.
+                    let _worker = hub.retention_worker();
+                });
             }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
             // a revoke the previous daemon saved may not have reached it (`crate::pairing`).
@@ -517,6 +531,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     tokio::spawn(notify::notify_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]
@@ -538,6 +554,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    // A node a person started closes with the daemon; its saved login stays.
+    // The controller is made here if no request made it (it holds no node
+    // until a start), so a start racing this shutdown is refused either way.
+    #[cfg(all(unix, feature = "tailnet"))]
+    match tokio::time::timeout(SHUTDOWN_BUDGET, hub.tailnet_controller().shutdown()).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => tracing::warn!("embedded tailnet close: {error}"),
+        Err(_) => tracing::warn!("embedded tailnet did not close within {SHUTDOWN_BUDGET:?}"),
+    }
     hub.stop_idle_reaper();
     // New clients get "connection refused" instead of a dying daemon.
     let _ = std::fs::remove_file(socket_path());
@@ -1049,7 +1074,7 @@ async fn wait_for_job(path: &std::path::Path, job: String) -> Result<String> {
         }
         tries += 1;
         let left = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if tries % 5 == 0 && !left.is_zero() {
+        if tries.is_multiple_of(5) && !left.is_zero() {
             let job = job.clone();
             let budget = left.min(Duration::from_secs(1));
             let running =

@@ -55,8 +55,10 @@ impl Hub {
             && let Err(why) = crate::peer::ssh_target(url)
         {
             tracing::warn!(peer = %name, "peer refused: its ssh URL is not valid ({why}); fix or remove it");
-            if let Some(old) = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name) {
+            let old = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+            if let Some(old) = old {
                 old.stop();
+                self.note_peer_removed(&old);
             }
             return tokio::sync::watch::channel(1).1;
         }
@@ -79,6 +81,7 @@ impl Hub {
             pc.peer_token.clone(),
             self.peer_notices.clone(),
         );
+        peer.set_vm_boundary(pc.vm_boundary);
         let settled = peer.settled();
         // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
         // the instance this replaces, checked current under it (`is_current`), is done before the
@@ -95,6 +98,8 @@ impl Hub {
         if cached {
             self.load_peer_cache(&peer);
         }
+        // Its first state now, and each change after it (`_acpmux/peer_state_changed`).
+        peer.report_states(self.peer_states().clone());
         let generation = peer.generation;
         tokio::spawn(peer.run());
         (generation, settled)
@@ -124,14 +129,20 @@ impl Hub {
         {
             return Err(RpcError::invalid_params(format!("refusing that ssh peer URL: {why}")));
         }
-        let pc = crate::config::PeerConfig { url: url.to_owned(), token, peer_token };
-        {
+        let pc = {
             let mut cfg = self.config.write().await;
+            // A re-add of the same machine keeps the VM boundary its config gave it
+            // (`vm_boundary.rs`); `peer_add` itself never turns it on.
+            let vm_boundary =
+                cfg.peers.get(name).is_some_and(|old| old.url == url && old.vm_boundary);
+            let pc =
+                crate::config::PeerConfig { url: url.to_owned(), token, peer_token, vm_boundary };
             cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
                 tracing::warn!("save config failed: {e}");
             }
-        }
+            pc
+        };
         let mut settled = {
             // A saved peer takes the name over from a lease (`peer_lease.rs`),
             // under the lease lock so no notice of the leased peer finds the
@@ -154,6 +165,21 @@ impl Hub {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
         Ok(())
+    }
+
+    /// A config reload's saved peers' VM boundaries (`catalog_reload.rs`), onto the running
+    /// peers of those names; a leased peer keeps its lease's. Lock order: `peer_leases`, then
+    /// `peers`.
+    pub(super) fn reload_peer_boundaries(&self, boundaries: &[(String, bool)]) {
+        let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+        for (name, on) in boundaries {
+            if !leases.contains_key(name)
+                && let Some(peer) = peers.get(name)
+            {
+                peer.set_vm_boundary(*on);
+            }
+        }
     }
 
     /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
@@ -205,6 +231,7 @@ impl Hub {
                 return Err(RpcError::not_found(format!("no peer {name:?}")));
             };
             peer.stop();
+            self.note_peer_removed(&peer);
             self.forget_peer_files(name);
             take_peer_rows(&mut rows, name)
         };
@@ -218,6 +245,12 @@ impl Hub {
             tracing::warn!("save config failed: {e}");
         }
         Ok(())
+    }
+
+    /// A peer left for good: watchers hear its last state, `offline` with error `removed`,
+    /// unless another instance took its name meanwhile (`peer_states.rs`).
+    pub(super) fn note_peer_removed(&self, peer: &crate::peer::Peer) {
+        self.peer_states().removed(&peer.name, peer.generation, peer.link().last_seen);
     }
 
     /// Drop every row of peer `name` and tell watching clients they left.

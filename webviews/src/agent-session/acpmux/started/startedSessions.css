@@ -31,6 +31,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   text-align: start;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-started-row + .acpmux-started-row {
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -72,6 +73,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-status {
   display: inline-flex;

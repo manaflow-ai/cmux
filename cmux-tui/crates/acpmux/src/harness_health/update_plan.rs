@@ -58,6 +58,9 @@ impl HealthService {
     /// Reads one snapshot under the cache lock. No filesystem read, first
     /// check, profile lookup, registry fetch, preference write or auto-update.
     pub(crate) fn cached_update_plan(&self, cli: &str) -> Result<Value, RpcError> {
+        if self.fixed() {
+            return Err(refused("harness_update_plan.not_updatable"));
+        }
         let rows = self.rows.lock().unwrap_or_else(PoisonError::into_inner);
         let argv = select_argv(&rows, cli, |row| fixed_argv(row, cli))?;
         Ok(json!({"cached":true,"cli":cli,"argv":argv}))

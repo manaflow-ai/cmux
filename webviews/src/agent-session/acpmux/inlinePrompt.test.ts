@@ -204,7 +204,10 @@ test("refused Retry and Edit retain every screenshot and video preview in strip 
     await io.client.send("plain", attachments).catch(() => undefined);
     await settle(() => io.rows().some((row) => row.failed));
     const row = io.rows().find((row) => row.failed)!;
-    expect(io.sent[0]._meta.acpmux.inlineParts).toBeUndefined();
+    expect(io.sent[0]._meta.acpmux.inlineParts).toHaveLength(8);
+    expect(io.sent[0]._meta.acpmux.inlineParts.every((part: any) => part.companionOf + 1 === part.blockIndex)).toBe(
+      true,
+    );
     expect(row.inlineParts).toBeUndefined();
     expect(row.images).toHaveLength(8);
     expect(row.images?.every((image) => image.src === "data:image/png;base64,AQID")).toBe(true);
@@ -263,6 +266,13 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
   try {
     await io.client.send("strip", attachments);
     const sent = io.sent[0];
+    const original = sent.prompt.findIndex((block: any) => block.uri === "file:///tmp/one.png");
+    expect(sent._meta.acpmux.inlineParts).toContainEqual({
+      kind: "file",
+      blockIndex: original,
+      name: "one.png",
+      companionOf: original - 1,
+    });
     io.emit(sent.sessionId, {
       mux: "user_message",
       msg: {
@@ -280,6 +290,65 @@ test("strip echo Retry and Edit retain local bytes, original path and video", as
     const row = io.rows().find((r) => r.id.startsWith("user-") && r.text === "strip")!;
     expect(await io.client.resendPrompt(row.id, "strip")).toEqual({ input: "strip", attachments });
     expect(await io.client.resendPrompt(row.id, "edited")).toEqual({ input: "edited", attachments });
+  } finally {
+    io.client.close?.();
+  }
+});
+
+test("strip-mode files keep type and byte count in the actual prompt metadata and echoed row", async () => {
+  const io = await connect();
+  const file: ComposerAttachment = {
+    id: "pem",
+    kind: "link",
+    name: "production-key.pem",
+    mimeType: "application/x-pem-file",
+    size: 2048,
+    path: "/tmp/production-key.pem",
+  };
+  try {
+    await io.client.send("Use this key", [file]);
+    const sent = io.sent[0];
+    const blockIndex = sent.prompt.findIndex((block: any) => block.type === "resource_link");
+    expect(sent._meta.acpmux.inlineParts).toEqual([
+      { kind: "file", blockIndex, name: file.name, mimeType: file.mimeType, size: 2048 },
+    ]);
+    io.emit(sent.sessionId, {
+      mux: "user_message",
+      msg: {
+        seq: 401,
+        at: 1,
+        promptId: sent._meta.acpmux.promptId,
+        text: "Use this key",
+        inlineParts: [
+          { kind: "text", text: "Use this key" },
+          { kind: "file", name: file.name, mimeType: file.mimeType, size: 2048, uri: "file:///tmp/production-key.pem" },
+        ],
+      },
+    });
+    await settle(() =>
+      io.rows().some((row) => row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name)),
+    );
+    expect(
+      io.rows().find((row) => row.inlineParts?.some((part) => part.kind === "file" && part.name === file.name))
+        ?.inlineParts?.[1],
+    ).toMatchObject({
+      kind: "file",
+      name: file.name,
+      size: 2048,
+    });
+  } finally {
+    io.client.close();
+  }
+});
+
+test("path-only files omit an empty MIME so the daemon accepts their display metadata", async () => {
+  const io = await connect();
+  try {
+    await io.client.send("Use this", [
+      { id: "key", kind: "link", name: "key.pem", path: "/tmp/key.pem", mimeType: "", size: 0 },
+    ]);
+    const sent = io.sent[0];
+    expect(sent._meta.acpmux.inlineParts).toEqual([{ kind: "file", name: "key.pem", blockIndex: 1 }]);
   } finally {
     io.client.close?.();
   }

@@ -499,6 +499,19 @@ while True:
         if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_DELAY_MS"):
             import time
             time.sleep(int(os.environ["FAKE_CLAUDE_INIT_DELAY_MS"]) / 1000)
+        if request.get("subtype") == "set_permission_mode" and os.environ.get("FAKE_CLAUDE_MODE_DELAY_MS"):
+            import time
+            time.sleep(int(os.environ["FAKE_CLAUDE_MODE_DELAY_MS"]) / 1000)
+        # FAKE_CLAUDE_IDLE_CHILDREN=<file>: the harness starts a worker in its group, one that left
+        # it (setsid) and an MCP server (`sleep 3599`), and writes their pids there.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_IDLE_CHILDREN"):
+            import subprocess
+            pids = {name: subprocess.Popen(["sleep", secs], start_new_session=escape, stdin=subprocess.DEVNULL,
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).pid
+                    for name, secs, escape in (("worker", "3601", False), ("escaped", "3602", True),
+                                               ("sidecar", "3599", False))}
+            with open(os.environ["FAKE_CLAUDE_IDLE_CHILDREN"], "w") as f:
+                f.write(json.dumps(pids))
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}
@@ -516,7 +529,8 @@ while True:
             if os.environ.get("FAKE_CLAUDE_STOP_NOTIFY") == "1":
                 send({"type": "system", "subtype": "task_notification", "task_id": task, "status": "stopped",
                       "output_file": "", "summary": ""})
-        if request.get("subtype") == "initialize":
+        # FAKE_CLAUDE_INIT_ON_TURN=1: system/init only when a turn starts, as Claude Code sends it.
+        if request.get("subtype") == "initialize" and os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") != "1":
             send(init())
     elif kind == "user" and os.environ.get("FAKE_CLAUDE_AUTH") == "1":
         import subprocess
@@ -604,10 +618,13 @@ while True:
             sys.stderr.write("No conversation found with session ID: %s\n" % RESUME)
             sys.stderr.flush()
             sys.exit(1)
-        if SKILLS:
+        if SKILLS or os.environ.get("FAKE_CLAUDE_INIT_ON_TURN") == "1":
             send(init())
         content = (msg.get("message") or {}).get("content") or []
         said = "".join(b.get("text", "") for b in content if isinstance(b, dict))
+        # FAKE_CLAUDE_ECHO=1: each prompt line echoed back first, as `--replay-user-messages` does.
+        if os.environ.get("FAKE_CLAUDE_ECHO") == "1":
+            send({"type": "user", "isReplay": True, "uuid": msg.get("uuid"), "message": msg.get("message")})
         if STORE and LAYOUT:
             # Claude Code stamps each line with its UTC time to the millisecond.
             import datetime
@@ -767,6 +784,32 @@ while True:
                 result["cwd"] = "allowed"
             except OSError:
                 result["cwd"] = "denied"
+            text = json.dumps(result)
+        # G2: exercise the actual child boundary, including its HTTP proxy.
+        if said.startswith("linux-sandbox-probe "):
+            import socket
+            import urllib.parse
+            outside, port = said[len("linux-sandbox-probe "):].rstrip().rsplit(" ", 1)
+            result = {}
+            for key, path in [("outside", outside), ("git", ".git/hooks/x"),
+                              ("claude", "CLAUDE.md"), ("cwd", "ok")]:
+                try:
+                    with open(path, "w") as f:
+                        f.write("x")
+                    result[key] = "allowed"
+                except OSError:
+                    result[key] = "denied"
+            try:
+                socket.create_connection(("127.0.0.1", int(port)), timeout=2).close()
+                result["loopback"] = "allowed"
+            except OSError:
+                result["loopback"] = "denied"
+            proxy = urllib.parse.urlsplit(os.environ.get("HTTPS_PROXY", ""))
+            result["proxy"] = "missing"
+            if proxy.hostname and proxy.port:
+                with socket.create_connection((proxy.hostname, proxy.port), timeout=3) as conn:
+                    conn.sendall(b"CONNECT 127.0.0.1:22 HTTP/1.1\r\nHost: 127.0.0.1:22\r\n\r\n")
+                    result["proxy"] = conn.recv(1024).split(b"\r\n")[0].decode()
             text = json.dumps(result)
         # "usage-probe": the token usage Claude Code streams and the context window its result
         # reports for each model the turn used (the chat's own and a smaller subagent model).

@@ -919,6 +919,20 @@ fn remote_invocation_allows_leading_global_options() {
 }
 
 #[test]
+fn remote_app_action_words_run_the_app_action_not_the_remote_family() {
+    // `cmux remote new-group HOST` is the app's New Remote Group (remote.newGroup);
+    // only the remote command family's own words stay with it.
+    assert!(!is_remote_invocation(&strings(&["remote", "new-group", "--destination", "box"])));
+    assert!(!is_remote_invocation(&strings(&["--json", "remote", "remove-group"])));
+    assert!(!is_remote_invocation(&strings(&["--session", "dev", "remote", "reconnect"])));
+    assert!(is_remote_invocation(&strings(&["remote"])));
+    assert!(is_remote_invocation(&strings(&["remote", "--help"])));
+    assert!(is_remote_invocation(&strings(&["remote", "help"])));
+    assert!(is_remote_invocation(&strings(&["remote", "stop"])));
+    assert!(is_remote_invocation(&strings(&["remote", "connect", "ssh://box"])));
+}
+
+#[test]
 fn remote_invocation_rejects_missing_global_option_values_and_terminator() {
     assert!(!is_remote_invocation(&strings(&["--session"])));
     assert!(!is_remote_invocation(&strings(&["--socket"])));

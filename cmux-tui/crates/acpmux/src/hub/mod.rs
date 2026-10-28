@@ -6,15 +6,18 @@
 
 mod activity;
 pub(crate) mod admission;
+mod adopted_fences;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
+mod bg_tasks;
 mod btw;
 mod exit_reason;
+pub(crate) mod session_auth;
 pub(crate) mod subagent_retry;
-mod turn_errors;
+pub(crate) mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
 mod bookmarks;
@@ -35,10 +38,13 @@ mod handoff;
 mod harness_view;
 mod harness_watch;
 mod health_view;
-mod idle;
+pub(super) mod idle;
+mod idle_census;
+pub(crate) use idle_census::LaunchServers;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
+pub(crate) mod list_guard;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -65,6 +71,7 @@ mod models_view;
 mod paging;
 mod personal_stats;
 mod policy_mode;
+mod policy_source;
 mod pool;
 pub(crate) mod prompt_images;
 mod prompt_ledger;
@@ -115,6 +122,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
+pub mod mac_approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
@@ -136,8 +144,10 @@ pub(crate) mod purge_tombstones;
 pub(crate) mod questions;
 mod remote_floor;
 pub(crate) mod remote_sandbox;
-pub use remote_sandbox::vm_host_peer_approves;
+pub mod vm_boundary;
+pub use vm_boundary::vm_boundary_peer_approves;
 mod start_gate;
+pub mod vm_host;
 pub(crate) use start_gate::host_label;
 mod subsession_answer;
 mod subsession_guard;
@@ -160,6 +170,8 @@ mod trust_wait;
 mod turn_git;
 mod turn_usage;
 mod turns;
+#[cfg(test)]
+mod turns_copy_stop_tests;
 pub(crate) mod views;
 mod warm;
 mod watch_events;
@@ -204,9 +216,10 @@ use tokio::sync::{Mutex, Notify, RwLock, broadcast, mpsc, oneshot};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// How long a session's harness may sit unused (no client, no turn, no
-/// activity) before it exits; the session resumes on its next prompt.
-pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 60);
+/// How long a session's harness may sit unused (no turn, nothing queued, no
+/// question waiting, no activity) before it hibernates: it exits and the
+/// session resumes on its next prompt (`idle.rs`).
+pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(2 * 60);
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
@@ -244,6 +257,11 @@ pub(super) struct PendingPermission {
     pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
+    /// The agent's JSON-RPC id for the request, when the agent asked. A
+    /// matching `$/cancel_request` withdraws this prompt.
+    pub(super) agent_request: Option<Id>,
+    /// The hosted child generation that owns `agent_request`.
+    pub(super) agent_host_incarnation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -360,7 +378,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
+    pub(super) events: list_guard::Events,
+    /// The shared, paced full session list (`list_guard.rs`).
+    pub(crate) list_guard: list_guard::ListGuard,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -402,6 +423,8 @@ pub struct Hub {
     pub(super) load_plan: StdMutex<log_load::LoadPlan>,
     /// `resume_queues` ran: a chat whose log is read later resumes its own queue (`log_load.rs`).
     pub(super) queues_resumed: AtomicBool,
+    /// A chat closed: wakes the log retention worker (`retention.rs`).
+    pub(super) retention_wake: Arc<Notify>,
     /// False from a deferred start with running agent hosts until adoption ends: prompts to
     /// those chats wait for it (`log_load.rs` `wait_adopted`).
     pub(crate) adoption_ready: tokio::sync::watch::Sender<bool>,
@@ -430,6 +453,10 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
+    pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
+    /// Background-task starts, one at a time (`bg_tasks.rs`).
+    pub(super) bg_starts: tokio::sync::Mutex<()>,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -447,19 +474,34 @@ pub struct Hub {
     pub(super) trust_gate: StdMutex<Option<crate::trust::Paths>>,
     /// The `sandbox-exec` remote chains run Claude Code under (`remote_sandbox.rs`).
     pub(super) remote_sandbox_exec: StdMutex<PathBuf>,
+    /// Fault injection for integration tests; never replaces the keeper's pinned bwrap.
+    #[cfg(target_os = "linux")]
+    pub(super) linux_bwrap_probe: StdMutex<Option<PathBuf>>,
+    /// Where `vm_host.rs` reads the creation marker (`/`; a folder in tests).
+    pub(super) vm_marker_root: StdMutex<PathBuf>,
     /// The device-wide chat index, once started (`chats/`).
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     /// The forced start mode and the setting's change count (`start_mode_state.rs`).
     pub(super) start_mode_state: start_mode_state::StartModeCell,
-    /// Held (read) by a family message from its last check to its write, and an answer from
-    /// its check to its delivery; an MDM off push takes it (write) once the off is stored
+    /// Held by each `sessions.allowFullAccess` push through its teardown (`apply_full_access_push`).
+    pub(super) full_access_pushes: tokio::sync::Mutex<()>,
+    /// Held (read) by a family message or an ancestor's answer from its last check until it is
+    /// written to the agent; an MDM off push takes it (write) once the off is stored
     /// (`full_access_bound.rs` `family_gate`).
-    pub(super) family_gate: tokio::sync::RwLock<()>,
+    pub(super) family_gate: Arc<tokio::sync::RwLock<()>>,
+    /// Bumped by an off push that waited too long on the gate: its holders cut their message.
+    pub(super) family_cut: tokio::sync::watch::Sender<u64>,
+    /// The fence of an ancestor's answer, by permission id, for the write that delivers it
+    /// (`subsession_answer.rs`).
+    pub(super) answer_fences: StdMutex<HashMap<String, crate::agent::Fence>>,
     /// Tests only: a pause before a family message's write (`full_access_bound::WriteSeam`).
     #[cfg(test)]
     pub(super) family_write_seam: full_access_bound::WriteSeam,
+    /// Tests only: a pause while a prompt's model-sized copies are made (`turns::agent_blocks`).
+    #[cfg(test)]
+    pub(super) copy_seam: full_access_bound::WriteSeam,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -510,6 +552,10 @@ pub struct Hub {
     pub(super) agent_pairs: agent_pairs::AgentPairs,
     /// Pairing tickets and paired machines (`crate::pairing`).
     pub pairing: Arc<crate::pairing::Pairing>,
+    /// The optional embedded tailnet node. It is initialized lazily so the
+    /// default daemon never starts or links a node without an explicit request.
+    #[cfg(all(unix, feature = "tailnet"))]
+    pub(crate) tailnet_controller: std::sync::OnceLock<Arc<crate::tailnet::embedded::Controller>>,
     /// Brief identities shared by dispatch, report and MCP clients.
     pub(crate) briefs: dispatch::Briefs,
     /// Every Claude workflow of this daemon's chats (`workflow_index.rs`).
@@ -533,7 +579,7 @@ impl Hub {
     }
 
     fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -553,6 +599,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
@@ -570,6 +617,7 @@ impl Hub {
             logs_ready: tokio::sync::watch::channel(true).0,
             load_plan: Default::default(),
             queues_resumed: AtomicBool::new(false),
+            retention_wake: Arc::new(Notify::new()),
             adoption_ready: tokio::sync::watch::channel(true).0,
             catalog_ready: tokio::sync::watch::channel(true).0,
             login_env_requested: AtomicBool::new(false),
@@ -583,6 +631,8 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            bg_runner: StdMutex::new(None),
+            bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),
@@ -592,12 +642,20 @@ impl Hub {
             web_modes: StdMutex::new(Default::default()),
             trust_gate: StdMutex::new(None),
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
+            #[cfg(target_os = "linux")]
+            linux_bwrap_probe: StdMutex::new(None),
+            vm_marker_root: StdMutex::new(PathBuf::from("/")),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
             start_mode_state,
-            family_gate: tokio::sync::RwLock::new(()),
+            full_access_pushes: tokio::sync::Mutex::new(()),
+            family_gate: Arc::new(tokio::sync::RwLock::new(())),
+            family_cut: tokio::sync::watch::channel(0).0,
+            answer_fences: StdMutex::new(HashMap::new()),
             #[cfg(test)]
             family_write_seam: Default::default(),
+            #[cfg(test)]
+            copy_seam: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             git_watch: Default::default(),
@@ -625,6 +683,8 @@ impl Hub {
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
+            #[cfg(all(unix, feature = "tailnet"))]
+            tailnet_controller: std::sync::OnceLock::new(),
             briefs,
         });
         if let Ok(c) = hub.config.try_read() {
@@ -690,19 +750,37 @@ impl Hub {
         &self.mailbox
     }
 
+    #[cfg(all(unix, feature = "tailnet"))]
+    pub(crate) fn tailnet_controller(&self) -> Arc<crate::tailnet::embedded::Controller> {
+        self.tailnet_controller
+            .get_or_init(|| {
+                crate::tailnet::embedded::Controller::new(
+                    crate::tailnet::embedded::state_dir(&crate::config::home()),
+                    crate::hand::pair::hostname(),
+                )
+            })
+            .clone()
+    }
+
     pub(super) fn load_from_store(self: &Arc<Self>, deferred: bool) {
-        let metas = match self.store.list() {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::warn!("store list failed: {e}");
-                return;
+        let Ok(mut metas) = self.store.list().inspect_err(|e| tracing::warn!("store list: {e}"))
+        else {
+            // Adoption still reaches every host this list hid: an off push waits for it
+            // (`full_access_turned_off`).
+            if deferred {
+                self.adoption_ready.send_replace(false);
             }
+            return;
         };
         // The small index the chat logs load by (`log_load.rs`): agent hosts still running.
-        let hosted = Self::live_host_sessions();
+        let read = Self::read_live_host_sessions();
+        // Records that can not be read may hide a host whose lines adoption holds again: an off
+        // push waits for adoption then too (`full_access_turned_off`).
+        let unknown = read.is_none();
+        let hosted = read.unwrap_or_default();
         let waiting =
             metas.iter().filter(|m| m.status == SessionStatus::Waiting).map(|m| m.id.clone());
-        if deferred && !hosted.is_empty() {
+        if deferred && (!hosted.is_empty() || unknown) {
             self.adoption_ready.send_replace(false);
         }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
@@ -711,6 +789,8 @@ impl Hub {
                 adopting: hosted.clone(),
                 hosted: hosted.clone(),
             };
+        // An older daemon's approve-all that could be vmHost's asks now (`policy_source.rs`).
+        self.settle_legacy_grants(&mut metas);
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
             // An agent whose host still runs keeps its saved status until adoption reaches it:
@@ -801,6 +881,8 @@ impl Hub {
     }
 
     pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
+        // Hibernated before a restart: marked again, so it wakes on a click and draws no row.
+        let hibernated_at = if meta.hibernated_ms != 0 { self.clock_now().max(1) } else { 0 };
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
@@ -813,6 +895,8 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            harness_use: RwLock::new(()),
+            idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
@@ -852,6 +936,8 @@ impl Hub {
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
             stops: AtomicU64::new(0),
+            cancels: AtomicU64::new(0),
+            status_writes: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -868,6 +954,9 @@ impl Hub {
             last_model_at: AtomicU64::new(0),
             silent_turn: StdMutex::new(None),
             last_active: AtomicU64::new(self.clock_now()),
+            hibernated_at: AtomicU64::new(hibernated_at),
+            wake_cause: StdMutex::new(None),
+            agent_requests: std::sync::atomic::AtomicUsize::new(0),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
@@ -1268,6 +1357,15 @@ impl Hub {
     /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
     /// which `kill`'s close takes after it counts the stop.
     fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
+        // From before the status is set to after it is logged.
+        session.status_writes.fetch_add(1, Ordering::SeqCst);
+        struct Done<'a>(&'a AtomicU64);
+        impl Drop for Done<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        let _done = Done(&session.status_writes);
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
@@ -1278,7 +1376,12 @@ impl Hub {
                 return false;
             }
             m.status = status;
-            m.updated_at = now_ms();
+            // Only a change dates the chat: stopping a closed chat again logs nothing and leaves
+            // it as old as it was, or a chat stopped every day would never be old enough for log
+            // retention (`retention.rs`) and would move up the lists that sort by it.
+            if was != status {
+                m.updated_at = now_ms();
+            }
             // The parent's slot follows the status under the same lock, so
             // concurrent status writes and the index never disagree (the
             // index is a leaf lock, `subsessions.rs`).
@@ -1301,6 +1404,9 @@ impl Hub {
             self.care_status(status);
             // A sub-session that starts or ends a turn, or closes, changes its parent's work.
             self.refresh_parent_work_below(session);
+            if status == SessionStatus::Closed {
+                self.retention_wake();
+            }
         }
         true
     }

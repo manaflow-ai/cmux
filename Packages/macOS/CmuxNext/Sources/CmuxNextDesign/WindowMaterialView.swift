@@ -13,7 +13,9 @@ public import CmuxNextDesignTokens
 /// where the root paints the solid background itself. Glass carries the
 /// tint itself (its `tintColor`, as Ghostty.app tints its glass) and the
 /// tint view stays hidden: untinted glass draws its own dark material, and
-/// a second tint over it dimmed the desktop twice. Neither the material nor the tint draws a border.
+/// a second tint over it dimmed the desktop twice. The glass keeps its key look when the window
+/// resigns key (``ActiveLookGlassEffectView``), so switching apps changes nothing on the window
+/// background. Neither the material nor the tint draws a border.
 /// The owner decides the backdrop (including Reduce Transparency) and calls
 /// ``apply(_:tint:)`` on every theme change.
 ///
@@ -28,15 +30,13 @@ public final class WindowMaterialView: NSView {
     public private(set) var materialView: NSView?
     private let tintView = NSView()
     private let glassTint = GlassTintBlend()
-    /// The inactive wash sits under the in-app art. Native glass can still use it to cover the
-    /// desktop when it drops its active tint, while the person's own background remains visible.
+    /// The inactive wash (`appearance.inactiveWindowDim`, off by default) sits under the in-app
+    /// art, so a dim never hides the person's own background.
     let inactiveTintView = NSView()
     /// The inactive wash's alpha once its fade ends (`updateInactiveTint`).
     private var inactiveTintTarget: CGFloat = 0
     /// The theme tint at full alpha, the inactive wash's color; nil while opaque.
     private var washColor: CGColor?
-    /// The tint's alpha (the backdrop's opacity), from which the wash over inactive glass is derived.
-    private var tintAlpha: CGFloat = 1
     /// Bumped by each wash fade: only the latest fade-out's completion hides the view (a
     /// replaced animation completes too).
     private var inactiveTintFade = 0
@@ -149,28 +149,18 @@ public final class WindowMaterialView: NSView {
     var glassTintColor: CGColor? { (materialView as? GlassPanelView)?.tintColor?.cgColor }
     var shownGlassBlendLayer: CALayer? { glassTint.overlay.isHidden ? nil : glassTint.overlay.layer }
 
-    /// The theme tint laid over the window while it is not key, at full alpha. Liquid Glass drops
-    /// its `tintColor` then and draws the system's grey, so the tint comes back over it at the
-    /// strength that makes the inactive window look like the key one (dogfood 2026-10-08, C3), plus
-    /// `appearance.inactiveWindowDim`. Its resting alpha: where its fade ends.
+    /// The theme tint laid over the window while it is not key, at full alpha: only
+    /// `appearance.inactiveWindowDim`, 0 by default. Its resting alpha: where its fade ends.
     var inactiveTintAlpha: CGFloat { inactiveTintTarget }
 
-    /// How strongly the theme tint at full alpha covers glass that is not key so the window
-    /// composites as it did while key: the tint Liquid Glass dropped, at its own alpha (the
-    /// Opacity), over the material it covered. Not measured against the render server yet: CI and
-    /// fleet test hosts have no window server to capture glass with.
-    static func matchedGlassWash(tintAlpha: CGFloat) -> CGFloat {
-        min(max(tintAlpha, 0), 1)
-    }
-
-    /// The wash over a window that is not key: none while it is key or opaque; over glass the
-    /// match for the key look (``matchedGlassWash(tintAlpha:)``); then `dim` of what still shows
-    /// through (`appearance.inactiveWindowDim`, 0 by default: the same look in front and behind).
-    static func inactiveTintAlpha(material: WindowMaterial, isKeyWindow: Bool, tintAlpha: CGFloat, dim: CGFloat) -> CGFloat {
+    /// The wash over a window that is not key: none while it is key or opaque, else `dim`
+    /// (`appearance.inactiveWindowDim`, 0 by default: the same look in front and behind). Glass
+    /// needs no wash of its own: it keeps its key look (``ActiveLookGlassEffectView``), and a wash
+    /// over it was the frost Leo saw on every app switch (2026-10-26: "i didnt want any glass.
+    /// you're frosting the app's background which is pointless?").
+    static func inactiveTintAlpha(material: WindowMaterial, isKeyWindow: Bool, dim: CGFloat) -> CGFloat {
         guard material != .opaque, !isKeyWindow else { return 0 }
-        let matched: CGFloat = if case .glass = material { matchedGlassWash(tintAlpha: tintAlpha) } else { 0 }
-        let dim = min(max(dim, 0), 1)
-        return matched + dim * (1 - matched)
+        return min(max(dim, 0), 1)
     }
 
     override public func viewDidChangeEffectiveAppearance() {
@@ -218,12 +208,11 @@ public final class WindowMaterialView: NSView {
 
     /// Shows the wash for the window's key state now. `fades` eases it in or out (`scrim`), for a
     /// setting or theme change. A key change passes false: the wash then lands in the same
-    /// transaction as AppKit's own key-state redraw (Liquid Glass dropping its tint, the traffic
-    /// lights), so losing focus is one change, as native glass and NSVisualEffectView switch, not
-    /// the glass frosting first and the wash fading in after it (Leo 2026-10-25: "it frosts the
-    /// glass before the background").
+    /// transaction as AppKit's own key-state redraw (the traffic lights), so a dim set with
+    /// `appearance.inactiveWindowDim` lands as one change, not a second step after it (Leo
+    /// 2026-10-25: "it frosts the glass before the background").
     func updateInactiveTint(fades: Bool = true) {
-        let alpha = washColor == nil ? 0 : Self.inactiveTintAlpha(material: material, isKeyWindow: !resignedKey, tintAlpha: tintAlpha,
+        let alpha = washColor == nil ? 0 : Self.inactiveTintAlpha(material: material, isKeyWindow: !resignedKey,
                                                                    dim: CGFloat(DesignSettings.shared.inactiveWindowDim))
         let wash = alpha > 0 ? washColor : nil
         guard let layer = inactiveTintView.layer else { return }
@@ -339,7 +328,6 @@ public final class WindowMaterialView: NSView {
         let leaned = WallpaperTint.tint(tint, wallpaper: wallpaper.tint, enabled: wallpaper.tintEnabled,
                                         material: backdrop.material, shown: shown)
         let color = tunedTint(leaned, tuning: backdrop.tuning).withAlphaComponent(alpha)
-        tintAlpha = alpha
         washColor = material == .opaque ? nil : color.withAlphaComponent(1).cgColor
         let glass = materialView as? GlassPanelView
         // Liquid Glass takes the new tint once; an overlay blends from the old one on the render
@@ -420,8 +408,8 @@ public final class WindowMaterialView: NSView {
         case .glass(let style):
             // WindowBackdrop frosts the window instead where Liquid Glass is missing.
             switch style {
-            case .regular: return GlassPanelView(style: .regular)
-            case .clear: return GlassPanelView(style: .clear)
+            case .regular: return GlassPanelView(style: .regular, keepsActiveLook: true)
+            case .clear: return GlassPanelView(style: .clear, keepsActiveLook: true)
             }
         }
     }

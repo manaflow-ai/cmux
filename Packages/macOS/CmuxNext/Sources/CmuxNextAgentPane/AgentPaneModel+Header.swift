@@ -15,6 +15,9 @@ public struct AgentPaneHeaderHooks {
     /// `/btw` side session): a tab in the chat's side pane when one is open, else a new split
     /// (``AgentSidePanes``).
     public var openSide: @MainActor (_ chat: String, _ fork: String) -> Void
+    /// Opens acpmux session `id` on the chat's right as a link opens (`layout.linkPlacement`): a
+    /// tab in the pane on its right, else a new split there; false when nothing opened.
+    public var openRight: @MainActor (String) -> Bool
     /// Opens acpmux session `id` (a fork, a started Continue In…) at a ``AgentForkDestination``: a
     /// new tab beside the chat's, a split beside it, a new workspace or a new window, so the chat
     /// keeps its own tab and session; false when nothing opened.
@@ -56,6 +59,7 @@ public struct AgentPaneHeaderHooks {
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
                 tabState: @escaping @MainActor () -> AgentPaneHeaderState,
                 openSide: @escaping @MainActor (String, String) -> Void = { _, _ in },
+                openRight: @escaping @MainActor (String) -> Bool = { _ in false },
                 openTab: @escaping @MainActor (String, AgentForkDestination) -> Bool = { _, _ in false },
                 openSubagent: @escaping @MainActor (String, String, Bool) -> Bool = { _, _, _ in false },
                 openProcess: @escaping @MainActor (AgentPaneProcessViewer) -> Bool = { _ in false },
@@ -71,6 +75,7 @@ public struct AgentPaneHeaderHooks {
         self.toggle = toggle ?? run
         self.tabState = tabState
         self.openSide = openSide
+        self.openRight = openRight
         self.openTab = openTab
         self.openSubagent = openSubagent
         self.openProcess = openProcess

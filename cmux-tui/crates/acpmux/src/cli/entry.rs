@@ -50,9 +50,17 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if args.first().is_some_and(|a| a == crate::agent_host::HOST_ARG) {
         return crate::agent_host::host::main();
     }
+    // A background task's runner (`bg_run.rs`): one task, no CLI.
+    if args.first().is_some_and(|a| a == crate::bg_run::RUN_ARG) {
+        return crate::bg_run::main();
+    }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-canary-unix") {
         return crate::linux_sandbox::keeper::canary_unix(&args[1..]).map_err(anyhow::Error::msg);
+    }
+    #[cfg(target_os = "linux")]
+    if args.first().is_some_and(|a| a == "__remote-sandbox-canary-rename") {
+        return crate::linux_sandbox::keeper::canary_rename(&args[1..]).map_err(anyhow::Error::msg);
     }
     #[cfg(target_os = "linux")]
     if args.first().is_some_and(|a| a == "__remote-sandbox-init") {
@@ -120,6 +128,10 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
         other => other,
     });
     match command {
+        #[cfg(unix)]
+        Some(Command::CodexAuthBroker { home, codex }) => {
+            crate::cli::codex_auth_broker::run(home, codex).await
+        }
         None => {
             let client = connect(true).await?;
             crate::tui::run(client, None).await

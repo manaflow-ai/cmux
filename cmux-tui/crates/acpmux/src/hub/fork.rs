@@ -157,6 +157,9 @@ impl Hub {
             note = Some(fresh_note(&parent_meta.harness));
             Made::Fresh
         } else {
+            // The idle pass never ends the parent's harness under its session/fork (`idle.rs`).
+            self.touch(session);
+            let _using = session.harness_use.read().await;
             let child = self.child_for(session).await?;
             // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
             // with a bare internal error: refuse with the reason instead.
@@ -221,6 +224,7 @@ impl Hub {
             name,
             harness: parent_meta.harness.clone(),
             harness_argv: parent_meta.harness_argv.clone(),
+            spawn_argv: None,
             family: parent_meta.family.clone(),
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
@@ -254,6 +258,7 @@ impl Hub {
                 .or_else(|| res.get("configOptions").cloned().filter(|v| !v.is_null())),
             models: parent_meta.models.clone(),
             permission_policy: parent_meta.permission_policy.clone(),
+            policy_source: parent_meta.policy_source.clone(),
             title: None,
             title_source: None,
             title_prompt: None,
@@ -274,10 +279,12 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
+            vm_boundary: parent_meta.vm_boundary,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
             workspace_id,

@@ -14,6 +14,7 @@
 // from `playwright install chromium webkit`; an engine that is not installed is skipped and says so.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdir } from "node:fs/promises";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -137,7 +138,23 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
 
   async function open(name: string): Promise<Page> {
     events.length = opened;
-    const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 700 } });
+    const capture = process.env.CMUX_JUMP_CAPTURE_DIR;
+    if (capture) await mkdir(capture, { recursive: true });
+    const page = await browsers.get(name)!.newPage({
+      viewport: { width: 900, height: 700 },
+      ...(capture ? { recordVideo: { dir: capture } } : {}),
+    });
+    await page.addInitScript(() => {
+      // Observe actual browser animation restarts: every smooth scrollTo starts a new ride.
+      const native = Element.prototype.scrollTo;
+      const calls: number[] = [];
+      (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls = calls;
+      Element.prototype.scrollTo = function (...args: [ScrollToOptions?] | [number, number]) {
+        if (typeof args[0] === "object" && args[0].behavior === "smooth" && this.matches(".acpmux-scroll"))
+          calls.push(performance.now());
+        return Reflect.apply(native, this, args);
+      };
+    });
     // The jump glides unless the person asked for reduced motion; these cases set cmux's own switch.
     await page.emulateMedia({ reducedMotion: "no-preference" });
     await installPaintedFrames(page);
@@ -212,22 +229,48 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
         },
         { capture: true },
       );
-      window.cmuxAfterPaint((frame) => {
-        if (holder.__frames !== frames) return false;
+      // Read as the frame paints: in a ResizeObserver made after the pane's, on a probe resized in
+      // each frame's callbacks, so the read comes after the frame's layout and the pane's own
+      // observer, right before the paint. A read in a task after the frame (cmuxAfterPaint) could
+      // come after an already-queued task grew the streaming reply: a state no frame painted, the
+      // reply a paragraph longer than its placement (-36 px under the card, CI's Chromium).
+      const probe = document.createElement("div");
+      probe.style.cssText = "position:fixed;left:0;top:0;height:1px;width:1px;pointer-events:none;visibility:hidden";
+      document.body.append(probe);
+      let wide = false;
+      const read = (frame: number) => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
         const last = rows.reduce((a, b) =>
           Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
         );
+        // Where the row is laid out: a row that arrives live rises 4px into place (`cv-enter`'s
+        // translate, #20003), which draws it and never moves layout, so it is not read as the row
+        // under the card. The turn's footer arrives so as the glide lands.
+        const rise = parseFloat(getComputedStyle(last).translate.split(" ")[1] ?? "0") || 0;
         frames.push({
           at: frame,
           top: scroller.scrollTop,
           height: scroller.scrollHeight,
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
-          rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
+          rowAboveCard: Math.round(card.top - (last.getBoundingClientRect().bottom - rise)),
         });
-      });
+      };
+      const observer = new ResizeObserver(() => read(performance.now()));
+      observer.observe(probe);
+      window.cmuxAfterPaint(
+        () => {
+          if (holder.__frames === frames) return;
+          observer.disconnect();
+          probe.remove();
+          return false;
+        },
+        () => {
+          wide = !wide;
+          probe.style.width = wide ? "2px" : "1px";
+        },
+      );
     });
   /// The frames painted after the jump was clicked, and the click's time.
   const stopFrames = (page: Page) =>
@@ -365,7 +408,89 @@ await requireBrowserLane("agent-pane-jump-latest-motion.test.ts", async () => {
       const tops = [start.top, ...frames.slice(0, landed + 1).map((frame) => frame.top)];
       expect(tops.slice(1).filter((top, index) => top < tops[index]! - 1)).toEqual([]);
       expect(frames.filter((frame) => frame.fromEnd <= 1 && frame.rowAboveCard < -1)).toEqual([]);
-      await page.close();
+      const restarts = await page.evaluate(
+        () => (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls.length,
+      );
+      console.info("jump ride", { engine: name, restarts, frames: frames.length, landingGap: end.fromEnd });
+      // A moving target must remain on one animation clock, rather than restarting the native
+      // animation at each streamed paragraph and finally jumping when a timeout expires.
+      expect(restarts).toBeLessThanOrEqual(1);
+      if (process.env.CMUX_JUMP_CAPTURE_DIR) {
+        await page.screenshot({ path: path.join(process.env.CMUX_JUMP_CAPTURE_DIR, `${name}-landing.png`) });
+        await page.context().close();
+      } else await page.close();
     },
   );
+  test.each(engines.map(([name]) => name))("%s: one continuous moving-target ride", async (name) => {
+    const page = await open(name);
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await page.mouse.wheel(0, -900);
+    await untilStill(page);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    const capture = process.env.CMUX_JUMP_CAPTURE_DIR;
+    if (capture) await page.screenshot({ path: path.join(capture, `${name}-before.png`) });
+    await startFrames(page);
+    const settled = waitForJumpSettle(page);
+    await page.locator(".acpmux-jump-latest").click();
+    send(record("mux", "turn_started", {}));
+    for (let index = 1; index <= 12; index++) {
+      send(
+        record("in", "agent_message_chunk", chunk(`Streamed paragraph ${index}: the reply grows during the ride.\n\n`)),
+      );
+      await page.evaluate(() => window.cmuxPaintFrame());
+    }
+    send(record("mux", "turn_result", { status: "completed" }));
+    await settled;
+    const frames = await stopFrames(page);
+    const end = await measure(page);
+    const restarts = await page.evaluate(
+      () => (window as unknown as { jumpSmoothCalls: number[] }).jumpSmoothCalls.length,
+    );
+    const first = frames[0]!;
+    const landed = frames.findIndex((frame) => frame.fromEnd <= 1);
+    console.info(
+      "continuous jump ride",
+      JSON.stringify({
+        engine: name,
+        restarts,
+        frames: frames.length,
+        landingGap: end.fromEnd,
+        landingMs: frames[landed]!.at - first.at,
+      }),
+    );
+    if (capture) {
+      await page.screenshot({ path: path.join(capture, `${name}-landing.png`) });
+      const video = page.video();
+      await page.context().close();
+      await video?.saveAs(path.join(capture, `${name}-ride.webm`));
+    } else await page.close();
+    expect(end.fromEnd).toBe(0);
+    expect(landed).toBeGreaterThan(0);
+    expect(frames.slice(0, landed).some((frame) => frame.height > first.height)).toBe(true);
+    expect(restarts).toBeLessThanOrEqual(1);
+  });
+  test.each(engines.map(([name]) => name))("%s: native turn navigation replaces a bottom jump", async (name) => {
+    const page = await open(name);
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await page.mouse.wheel(0, -900);
+    await untilStill(page);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await page.locator(".acpmux-jump-latest").click();
+    // Menu/key-equivalent commands are bridged on window while focus remains in the composer.
+    await page.locator(".acpmux-md").focus();
+    await page.evaluate(() => window.dispatchEvent(new Event("cmux-acpmux-previousTurn")));
+    await untilStill(page);
+    const stopped = await measure(page);
+    expect(stopped.fromEnd).toBeGreaterThan(80);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    // An unrelated render must not revive the cancelled bottom-follow owner.
+    send(record("mux", "turn_started", {}));
+    send(record("in", "agent_message_chunk", chunk("A reply arriving after native turn navigation.")));
+    await page.getByRole("button", { name: "Jump to latest, still replying", exact: true }).waitFor();
+    await untilStill(page);
+    expect((await measure(page)).fromEnd).toBeGreaterThan(80);
+    await page.close();
+  });
 });

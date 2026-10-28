@@ -37,6 +37,9 @@ final class SettingsPageProvider: PageProvider {
     /// watch that keeps its history current while a page shows it; nil in
     /// tests without an app.
     var devicesState: (@MainActor () -> JSONValue)?
+    /// Settings > Accounts > Cloud Environments (``CloudEnvironmentsSettings``).
+    var environmentsState: (@MainActor () -> JSONValue)?
+    var environmentsRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesRun: (@MainActor (JSONValue) async throws -> JSONValue)?
     var devicesWatching: (@MainActor (Bool) -> Void)?
     /// Settings > Agents > Agent integrations (`SettingsAgentIntegrations`): the coding-agent
@@ -75,6 +78,8 @@ final class SettingsPageProvider: PageProvider {
     var removeDevice: (@MainActor (String) async -> String?)?
     /// Settings > Devices' Full access switch on a paired client machine: the error to show, or nil.
     var setDeviceFullAccess: (@MainActor (String, Bool) async -> String?)?
+    /// Settings > Machines' "Dedicated agent machine" switch on a Cloud machine: the error to show, or nil.
+    var setMachineVmHost: (@MainActor (String, Bool) async -> String?)?
     /// The gesture (``PageCallContext/gestureEvent``) that last turned a device's Full access on:
     /// one click or key turns on one setting.
     private var spentFullAccessGesture: TimeInterval?
@@ -155,6 +160,22 @@ final class SettingsPageProvider: PageProvider {
                 spentFullAccessGesture = event
             }
             return try await Self.host(setDeviceFullAccess, "devices")(id, on).map { ["error": .string($0)] } ?? .object([:])
+        case "cmux.settings.machines.vm_host":
+            guard let id = params["id"]?.stringValue, let on = params["on"]?.boolValue else {
+                throw PageError.invalidParams("id and on are required")
+            }
+            // Turning it on lets that machine take the VM boundary again when this app's own link
+            // asks for it (its remote chains then run without the sandbox), so, like Full access,
+            // only the person's own click or key in this page turns it on (spent once); off makes
+            // the machine keep the sandbox always, which only narrows, so it needs no gesture.
+            if on {
+                guard context.page == PageDescriptor.settings.id, context.userGesture, let event = context.gestureEvent,
+                      event != spentFullAccessGesture else {
+                    throw PageError(code: PageNativeOp.userOnlyCode, message: RefusalStrings.personOnlyFromPage)
+                }
+                spentFullAccessGesture = event
+            }
+            return try await Self.host(setMachineVmHost, "machines")(id, on).map { ["error": .string($0)] } ?? .object([:])
         case "cmux.settings.accounts.state": return try Self.host(accountsState, "accounts")()
         case "cmux.settings.accounts.run": return try await Self.host(accountsRun, "accounts")(params)
         case "cmux.settings.agents.state": return try Self.host(agents, "agents").pageState
@@ -163,6 +184,8 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.harnesses.run": return try await Self.host(harnessesRun, "harnesses")(params, context)
         case "cmux.settings.integrations.state", "cmux.settings.integrations.run":
             return try await Self.host(integrations, "agent integrations").call(op, params: params, context: context)
+        case "cmux.settings.environments.state": return try Self.host(environmentsState, "environments")()
+        case "cmux.settings.environments.run": return try await Self.host(environmentsRun, "environments")(params)
         case "cmux.settings.devices.state": return try Self.host(devicesState, "devices")()
         case "cmux.settings.devices.run": return try await Self.host(devicesRun, "devices")(params)
         case "cmux.settings.theme.set":

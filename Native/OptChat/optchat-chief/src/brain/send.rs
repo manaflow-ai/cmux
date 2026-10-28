@@ -58,14 +58,30 @@ impl Brain {
                 image_syntax: None,
             });
         }
+        // A `reply_to` line that is no conversation message (a subagent's
+        // report): the thread of the person's message behind it, else the top
+        // level, said in the outcome.
+        let mut placed = None;
         let thread = match call.reply_to {
-            Some(view_id) => {
+            Some(view_id) if self.chat.logged_key(view_id).is_some() => {
                 let message = self.message_of_line("send", view_id)?;
                 let root = message
                     .thread_root
                     .clone()
                     .unwrap_or_else(|| message.id.clone());
                 Some((message.conversation.clone(), message.id.clone(), root))
+            }
+            Some(view_id) => {
+                let thread = self.thread_behind_line(view_id);
+                placed = Some(match thread {
+                    Some(_) => format!(
+                        "line {view_id} is a report, not a message: sent in the thread of the message it answers"
+                    ),
+                    None => format!(
+                        "line {view_id} is not a message and no message is behind it: sent at the top level"
+                    ),
+                });
+                thread
             }
             None => None,
         };
@@ -159,9 +175,10 @@ impl Brain {
             (0, 0) => String::new(),
             (f, u) => format!(" with {} attachment(s)", f + u),
         };
-        Ok(match call.reply_to {
-            Some(id) => format!("outcome: done. sent{what} in the thread of message {id}"),
-            None => format!("outcome: done. sent{what}"),
+        Ok(match (placed, call.reply_to) {
+            (Some(placed), _) => format!("outcome: done. {placed}{what}"),
+            (None, Some(id)) => format!("outcome: done. sent{what} in the thread of message {id}"),
+            (None, None) => format!("outcome: done. sent{what}"),
         })
     }
 }

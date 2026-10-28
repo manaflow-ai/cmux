@@ -53,6 +53,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         didSet { applyOcclusion() }
     }
 
+    /// Rounded native UI in `contentView` coordinates (the prompt and find
+    /// bars, `BrowserRoundedOcclusionHosting`): holes with their corners, so the page shows around them.
+    var roundedOcclusions: [CEFClipShape.RoundedRect] = [] {
+        didSet { if roundedOcclusions != oldValue { applyOcclusion() } }
+    }
+
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
     /// DevTools placement (layout, docked views, window); writes `devTools`.
@@ -89,9 +95,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
-    /// The renderer ended while the tab was hidden: reload when shown
-    /// (a crashed background tab reloads when it is selected).
-    @ObservationIgnored var reloadWhenShown = false
     /// The tab showed a real page (or a page opened it): its page
     /// background is Chromium's white from now on (`PageBackground`).
     /// Settable inside the module, not only this file: `reachedFirstRealPage`
@@ -306,19 +309,19 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         guard !isClosed else { return }
         host.present(self, in: view)
         view.layoutContent()
-        if reloadWhenShown {
-            reloadWhenShown = false
-            if state.processExit != nil { reload() }
-        }
+        // A tab whose renderer ended while hidden shows the crash notice with its Reload button
+        // when shown; it never reloads by itself (it used to: a page could come back signed out
+        // or lose what the person typed, with no sign why).
     }
 
     /// The renderer ended (crash, kill, out of memory, launch failure). The
-    /// pane shows the sad tab; a hidden tab reloads when it is shown.
+    /// pane shows the sad tab, now or when the tab is next shown; only its
+    /// Reload button (or the person's own reload) loads the page again.
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard !isClosed else { return }
         // A new renderer need not keep the old one's media emulation, so forget
         // what the dead one was told: whichever way the page comes back (Reload
-        // here, or a hidden tab reloading when shown), the restarted renderer's
+        // from the sad tab), the restarted renderer's
         // `.loadStart` sends the color scheme again rather than trusting a memo
         // no live page ever heard.
         sentColorScheme = nil
@@ -330,7 +333,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // `state.processExit` is laid out shows a white page area for a frame
         // in a dark theme.
         documentDidSettle()
-        reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)
     }
@@ -383,7 +385,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     }
 
     public func reload() {
-        reloadWhenShown = false
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return

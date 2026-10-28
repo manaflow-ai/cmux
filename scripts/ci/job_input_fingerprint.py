@@ -10,19 +10,18 @@ passed; a job that passes records its own.
 The key covers:
 
 - what the job reads:
-  - fast-tier and fast-tier-cargo: the commit's full tree hash
-    (`git rev-parse <rev>^{tree}`), so a pass is reused only on an identical
-    tree (a rerun, or a re-push of the same tree);
-  - swift-test, release-compile and generated-files: the git object id of
-    each path on an explicit input list (`git ls-tree <rev> -- <paths>`; an
-    absent path counts as absent). The list is derived from the router
-    (scripts/ci/cmux_next_route.py), the CI target graph's `reads`
-    (Packages/macOS/CmuxNext/ci-target-graph.json), the web bundles' inputs
-    (scripts/cmux-next/web-bundle-key.py) and the scripts each job runs, and
-    over-includes: the whole Packages and vendor trees, scripts/cmux-next,
-    schemas, plans/cmux-next and the submodule gitlinks. A base move that
-    touches none of these keeps the key. generated-files also keys its base's
-    (`--base-rev`, HEAD^1) settings sources, which its stamp check reads;
+  - every job here: the commit's full tree hash (`git rev-parse <rev>^{tree}`),
+    so a pass is reused only on an identical tree (a rerun, or a re-push of the
+    same tree). Any base move changes the key. swift-test, release-compile and
+    generated-files keyed an explicit input list until version 4; a list that
+    misses an input reuses a pass for a change that was never built, so they
+    key the whole tree too (`whole_tree`). Their lists stay: `--list-inputs`
+    prints them and the DEV and nightly product closures read release-compile's.
+    The list is derived from the router (scripts/ci/cmux_next_route.py), the CI
+    target graph's `reads` (Packages/macOS/CmuxNext/ci-target-graph.json), the
+    web bundles' inputs (scripts/cmux-next/web-bundle-key.py) and the scripts
+    each job runs. generated-files also keys its base's (`--base-rev`, HEAD^1)
+    settings sources, which its stamp check reads;
 - the blob hash of the whole .github/workflows/cmux-next.yml;
 - the toolchain the workflow step names with `--extra`: Xcode (the
   `xcodebuild -version` output), the macOS version and build, arch and the
@@ -32,7 +31,8 @@ The key covers:
 - the env flags a Mac job's result depends on (`--extra`, '' is a value):
   the selected Swift targets and filter, whether the label is a mini (the GUI
   requirement, the CEF steps), the configured Xcode app and the web bundles'
-  source key.
+  source key; for swift-test, the base commit when it checks the generated files
+  on its own build (`generated_base`, '' otherwise).
 
 dev-release-product keys the compiled DEV Release app itself (scripts/ci/dev_release_product_reuse.py
 moves the bytes), so its closure is broad: every path in the tree except PRODUCT_EXCLUDES, the paths
@@ -63,7 +63,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import cmux_next_route as route  # noqa: E402
 
-VERSION = 3  # 2 keyed only full trees in actions/cache; no key of it may match.
+VERSION = 4  # 2 keyed only full trees in actions/cache; 3 keyed input lists. No key of either may match.
 WORKFLOW = ".github/workflows/cmux-next.yml"
 MAC_TOOLCHAIN = ("xcode", "macos", "macos_build", "arch", "pool")
 # Keyed when given; not every runner image sets ImageOS/ImageVersion.
@@ -157,6 +157,7 @@ class Job:
     required: tuple[str, ...]          # toolchain values, never empty
     flags: tuple[str, ...] = ()        # env flags, always passed, '' allowed
     inputs: tuple[str, ...] | None = None  # None: the whole tree
+    whole_tree: bool = False           # key the full tree hash even though `inputs` is declared
     web: bool = False                  # also the web bundles' inputs
     base_inputs: tuple[str, ...] = ()  # read at --base-rev
     product: bool = False              # the whole tree minus PRODUCT_EXCLUDES
@@ -166,15 +167,17 @@ class Job:
 JOBS = {
     "fast-tier": Job(MAC_TOOLCHAIN),
     "fast-tier-cargo": Job(("runner", "rustc", "cargo", "zig", "clang")),
+    # generated_base: the base commit when swift-test checks the generated files on its own build
+    # (cmux-next.yml CMUX_NEXT_FOLD_GENERATED, which compares them with the base), else ''.
     "swift-test": Job(MAC_TOOLCHAIN + ("web_bundles",), ("swift_targets", "swift_filter", "mini", "xcode_app",
-                                                         "layout_reducer"),
-                      SWIFT_TEST, web=True),
+                                                         "layout_reducer", "generated_base"),
+                      SWIFT_TEST + GENERATED, web=True, whole_tree=True),
     "generated-files": Job(MAC_TOOLCHAIN + ("web_bundles",), ("mini", "xcode_app"), GENERATED, web=True,
-                           base_inputs=SETTINGS_BASE),
+                           base_inputs=SETTINGS_BASE, whole_tree=True),
     "release-compile": Job(MAC_TOOLCHAIN, ("mini", "xcode_app"), (
         "LICENSE", "cmux-tui/build-support/notices", "cmux-tui/crates/ghostty-vt-sys/build.rs",
         "cmux-tui/rust-toolchain.toml", "scripts/verify-app-bundle-licenses.sh",
-    )),
+    ), whole_tree=True),
     # The unsigned DEV Release app (scripts/ci/dev_release_product_reuse.py): Xcode, the SDK, the arch,
     # that script's RECIPE and the cmux-tui tree it bundles (CMUX_TUI_TREE_KEY, or `own`: the tree's
     # own key is a function of TUI_TREE_INPUTS, which the closure keeps). The build
@@ -185,7 +188,9 @@ JOBS = {
     # alone, and by `decide`'s outputs that reach the build (NIGHTLY_PRODUCT_FLAGS): the identity, the
     # icon, the arches and the browser-import variant. The job name is part of the key, so a nightly
     # key never equals a DEV key.
-    "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree"),
+    # The runner's macOS too (`sw_vers` version and build): the SDK alone does not name the host
+    # tools and system libraries a build runs.
+    "nightly-release-product": Job(("xcode", "sdk", "arch", "recipe", "tui_tree", "macos", "macos_build"),
                                    NIGHTLY_PRODUCT_FLAGS, product=True,
                                    workflow=".github/workflows/nightly.yml"),
 }
@@ -341,7 +346,7 @@ def fingerprint(root: str, rev: str, job: str, extra: list[str], base_rev: str |
                        "flags": {name: values[name] for name in spec.flags}}
         if spec.product:
             value["inputs"] = product_inputs(root, commit)
-        elif spec.inputs is None:
+        elif spec.inputs is None or spec.whole_tree:
             value["tree"] = git(root, "rev-parse", "--verify", f"{rev}^{{tree}}")
         else:
             value["inputs"] = object_ids(root, commit, input_paths(root, commit, job))

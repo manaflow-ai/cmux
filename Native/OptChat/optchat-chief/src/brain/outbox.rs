@@ -78,6 +78,12 @@ impl Brain {
             match daemon.op(&conversation, &key, &op) {
                 Ok(change) => {
                     self.reply_posted(&conversation, &key, &op);
+                    if key.starts_with("send-")
+                        || key.starts_with("reply-")
+                        || key.starts_with("turn:optchat:")
+                    {
+                        self.outcome_posted(&op);
+                    }
                     if is_message {
                         self.last_agent_send = Some(now_ms());
                     }

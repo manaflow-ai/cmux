@@ -1,5 +1,6 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
+use super::full_access_bound::FullAccessEnd;
 use super::*;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
@@ -24,6 +25,7 @@ impl Hub {
             effort,
             adopt,
             remote,
+            vm_boundary,
             env: session_env,
             workspace_id,
             keep_harness_mode,
@@ -65,8 +67,7 @@ impl Hub {
             }
             (None, None) => defaults.policy,
         };
-        // `${model}` in argv or env: the model is a spawn parameter, not a
-        // set_model call.
+        // `${model}` in argv or env: the model is a spawn parameter, not a set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
         // What a new chat starts on when nothing pins it (start_defaults.rs):
@@ -151,6 +152,7 @@ impl Hub {
         (meta.session_env, meta.chat_store, meta.adopted_cwd, meta.git_branch, meta.git_head) =
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
+        meta.vm_boundary = remote && vm_boundary;
         meta.subsession = subsession;
         meta.lineage = lineage;
         meta.tools
@@ -229,6 +231,8 @@ impl Hub {
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             self.child_tags.forget(&id);
+            // A list built meanwhile showed it (`list_guard.rs`).
+            self.events.changed();
             return Err(RpcError::internal(e.to_string()));
         }
         // The chat's route is bound once the session exists and before its
@@ -240,6 +244,7 @@ impl Hub {
             {
                 self.sessions.lock().unwrap().remove(&id);
                 self.child_tags.forget(&id);
+                self.events.changed();
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
@@ -393,8 +398,8 @@ impl Hub {
         let level = |m: &SessionMeta| (m.permission_policy.clone(), crate::web_modes::mode_of(m));
         for _ in 0..ROUNDS {
             let Some(theirs) = live() else { return Ok(()) };
-            if inherits_policy && self.policy_laxer(&session.meta(), &theirs).await {
-                let narrowed = self.effective_policy(&theirs).await;
+            if inherits_policy && self.policy_set_laxer(&session.meta(), &theirs).await {
+                let narrowed = self.set_policy_of(&theirs).await;
                 self.set_policy(session, narrowed).await;
             }
             if mode_eligible {
@@ -450,8 +455,16 @@ impl Hub {
         profile: &super::spawn::Spawn,
         stops: u64,
     ) -> Result<Arc<ChildAgent>, RpcError> {
+        // MDM's off as this start begins: its one read, before it waits on anything (review 123),
+        // which every check of the start takes, so an off that comes and goes while it starts
+        // still holds for it (reviews 73, 75 and 77 of #23322).
+        let off = self.off_latch();
+        #[cfg(test)]
+        super::full_access_bound::operation_entry(self);
         // One spawn at a time per session; a caller that waited here finds
-        // the child the previous holder started.
+        // the child the previous holder started. The idle pass never ends the harness meanwhile.
+        self.touch(session);
+        let _using = session.harness_use.read().await;
         let _spawning = session.spawn_lock.lock().await;
         // Stopped since the request: it starts nothing and touches no agent. One a later request
         // started after the stop is that request's (it reopened the session).
@@ -459,7 +472,14 @@ impl Hub {
             return Err(stopped_while_starting());
         }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
-        let child = Box::pin(self.reach_or_start(session, profile, stops)).await?;
+        let wake = self.wake_began(session);
+        let child = match Box::pin(self.reach_or_start(session, profile, stops, &off)).await {
+            Ok(child) => child,
+            Err(e) => {
+                self.wake_ended(session, wake, Some(&e));
+                return Err(e);
+            }
+        };
         // Stopped while this agent started (no other start can run while this one holds the
         // spawn lock): the stop found no agent to end yet, or the start went on after it. The
         // agent is ended here and the session stays closed.
@@ -477,8 +497,11 @@ impl Hub {
             // As `kill` left it: a start above may have cleared it.
             session.closing.store(true, Ordering::SeqCst);
             self.append(session, "mux", "stopped_while_starting", json!({}));
-            return Err(stopped_while_starting());
+            let e = stopped_while_starting();
+            self.wake_ended(session, wake, Some(&e));
+            return Err(e);
         }
+        self.wake_ended(session, wake, None);
         Ok(child)
     }
 
@@ -519,9 +542,18 @@ impl Hub {
         session: &Arc<Session>,
         profile: &super::spawn::Spawn,
         stops: u64,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
+        }
+        self.refuse_cleared_host(session).await?;
+        // MDM forces full access off (#23322): an agent still in it, live or left by a restart,
+        // ends here and is never reached again; the start below asks, or refuses a pinned profile.
+        // A host whose end failed may still run in it: the chat is refused until it ends (review 51).
+        // Under the start's one read of the off (`off`).
+        if self.end_if_runs_full_access(session, off.off()).await == FullAccessEnd::StillRunning {
+            return Err(super::start_mode::full_access_off());
         }
         let live = session.child.lock().await.clone();
         if let Some(child) = live
@@ -564,13 +596,26 @@ impl Hub {
         }
 
         // Every start below (pooled, cold, resumed, a fork or sub-session) runs this profile.
-        if let Err(e) = self.refuse_pinned_full_access(profile) {
+        if let Err(e) = self.refuse_pinned_full_access(off, profile) {
             self.append(session, "mux", "full_access_refused", json!({}));
             return Err(e);
         }
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
+        // What the agent runs is this argv, not the creation's (`FullAccessView::of_session`). On
+        // disk before the agent starts: a daemon that dies while it starts leaves a host the next
+        // one judges by this argv (review 44 of #23322). Not left to the folder check's save, which
+        // a slow git read skips.
+        let argv_changed = {
+            let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
+            let changed = m.spawn_argv.as_ref() != Some(&profile.argv);
+            m.spawn_argv = Some(profile.argv.clone());
+            changed
+        };
+        if argv_changed {
+            self.save_meta(session);
+        }
         *session.launch_env.lock().unwrap_or_else(|e| e.into_inner()) = Some(profile.env.clone());
         let moves = super::processes::backgrounds_work(profile.kind);
         session.backgrounds_work.store(moves, Ordering::SeqCst);
@@ -579,21 +624,37 @@ impl Hub {
         Self::starting(session, stops);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
-        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile) {
+        if let Some(pooled) = self.pool_take_claimed_for(&session.id, profile, off) {
+            #[cfg(debug_assertions)]
+            self.take_off_seam();
             // Reopened before it is taken, so the pooled start's Ready lands on an open session.
             if let Err(e) = self.reopen_to_start(session, stops) {
                 super::pool::end_pooled(pooled).await;
                 return Err(e);
             }
+            let reported_off = pooled.reported_off();
+            // The chat judges the entry under MDM's off as the entry saw it too, from its start
+            // and its claim on (review 122 of #23322): an off it lived through holds for the take,
+            // the report check and the cap, though an unset followed.
+            let off = off.merge(&pooled.lived_off());
             match self.adopt_pooled(session, pooled).await {
+                // MDM forces full access off (#23322, reviews 71 and 77): a report of full access
+                // held past the take's check may not have reached the chat when its start is
+                // capped, and one made while the off held counts though it is unset by now.
+                Ok((_, reported))
+                    if reported_off.load(Ordering::SeqCst) || (reported && off.off()) =>
+                {
+                    self.stop_full_access_agent(session, true).await;
+                    return Err(super::start_mode::full_access_off());
+                }
                 // A harness whose own settings started it in full access: capped like a cold
                 // start, under the same budget. Its `session/set_mode` would otherwise wait
                 // forever on a harness that stays alive but never answers, holding `spawn_lock`.
-                Ok(child) => {
+                Ok((child, _)) => {
                     let budget = self.config.read().await.agent_start_timeout();
                     return match tokio::time::timeout(
                         budget,
-                        self.cap_full_access(session, &child, profile),
+                        self.cap_full_access(session, &child, profile, &off),
                     )
                     .await
                     {
@@ -617,7 +678,7 @@ impl Hub {
         // session, forever. Re-adoption and pool adoption above keep their
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
-        match tokio::time::timeout(budget, self.cold_start(session, profile, stops)).await {
+        match tokio::time::timeout(budget, self.cold_start(session, profile, stops, off)).await {
             Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
@@ -661,6 +722,7 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
         stops: u64,
+        off: &super::full_access_bound::OffLatch,
     ) -> Result<Arc<ChildAgent>, RpcError> {
         // Its worktree back if cleanup reclaimed it, and reopened if stopped.
         self.ready_to_start(session, stops).await?;
@@ -682,18 +744,26 @@ impl Hub {
             && let Some(sid) = existing_sid.take()
         {
             tracing::info!(session = %session.id, agent_session = %sid, "starting a fresh Claude conversation: {why}");
-            self.append(
-                session,
-                "mux",
-                "resume_failed",
-                json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
-            );
+            // A chat woken from hibernation had no turn when it hibernated (`idle.rs` keeps one
+            // with turns but none stored awake), so it has nothing to restore: it starts fresh
+            // with no row and no restored transcript. (The prompt waking it is counted already.)
+            let untouched = self.waking(session);
+            if !untouched {
+                self.append(
+                    session,
+                    "mux",
+                    "resume_failed",
+                    json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
+                );
+            }
             {
                 let mut m = session.meta.lock().unwrap();
                 m.agent_session_id = None;
                 m.claude_unstored = false;
             }
-            session.rehydrate.store(true, Ordering::SeqCst);
+            if !untouched {
+                session.rehydrate.store(true, Ordering::SeqCst);
+            }
         }
         // The --permission-mode acpmux started a Claude process in.
         let mut started_mode = None;
@@ -731,7 +801,7 @@ impl Hub {
             let mode = if super::start_mode::profile_sets_mode(profile) {
                 mode
             } else {
-                super::start_mode::resumable_mode(mode, "default", self.full_access_allowed())
+                super::start_mode::resumable_mode(mode, "default", off.allows_full_access())
             };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
@@ -892,7 +962,7 @@ impl Hub {
         if is_claude {
             // MDM may have forced full access off since `ensure_child` checked the profile: the
             // process runs nothing, not even a fork's priming turn, in full access (review 31).
-            self.refuse_started_in_full_access(session, &spawned).await?;
+            self.refuse_started_in_full_access(session, off, &spawned).await?;
             // A forked process only learns its new id from system/init on the
             // first turn. Prime it then; fresh and resumed ids are known already.
             let known = child.claude_state().await.and_then(|state| state.session_id);
@@ -937,12 +1007,18 @@ impl Hub {
                     session.fork_from.lock().unwrap().take();
                 }
                 if level != "new" {
-                    self.append(session, "mux", "resumed", json!({"level": level}));
+                    self.append(
+                        session,
+                        "mux",
+                        "resumed",
+                        self.wake_marked(session, json!({"level": level})),
+                    );
                 }
             }
             // Nor is it handed out in full access by any form it now reports (`cap_full_access`).
             self.refuse_started_in_full_access(
                 session,
+                off,
                 &super::full_access_bound::FullAccessView::of_session(session),
             )
             .await?;
@@ -973,7 +1049,12 @@ impl Hub {
                 match res {
                     Ok(v) => {
                         self.absorb_session_response(session, &v);
-                        self.append(session, "mux", "resumed", json!({"level": "exact"}));
+                        self.append(
+                            session,
+                            "mux",
+                            "resumed",
+                            self.wake_marked(session, json!({"level": "exact"})),
+                        );
                         true
                     }
                     Err(e) => {
@@ -1013,13 +1094,18 @@ impl Hub {
             self.absorb_session_response(session, &res);
             if had_history {
                 session.rehydrate.store(true, Ordering::SeqCst);
-                self.append(session, "mux", "resumed", json!({"level": "rehydrate"}));
+                self.append(
+                    session,
+                    "mux",
+                    "resumed",
+                    self.wake_marked(session, json!({"level": "rehydrate"})),
+                );
             }
         }
         if saved.agent_session_id.is_some() {
-            self.replay_config(session, &child, &saved).await;
+            self.replay_config(session, &child, &saved, off).await;
         }
-        self.cap_full_access(session, &child, profile).await?;
+        self.cap_full_access(session, &child, profile, off).await?;
         self.set_status(session, SessionStatus::Ready);
         self.save_meta(session);
         let meta_now = session.meta();
@@ -1046,6 +1132,7 @@ impl Hub {
         session: &Arc<Session>,
         child: &Arc<ChildAgent>,
         saved: &SessionMeta,
+        off: &super::full_access_bound::OffLatch,
     ) {
         let Some(sid) = session.meta().agent_session_id else { return };
         // A resumed chat saved in a full-access mode does not get it back while the setting is off.
@@ -1054,7 +1141,7 @@ impl Hub {
             .as_ref()
             .and_then(|m| m.get("currentModeId"))
             .and_then(Value::as_str)
-            .filter(|mode| !super::start_mode::is_full_access(mode) || self.full_access_allowed())
+            .filter(|mode| !super::start_mode::is_full_access(mode) || off.allows_full_access())
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -1090,7 +1177,7 @@ impl Hub {
                 continue;
             }
             if value.as_str().is_some_and(super::start_mode::is_full_access)
-                && !self.full_access_allowed()
+                && !off.allows_full_access()
             {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
@@ -1259,18 +1346,45 @@ impl Hub {
         name: &str,
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
+        // MDM's off as the probe starts: its one read, taken first (review 120). An off that holds
+        // or begins while it runs ends it once its harness reported full access, an unset after it
+        // too (reviews 71 and 73 of #23322).
+        let latch = self.off_latch();
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
+        // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
+        // #23322). The tap sees each line before its answer is handed back, so none sent before
+        // that answer is missed.
+        let reports =
+            Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
+        // Notified on each report of full access: a probe ends on one under MDM's off (review 71).
+        let reported = Arc::new(tokio::sync::Notify::new());
+        let (seen, notify) = (reports.clone(), reported.clone());
+        let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
+            if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
+                (dir, msg)
+                && m == method::SESSION_UPDATE
+            {
+                seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
+                if super::full_access_bound::StartReports::reports_full_access(params) {
+                    notify.notify_one();
+                }
+            }
+            true
+        });
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
         let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
+        // MDM forces full access off (#23322): a profile pinning it is never started to probe,
+        // and a probe that runs when the off lands ends then (`probe_bound`).
+        let mut bound =
+            self.probe_bound(&latch, &profile.argv).map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
         let mut resolved = profile.clone();
         resolved.argv = self.resolved_launcher_argv(resolved.argv);
         let child = crate::agent::ChildAgent::spawn(name, &resolved, &cwd, tx, tap).await?;
         // Drain anything the agent sends so its writer never blocks.
         let drain = tokio::spawn(async move { while rx.recv().await.is_some() {} });
-        let result = tokio::time::timeout(std::time::Duration::from_secs(50), async {
+        let listed = tokio::time::timeout(std::time::Duration::from_secs(50), async {
             child
                 .request(method::INITIALIZE, json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": "acpmux", "version": env!("CARGO_PKG_VERSION")}}))
                 .await
@@ -1279,12 +1393,36 @@ impl Hub {
                 .request(method::SESSION_NEW, json!({"cwd": cwd, "mcpServers": []}))
                 .await
                 .map_err(|e| anyhow::anyhow!(e.to_string()))?;
+            // MDM forces full access off (#23322, review 32): a session that came up in it (its
+            // mode or a config option, a profile that pins nothing included) keeps nothing. Read
+            // once it answered, so an off that landed during the handshake counts.
+            let mut view =
+                super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
+            view.reported = reports.lock().unwrap_or_else(|e| e.into_inner()).of_answer(Some(&res));
+            if latch.off() && super::full_access_bound::runs_full_access(&view).is_some() {
+                anyhow::bail!("{name}: its session came up in full access, which MDM forces off");
+            }
             let cfg = self.config.read().await;
             if cfg.harnesses.get(name) == Some(profile) {
-                self.remember_models_from(name, res.get("configOptions").filter(|v| !v.is_null()), res.get("models").filter(|v| !v.is_null()));
+                self.remember_models_from(
+                    name,
+                    res.get("configOptions").filter(|v| !v.is_null()),
+                    res.get("models").filter(|v| !v.is_null()),
+                );
             }
             Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
-        }).await;
+        });
+        let result = tokio::select! {
+            listed = listed => listed,
+            () = super::full_access_bound::full_access_forced_off(bound.as_mut()) => {
+                Ok(Err(anyhow::anyhow!("{name}: MDM forced full access off, which its profile pins")))
+            }
+            () = latch.reported_under_off(&reported, || {
+                reports.lock().unwrap_or_else(|e| e.into_inner()).of(None)
+            }) => {
+                Ok(Err(anyhow::anyhow!("{name}: its harness reported full access, which MDM forces off")))
+            }
+        };
         child.kill().await;
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
@@ -1336,11 +1474,19 @@ impl Hub {
         // agent's own requests meanwhile). A live child is ready only while
         // no start holds the spawn lock; otherwise wait for that start below.
         // A closed session, or one stopped since the request, goes through `ensure_child`.
+        // Under MDM's off, a host whose replay is not all in the log is not handed out here either:
+        // `ensure_child` judges it first, as the off's teardown does (review 3 of #26057).
+        let off = self.off_latch();
         if session.status() != SessionStatus::Closed
             && session.stops.load(Ordering::SeqCst) == stops
             && let Ok(_idle) = session.spawn_lock.try_lock()
+            && !self.managed_off_runs_full_access(&off, session)
             && let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
+            && !(off.off() && child.replay_pending())
+            // Under MDM's off an agent whose reader stopped is not heard: `ensure_child` ends it
+            // (`host_unheard`, review 68 of #23322).
+            && !(child.is_stopped() && self.full_access_managed_off())
         {
             return Ok(child.clone());
         }
@@ -1374,6 +1520,10 @@ fn stopped_while_starting() -> RpcError {
 #[cfg(test)]
 #[path = "stop_fence_tests.rs"]
 mod stop_fence_tests;
+
+#[cfg(test)]
+#[path = "probe_off_tests.rs"]
+mod probe_off_tests;
 
 /// The agent messages of a `session/load` (or a Claude fork's prime) never reach the session's
 /// preview, so its `lastMessage` stays the chat's own newest reply, as `wait --print` reads it

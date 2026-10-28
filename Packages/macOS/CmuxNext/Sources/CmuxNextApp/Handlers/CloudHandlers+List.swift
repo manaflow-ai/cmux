@@ -48,7 +48,12 @@ extension CloudHandlers {
     static let listLoadWait: Duration = .seconds(25)
 
     /// `cloud list-machines`' result: `loaded`, `machines` (one object per
-    /// machine in the store), `count` and `account`.
+    /// machine in the store), `count`, `creating` and `account`.
+    ///
+    /// `creating` lists this app's creates whose machine the server has not returned yet
+    /// (``CloudCreations``): the name asked for, and `creating` or `failed` with its reason.
+    /// A machine joins `machines` only when its create returns, which can take minutes, so an
+    /// agent that checks for its machine by name sees one still on its way and makes no second.
     ///
     /// `loaded` is whether the store holds a list the server answered for
     /// the signed-in user and team (``CloudService/hasLoadedCurrentMachines``).
@@ -69,8 +74,24 @@ extension CloudHandlers {
             "loaded": .bool(loaded),
             "machines": .array(machines),
             "count": .int(machines.count),
+            "creating": .array(cloud.creations.all.filter { $0.session == nil }.map(listedCreation)),
             "account": .object(["signed_in": .bool(cloud.isSignedIn)]),
         ]
+    }
+
+    /// One create still on its way: its id, the name it asked for (null: the server picks one)
+    /// and `creating`, or `failed` with the reason (it stays in the sidebar with Retry).
+    static func listedCreation(_ creation: CloudMachineCreation) -> ActionResultValue {
+        var row: [String: ActionResultValue] = [
+            "creation_id": .string(creation.id.uuidString.lowercased()),
+            "name": creation.request.name.map(ActionResultValue.string) ?? .null,
+            "status": .string("creating"),
+        ]
+        if case .failed(let reason) = creation.phase {
+            row["status"] = .string("failed")
+            row["reason"] = .string(reason)
+        }
+        return .object(row)
     }
 
     /// One machine of the list, with the target the other Cloud verbs take.

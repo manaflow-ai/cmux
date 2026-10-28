@@ -37,6 +37,8 @@ nonisolated enum RemoteViewStrings {
 
     static func connectingTitle(_ host: String) -> String { String(format: t("rd.state.connecting.title", "Connecting to %@…"), host) }
     static var connectingDetail: String { t("rd.state.connecting.detail", "Finding the fastest path to this machine.") }
+    static func reconnectingTitle(_ host: String) -> String { String(format: t("rd.state.reconnecting.title", "Reconnecting to %@…"), host) }
+    static var connectingCloudDetail: String { t("rd.state.connecting.cloudDetail", "Connecting through your Cloud tunnel.") }
     static func consentTitle(_ host: String) -> String { String(format: t("rd.state.consent.title", "Waiting for consent on %@…"), host) }
     static func consentDetail(_ host: String) -> String {
         String(format: t("rd.state.consent.detail", "Someone at %@ must allow this session."), host)

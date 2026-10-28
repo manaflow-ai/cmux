@@ -120,7 +120,7 @@ acpmux send NAME --no-wait --no-steer "…"          # queue behind the running 
 acpmux send NAME --no-steer "…"                    # an agent's send that waits: queue behind the running turn instead
 acpmux send NAME --steer "…"                       # the person's send that waits: steer it (it queues by default)
 acpmux send NAME --no-wait --supersede KEY "…"     # replace your own prompt still queued under KEY (a correction is never read after the order it corrects); prints "replaced N queued", --json adds replaced and replacedPromptIds
-acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; 8 MiB a file, 10 MiB a message
+acpmux send PEER/NAME "see" --attach shot.png     # send files with it (repeatable; no scp): images reach the agent and transcript as images, other files as a link; saved 0600 on the session's host; any size and number (large ones are uploaded in chunks first)
 acpmux last NAME [-n 3]                            # last reply text
 acpmux history NAME                                # one line per turn: prompt, status, tools, tokens, wall time
 acpmux ls [--status running|ready|waiting|idle|closed] [--pending] [--tag k=v]
