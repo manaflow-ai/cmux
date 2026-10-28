@@ -526,6 +526,18 @@ class Settings:
     queue_rounds: int = 0
 
 
+# The dedicated nightly-next builder's label (plans/cmux-next/nightly-builder-DESIGN.md): one mini
+# whose job-started hook admits only nightly-next's app build and signed-app verify. It is one
+# machine, so the picker offers it only while it is online and free (nightly_build_runner.py), and
+# ci-owned-pool-rescue.yml moves a job queued on it past its budget, as on an owned pool.
+NIGHTLY_DEDICATED_LABEL = "glaeda-trusted-next-nightly"
+
+
+def nightly_dedicated(label: str) -> bool:
+    """The dedicated nightly-next builder's label."""
+    return (label or "") == NIGHTLY_DEDICATED_LABEL
+
+
 def persistent(label: str) -> bool:
     """An owned pool: its machines outlive the job, so a queued job there can wait for good."""
     return bool(OWNED_LABEL.fullmatch(label or ""))

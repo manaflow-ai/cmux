@@ -1,8 +1,10 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 // Per-machine actions: open, terminal, rename, kill, pause/resume, copy,
 // resize, status, ports, tools, handoff, snapshot, promote to template,
@@ -19,6 +21,9 @@ extension CloudHandlers {
                 try await attached(session, invocation)
                 show(try await firstWorkspace(on: session, context), context)
             }
+        }
+        bind("cloudOpenDesktop", registry, reason: reason) { invocation in
+            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
         }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
@@ -206,6 +211,29 @@ extension CloudHandlers {
         bind("cloudSetIdlePause", registry, reason: reason) { invocation in
             try setIdlePause(invocation, context) { try await cloud.setIdlePause($0, minutes: $1) }
         }
+        // `cloud apply-machine-config --target machine:<id> [--machine-config FILE]` (CloudMachineConfig):
+        // uploads FILE, or reapplies the --repo checkout's `.cmux/machine.toml` or the last upload.
+        bind("cloudApplyMachineConfig", registry, reason: reason) { invocation in
+            let session = try machine(invocation, context); guard session.machine.allows(.exec) else { throw operationUnavailable }
+            // A bare `--machine-config` (no value) arrives as `true`: refuse it, never apply the automatic source instead.
+            if invocation["machineConfig"] != nil, invocation["machineConfig"]?.stringValue?.isEmpty != false {
+                throw ActionFailure(message: CloudStrings.machineConfigUnreadable("--machine-config"))
+            }
+            let path = invocation["machineConfig"]?.stringValue.map(expandingHome)
+            let work = context.services.work, machineID = session.machineID
+            result("apply machine config", context) {
+                var request = CloudMachineRequest()
+                request.machineConfigPath = path
+                let config: CloudMachineConfig
+                do { config = try await request.loadMachineConfig(work: work) ?? CloudMachineConfig(contents: nil) } catch let unreadable as CloudMachineRequest.ScriptUnreadable {
+                    throw ActionFailure(message: CloudStrings.machineConfigUnreadable(unreadable.path))
+                }
+                let outcome = await config.apply(on: CloudMachineBootstrap.Machine(api: cloud.api, machineID: machineID))
+                guard outcome.status != "failed" else { throw ActionFailure(message: outcome.reason ?? "apply machine config failed") }
+                return ["machine_id": .string(machineID), "machine_config": machineConfigAnswer(outcome, machineID: machineID)]
+            }
+        }
+        bind("cloudDeliverSecrets", registry, reason: reason) { invocation in try deliverSecrets(invocation, context) }
         bind("palette.cloud.status", registry, reason: reason) { invocation in
             let session = try machine(invocation, context); guard session.machine.allows(.stats) else { throw operationUnavailable }
             answer("machine status", invocation, context) {
@@ -366,6 +394,124 @@ extension CloudHandlers {
         var fields: [String: ActionResultValue] = ["surface_id": .string(surface.description)]
         if let terminal { fields["terminal_id"] = .string(terminal.rawValue) }
         return fields
+    }
+
+    /// `cloud deliver-secrets --target machine:<id> [--repo OWNER/NAME]` (CloudMachineSecrets): the values
+    /// of the names the machine's last machine-config apply declared, from this Mac's Keychain to the
+    /// machine over its daemon link: `--repo`'s values first, else the global ones (the person picks
+    /// the scope, never the machine). Answers the names delivered and those with no value here; a
+    /// machine that already has what the Mac holds gets nothing (`unchanged`); a machine that had
+    /// values and now gets none has its set cleared.
+    static func deliverSecrets(_ invocation: ActionInvocation, _ context: AppActionContext) throws {
+        // The arguments first. A bare `--repo` (no value) arrives as `true`: refuse it, never deliver the global
+        // values instead.
+        if invocation["repo"] != nil, invocation["repo"]?.stringValue == nil { throw ActionFailure(message: CloudStrings.secretRepoInvalid("--repo")) }
+        let repo = try invocation["repo"]?.stringValue.map { text in
+            guard let scope = CloudMachineSecrets.repoScope(text) else { throw ActionFailure(message: CloudStrings.secretRepoInvalid(text)) }
+            return scope
+        }
+        let cloud = context.services.cloud, work = context.services.work, session = try machine(invocation, context)
+        guard session.machine.allows(.exec) else { throw operationUnavailable }
+        guard let connection = session.daemon.connection else { throw ActionFailure(message: CloudStrings.notConnected) }
+        let machineID = session.machineID, home = FileManager.default.homeDirectoryForCurrentUser
+        let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
+        // One delivery per machine at a time (plan, delivery and ledger together): an older run that
+        // finished after a newer one would leave the older values on the machine but the newer in the ledger.
+        guard cloud.deliveringSecrets.insert(machineID).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
+        // A delivery waits up to a minute on each of the receiver's answers, past the CLI's result deadline:
+        // the answer is then `pending`, the delivery goes on, and running the command again says how it ended
+        // (`unchanged` once delivered, or that one is still running).
+        let pending: [String: ActionResultValue] = ["machine_id": .string(machineID), "status": .string("delivering"),
+                                                    "check": .string("cmux cloud deliver-secrets --target machine:\(machineID)")]
+        result("deliver Cloud secrets", context, pendingAfter: .seconds(30), pending: pending) {
+            defer { cloud.deliveringSecrets.remove(machineID) }
+            let read = { (path: String) in (try? await cloud.api.readFile(machineID, path: path)).flatMap { Data(base64Encoded: $0.dataBase64) } }
+            guard let declared = CloudMachineSecrets.declared(status: await read(CloudMachineConfig.statusPath)) else {
+                throw ActionFailure(message: CloudStrings.machineConfigNotApplied)
+            }
+            let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
+            // Never through a link, never waiting on a FIFO, bounded: the files lane is shared.
+            let (index, ledgerFile) = try await work.run(.userBlocking, mayBlock: .files) {
+                (CloudMachineSecrets.read(indexURL.path), CloudMachineSecrets.read(ledgerURL.path))
+            }
+            // A damaged or unreadable index is not "no secrets": delivering then would clear the machine's set.
+            guard let stored = CloudMachineSecrets.index(from: index) else {
+                throw ActionFailure(message: CloudStrings.secretIndexUnreadable(indexURL.path))
+            }
+            // The person picks the scope. When the machine says it holds a repo that has its own values
+            // here, delivering global ones without a word would be the wrong values: ask for --repo.
+            if repo == nil, let claimed = CloudMachineSecrets.claimedRepo(record: await read(CloudMachineBootstrap.directory + "/repo.json")),
+               CloudMachineSecrets.hasRepoValues(for: declared, repo: claimed, index: stored) {
+                throw ActionFailure(message: CloudStrings.secretRepoNeeded(claimed))
+            }
+            let (items, missing) = CloudMachineSecrets.plan(declared: declared, repo: repo, index: stored)
+            let ledger = CloudMachineSecrets.Ledger(file: ledgerFile)
+            var answer: [String: ActionResultValue] = ["machine_id": .string(machineID), "declared": .array(declared.map(ActionResultValue.string)),
+                                                       "missing": .array(missing.map(ActionResultValue.string))]
+            guard !ledger.isCurrent(items, on: machineID) else {
+                answer["status"] = .string("unchanged")
+                return answer
+            }
+            var values: [(name: String, value: String)] = []
+            for item in items {
+                let ran = try await AsyncProcess().run(ProcessRequest(URL(fileURLWithPath: "/usr/bin/security"),
+                    ["find-generic-password", "-s", CloudMachineSecrets.service, "-a", item.account, "-w"], timeout: .seconds(30)))
+                guard ran.succeeded else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
+                let value = String(ran.text.dropLast(ran.text.hasSuffix("\n") ? 1 : 0))
+                // One line, no NUL, as `cmux cloud secret set` stores it: an item made some other way never
+                // turns into extra records on the machine.
+                guard CloudMachineSecrets.isValue(value) else { throw ActionFailure(message: CloudStrings.secretUnreadable(item.name)) }
+                values.append((item.name, value))
+            }
+            // 0644 and run with `sh`: the file API may write as root, and the terminal runs as the work user.
+            // The receiver holds no value; the folder is the work user's 0700 one (the config apply made it),
+            // so its ticket (below) is readable by that user and root only.
+            try await cloud.api.writeFile(machineID, path: CloudMachineSecrets.receiverPath, data: Data(CloudMachineSecrets.receiver.utf8), mode: 0o644)
+            let key = try await terminalAnchor(on: session, context).key
+            // The handle is "<surface> <terminal id>": the surface takes input and waits, the id closes it.
+            let surface: @Sendable (String) -> SurfaceID = { SurfaceID(rawValue: $0.split(separator: " ").first.flatMap { UInt64($0) } ?? 0) }
+            // Read here, on the main actor (CloudStrings is main-actor isolated); the link's closures are not.
+            let notConnected = CloudStrings.notConnected
+            let link = CloudMachineSecrets.Link(
+                // Like the receiver: 0644 in the work user's 0700 folder, so only it (and root) can read it.
+                writeTicket: { ticket in
+                    try await cloud.api.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: ticket, mode: 0o644)
+                },
+                start: { argv in
+                    // An explicit empty environment: nil would take the app's terminal environment provider,
+                    // whose values the daemon stores with the receipt. Only the daemon's placement ids are added.
+                    let made = try await connection.createTerminal(in: key, argv: argv, name: "cmux secrets",
+                                                                   size: CellSize(cols: CloudMachineSecrets.terminalColumns, rows: 24), env: [:], keep: false)
+                    guard let surface = made.surface else { throw ActionFailure(message: notConnected) }
+                    return "\(surface.rawValue) \(made.terminalID.rawValue)"
+                },
+                waitFor: { handle, pattern, seconds in
+                    try await connection.request(WaitForTextRequest(surface: surface(handle), pattern: pattern, timeoutMs: seconds * 1000),
+                                                 timeout: .seconds(seconds + 5)).text
+                },
+                type: { handle, bytes in try await connection.send(surface(handle), bytes: bytes) },
+                close: { handle in
+                    guard let id = handle.split(separator: " ").last else { return }
+                    try? await connection.closeTerminal(TerminalID(rawValue: String(id)))
+                })
+            let count: Int
+            do { count = try await CloudMachineSecrets.deliver(values, over: link) } catch {
+                // A receiver that never started leaves its ticket: emptied, so no stale key stays behind.
+                try? await cloud.api.writeFile(machineID, path: CloudMachineSecrets.ticketPath, data: Data(), mode: 0o644)
+                guard let failed = error as? CloudMachineSecrets.DeliveryFailed else {
+                    // Only the kind of failure: no error text near the values reaches a log or the caller.
+                    throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))
+                }
+                throw ActionFailure(message: CloudStrings.secretsNotDelivered(failed.reason))
+            }
+            // The values are on the machine either way; a ledger not written only means the next run delivers again.
+            try? await work.run(.userBlocking, mayBlock: .files) { try CloudMachineSecrets.Ledger.record(items, on: machineID, at: ledgerURL) }
+            answer["status"] = .string("delivered")
+            answer["delivered"] = .array(items.map { .string($0.name) })
+            answer["written"] = .int(count)
+            answer["next"] = .string("cmux cloud apply-machine-config --target machine:\(machineID)")
+            return answer
+        }
     }
 
     private static var operationUnavailable: ActionFailure {

@@ -257,8 +257,13 @@ impl Hub {
         // The harness's own config, read (blocking file IO) only when the request and the saved
         // pick leave a value open.
         let read = std::cell::OnceCell::new();
+        // Never a capture fixture's harness (`harness_fixture.rs`): this host's config would show.
+        let fixture = crate::harness_fixture::active().is_some_and(|f| f.names(agent));
         let own = || {
             read.get_or_init(|| {
+                if fixture {
+                    return crate::harness_config::Choice::default();
+                }
                 crate::harness_config::read(
                     &crate::config::derive_family(agent, profile),
                     &[&profile.env, &saved.env],

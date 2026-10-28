@@ -1,0 +1,110 @@
+name: git mirror bundle
+
+# Publishes a git bundle of cmux's main, feat-cmux-next and nightly-next to the
+# NEXT cache bucket. glaeda-git-mirror seeds a runner mini's full local mirror
+# (/Users/Shared/cmux-build-fleet/git/cmux.git) from it when the mirror is missing
+# or broken, so no mini ever clones the whole repository from GitHub; after the
+# seed, the mirror's own minute-by-minute fetch brings the commits since. A
+# build's checkout then fetches its commit from that mirror (Leo, 2026-10-25:
+# "just use the fucking r2 or the ssds"; cmux run 40466772597's GitHub fetch hung
+# 62 min and killed the nightly).
+#
+# Layout (scripts/ci/r2-cache.sh, namespace `any`): v1/any/objects/<key>.tar.zst
+# holding cmux.bundle, and v1/any/latest/git-mirror-cmux- naming the newest key.
+# Keys are git-mirror-cmux-<UTC YYYYMMDDHH>.<feat-cmux-next sha12>, with no dash after
+# the stable prefix: r2-cache.sh writes one pointer per dash-terminated prefix, and the
+# pruner keeps every pointer's target, so a dash there would pin each bundle for good.
+# r2_cache_prune.py keeps them a day, and always the one the pointer names.
+#
+# It writes at most every BUNDLE_INTERVAL_HOURS: a push between finds the newest
+# bundle fresh and stops after one HEAD request. Measured 2026-10-27 on Blacksmith
+# Linux: full fetch 36 s, bundle 8 s, 2.36 GB.
+on:
+  push:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  BUNDLE_INTERVAL_HOURS: "12"
+  CI_CACHE_R2_BUCKET: cmux-ci-cache-next
+  CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
+  CI_CACHE_R2_NAMESPACE: any
+
+jobs:
+  bundle:
+    if: ${{ github.repository == 'manaflow-ai/cmux' && github.ref == 'refs/heads/feat-cmux-next' }}
+    name: Publish the git mirror bundle
+    runs-on: ${{ vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 30
+    # A running publish finishes; a newer push replaces only a pending one, which the
+    # running one makes unnecessary anyway (one bundle per interval).
+    concurrency:
+      group: git-mirror-bundle-${{ github.ref }}
+      cancel-in-progress: false
+    environment: ${{ github.ref == 'refs/heads/feat-cmux-next' && 'next-cache-writer' || '' }}
+    permissions:
+      contents: read
+    steps:
+      - name: Is a bundle due
+        id: due
+        run: |
+          set -euo pipefail
+          pointer="$CI_CACHE_R2_PUBLIC_URL/v1/$CI_CACHE_R2_NAMESPACE/latest/git-mirror-cmux-"
+          key="$(curl --fail --silent --show-error --location --max-time 30 "$pointer" | head -c 512 | tr -d '[:space:]' || true)"
+          due=true
+          if [[ "$key" =~ ^git-mirror-cmux-([0-9]{10})\.[0-9a-f]{12}$ ]] && [[ "${{ github.event_name }}" != workflow_dispatch ]]; then
+            stamp="${BASH_REMATCH[1]}"
+            written="$(date -u -d "${stamp:0:8} ${stamp:8:2}:00" +%s)"
+            age_hours=$(( ($(date -u +%s) - written) / 3600 ))
+            echo "newest bundle $key is ${age_hours} h old"
+            if (( age_hours < BUNDLE_INTERVAL_HOURS )); then due=false; fi
+          else
+            echo "newest bundle: ${key:-none}"
+          fi
+          echo "due=$due" >> "$GITHUB_OUTPUT"
+
+      - name: Fetch the mirrored branches
+        if: steps.due.outputs.due == 'true'
+        id: fetch
+        run: |
+          set -euo pipefail
+          repo="$RUNNER_TEMP/cmux.git"
+          git init --quiet --bare "$repo"
+          started=$SECONDS
+          git -C "$repo" -c protocol.version=2 -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 \
+            fetch --quiet --no-tags "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git" \
+            +refs/heads/main:refs/heads/main \
+            +refs/heads/feat-cmux-next:refs/heads/feat-cmux-next \
+            +refs/heads/nightly-next:refs/heads/nightly-next
+          echo "fetched in $((SECONDS - started)) s"
+          head="$(git -C "$repo" rev-parse refs/heads/feat-cmux-next)"
+          echo "key=git-mirror-cmux-$(date -u +%Y%m%d%H).${head:0:12}" >> "$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/bundle"
+          started=$SECONDS
+          git -C "$repo" bundle create --quiet "$RUNNER_TEMP/bundle/cmux.bundle" --branches
+          git -C "$repo" bundle verify --quiet "$RUNNER_TEMP/bundle/cmux.bundle"
+          echo "bundled in $((SECONDS - started)) s: $(du -m "$RUNNER_TEMP/bundle/cmux.bundle" | cut -f1) MB"
+
+      # The local cache-save action and the r2-cache.sh it runs.
+      - name: Checkout the cache tooling
+        if: steps.due.outputs.due == 'true'
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions
+            scripts/ci
+
+      - name: Publish the bundle
+        if: steps.due.outputs.due == 'true'
+        uses: ./.github/actions/cache-save
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CI_CACHE_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CI_CACHE_R2_SECRET_ACCESS_KEY }}
+          CI_CACHE_R2_ENDPOINT: ${{ format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) }}
+        with:
+          backend: r2
+          path: ${{ runner.temp }}/bundle
+          key: ${{ steps.fetch.outputs.key }}

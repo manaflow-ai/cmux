@@ -20,6 +20,9 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 /// The fake adapter's boot and session start: a cold start pays both.
 const INIT_MS: u64 = 300;
 const NEW_MS: u64 = 700;
+/// Text whose host entry fails its acknowledgement, once per daemon (`ACPMUX_TEST_ACK_FAILS_ONCE`):
+/// a fake that reports it as its mode after its `session/new` answer stops its link's reader then.
+const ACK_FAILS: &str = "ackstop-mode";
 
 struct Daemon {
     child: Option<Child>,
@@ -103,6 +106,17 @@ impl Daemon {
             .env("ACPMUX_TEST_POOL_ADOPT_REPORT_FILE", self.home.join("adopt-report"))
             // The same while a chat claims it, and then MDM's off is unset: `claim-report`.
             .env("ACPMUX_TEST_POOL_CLAIM_REPORT_FILE", self.home.join("claim-report"))
+            // MDM's off comes and goes once, right after a pooled start read it: `off-blip`.
+            .env("ACPMUX_TEST_OFF_BLIP_FILE", self.home.join("off-blip"))
+            // While this file exists, MDM's off begins and is unset while a chat claims a pooled
+            // agent: `claim_off_seam`.
+            .env("ACPMUX_TEST_POOL_CLAIM_OFF_FILE", self.home.join("claim-off"))
+            // While this file exists, MDM's off is pushed and unset as a chat takes the pooled
+            // agent it claimed: `take_off_seam`.
+            .env("ACPMUX_TEST_POOL_TAKE_OFF_FILE", self.home.join("take-off"))
+            // The first host entry holding this text fails its acknowledgement (debug builds'
+            // seam): only a fake that reports it as a mode sends one.
+            .env("ACPMUX_TEST_ACK_FAILS_ONCE", ACK_FAILS)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -686,6 +700,132 @@ async fn prewarmed_under_an_off(tag: &str, env: &[(&str, &str)]) -> (Daemon, Rpc
     (daemon, rpc, kept)
 }
 
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 73, 75 and 77): an off that comes
+/// and goes right after a pooled start first reads it holds for that start, so a profile that
+/// pins full access is not prewarmed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_prewarm_holds_an_off_that_came_and_went_as_it_began() {
+    let mut fakeb = profile("b");
+    fakeb["argv"].as_array_mut().unwrap().push(json!("--yolo"));
+    let daemon = Daemon::with_fakeb("faonce", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    std::fs::write(home.join("off-blip"), "").unwrap();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(
+        !fakeb_ready(&warmed),
+        "a profile pinning full access was prewarmed though MDM's off came and went: {warmed}"
+    );
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, reviews 121, 122 and 124): a chat whose
+/// claim began, saw MDM's off come and go, and then waited on a pooled agent that started only
+/// after the unset (so its start saw no off) and came up in full access does not take it: the
+/// claim's own read holds.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_access_pooled_start_claimed_as_an_mdm_off_came_and_went_is_not_taken() {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    let daemon = Daemon::with_fakeb("fawarmb", 0, &fakeb);
+    let home = daemon.home.clone();
+    let blip = home.join("off-blip");
+    std::fs::write(&blip, "then-start").unwrap();
+    let mut claiming = daemon.rpc().await;
+    let at = home.clone();
+    let created = tokio::spawn(async move { new_session(&mut claiming, &at, "fakeb").await });
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while blip.exists() {
+        assert!(Instant::now() < deadline, "the claim never reached its seam");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home})).await;
+    let (session, _) = created.await.expect("the chat is created");
+    assert!(
+        !taken(&daemon, &session),
+        "a chat took a pooled agent in full access its claim waited on through MDM's off"
+    );
+}
+
+/// A daemon whose fakeb harness comes up in full access, prewarmed with MDM unset (so kept).
+/// `blip_at_claim` then has MDM's off come and go once while the next chat claims it.
+async fn full_access_entry_claimed_through_an_off(tag: &str) -> (Daemon, Rpc, Value) {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_FULL_ACCESS"] = json!("1");
+    fakeb["env"]["FAKE_NEW_MODE"] = json!("full-access");
+    let daemon = Daemon::with_fakeb(tag, 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let record = daemon.pool_records()[0].clone();
+    (daemon, rpc, record)
+}
+
+fn blip_at_claim(daemon: &Daemon) {
+    std::fs::write(daemon.home.join("off-blip"), "").unwrap();
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 120): a pooled agent in full access
+/// that a chat was claiming while MDM's off came and went is not handed to the chat after the
+/// unset. It ran in full access while the off held, out of reach of the push's drain.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_access_pooled_agent_claimed_through_an_mdm_off_is_not_taken() {
+    let (daemon, mut rpc, _) = full_access_entry_claimed_through_an_off("fablip").await;
+    let home = daemon.home.clone();
+    blip_at_claim(&daemon);
+    let (session, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(!taken(&daemon, &session), "a chat took a pooled agent that ran through MDM's off");
+}
+
+/// The same entry, when the chat that claimed it fails to start, does not go back to the pool.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_full_access_pooled_agent_claimed_through_an_mdm_off_does_not_go_back() {
+    let (daemon, mut rpc, _) = full_access_entry_claimed_through_an_off("faback").await;
+    let home = daemon.home.clone();
+    let (_first, _) = new_session(&mut rpc, &home, "fake").await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    blip_at_claim(&daemon);
+    // The name is taken: the create fails after it claimed the pooled entry.
+    let err = rpc
+        .call_err(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb", "name": "fake"}}}),
+        )
+        .await;
+    assert!(err.contains("taken"), "{err}");
+    let status = rpc.call("_acpmux/status", json!({})).await;
+    assert!(!fakeb_ready(&status), "a pooled agent that ran through MDM's off went back: {status}");
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 122): a pooled agent whose start
+/// saw MDM's off come and go, and that reports full access only as a chat takes it, is kept from
+/// the chat after the unset: the take judges it under the entry's read (`Pooled::lived_off`).
+/// One claimed through an off never gets that far (review 69).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_agent_started_through_an_mdm_off_that_reports_at_the_take_is_kept_from_the_chat()
+{
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_NO_MODES"] = json!("1");
+    let daemon = Daemon::with_fakeb("fablipadopt", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    std::fs::write(home.join("off-blip"), "").unwrap();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    std::fs::write(home.join("adopt-report"), "bypassPermissions").unwrap();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let refused = created["error"]["message"].as_str().is_some_and(|m| m.contains("full-access"));
+    assert!(refused, "a chat took a pooled agent started through MDM's off: {created}");
+}
+
 /// MDM forces `sessions.allowFullAccess` off (#23322, review 25): a harness whose own settings
 /// start it in full access is never kept warm in the pool, where nothing runs `cap_full_access`
 /// until a chat takes it. The pooled agent ends instead, and a chat starts cold.
@@ -810,6 +950,61 @@ async fn under_an_mdm_off_a_report_at_the_handoff_keeps_the_agent_from_the_chat_
     assert!(
         refused,
         "a chat took a pooled agent that reported full access under the off: {created}"
+    );
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 69): a pooled agent a chat claims while
+/// an off begins escapes the drain that off's push runs (only ready entries drain). Though the off
+/// is unset before the chat takes it, the chat starts cold instead, as for every entry started
+/// under the old bound.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_agent_claimed_as_an_off_began_is_not_taken_after_an_unset() {
+    let daemon = Daemon::with_fakeb("faclaimoff", 0, &profile("b"));
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(fakeb_ready(&warmed), "{warmed}");
+    std::fs::write(home.join("claim-off"), "").unwrap();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let id = created["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{created}"));
+    assert!(!taken(&daemon, id), "a chat took a pooled agent claimed as an off began");
+}
+
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 69): an off pushed as a chat takes the
+/// pooled agent it claimed, past the take's checks, and unset right after, still ends that agent
+/// when its profile pins full access (`--yolo`): the chat's start is refused under the off, or the
+/// push ends what runs in full access once the chat has it, and the unset waits for that.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pinned_pooled_agent_taken_as_an_off_comes_and_goes_ends() {
+    let mut fakeb = profile("b");
+    fakeb["argv"].as_array_mut().unwrap().push(json!("--yolo"));
+    let daemon = Daemon::with_fakeb("fatakeoff", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    assert!(fakeb_ready(&warmed), "{warmed}");
+    let pooled = daemon.pool_records().into_iter().next().expect("a pooled agent");
+    let harness_pid = pooled["harness_pid"].as_i64().expect("its harness pid");
+    std::fs::write(home.join("take-off"), "").unwrap();
+    let created = rpc
+        .raw(
+            "session/new",
+            json!({"cwd": home, "mcpServers": [], "_meta": {"acpmux": {"harness": "fakeb"}}}),
+        )
+        .await;
+    let refused = created["error"]["data"]["reason"] == "full_access_off";
+    let id = created["result"]["sessionId"].as_str();
+    assert!(refused || id.is_some_and(|id| taken(&daemon, id)), "not the take: {created}");
+    assert!(
+        gone_within(harness_pid, Duration::from_secs(10)),
+        "a pinned pooled agent ran on after an off came and went as a chat took it"
     );
 }
 
@@ -1102,6 +1297,34 @@ async fn a_wedged_pooled_host_is_ended_and_the_session_starts_on_a_fresh_host() 
         unsafe { libc::kill(helper as i32, libc::SIGKILL) };
     }
     assert!(ended, "a process under the wedged host runs on without an owner");
+}
+
+/// A pooled host whose link stopped reading (an acknowledgement failed while its socket still
+/// looks open) still answers the claim's query, but nothing it sends from then on is heard: it
+/// is not served, it is ended, and the session starts on a fresh host.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_pooled_host_whose_link_stopped_is_not_served() {
+    let mut fakeb = profile("b");
+    // Half a second after its `session/new` answer, once the entry is ready.
+    fakeb["env"]["FAKE_LATE_MODE"] = json!(ACK_FAILS);
+    let daemon = Daemon::with_fakeb("ackstop", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    wait_pool_ready(&mut rpc, "fakeb").await;
+    let r = daemon.pool_records().pop().expect("a pooled host");
+    let (host, harness) = (r["host_pid"].as_i64().unwrap(), r["harness_pid"].as_i64().unwrap());
+    // Past the late report: the entry's reader stopped at it.
+    tokio::time::sleep(Duration::from_millis(2000)).await;
+    let (id, _) = new_session(&mut rpc, &home, "fakeb").await;
+    assert!(!taken(&daemon, &id), "the pooled host whose link stopped was served");
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    let reply = tokio::time::timeout(Duration::from_secs(30), rpc.call("session/prompt", prompt))
+        .await
+        .expect("the prompt was answered");
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert!(gone_within(host, Duration::from_secs(15)), "the pooled host whose link stopped runs");
+    end_group(harness);
 }
 
 /// A pooled host that died is not served either.
