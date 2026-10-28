@@ -160,7 +160,7 @@ enum LifecycleState {
     Starting,
     Running(Arc<Node>),
     Retiring { node: Option<Arc<Node>>, phase: RetirementPhase },
-    LoggingOut { node: Option<Arc<Node>>, reopen: bool },
+    LoggingOut { node: Option<Arc<Node>> },
 }
 
 #[cfg(test)]
@@ -315,7 +315,7 @@ impl Controller {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         self.stopping.store(true, Ordering::Release);
         inner.generation = inner.generation.wrapping_add(1);
-        inner.snapshot.state = "stopped";
+        inner.snapshot.node_gone("stopped");
         self.publish_locked(&inner.snapshot);
     }
 
@@ -504,8 +504,8 @@ impl Controller {
             } else if inner.generation != generation
                 || !matches!(&inner.state, LifecycleState::Starting)
             {
-                let reopen_logout =
-                    matches!(&inner.state, LifecycleState::LoggingOut { node: None, reopen: true });
+                let logout_pending =
+                    matches!(&inner.state, LifecycleState::LoggingOut { node: None });
                 inner.generation = inner.generation.wrapping_add(1);
                 let state_node = Arc::clone(&node);
                 inner.state = LifecycleState::Retiring {
@@ -514,15 +514,15 @@ impl Controller {
                 };
                 inner.snapshot.node_gone("stopped");
                 self.publish_locked(&inner.snapshot);
-                Some((inner.generation, state_node, reopen_logout, "tailnet start was superseded"))
+                Some((inner.generation, state_node, logout_pending, "tailnet start was superseded"))
             } else {
                 inner.state = LifecycleState::Running(node.clone());
                 None
             }
         };
-        if let Some((close_generation, state_node, reopen_logout, message)) = close {
+        if let Some((close_generation, state_node, logout_pending, message)) = close {
             let close_result = self.close_node(node).await;
-            self.finish_start_close(close_generation, &state_node, reopen_logout, close_result);
+            self.finish_start_close(close_generation, &state_node, logout_pending, close_result);
             release_node(state_node);
             return Err(message.into());
         }
@@ -579,7 +579,7 @@ impl Controller {
         // serialized, invalidating the starting watch generation as well.
         self.request_logout();
         let path = self.state_dir.join("enabled");
-        let marker = tokio::task::spawn_blocking(move || clear_opt_in(&path))
+        let marker = tokio::task::spawn_blocking(move || remove_if_present(&path))
             .await
             .map_err(|e| e.to_string())
             .and_then(|result| result);
@@ -587,44 +587,34 @@ impl Controller {
             self.abort_logout(&error).await;
             return Err(error);
         }
-        let reopen = self.logout_reopens();
-        let node = self.state_node();
-        let result = if reopen {
-            let config = NodeConfig::new(self.state_dir.clone(), self.hostname.clone());
-            Some(tokio::task::spawn_blocking(move || {
-                let node = Arc::new(Node::new(&config).map_err(|e| e.0)?);
-                if let Err(error) = node.start().map_err(|e| e.0) {
-                    let _ = node.close();
-                    return Err(error);
-                }
+        let signed_out = if let Some(node) = self.state_node() {
+            tokio::task::spawn_blocking(move || {
                 logout_and_close(
                     || node.logout().map_err(|e| e.0),
                     || node.close().map_err(|e| e.0),
                 )
-            }))
-        } else if let Some(node) = node {
-            Some(tokio::task::spawn_blocking(move || {
-                logout_and_close(
-                    || node.logout().map_err(|e| e.0),
-                    || node.close().map_err(|e| e.0),
-                )
-            }))
+            })
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result)
         } else {
-            None
+            Ok(())
         };
-        if let Some(result) = result {
-            let result = result.await.map_err(|error| error.to_string())?;
-            if let Err(error) = result {
-                self.clear_node("error");
-                self.update(|snapshot| snapshot.error = Some(error.clone()));
-                self.pending_retirement.store(false, Ordering::Release);
-                self.retirement_finished.notify_waiters();
-                return Err(error);
-            }
+        // Never create or start a node to sign out. Both gates fence any
+        // pending close; only now may we forget the saved local identity.
+        let state_dir = self.state_dir.clone();
+        let forgotten = tokio::task::spawn_blocking(move || clear_saved_login(&state_dir))
+            .await
+            .map_err(|error| error.to_string())
+            .and_then(|result| result);
+        let result = signed_out.and(forgotten);
+        self.clear_node(if result.is_ok() { "stopped" } else { "error" });
+        if let Err(error) = &result {
+            self.update(|snapshot| snapshot.error = Some(error.clone()));
         }
-        self.clear_node("stopped");
         self.pending_retirement.store(false, Ordering::Release);
         self.retirement_finished.notify_waiters();
+        result?;
         Ok(self.snapshot())
     }
 
@@ -634,6 +624,9 @@ impl Controller {
             // this shutdown sees it and refuses.
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             inner.closed = true;
+            inner.generation = inner.generation.wrapping_add(1);
+            inner.snapshot.node_gone("stopped");
+            self.publish_locked(&inner.snapshot);
         }
         let _retirement = self.retirement_gate.lock().await;
         let _lifecycle = self.lifecycle.lock().await;
@@ -725,9 +718,7 @@ impl Controller {
         };
         if let Some(node) = next {
             inner.generation = inner.generation.wrapping_add(1);
-            let reopen = node.is_none();
-            let previous =
-                std::mem::replace(&mut inner.state, LifecycleState::LoggingOut { node, reopen });
+            let previous = std::mem::replace(&mut inner.state, LifecycleState::LoggingOut { node });
             if let LifecycleState::Running(previous_node)
             | LifecycleState::Retiring { node: Some(previous_node), .. } = &previous
             {
@@ -747,13 +738,6 @@ impl Controller {
                 _ => {}
             }
         }
-    }
-
-    fn logout_reopens(&self) -> bool {
-        matches!(
-            &self.inner.lock().unwrap_or_else(PoisonError::into_inner).state,
-            LifecycleState::LoggingOut { node: None, reopen: true }
-        )
     }
 
     async fn abort_logout(&self, error: &str) {
@@ -821,9 +805,7 @@ impl Controller {
                 };
                 ClosePlan { logout: false }
             }
-            LifecycleState::LoggingOut { node: Some(current), reopen: false }
-                if Arc::ptr_eq(current, node) =>
-            {
+            LifecycleState::LoggingOut { node: Some(current) } if Arc::ptr_eq(current, node) => {
                 ClosePlan { logout: true }
             }
             _ => ClosePlan { logout: false },
@@ -855,7 +837,7 @@ impl Controller {
         let retired = std::mem::replace(
             &mut inner.state,
             if logout_pending {
-                LifecycleState::LoggingOut { node: None, reopen: true }
+                LifecycleState::LoggingOut { node: None }
             } else {
                 LifecycleState::Stopped
             },
@@ -884,7 +866,7 @@ impl Controller {
         &self,
         _generation: u64,
         node: &Arc<Node>,
-        reopen_logout: bool,
+        logout_pending: bool,
         result: Result<Result<(), String>, String>,
     ) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
@@ -897,15 +879,15 @@ impl Controller {
         if !same {
             return;
         }
-        let reopen_logout = reopen_logout
+        let logout_pending = logout_pending
             || matches!(
                 &inner.state,
                 LifecycleState::Retiring { phase: RetirementPhase::ClosingForLogout, .. }
             );
         let retired = std::mem::replace(
             &mut inner.state,
-            if reopen_logout {
-                LifecycleState::LoggingOut { node: None, reopen: true }
+            if logout_pending {
+                LifecycleState::LoggingOut { node: None }
             } else {
                 LifecycleState::Stopped
             },
@@ -1073,12 +1055,19 @@ fn saved_opt_in(path: &Path) -> Result<bool, String> {
     }
 }
 
-fn clear_opt_in(path: &Path) -> Result<(), String> {
+fn remove_if_present(path: &Path) -> Result<(), String> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error.to_string()),
     }
+}
+
+// The pinned libtailscale uses tsnet's default FileStore at this exact path:
+// tailscale v1.104.1, tsnet/tsnet.go. No custom store is configured by Node.
+// Call only with both lifecycle gates held, after live nodes have closed.
+fn clear_saved_login(state_dir: &Path) -> Result<(), String> {
+    remove_if_present(&state_dir.join("tailscaled.state"))
 }
 
 #[cfg(test)]
@@ -1153,10 +1142,72 @@ mod tests {
         let queued = controller.clone();
         let resume = tokio::spawn(async move { queued.resume().await });
         tokio::task::yield_now().await;
-        clear_opt_in(&marker).unwrap();
+        remove_if_present(&marker).unwrap();
         drop(lock);
         resume.await.unwrap().unwrap();
         assert!(controller.node().is_none());
+    }
+
+    #[tokio::test]
+    async fn logout_table_never_starts_a_stopped_or_shutting_down_node() {
+        for (name, saved, shutdown) in [
+            ("untouched", false, 0),
+            ("shutdown-begun", false, 1),
+            ("shutdown-finished", false, 2),
+            ("saved-stopped", true, 0),
+            ("saved-shutdown-begun", true, 1),
+            ("saved-shutdown-finished", true, 2),
+        ] {
+            let temporary = tempfile::tempdir().unwrap();
+            let path = temporary.path().join("tailnet");
+            if saved {
+                std::fs::create_dir(&path).unwrap();
+                std::fs::write(path.join("tailscaled.state"), b"saved identity").unwrap();
+                std::fs::write(path.join("enabled"), b"1\n").unwrap();
+                std::fs::write(path.join("unrelated"), b"keep").unwrap();
+            }
+            let controller = Controller::new(&path, name);
+            *controller.node_factory.lock().unwrap() = Some(Box::new(|| {
+                panic!("logout must never invoke node startup");
+            }));
+            match shutdown {
+                1 => controller.begin_shutdown(),
+                2 => controller.shutdown().await.unwrap(),
+                _ => {}
+            }
+            let snapshot = controller.logout().await.unwrap();
+            assert_eq!(snapshot.state, "stopped", "{name}");
+            assert!(controller.state_node().is_none(), "{name}");
+            assert!(!path.join("tailscaled.state").exists(), "{name}");
+            assert!(!path.join("enabled").exists(), "{name}");
+            assert!(controller.node_factory.lock().unwrap().is_some(), "{name}");
+            if saved {
+                assert_eq!(std::fs::read(path.join("unrelated")).unwrap(), b"keep", "{name}");
+                assert_eq!(std::fs::read_dir(&path).unwrap().count(), 1, "{name}");
+            } else {
+                assert!(!path.exists(), "{name}: logout must not create a state directory");
+            }
+        }
+    }
+
+    #[test]
+    fn shutdown_publishes_stopped_and_clears_identity_atomically() {
+        let controller = Controller::new("/nonexistent/cmux-tailnet-test", "test");
+        controller.update(|snapshot| {
+            snapshot.state = "running";
+            snapshot.dns_name = Some("old.example.ts.net".into());
+            snapshot.ips = vec!["100.64.0.1".into()];
+            snapshot.browse_to_url = Some("https://login.tailscale.com/fake".into());
+        });
+        let mut changes = controller.subscribe();
+        controller.begin_shutdown();
+        let published = changes.try_recv().unwrap();
+        assert_eq!(published, controller.snapshot());
+        assert_eq!(published.state, "stopped");
+        assert!(published.dns_name.is_none());
+        assert!(published.ips.is_empty());
+        assert!(published.browse_to_url.is_none());
+        assert!(changes.try_recv().is_err());
     }
 
     #[test]
@@ -1196,6 +1247,12 @@ mod tests {
         std::fs::create_dir(temporary.path().join("enabled")).unwrap();
         let controller = Controller::new(temporary.path(), "test");
         controller.inner.lock().unwrap().state = LifecycleState::Running(Arc::clone(&node));
+        controller.update(|snapshot| {
+            snapshot.state = "running";
+            snapshot.dns_name = Some("old.example.ts.net".into());
+            snapshot.ips = vec!["100.64.0.1".into()];
+        });
+        let old_generation = controller.inner.lock().unwrap().generation;
         let (closing, release) = block_close(&controller);
         let logout = {
             let c = controller.clone();
@@ -1219,6 +1276,20 @@ mod tests {
         assert!(logout.await.unwrap().is_err());
         shutdown.await.unwrap().unwrap();
         assert!(controller.state_node().is_none());
+        // Abort explicitly closed the node; it must not revive a Running
+        // snapshot whose watcher has already been invalidated.
+        controller.publish_if_current(
+            old_generation,
+            Snapshot {
+                state: "running",
+                dns_name: Some("stale.example.ts.net".into()),
+                ips: vec!["100.64.0.2".into()],
+                ..Snapshot::default()
+            },
+        );
+        assert_eq!(controller.snapshot().state, "stopped");
+        assert!(controller.snapshot().dns_name.is_none());
+        assert!(controller.snapshot().ips.is_empty());
         tokio::task::spawn_blocking(move || {
             assert_eq!(node.ips().unwrap_err().0, "node closed");
         })
@@ -1488,11 +1559,7 @@ mod tests {
                 LifecycleState::Retiring { node: None, phase: RetirementPhase::Waiting },
                 "stopped",
             ),
-            (
-                "logout-during-retire",
-                LifecycleState::LoggingOut { node: None, reopen: true },
-                "stopped",
-            ),
+            ("logout-during-retire", LifecycleState::LoggingOut { node: None }, "stopped"),
             ("logout-during-start", LifecycleState::Starting, "starting"),
         ];
         for (name, state, snapshot_state) in cases {
@@ -1511,7 +1578,7 @@ mod tests {
         controller.request_logout();
         assert!(matches!(
             &controller.inner.lock().unwrap().state,
-            LifecycleState::LoggingOut { node: None, reopen: true }
+            LifecycleState::LoggingOut { node: None }
         ));
 
         let controller = Controller::new("/nonexistent/cmux-tailnet-test", "starting");
@@ -1523,7 +1590,7 @@ mod tests {
         controller.request_logout();
         assert!(matches!(
             &controller.inner.lock().unwrap().state,
-            LifecycleState::LoggingOut { node: None, reopen: true }
+            LifecycleState::LoggingOut { node: None }
         ));
         assert!(controller.inner.lock().unwrap().generation > generation);
     }

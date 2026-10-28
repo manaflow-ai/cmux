@@ -12,7 +12,9 @@ The controls are accepted only on a local, person-proven connection:
 - `_acpmux/tailnet/login` asks a running node for a fresh sign-in URL.
 - `_acpmux/tailnet/state` returns `state`, optional `dns_name`, `ips`, and
   `error`. The sign-in URL is included only for the person response.
-- `_acpmux/tailnet/logout` signs the node out and closes ingress connections.
+- `_acpmux/tailnet/logout` signs a live node out and closes ingress connections.
+  It never starts a node. When stopped, it only removes the saved local login
+  and opt-in marker; it does not create state or revoke the device remotely.
 
 The state stream is event-driven from the node's IPN bus. It has no polling
 timer. A failed watch clears the node so a later explicit start can retry; a
