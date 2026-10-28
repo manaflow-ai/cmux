@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 @testable import CmuxNextApp
 import CmuxNextDaemon
 import Foundation
@@ -86,16 +87,17 @@ struct InternalPageForgetTeardownTests {
     /// The detector: a tab view freed with its content still in it names its page; one that gave its content up does not.
     @Test func aTabViewFreedWithItsContentReportsItsPage() async throws {
         _ = NSApplication.shared
-        var reported: [String] = []
+        let reported = Mutex<[String]>([])
         let page = InternalPageID(rawValue: "test.freed-attached")
         do {
             let attached = InternalPageView(key: "a", page: page, content: NSView())
-            attached.onFreedAttached = { reported.append("attached:" + $0.rawValue) }
+            attached.reportFreedAttached { id in reported.withLock { $0.append("attached:" + id.rawValue) } }
             let detached = InternalPageView(key: "b", page: page, content: NSView())
-            detached.onFreedAttached = { reported.append("detached:" + $0.rawValue) }
+            detached.reportFreedAttached { id in reported.withLock { $0.append("detached:" + id.rawValue) } }
             detached.detachContent()
         }
         for _ in 0..<20 { await Task.yield() }
-        #expect(reported == ["attached:test.freed-attached"], "reported \(reported)")
+        let got = reported.withLock { $0 }
+        #expect(got == ["attached:test.freed-attached"], "reported \(got)")
     }
 }
