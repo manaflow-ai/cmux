@@ -31,13 +31,16 @@ struct PaneCloseMotionTests {
         var intents: [LayoutIntent] = []
         var holds: [Bool] = []
 
-        init(_ layout: ScreenLayout, focused: PaneID? = nil, reduceMotion: Bool = false) {
+        /// `arrival`: the pane layout motion (``SplitArrival``); nil keeps the app's default (fade: one layout pass).
+        /// The spring tests of this suite pin `.grow`, the Debug choice that keeps the close spring.
+        init(_ layout: ScreenLayout, focused: PaneID? = nil, reduceMotion: Bool = false, arrival: SplitArrival? = .grow) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s",
                                 focusedPane: focused ?? layout.panes.first)
             model.splitSizingOverride = .even
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             // Pins the pane springs on (or off): the shared settings stay untouched.
             root.context.reduceMotionOverride = reduceMotion
+            if let arrival { root.context.splitArrival = { arrival } }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
             window.contentView = root
@@ -109,6 +112,22 @@ struct PaneCloseMotionTests {
         let widths = try ["p1", "p3"].map { try #require(screen.rect($0)).width }
         #expect(abs(widths[0] - widths[1]) <= 1.5, "the chain did not end even: \(widths)")
         #expect(screen.intents.isEmpty, "a ratio intent went before the daemon closed the pane")
+    }
+
+    /// The default pane layout motion (motion-first-principles.md, rule 2): a close is laid out once, in the key's
+    /// turn, at its final layout. The neighbours take the closed pane's space at once and no display frame moves a
+    /// pane (no per-frame layout of their terminals); the closed pane is gone in that turn.
+    @Test func aCloseLaysOutOnceAtItsFinalLayoutByDefault() throws {
+        let screen = Screen(.splits(Self.row), arrival: nil)
+        _ = try #require(screen.close("p2"))
+        for pane: PaneID in ["p1", "p3"] {
+            let rect = try #require(screen.rect(pane)), target = try #require(screen.target(pane))
+            #expect(rect == target, "\(pane) shows at \(rect), not at its rest \(target)")
+        }
+        #expect(screen.rect("p2") == nil, "the closed pane still shows")
+        #expect(!screen.step(), "the close asked for display frames")
+        let widths = try ["p1", "p3"].map { try #require(screen.rect($0)).width }
+        #expect(abs(widths[0] - widths[1]) <= 1.5, "not even in the key's turn: \(widths)")
     }
 
     /// The daemon's echoes land mid-spring: the tab close (the pane still in its tree, empty), then
