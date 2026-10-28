@@ -759,9 +759,11 @@ export function QuickModelMenu({
         <div className="acpmux-quick-width-probe-row" key={`${model.family}\u0000${model.id}`}>
           <span className="acpmux-menu-label">{model.name}</span>
           {menu.inlineEffort === true && (
-            <span className="acpmux-quick-width-probe-efforts">
+            <span className="acpmux-quick-width-probe-efforts acpmux-quick-efforts">
               {(model.efforts?.length ? model.efforts : effort?.levels.map((choice) => choice.id) ?? []).map((id) => (
-                <span key={id}>{id}</span>
+                <span className="acpmux-quick-effort-segment" key={id}>
+                  {id}
+                </span>
               ))}
             </span>
           )}
