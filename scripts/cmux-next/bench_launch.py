@@ -1548,6 +1548,8 @@ class BenchApp:
             note("bench-launch: WARNING: the sound output was unmuted while the bench ran (it was muted at launch)")
         try:
             if self.process and self.process.poll() is None:
+                import proof_ab_env  # scratch measurement ref only: did the A/B's mechanism run in this launch
+                proof_ab_env.record_probes("bench_launch.stop", rpc=lambda m, p: self.rpc(m, p, timeout=10))
                 self.rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
                 try:
                     self.process.wait(quit_timeout)

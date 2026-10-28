@@ -62,3 +62,46 @@ def record_socket(path, where, timeout=10):
     except (OSError, ValueError, AttributeError):
         pass
     record(snapshot, where)
+
+
+PROBES = "PROOF_AB_PROBES"  # JSON list of [method, params] the driver wants read at the end of each app launch
+
+
+def _socket_rpc(path, method, params, timeout=10):
+    import socket
+    reply = b""
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+        stream.settimeout(timeout)
+        stream.connect(path)
+        stream.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        while not reply.endswith(b"\n"):
+            chunk = stream.recv(1 << 20)
+            if not chunk:
+                break
+            reply += chunk
+    return json.loads(reply or b"{}")
+
+
+def record_probes(where, socket_path=None, rpc=None):
+    """Reads the step's probe methods (PROOF_AB_PROBES) from the running app just before it quits, once per launch,
+    and appends {where, probes: {method: reply}} to PROOF_AB_FEATURES_OUT: the evidence that the mechanism ran in this
+    arm. Read only at teardown, so the probe adds no wakeup or main-thread work to the measured window. Never raises."""
+    if not os.environ.get(OUT) or not os.environ.get(PROBES):
+        return
+    try:
+        wanted = json.loads(os.environ[PROBES])
+    except ValueError:
+        return
+    replies = {}
+    for method, params in wanted:
+        try:
+            if rpc is not None:
+                answer = rpc(method, params)
+            else:
+                answer = _socket_rpc(socket_path, method, params)
+                answer = answer.get("result", answer) if isinstance(answer, dict) else answer
+        except Exception as error:  # a probe that fails is recorded as failed, the bench goes on
+            answer = {"probe_error": f"{type(error).__name__}: {error}"[:200]}
+        replies[method] = answer
+    with open(os.environ[OUT], "a") as handle:
+        handle.write(json.dumps({"where": where, "probes": replies}) + "\n")

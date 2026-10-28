@@ -498,6 +498,7 @@ def one_run(tag, mode, timeout, profile=None):
             for path in socket_candidates(tag):
                 if os.path.exists(path):
                     proof_ab_env.record_socket(path, "bench-startup")
+                    proof_ab_env.record_probes("bench-startup", socket_path=path)
                     break
     finally:
         launch.quit()

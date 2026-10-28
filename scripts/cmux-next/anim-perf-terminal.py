@@ -459,6 +459,8 @@ def budgets():
 def cleanup():
     if os.environ.get("ANIM_PERF_KEEP") or not app:
         return
+    import proof_ab_env  # scratch measurement ref only: did the A/B's mechanism run in this launch
+    proof_ab_env.record_probes("anim-perf", socket_path=SOCKET)
     rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
     try:
         app.wait(timeout=20)

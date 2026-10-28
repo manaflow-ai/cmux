@@ -694,6 +694,8 @@ def main():
                 for kind, delta in report["churn_growth_mb"].items():
                     print(f"   {kind:<22}{delta:>+10.1f} MB")
     finally:
+        import proof_ab_env  # scratch measurement ref only: did the A/B's mechanism run (read before the closes)
+        proof_ab_env.record_probes("bench_memory", socket_path=socket_path)
         for workspace in opened:
             close_workspace(app, workspace)
         if launched is not None:

@@ -32,6 +32,13 @@ exact Mann-Whitney U test over the per-run p95 values. Verdict:
               than the noise band
   regression  the same, in the worse direction
   not proven  anything else (including too few valid runs: fewer than --runs per arm)
+  invalid scenario  a --probe showed that the mechanism did not run in an on-arm run: the scenario is wrong, not the
+              code; this never counts as "not proven" and goes back to the row's owner (coordinator, 2026-10-28)
+  unverified scenario (no probe)  not proven and the step names no --probe, so it is unknown whether the code ran
+
+--probe NAME|METHOD|PARAMS_JSON|REGEX|MIN: every launch path reads METHOD (a debug.* or features.* socket method) just
+before the app quits (never in the measured window) and records the reply; an on-arm run is valid only when a value
+at a path matching REGEX (inside the reply) is >= MIN.
 """
 import argparse, itertools, json, math, os, plistlib, re, socket, subprocess, sys, time
 
@@ -112,6 +119,11 @@ def parse_metric(spec):
     return name, re.compile(rest[:-len(":higher")] if higher else rest), higher
 
 
+def parse_probe(spec):
+    name, method, params, regex, minimum = spec.split("|")
+    return name, method, json.loads(params or "{}"), re.compile(regex), float(minimum)
+
+
 def parse_validity(spec):
     name, _, rest = spec.partition("=")
     regex, _, limit = rest.rpartition(":")
@@ -120,6 +132,9 @@ def parse_validity(spec):
 
 def summarize(report, metrics, runs_wanted):
     out = {}
+    on_runs = [r for r in report["runs"] if r["arm"] == "on"]
+    bad_scenario = sum(1 for r in on_runs if r.get("invalid_scenario"))
+    has_probe = bool(report.get("probes"))
     for name, regex, higher in metrics:
         arms = {}
         for arm in ("on", "off"):
@@ -140,6 +155,11 @@ def summarize(report, metrics, runs_wanted):
         verified = all(r.get("arm_verified") is True for r in report["runs"] if r.get("valid"))
         strong = enough and verified and p is not None and p < 0.05 and band is not None and abs(effect) > band
         verdict = ("proven" if better else "regression") if strong else "not proven"
+        if bad_scenario:
+            # The mechanism did not run in the on arm: the scenario is wrong, not the code (coordinator, 2026-10-28).
+            verdict = "invalid scenario"
+        elif verdict == "not proven" and not has_probe:
+            verdict = "unverified scenario (no probe)"
         why = [] if strong else [w for w, bad in (("fewer valid runs than --runs per arm", not enough),
                                                   ("an arm not verified by features.list", not verified),
                                                   ("p >= 0.05", p is None or p >= 0.05),
@@ -148,7 +168,7 @@ def summarize(report, metrics, runs_wanted):
         out[name] = {"better": "higher" if higher else "lower", "on": arms["on"], "off": arms["off"],
                      "effect_ms_or_unit": None if effect is None else round(effect, 3),
                      "noise_band": None if band is None else round(band, 3), "mann_whitney_p": p,
-                     "verdict": verdict, "why_not": why}
+                     "verdict": verdict, "why_not": why, "on_runs_mechanism_not_run": bad_scenario}
     return out
 
 
@@ -175,6 +195,10 @@ def run_one(opts, inner_args, arm, index):
     env.pop("PROOF_AB_DISABLE", None)
     env["PROOF_AB_ENABLE" if arm == "on" else "PROOF_AB_DISABLE"] = opts.toggle
     env["PROOF_AB_FEATURES_OUT"] = features_out
+    if opts.probes_parsed:
+        env["PROOF_AB_PROBES"] = json.dumps([[method, params] for _n, method, params, _r, _m in opts.probes_parsed])
+    else:
+        env.pop("PROOF_AB_PROBES", None)
     if opts.inner == "memory":
         cmd = [sys.executable, os.path.join(HERE, "bench_memory.py"), "--app", opts.app, "--out", run_json] + inner_args
     else:
@@ -203,19 +227,30 @@ def run_one(opts, inner_args, arm, index):
     toggles = [n for n in opts.toggle.split(",") if n]
     verified = None
     if verified is None:
-        states = [c.get("features") for c in checks]
+        states = [c.get("features") for c in checks if "features" in c]
         verified = bool(states) and all(isinstance(s, dict) and all(
             str((s.get(n) or {}).get("state", "")).lower() in (want, "on" if arm == "on" else "off", str(arm == "on").lower())
             for n in toggles) for s in states)
+    probe_rows = [c["probes"] for c in checks if "probes" in c]
+    probes, scenario_ok = {}, None
+    for name, method, _params, regex, minimum in opts.probes_parsed:
+        values = [v for reply in probe_rows for p, v in flatten(reply.get(method)) if regex.search(p)]
+        probes[name] = {"max": max(values) if values else None, "n": len(values), "min_to_run": minimum,
+                        "ran": bool(values) and max(values) >= minimum}
+    if opts.probes_parsed:
+        scenario_ok = all(p["ran"] for p in probes.values())
     invalid = []
     for name, regex, limit in opts.validity_parsed:
         bad = [v for p, v in flatten(raw) if regex.search(p) and v > limit]
         if bad:
             invalid.append(f"{name}: {len(bad)} values over {limit} (max {max(bad)})")
-    valid = raw is not None and not invalid and verified is not False
+    invalid_scenario = arm == "on" and scenario_ok is False
+    valid = raw is not None and not invalid and verified is not False and not invalid_scenario
     row = {"arm": arm, "index": index, "exit": code, "seconds": seconds, "valid": valid, "arm_verified": verified,
+           "probes": probes, "scenario_ran": scenario_ok, "invalid_scenario": invalid_scenario,
            "features_seen": checks[:3], "invalid": invalid, "raw": raw if opts.keep_raw else None}
     print(f"PROOF-AB run {index} arm {arm}: exit {code} in {seconds} s valid={valid} arm_verified={verified} "
+          f"scenario_ran={scenario_ok} "
           f"{'; '.join(invalid)}", flush=True)
     return row, raw
 
@@ -232,6 +267,10 @@ def main():
     parser.add_argument("--run-timeout", type=float, default=1800)
     parser.add_argument("--metric", action="append", default=[])
     parser.add_argument("--validity", action="append", default=[])
+    parser.add_argument("--probe", action="append", default=[],
+                        help="NAME|METHOD|PARAMS_JSON|REGEX|MIN: a debug.* reply read at the end of each launch (REGEX matches the flattened "
+                             "path inside the reply, list indices as *); the on arm's run is valid only when a matched value is >= MIN "
+                             "(the mechanism ran)")
     parser.add_argument("--row", default="", help="the prove-or-remove row id(s) this A/B is for (reported)")
     parser.add_argument("--keep-raw", type=int, default=1)
     parser.add_argument("--summarize", help="offline: summarize this report again")
@@ -243,6 +282,7 @@ def main():
     opts = parser.parse_args([a for a in argv if a != "--suite=proof-ab"])
     metrics = [parse_metric(m) for m in opts.metric]
     opts.validity_parsed = [parse_validity(v) for v in opts.validity]
+    opts.probes_parsed = [parse_probe(p) for p in opts.probe]
     if opts.summarize:
         with open(opts.summarize) as handle:
             report = json.load(handle)
@@ -262,7 +302,7 @@ def main():
             counts[arm] += 1
     report = {"bench": "proof-ab", "row": opts.row, "toggle": opts.toggle.split(","), "inner": opts.inner,
               "inner_args": inner_args, "runs_per_arm": opts.runs, "order": plan, "metrics": opts.metric,
-              "validity": opts.validity, "app": opts.app, "build": app_identity(opts.app),
+              "validity": opts.validity, "probes": opts.probe, "app": opts.app, "build": app_identity(opts.app),
               "host": socket.gethostname().split(".")[0],
               "macos": subprocess.run(["sw_vers", "-productVersion"], capture_output=True, text=True).stdout.strip()
               if sys.platform == "darwin" else None,
