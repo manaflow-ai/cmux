@@ -12,10 +12,27 @@ public nonisolated struct SandboxRunRecord: Codable, Hashable, Sendable {
     /// The team the create went to; the waits go there too.
     public var team: String?
     public var started: Date
+    /// The source's position after the last wait (a hand-off's version), so a wait passes it.
+    public var cursor: Int?
+    /// It needs the person now, and that was told (a hand-off's `needs-you`): told once per stop.
+    public var needsYou: Bool?
+    /// The acpmux host of a hand-off's chat, when this app made it (nil: unknown).
+    public var host: String?
 
     public init(id: String, task: String, key: String, user: String, team: String?, started: Date) {
         (self.id, self.task, self.key, self.user, self.team, self.started) = (id, task, key, user, team, started)
     }
+}
+
+/// One wait's answer, as a ``SandboxRunFollower/Source`` reads it.
+public nonisolated enum CloudTaskRead: Sendable {
+    /// Still going; the next wait passes `cursor`.
+    case progress(cursor: Int?)
+    /// It waits for the person (told once until it goes on); the next wait passes `cursor`.
+    case needsYou(cursor: Int?, Data)
+    case ended(SandboxRunEnd.Outcome, Data)
+    /// No answer of the source's shape: never an end.
+    case unreadable
 }
 
 /// A Run that ended here, kept across a relaunch for ``SandboxRunFollower/keptEnded``: a late
@@ -33,7 +50,8 @@ public nonisolated struct SandboxRunEnded: Codable, Hashable, Sendable {
 
 /// How a followed Run ended.
 public nonisolated struct SandboxRunEnd: Sendable {
-    public enum Outcome: String, Codable, Sendable { case succeeded, failed, timedOut, cancelled }
+    /// `needsYou` is no end: the task waits for the person and goes on after.
+    public enum Outcome: String, Codable, Sendable { case succeeded, failed, timedOut, cancelled, needsYou }
     public var record: SandboxRunRecord
     public var outcome: Outcome
     /// The terminal snapshot (`{run, attempts, artifacts, receipt}`) as the server sent it; a

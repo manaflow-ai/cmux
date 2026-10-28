@@ -348,7 +348,7 @@ struct SandboxRunNoticeTests {
 }
 
 /// A clock whose sleeps end at once (the follower's Backoff after a failed wait).
-private struct ImmediateRunClock: Clock {
+struct ImmediateRunClock: Clock {
     struct Instant: InstantProtocol {
         var offset: Duration = .zero
         func advanced(by duration: Duration) -> Instant { Instant(offset: offset + duration) }
