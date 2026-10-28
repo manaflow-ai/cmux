@@ -189,6 +189,22 @@ function pushFinding(findings: GeometryFinding[], rule: GeometryRule, artifact: 
   findings.push({ id: findingId(rule, artifact, elementIds.join(",")), rule: rule.id, caseId: artifact.capture.caseId, theme: artifact.capture.theme, engine: artifact.capture.engine, elementIds, observedPx, expectedPx, deltaPx, message, screenshot: artifact.capture.screenshot });
 }
 
+/** Rules and reported deltas use CSS px; preserve raw evidence for screenshot crops. */
+function measurementArtifact(artifact: GeometryArtifact): GeometryArtifact {
+  if (artifact.capture.coordinateSpace !== "screenshot-pixels") return artifact;
+  const scale = artifact.capture.deviceScaleFactor;
+  const rect = (value: Rect): Rect => ({ x: value.x / scale, y: value.y / scale, width: value.width / scale, height: value.height / scale });
+  return { ...artifact, capture: { ...artifact.capture, coordinateSpace: "css-px" }, elements: artifact.elements.map((element) => {
+    const style = element.style && { ...element.style };
+    if (style) {
+      for (const key of ["baseline", "borderRadius", "gap"] as const) {
+        if (finite(style[key])) style[key] = style[key]! / scale;
+      }
+    }
+    return { ...element, rect: rect(element.rect), hoverRect: element.hoverRect && rect(element.hoverRect), style };
+  }) };
+}
+
 function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: GeometryArtifact): void {
   if (rule.appliesTo && !rule.appliesTo.includes(artifact.capture.caseId)) return;
   const elements = artifact.elements.filter((element) => element.group === rule.group);
@@ -267,7 +283,10 @@ function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: Geo
     for (const element of elements) {
       if (!element.control || !element.hoverRect) {
         pushFinding(findings, rule, artifact, [element.id], `hover control evidence is missing control/hoverRect`);
-      } else if (["x", "y", "width", "height"].some((key) => Math.abs(element.hoverRect![key as keyof Rect] - element.rect[key as keyof Rect]) > rule.tolerancePx)) {
+      } else if (element.hoverRect.x < element.rect.x - rule.tolerancePx
+        || element.hoverRect.y < element.rect.y - rule.tolerancePx
+        || element.hoverRect.x + element.hoverRect.width > element.rect.x + element.rect.width + rule.tolerancePx
+        || element.hoverRect.y + element.hoverRect.height > element.rect.y + element.rect.height + rule.tolerancePx) {
         pushFinding(findings, rule, artifact, [element.id], `hover highlight extends beyond its control`);
       } else if (rule.requireMenuOpen && !element.menuOpen) {
         pushFinding(findings, rule, artifact, [element.id], `menu-open state was not captured for hover control`);
@@ -332,7 +351,8 @@ export async function lintGeometry(artifacts: Array<{ file: string; artifact: Ge
     const key = `${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}`;
     if (seen.has(key)) errors.push(`${file}: duplicate capture ${key}`);
     seen.add(key);
-    for (const rule of config.rules) lintRule(findings, rule, artifact);
+    const measurements = measurementArtifact(artifact);
+    for (const rule of config.rules) lintRule(findings, rule, measurements);
   }
   for (const capture of config.required) if (!artifacts.some(({ artifact }) => artifact.capture.caseId === capture.caseId && artifact.capture.engine === capture.engine && artifact.capture.theme === capture.theme)) errors.push(`missing required capture: ${capture.caseId}:${capture.engine}:${capture.theme}`);
   for (const finding of findings) {

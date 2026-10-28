@@ -103,3 +103,61 @@ test("CLI writes a failing report when screenshot evidence is missing", async ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test("CSS and scaled screenshot evidence produce identical measurements", async () => {
+  const value = artifact();
+  value.capture.deviceScaleFactor = 2;
+  value.elements[1]!.rect.y = 34; // 8 CSS px gap
+  value.elements = value.elements.map((element) => ({ ...element, control: true, hoverRect: { ...element.rect }, style: { baseline: 24, borderRadius: 4, gap: 8 } }));
+  value.elements.push({ id: "container", kind: "web", source: "dom-rect", group: "container", rect: { x: 2, y: 2, width: 80, height: 80 } });
+  const rules: GeometryRule[] = [rule(),
+    { id: "size", kind: "peer-size", group: "icons", tolerancePx: 1, dimension: "width" },
+    { id: "spacing", kind: "spacing", group: "icons", tolerancePx: 1, axis: "y", tokensPx: [8] },
+    { id: "inset", kind: "inset", group: "icons", tolerancePx: 1, containerGroup: "container", edge: "left", tokensPx: [8] },
+    { id: "radius", kind: "style-token", group: "icons", tolerancePx: 1, property: "borderRadius", tokensPx: [4] },
+    { id: "gap", kind: "style-token", group: "icons", tolerancePx: 1, property: "gap", tokensPx: [8] },
+    { id: "baseline", kind: "text-baseline", group: "icons", tolerancePx: 1 },
+    { id: "hover", kind: "hover-control-only", group: "icons", tolerancePx: 1 }];
+  const scaled = () => {
+    const pixels = structuredClone(value);
+    pixels.capture.coordinateSpace = "screenshot-pixels";
+    for (const element of pixels.elements) {
+      for (const rect of [element.rect, element.hoverRect]) if (rect) {
+        for (const key of ["x", "y", "width", "height"] as const) rect[key] *= 2;
+      }
+      if (element.style) for (const key of ["baseline", "borderRadius", "gap"] as const) element.style[key]! *= 2;
+    }
+    return pixels;
+  };
+  expect((await lint(value, rules)).passed).toBe(true);
+  expect((await lint(scaled(), rules)).passed).toBe(true);
+  value.elements[1]!.rect.x += 2;
+  value.elements[1]!.rect.y += 2;
+  value.elements[1]!.rect.width += 2;
+  value.elements[1]!.style = { baseline: 26, borderRadius: 6, gap: 10 };
+  const before = structuredClone(value);
+  const cssReport = await lint(value, rules);
+  expect(cssReport.passed).toBe(false);
+  expect((await lint(scaled(), rules)).findings).toEqual(cssReport.findings);
+  expect(value).toEqual(before);
+});
+
+test("hover highlights may be contained but cannot overflow any control edge", async () => {
+  const value = artifact();
+  const rules: GeometryRule[] = [{ id: "hover", kind: "hover-control-only", group: "icons", tolerancePx: 1 }];
+  value.elements = value.elements.map((element) => ({ ...element, control: true, hoverRect: { x: element.rect.x + 4, y: element.rect.y + 4, width: 8, height: 8 } }));
+  expect((await lint(value, rules)).passed).toBe(true);
+  const element = value.elements[0]!;
+  for (const hoverRect of [
+    { ...element.rect, x: element.rect.x - 2 },
+    { ...element.rect, y: element.rect.y - 2 },
+    { ...element.rect, x: element.rect.x + 1, width: element.rect.width + 1 },
+    { ...element.rect, y: element.rect.y + 1, height: element.rect.height + 1 },
+  ]) {
+    element.hoverRect = hoverRect;
+    expect((await lint(value, rules)).findings[0]!.message).toContain("beyond its control");
+  }
+  element.hoverRect = { x: element.rect.x - 1, y: element.rect.y - 1, width: element.rect.width + 2, height: element.rect.height + 2 };
+  expect((await lint(value, rules)).passed).toBe(true);
+});
