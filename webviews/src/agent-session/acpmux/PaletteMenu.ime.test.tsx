@@ -172,3 +172,46 @@ test("palette sections and search use actual Japanese translations", async () =>
   );
   expect(sections.map((section) => section.title)).toEqual(["ツール", "アプリ", "セッション", "開いているタブ"]);
 });
+
+for (const button of [1, 2]) {
+  test(`mouse button ${button} cannot open or dispatch the palette`, async () => {
+    let picks = 0;
+    await act(async () =>
+      root!.render(
+        <PaletteMenu
+          label="Add"
+          button="+"
+          sections={[
+            {
+              title: "Tools",
+              choices: [{ id: "tool", name: "Tool" }],
+              onPick: () => {
+                picks += 1;
+              },
+            },
+          ]}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>("button")!;
+    const press = new dom!.window.MouseEvent("pointerdown", { bubbles: true, button });
+    Object.defineProperty(press, "pointerType", { value: "mouse" });
+    await act(async () => trigger.dispatchEvent(press));
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => trigger.click());
+    await act(async () =>
+      container
+        .querySelector('[role="option"]')!
+        .dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, button })),
+    );
+    expect(picks).toBe(0);
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+    await act(async () =>
+      container
+        .querySelector('[role="option"]')!
+        .dispatchEvent(new dom!.window.MouseEvent("mousedown", { bubbles: true, button: 0 })),
+    );
+    expect(picks).toBe(1);
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+}
