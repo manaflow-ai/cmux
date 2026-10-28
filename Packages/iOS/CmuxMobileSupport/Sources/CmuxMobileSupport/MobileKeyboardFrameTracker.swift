@@ -39,7 +39,7 @@ public final class MobileKeyboardFrameTracker {
         case willChangeFrame, didChangeFrame
     }
 
-    private var subscribers: [(owner: () -> AnyObject?, handler: @MainActor (Notification, Change) -> Void)] = []
+    private var subscribers: [(owner: () -> AnyObject?, handler: @MainActor (CGRect, Change) -> Void)] = []
 
     private nonisolated(unsafe) var tokens: [NSObjectProtocol] = []
     private nonisolated let notificationCenter: NotificationCenter
@@ -63,27 +63,29 @@ public final class MobileKeyboardFrameTracker {
                 let endFrame =
                     notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
                 MainActor.assumeIsolated { // main-proof: observer on queue: .main
-                    self?.record(notification, change: change, endFrame: endFrame)
+                    self?.record(change: change, endFrame: endFrame)
                 }
             }
         }
     }
 
-    /// Calls `handler` for every keyboard notification after this tracker has
-    /// recorded it, inside UIKit's posting (and so the keyboard's animation),
+    /// Calls `handler` with the end frame of every keyboard notification after
+    /// this tracker has recorded it, inside UIKit's posting (and so the
+    /// keyboard's animation: `UIView.inheritedAnimationDuration` is live),
     /// for as long as `owner` lives.
-    public func subscribe(_ owner: AnyObject, handler: @escaping @MainActor (Notification, Change) -> Void) {
+    public func subscribe(_ owner: AnyObject, handler: @escaping @MainActor (CGRect, Change) -> Void) {
         subscribers.append((owner: { [weak owner] in owner }, handler: handler))
     }
 
-    private func record(_ notification: Notification, change: Change, endFrame: CGRect?) {
+    private func record(change: Change, endFrame: CGRect?) {
         if let endFrame {
             lastEndFrame = endFrame
             isShown = endFrame.height > 0 && endFrame.minY < (shownBottom ?? .greatestFiniteMagnitude) - 0.5
             if isShown { shownBottom = endFrame.maxY }
         }
+        guard let endFrame else { return }
         subscribers.removeAll { $0.owner() == nil }
-        for subscriber in subscribers { subscriber.handler(notification, change) }
+        for subscriber in subscribers { subscriber.handler(endFrame, change) }
     }
 
     deinit {

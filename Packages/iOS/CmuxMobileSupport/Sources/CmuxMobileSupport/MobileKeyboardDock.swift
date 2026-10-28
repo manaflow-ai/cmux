@@ -76,10 +76,10 @@ public final class MobileKeyboardDock: NSObject {
             notifiedTop,
         ])
         notifiedTop.constant = notifiedConstant
-        keyboard.subscribe(self) { [weak self] note, change in
+        keyboard.subscribe(self) { [weak self] _, change in
             guard let self else { return }
             switch change {
-            case .willChangeFrame: self.follow(note)
+            case .willChangeFrame: self.follow()
             case .didChangeFrame: self.keyboardDidChangeFrame()
             }
         }
@@ -107,9 +107,9 @@ public final class MobileKeyboardDock: NSObject {
     /// `guide.top - view.bottom` for the notified keyboard: the keyboard's
     /// overlap of the view's bottom edge, at least the resting line's.
     private var notifiedConstant: CGFloat {
-        guard let view else { return 0 }
-        let overlap = keyboard.lastEndFrame.map { overlap(of: keyboardFrame(notified: $0)) } ?? 0
-        return -max(overlap, restInset)
+        guard view != nil else { return 0 }
+        let covered = keyboard.lastEndFrame.map { overlap(of: keyboardFrame(notified: $0)) } ?? 0
+        return -max(covered, restInset)
     }
 
     /// The resting line's distance above the view's bottom edge.
@@ -154,8 +154,7 @@ public final class MobileKeyboardDock: NSObject {
         return end
     }
 
-    private func follow(_ note: Notification) {
-        guard note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] is CGRect else { return }
+    private func follow() {
         // UIKit has decided where the keyboard goes: any drag hand-off ends,
         // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
