@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use common::*;
 use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
+use optchat_chief::daemon::OpError;
 use optchat_chief::show;
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::Orchestrator;
@@ -232,7 +233,9 @@ fn a_report_append_retries_after_an_ambiguous_failure_without_duplicate_steps() 
         .lock()
         .unwrap()
         .run_append_rejects
-        .push_back(Some("connection reset after commit".into()));
+        .push_back(Some(OpError::Transport(
+            "connection reset after commit".into(),
+        )));
     let _ = delivered_report(&mut h);
     assert!(!h.brain.state().pending_reports.is_empty());
 
@@ -343,4 +346,43 @@ fn a_followup_report_stays_with_the_new_assignment_in_another_conversation() {
             h.brain.step(input);
         }
     }
+}
+
+#[test]
+fn unsupported_report_storage_does_not_keep_a_permanent_outbox() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Rejected("runs_unsupported".into())));
+    assert!(delivered_report(&mut h).contains(REPORT));
+    assert!(h.brain.state().pending_reports.is_empty());
+}
+
+#[test]
+fn reconnect_to_a_port_without_runs_discards_unsupported_pending_reports() {
+    let mut h = Harness::new(report_script());
+    h.connect();
+    h.say("user_local", "Please coordinate the work.");
+    h.settle();
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Transport(
+            "connection reset after commit".into(),
+        )));
+    delivered_report(&mut h);
+    assert!(!h.brain.state().pending_reports.is_empty());
+    h.owner
+        .lock()
+        .unwrap()
+        .run_append_rejects
+        .push_back(Some(OpError::Rejected("runs_unsupported".into())));
+    h.connect();
+    assert!(h.brain.state().pending_reports.is_empty());
 }

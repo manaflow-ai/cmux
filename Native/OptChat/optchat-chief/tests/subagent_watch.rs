@@ -413,6 +413,7 @@ fn a_stopped_report_says_where_it_stopped() {
         bash("w", &format!("cmux-ci wait {JOB}"), t0 + 3000),
         json!({"dir": "mux", "kind": "turn_end", "at": t0 + 4000, "msg": {"stopReason": "cancelled"}}),
     ]);
+    s.h.connect();
     s.idle();
     s.at(t0 + 10 * MIN);
     s.tick();
@@ -423,6 +424,20 @@ fn a_stopped_report_says_where_it_stopped() {
         "{report}"
     );
     assert!(report.contains(&format!("fleet runs: {JOB}")), "{report}");
+    assert!(s.h.brain.state().pending_reports.is_empty());
+    assert!(
+        s.h.owner
+            .lock()
+            .unwrap()
+            .run_steps
+            .iter()
+            .all(|(_, run, _)| {
+                !run["id"]
+                    .as_str()
+                    .is_some_and(|id| id.starts_with("reports:"))
+            }),
+        "a stopped report stays quiet in Home"
+    );
 }
 
 #[test]

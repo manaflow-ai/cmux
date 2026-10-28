@@ -121,7 +121,7 @@ pub struct Owner {
     /// Rejections for the next `message.send` ops, in order (None: accept).
     pub rejects: VecDeque<Option<String>>,
     /// Rejections for report appends, after recording the attempted write.
-    pub run_append_rejects: VecDeque<Option<String>>,
+    pub run_append_rejects: VecDeque<Option<OpError>>,
     pub reconnects: usize,
     /// When set, `message.send` keys are remembered as the real owner does:
     /// a reused key with the same text replays (posts nothing), with other
@@ -450,7 +450,7 @@ impl ConversationPort for FakeDaemon {
             .is_some_and(|id| id.starts_with("reports:"))
             && let Some(reason) = owner.run_append_rejects.pop_front().flatten()
         {
-            return Err(OpError::Transport(reason));
+            return Err(reason);
         }
         owner.runs.push(run);
         Ok(())
