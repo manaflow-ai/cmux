@@ -52,6 +52,13 @@ describe("the 15-minute cron", () => {
     expect(JSON.parse(String(errors.mock.calls[0]?.[0]))).toMatchObject({ event: "projection.compare.unconfigured", postgres: false, mysql: true })
   })
 
+  it("the Worker's 15-minute run fails when the compare cannot run (a switch set, a binding missing)", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    vi.spyOn(console, "log").mockImplementation(() => {})
+    // PROJECTION_READS stays unset so the shadow-read probe beside it does nothing.
+    await expect(run(production({ PROJECTION_SHADOW: "mysql", HYPERDRIVE: undefined }))).rejects.toThrow("projection compare unconfigured")
+  })
+
   it("outside production, the usage sync runs beside the compare", async () => {
     const calls: Array<string> = []
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL) => {
