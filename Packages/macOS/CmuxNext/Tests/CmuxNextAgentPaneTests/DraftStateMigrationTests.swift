@@ -138,14 +138,18 @@ nonisolated struct DraftStateMigrationTests {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try fixture.write("source/agent-draft-attachments/chat/file", "restored attachment")
+        try fixture.write("source/agent-pane-wake-states.json", #"{"chat":{"scrollTop":12}}"#)
         try fixture.write("source/agent-unsent-drafts.json", "malformed source")
 
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
         #expect(try fixture.text("destination/agent-draft-attachments/chat/file") == "restored attachment")
+        #expect(try fixture.text("destination/agent-pane-wake-states.json") == #"{"chat":{"scrollTop":12}}"#)
 
         try FileManager.default.removeItem(at: fixture.url("destination/agent-draft-attachments"))
+        try FileManager.default.removeItem(at: fixture.url("destination/agent-pane-wake-states.json"))
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
         #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-draft-attachments").path))
+        #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-pane-wake-states.json").path))
     }
 
     @Test func malformedDestinationIsKeptAndAdoptionCanRetry() throws {
