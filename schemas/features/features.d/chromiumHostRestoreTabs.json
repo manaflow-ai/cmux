@@ -1,0 +1,15 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHostRestoreTabs",
+  "owner": "PL-cef-helper",
+  "description": "After a Chromium Host crash within the restart budget (Chrome's GPU rule), a new host starts at once and every Chromium tab of every window and profile comes back with its history from its daemon record; hidden tabs when shown, form results not resent.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["crash-survival"],
+  "sticky": false,
+  "runtimeMutable": false,
+  "benchOnly": true
+}

@@ -1,4 +1,3 @@
-import Darwin
 import Foundation
 
 /// Classifies a socket address without retaining it past initialization.
@@ -12,11 +11,9 @@ struct CmxIrohIPAddressScope: Sendable {
         }
         let addressLiteral = host.split(separator: "%", maxSplits: 1).first.map(String.init) ?? host
 
-        var ipv4 = in_addr()
-        if addressLiteral.withCString({ inet_pton(AF_INET, $0, &ipv4) }) == 1 {
-            let address = UInt32(bigEndian: ipv4.s_addr)
-            let first = UInt8(truncatingIfNeeded: address >> 24)
-            let second = UInt8(truncatingIfNeeded: address >> 16)
+        if let ipv4 = CmxIrohIPLiteral(addressLiteral, family: .ipv4) {
+            let first = ipv4.bytes[0]
+            let second = ipv4.bytes[1]
             isPrivate = first == 10
                 || first == 127
                 || (first == 100 && (64 ... 127).contains(second))
@@ -26,9 +23,8 @@ struct CmxIrohIPAddressScope: Sendable {
             return
         }
 
-        var ipv6 = in6_addr()
-        if addressLiteral.withCString({ inet_pton(AF_INET6, $0, &ipv6) }) == 1 {
-            let bytes = withUnsafeBytes(of: &ipv6) { Array($0) }
+        if let ipv6 = CmxIrohIPLiteral(addressLiteral, family: .ipv6) {
+            let bytes = ipv6.bytes
             let isUniqueLocal = bytes[0] & 0xfe == 0xfc
             let isLinkLocal = bytes[0] == 0xfe && bytes[1] & 0xc0 == 0x80
             let isLoopback = bytes.dropLast().allSatisfy { $0 == 0 } && bytes.last == 1

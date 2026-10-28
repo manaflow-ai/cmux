@@ -1,4 +1,5 @@
 public import CMUXMobileCore
+import CmuxSafeConcurrency
 public import Foundation
 
 /// An admitted multistream client session over one Iroh QUIC connection.
@@ -29,7 +30,7 @@ public actor CmxIrohClientSession {
     private var controlReceiveBuffer = Data()
     private var terminalCloseAttribution: CmxIrohConnectionCloseAttribution?
     private var closed = false
-    private var closureWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var closureWaiters: [UUID: OnceContinuation<Void, OnceContinuationError>] = [:]
     private var cancelledClosureWaiters = Set<UUID>()
     private var closureWatcher: Task<Void, Never>?
 
@@ -228,9 +229,9 @@ public actor CmxIrohClientSession {
         if closed || cancelledClosureWaiters.remove(observationID) != nil {
             return
         }
-        await withCheckedContinuation { continuation in
+        try? await withOnceContinuation { continuation in
             if closed || cancelledClosureWaiters.remove(observationID) != nil {
-                continuation.resume()
+                continuation.resume(returning: ())
             } else {
                 closureWaiters[observationID] = continuation
             }
@@ -241,7 +242,7 @@ public actor CmxIrohClientSession {
     /// connection itself.
     public func cancelClosureObservation(observationID: UUID) {
         if let continuation = closureWaiters.removeValue(forKey: observationID) {
-            continuation.resume()
+            continuation.resume(returning: ())
         } else {
             cancelledClosureWaiters.insert(observationID)
         }
@@ -256,7 +257,7 @@ public actor CmxIrohClientSession {
         closureWaiters.removeAll(keepingCapacity: false)
         cancelledClosureWaiters.removeAll(keepingCapacity: false)
         for continuation in waiters.values {
-            continuation.resume()
+            continuation.resume(returning: ())
         }
         closureWatcher = nil
     }

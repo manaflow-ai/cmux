@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextWakeups
 
@@ -19,11 +19,15 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
+    /// What pages in a pane do while it springs, given to each pane host as it is made
+    /// (`RestingPlacement.pageResizing`); nil: they resize with the pane.
+    var pageSpringResizing: PageSpringResizing? { get }
 }
 
 extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
+    public var pageSpringResizing: PageSpringResizing? { nil }
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
@@ -56,6 +60,9 @@ final class LayoutViewContext {
     /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
     /// it started ends.
     var userMotionEnded: () -> Void = {}
+    /// A screen's render-server springs all landed, a pan held across the landing or not: the visibility pass
+    /// narrows to the rest (`LayoutRootView.updateVisibilityIfPlanChanged`).
+    var renderSpringsLanded: () -> Void = {}
     /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
     /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
     /// frames then (`ScreenContentView.pansOnContainer`).
@@ -78,6 +85,12 @@ final class LayoutViewContext {
     /// Presses the root's intercept handled while render-server springs ran on its active screen
     /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
     var pressesMidRenderSpring = 0
+    /// Scrolls the root's intercept sent through its full routing, with its pane hit tests and claim
+    /// queries (`LayoutRootView.routedScrolls`), cumulative; a page's plain scroll takes none.
+    var routedScrolls: UInt64 = 0
+    /// Scroll points the root's intercept converted from a child window into its own
+    /// (`LayoutRootView.scrollPointConversions`), cumulative; a page's plain scroll takes none.
+    var scrollPointConversions: UInt64 = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -94,12 +107,20 @@ final class LayoutViewContext {
     /// Windows above this one that pass divider hover through: the app's
     /// click-catching panels over page windows (`DividerMouseCatchers`).
     var hoverPassThroughWindows: () -> Set<Int> = { [] }
+    /// Where the root hears its window's key changes (`LayoutRootView.observeKeyWindow()`): the
+    /// app's one ``WindowEvents`` per window; tests pass their own on their own center.
+    var hoverWindowEvents: @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) }
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
     var dragFrameInput: FrameInputCoalescers?
+    /// A new divider drag's resampler (``LayoutRootView/dragResampler``); nil: drawn at the real pointer.
+    var dragResampler: () -> DragResampler? = { nil }
     /// A strip pan on the motion container shows at each display frame's time, resampled
     /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
     var resamplesStripPan = false
+    /// Whether a pane's content keeps its size through a layout spring (feature `paneHoldsContentInMotion`,
+    /// ``LayoutRootView/holdsContentInMotion``), asked by each host at its spring's start.
+    var holdsContentInMotion: () -> Bool = { false }
 
     /// Whether layout motion runs on the render server (`motion.renderServer`): every host's
     /// `MotionBackends` reads it once per change turn, and only with a variant registered.
@@ -134,10 +155,17 @@ final class LayoutViewContext {
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
 
+    /// A new drag's resampler (``dragResampler``); none under Reduce Motion, where a drag is drawn at the
+    /// real pointer.
+    func newDragResampler() -> DragResampler? {
+        reduceMotion ? nil : dragResampler()
+    }
+
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }
         let content = provider?.makeContentView(for: pane) ?? NSView()
-        let host = PaneHostView(pane: pane, content: content)
+        let host = PaneHostView(pane: pane, content: content, holdsContentInMotion: { [weak self] in self?.holdsContentInMotion() ?? false },
+                                pageResizing: provider?.pageSpringResizing)
         hosts[pane] = host
         return host
     }

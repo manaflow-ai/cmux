@@ -16,6 +16,7 @@ public final class SidebarLookedStore {
     @ObservationIgnored private let defaults: UserDefaults?
     /// One write after the selection settles: a walk through the workspaces (Cmd-] held) stamps on
     /// every step, and each write JSON-encodes every stamp on the main thread.
+    // timer-class-allow: the static store is made at its first read, with no deadline scheduler seam; one flexible wake per settled selection
     @ObservationIgnored private let saveTimer = DemandTimer(owner: "SidebarLookedStore.save")
     @ObservationIgnored private let saveDelay: Duration
     @ObservationIgnored private var dirty = false
@@ -54,6 +55,6 @@ public final class SidebarLookedStore {
         guard defaults != nil else { return }
         dirty = true
         // A debounce deadline (the intended delay), cancelled by flush().
-        saveTimer.schedule(after: saveDelay) { @MainActor [weak self] in self?.flush() }
+        saveTimer.scheduleOnMain(after: saveDelay) { [weak self] in self?.flush() }
     }
 }

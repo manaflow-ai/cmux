@@ -29,11 +29,11 @@ struct SidebarConcurrencyTests {
     /// hands at once (before: every thread drew from the one cached CTLine and CTTypesetter).
     @Test func textCacheLendsAMeasurementToOneThreadAtATime() {
         let cache = SidebarTextCache()
-        let palette = SidebarShared(SidebarPalette.resolve(NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing()))
+        let palette = SidebarPalette.resolve(NSAppearance(named: .aqua) ?? NSAppearance.currentDrawing())
         #expect(Self.lendingOverlaps(cache, palette, Self.summary, renders: 2_000) == 0)
         // The cache keeps the measurement: two later renders on one thread share it.
-        let first = cache.withMeasured(Self.summary, emphasized: false, palette: palette.value, generation: 0) { ObjectIdentifier($0.name) }
-        let second = cache.withMeasured(Self.summary, emphasized: false, palette: palette.value, generation: 0) { ObjectIdentifier($0.name) }
+        let first = cache.withMeasured(Self.summary, emphasized: false, palette: palette, generation: 0) { ObjectIdentifier($0.name) }
+        let second = cache.withMeasured(Self.summary, emphasized: false, palette: palette, generation: 0) { ObjectIdentifier($0.name) }
         #expect(first == second)
     }
 
@@ -54,24 +54,24 @@ struct SidebarConcurrencyTests {
     // The fan-outs run off the main actor: concurrentPerform's worker threads are not the main
     // thread, so their bodies must not be main-actor closures (Swift 6; MainWakeUpQueueTests' shape).
 
-    private struct Doubled: SidebarShareable { let value: Int }
+    private struct Doubled: Sendable { let value: Int }
 
     nonisolated private static func doubledExceptSevens(_ count: Int) -> [Doubled?] {
         sidebarConcurrentMap(count) { $0 % 7 == 0 ? nil : Doubled(value: $0 * 2) }
     }
 
     /// How many renders found the measurement already in another thread's hands.
-    nonisolated private static func lendingOverlaps(_ cache: SidebarTextCache, _ palette: SidebarShared<SidebarPalette>,
+    nonisolated private static func lendingOverlaps(_ cache: SidebarTextCache, _ palette: SidebarPalette,
                                                     _ summary: ConversationSummary, renders: Int) -> Int {
         let inUse = OSAllocatedUnfairLock(initialState: Set<ObjectIdentifier>())
         let overlaps = OSAllocatedUnfairLock(initialState: 0)
         DispatchQueue.concurrentPerform(iterations: renders) { @Sendable _ in
-            cache.withMeasured(summary, emphasized: false, palette: palette.value, generation: 0) { m in
+            cache.withMeasured(summary, emphasized: false, palette: palette, generation: 0) { m in
                 // The measurement's name line stands for it (its typesetter is lent with it).
                 let line = ObjectIdentifier(m.name)
                 let taken = inUse.withLock { $0.insert(line).inserted }
                 if !taken { overlaps.withLock { $0 += 1 } }
-                _ = CTLineGetTypographicBounds(m.name, nil, nil, nil)
+                _ = SidebarDraw.width(m.name)
                 if let ts = m.preview { _ = CTTypesetterSuggestLineBreak(ts, 0, 120) }
                 if taken { inUse.withLock { _ = $0.remove(line) } }
             }

@@ -58,6 +58,34 @@ import Testing
         #expect(f.ran.names == ["Updater.start"], "the released work ran once")
     }
 
+    /// p08-startup-068: work that measures the frame waits for a committed frame, not for a missed deadline.
+    @Test func whenFirstFrameCommittedWaitsForTheRealFrameNotAMissedOne() {
+        let f = StartupFixture()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.early") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(nil)
+        f.hand.drain()
+        #expect(f.ran.names.isEmpty, "a reveal-deadline release is not the frame")
+        f.startup.firstFrameCommitted()
+        f.startup.firstFrameCommitted()
+        #expect(f.ran.names == ["Census.early"], "once, at the late frame")
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.late") }
+        #expect(f.ran.names == ["Census.early", "Census.late"], "after the frame: at once")
+    }
+
+    @Test func whenFirstFrameCommittedNeverRunsForALaunchWithNoFrameOrAfterQuit() {
+        let f = StartupFixture()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census") }
+        f.startup.finishRegistration()
+        f.startup.firstFrameMissed(.noWindow)
+        f.hand.drain()
+        #expect(f.ran.names.isEmpty, "a windowless launch drew no frame")
+        f.startup.beginQuit()
+        f.startup.firstFrameCommitted()
+        f.startup.whenFirstFrameCommitted { [ran = f.ran] in ran.names.append("Census.afterQuit") }
+        #expect(f.ran.names.isEmpty)
+    }
+
     @Test func aFirstFrameThatWillNeverComeEndsWithItsReason() {
         let f = StartupFixture()
         f.startup.finishRegistration()
@@ -273,7 +301,7 @@ import Testing
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) {
             report.yield("Launch.cleanup main=\(Thread.isMainThread)")
         }
-        // The files lane is serial per priority: had the afterStartup post been submitted, it would run first.
+        // The fixture's files lane is serial per priority: had the afterStartup post been submitted, it would run first.
         f.startup.post(.critical, "Settings.read", on: .lane(.files, .bestEffort)) {
             report.yield("Settings.read main=\(Thread.isMainThread)")
         }
@@ -316,6 +344,27 @@ import Testing
         #expect(onMain == false)
     }
 
+    /// A post on a sequence runs after the sequence's earlier posts, off main, although the files lane runs two
+    /// best-effort items at once: the managed-status writes, each a whole file, never land out of order.
+    @Test func aSequencePostRunsAfterTheSequencesEarlierPosts() async {
+        let f = StartupFixture()
+        f.complete()
+        // Its own work with the app's widths: two best-effort slots.
+        let writes = BackgroundWork(label: "test.startup-sequence").sequence("test.status-writes")
+        let (seen, report) = AsyncStream.makeStream(of: String.self)
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) {
+            // A slow write: outside the sequence, the next one would land first on the other slot.
+            _ = DispatchSemaphore(value: 0).wait(timeout: .now() + .milliseconds(50))
+            report.yield("first main=\(Thread.isMainThread)")
+        }
+        f.startup.post(.afterStartup, "Status.write", on: .sequence(writes, .bestEffort)) { report.yield("second") }
+        var reports = seen.makeAsyncIterator()
+        let first = await reports.next()
+        let second = await reports.next()
+        #expect(first == "first main=false")
+        #expect(second == "second")
+    }
+
     @Test func afterBeginQuitNothingRunsAndTheFailsafeIsCancelled() async throws {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Updater.start", on: .main) { [ran = f.ran] in ran.names.append("Updater.start") }
@@ -340,13 +389,34 @@ import Testing
         #expect(f.startup.log.phase == .quitting)
     }
 
+    /// p08-startup-065: a value the completion's own mark must follow (`launch.views_built` before `startup_complete`)
+    /// registers late and still runs before every earlier `whenComplete` observer.
+    @Test func aFirstObserverRegisteredLateRunsBeforeTheEarlierObservers() {
+        let f = StartupFixture()
+        f.startup.whenComplete { [ran = f.ran] _ in ran.names.append("startup_complete") }
+        f.startup.whenCompleteFirst { [ran = f.ran] _ in ran.names.append("views_built") }
+        f.complete()
+        #expect(f.ran.names == ["views_built", "startup_complete"])
+        f.startup.whenCompleteFirst { [ran = f.ran] _ in ran.names.append("late") }
+        #expect(f.ran.names == ["views_built", "startup_complete", "late"], "after completion it runs at once")
+    }
+
+    @Test func aFirstObserverNeverRunsAfterQuit() {
+        let f = StartupFixture()
+        var ran = false
+        f.startup.whenCompleteFirst { _ in ran = true }
+        f.startup.beginQuit()
+        f.complete()
+        #expect(!ran)
+    }
+
     @Test func afterBeginQuitNoQueuedOrLaterLaneTaskRuns() async {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Launch.cleanup") }
         f.complete()
         let (lane, report) = AsyncStream.makeStream(of: String.self)
         let release = DispatchSemaphore(value: 0)
-        // The files lane is serial per priority: this item holds it, so the items after it queue behind it.
+        // The fixture's files lane is serial per priority: this item holds it, so the items after it queue behind it.
         f.background.post(.bestEffort, mayBlock: .files) {
             report.yield("blocker")
             // concurrency-allow: a files-lane thread in a test, released below right after beginQuit.
@@ -397,7 +467,9 @@ private final class StartupFixture {
     init(phase: StartupPhase = .settled()) {
         let input = StartupTestInput()
         self.input = input
-        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"])
+        // One files slot per priority, so an item that holds it queues the posts behind it.
+        scheduler = StartupTestScheduler(phase: phase, input: input, criticalAllowlist: ["Theme.apply", "Settings.read"],
+                                         background: BackgroundWork(filesWidths: .serial, label: "test.startup"))
     }
 
     /// One display frame, 17 ms after the last.

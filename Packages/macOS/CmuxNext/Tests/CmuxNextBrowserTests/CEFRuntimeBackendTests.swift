@@ -121,19 +121,17 @@ import Testing
         let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
         try await runtime.start(layout: nil, environment: [:], trigger: "test")
         let host = try #require(runtime.hostStart)
-        let route = try #require(runtime.hostReplies)
-        #expect(route.replies === host.replies, "the route awaits a table the shim never resolves")
         let sink = try #require(RemoteSpy.replySink)
         let reply = try #require(sink.reply)
 
-        RemoteSpy.lastToken = 51
+        RemoteSpy.nextToken = 51
         var seen: [CEFContentSetting?] = []
         runtime.contentSetting(1, url: nil, kind: .camera) { seen.append($0) }
         #expect(seen.isEmpty)
         CEFReplyWaitersTests.int32(CEFContentSetting.block.rawValue).withUnsafeBytes { reply(sink.context, 51, $0.baseAddress, $0.count) }
         #expect(seen == [.block])
 
-        RemoteSpy.lastToken = 52
+        RemoteSpy.nextToken = 52
         let asked = Task { await runtime.contentSetting(1, url: nil, kind: .camera) }
         for _ in 0..<1_000 where host.replies.count == 0 { await Task.yield() }
         CEFReplyWaitersTests.int32(CEFContentSetting.allow.rawValue).withUnsafeBytes { reply(sink.context, 52, $0.baseAddress, $0.count) }
@@ -264,6 +262,40 @@ import Testing
                               "cef.first_page_paint", "cef.first_page_paint.trigger.restoredTab"])
     }
 
+    /// p14-energy-030: the ready hooks start Chromium's Energy Saver with the runtime's policy, and what
+    /// `debug.energy` reads (`CEFEngine.energySaverApplied`, ``CEFEnergySaver/applied(by:)``) is the fork's
+    /// answer: applied when it took the state, not when it refused, and nothing before the start.
+    @Test func theReadyHooksStartTheEnergySaverAndReportTheForksAnswer() async throws {
+        for (answer, applied) in [(Int32(1), true), (Int32(0), false)] {
+            RemoteSpy.reset()
+            RemoteSpy.forkAPI = CEFForkFeatures.energySaverForkAPI
+            RemoteSpy.energySaverResult = answer
+            let wire = try Wire()
+            defer { wire.close() }
+            let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+            #expect(!CEFEnergySaver.applied(by: runtime))
+
+            try await runtime.start(layout: nil, environment: [:], trigger: "test")
+
+            #expect(RemoteSpy.energySaverCalls == [0], "the start did not send the runtime's policy (saver off)")
+            #expect(CEFEnergySaver.applied(by: runtime) == applied)
+        }
+    }
+
+    /// Below the fork's Energy Saver API the ready hooks make no saver and no call, and report nothing applied.
+    @Test func belowTheForkAPITheReadyHooksMakeNoEnergySaver() async throws {
+        RemoteSpy.reset()
+        let wire = try Wire()
+        defer { wire.close() }
+        let runtime = Self.runtime(supervisor: FakeSupervisor(controlFD: wire.fd))
+
+        try await runtime.start(layout: nil, environment: [:], trigger: "test")
+
+        #expect(runtime.energySaver == nil)
+        #expect(RemoteSpy.energySaverCalls.isEmpty)
+        #expect(!CEFEnergySaver.applied(by: runtime))
+    }
+
     /// The control case: without a supervisor the start is the in-process load.
     @Test func inProcessModeRunsTheInProcessLoad() async {
         RemoteSpy.reset()
@@ -317,7 +349,7 @@ import Testing
 
     /// Chromium starts once per process: a runtime that already started keeps its backend.
     @Test func aStartedRuntimeIgnoresALaterSupervisor() throws {
-        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
+        let runtime = CEFRuntime.spy(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
         runtime.adopt(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), hostSupervisor: FakeSupervisor(controlFD: -1))
         #expect(runtime.hostStart == nil)
     }
@@ -409,15 +441,18 @@ private final class FakeSupervisor: ChromiumHostSupervising {
         return ChromiumHostAttachment(controlFD: controlFD, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                       frameworkLocales: ["en.lproj", "ja.lproj"])
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// The remote dylib's functions: the ABI id, attach (records the control descriptor and says hello
 /// at once with no optional exports, or keeps it pending), detach (runs a pending hello with 0, as
 /// the wire contract says), the fork API version, and recorders for prepare_application, initialize
-/// the in-process load, set_schedule_delayed and do_work; every other function does nothing and returns 0.
+/// the in-process load, set_schedule_delayed, do_work and set_energy_saver; every other function does nothing
+/// and returns 0.
 private nonisolated enum RemoteSpy {
     static let abi = "remote-spy-abi"
-    static let forkAPI: Int32 = 30
+    nonisolated(unsafe) static var forkAPI: Int32 = 30
     static let rendererPathExports: Set<String> = [
         "cmux_shim_add_document_script", "cmux_shim_add_page_channel", "cmux_shim_tab_evaluate",
         "cmux_shim_tab_set_frozen", "cmux_shim_tab_send_click", "cmux_shim_tab_set_color_scheme",
@@ -434,11 +469,16 @@ private nonisolated enum RemoteSpy {
     nonisolated(unsafe) static var helloOnAttach = true
     nonisolated(unsafe) static var initializeResult: Int32 = 1
     nonisolated(unsafe) static var detachCalls = 0
+    /// Each `cmux_shim_set_energy_saver` call's `enabled`, and what it returns.
+    nonisolated(unsafe) static var energySaverCalls: [Int32] = []
+    nonisolated(unsafe) static var energySaverResult: Int32 = 1
     nonisolated(unsafe) private static var pendingHello: (context: UnsafeMutableRawPointer?, hello: CEFRemoteShim.HelloFn)?
     /// What `cmux_remote_shim_set_reply` was last given (the attach's reply table, or nil after detach).
     nonisolated(unsafe) static var replySink: (context: UnsafeMutableRawPointer?, reply: CEFRemoteShim.ReplyFn?)?
     /// What `cmux_remote_shim_last_reply_token` returns.
     nonisolated(unsafe) static var lastToken: UInt32 = 0
+    /// The token `cmux_shim_content_setting` sends its op under, as the remote shim's PostForReply does.
+    nonisolated(unsafe) static var nextToken: UInt32 = 0
     nonisolated(unsafe) private static let abiCString = strdup(abi)
 
     static var hasPendingHello: Bool { pendingHello != nil }
@@ -454,9 +494,13 @@ private nonisolated enum RemoteSpy {
         helloOnAttach = true
         initializeResult = 1
         detachCalls = 0
+        forkAPI = 30
+        energySaverCalls = []
+        energySaverResult = 1
         pendingHello = nil
         replySink = nil
         lastToken = 0
+        nextToken = 0
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
@@ -498,9 +542,18 @@ private nonisolated enum RemoteSpy {
             return 0
         }
         let doWork: @convention(c) () -> Void = { RemoteSpy.doWorkCalls += 1 }
+        let setEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = { enabled, _ in
+            RemoteSpy.energySaverCalls.append(enabled)
+            return RemoteSpy.energySaverResult
+        }
+        let contentSetting: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32 = { _, _, _ in
+            RemoteSpy.lastToken = RemoteSpy.nextToken
+            return 0
+        }
         let nothing: @convention(c) () -> Int = { 0 }
         return switch name {
         case "cmux_shim_abi_id": unsafeBitCast(abiID, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_content_setting": unsafeBitCast(contentSetting, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_attach": unsafeBitCast(attach, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_detach": unsafeBitCast(detach, to: UnsafeMutableRawPointer.self)
         case "cmux_remote_shim_set_reply": unsafeBitCast(setReply, to: UnsafeMutableRawPointer.self)
@@ -510,6 +563,7 @@ private nonisolated enum RemoteSpy {
         case "cmux_shim_initialize": unsafeBitCast(initialize, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_set_schedule_delayed": unsafeBitCast(setScheduleDelayed, to: UnsafeMutableRawPointer.self)
         case "cmux_shim_do_work": unsafeBitCast(doWork, to: UnsafeMutableRawPointer.self)
+        case "cmux_shim_set_energy_saver": unsafeBitCast(setEnergySaver, to: UnsafeMutableRawPointer.self)
         default: unsafeBitCast(nothing, to: UnsafeMutableRawPointer.self)
         }
     }

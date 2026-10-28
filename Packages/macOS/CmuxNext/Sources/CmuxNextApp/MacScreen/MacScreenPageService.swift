@@ -9,6 +9,7 @@ import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextMacScreen
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension InternalPageID {
@@ -151,8 +152,9 @@ final class MacScreenPageService: InternalPageProvider {
     func replaceBrowserTab(_ key: String, url: URL) {
         guard replacing.insert(key).inserted else { return }
         let record = MacScreenRecord(url: url) ?? MacScreenRecord(macID: nil)
-        // task-owner: one replacement after the snapshot that listed the tab is applied
-        Task { @MainActor [weak self] in
+        // One replacement after the snapshot that listed the tab is applied: a later visible task.
+        // node-free: the tab's record changes whether or not its pane shows, so a hidden tab is replaced too.
+        services?.mainWork.post(.visible, owner: "MacScreenPages.replaceBrowserTab") { [weak self] in
             guard let self, let services else { return }
             if let pane = services.paneController(listing: key) {
                 open(record, in: pane, focus: pane.stripModel.selectedID?.rawValue == key, byPerson: false)
@@ -164,10 +166,13 @@ final class MacScreenPageService: InternalPageProvider {
 
 extension AppServices {
     static func makeMacScreenPages(_ services: AppServices) -> MacScreenPages {
-        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), mainWork: services.mainWork)
+        let pages = MacScreenPages(store: .forApplication(bundleIdentifier: services.environment.launch.bundleID), deadlines: services.mainDeadlines,
+                                   appEvents: services.appEvents)
         pages.useShortcuts(of: services.registry)
         pages.pointerFrames = { [weak services] in services?.remotePointerFrames }
         pages.hubHost.indicatorMenuItem = { [weak registry = services.registry] in registry?.makeMenuItem(for: $0) }
+        // A shared screen may show any window: a connected viewer's vote reaches every window node under the app.
+        pages.hubHost.sharedScreenNode = services.appVisibility.node
         return pages
     }
 
@@ -177,7 +182,7 @@ extension AppServices {
         let account = DeviceHubService.Account(awaitRestored: { await auth.awaitRestored() },
                                                 userID: { auth.isSignedIn ? (auth.user?.id ?? "") : nil },
                                                 accessToken: { try await auth.tokens().access })
-        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID)
+        return DeviceHubService(pages: services.macScreenPages, account: account, bundleIdentifier: services.environment.launch.bundleID, energy: services.mainWork.energy)
     }
 
     /// Mac Screen follows its settings (Send System Shortcuts; DEV: Relay Only).

@@ -210,6 +210,7 @@ import Testing
         defaults.set(false, forKey: "SUEnableAutomaticChecks")
         let updater = UpdaterService(identity: identity, policy: ManagedUpdatePolicy { true }, defaults: defaults,
                                      enableSparkle: false, recordsUpdates: false, work: BackgroundWork(label: "test.flags-document"),
+                                     deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
                                      flagsReceiver: receiver, flagsFetcher: fetcher)
         updater.announcementsFetch = false
         return updater

@@ -2,6 +2,7 @@
 import AppKit
 import CmuxNextCompat
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import Foundation
 import Testing
@@ -85,8 +86,8 @@ struct PageOracleStateTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
-        let host = WebUIHost(chromium: nil, openPanel: nil, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
-                             clock: PageTestClock.never)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry(),
+                             deadlines: LifecycleDeadlineRig.never)
         let page = try #require(host.open(PageOpenRequest(descriptor: Self.descriptor, root: root, routes: [])))
         defer { host.close(page) }
         try await body(host, page)
@@ -98,7 +99,7 @@ struct PageOracleStateTests {
             // Read first, then expect: inside this closure the #expect expansion does not see the typed throw as handled.
             let unloaded = try await page.oracleState(within: .seconds(1), clock: PageTestClock.never)
             #expect(unloaded == .loading)
-            let parking = PageHostParking()
+            let parking = PagePreloadParkingView(frame: .zero)
             parking.addSubview(page)
             let parked = try await page.oracleState(within: .seconds(1), clock: PageTestClock.never)
             #expect(parked == nil)

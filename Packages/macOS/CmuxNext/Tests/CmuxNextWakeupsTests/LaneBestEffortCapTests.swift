@@ -148,7 +148,7 @@ import Testing
         }
         var iterator = reports.makeAsyncIterator()
         let seen = try #require(await iterator.next())
-        #expect(seen.queue == "test.uv-qos.files.userVisible")
+        #expect(seen.queue.hasPrefix("test.uv-qos.files.userVisible."), "ran on \(seen.queue)")
         #expect(seen.qos == QOS_CLASS_USER_INITIATED.rawValue)
     }
 

@@ -20,7 +20,7 @@ import Testing
         func makeContentView(for pane: PaneID) -> NSView { NSView() }
     }
 
-    private nonisolated final class RecordLog: Sendable {
+    nonisolated final class RecordLog: Sendable {
         private let state = Mutex<[TraceRuntime.StubRecord]>([])
 
         /// Begin records of `cef.geometry` slices, by source code.
@@ -82,7 +82,8 @@ import Testing
                                 backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             layer = WindowOverlayLayer(window: window,
-                                       signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime))
+                                       signposter: Signposter(category: .cef, mirror: SignpostMetricKitMirror(), trace: runtime),
+                                       currentTurn: { 0 })
             window.overlay = layer
             window.contentView = root
             root.layoutSubtreeIfNeeded()

@@ -71,6 +71,7 @@ public struct RemoteInstaller: Sendable {
     /// 404 the CDN edge cached before the build was published.
     private func get(_ url: URL) async throws -> (status: Int, data: Data) {
         var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        // wall-clock: a cache-busting query value, not a time.
         components?.queryItems = [URLQueryItem(name: "t", value: String(Int(Date().timeIntervalSince1970)))]
         var request = URLRequest(url: components?.url ?? url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 30)
         request.setValue("application/json", forHTTPHeaderField: "Accept")

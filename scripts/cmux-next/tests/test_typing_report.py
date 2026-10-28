@@ -137,13 +137,18 @@ class NameTests(unittest.TestCase):
                 self.assertEqual(flags["--sessions"], story.session, story_id)
 
 
-def debug_methods(path: Path, skip: frozenset[str] = frozenset(), extra_roots: tuple[str, ...] = ()) -> set[str]:
+def debug_methods(path: Path, skip: frozenset[str] = frozenset(), extra_roots: tuple[str, ...] = (),
+                  runner_class: str | None = None) -> set[str]:
     """The `rpc("debug.*")` / `.rpc("debug.*")` methods a bench's run reaches: every module-level call and every
     function called from it (by name, any depth), except the functions in `skip` (a phase or surface the story does
-    not run). `extra_roots` are functions the bench reaches through a table (typing-frame-bench.py's SURFACES)."""
+    not run). `extra_roots` are functions the bench reaches through a table (typing-frame-bench.py's SURFACES).
+    `runner_class` is the class a table picks for the story (bench-typing.py's runner): its methods win a shared name
+    such as `run`."""
     tree = ast.parse(path.read_text())
     # Module functions and class methods; a nested function is part of the function that defines it.
-    defs = list(tree.body) + [m for c in tree.body if isinstance(c, ast.ClassDef) for m in c.body]
+    classes = [c for c in tree.body if isinstance(c, ast.ClassDef)]
+    classes.sort(key=lambda c: c.name == runner_class)
+    defs = list(tree.body) + [m for c in classes for m in c.body]
     functions = {node.name: node for node in defs if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     def calls(node):
@@ -179,8 +184,23 @@ class NeedsTests(unittest.TestCase):
     FRAME_SURFACES = {"terminal": "surface_terminal", "home": "surface_home", "dock": "surface_dock",
                       "omnibar": "surface_omnibar"}
 
+    # bench-typing.py: the class its `runner` picks for each --surface.
+    TYPING_RUNNERS = {"terminal": "Launched", "agent-composer-chromium": "ComposerRun",
+                      "chromium-page-scroll": "ScrollRun"}
+
+    # Methods a bench calls only to record what a probe build reports, and runs fine without: typing-frame-bench.py's
+    # debug.view_churn lives on a scratch branch that never landed. No landed build has them, so they are not needs
+    # (a need no build has makes every Change not-measurable, capabilities.py --check).
+    PROBE_ONLY = frozenset({"debug.view_churn"})
+
     def reached(self, story) -> set[str]:
+        return self._reached(story) - self.PROBE_ONLY
+
+    def _reached(self, story) -> set[str]:
         path = ROOT / story.command[0]
+        if path.name == "bench-typing.py":
+            flags = dict(catalog._flag_values(list(story.command)))
+            return debug_methods(path, runner_class=self.TYPING_RUNNERS[flags.get("--surface", "terminal")])
         if not path.name == "typing-frame-bench.py":
             return debug_methods(path)
         flags = dict(catalog._flag_values(list(story.command)))
@@ -202,8 +222,8 @@ class NeedsTests(unittest.TestCase):
 
     def test_the_terminal_cut_needs_no_load_or_other_surface_method(self) -> None:
         story = next(s for s in catalog.load_catalog(ROOT).stories if s.id == "typing-terminal")
-        self.assertEqual(self.reached(story), {"debug.key", "debug.hangs", "debug.frames", "debug.view_churn",
-                                               "debug.timings", "debug.focus"})
+        self.assertEqual(self.reached(story), {"debug.key", "debug.hangs", "debug.frames", "debug.timings",
+                                               "debug.focus"})
 
 
 class RecordingTests(unittest.TestCase):

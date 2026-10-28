@@ -2,7 +2,7 @@
   "$schema": "../features.schema.json",
   "name": "pointerFrameHover",
   "owner": "PL-motion-cef",
-  "description": "The sidebar list, rail and space bar, the tab strips, the saved groups bar, agent cursor tags, shown hover cards, hover reveals and thin scrollers hover on the first pointer move of a display frame and once more at the frame, to the latest point; entering, leaving and clicking still act at once.",
+  "description": "Sidebar, tab strips, saved groups bar, palette, suggestions, page menus, agent cursor tags, hover cards, hover reveals, thin scrollers and focus follows mouse hover on a display frame's first pointer move and again at the frame, at the latest point; entering, leaving, clicks and keys act at once.",
   "defaults": { "dev": false, "nightly": false, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",

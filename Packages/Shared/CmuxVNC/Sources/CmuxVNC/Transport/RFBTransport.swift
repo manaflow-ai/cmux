@@ -1,5 +1,8 @@
+import CmuxThreading
 import Foundation
 import Network
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A byte stream to an RFB server. `NetworkRFBTransport` is TCP; an app can
 /// supply another carrier (a tunnel, a test pipe).
@@ -33,7 +36,7 @@ public final class NetworkRFBTransport: RFBTransport {
         let connection = self.connection
         let lifecycle = self.lifecycle
         try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
                 // A close (or cancellation) before this point fails the open at once:
                 // a connection cancelled before it starts never reports a state.
                 guard lifecycle.beginOpen(continuation) else { return }
@@ -60,7 +63,7 @@ public final class NetworkRFBTransport: RFBTransport {
 
     public func receive() async throws -> [UInt8] {
         let connection = self.connection
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<[UInt8], any Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 1 << 18) { data, _, isComplete, error in
                 if let data, !data.isEmpty {
                     continuation.resume(returning: [UInt8](data))
@@ -78,12 +81,12 @@ public final class NetworkRFBTransport: RFBTransport {
     public func send(_ bytes: [UInt8]) async throws {
         guard !bytes.isEmpty else { return }
         let connection = self.connection
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             connection.send(content: Data(bytes), completion: .contentProcessed { error in
                 if let error {
                     continuation.resume(throwing: RFBError.transport(error.localizedDescription))
                 } else {
-                    continuation.resume()
+                    continuation.resume(returning: ())
                 }
             })
         }
@@ -97,37 +100,36 @@ public final class NetworkRFBTransport: RFBTransport {
 
 /// Whether the transport was closed, and the open waiting for the
 /// connection: resumed exactly once, by the connection state or by a close.
-// crash-allow: `closed` and `opening` are read and written only while `lock` is held; the continuation resumes outside it, once.
-final class TransportLifecycle: @unchecked Sendable {
-    private let lock = NSLock()
-    private var closed = false
-    private var opening: CheckedContinuation<Void, any Error>?
+/// The continuation always resumes after the lock is released.
+final class TransportLifecycle: Sendable {
+    private struct State {
+        var closed = false
+        var opening: OnceContinuation<Void, any Error>?
+    }
+
+    private let state = CmuxThreading.Mutex(State())
 
     /// False (and the continuation already failed) when closed.
-    func beginOpen(_ continuation: CheckedContinuation<Void, any Error>) -> Bool {
-        lock.lock()
-        guard !closed else {
-            lock.unlock()
-            continuation.resume(throwing: RFBError.connectionClosed)
-            return false
+    func beginOpen(_ continuation: OnceContinuation<Void, any Error>) -> Bool {
+        let opened = state.withLock { state -> Bool in
+            guard !state.closed else { return false }
+            state.opening = continuation
+            return true
         }
-        opening = continuation
-        lock.unlock()
-        return true
+        if !opened { continuation.resume(throwing: RFBError.connectionClosed) }
+        return opened
     }
 
     func finishOpen(_ error: (any Error)?) {
-        lock.lock()
-        let continuation = opening
-        opening = nil
-        lock.unlock()
-        if let error { continuation?.resume(throwing: error) } else { continuation?.resume() }
+        let continuation = state.withLock { state -> OnceContinuation<Void, any Error>? in
+            defer { state.opening = nil }
+            return state.opening
+        }
+        if let error { continuation?.resume(throwing: error) } else { continuation?.resume(returning: ()) }
     }
 
     func close() {
-        lock.lock()
-        closed = true
-        lock.unlock()
+        state.withLock { $0.closed = true }
         finishOpen(RFBError.connectionClosed)
     }
 }

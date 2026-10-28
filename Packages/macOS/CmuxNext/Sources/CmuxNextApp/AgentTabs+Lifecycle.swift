@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSignposts
+import CmuxNextWakeups
 import Foundation
 
 /// Opening agent chat tabs on the workspace store with zero wait, and letting their view state
@@ -26,20 +27,22 @@ extension AgentTabStore {
     ///   - idempotencyKey: The creation's key; a retry with it returns the same tab. Fresh by default.
     ///   - split: The tab opens in a new pane on that side of `pane` (`conversation-tab-split-v1`): one daemon
     ///     commit, shown at once in a provisional pane, never in `pane`'s strip.
+    ///   - timing: The open's `create.tab` interval: the tab waits for its first frame from before the intent, so its
+    ///     pane and page are made with the open's stages (``ChatOpenStages``).
     /// - Throws: ``AgentTabRefusal`` when the pane cannot hold one (nothing is shown).
     func open(in pane: PaneID, of daemon: DaemonService, session: String? = nil, seed: AgentPaneSeedSource? = nil,
               newTab: (page: AgentPaneNewTab, handler: NewTabPageHandler)? = nil, spare: AgentPaneView? = nil,
               linked: Bool = false, adopt: AgentPaneAdopt? = nil, host: String? = nil,
-              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil) throws -> AgentTabPending {
+              idempotencyKey: String = UUID().uuidString.lowercased(), split: SplitDirection? = nil, timing: CreateTabInterval? = nil) throws -> AgentTabPending {
         guard let localHost, holdsTabs(daemon), reachable(daemon) else {
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             let reason = !reachable(daemon) ? RefusalStrings.agentTabsDisconnected
                 : localHost == nil ? RefusalStrings.agentTabCreateFailed : RefusalStrings.agentTabsUnsupported
             throw AgentTabRefusal(message: reason)
         }
         let record: AgentSessionRef
         if let refusal = Self.hostRefusal(host, localHost: localHost, chiefHost: chiefHost, daemonIsLocal: daemon.isLocal) {
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             throw AgentTabRefusal(message: refusal)
         }
         // A chat a chat of that machine started there (its daemon listed it, `agent-session-children`):
@@ -51,7 +54,7 @@ extension AgentTabStore {
         // the New Tab page's open-here included). The store binds a `registry:` tab's session only
         // through that machine's agent-session-start (cmux-tui conversation_tabs_wire.rs).
         if !daemon.isLocal, !remoteChild, session != nil || adopt != nil || seed?.namesLocalChat == true {
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch)
         }
         // A new chat in a pane of another machine runs on that machine: the tab records that
@@ -62,13 +65,13 @@ extension AgentTabStore {
         var seed = seed, spare = spare
         if remote {
             guard let registry = Self.registryHost(of: daemon) else {
-                if let spare, recycle?(spare) != true { retirer.retire(spare) }
+                if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
                 throw AgentTabRefusal(message: RefusalStrings.agentTabsDisconnected)
             }
             // The same New Tab page shows (its terminal and browser choices act in this pane); its
             // chat starts on that machine at the first send (``RemoteAcpmuxWire``). A prewarmed
             // spare is connected to this Mac's acpmux, so it is never adopted here.
-            if let spare, recycle?(spare) != true { retirer.retire(spare) }
+            if let spare, recycle?(spare) != true { spare.retire(on: retirer) }
             seed = remoteChild ? nil : (seed ?? AgentPaneSeedSource(AgentPaneSeed(cwd: newTab?.page.cwd)))
             spare = nil
             record = AgentSessionRef(host: registry, hostName: remoteMachineName(daemon), session: remoteChild ? session : nil, harness: nil)
@@ -84,6 +87,7 @@ extension AgentTabStore {
             self?.tabCreated(provisional, as: AgentTabCreated(key: tab.id, surface: tab.surface))
         }
         let transaction = ClientTransactionID.generate()
+        if let timing { createTabs?.expect(timing, tab: key, standIn: true) } // before the intent: the tab's view may come in its turn
         store.intend(splitPane.map { Intent.splitPane(pane: pane, direction: $0.0, ratio: 0.5, provisional: $0.1) } ?? .createTab(pane: pane, provisional: snapshot),
                      transaction: transaction)
         if let session { sessions[key] = session }
@@ -147,7 +151,7 @@ extension AgentTabStore {
         let pending: AgentTabPending
         do {
             pending = try open(in: pane.pane.handle, of: daemon, session: session, seed: seed, newTab: newTab,
-                               spare: spare, linked: linked, split: split)
+                               spare: spare, linked: linked, split: split, timing: timing)
         } catch {
             timing?.end(.closed) // refused: no tab was made
             pane.services.registry.refuse((error as? AgentTabRefusal)?.message ?? RefusalStrings.agentTabCreateFailed)
@@ -157,7 +161,6 @@ extension AgentTabStore {
         // unless the caller keeps focus where it is (`focuses` false: a tab dropped on its own pane's edge).
         let content = split == nil || !focuses ? nil : pane.workspace, intent = content?.beginFocusIntent()
         content?.focus.expect(.tab(pending.key), generation: intent)
-        if let timing { pane.services.cache.createTabs.expect(timing, tab: pending.key, standIn: true) }
         // The selection follows the provisional tab to the created one (`moveSelection`).
         if select { pane.selectWhenReported(surface: pending.surface) }
         if hidden {
@@ -205,7 +208,7 @@ extension AgentTabStore {
         if remoteCreations[key] != nil || remoteSeeds[key] != nil { remoteAliases[key] = real }
         if let view = views.removeValue(forKey: key) {
             // A page made under the store's id meanwhile (another window) gives way to the one shown.
-            if let other = views[real], other !== view { retirer.retire(other) }
+            if let other = views[real], other !== view { other.retire(on: retirer) }
             views[real] = view
         }
         if let value = sessions.removeValue(forKey: key) { sessions[real] = value }
@@ -231,6 +234,7 @@ extension AgentTabStore {
         pageShown()
         standaloneViews.remove(spare)
         (views[key], spare.model.allowsTabConversion) = (spare, true)
+        if let chatOpen = ChatOpenStages(chat: createTabs?.interval(ofTab: key)) { spare.join(chatOpen) }
         wire(spare.model, key: key)
         spare.adoptNewTab(page)
     }
@@ -314,11 +318,11 @@ extension AgentTabStore {
         createTabs?.released(key) // a chat closed (or refused) before its first paint: create.tab ends as closed
         if let view = views.removeValue(forKey: key) {
             // An untouched new tab page goes back to the pool (no teardown, no rebuild, R81); a
-            // page of another machine's chat never does (NewTabSparePool.recycle, cx-k21v).
+            // page of another machine's chat never does (NewTabPreload.recycle, cx-k21v).
             if newTabPages[key] != nil, recycle?(view) == true {
                 standaloneViews.add(view)
             } else {
-                retirer.retire(view)
+                view.retire(on: retirer)
             }
         }
         notices[key] = nil

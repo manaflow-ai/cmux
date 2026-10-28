@@ -10,8 +10,8 @@ extension DaemonStore {
     /// - Parameters:
     ///   - scope: The batch's command scope (`DaemonCommandScope.current` while it runs).
     ///   - deadline: When the stage commits by itself, on `clock`.
-    ///   - clock: The deadline's clock, read for the deadline and slept on for it; tests pass one they
-    ///     move by hand.
+    ///   - clock: The deadline's clock, read for the time left to it; the wake is a main deadline on the store's
+    ///     deadlines (`DaemonStore(deadlines:)`; tests pass one on a queue they fire).
     /// - Returns: The batch's part of the stage.
     public func openStage<C: Clock>(for scope: DaemonCommandScope?, until deadline: C.Instant, clock: C) -> StoreStageBatch
     where C.Duration == Duration {
@@ -30,10 +30,12 @@ extension DaemonStore {
         if let stage, stage.holds(through: sequence) { stage.commitAll() }
     }
 
-    /// Records a read-your-writes wait for `sequence` until ``endAppliedWait(_:)``: the stage shows
-    /// now what it holds at or below it, and holds no later event the wait needs (``awaitsNow(_:)``).
+    /// Records a read-your-writes wait for `sequence` until ``endAppliedWait(_:)``: the drain's tail
+    /// and the stage show now what they hold at or below it, and hold no later event the wait needs
+    /// (``awaitsNow(_:)``).
     public func beginAppliedWait(_ sequence: UInt64) {
         sequenceWaits[sequence, default: 0] += 1
+        applyAwaitedTail { $0.sequence <= sequence }
         commitStage(ifHolding: sequence)
     }
 

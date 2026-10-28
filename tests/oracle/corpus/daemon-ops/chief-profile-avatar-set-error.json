@@ -29,6 +29,25 @@
   ],
   "steps": [
     {
+      "id": "fx-chief",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "chief.profile.create",
+        "params": {
+          "display_name": "oracle"
+        },
+        "idempotencyKey": "chief-profile-avatar-set-error.fx-chief"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      }
+    },
+    {
       "id": "call",
       "op": "resource.call",
       "target": {
@@ -38,19 +57,24 @@
       "args": {
         "method": "chief.profile.avatar.set",
         "params": {
-          "chief": ""
+          "chief": "$step:fx-chief#/value/id",
+          "media_type": "image/gif",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
         },
         "idempotencyKey": "chief-profile-avatar-set-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "field": "data"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "chief breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "PNG bytes sent as image/gif: the type comes from the bytes, and a media_type that differs is refused (chief_registry_resource.rs avatar_change)"
     }
   ],
   "invariants": [

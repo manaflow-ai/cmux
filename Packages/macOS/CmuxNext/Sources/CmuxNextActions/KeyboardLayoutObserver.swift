@@ -28,15 +28,15 @@ public final class KeyboardLayoutObserver {
 
     private static var live: [Weak] = []
     private static var registered = false
-    /// The identity of the one registration (CF keys observers by pointer).
-    private static let registration = NSObject()
 
     private static func registerOnce() {
         guard !registered else { return }
         registered = true
+        // No observer pointer (CF allows NULL): the registration is never removed and the callback
+        // reads no context, so there is no object address for a late notice to reach.
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDistributedCenter(),
-            Unmanaged.passUnretained(registration).toOpaque(),
+            nil,
             keyboardLayoutDidChange,
             kTISNotifySelectedKeyboardInputSourceChanged,
             nil,
@@ -56,5 +56,6 @@ public final class KeyboardLayoutObserver {
 /// the current layout), so a hop is enough.
 nonisolated func keyboardLayoutDidChange(_ center: CFNotificationCenter?, _ observer: UnsafeMutableRawPointer?,
                                          _ name: CFNotificationName?, _ object: UnsafeRawPointer?, _ userInfo: CFDictionary?) {
+    // main-hop-allow: a C callback with no context reaches no scheduler; the one hop only fans the change out to the live observers
     Task { @MainActor in KeyboardLayoutObserver.layoutChanged() }
 }

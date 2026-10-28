@@ -24,6 +24,9 @@ indirect enum ResourceDeclaration {
         case requiredNullable
         /// May be absent; nil is not written. A nullable optional field decodes null as nil.
         case optional
+        /// A request's optional nullable field: absent, `null` or a value, as
+        /// `ResourceFieldUpdate<type>`, so a caller can clear what an optional cannot.
+        case optionalNullable
     }
 
     struct Field {
@@ -37,7 +40,11 @@ indirect enum ResourceDeclaration {
         var doc: [String]
 
         var declaredType: String {
-            presence == .required ? type : type + "?"
+            switch presence {
+            case .required: type
+            case .requiredNullable, .optional: type + "?"
+            case .optionalNullable: "ResourceFieldUpdate<\(type)>"
+            }
         }
     }
 

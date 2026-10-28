@@ -14,7 +14,14 @@
 //           in a shared memory descriptor; wire only, see below)
 //   flags:  bits 0-2 the number of descriptors (SCM_RIGHTS) that came with
 //           the frame's first byte, at most kMaxFds; bit 3 the frame answers
-//           `token`; other bits are 0.
+//           `token`; bit 4 (kFlagOrdered) an order word follows the header;
+//           other bits are 0.
+//   order word (task 092, cmux -> host only): u32 ctl_seq (never 0) | u32
+//           after_input, between the header and the body and not counted in
+//           `len`: the message's control seq and the input seq it follows
+//           (chromium_host_wire.h, "One ordered input stream"). The Swift
+//           mirror sends no ordered frame and the host sends none: cmux's
+//           sender is the remote shim (../client/remote_shim.mm).
 //
 // Large payloads (task 020), as mojo_base::BigBuffer
 // (mojo/public/cpp/base/big_buffer.h) moves bytes over its 64 KiB inline
@@ -62,9 +69,13 @@
 #include <unordered_map>
 #include <vector>
 
+#include "chromium_host_wire.h"
+
 namespace cmux_host::control {
 
 inline constexpr size_t kHeaderSize = 12;
+// The order word of an ordered frame (kFlagOrdered).
+inline constexpr size_t kOrderSize = 8;
 inline constexpr size_t kFieldHeaderSize = 4;
 // Larger payloads go as a sealed shm descriptor (task 020).
 inline constexpr uint32_t kMaxBody = 64 * 1024;
@@ -88,7 +99,14 @@ inline constexpr size_t kMaxBatch = 64;
 
 inline constexpr uint16_t kFdCountMask = 0x0007;
 inline constexpr uint16_t kFlagReply = 0x0008;
-inline constexpr uint16_t kKnownFlags = kFdCountMask | kFlagReply;
+inline constexpr uint16_t kFlagOrdered = 0x0010;
+inline constexpr uint16_t kKnownFlags = kFdCountMask | kFlagReply | kFlagOrdered;
+
+// An ordered message with no call: it takes the place of an ordered message
+// cmux accepted and then did not send (an optional op the host's shim lacks,
+// a message over a bound), so input frames written after that message do not
+// wait for it. OrderedStream applies it and hands nothing on.
+inline constexpr uint16_t kOpSeqMark = 0x8006;
 
 enum class Type : uint8_t { kI32 = 1, kI64 = 2, kF64 = 3, kBytes = 4, kStr = 5 };
 
@@ -115,6 +133,10 @@ struct Message {
   // Sent: the sender's descriptors (the channel sends duplicates). Received:
   // descriptors the receiver owns and closes.
   std::vector<int> fds;
+  // Task 092. Not 0: the frame is ordered (kFlagOrdered), with this control
+  // seq. `after_input`: the input seq it is applied after (0: none).
+  uint32_t ctl_seq = 0;
+  uint32_t after_input = 0;
 
   const Field* Find(uint8_t tag) const;
 };
@@ -164,8 +186,10 @@ inline uint64_t StateKey(uint16_t op, int32_t browser) {
 
 // Frames the socket has not taken yet, oldest first. A partly written front
 // frame keeps its place (it is in flight, not waiting); a waiting state op is
-// replaced by a newer one with the same key, which goes to the tail. Writes go
-// in batches, one sendmsg each, as ChannelPosix::WriteOutgoingMessagesWithWritev
+// replaced by a newer one with the same key, which goes to the tail, unless
+// the sender wrote input between them (another `boundary`), on the ring or on
+// this channel: the input must still meet the older value, as a click after a
+// resize must hit the resized page (task 092). Writes go in batches, one sendmsg each, as ChannelPosix::WriteOutgoingMessagesWithWritev
 // batches messages without handles: a frame with descriptors starts a batch,
 // since they go with its first byte. Owns the duplicated descriptors.
 class Outbox {
@@ -180,6 +204,7 @@ class Outbox {
     // quota, so a peer that stops reading reaches the ceiling as with
     // inline bytes.
     size_t shared_bytes = 0;
+    uint32_t boundary = 0;  // the sender's input count (Channel::Send): coalescing never crosses input
   };
 
   Outbox(size_t quota_bytes, size_t quota_messages);
@@ -187,9 +212,10 @@ class Outbox {
   Outbox(const Outbox&) = delete;
   Outbox& operator=(const Outbox&) = delete;
 
-  // True when it replaced a waiting entry with the same key (a partly
-  // written one is never replaced).
-  bool Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key, size_t shared_bytes = 0);
+  // True when it replaced a waiting entry with the same key and `boundary`
+  // (a partly written one is never replaced).
+  bool Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key, size_t shared_bytes = 0,
+            uint32_t boundary = 0);
   // The oldest live entry, nullptr when empty.
   Entry* Front();
   // The next batch, at most `max` buffers: the front entry's unwritten bytes,
@@ -207,7 +233,8 @@ class Outbox {
   size_t messages() const { return messages_; }
   size_t bytes() const { return bytes_; }
   bool OverQuota() const { return bytes_ > quota_bytes_ || messages_ > quota_messages_; }
-  // Waiting entries with this key (0 or 1): live and not started.
+  // Waiting entries with this key: live and not started (0 or 1 per
+  // boundary).
   size_t CountKey(uint64_t key) const;
   // Closes an entry's descriptors (once sent, or when it is dropped).
   static void CloseFds(Entry* entry);
@@ -274,18 +301,103 @@ class Channel {
   // Queues `message` (its descriptors duplicated) and writes it when the
   // socket takes it; fields too large for a frame go in shared memory
   // (SharedFields), created on the calling thread. `state_key`: a waiting
-  // message with the same key is replaced. False when the channel has ended
-  // or the message breaks a bound (then nothing is sent).
-  bool Send(const Message& message, std::optional<uint64_t> state_key = std::nullopt);
+  // message with the same key and `boundary` is replaced; `boundary` is the
+  // sender's count of input written so far (the remote shim's), so a state
+  // op never moves past input sent between the two. False when the channel
+  // has ended or the message breaks a bound (then nothing is sent).
+  bool Send(const Message& message, std::optional<uint64_t> state_key = std::nullopt, uint32_t boundary = 0);
   void Close();
   Stats stats() const;
-  // Waiting messages with this state key (0 or 1); one the socket has taken
-  // part of is in flight, not waiting.
+  // Waiting messages with this state key (0 or 1 per boundary); one the
+  // socket has taken part of is in flight, not waiting.
   size_t PendingWithKey(uint64_t state_key) const;
 
  private:
   struct Core;
   std::shared_ptr<Core> core_;
+};
+
+// The host's one ordered stream (task 092; chromium_host_wire.h, "One ordered
+// input stream"): control messages from the channel and input frames from the
+// ring, each held until the other side has caught up, then handed on in the
+// order cmux sent them, as RenderWidgetHostNSViewHost's one pipe delivers them
+// in Chrome. The two checks (ControlReady, InputReady):
+//   - an input frame is dispatched only once the control message it names
+//     (CtlSeqOf) is applied;
+//   - an ordered control message is applied only once the input frame it
+//     follows (after_input) is dispatched.
+// A seq that never arrives (a key cmux coalesced, a message the outbox
+// replaced) is settled once a later one of its stream is first in line: each
+// stream is in order, so nothing before that one can still come.
+//
+// Only ring frames of an input kind (IsOrderedInput) carry an input seq;
+// another kind (kPing, kStats: `seq` is their request id) keeps its place in
+// the ring and is dispatched with no seq check.
+//
+// Malformed (bad_message: the host ends): a stream's seq not after the one
+// before it, or the two first-in-line items each waiting for the other (each
+// says it was sent after the other). Bounded: with `held_input` frames waiting
+// AddInput refuses (the ring keeps the frame, task 041); `held_control`
+// messages waiting for input that never came is malformed.
+//
+// UI thread only, no lock (p01-process section 4, rule 1). Input waits until
+// OpenInput: the host opens it once CefInitialize returned and the messages
+// that waited for it ran (HostContext::Resume).
+class OrderedStream {
+ public:
+  enum class Result { kOk, kFull, kMalformed };
+  // A run of control messages to apply, in order (HostContext::OnMessages).
+  using ApplyControl = std::function<void(std::vector<Message>)>;
+  // One input frame (the input ring's dispatch, tasks 041 and 042).
+  using DispatchInput = std::function<void(const Header&)>;
+  struct Limits {
+    size_t held_input = kFrameBacklog;
+    size_t held_control = 16 * kInboxLimit;
+  };
+
+  OrderedStream(ApplyControl apply, Limits limits);
+  explicit OrderedStream(ApplyControl apply);
+  OrderedStream(const OrderedStream&) = delete;
+  OrderedStream& operator=(const OrderedStream&) = delete;
+
+  // The input ring's dispatch (task 041), before its first AddInput.
+  void AttachInput(DispatchInput dispatch);
+  // A batch from the control channel, in order: kOk or kMalformed.
+  Result AddControl(std::vector<Message> batch);
+  // One frame from the input ring, of any cmux -> host kind: kFull, not taken
+  // (the ring keeps it, and takes it again after the next AddControl or
+  // OpenInput); kMalformed, the host ends.
+  Result AddInput(const Header& frame);
+  // Input may be dispatched from here on: kOk or kMalformed.
+  Result OpenInput();
+
+  size_t held_input() const { return inputs_.size(); }
+  size_t held_control() const { return controls_.size(); }
+  // The last ordered control seq applied and input seq dispatched (0: none).
+  uint32_t applied_control() const { return applied_; }
+  uint32_t dispatched_input() const { return dispatched_; }
+  // Why the stream is malformed, for the host's log; nullptr while it is not.
+  const char* what() const { return what_; }
+
+ private:
+  Result Run();
+  bool ControlReady(const Message& message) const;
+  bool InputReady(const Header& frame) const;
+  Result Malformed(const char* what);
+
+  const ApplyControl apply_;
+  const Limits limits_;
+  DispatchInput dispatch_;
+  std::deque<Message> controls_;
+  std::deque<Header> inputs_;
+  uint32_t applied_ = 0;
+  uint32_t dispatched_ = 0;
+  uint32_t last_control_ = 0;  // the last ordered control seq received
+  uint32_t last_input_ = 0;    // the last input seq received
+  bool input_open_ = false;
+  bool running_ = false;  // inside Run: an Add from a sink only queues
+  bool malformed_ = false;
+  const char* what_ = nullptr;
 };
 
 }  // namespace cmux_host::control

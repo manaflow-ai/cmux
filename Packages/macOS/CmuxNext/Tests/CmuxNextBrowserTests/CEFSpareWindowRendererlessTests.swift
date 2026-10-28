@@ -151,7 +151,7 @@ import Testing
     private static func spyRuntime(forkAPI: Int32, supported: Bool = true, feature: Bool = true) throws -> (CEFRuntime, URL) {
         RendererlessSpy.reset(forkAPI: forkAPI, supported: supported)
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-rendererless-\(UUID().uuidString)", directoryHint: .isDirectory)
-        let runtime = CEFRuntime(shim: try RendererlessSpy.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try RendererlessSpy.library(), storage: CEFProfileStorage(root: root))
         runtime.spareWindow.rendererlessPlaceholders = feature
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)

@@ -26,7 +26,9 @@ extension HoverCardCoordinator {
 
     /// One event of the dismissal observer or scroll intercept: a key press, click or wheel scroll
     /// ends the card and passes the event on; key and button ups pass untouched. Returns `.consume`
-    /// when the card took the event (only a scroll on the card).
+    /// when the card took the event (only a scroll on the card). A press on a shown card that takes
+    /// clicks (``HoverCardBody/interactive``) leaves it up: the press runs this observer before AppKit
+    /// hands it to the card's button, so ending the card here would take the button from under it.
     ///
     /// A wheel scroll with the pointer on the shown card is the card's (Lawrence 2026-10-19,
     /// u3320: "If I open a card, move my mouse over, and start scrolling, the card just
@@ -36,21 +38,29 @@ extension HoverCardCoordinator {
         let reason: HoverDismissal
         switch event.type {
         case .keyDown: reason = .keyDown
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown: reason = .click
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            reason = .click
+            // A press on a card that takes clicks (a tab card's Discard) is the card's: it goes on to the card's
+            // button, whose action ends the card (`dismiss(.action)`).
+            if panel?.isInteractive == true, pointOnShownCard(event) != nil { return .pass }
         case .scrollWheel:
             reason = .scrollWheel
-            if let panel, machine.shownTarget != nil, panel.isShowingCard {
-                // A real event names the window under the pointer; a synthesized one may name none.
-                let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
-                if panel.cardFrame.contains(point) {
-                    panel.scrollCard(with: event, at: point)
-                    return .consume
-                }
+            if let panel, let point = pointOnShownCard(event) {
+                panel.scrollCard(with: event, at: point)
+                return .consume
             }
         default: return .pass
         }
         dismiss(reason)
         return .pass
+    }
+
+    /// Where `event` happened on screen, when that is on the shown card (not one that fades); else nil.
+    private func pointOnShownCard(_ event: NSEvent) -> CGPoint? {
+        guard let panel, machine.shownTarget != nil, panel.isShowingCard else { return nil }
+        // A real event names the window under the pointer; a synthesized one may name none.
+        let point = event.window.map { $0.convertPoint(toScreen: event.locationInWindow) } ?? currentPointer()
+        return panel.cardFrame.contains(point) ? point : nil
     }
 
     /// While a card shows, pointer moves on it or just off it reach the machine: leaving the

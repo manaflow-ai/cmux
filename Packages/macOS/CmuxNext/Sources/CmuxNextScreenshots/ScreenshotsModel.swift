@@ -1,5 +1,6 @@
 public import CmuxNextFileGrid
 public import CmuxNextFiles
+public import CmuxNextWakeups
 public import Foundation
 public import Observation
 
@@ -12,9 +13,10 @@ public import Observation
 /// folder and every subfolder its rule entered): a changed file is looked at
 /// alone (a new screenshot is one `lstat`, not a relist); a new or removed
 /// subfolder, a burst or lost events relist that source only. Nothing polls.
+/// R-hop: a source's read runs off the main actor and lands as one visible task on the app's scheduler.
 ///
 /// ```swift
-/// let model = ScreenshotsModel()
+/// let model = ScreenshotsModel(mainWork: mainWork)
 /// model.setSources(detector.detect(findTools: true, extraFolders: []))
 /// // model.visibleItems: newest first
 /// ```
@@ -35,22 +37,33 @@ public final class ScreenshotsModel {
     @ObservationIgnored private let reader: ScreenshotFolderReader
     @ObservationIgnored private let watcher: any FolderWatching
     @ObservationIgnored private var scans: [String: Task<Void, Never>] = [:]
+    /// The read each source waits on, by source id: a finished read of another generation lands nothing.
+    @ObservationIgnored private var scanGenerations: [String: UInt64] = [:]
+    @ObservationIgnored private var scanGeneration: UInt64 = 0
     /// The folders each source's last read covered, by source id.
     @ObservationIgnored private var foldersBySource: [String: [String]] = [:]
     /// One watch per folder path.
     @ObservationIgnored private var watches: [String: Task<Void, Never>] = [:]
     /// Above this many changed names in one batch, the source is read again.
     @ObservationIgnored private let rescanThreshold = 128
+    /// The app's main-thread scheduler: each finished read lands on it.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
     /// Makes a model.
     ///
     /// - Parameters:
     ///   - reader: reads folders (default: the disk through CmuxNextFiles).
     ///   - watcher: reports changes (default: CmuxNextFiles' FSEvents ``FolderWatcher``).
-    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher()) {
+    ///   - mainWork: the app's one main-thread scheduler.
+    public init(reader: ScreenshotFolderReader = ScreenshotFolderReader(), watcher: any FolderWatching = FolderWatcher(),
+                mainWork: MainWorkScheduler) {
         self.reader = reader
         self.watcher = watcher
+        self.mainWork = mainWork
     }
+
+    /// The owner of a finished read's task in the board and the wakeup ledger.
+    static let readOwner = "ScreenshotsModel.read"
 
     /// The files the grid shows: the selected source's (or all), matching the search, newest first.
     public var visibleItems: [FileGridItem] {
@@ -79,6 +92,7 @@ public final class ScreenshotsModel {
         let kept = Set(newSources.map(\.id))
         for source in sources where !kept.contains(source.id) {
             scans.removeValue(forKey: source.id)?.cancel()
+            scanGenerations.removeValue(forKey: source.id)
             foldersBySource.removeValue(forKey: source.id)
             listing.removeSource(source.id)
             unreadableSourceIDs.remove(source.id)
@@ -105,6 +119,7 @@ public final class ScreenshotsModel {
         watches.removeAll()
         for task in scans.values { task.cancel() }
         scans.removeAll()
+        scanGenerations.removeAll()
     }
 
     /// Adds files this pane just saved (a drop) without waiting for the watch.
@@ -172,17 +187,28 @@ public final class ScreenshotsModel {
 
     private func scheduleRescan(_ source: ScreenshotSource) {
         scans[source.id]?.cancel()
-        let reader = reader
+        scanGeneration &+= 1
+        scanGenerations[source.id] = scanGeneration
+        let reader = reader, mainWork = mainWork, owner = Self.readOwner, generation = scanGeneration
         // task-owner: `scans[source.id]`; a newer read of the source or stop() cancels it
-        scans[source.id] = Task { [weak self] in
+        scans[source.id] = Task { @concurrent in
             let result = await reader.read(source)
-            guard !Task.isCancelled, let self, self.sources.contains(where: { $0.id == source.id }) else { return }
-            self.listing.replace(source: source.id, with: result.items)
-            self.foldersBySource[source.id] = result.readable ? result.folders : [source.folder.path]
-            if result.readable { self.unreadableSourceIDs.remove(source.id) } else { self.unreadableSourceIDs.insert(source.id) }
-            self.syncWatches()
-            self.scans[source.id] = nil
+            guard !Task.isCancelled else { return }
+            // R-hop: the listing lands as one visible task (the grid shows it); refresh() awaits it.
+            await mainWork.apply(.visible, owner: owner) { [weak self] in self?.land(result, of: source, generation: generation) }
         }
+    }
+
+    /// Lands `source`'s finished read of `generation`: its files, the folders to watch, and whether it could be read.
+    /// A read that a newer one or ``stop()`` replaced while its task waited lands nothing.
+    private func land(_ result: ScreenshotFolderReader.Result, of source: ScreenshotSource, generation: UInt64) {
+        guard scanGenerations[source.id] == generation, sources.contains(where: { $0.id == source.id }) else { return }
+        scanGenerations[source.id] = nil
+        listing.replace(source: source.id, with: result.items)
+        foldersBySource[source.id] = result.readable ? result.folders : [source.folder.path]
+        if result.readable { unreadableSourceIDs.remove(source.id) } else { unreadableSourceIDs.insert(source.id) }
+        syncWatches()
+        scans[source.id] = nil
     }
 
     /// Watches exactly the folders the sources' last reads covered.
@@ -196,6 +222,7 @@ public final class ScreenshotsModel {
             let folder = URL(fileURLWithPath: path, isDirectory: true)
             let stream = watcher.changes(in: folder)
             // task-owner: `watches[path]`; cancelled when the folder leaves the sources or on stop()
+            // main-hop-allow: one FSEvents batch at a time, in order: apply is the model's main-actor change (each changed name is one off-main `lstat` through the reader)
             watches[path] = Task { [weak self] in
                 for await change in stream {
                     guard let self else { return }

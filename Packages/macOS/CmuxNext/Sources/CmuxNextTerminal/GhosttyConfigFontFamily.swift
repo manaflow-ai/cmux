@@ -23,7 +23,7 @@ enum GhosttyConfigFontFamily {
 
     private static var loads = 0
 
-    /// A load of the user's own config (`GhosttyConfigBackground.overrideLines`; only the shared
+    /// A load of the user's own config, applied on the main actor (`recordUserConfigLoad`; only the shared
     /// runtime loads it): reads its family off the main actor, records it in
     /// `DesignSettings.terminalConfigFontFamily`, which repaints pages when the terminal's face
     /// changed (`WebTheme.Terminal`). Only the latest load's read applies.
@@ -45,9 +45,12 @@ enum GhosttyConfigFontFamily {
         var result = families
         for raw in text.split(whereSeparator: \.isNewline) {
             let line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.hasPrefix("#"), let equals = line.firstIndex(of: "=") else { continue }
-            guard line[..<equals].trimmingCharacters(in: .whitespaces) == "font-family" else { continue }
-            var value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
+            guard !line.hasPrefix("#") else { continue }
+            // The key and the value around the first `=`; a line with none has one part.
+            let pair = line.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard pair.count == 2, let key = pair.first, let rest = pair.last,
+                  key.trimmingCharacters(in: .whitespaces) == "font-family" else { continue }
+            var value = rest.trimmingCharacters(in: .whitespaces)
             if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") { value = String(value.dropFirst().dropLast()) }
             if value.isEmpty { result = [] } else { result.append(value) }
         }

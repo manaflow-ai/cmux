@@ -63,6 +63,7 @@ public final class HomeInboxSource {
         if reading { readAgain = true; return }
         reading = true
         // task-owner: one home-inbox read (and one more per request made during it); ends with its reply
+        // main-hop-allow: each pass awaits one daemon read (the connection's actor decodes it) and applies its rows on main in its resume, where the generation and the read-again flag are this source's main-actor state
         Task { [weak self] in
             while let self, let connection = self.connection {
                 let generation = self.generation
@@ -181,6 +182,7 @@ public final class HomeInboxSource {
         pendingWrites += 1
         let cloud = isCloud
         // task-owner: one batch of inbox ops; ends with the last reply
+        // main-hop-allow: the person's inbox edit already shows (edit); the ops go in order to the daemon's actor, and `done` and the reread run on main in the last resume
         Task { [weak self] in
             var accepted: [String] = []
             for (id, op) in ops {
@@ -200,5 +202,5 @@ public final class HomeInboxSource {
 
     /// Milliseconds since 1970: the position the Channels page gives a pin too, so both views'
     /// pins sort by when they were made.
-    static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) }
+    static func now() -> UInt64 { UInt64(Date().timeIntervalSince1970 * 1000) } // wall-clock: shared with the Channels page
 }

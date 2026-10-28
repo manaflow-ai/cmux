@@ -153,6 +153,7 @@ final class HomeProjection: ChatIntents {
         refresh()
         noteObservedInputs()
         observe()
+        observeDiagrams()
     }
 
     func stop() {
@@ -304,8 +305,8 @@ final class HomeProjection: ChatIntents {
 
     /// The whole window again, without animation (MessagesLab has no action
     /// for it): `.replaceWindow`, then the pin or the first visible row's
-    /// window position is restored.
-    private func rebuild() {
+    /// window position is restored. Also when the diagram engine loaded (`observeDiagrams`).
+    func rebuild() {
         guard let demo = controller.demo, let store = controller.store else { return }
         rebuilds += 1
         let pinned = store.state.ui.scroll.pinnedToBottom

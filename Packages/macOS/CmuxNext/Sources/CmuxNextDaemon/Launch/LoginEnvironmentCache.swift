@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The user's login environment for this app launch.
@@ -25,6 +26,12 @@ import Foundation
 /// first one times out, a second one runs in the background with
 /// `refreshTimeout`, so a shell slower than `waitTimeout` still reaches the
 /// remembered copy and the terminals opened after it finishes.
+///
+/// A memory consumer on its own actor (`login-environment`, through
+/// `AsyncMemoryConsumerRegistration`): it holds one environment of a few KB, the store's copy until
+/// this launch's capture lands and then the capture (the copy is dropped when the capture lands, and
+/// a release drops it too). That one environment is its working set: dropping it would cost every
+/// new terminal a login shell, so no limit shrinks it, and the report shows what it holds.
 actor LoginEnvironmentCache {
     static let shared = LoginEnvironmentCache(store: .standard(), capture: { timeout in
         await LoginEnvironment.shared.capture(timeout: timeout)
@@ -38,8 +45,10 @@ actor LoginEnvironmentCache {
     private var retry: Task<Void, Never>?
     /// This launch's latest successful capture.
     private var captured: [String: String]?
-    /// The store's copy, read once (`.some(nil)`: nothing remembered).
+    /// The store's copy, read once (`.some(nil)`: nothing remembered, or the capture replaced it).
     private var remembered: [String: String]??
+    /// The registration in the app's memory coordinator, kept on the main actor that makes it.
+    private nonisolated let memorySlot = AsyncMemoryConsumerSlot()
 
     /// `capture` runs the login shell with the given deadline; `store` nil
     /// remembers nothing.
@@ -70,6 +79,12 @@ actor LoginEnvironmentCache {
     /// Whether this launch's capture started.
     var captureStarted: Bool { task != nil }
 
+    /// Waits for this launch's first capture to end (at once when none started); nil when it failed.
+    func captureEnded() async -> [String: String]? {
+        guard let task else { return nil }
+        return await task.value
+    }
+
     /// The environment for a new terminal: this launch's capture or the
     /// remembered copy at once, else the capture (nil when it failed),
     /// started now when it has not been.
@@ -99,12 +114,13 @@ actor LoginEnvironmentCache {
         if let task { return task }
         let capture = capture
         let waitTimeout = waitTimeout
-        let task = Task(priority: priority) { [self] () -> [String: String]? in
+        // The capture runs off this actor; only its record comes back to it.
+        let task = Task(priority: priority) { @concurrent [self] () -> [String: String]? in
             guard let environment = await capture(waitTimeout) else {
-                refreshInBackground()
+                await refreshInBackground()
                 return nil
             }
-            record(environment)
+            await record(environment)
             return environment
         }
         self.task = task
@@ -115,13 +131,50 @@ actor LoginEnvironmentCache {
         guard retry == nil else { return }
         let capture = capture
         let refreshTimeout = refreshTimeout
-        retry = Task { [self] in
-            if let environment = await capture(refreshTimeout) { record(environment) }
+        retry = Task { @concurrent [self] in
+            if let environment = await capture(refreshTimeout) { await record(environment) }
         }
     }
 
     private func record(_ environment: [String: String]) {
         captured = environment
+        remembered = .some(nil)  // `known()` reads the capture from now on
         store?.save(environment)
+    }
+}
+
+extension LoginEnvironmentCache: AsyncMemoryConsumer {
+    /// One small environment; losing it costs a login shell (1-17 s), so it is its own working set.
+    static let memoryTraits = MemoryConsumerTraits(
+        estimatedUsage: .small, dataAccess: .none, retention: .lossless, recreateCost: .expensive,
+        releaseCPUCost: .low, isStateful: true, supportsMemoryLimit: false)
+
+    func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? {
+        usage
+    }
+
+    /// Drops the store's copy once this launch's capture is held; keeps the one environment.
+    func releaseMemory(downTo limit: MemoryLimit) -> MemoryUsage? {
+        if captured != nil { remembered = .some(nil) }
+        return usage
+    }
+
+    /// The environments held (the capture and the store's copy) and their keys' and values' UTF-8 bytes.
+    private var usage: MemoryUsage {
+        let held = [captured, remembered ?? nil].compactMap { $0 }
+        let bytes = held.reduce(0) { total, environment in
+            environment.reduce(total) { $0 + $1.key.utf8.count + $1.value.utf8.count }
+        }
+        return MemoryUsage(footprintBytes: bytes, entries: held.count)
+    }
+
+    /// Registers the environment with the app's memory coordinator (`login-environment`); the cache
+    /// keeps the registration.
+    ///
+    /// - Parameters:
+    ///   - registry: The memory coordinator.
+    ///   - hop: How the coordinator's calls leave the main actor (tests pass their own).
+    @MainActor func registerMemoryConsumer(with registry: any MemoryConsumerRegistry, hop: AsyncMemoryConsumerHop = .task) {
+        memorySlot.register(name: "login-environment", traits: Self.memoryTraits, consumer: self, registry: registry, hop: hop)
     }
 }
