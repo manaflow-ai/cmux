@@ -3205,6 +3205,51 @@ mod tests {
     }
 
     #[test]
+    fn server_start_hint_respects_startup_option_arity() {
+        let expected = crate::localization::catalog().local_server.start_options_after_action;
+        for option in [
+            "--ephemeral",
+            "--cloud",
+            "--headless",
+            "--ws-insecure-bind",
+            "--remote",
+            "--remote-ws-insecure-bind",
+            "--remote-ws-trusted-carrier",
+            "--iroh",
+        ] {
+            let error = match parse(&strings(&[option, "server", "start"])) {
+                Err(error) => error,
+                Ok(_) => panic!("misplaced {option} must be rejected"),
+            };
+            assert_eq!(error.0, expected, "{option}");
+        }
+
+        for args in [
+            &["--term", "xterm-256color", "server", "start"][..],
+            &["--term", "server", "server", "start"][..],
+            &["--ephemeral", "--term", "xterm-256color", "server", "start"][..],
+        ] {
+            let error = match parse(&strings(args)) {
+                Err(error) => error,
+                Ok(_) => panic!("misplaced startup options must be rejected"),
+            };
+            assert_eq!(error.0, expected, "{args:?}");
+        }
+        for args in [
+            &["--term", "server", "start"][..],
+            &["--ephemeral", "tab", "server", "start"][..],
+            &["--ephemeral", "--", "server", "start"][..],
+            &["--machine-provider-command", "server", "start", "--"][..],
+        ] {
+            let error = match parse(&strings(args)) {
+                Err(error) => error,
+                Ok(_) => panic!("invalid command must be rejected"),
+            };
+            assert_ne!(error.0, expected, "{args:?}");
+        }
+    }
+
+    #[test]
     fn boolean_flag_metadata_matches_tokenizer_contract() {
         for name in actions::known_flag_names()
             .into_iter()

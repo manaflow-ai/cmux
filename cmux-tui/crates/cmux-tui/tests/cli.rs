@@ -550,6 +550,16 @@ fn server_lifecycle_help_and_typos_do_not_fall_back_to_startup_help() {
 }
 
 #[test]
+fn server_start_hint_survives_misplaced_startup_switches() {
+    for option in ["--ephemeral", "--ws-insecure-bind"] {
+        let output = lifecycle_cli(&[option, "server", "start"]);
+        assert_eq!(output.status.code(), Some(2));
+        let error = String::from_utf8(output.stderr).unwrap();
+        assert!(error.contains("after `server start`"), "{option}: {error}");
+    }
+}
+
+#[test]
 fn server_lifecycle_start_rejects_inline_relay_ticket_without_echoing_secret() {
     let secret = "inline-server-start-secret-marker";
     for args in [
