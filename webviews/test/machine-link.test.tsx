@@ -6,6 +6,7 @@
 import { expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { rememberTail } from "../src/agent-session/acpmux/tailCache";
 import {
   MachineLinkMark,
   computerLink,
@@ -550,4 +551,58 @@ test("a push that comes while the peer list is read stays on top of that read's 
   release();
   await read;
   expect(states.at(-1)?.["gpu-box"]).toBe("reconnecting");
+});
+
+// Leo, 2026-10-28: "after you've connected something remotely ... how good is it in terms of that
+// whole, like, recovery flow". The offline chat's Reconnect (ChatUnavailableState) only read the
+// lists again, so its machine sat out acpmux's backoff of up to a minute; it reconnects it now.
+async function missingChat(state: string) {
+  rememberTail("on-gpu", {
+    events: [],
+    summary: { sessionId: "on-gpu", peer: "gpu-box" },
+    turnOpener: undefined,
+    historyExhausted: true,
+    queue: [],
+    configSeq: 0,
+    usageFromSeq: 0,
+  });
+  const fake = daemon(state, { events: true });
+  let latest: any;
+  const pane = await AcpmuxDirectClient.connect(
+    {
+      protocolVersion: 1,
+      transport: "acpmux-websocket",
+      endpoint: "ws://127.0.0.1:1/",
+      token: "t",
+      sessionId: "on-gpu",
+      sessionMustExist: true,
+    },
+    (snapshot: any) => {
+      latest = snapshot;
+    },
+    undefined,
+    fake.open,
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  return { pane, asked: fake.asked, last: () => latest };
+}
+
+test("Reconnect on an offline chat reconnects its machine, waiting for it, then reads the lists", async () => {
+  const { pane, asked } = await missingChat("offline");
+  asked.length = 0;
+  await pane.recheckMissing();
+  const methods = asked.map((message) => message.method);
+  const reconnect = methods.indexOf("_acpmux/peer_reconnect");
+  expect(reconnect).toBe(0);
+  expect(asked[reconnect]!.params).toEqual({ name: "gpu-box", wait: true });
+  expect(methods.slice(reconnect + 1)).toContain("_acpmux/watch");
+  pane.close();
+});
+
+test("Reconnect on a chat whose machine is connected only reads the lists again", async () => {
+  const { pane, asked } = await missingChat("connected");
+  asked.length = 0;
+  await pane.recheckMissing();
+  expect(asked.map((message) => message.method)).not.toContain("_acpmux/peer_reconnect");
+  pane.close();
 });
