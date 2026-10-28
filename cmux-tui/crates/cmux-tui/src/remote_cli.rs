@@ -2779,7 +2779,8 @@ fn wait_for_detached_socket(
         match child.try_wait() {
             Ok(Some(status)) => {
                 return Err(anyhow!(
-                    "{process_name} exited {status}; inspect {}",
+                    "{process_name} exited {status}{}; inspect {}",
+                    exit_cause(log_path).map(|cause| format!(": {cause}")).unwrap_or_default(),
                     log_path.display()
                 ));
             }
@@ -2806,6 +2807,32 @@ fn wait_for_detached_socket(
             socket.display()
         )),
     }
+}
+
+/// The bytes of a detached process's log read for its exit cause: enough for
+/// its last lines, never the whole log a long-lived session has grown.
+const EXIT_CAUSE_TAIL_BYTES: u64 = 4096;
+
+/// Why a detached process that exited before its socket appeared did so: its
+/// own last log line (it writes its error there before exiting). A session
+/// another daemon owns (a Chief brain or the machine's own app holds `main`)
+/// says how to get past it, since retrying the same session cannot.
+fn exit_cause(log_path: &Path) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = fs::File::open(log_path).ok()?;
+    let length = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(length.saturating_sub(EXIT_CAUSE_TAIL_BYTES))).ok()?;
+    let mut tail = Vec::new();
+    file.take(EXIT_CAUSE_TAIL_BYTES).read_to_end(&mut tail).ok()?;
+    let tail = String::from_utf8_lossy(&tail);
+    let line = tail.lines().map(str::trim).rfind(|line| !line.is_empty())?;
+    let line = line.strip_prefix("cmux-tui: ").unwrap_or(line);
+    if line.contains("workspace session is already owned by another daemon") {
+        return Some(format!(
+            "this session on the machine is in use by another cmux daemon ({line}); connect with another session name (--session NAME)"
+        ));
+    }
+    Some(line.to_owned())
 }
 
 fn terminate_detached_process(child: &mut Child) -> io::Result<()> {
