@@ -201,10 +201,7 @@ def run_one(opts, inner_args, arm, index):
     except OSError:
         pass
     toggles = [n for n in opts.toggle.split(",") if n]
-    if opts.inner in ("launch", "memory"):
-        verified = "unverified (this bench does not read features.list)" if not checks else None
-    else:
-        verified = None
+    verified = None
     if verified is None:
         states = [c.get("features") for c in checks]
         verified = bool(states) and all(isinstance(s, dict) and all(

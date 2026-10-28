@@ -35,3 +35,30 @@ def record(snapshot, where):
     row = {"where": where, "features": {n: v for n, v in (features or {}).items() if n in watched} if features is not None else None}
     with open(path, "a") as handle:
         handle.write(json.dumps(row) + "\n")
+
+
+def record_socket(path, where, timeout=10):
+    """Asks the app at control socket `path` for features.list and records it (``record``); for benches that do not
+    read features.list themselves (bench-startup.py, bench_memory.py). Never raises: a failed read records None."""
+    if not os.environ.get(OUT):
+        return
+    import socket
+    reply = b""
+    snapshot = None
+    try:
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+            stream.settimeout(timeout)
+            stream.connect(path)
+            stream.sendall((json.dumps({"id": 1, "method": "features.list", "params": {}}) + "\n").encode())
+            while not reply.endswith(b"\n"):
+                chunk = stream.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        result = (json.loads(reply or b"{}").get("result") or {})
+        features = {f["name"]: {"state": f.get("state"), "source": f.get("source")}
+                    for f in result.get("features") or [] if isinstance(f, dict) and f.get("name")}
+        snapshot = (features, None, None)
+    except (OSError, ValueError, AttributeError):
+        pass
+    record(snapshot, where)

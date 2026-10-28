@@ -493,6 +493,12 @@ def one_run(tag, mode, timeout, profile=None):
         reached = launch.wait_for(final, timeout, any_of=any_of)
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
+        import proof_ab_env  # scratch measurement ref only: read the A/B arm back after the measured marks
+        if os.environ.get(proof_ab_env.OUT):
+            for path in socket_candidates(tag):
+                if os.path.exists(path):
+                    proof_ab_env.record_socket(path, "bench-startup")
+                    break
     finally:
         launch.quit()
     if not reached:

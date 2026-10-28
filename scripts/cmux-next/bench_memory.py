@@ -627,6 +627,8 @@ def main():
         launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
         app_pid = launched
     app = App(bundle, socket_path)
+    import proof_ab_env  # scratch measurement ref only: read the A/B arm back
+    proof_ab_env.record_socket(socket_path, "bench_memory")
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
