@@ -162,7 +162,7 @@ fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
         // Still held after that: a writer is taking the thread lock now, so the chat is busy.
         let taken = (0..50).any(|attempt| {
             if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                cmux_threads::checked::sync::sleep(std::time::Duration::from_millis(10));
             }
             // SAFETY: flock on an open descriptor this function owns.
             unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }

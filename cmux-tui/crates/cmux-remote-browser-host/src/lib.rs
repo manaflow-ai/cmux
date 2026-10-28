@@ -9,6 +9,9 @@
 //! only; encoding and transport plug in through lane 17's `cmux-encode` and
 //! `cmux-rd-engine` (remote-tab-r2.md section 5).
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 pub mod file_policy;
 pub mod handshake;
 pub mod launch;

@@ -455,7 +455,9 @@ impl Gate {
         let driver = self.driver.clone();
         let stop = json!({"targetId": target});
         // supervise-allow: one tab.stop call, already logged as blocked; a panic loses that stop only, as a failed call does.
-        let _ = std::thread::Builder::new().name("cmux-browser-host-rebinding-stop".into()).spawn(
+        let _ = cmux_threads::spawn(
+            "cmux-browser-host-rebinding-stop",
+            cmux_threads::ThreadQos::Utility,
             move || {
                 let _ = driver.call("tab.stop", &stop);
             },

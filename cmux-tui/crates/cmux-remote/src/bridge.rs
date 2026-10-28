@@ -11,6 +11,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{Mutex, Semaphore, oneshot, watch};
 
 use crate::mux_codec::{MAX_MUX_DOWNLOAD_LINE_BYTES, MAX_MUX_LINE_BYTES, mux_line_payload_len};
+use crate::read_buffer::filled;
 use crate::service::{ServiceError, ServiceMultiplexer, ServiceStream};
 use crate::services::ServicesError;
 
@@ -234,7 +235,7 @@ pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream,
     let mut seen = 0_u8;
     let mut features = None;
     let mut buffered = VecDeque::new();
-    while seen != 0b111 {
+    loop {
         let chunk = stream
             .receive()
             .await?
@@ -252,7 +253,6 @@ pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream,
                     "mux lanes advertised inconsistent open features".into(),
                 ));
             }
-            features = Some(current);
             seen |= match chunk.lane {
                 cmux_remote_protocol::Lane::Interactive => 0b001,
                 cmux_remote_protocol::Lane::Control => 0b010,
@@ -263,14 +263,14 @@ pub(crate) async fn await_opened(stream: &ServiceStream) -> Result<OpenedStream,
                     ));
                 }
             };
+            if seen == 0b111 {
+                return Ok(OpenedStream { features: current, buffered });
+            }
+            features = Some(current);
         } else {
             buffered.push_back(chunk);
         }
     }
-    Ok(OpenedStream {
-        features: features.expect("three observed markers include one feature set"),
-        buffered,
-    })
 }
 
 fn decode_opened(payload: &[u8], expected: Service) -> Result<ServiceOpenFeatures, BridgeError> {
@@ -313,7 +313,7 @@ where
                     remote.close().await?;
                     break;
                 }
-                remote.send(Bytes::copy_from_slice(&buffer[..size])).await?;
+                remote.send(Bytes::copy_from_slice(filled(&buffer, size))).await?;
             }
             Ok::<_, BridgeError>(())
         }

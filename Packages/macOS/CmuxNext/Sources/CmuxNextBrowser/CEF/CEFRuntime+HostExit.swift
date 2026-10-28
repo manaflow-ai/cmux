@@ -53,6 +53,7 @@ extension CEFRuntime {
         if let hostStart, state == .ready, shutdownSequence == nil {
             hostStart.hostEnded()
             hostStart.pagesAwaitEnd = true
+            publishHelperParent()  // none until the next host is attached
             shim = nil
             state = .idle
         }
@@ -128,7 +129,7 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:helperParent:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, hosted pages' input through
     /// the host's input ring with `routesInput`, drops with `takesDrags`, page
     /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's

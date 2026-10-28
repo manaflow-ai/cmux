@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextWakeups
 
 // The pane's owners on a main-thread scheduler of their own, for tests and fixtures. Internal, so the app, which
@@ -5,8 +6,10 @@ import CmuxNextWakeups
 // cannot reach them (as `WebKitEngine`'s test init, p06-scheduler-323).
 
 extension AgentPaneModel {
-    /// A model on its transport's scheduler, or one of its own.
+    /// A model on its transport's scheduler, or one of its own, with blocking-work lanes of its own unless the test
+    /// passes a runner.
     convenience init(
+        runner: any MayBlockRunner = BackgroundWork(label: "test.agent-pane"),
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
@@ -15,8 +18,8 @@ extension AgentPaneModel {
         transport: AgentPaneTransport? = nil
     ) {
         let work = transport?.mainWork ?? MainWorkScheduler(budget: MainFrameBudget())
-        self.init(host: host, sessionId: sessionId, seed: seed, newTab: newTab, allowsTabConversion: allowsTabConversion,
-                  transport: transport, deadlines: MainDeadlineScheduler(work: work))
+        self.init(runner: runner, host: host, sessionId: sessionId, seed: seed, newTab: newTab,
+                  allowsTabConversion: allowsTabConversion, transport: transport, deadlines: MainDeadlineScheduler(work: work))
     }
 }
 

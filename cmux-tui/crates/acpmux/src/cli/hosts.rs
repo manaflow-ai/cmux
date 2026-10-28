@@ -451,7 +451,7 @@ else {detached}; fi"
 /// The status after a Linux (re)start: read after a grace when systemd started it.
 fn linux_status(r: &dyn Remote, out: String, json: bool) -> Result<String> {
     if out.lines().any(|l| l.trim() == SYSTEMD_STARTED) {
-        std::thread::sleep(LAUNCHD_START_GRACE);
+        cmux_threads::checked::sync::sleep(LAUNCHD_START_GRACE);
         return launchd_status(r, json);
     }
     Ok(out)
@@ -607,7 +607,7 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
             "mkdir -p ~/Library/LaunchAgents && cat > ~/Library/LaunchAgents/com.acpmux.daemon.plist <<'ACPMUX_PLIST'\n{plist}\nACPMUX_PLIST\n{LAUNCHD_RELOAD}"
         ),
     )?;
-    std::thread::sleep(LAUNCHD_START_GRACE);
+    cmux_threads::checked::sync::sleep(LAUNCHD_START_GRACE);
     launchd_status(r, json)
 }
 

@@ -25,18 +25,21 @@ final class TerminalThemeStore {
     /// or could not be read: it is left as is, and changes stay in memory.
     @ObservationIgnored private var keepsFile = false
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "themes")
+    /// The app's blocking-work lanes: the file's read and writes run there.
+    @ObservationIgnored private let runner: any MayBlockRunner
 
     /// `url` nil keeps themes in memory only (tests). Changes reach the
     /// file once ``load(on:replyingOn:then:)`` has read it.
-    init(url: URL?) {
+    init(url: URL?, runner: any MayBlockRunner) {
         self.url = url
+        self.runner = runner
     }
 
-    static func forApplication(bundleIdentifier: String?) -> TerminalThemeStore {
+    static func forApplication(bundleIdentifier: String?, runner: any MayBlockRunner) -> TerminalThemeStore {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return TerminalThemeStore(url: support.appending(path: bundle).appending(path: "terminal-themes.json"))
+        return TerminalThemeStore(url: support.appending(path: bundle).appending(path: "terminal-themes.json"), runner: runner)
     }
 
     static func key(machine: String, tab: String) -> String { "\(machine):\(tab)" }
@@ -128,16 +131,20 @@ final class TerminalThemeStore {
         }
         let data = try? JSONEncoder().encode(themes)
         let empty = themes.isEmpty
-        let previous = lastWrite, logger = logger
-        // priority-allow: only tests await lastWrite (flush); no person waits for a save
-        lastWrite = Task.detached(priority: .utility) {
+        let previous = lastWrite, logger = logger, runner = runner
+        // task-owner: lastWrite; each write waits for the one before it, so they land in order. Nonisolated: it only
+        // awaits the files lane, so no main-thread job runs for it.
+        lastWrite = Task { @concurrent in
             await previous?.value
             do {
-                if let data, !empty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
+                // One small atomic replace: quit waits for it.
+                try await runner.runFiles(.bestEffort, shutdown: .blockShutdown) {
+                    if let data, !empty {
+                        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                        try data.write(to: url, options: .atomic)
+                    } else if FileManager.default.fileExists(atPath: url.path) {
+                        try FileManager.default.removeItem(at: url)
+                    }
                 }
             } catch {
                 logger.error("terminal themes write failed: \(String(describing: error), privacy: .public)")

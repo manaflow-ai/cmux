@@ -154,17 +154,25 @@ impl Tailnet {
         };
         // Read both pipes while the CLI runs: a large status fills a pipe
         // buffer, and the CLI would block on it forever.
-        let readers = crate::supervised::scoped_thread("acpmux-tailscale-out", move || {
-            let mut buf = Vec::new();
-            let _ = (&mut stdout).take(MAX_OUTPUT).read_to_end(&mut buf);
-            buf
-        })
-        .and_then(|out| {
-            let err = crate::supervised::scoped_thread("acpmux-tailscale-err", move || {
+        let readers = crate::supervised::scoped_thread(
+            "acpmux-tailscale-out",
+            cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            move || {
                 let mut buf = Vec::new();
-                let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
+                let _ = (&mut stdout).take(MAX_OUTPUT).read_to_end(&mut buf);
                 buf
-            })?;
+            },
+        )
+        .and_then(|out| {
+            let err = crate::supervised::scoped_thread(
+                "acpmux-tailscale-err",
+                cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+                move || {
+                    let mut buf = Vec::new();
+                    let _ = (&mut stderr).take(64 * 1024).read_to_end(&mut buf);
+                    buf
+                },
+            )?;
             Ok((out, err))
         });
         let (out, err) = match readers {

@@ -57,14 +57,18 @@ pub(super) fn run_for(
     {
         let tx = tx.clone();
         // One that cannot start drops its sender: its pipe counts as closed.
-        let _ = crate::supervised::scoped_thread("acpmux-probe-output", move || {
-            let mut pipe = pipe;
-            let mut out = Vec::new();
-            // Keep the first 64 KiB, and keep reading so the program never waits on a full pipe.
-            let _ = (&mut pipe).take(64 * 1024).read_to_end(&mut out);
-            let _ = std::io::copy(&mut pipe, &mut std::io::sink());
-            let _ = tx.send(out);
-        });
+        let _ = crate::supervised::scoped_thread(
+            "acpmux-probe-output",
+            cmux_threads::ThreadQos::Utility,
+            move || {
+                let mut pipe = pipe;
+                let mut out = Vec::new();
+                // Keep the first 64 KiB, and keep reading so the program never waits on a full pipe.
+                let _ = (&mut pipe).take(64 * 1024).read_to_end(&mut out);
+                let _ = std::io::copy(&mut pipe, &mut std::io::sink());
+                let _ = tx.send(out);
+            },
+        );
     }
     drop(tx);
     let started = Instant::now();

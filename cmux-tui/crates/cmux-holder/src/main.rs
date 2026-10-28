@@ -7,6 +7,8 @@
 //! ends a terminal. Each panic appends one line to `holder-panics.jsonl`
 //! beside the socket (`cmux_holder::serve_process`).
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
 #![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 
 #[cfg(unix)]
