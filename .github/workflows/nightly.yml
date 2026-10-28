@@ -5252,15 +5252,21 @@ jobs:
       # record its digest without launching bundle code. A build still in Apple's
       # queue has no final DMG yet: verify-recovered-nightly-next verifies it
       # when a later run continues it.
+      # A pool-signed build reads signer-dmg's one-DMG artifact: the variant artifact holds the
+      # same DMG twice (the release and the immutable name), and this Mac reads it over the
+      # office uplink (199 s for 481 MB in run 40728513403).
       - name: Download final DMG
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
-          name: cmux-nightly-variant-${{ matrix.variant }}
+          name: ${{ needs.signer-dmg.result == 'success' && format('cmux-nightly-next-signer-final-dmg-{0}', needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha) || format('cmux-nightly-variant-{0}', matrix.variant) }}
           path: final-dmg
 
       - name: Verify final DMG artifact
         if: needs.decide.outputs.fast_build != 'true' && needs.decide.outputs.notary_paused != 'true' && needs.build-sign-notarize-nightly.outputs.notary_pending != 'true'
+        env:
+          POOL_SIGNED: ${{ needs.signer-dmg.result == 'success' }}
+          NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
         run: |
           set -euo pipefail
           mkdir -p tested
@@ -5271,6 +5277,13 @@ jobs:
           stapled_flag=(--require-stapled-app)
           if [ -n "${STAPLED_APP_FALLBACK_ID:-}" ]; then
             stapled_flag=(--stapled-app-fallback "$STAPLED_APP_FALLBACK_ID")
+          fi
+          # signer-dmg's one-DMG artifact carries no immutable copy, which signer-dmg.sh makes with
+          # cp: make it the same way. publish-nightly publishes that name only with these bytes.
+          if [ "$POOL_SIGNED" = true ]; then
+            immutable="final-dmg/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD:?}.dmg"
+            [ ! -e "$immutable" ] || { echo "the one-DMG artifact holds $(basename "$immutable")" >&2; exit 1; }
+            cp -c "$release" "$immutable" 2>/dev/null || cp "$release" "$immutable"
           fi
           ./scripts/ci/verify-dmg-artifact.sh "$release" "$SIGN_CHANNEL" "${stapled_flag[@]}" 3>"$RUNNER_TEMP/verified.line"
           tested="$(awk '$1 == "verified" {print $2}' "$RUNNER_TEMP/verified.line")"
@@ -5629,6 +5642,16 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           retention-days: 3
+      # verify-final-dmg-nightly's read: cmux-nightly-variant-arm64 without the DMG's second copy.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-nightly-next-signer-final-dmg-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
+          path: |
+            signer-out/${{ env.NIGHTLY_DMG_RELEASE }}
+            signer-out/appcast-arm64.xml
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
 
 
   # nightly-next continuation. A build whose notarization wait ran out left a
