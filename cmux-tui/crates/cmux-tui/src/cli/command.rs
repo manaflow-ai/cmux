@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::fmt::Write as _;
 use std::io::{self, Read};
 use std::path::PathBuf;
 
@@ -151,12 +152,10 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     let mut tokens = tokenize(args)?;
     super::shorthand::normalize_words(&mut tokens.words);
     flags::positional_rename(&mut tokens.words, &mut tokens.flags)?;
-    let scope = tokens
-        .words
-        .first()
-        .map(String::as_str)
-        .ok_or_else(|| UsageError::new("missing resource scope"))?;
-    if tokens.argv.is_some() && !takes_argv(scope, &strs(&tokens.words[1..])) {
+    let (scope, words) =
+        tokens.words.split_first().ok_or_else(|| UsageError::new("missing resource scope"))?;
+    let scope = scope.as_str();
+    if tokens.argv.is_some() && !takes_argv(scope, &strs(words)) {
         return Err(UsageError::new(format!(
             "`{}` runs no command: drop the words after --",
             tokens.words.join(" ")
@@ -164,40 +163,30 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
     }
     let mut selectors = Selectors::default();
     let plan = match scope {
-        "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
-        "machine" => {
-            machine::parse(&tokens.words[1..], &mut selectors, &mut tokens.flags, surface)?
-        }
-        "session" => parse_session(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "client" => parse_client(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "workspace" => {
-            parse_workspace(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "screen" => {
-            parse_screen(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?
-        }
-        "pane" => parse_pane(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "tab" => parse_tab(&tokens.words[1..], &mut selectors, &mut tokens.flags, tokens.argv)?,
-        "terminal" => parse_terminal(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "browser" => parse_browser(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "notification" => parse_notification(&tokens.words[1..], &mut tokens.flags)?,
-        "attention" => {
-            state::parse_attention(&strs(&tokens.words[1..]), &mut selectors, &mut tokens.flags)?
-        }
-        "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
-        "conversation" => {
-            conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
-        }
-        "notify" => parse_notify(&tokens.words[1..], &mut tokens.flags)?,
-        "agent" => parse_agent(&tokens.words[1..], &mut tokens.flags, tokens.argv)?,
-        "sidebar" => parse_sidebar(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "pairing" => parse_pairing(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "projection" => parse_projection(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "provider" => parse_provider(&tokens.words[1..], &mut selectors, &mut tokens.flags)?,
-        "raw" => parse_raw(&tokens.words[1..], &mut tokens.flags)?,
+        "server" => parse_server(words, &mut tokens.flags)?,
+        "machine" => machine::parse(words, &mut selectors, &mut tokens.flags, surface)?,
+        "session" => parse_session(words, &mut selectors, &mut tokens.flags)?,
+        "client" => parse_client(words, &mut selectors, &mut tokens.flags)?,
+        "workspace" => parse_workspace(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "screen" => parse_screen(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "pane" => parse_pane(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "tab" => parse_tab(words, &mut selectors, &mut tokens.flags, tokens.argv)?,
+        "terminal" => parse_terminal(words, &mut selectors, &mut tokens.flags)?,
+        "browser" => parse_browser(words, &mut selectors, &mut tokens.flags)?,
+        "notification" => parse_notification(words, &mut tokens.flags)?,
+        "attention" => state::parse_attention(&strs(words), &mut selectors, &mut tokens.flags)?,
+        "room" => state::parse_room(&strs(words), &mut tokens.flags)?,
+        "closed" => state::parse_closed(&strs(words), &mut tokens.flags)?,
+        "git" => git::parse_git(&strs(words), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(words), &mut tokens.flags)?,
+        "conversation" => conversation::parse_conversation(&strs(words), &mut tokens.flags)?,
+        "notify" => parse_notify(words, &mut tokens.flags)?,
+        "agent" => parse_agent(words, &mut tokens.flags, tokens.argv)?,
+        "sidebar" => parse_sidebar(words, &mut selectors, &mut tokens.flags)?,
+        "pairing" => parse_pairing(words, &mut selectors, &mut tokens.flags)?,
+        "projection" => parse_projection(words, &mut selectors, &mut tokens.flags)?,
+        "provider" => parse_provider(words, &mut selectors, &mut tokens.flags)?,
+        "raw" => parse_raw(words, &mut tokens.flags)?,
         value => return Err(super::unknown_scope(value, surface)),
     };
     tokens.flags.reject_remaining()?;
@@ -275,10 +264,9 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
     let mut flags = Flags::default();
     let mut argv = None;
     let mut index = 0;
-    while index < args.len() {
-        let value = &args[index];
+    while let Some(value) = args.get(index) {
         if value == "--" {
-            argv = Some(args[index + 1..].to_vec());
+            argv = Some(args.get(index + 1..).unwrap_or_default().to_vec());
             break;
         }
         if let Some(flag) = value.strip_prefix("--") {
@@ -847,14 +835,11 @@ fn parse_pane_strings(
                 ResourceOperation::PaneSwap,
                 selectors,
                 flags,
-                json!({
-                    "other_workspace": other_workspace,
-                    "other_screen": other_screen,
-                    "other_pane": other_pane,
-                })
-                .as_object()
-                .cloned()
-                .expect("literal object"),
+                Map::from_iter([
+                    ("other_workspace".to_owned(), json!(other_workspace)),
+                    ("other_screen".to_owned(), json!(other_screen)),
+                    ("other_pane".to_owned(), json!(other_pane)),
+                ]),
             )
         }
         [selector, "zoom"] => {
@@ -1102,6 +1087,10 @@ fn parse_terminal(
                 ("wheel", None, None) => {
                     return Err(UsageError::new("--delta-rows is required for wheel"));
                 }
+                #[allow(
+                    clippy::unreachable,
+                    reason = "INVARIANT: validate_one_of above admits only down, up, move and wheel"
+                )]
                 _ => unreachable!("kind validated above"),
             }
             insert_optional_enum_list(
@@ -1486,6 +1475,10 @@ fn parse_agent(
                 "install" => crate::agent_hook_install::Action::Install,
                 "uninstall" => crate::agent_hook_install::Action::Uninstall,
                 "status" => crate::agent_hook_install::Action::Status,
+                #[allow(
+                    clippy::unreachable,
+                    reason = "INVARIANT: the slice pattern binds `action` only to install, uninstall or status"
+                )]
                 _ => unreachable!(),
             };
             Ok(CommandPlan::AgentHooks(crate::agent_hook_install::Plan {
@@ -1564,14 +1557,11 @@ fn parse_agent(
             validate_one_of("--state", &state, &["working", "blocked", "idle", "done", "unknown"])?;
             let source = flags.required("source")?;
             validate_one_of("--source", &source, &["hook", "socket"])?;
-            let mut params = json!({
-                "terminal_id": terminal,
-                "state": state,
-                "source": source,
-            })
-            .as_object()
-            .cloned()
-            .expect("literal object");
+            let mut params = Map::from_iter([
+                ("terminal_id".to_owned(), json!(terminal)),
+                ("state".to_owned(), json!(state)),
+                ("source".to_owned(), json!(source)),
+            ]);
             insert_optional_string(&mut params, flags, "source-session", "source_session");
             request(ResourceOperation::AgentReport, &selectors, flags, params)
         }
@@ -2248,7 +2238,9 @@ fn validate_terminal_defaults(params: &Map<String, Value>) -> Result<(), UsageEr
 fn validate_color(flag: &str, value: &str) -> Result<(), UsageError> {
     if value.len() == 7
         && value.starts_with('#')
-        && value[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+        && value
+            .strip_prefix('#')
+            .is_some_and(|hex| hex.bytes().all(|byte| byte.is_ascii_hexdigit()))
     {
         Ok(())
     } else {
@@ -2840,7 +2832,7 @@ fn validate_operation_name(value: &str) -> Result<(), UsageError> {
     if rest.is_empty()
         || !std::iter::once(first).chain(rest).all(|part| {
             !part.is_empty()
-                && part.as_bytes()[0].is_ascii_lowercase()
+                && part.as_bytes().first().is_some_and(u8::is_ascii_lowercase)
                 && part
                     .bytes()
                     .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'_')
@@ -2858,10 +2850,9 @@ pub(super) fn random_prefixed(prefix: &str) -> Result<String, UsageError> {
     let mut value = String::with_capacity(prefix.len() + 33);
     value.push_str(prefix);
     value.push('_');
-    const HEX: &[u8; 16] = b"0123456789abcdef";
     for byte in bytes {
-        value.push(char::from(HEX[usize::from(byte >> 4)]));
-        value.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        // Writing to a String cannot fail.
+        let _ = write!(value, "{byte:02x}");
     }
     Ok(value)
 }

@@ -22,6 +22,8 @@ use std::time::{Duration, Instant};
 use rquickjs::{CatchResultExt, Context, Function, Object, Runtime};
 use serde_json::{Map, Value, json};
 
+use crate::cli::json_fields::JsonFields;
+
 pub(super) const DOCS: &str = "cmux_docs";
 pub(super) const EXEC: &str = "cmux_exec";
 
@@ -192,7 +194,9 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
         .filter_map(|tool| {
             let name = tool["name"].as_str()?.to_lowercase();
             let description = tool["description"].as_str().unwrap_or_default().to_lowercase();
-            let arguments = tool["inputSchema"]["properties"]
+            let arguments = tool
+                .field("inputSchema")
+                .field("properties")
                 .as_object()
                 .map(|properties| properties.keys().cloned().collect::<Vec<_>>().join(" "))
                 .unwrap_or_default()
@@ -227,7 +231,7 @@ fn search(tools: &[Value], query: &str, limit: usize) -> Value {
     // A task no one tool answers (`cmux docs search` returns the same).
     let guides = super::super::docs::guides(query);
     if !guides.is_empty() {
-        answer["guides"] = json!(guides);
+        answer.insert("guides", json!(guides));
     }
     answer
 }
@@ -297,16 +301,17 @@ pub(super) fn exec(
                 let answered = answer(request);
                 if let Some(name) = name {
                     calls += 1;
-                    let ok = answered["ok"] == true;
-                    let state = answered["error"]["state"].as_str().map(str::to_owned);
+                    let ok = answered.field("ok") == true;
+                    let state = answered.field("error").field("state").as_str().map(str::to_owned);
                     applied |= ok || state.as_deref() == Some("in_progress");
                     if records.len() < MAX_CALL_RECORDS {
                         let mut record = json!({"name": name, "ok": ok});
                         if let Some(state) = state {
-                            record["state"] = json!(state);
+                            record.insert("state", json!(state));
                         }
-                        if let Some(key) = answered["error"]["idempotency_key"].as_str() {
-                            record["idempotency_key"] = json!(key);
+                        if let Some(key) = answered.field("error").field("idempotency_key").as_str()
+                        {
+                            record.insert("idempotency_key", json!(key));
                         }
                         records.push(record);
                     }
@@ -335,18 +340,18 @@ pub(super) fn exec(
     };
     let mut value = json!({"calls": calls, "call_log": records, "logs": outcome.logs});
     if outcome.dropped_logs > 0 {
-        value["dropped_logs"] = json!(outcome.dropped_logs);
+        value.insert("dropped_logs", json!(outcome.dropped_logs));
     }
     Ok(match outcome.result {
         Ok(result) => {
-            value["result"] = result;
+            value.insert("result", result);
             super::success(fit(value), applied)
         }
         Err(error) => {
-            value["error"] = error;
+            value.insert("error", error);
             // `partial`: some call may have applied; `call_log` says which,
             // with each failed call's state and idempotency key.
-            value["state"] = json!(if applied { "partial" } else { "not_run" });
+            value.insert("state", json!(if applied { "partial" } else { "not_run" }));
             super::tool_error(fit(value))
         }
     })
@@ -364,26 +369,25 @@ fn fit(mut value: Value) -> Value {
         if let Some(inner) = value.get(key).filter(|inner| size(inner) > budget / 4) {
             let text = serde_json::to_string(inner).unwrap_or_default();
             // A quarter: the preview is escaped once more inside the result.
-            let mut end = budget / 4;
-            while !text.is_char_boundary(end) {
-                end -= 1;
-            }
-            value[key] = json!({"truncated": true, "bytes": text.len(), "preview": &text[..end]});
+            let preview = text
+                .split_at_checked(text.floor_char_boundary(budget / 4))
+                .map_or("", |(head, _)| head);
+            value.insert(key, json!({"truncated": true, "bytes": text.len(), "preview": preview}));
         }
     }
     while size(&value) > budget
-        && let Some(logs) = value["logs"].as_array_mut()
+        && let Some(logs) = value.get_mut("logs").and_then(Value::as_array_mut)
         && !logs.is_empty()
     {
         let keep = logs.len() / 2;
         logs.truncate(keep);
-        value["logs_truncated"] = json!(true);
+        value.insert("logs_truncated", json!(true));
     }
     if size(&value) > budget
-        && let Some(records) = value["call_log"].as_array_mut()
+        && let Some(records) = value.get_mut("call_log").and_then(Value::as_array_mut)
     {
         records.clear();
-        value["call_log_truncated"] = json!(true);
+        value.insert("call_log_truncated", json!(true));
     }
     value
 }
@@ -614,7 +618,7 @@ fn run_script(script: &str, limits: Limits, to_server: &mpsc::Sender<ToServer>) 
     } else {
         match result {
             Some(Err(error))
-                if error["message"].as_str().is_some_and(|m| m.contains("out of memory")) =>
+                if error.field("message").as_str().is_some_and(|m| m.contains("out of memory")) =>
             {
                 Err(json!({
                     "code": "script.memory",
@@ -666,8 +670,8 @@ pub(super) fn script_answer(
             return result;
         }
         let mut result = result;
-        let failed = result["isError"] == true;
-        result["structuredContent"] = from_content(&result["content"], images, failed);
+        let failed = result.field("isError") == true;
+        result.insert("structuredContent", from_content(result.field("content"), images, failed));
         result
     });
     match result {
@@ -676,16 +680,18 @@ pub(super) fn script_answer(
             "message": message,
             "error": {"error": {"code": "usage.invalid", "message": message}, "state": "not_run"},
         }),
-        Ok(result) if result["isError"] == true => {
-            let error = result["structuredContent"].clone();
-            let message = error["error"]["message"]
+        Ok(result) if result.field("isError") == true => {
+            let error = result.field("structuredContent").clone();
+            let message = error
+                .field("error")
+                .field("message")
                 .as_str()
-                .or_else(|| error["error"]["code"].as_str())
+                .or_else(|| error.field("error").field("code").as_str())
                 .unwrap_or("the call failed")
                 .to_owned();
             json!({"ok": false, "message": message, "error": error})
         }
-        Ok(result) => json!({"ok": true, "value": result["structuredContent"]}),
+        Ok(result) => json!({"ok": true, "value": result.field("structuredContent")}),
     }
 }
 
@@ -709,15 +715,15 @@ fn from_content(content: &Value, images: &mut Vec<Value>, failed: bool) -> Value
     let blocks = blocks
         .into_iter()
         .map(|block| {
-            if block["type"] != "image" {
+            if block.field("type") != "image" {
                 return block;
             }
-            let size = block["data"].as_str().map_or(0, str::len);
+            let size = block.field("data").as_str().map_or(0, str::len);
             if images.len() >= MAX_IMAGES || used(images) + size > MAX_IMAGE_BYTES {
-                return json!({"type": "image", "dropped": true, "mimeType": block["mimeType"]});
+                return json!({"type": "image", "dropped": true, "mimeType": block.field("mimeType")});
             }
             images.push(block.clone());
-            json!({"type": "image", "image": images.len() - 1, "mimeType": block["mimeType"]})
+            json!({"type": "image", "image": images.len() - 1, "mimeType": block.field("mimeType")})
         })
         .collect::<Vec<_>>();
     if failed {

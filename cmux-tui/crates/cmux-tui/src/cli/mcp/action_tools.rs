@@ -13,6 +13,7 @@ use super::super::app::{ActionName, action_run_params};
 use super::Exclusion;
 use super::schema;
 use super::v2_tools::invalid;
+use crate::cli::json_fields::JsonFields;
 
 /// The app tool that lists windows (`snapshot.get`), for `win_` targets.
 pub(super) const WINDOW_LIST: &str = "window_list";
@@ -154,7 +155,8 @@ impl ActionTool {
     }
 
     fn targets(&self) -> Vec<&str> {
-        self.descriptor["targets"]
+        self.descriptor
+            .field("targets")
             .as_array()
             .map(|targets| targets.iter().filter_map(Value::as_str).collect())
             .unwrap_or_default()
@@ -163,13 +165,13 @@ impl ActionTool {
     pub(super) fn descriptor_json(&self) -> Value {
         json!({
             "name": self.name,
-            "title": self.descriptor["title"],
+            "title": self.descriptor.field("title"),
             "description": self.description(),
             "inputSchema": self.input_schema(),
             "annotations": {
-                "title": self.descriptor["title"],
+                "title": self.descriptor.field("title"),
                 "readOnlyHint": false,
-                "destructiveHint": self.descriptor["destructive"] == Value::Bool(true),
+                "destructiveHint": self.descriptor.field("destructive") == &Value::Bool(true),
                 "idempotentHint": false,
                 "openWorldHint": false,
             },
@@ -177,13 +179,14 @@ impl ActionTool {
     }
 
     fn description(&self) -> String {
-        let title = self.descriptor["title"].as_str().unwrap_or(&self.id).trim_end_matches('…');
+        let title =
+            self.descriptor.field("title").as_str().unwrap_or(&self.id).trim_end_matches('…');
         let mut text = format!(
             "{title}. cmux app action `{}` (CLI: `cmux {}`). Runs in the cmux app and waits \
              until its work is done.",
             self.id, self.cli_name
         );
-        if self.descriptor["focuses"] == Value::Bool(true) {
+        if self.descriptor.field("focuses") == &Value::Bool(true) {
             text.push_str(" Its purpose is focus: it changes the app's focus or selection.");
         } else {
             text.push_str(
@@ -191,17 +194,19 @@ impl ActionTool {
                  purpose is focus.",
             );
         }
-        if self.descriptor["destructive"] == Value::Bool(true) {
+        if self.descriptor.field("destructive") == &Value::Bool(true) {
             text.push_str(" Destructive: the app runs it only with confirm: true.");
         }
-        let requires = self.descriptor["requires"]
+        let requires = self
+            .descriptor
+            .field("requires")
             .as_array()
             .map(|names| names.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "))
             .unwrap_or_default();
         if !requires.is_empty() {
             text.push_str(&format!(" Needs: {requires}."));
         }
-        if let Some(reason) = self.descriptor["unavailable_reason"].as_str() {
+        if let Some(reason) = self.descriptor.field("unavailable_reason").as_str() {
             text.push_str(&format!(" Unavailable in this build: {reason}"));
         }
         text
@@ -309,7 +314,7 @@ fn argument_schema(argument: &Value) -> Value {
             let mut schema = json!({ "type": "integer" });
             for (from, to) in [("min", "minimum"), ("max", "maximum")] {
                 if let Some(bound) = argument.get(from) {
-                    schema[to] = bound.clone();
+                    schema.insert(to, bound.clone());
                 }
             }
             schema

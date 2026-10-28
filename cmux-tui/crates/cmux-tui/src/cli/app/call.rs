@@ -21,7 +21,7 @@ use crate::cli::GlobalArgs;
 /// `rest` starts with `call`.
 pub(super) fn parse(rest: &[String]) -> Result<AppCommand, UsageError> {
     let messages = &crate::localization::catalog().app_control;
-    let (method, params) = match &rest[1..] {
+    let (method, params) = match rest.get(1..).unwrap_or_default() {
         [method] => (method, Map::new()),
         [method, json] => {
             let Ok(Value::Object(params)) = serde_json::from_str::<Value>(json) else {
