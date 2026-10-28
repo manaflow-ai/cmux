@@ -3065,7 +3065,7 @@ class GitHub:
             raise RuntimeError(f"artifact download failed ({error})") from error
 
 
-def previous_lost_reruns(github: GitHub) -> list[dict[str, Any]]:
+def previous_lost_reruns(github: GitHub, key: str = LOST_RERUNS_KEY) -> list[dict[str, Any]]:
     """The pending category-e re-runs the newest janitor snapshot that has them carried.
 
     Read from the `macos-pool-load` artifact every sweep already uploads (the
@@ -3086,7 +3086,7 @@ def previous_lost_reruns(github: GitHub) -> list[dict[str, Any]]:
             document = json.loads(zipfile.ZipFile(io.BytesIO(blob)).read(SNAPSHOT_FILE))
         except SNAPSHOT_UNREADABLE:
             continue
-        entries = document.get(LOST_RERUNS_KEY) if isinstance(document, Mapping) else None
+        entries = document.get(key) if isinstance(document, Mapping) else None
         if isinstance(entries, list):
             return [dict(entry) for entry in entries if isinstance(entry, Mapping)][-LOST_PENDING_MAX:]
     return []
@@ -3157,15 +3157,13 @@ def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only:
 def read_linux_only_jobs(github: "GitHub", runs: Sequence[Mapping[str, Any]],
                          jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]], linux_only: frozenset[str],
                          now: dt.datetime) -> dict[int, list[dict[str, Any]]]:
-    """The jobs of up to dead_labels.LINUX_ONLY_READS of the oldest queued runs read_run_jobs() leaves out as
-    Linux-only, queued at least dead_labels.DEAD_AFTER: for the dead-label pass alone. A failed read skips the run."""
+    """The jobs of the queued runs read_run_jobs() leaves out as Linux-only that could move
+    (dead_labels.linux_only_candidates(): at most LINUX_ONLY_READS, in turn across sweeps), for the dead-label pass
+    alone. A failed read skips the run."""
     found: dict[int, list[dict[str, Any]]] = {}
-    waiting = sorted((run for run in runs if run["id"] not in jobs_by_run and run.get("status") == "queued"
-                      and run.get("path") in linux_only and not follows_another_copy(run)
-                      and (created := parse_time(run.get("created_at"))) is not None
-                      and now - created >= dead_labels.DEAD_AFTER),
-                     key=lambda run: (str(run.get("created_at") or ""), run["id"]))
-    for run in waiting[:dead_labels.LINUX_ONLY_READS]:
+    unlisted = [run for run in runs if run["id"] not in jobs_by_run and run.get("status") == "queued"
+                and run.get("path") in linux_only and not follows_another_copy(run)]
+    for run in dead_labels.linux_only_candidates(unlisted, now=now):
         try:
             found[run["id"]] = github.jobs(run["id"])
         except RateLimited:
@@ -3252,11 +3250,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         # None means unknown: then nothing at an open pull request's head is
         # cancelled for a re-run this sweep could not carry on.
         pending: list[dict[str, Any]] | None = None
+        # The dead-label pass's owed re-runs (dead_labels.OBLIGATIONS_KEY); None: unknown, so nothing is moved.
+        owed_reruns: list[dict[str, Any]] | None = None
         if args.pool_load:
             try:
                 pending = previous_lost_reruns(github)
             except Exception as error:  # noqa: BLE001 optional state (IncompleteRead, ...) never fails a sweep
                 print(f"queue-janitor: lost-assignment re-run state: {error!r}", file=sys.stderr)
+            try:
+                owed_reruns = previous_lost_reruns(github, dead_labels.OBLIGATIONS_KEY)
+            except Exception as error:  # noqa: BLE001 optional state never fails a sweep
+                print(f"queue-janitor: dead-label re-run state: {error!r}", file=sys.stderr)
         # Orphans read only what is already fetched; their PR branches join
         # the one batched GraphQL lookup for the no-janitor label.
         orphans = find_orphans(runs, jobs_by_run, min_age=orphan_age, now=now)
@@ -3371,6 +3375,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         if snapshot is not None and args.pool_load and pending is not None:
             snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in pending][-LOST_PENDING_MAX:]
             args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        if snapshot is not None and args.pool_load and owed_reruns is not None:
+            snapshot[dead_labels.OBLIGATIONS_KEY] = owed_reruns
+            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
         summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
                    f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n"
                    f"\n_{render_rate_limits(github.rate_limits)}_\n")
@@ -3476,12 +3483,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
         runner_values = None
     redispatch_decisions: list[dead_labels.Redispatch] = []
+    resumed_results: dict[int, str] = {}
+
+    def save_owed(entries: Sequence[Mapping[str, Any]]) -> None:
+        if snapshot is not None and args.pool_load:
+            snapshot[dead_labels.OBLIGATIONS_KEY] = [dict(entry) for entry in entries][-dead_labels.OBLIGATIONS_MAX:]
+            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+    if owed_reruns is not None:
+        save_owed(owed_reruns)  # carried as read, whatever happens below
     try:
         redispatch_decisions = dead_labels.plan(runs, dead_inventory, dead, values=runner_values, repo=args.repo,
                                                 workflow_text=github.workflow_file, exclude=acted,
                                                 max_runs=max_redispatch)
-        redispatch_results, redispatch_failures = dead_labels.redispatch(github, redispatch_decisions,
-                                                                         dry_run=args.dry_run)
+        owed = owed_reruns
+        if owed is not None and not args.dry_run:
+            owed, resumed_results, resumed_failures = dead_labels.resume(github, owed, now=time.time())
+            failures += resumed_failures
+            save_owed(owed)
+        redispatch_results, redispatch_failures = dead_labels.redispatch(
+            github, redispatch_decisions, dry_run=args.dry_run, owed=owed or (),
+            save=save_owed if owed is not None and snapshot is not None else None)
     except RuntimeError as error:  # a rate limit: the next sweep sees what was cancelled
         print(f"queue-janitor: dead-label re-dispatch: {error}", file=sys.stderr)
         redispatch_results, redispatch_failures = {}, 1
@@ -3492,7 +3513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary += render_orphan_summary(orphan_decisions, dry_run=args.dry_run, now=now, min_age=orphan_age,
                                      results=orphan_results)
     summary += render_superseded_summary(superseded_decisions)
-    summary += dead_labels.render_summary(dead, redispatch_decisions, redispatch_results)
+    summary += dead_labels.render_summary(dead, redispatch_decisions, redispatch_results, resumed_results)
     summary += f"\n_{len(runs)} in-flight runs, {len(jobs_by_run)} job listings, {len(branches)} PR branches, " \
                f"{len(orphans)} orphans, {len(lost)} lost assignments, {len(unclaimed)} unclaimed legs, " \
                f"{head_reads} branch head reads, {len(evidence_jobs)} evidence job listings, " \
