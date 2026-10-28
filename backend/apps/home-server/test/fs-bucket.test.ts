@@ -99,8 +99,10 @@ describe("self-hosted attachment bucket", () => {
         // A refused completion writes no object and leaves the upload open.
         expect(await bucket.head("home/v1/ordered")).toBeNull()
       }
+      // Nor any half-assembled file beside where the object would go.
+      const outputDir = join(root, "home", "v1")
       expect(readdirSync(root).filter((name) => name !== ".multipart" && name !== "home")).toEqual([])
-      expect(readdirSync(join(root, "home", "v1"))).toEqual([])
+      expect(existsSync(outputDir) ? readdirSync(outputDir) : []).toEqual([])
 
       // Quoted etags, as an HTTP client echoes them, match the stored part.
       const done = await upload.complete([one, { partNumber: 2, etag: `"${two.etag}"` }, three])
