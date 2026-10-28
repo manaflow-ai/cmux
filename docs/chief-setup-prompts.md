@@ -38,10 +38,10 @@ What only you can do: key-only ssh to the machine: adding a key there or fixing 
 Something is wrong with my agent machine NAME: run `cmux setup status`, and if it lists NAME as outdated or not connected, run the `fix` it names for NAME only. If NAME still fails, run `cmux acp host doctor NAME --fix --json` and tell me what is left.
 ```
 
-## Sign in to cmux and see each agent provider's sign-in
+## Check and recover cmux and agent-provider sign-ins
 
 ```text
-Check my sign-ins: run `cmux accounts list --json`. If I am signed out of cmux, run `cmux cloud sign-in` and tell me to finish it in the browser. Then tell me which agent providers are signed in.
+Check and recover my sign-ins: run `cmux accounts list --json`. If cmux is signed out, run `cmux cloud sign-in` and tell me to finish it in the browser; if the command or browser reports offline or Cloud unavailable, stop and tell me to reconnect before retrying. If a provider is missing or expired, open Settings > Accounts and use Sign In or Re-authenticate (or run `cmux accounts reauth --provider PROVIDER`), then run the list again. If I picked the wrong cmux account, use Switch Account in Settings > Accounts and verify the masked account; if a saved key is missing or unreadable, use Add Key there and save or send it without printing the secret. Tell me which providers remain unavailable and never claim an unknown or Keychain-backed sign-in is valid.
 ```
 
 What only you can do: the cmux sign-in in the browser.

@@ -37,6 +37,29 @@ pub mod kind {
     pub const SPAWN_FAILED: &str = "spawn.failed";
     /// The agent's process ended in the middle of a turn.
     pub const AGENT_EXITED: &str = "agent.exited";
+    /// The agent has no usable sign-in: "Not logged in", an invalid API key ([`super::auth_kind`]).
+    pub const AUTH_SIGNED_OUT: &str = "auth.signed_out";
+    /// The agent's sign-in expired: an expired OAuth token or credential ([`super::auth_kind`]).
+    pub const AUTH_EXPIRED: &str = "auth.expired";
+}
+
+/// What an agent's error says about its sign-in: `auth.expired` when it says a credential
+/// expired (`claude_auth::is_expired_credential`), `auth.signed_out` when it says there is no
+/// usable sign-in (`claude_auth::is_sign_in_failure`), else None. An error that says the
+/// provider had no capacity, a gateway failed or the connection dropped
+/// (`turn_errors::says_unreachable`) is never a sign-in state, whatever words
+/// about a sign-in it also carries ("HTTP 503: authentication_failed").
+pub fn auth_kind(message: &str) -> Option<&'static str> {
+    if crate::hub::turn_errors::says_unreachable(message) {
+        return None;
+    }
+    if crate::claude_auth::is_expired_credential(message) {
+        Some(kind::AUTH_EXPIRED)
+    } else if crate::claude_auth::is_sign_in_failure(message) {
+        Some(kind::AUTH_SIGNED_OUT)
+    } else {
+        None
+    }
 }
 
 /// Free space under this is `disk.low` unless the config sets `diskLowBytes`.
@@ -151,6 +174,20 @@ fn classify(
              was not sent, so send it again once `acpmux host ls` shows {peer} connected."
         );
         return Some((kind::PEER_UNREACHABLE, recovery, details));
+    }
+    // Before `agent.exited`: an agent that died saying it is not signed in needs a sign-in, and
+    // sending again would fail the same way.
+    if let Some(kind) = auth_kind(message) {
+        let recovery = if kind == kind::AUTH_EXPIRED {
+            "The agent's sign-in expired. Sign in again with its login command (`cmux harness \
+             login <harness>`, or the harness's own login in a terminal on this machine), then \
+             send the message again."
+        } else {
+            "The agent is not signed in. Sign in with its login command (`cmux harness login \
+             <harness>`, or the harness's own login in a terminal on this machine), then send \
+             the message again."
+        };
+        return Some((kind, recovery.into(), Map::new()));
     }
     if dead {
         return Some((
@@ -523,5 +560,52 @@ mod tests {
             RpcError::new(-32603, "Internal error (claude): write: No space left on device");
         annotate_as(&mut e, None, true);
         assert_eq!(kind_of(&e), Some(kind::DISK_FULL));
+    }
+
+    /// A turn whose agent says it is not signed in is `auth.signed_out`, one whose credential
+    /// expired `auth.expired`, before `agent.exited` when the agent died of it. A connection
+    /// or capacity error is never an auth kind, whatever word about a token it carries.
+    #[test]
+    fn a_sign_in_failure_is_typed_and_a_transport_error_is_not() {
+        for (message, dead, want) in [
+            ("Not logged in · Please run /login", false, Some(kind::AUTH_SIGNED_OUT)),
+            ("Invalid API key · Fix external API key", false, Some(kind::AUTH_SIGNED_OUT)),
+            (
+                "agent process closed (claude): Not logged in · Please run /login",
+                true,
+                Some(kind::AUTH_SIGNED_OUT),
+            ),
+            (
+                "API Error: 401 OAuth token has expired. Please obtain a new token.",
+                false,
+                Some(kind::AUTH_EXPIRED),
+            ),
+            (
+                "Provided authentication token is expired. Please try signing in again.",
+                false,
+                Some(kind::AUTH_EXPIRED),
+            ),
+            ("API Error: Connection error.", false, None),
+            ("HTTP 503: authentication_failed", false, None),
+            ("HTTP 502: authentication_failed", false, None),
+            ("HTTP 504: credential expired", false, None),
+            ("Not logged in · Please run /login (connection error)", false, None),
+            ("HTTP 400: invalid token expiry value", false, None),
+            ("stream disconnected before completion: the token stream expired", false, None),
+            (
+                "API Error: 503 no non-exhausted claude accounts; the login pool expires soon",
+                false,
+                None,
+            ),
+            ("agent process closed", true, Some(kind::AGENT_EXITED)),
+        ] {
+            let mut e = RpcError::new(-32000, message);
+            annotate_as(&mut e, None, dead);
+            assert_eq!(kind_of(&e), want, "{message}");
+            if want.is_some_and(|k| k.starts_with("auth.")) {
+                let recovery = e.data.as_ref().unwrap()["recovery"].as_str().unwrap().to_owned();
+                assert!(recovery.contains("cmux harness login"), "{recovery}");
+            }
+        }
     }
 }

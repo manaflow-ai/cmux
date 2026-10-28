@@ -387,7 +387,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   position: absolute;
   left: 16px;
   top: 15px;
-  font: 600 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--weight-emphasis) var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--acpmux-shell-accent);
   pointer-events: none;
 }
@@ -396,7 +396,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-sizing: border-box;
   width: 100%;
   min-height: 45px;
-  max-height: calc(22px * 8 + 23px);
+  max-height: calc(var(--text-content--line-height) * 8 + 23px);
   margin: 0;
   padding: 15px 16px 8px 32px;
   border: 0;
@@ -405,7 +405,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   resize: none;
   overflow-y: auto;
   overscroll-behavior: contain;
-  font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
+  font: var(--text-content)/var(--text-content--line-height) ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
 }
@@ -534,12 +534,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 .acpmux-queued-edit {
   grid-column: 1 / -1;
   min-width: 0;
-  max-height: 88px;
+  max-height: calc(var(--text-content--line-height) * 4);
   /* Its text stays where the row's text was. */
   margin: 2px 0 2px -6px;
   padding: 2px 6px;
   resize: none;
-  line-height: 18px;
   border: 0;
   border-radius: 6px;
   /* The composer's focused hairline, never a ring (Leo 2026-10-21: the white rounded ring). */
@@ -547,7 +546,9 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);
   background: var(--acpmux-base);
   color: var(--agent-text);
-  font: inherit;
+  font-family: inherit;
+  font-size: var(--text-content);
+  line-height: var(--text-content--line-height);
 }
 .acpmux-queued-edit:focus {
   box-shadow: inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge-focus);

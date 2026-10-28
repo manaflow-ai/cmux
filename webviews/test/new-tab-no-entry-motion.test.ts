@@ -10,7 +10,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { importedSheetsShip, paneSheets } from "./support/paneSheets";
+import { paneSheets } from "./support/paneSheets";
 
 const WEBVIEWS = path.resolve(import.meta.dir, "..");
 const REPO = path.resolve(WEBVIEWS, "..");
@@ -184,8 +184,9 @@ describe("what the New Tab opens appears at once", () => {
   });
 
   test("noEntry.css ships with the pane and the dev pages", () => {
-    // Listed for the page, or shipped at its import once the page's sheets come from imports.
-    expect(paneSheets().includes(NO_ENTRY_CSS) || importedSheetsShip()).toBe(true);
+    // The menu probe consumes this exact list. A separate import or build path cannot stand in
+    // for a missing sheet here: the test would render different styles from the shipped pane.
+    expect(paneSheets()).toContain(NO_ENTRY_CSS);
     // The hook imports it, so the dev server and the gallery load it with the page.
     expect(read("webviews/src/agent-session/acpmux/newtab/noEntryMotion.ts")).toContain('import "./noEntry.css";');
   });
