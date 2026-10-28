@@ -9,7 +9,7 @@ public enum HoverCardPlacement: Sendable {
     case above
     /// Right of the target, top-aligned (the update card).
     case beside
-    /// Beside a sidebar row, one device pixel off the sidebar's edge (the anchor is the row's band
+    /// Beside a sidebar row, flush with the sidebar's edge (the anchor is the row's band
     /// across the sidebar, `HoverCardEscapeGeometry.rowBand`), its top on the row's top as Chrome's
     /// and Arc's tab cards (or on the row's middle, below an escape slot, under a Debug switch:
     /// `HoverCardEscapeGeometry`).
@@ -435,9 +435,8 @@ extension HoverCardPanel {
         case .below: CGPoint(x: anchor.minX, y: up(anchor.minY - targetGap) - size.height)
         // The card's bottom edge on the tab's top edge (rounded down: into the tab).
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
-        // The card's leading edge one device pixel past the target's trailing edge, top-aligned: the
-        // sidebar row cards' gap (`HoverCardEscapeGeometry.edgeGap(scale:)`, Lawrence 2026-10-21 "horizontally
-        // only 1 pixel gap"), so the update card sits at the hover cards' gap (Lawrence 2026-10-19).
+        // The non-sidebar `.beside` card keeps its one-device-pixel breathing room. Sidebar row
+        // cards use `.besideRow` and flush to the row's column edge instead.
         case .beside: CGPoint(x: down(anchor.maxX + HoverCardEscapeGeometry.edgeGap(scale: scale)), y: anchor.maxY - size.height)
         // Right of the row, its top on the row's top (before any clamp or flip the screen needs).
         case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale, alignment: rowAlignment).card.origin

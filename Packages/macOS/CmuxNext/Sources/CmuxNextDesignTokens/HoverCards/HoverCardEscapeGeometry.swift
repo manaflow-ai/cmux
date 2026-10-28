@@ -8,16 +8,15 @@ public import CoreGraphics
 /// from row to row. Near the screen's bottom edge the visible frame clamps it up (it still covers
 /// the row's side); near its right edge it goes left of the row.
 ///
-/// Lawrence 2026-10-21: "horizontally only 1 pixel gap". The anchor is the row's band across the
-/// sidebar column (`rowBand(row:column:)`), not the row's pill: the card's near edge is one device
-/// pixel past the column's visible edge (`edgeGap(scale:)`), whatever the row's inset, trim or
-/// nesting depth. Every sidebar card (a workspace row, a group header, a thin rail's mark) builds
-/// its anchor with `rowBand` and places it here, so there is one rule for where the card goes.
+/// The anchor is the row's band across the sidebar column (`rowBand(row:column:)`), not the row's
+/// pill: the card's near edge touches the column's visible edge, whatever the row's inset, trim
+/// or nesting depth. Every sidebar card (a workspace row, a group header, a thin rail's mark)
+/// builds its anchor with `rowBand` and places it here, so there is one rule for where the card goes.
 ///
 /// ```
 ///   +---- sidebar column ----+ +--------------------+
-///   |  +-----------+         |1|                    |   (the card's top on the row's top,
-///   |  |    row    |         |px        card        |    1 device pixel off the column)
+///   |  +-----------+         | |                    |   (the card's top on the row's top,
+///   |  |    row    |         |         card         |    flush with the column)
 ///   |  +-----------+         | +--------------------+
 /// ```
 ///
@@ -63,10 +62,14 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
         case middle
     }
 
-    /// The room between the sidebar column's visible edge and a row's card, and between a target
-    /// and a `.beside` card (the update card, a pull request badge's card): one device pixel of
-    /// `scale` (Lawrence 2026-10-21: "horizontally only 1 pixel gap").
+    /// The room between a target and a `.beside` card (the update card or a pull request badge's
+    /// card): one device pixel of `scale`. Sidebar row cards use ``rowGap(scale:)`` so they sit
+    /// directly against the row and its resize/drag edge.
     public static func edgeGap(scale: CGFloat) -> CGFloat { 1 / max(scale, 1) }
+
+    /// Sidebar row cards sit directly against the row's column edge. Keeping this separate from
+    /// ``edgeGap(scale:)`` preserves the small breathing room used by non-sidebar `.beside` cards.
+    public static func rowGap(scale: CGFloat) -> CGFloat { 0 }
 
     /// A sidebar row's anchor for its card: the row's height across the whole sidebar column.
     ///
@@ -105,12 +108,12 @@ public nonisolated struct HoverCardEscapeGeometry: Hashable, Sendable {
 
     /// The card for `anchor` (a row's band across the sidebar, `rowBand(row:column:)`) at `size`,
     /// kept inside `visible` (the screen's visible frame, already inset by any margin) when given,
-    /// its near edge `gap` (one device pixel when nil, `edgeGap(scale:)`) off the anchor's edge on
+    /// its near edge `gap` (zero when nil, ``rowGap(scale:)``) off the anchor's edge on
     /// device pixels of `scale`, lined up with the row by `alignment`.
     public init(anchor: CGRect, cardSize size: CGSize, visible: CGRect? = nil, scale: CGFloat = 2, gap: CGFloat? = nil,
                 alignment: RowAlignment = .top) {
         let scale = max(scale, 1)
-        let gap = gap ?? Self.edgeGap(scale: scale)
+        let gap = gap ?? Self.rowGap(scale: scale)
         func pixel(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
         func down(_ value: CGFloat) -> CGFloat { (value * scale).rounded(.down) / scale }
         self.anchor = anchor

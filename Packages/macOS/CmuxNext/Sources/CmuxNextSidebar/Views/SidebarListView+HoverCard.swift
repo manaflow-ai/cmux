@@ -75,7 +75,7 @@ extension SidebarListViewComponents {
     }
     /// Where a workspace row's hover card goes: the row's band across the sidebar column
     /// (`HoverCardEscapeGeometry.rowBand`), so the card's top is the row's top and its near edge
-    /// one device pixel off the sidebar's visible edge. Nil when the row is not laid out.
+    /// touches the sidebar's visible edge. Nil when the row is not laid out.
     func hoverCardBand(for id: WorkspaceID) -> CGRect? {
         hoverCardAnchor(for: id).flatMap(hoverCardBand(row:))
     }
