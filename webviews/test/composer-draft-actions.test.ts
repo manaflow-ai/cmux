@@ -41,6 +41,44 @@ test("unavailable daemon preserves an intentional native clear", async () => {
   expect(await actions["chat.readDraft"]({ sessionId })).toBe("");
 });
 
+test("a refused mirror clear stays authoritative across an unavailable daemon read", async () => {
+  let available = true;
+  let mirror = "stale native draft";
+  let release!: () => void;
+  let started!: () => void;
+  const refusal = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const entered = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const actions = draftTextActions(
+    {
+      readDraft: async () => (available ? { sessionId, draft: null } : undefined),
+      writeDraft: async () => undefined,
+    },
+    async (method, params) => {
+      if (method === "chat.draftText.set" && params.text === "") {
+        started();
+        await refusal;
+        throw new Error("native mirror refused");
+      }
+      return method === "chat.draftText.get" ? mirror : undefined;
+    },
+  );
+  const first = actions["chat.readDraft"]({ sessionId });
+  await started;
+  available = false;
+  const second = actions["chat.readDraft"]({ sessionId });
+  release();
+  expect(await first).toEqual({ sessionId, draft: null });
+  expect(await second).toBe("");
+  mirror = "stale after clear";
+  const newer = actions["chat.writeDraft"]({ sessionId, text: "newer local" });
+  expect(await newer).toBeUndefined();
+  expect(await actions["chat.readDraft"]({ sessionId })).toEqual({ sessionId, draft: "newer local" });
+});
+
 test("writes mirror the same session and text before daemon persistence", async () => {
   const calls: unknown[] = [];
   const actions = draftTextActions(
