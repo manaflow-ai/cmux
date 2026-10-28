@@ -14,8 +14,15 @@ use crate::{
     SessionJournalRecord,
 };
 
+/// The live ring keeps the newest records decoded for the subscribers that
+/// keep up; a subscriber behind it pages from SQLite on a reader of its own
+/// (`SharedJournalRead::Gap`), as Chrome keeps bounded in-memory history
+/// and pages the rest. Both bounds hold: at most this many records, and at
+/// most [`JOURNAL_FANOUT_BYTE_CAPACITY`] of resident bytes (the soak lead of
+/// 2026-10-28: agent turns' 8 KiB texts grew a 128 MiB-capped ring
+/// ~4.4 MB/h in a daemon that should stay small).
 const JOURNAL_FANOUT_CAPACITY: usize = 8192;
-const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 128 * 1024 * 1024;
+const JOURNAL_FANOUT_BYTE_CAPACITY: usize = 4 * 1024 * 1024;
 const JOURNAL_READ_PAGE_SIZE: usize = 1024;
 
 /// One decoded journal record shared by every live subscriber.
@@ -826,9 +833,17 @@ mod performance_tests {
                 Arc::new(JournalDocument::new(record(sequence))),
             );
         }
-        assert_eq!(records.len(), JOURNAL_FANOUT_CAPACITY);
-        assert_eq!(records.front().unwrap().record.sequence, 138);
-        assert_eq!(records.back().unwrap().record.sequence, JOURNAL_FANOUT_CAPACITY as u64 + 137);
+        // Whichever bound binds first (the byte cap, for these records), the
+        // ring holds the newest records, contiguous, within both bounds.
+        let newest = JOURNAL_FANOUT_CAPACITY as u64 + 137;
+        assert!(records.len() <= JOURNAL_FANOUT_CAPACITY);
+        assert!(record_bytes <= JOURNAL_FANOUT_BYTE_CAPACITY);
+        assert_eq!(records.back().unwrap().record.sequence, newest);
+        assert_eq!(
+            records.front().unwrap().record.sequence,
+            newest + 1 - records.len() as u64,
+            "the ring is not the newest contiguous records"
+        );
         assert_eq!(
             record_bytes,
             records.iter().map(|record| record.resident_bytes()).sum::<usize>()
