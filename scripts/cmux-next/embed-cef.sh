@@ -259,9 +259,18 @@ print(value if isinstance(value, str) else "")' "$SCRIPT_DIR/cef-manifest.json" 
     { echo "warning: could not copy the Chromium dSYM to $cef_dsyms/$arch"; rm -rf "$cef_dsyms/$arch"; }
 }
 rm -rf "$cef_dsyms"
+# Whether step 2 strips the framework binary's local symbols: a Release build
+# (not a bench build, whose local dump report names Chromium frames with atos
+# on the framework itself) that kept the dSYM of every slice it embeds.
+strip_framework=0
 if [[ "${CONFIGURATION:-}" == "Release" ]]; then
   if [[ -n "$arm_dir" ]]; then keep_cef_dsym arm64 "$arm_dir" debug_symbols; fi
   if [[ -n "$x86_dir" ]]; then keep_cef_dsym x86_64 "$x86_dir" x86_64.debug_symbols; fi
+  if [[ " ${OTHER_SWIFT_FLAGS:-} " != *" -DCMUX_BENCH_HOOKS "* ]] &&
+    { [[ -z "$arm_dir" ]] || [[ -d "$cef_dsyms/arm64" ]]; } &&
+    { [[ -z "$x86_dir" ]] || [[ -d "$cef_dsyms/x86_64" ]]; }; then
+    strip_framework=1
+  fi
   # Unpacked dSYMs of artifacts no build used for two weeks, and crashed unpacks.
   find "$cache_root/dsym" -mindepth 1 -maxdepth 1 -mtime +14 -exec rm -rf {} + 2>/dev/null || true
 fi
@@ -275,7 +284,8 @@ mkdir -p "$frameworks"
 stamp_dir="${DERIVED_FILE_DIR:-${TMPDIR:-/tmp}}/cmux-cef-embed"
 mkdir -p "$stamp_dir"
 source_stamp="$stamp_dir/source"
-source_value="$cef_dir $LAYOUT"
+# A stripped and an unstripped framework are different embeds (step 1c decides).
+source_value="$cef_dir $LAYOUT strip=$strip_framework"
 # Chromium ships 228 locale catalogs. Keep every catalog CEF resolves for
 # cmux's 21 app languages and their regional macOS variants, including
 # es_419, pt_PT and en_GB. Unsupported app languages bs and km fall back to en.
@@ -311,6 +321,15 @@ if [[ ! -f "$source_stamp" || ! -L "$frameworks/$FW_NAME/Versions/Current" || "$
   for lib in "$fw/Versions/A/Libraries"/*.dylib; do
     if [[ -f "$lib" ]]; then "${CMUX_STRIP_TOOL:-strip}" -S -x "$lib"; fi
   done
+  # The framework binary carries Chromium's whole symbol table: the fork's
+  # build is not official, so Chromium's own enable_stripping is off (210 MiB
+  # of the 468 MiB arm64 slice of stage c8953bc613cd, 31 MiB compressed).
+  # strip_framework is set only when the dSYM of every embedded slice was kept
+  # for Sentry (step 1c), so crashes still symbolicate there. The 5,243 global
+  # symbols stay (strip -S -x), and with them the UUID the dSYM matches.
+  if (( strip_framework )); then
+    "${CMUX_STRIP_TOOL:-strip}" -S -x "$fw/Versions/A/$FW_BINARY"
+  fi
   # Chromium's CREDITS.html (license notices), before signing seals Resources:
   # the artifact's own file, else the INTERIM stock credits for the pinned
   # Chromium (chromium-credits/README.md). Release gate: check-cef-credits.sh.
@@ -451,7 +470,7 @@ done
 
 # 4. Sign inside out, unless nothing changed since the last signature.
 stamp="$stamp_dir/signed"
-stamp_value="$(basename "$cef_dir") $LAYOUT $shim_key ${host_key:-no-host} $product $identity"
+stamp_value="$(basename "$cef_dir") $LAYOUT strip=$strip_framework $shim_key ${host_key:-no-host} $product $identity"
 if [[ -f "$stamp" && "$(cat "$stamp")" == "$stamp_value" ]] &&
   codesign --verify "$frameworks/$FW_NAME" >/dev/null 2>&1 &&
   codesign --verify "$frameworks/$product Helper.app" >/dev/null 2>&1; then
