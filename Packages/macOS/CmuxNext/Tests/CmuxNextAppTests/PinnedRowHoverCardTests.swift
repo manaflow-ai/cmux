@@ -14,7 +14,8 @@ import Testing
     private static let item = LayoutItem(id: LayoutItemID("itm_pin_card"), ref: .workspace("local:ws-pinned"))
 
     private static var pinned: SidebarWorkspace {
-        var workspace = SidebarWorkspace(id: pinnedID, title: "Cloud Chief rebuild", directory: "~/fun/cmux", branch: "feat-cmux-next")
+        var workspace = SidebarWorkspace(id: pinnedID, title: "Cloud Chief rebuild", directory: "~/fun/cmux", branch: "feat-cmux-next",
+                                         tabs: [SidebarTab(id: TabID("pinned-shell"), title: "runner", folder: "~/fun/cmux")])
         workspace.workspaceDescription = "Durable runner for the cloud Chief"
         return workspace
     }
@@ -90,12 +91,9 @@ import Testing
         let shown = try #require(harness.coordinator.machine.shownTarget, "resting on a pinned row showed no card")
         #expect(shown.id == WorkspaceHoverCardController.targetID(Self.pinnedID))
         #expect(harness.list.hoverCard.shownID == Self.pinnedID)
-        // The same card a list row of this workspace shows: the workspace card, with its name and facts.
-        let body = try #require(harness.list.hoverCard.hoverCardBody(for: shown.id)?.view as? WorkspaceHoverCardView)
-        let expected = WorkspaceHoverCardView()
-        expected.configure(.make(Self.pinned, machine: nil, now: Date()))
-        #expect(body.lines.first == expected.lines.first, "\(body.lines)")
-        #expect(body.lines.contains { $0.contains("Durable runner for the cloud Chief") }, "\(body.lines)")
+        // Pinned and list rows share the default selectable inner-tab card.
+        let body = try #require(harness.list.hoverCard.hoverCardBody(for: shown.id)?.view as? WorkspaceTabHoverCardView)
+        #expect(body.reportedLines == [Self.pinned.title, "runner · ~/fun/cmux · Done"])
     }
 
     /// The same delay as a list row: no card before `sidebar.hoverCards.delay`.

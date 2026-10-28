@@ -31,6 +31,7 @@ private final class HoverInteractionSource: HoverCardSource {
     var hoverCardWindow: NSWindow? { window }
     func hoverCardHit(at _: CGPoint) -> HoverCardHit? { nil }
     func hoverCardAnchor(for _: HoverTargetID) -> CGRect? { anchor }
+    func hoverCardTargetFrame(for _: HoverTargetID) -> CGRect? { anchor }
     func hoverCardBody(for _: HoverTargetID) -> HoverCardBody? {
         HoverCardBody(view: body, placement: .besideRow, themeAnchor: nil, interactive: true) {}
     }
@@ -87,7 +88,8 @@ struct WorkspaceTabHoverCardTests {
         view.configure(title: "app", tabs: [SidebarTab(id: TabID("shell"), title: "shell")])
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 320, height: 120), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        defer { window.contentView = nil; window.close() }
         window.contentView = view
         view.frame = NSRect(x: 0, y: 0, width: 320, height: 120)
         view.layoutSubtreeIfNeeded()
