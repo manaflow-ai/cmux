@@ -7,16 +7,19 @@ public import Observation
 /// revision per role instead of every pane's tab list (CLAUDE.md "Go past Chrome where cmux is
 /// scripted": a change costs the records it names, never the session).
 ///
-/// ``StoreIndex`` reports each tab record it keys or drops, and the record reports a change of the
-/// fields a role reads (`kind`, `conversation`, `url`, `faviconURL`). The revisions move once per
-/// publish (`DaemonStore.publishTabListChange`, once per apply and per intent shown) and only for a
-/// net change: a re-key, an overlay lift and restore, or a rebuild of the same tree moves neither.
+/// ``StoreIndex`` reports each tab record it keys or drops (with the workspace that holds it), and the record
+/// reports a change of the fields a role reads (`kind`, `conversation`, `url`, `faviconURL`). The revisions move
+/// once per publish (`DaemonStore.publishTabListChange`, once per apply and per intent shown) and only for a net
+/// change: a re-key or a rebuild of the same tree moves neither. A pending create of a chat or browser tab can
+/// move one at an apply: the overlay's restore makes a new provisional record for it (`IntentOverlay`), and a
+/// record is filed by identity.
 @MainActor @Observable public final class StoreTabRoles {
     /// What a chat member contributes: its tab id and acpmux session, nil for a blank chat record. The id too: a
     /// record dropped and another made in one apply may reuse its `ObjectIdentifier`.
     private struct Chat: Equatable { var id: String, session: String? }
-    /// What a browser member contributes to a site icon lookup.
-    private struct Browser: Equatable { var id: String, url: String?, favicon: String? }
+    /// What a browser member contributes to a site icon lookup: with the workspace that holds it, so a reader can
+    /// leave out an incognito window's tabs without a lookup that observes the tab list.
+    private struct Browser: Equatable { var id: String, url: String?, favicon: String?, workspace: String? }
 
     /// Bumped once per publish that changed which tabs are agent chats or the session of one.
     public private(set) var chatRevision: UInt64 = 0
@@ -24,6 +27,8 @@ public import Observation
     public private(set) var browserRevision: UInt64 = 0
 
     @ObservationIgnored private var records: [ObjectIdentifier: TabModel] = [:]
+    /// The workspace each keyed tab record was keyed in (every record, so a terminal that becomes a browser tab has it).
+    @ObservationIgnored private var workspaces: [ObjectIdentifier: String?] = [:]
     @ObservationIgnored private var chats = RoleLedger<Chat>()
     @ObservationIgnored private var browsers = RoleLedger<Browser>()
     /// The chat members by acpmux session; nil: blank chat records (a New Tab page restored as a chat).
@@ -71,6 +76,14 @@ public import Observation
         browserFollowers[ObjectIdentifier(follower)] = nil
     }
 
+    /// The workspace (`WorkspaceModel.id`) that holds browser tab `tab`, as the index last filed it; nil for a tab
+    /// that is not a browser tab of this store. Observes ``browserRevision`` only (a browser tab that moves to
+    /// another workspace moves it).
+    public func workspaceID(ofBrowser tab: TabModel) -> String? {
+        _ = browserRevision
+        return browsers.current[ObjectIdentifier(tab)]?.workspace
+    }
+
     /// How many records each role lists now (tests and debug counters).
     public var counts: (chats: Int, browsers: Int) { (chats.current.count, browsers.current.count) }
 
@@ -81,12 +94,14 @@ public import Observation
 
     // MARK: StoreIndex and TabModel hooks
 
-    /// `tab` was keyed, or a field a role reads changed: files it under the roles it has now.
+    /// `tab` was keyed (`workspace`: the workspace that holds it), or a field a role reads changed (`workspace`
+    /// nil: the one it was keyed in): files it under the roles it has now.
     // perf-hot: 1us store-tab-roles (every tab keyed by an apply, and every kind, conversation, url or favicon change)
-    func note(_ tab: TabModel) {
+    func note(_ tab: TabModel, workspace: String?? = nil) {
         let id = ObjectIdentifier(tab)
+        if let workspace { workspaces[id] = workspace }
         let chat = tab.agentSession.map { Chat(id: tab.id, session: $0.session) }
-        let browser = tab.kind == .browser ? Browser(id: tab.id, url: tab.url, favicon: tab.faviconURL) : nil
+        let browser = tab.kind == .browser ? Browser(id: tab.id, url: tab.url, favicon: tab.faviconURL, workspace: workspaces[id] ?? nil) : nil
         // A terminal that was in no role (most tabs) costs this check only.
         guard chat != nil || browser != nil || records[id] != nil else { return }
         records[id] = chat != nil || browser != nil ? tab : nil
@@ -98,6 +113,7 @@ public import Observation
     // perf-hot: 1us store-tab-roles (every tab dropped by an apply)
     func drop(_ tab: TabModel) {
         let id = ObjectIdentifier(tab)
+        workspaces[id] = nil
         guard records.removeValue(forKey: id) != nil else { return }
         file(id, chat: nil)
         browsers.set(id, nil)
@@ -108,6 +124,7 @@ public import Observation
     func noteRebuildStarted() {
         for id in Array(records.keys) { file(id, chat: nil); browsers.set(id, nil) }
         records.removeAll(keepingCapacity: true)
+        workspaces.removeAll(keepingCapacity: true)
     }
 
     /// The store published its tab list: moves each role's revision once when its set changed.

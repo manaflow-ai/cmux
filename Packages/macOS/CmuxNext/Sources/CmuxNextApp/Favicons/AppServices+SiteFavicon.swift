@@ -32,9 +32,15 @@ extension AppServices {
         URL(string: address).flatMap(BookmarkURL.faviconKey(for:))
     }
 
-    /// The favicon of the first of `tabs` that shows one and is not incognito.
+    /// The favicon of the first of `tabs` (the local store's browser tabs) that shows one and is not incognito. The
+    /// incognito check reads the workspace the store's index filed the tab in (`StoreTabRoles.workspaceID(ofBrowser:)`)
+    /// and the window registry, not a lookup of the tab (`isIncognitoTab` observes every tab list).
     private func openFavicon(_ tabs: [TabModel]) -> String? {
-        tabs.first { $0.kind == .browser && $0.faviconURL != nil && !cache.browserTabs.isIncognitoTab($0.id) }?.faviconURL
+        let roles = machines.local.store.tabRoles
+        return tabs.first { tab in
+            guard tab.kind == .browser, tab.faviconURL != nil else { return false }
+            return !(roles.workspaceID(ofBrowser: tab).map { windows.isIncognito(workspace: $0) } ?? false)
+        }?.faviconURL
     }
 
     /// The favicon of the page at `url` for `profile`, nil while it loads or without one.

@@ -288,7 +288,10 @@ import Foundation
             if Self.isOverlayTab(id: id, surface: surface) { provisionalTabCount += 1 }
             tabKeys.noteKeyed(id: id, resource: resource)
             tab.roles = tabRoles
-            tabRoles.note(tab)
+            // Its workspace, for the browser role (an incognito window's tabs are its workspaces'): the parents are
+            // indexed first, so this costs three entry lookups.
+            let workspace = pane(holding: tab).flatMap { screen(holding: $0) }.flatMap { workspace(holding: $0) }
+            tabRoles.note(tab, workspace: .some(workspace?.id))
             waiters.noteTabKeyed(id: id, surface: surface, resource: resource)
         }
     }

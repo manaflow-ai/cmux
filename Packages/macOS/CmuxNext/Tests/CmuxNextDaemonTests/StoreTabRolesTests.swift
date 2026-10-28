@@ -117,4 +117,18 @@ private final class RolesChanged: Sendable {
         #expect(heard.changes.count == 2 && heard.changes.last?.count == 1 && heard.changes.last?.first?.tab == nil)
         store.tabRoles.stopFollowingBrowsers(heard)
     }
+
+    @Test func aBrowserTabIsFiledWithItsWorkspaceAndAMoveRefilesIt() throws {
+        let store = DaemonStore()
+        store.apply(snapshot: Self.tree([[Self.browser(1, url: "https://a.example/")], [Self.terminal(2)]]))
+        let tab = try #require(store.tab(surface: 1))
+        #expect(store.tabRoles.workspaceID(ofBrowser: tab) == store.workspaces[0].id)
+        let revision = store.tabRoles.browserRevision
+        // The browser tab moves to workspace 2 (tab-drag-v1: its tab-changed names the new pane).
+        store.apply(.tabChanged(TabDelta(workspace: 2, screen: 20, pane: 200, surface: 1, index: nil, entity: Self.browser(1, url: "https://a.example/"))))
+        let moved = try #require(store.tab(surface: 1))
+        #expect(store.tabRoles.workspaceID(ofBrowser: moved) == store.workspaces[1].id)
+        #expect(store.tabRoles.browserRevision == revision &+ 1, "a browser tab's move to another workspace is a browser change")
+        #expect(store.tabRoles.workspaceID(ofBrowser: try #require(store.tab(surface: 2))) == nil, "a terminal is no browser tab")
+    }
 }

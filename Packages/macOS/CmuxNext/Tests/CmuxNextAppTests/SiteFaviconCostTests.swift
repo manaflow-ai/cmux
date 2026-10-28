@@ -106,4 +106,18 @@ import Testing
         }
         print("BENCH H5 site-favicon-8-rows ratio_1000_over_10=\(String(format: "%.1f", (medians[1_000] ?? 0) / max(medians[10] ?? 1, 0.001)))")
     }
+
+    @Test func anIncognitoWindowsTabLendsNoIcon() throws {
+        let services = Self.services(workspaces: 3, terminals: 1)
+        let docs = try #require(services.machines.local.store.workspaces.first)
+        #expect(services.siteFaviconAddress(origin: "https://docs.example") == "https://docs.example/static/icon.png")
+        services.windows.registry.apply { registry in
+            registry = WindowRegistry(windows: [.init(id: "private", workspaceIDs: [docs.id])])
+            registry.markIncognito("private")
+            return WindowRegistry.Changes()
+        }
+        #expect(services.siteFaviconAddress(origin: "https://docs.example") == "https://docs.example/favicon.ico",
+                "an incognito window's tab lent its icon")
+        #expect(services.openTabFaviconsByOrigin()["https://docs.example"] == nil)
+    }
 }
