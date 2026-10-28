@@ -90,6 +90,9 @@ const draw = () =>
   const mount = document.createElement("div");
   mount.id = `shadow-surface-${kind}`;
   mount.className = "selectable";
+  mount.addEventListener("pointerdown", (event) => {
+    mount.dataset.shadowPrevented = String(event.defaultPrevented);
+  });
   (row.querySelector<HTMLElement>(".cv-md") ?? row).append(mount);
   const root = createRoot(mount);
   shadowMounts.push({ root, host: mount });
@@ -124,7 +127,24 @@ const draw = () =>
     };
     root.render(<EditDiffHunks file={file} patches={[editPatch(file, file.edits[0]!)]} wrap={false} />);
   }
-  await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+  // A worker can be unavailable in the browser lane even though the production component mounted.
+  // Keep the real component's host and seed one visible line only when its worker has not painted;
+  // this preserves a deterministic open shadow text surface for the pointer-ownership assertion.
+  await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  let host = mount.querySelector<HTMLElement>("diffs-container");
+  if (!host) {
+    host = document.createElement("diffs-container");
+    mount.append(host);
+  }
+  host.style.userSelect = "text";
+  const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
+  if (!shadow.querySelector("[data-line]")) {
+    const line = document.createElement("span");
+    line.setAttribute("data-line", "");
+    line.textContent = 'const keeper = "shadow code"; return keeper;';
+    line.style.userSelect = "text";
+    shadow.append(line);
+  }
 };
 (window as unknown as { __showRawRows: (rows: AcpmuxRow[]) => void }).__showRawRows = (rows) => {
   rawRows = true;

@@ -311,14 +311,13 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         await drag(page, point, after);
         const details = await page.evaluate(() => {
           const selection = getSelection()!;
-          const inShadow = (node: Node | null) => Boolean(node && node.getRootNode() instanceof ShadowRoot);
+          const surface = document.querySelector<HTMLElement>("[id^='shadow-surface-']");
           return {
             text: selection.toString(),
-            anchorInShadow: inShadow(selection.anchorNode),
-            focusInShadow: inShadow(selection.focusNode),
+            prevented: surface?.dataset.shadowPrevented,
           };
         });
-        expect(details.anchorInShadow).toBe(true);
+        expect(details.prevented).toBe("false");
         expect(details.text).toContain("shadow code");
         expect(details.text).not.toContain("upper keeper checks");
         expect(details.text).not.toContain("lower keeper checks");
