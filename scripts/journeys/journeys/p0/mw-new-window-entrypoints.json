@@ -1,0 +1,336 @@
+{
+  "id": "mw-new-window-entrypoints",
+  "priority": "P0",
+  "title": "A new window from the key, the menu and the CLI: each opens one window, leaves the others as they were, and takes typing",
+  "why": "Lawrence 2026-10-28 (handoff/multiwindow.md): a new window must get the same behavior as the first window from its first frame, whatever opened it. Each entrypoint opens one window and no window open before changes; then Ctrl-` and typing in the new window reach its own terminal (daemon screen, the pane's text and the frame). Entrypoints: Cmd-Shift-N (newWindow; Cmd-N is New Workspace, WindowActionCatalog / WorkspaceActionCatalog), the main menu's New Window (`debug.menu_item`, the click path), and the CLI (`cmux app new-window` on the app socket). NOT RUN: the Dock. Its path is applicationShouldHandleReopen -> WindowManager.reopenOrCreateWindow, which runs only when no window is visible, and the app has no debug socket method that drives it; a Dock case needs a new driver path (close every window, then a kAEReopenApplication event, e.g. `open -g -a` of the running bundle), not invented here.",
+  "source": "handoff/multiwindow.md item 5 (new window from Cmd-N, menu, CLI, dock); KeyBindingDefaults / WindowActionCatalog (newWindow: Cmd-Shift-N, cliName app new-window)",
+  "budget_seconds": 180,
+  "steps": [
+    {
+      "do": "new_terminal",
+      "name": "mw-nw-${nonce}",
+      "as": "first",
+      "title": "set-up: workspace mw-nw with a terminal (socket newTab, in the first window)"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "name_window",
+      "as": "w1",
+      "title": "the first window"
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-key"
+    },
+    {
+      "do": "key",
+      "title": "Cmd-Shift-N in the first window (New Window; Cmd-N is New Workspace)",
+      "key": "n",
+      "modifiers": [
+        "cmd",
+        "shift"
+      ],
+      "window": "w1",
+      "mark": "key"
+    },
+    {
+      "do": "await_window",
+      "as": "wk",
+      "title": "the window Cmd-Shift-N opened; keys and frames go to it"
+    },
+    {
+      "do": "expect",
+      "title": "Cmd-Shift-N: one more window; no window open before it changed",
+      "since": "before-key",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "windows_open": {
+            "since": "before-key",
+            "delta": 1
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-key"
+          }
+        },
+        {
+          "window_state": {
+            "window": "wk",
+            "home": false
+          }
+        }
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 4.5,
+      "title": "the New Tab page's key hold (NewTabInputCoordinator.incomingHoldLimit, 4 s) ends: in a capture slot the app is never active, so held keys would be replayed into the first window (NSApp.keyWindow is nil), which no person sees; no state shows the hold's end"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-` in the window Cmd-Shift-N opened (New Terminal Tab)",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "window": "wk"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t-key"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-nw-key-${nonce}",
+      "enter": true,
+      "window": "wk",
+      "mark": "typed-key"
+    },
+    {
+      "do": "expect",
+      "title": "typing in the window Cmd-Shift-N opened reaches its terminal; the windows open before did not change",
+      "since": "typed-key",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-nw-key-${nonce}"
+        },
+        {
+          "app_text_line": "mw-nw-key-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-nw-key-${nonce}"
+        },
+        {
+          "window_state": {
+            "window": "wk",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-key"
+          }
+        }
+      ]
+    },
+    {
+      "do": "use_window",
+      "window": "w1",
+      "title": "the person goes back to the first window (it takes key: the menu acts in the key window)"
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-menu"
+    },
+    {
+      "do": "rpc",
+      "title": "New Window from the main menu (debug.menu_item: performActionForItem, the click path, after menu validation)",
+      "method": "debug.menu_item",
+      "params": {
+        "title": "New Window"
+      }
+    },
+    {
+      "do": "await_window",
+      "as": "wm",
+      "title": "the window the menu's File > New Window opened; keys and frames go to it"
+    },
+    {
+      "do": "expect",
+      "title": "the menu's File > New Window: one more window; no window open before it changed",
+      "since": "before-menu",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "windows_open": {
+            "since": "before-menu",
+            "delta": 1
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-menu"
+          }
+        },
+        {
+          "window_state": {
+            "window": "wm",
+            "home": false
+          }
+        }
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 4.5,
+      "title": "the New Tab page's key hold (NewTabInputCoordinator.incomingHoldLimit, 4 s) ends: in a capture slot the app is never active, so held keys would be replayed into the first window (NSApp.keyWindow is nil), which no person sees; no state shows the hold's end"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-` in the window the menu's File > New Window opened (New Terminal Tab)",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "window": "wm"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t-menu"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-nw-menu-${nonce}",
+      "enter": true,
+      "window": "wm",
+      "mark": "typed-menu"
+    },
+    {
+      "do": "expect",
+      "title": "typing in the window the menu's File > New Window opened reaches its terminal; the windows open before did not change",
+      "since": "typed-menu",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-nw-menu-${nonce}"
+        },
+        {
+          "app_text_line": "mw-nw-menu-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-nw-menu-${nonce}"
+        },
+        {
+          "window_state": {
+            "window": "wm",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-menu"
+          }
+        }
+      ]
+    },
+    {
+      "do": "remember_windows",
+      "as": "before-cli"
+    },
+    {
+      "do": "run_cli",
+      "title": "the CLI: cmux app new-window, on the app's control socket",
+      "args": [
+        "app",
+        "new-window"
+      ],
+      "mark": "cli"
+    },
+    {
+      "do": "await_window",
+      "as": "wc",
+      "title": "the window `cmux app new-window` opened; keys and frames go to it"
+    },
+    {
+      "do": "expect",
+      "title": "`cmux app new-window`: one more window; no window open before it changed",
+      "since": "before-cli",
+      "timeout": 10,
+      "settle": 0.5,
+      "all": [
+        {
+          "windows_open": {
+            "since": "before-cli",
+            "delta": 1
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-cli"
+          }
+        },
+        {
+          "window_state": {
+            "window": "wc",
+            "home": false
+          }
+        }
+      ]
+    },
+    {
+      "do": "wait",
+      "seconds": 4.5,
+      "title": "the New Tab page's key hold (NewTabInputCoordinator.incomingHoldLimit, 4 s) ends: in a capture slot the app is never active, so held keys would be replayed into the first window (NSApp.keyWindow is nil), which no person sees; no state shows the hold's end"
+    },
+    {
+      "do": "key",
+      "title": "Ctrl-` in the window `cmux app new-window` opened (New Terminal Tab)",
+      "key": "`",
+      "modifiers": [
+        "control"
+      ],
+      "window": "wc"
+    },
+    {
+      "do": "focused_terminal",
+      "as": "t-cli"
+    },
+    {
+      "do": "neutral_prompt"
+    },
+    {
+      "do": "type",
+      "text": "echo mw-nw-cli-${nonce}",
+      "enter": true,
+      "window": "wc",
+      "mark": "typed-cli"
+    },
+    {
+      "do": "expect",
+      "title": "typing in the window `cmux app new-window` opened reaches its terminal; the windows open before did not change",
+      "since": "typed-cli",
+      "timeout": 15,
+      "all": [
+        {
+          "daemon_line": "mw-nw-cli-${nonce}"
+        },
+        {
+          "app_text_line": "mw-nw-cli-${nonce}"
+        },
+        {
+          "pane_frame_text": "mw-nw-cli-${nonce}"
+        },
+        {
+          "window_state": {
+            "window": "wc",
+            "home": false
+          }
+        },
+        {
+          "window_unchanged": {
+            "since": "before-cli"
+          }
+        }
+      ]
+    }
+  ],
+  "finally": [
+    {
+      "do": "close_extra_windows",
+      "title": "clean-up: close the three new windows"
+    }
+  ]
+}

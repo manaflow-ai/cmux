@@ -125,6 +125,9 @@ how long it may take (it plans the leases). Copy `journeys/p0/type.json` (the sm
 
 Any step may say `"as": "NAME"`: the current terminal after it is named NAME, for `use` and for
 conditions that take `name`. `key` also takes `repeat` and `gap` (seconds between presses).
+`key`, `type` and `mouse` take `window`: a window a step named (`name_window`, `await_window`) or a
+window id; the key is typed in (the click lands in) that window. Without it, keys go to the journey's
+key window and `debug.mouse` to the first window.
 
 A capture slot's window is never the key window (the app runs with `CMUX_NEXT_NO_ACTIVATE`).
 Keys typed while the app holds them for a terminal still being made (`CreationInputCoordinator`:
@@ -188,6 +191,20 @@ each one (`load_extensions`) and `run.py` sends them to the mini with it. A grou
 `driver.py`, and may not redefine a step or condition. A journey may have `finally` steps (put the
 app back for the next journey: leave full screen, close a second window, restore the window
 frame); they run whatever happened and never change the status.
+
+A group may list its negative conditions in `NEGATIVE` (read every poll and through `settle`, as
+`*_lacks` are).
+
+`ext_multiwindow.py` (group multi-window, `journeys/p0/mw-*.json`) judges which window an input acted
+in: the target window changed as asked and every other window did not change. Steps: `name_window`,
+`await_window` (the window Cmd-Shift-N, the menu, the CLI or a move just opened), `use_window`,
+`remember_windows`, `click_sidebar` (the Home item or a workspace row, clicked with `debug.mouse` at
+its `debug.sidebar_rows` frame), `move_workspace` (Move Workspace to Window, an explicit window),
+`run_cli` (the bundled `cmux` on the app socket) and the clean-up `close_extra_windows`. Conditions:
+`window_state` (what one window shows: Home, a workspace by name, its rows, its first sidebar entry,
+pane and tab changes since a mark), `window_unchanged` (negative: every other window still shows the
+same page, workspace, rows, panes, tabs, focused pane and frame), `windows_open`, `windows_show`.
+The file's docstring has every field.
 
 `ext_window.py` (group window-pane-resize) adds pointer and window steps. Drags go through
 `debug.mouse`: a press, one drag event per 60 Hz frame with the button held, a release, so
@@ -255,8 +272,10 @@ that is the author refuses the build.
 
 - Generated journeys: one per action catalog row, settings schema entry and keyboard shortcut
   (planned as a generator writing `journeys/generated/`; P0 is hand-written now).
-- Pointer journeys beyond window and divider drags and pane clicks (`ext_window.py`): tab drags,
-  sidebar clicks, the green button.
+- Pointer journeys beyond window and divider drags, pane clicks (`ext_window.py`) and sidebar Home
+  and workspace-row clicks (`ext_multiwindow.py`): tab drags, the green button.
+- The Dock's reopen (`applicationShouldHandleReopen`, only with no window visible): no debug method
+  drives it, so `mw-new-window-entrypoints` does not cover it.
 - Display and scale changes during a resize (`debug.simulate.display` exists; no step yet).
 - Pointer in the pane: the `mouse` and `select_text` steps cover wheel, clicks and text selection
   (scroll-paste group).

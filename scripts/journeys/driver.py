@@ -66,6 +66,8 @@ KIND = {"daemon_line": "daemon", "daemon_contains": "daemon", "daemon_prompt": "
         "app_grid": "app"}
 # Conditions an extension module adds (ext_*.py beside this file, load_extensions): name -> fn(journey, want, cache).
 EXT_CONDITIONS = {}
+# The extension conditions that are negative (an extension's NEGATIVE): read again every poll, never latched.
+EXT_NEGATIVE = set()
 # Seconds a quit (Cmd-Q or a crash) may take to end the app's process, and a relaunch to answer.
 QUIT_SECONDS = 60
 RELAUNCH_SECONDS = 90
@@ -345,7 +347,7 @@ def ocr_contains(lines, wanted):
 
 def negative(name, want):
     """Whether a condition claims something is NOT there: read again every poll, never latched."""
-    if name in ("daemon_lacks", "app_text_lacks"):
+    if name in ("daemon_lacks", "app_text_lacks") or name in EXT_NEGATIVE:
         return True
     # daemon_history with `lacks`; app_rows with `hold` (the view must stay as it is, e.g. while output arrives).
     return isinstance(want, dict) and ((name == "daemon_history" and "lacks" in want)
@@ -536,16 +538,17 @@ class Journey:
         # The mark is the moment the command is entered (Return), else the first key.
         text = self.sub(step["text"])
         held = self.before_keys()
+        window = self.window_for(step.get("window"))
         replies = []
         if step.get("mark") and not step.get("enter"):
             self.marks[step["mark"]] = now()
         for char in text:
-            replies.append(self.key(char, []))
+            replies.append(self.key(char, [], window))
             time.sleep(0.01)
         if step.get("enter"):
             if step.get("mark"):
                 self.marks[step["mark"]] = now()
-            replies.append(self.key("return", []))
+            replies.append(self.key("return", [], window))
         routes = sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})
         # One full reply per route (its trace says who took the key): evidence when typing went astray.
         samples = {}
@@ -556,6 +559,9 @@ class Journey:
 
     def step_key(self, step):
         held = self.before_keys()
+        # `window`: the window the key is typed in (a name a step gave it, e.g. ext_multiwindow's
+        # `name_window`, or a window id); else the journey's key window.
+        window = self.window_for(step.get("window"))
         if step.get("mark"):
             self.marks[step["mark"]] = now()
         # `repeat`: the same key N times, `gap` seconds apart (a person pressing it again and again).
@@ -564,10 +570,11 @@ class Journey:
             if index:
                 time.sleep(float(step.get("gap", 0.1)))
             t = now()
-            replies.append(self.key(step["key"], step.get("modifiers", [])))
+            replies.append(self.key(step["key"], step.get("modifiers", []), window))
             took.append(round((now() - t) * 1000, 1))
         if repeat == 1:
-            return {"key": step["key"], "modifiers": step.get("modifiers", []), "reply": replies[0], "waited_out_hold_s": held}
+            return {"key": step["key"], "modifiers": step.get("modifiers", []), "window": window or self.key_window,
+                    "reply": replies[0], "waited_out_hold_s": held}
         return {"key": step["key"], "modifiers": step.get("modifiers", []), "presses": repeat,
                 "reply_ms_max": max(took), "reply_ms": took, "handled_by": sorted({str(r.get("handled_by")) for r in replies if isinstance(r, dict)})}
 
@@ -593,6 +600,9 @@ class Journey:
         params = {k: self.sub(v) for k, v in step.items() if k in ("action", "dx", "dy", "phase", "modifiers", "button")}
         params.setdefault("action", "scroll")
         params["pane"] = self.need_pane()
+        # `window`: the window that shows the pane (a named window or an id); debug.mouse's default is the first window.
+        if step.get("window"):
+            params["window"] = self.window_for(step["window"])
         if step.get("mark"):
             self.marks[step["mark"]] = now()
         replies = []
@@ -676,12 +686,20 @@ class Journey:
             raise StepError(f"pane {self.pane} is not in debug.surfaces")
         return pane
 
-    def key(self, key, modifiers):
+    def key(self, key, modifiers, window=None):
         self.last_key_at = now()
         params = {"key": key, "modifiers": modifiers}
-        if self.key_window:
-            params["window"] = self.key_window
+        if window or self.key_window:
+            params["window"] = window or self.key_window
         return self.app.rpc("debug.key", params)
+
+    def window_for(self, ref):
+        """A step's `window`: a name a step gave a window (`named_windows`, ext_multiwindow's `name_window`),
+        else a window id as is; None when the step names none."""
+        if not ref:
+            return None
+        ref = self.sub(ref)
+        return getattr(self, "named_windows", {}).get(ref, ref)
 
     def before_keys(self):
         """Before a step's first key: waits out a creation hold a step before may have opened; seconds waited."""
@@ -1484,6 +1502,8 @@ def load_extensions(module):
             if name in KIND:
                 raise SystemExit(f"driver: {path.name} redefines condition {name!r}")
             KIND[name], EXT_CONDITIONS[name] = kind, fn
+        # `NEGATIVE`: the group's conditions that claim something did NOT happen (read every poll and through `settle`).
+        EXT_NEGATIVE.update(n for n in getattr(ext, "NEGATIVE", ()) if n in EXT_CONDITIONS)
 
 
 load_extensions(sys.modules[__name__])
