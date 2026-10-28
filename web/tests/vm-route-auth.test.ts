@@ -1098,6 +1098,93 @@ describe("VM REST auth", () => {
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
   });
 
+  test("autosize picks the memory and answers the pick in the hand-off's size fields", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-autosize",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+      resourceReservation: { vcpus: 2, memoryMb: 4096 },
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", kind: "base", autosize: { taskKind: "chat" } }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json() as { sizePick?: { vcpus: number; memoryGb: number; pick: string; reason: string } };
+    expect(body.sizePick).toEqual({ vcpus: 2, memoryGb: 4, pick: "sm", reason: "2 vCPU · 4 GB, picked for agent turns" });
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 4096, imageSize: expect.objectContaining({ name: "sm" }) }));
+  });
+
+  test("an idempotent retry answering an earlier, other-shaped machine reports no pick", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-autosize-replay",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+      resourceReservation: { vcpus: 4, memoryMb: 8192 },
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test", "idempotency-key": "autosize-replay" },
+        body: JSON.stringify({ provider: "freestyle", kind: "base", autosize: { taskKind: "chat" } }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { sizePick?: unknown }).sizePick).toBeUndefined();
+  });
+
+  test("an explicit image keeps its own shape: no pick", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    runVmWorkflow.mockResolvedValue({
+      providerVmId: "provider-vm-autosize-image",
+      provider: "freestyle",
+      image: "snapshot-test",
+      imageVersion: null,
+      createdAt: 1_777_000_000_000,
+    });
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", autosize: { taskKind: "build", repo: { rootFiles: ["Cargo.toml"] } } }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { sizePick?: unknown }).sizePick).toBeUndefined();
+    expect(createVm).toHaveBeenCalledWith(expect.objectContaining({ memoryMb: 8192 }));
+  });
+
+  test("autosize with a GPU is refused even beside an explicit memory size", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+
+    const response = await POST(
+      new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers: { origin: "https://cmux.test" },
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test", memoryMb: 8192, autosize: { gpu: true } }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(((await response.json()) as { error: string }).error).toBe("vm_gpu_unavailable");
+    expect(createVm).not.toHaveBeenCalled();
+  });
+
   test("an idempotency key only defers locked-size rejection, not off-ladder coercion", async () => {
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({

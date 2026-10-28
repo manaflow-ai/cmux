@@ -178,7 +178,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
       expect(row.height).toBeGreaterThanOrEqual(36);
       const search = await bounds(page, ".acpmux-quick-search");
-      expect(search.height).toBeGreaterThanOrEqual(40);
+      expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
     } finally {
       await page.close();
