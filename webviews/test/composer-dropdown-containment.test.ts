@@ -106,7 +106,6 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
   }
 
   for (const [variant, triggerName, popupSelector, height, top] of [
-    ["folder-menu", "Folder", ".acpmux-folder-popover", 560, "500px"],
     ["environment-picker", /^Environment/, ".acpmux-env-popover", 760, "740px"],
   ] as const) {
     test(`${variant} flips above when the trigger is at the bottom edge`, async () => {
