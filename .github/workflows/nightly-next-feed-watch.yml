@@ -16,7 +16,9 @@ name: nightly-next feed watch
 # from its saved unsigned app rather than built again.
 on:
   schedule:
-    - cron: "7,37 * * * *"
+    # A quarter hour off nightly-next-tick.yml (:07/:37), so one GitHub
+    # scheduler delay never holds back the tick and this backstop together.
+    - cron: "22,52 * * * *"
   workflow_dispatch:
 
 permissions: {}

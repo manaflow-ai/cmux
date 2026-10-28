@@ -12,8 +12,9 @@ JUST FUCKING INCREMENTALLY FUCKING RETRY".
 
 main's nightly-next-feed-watch.yml runs this every 30 minutes. It dispatches
 one resume when all of these hold, newest failed run first:
-  - the run is a completed nightly-next push run that ended failure or
-    timed_out (a cancelled tip is the tick's: nightly_next_cancelled_tip.sh);
+  - the run is a completed nightly-next push run that ended failure (the
+    resume validator accepts only failure or success; a cancelled tip is the
+    tick's: nightly_next_cancelled_tip.sh);
   - build-nightly-app and build-nightly-ghostty-cli-helper succeeded, both in
     the same attempt (the producer attempt the resume names);
   - its build (run id and two-digit producer attempt) is above the newest
@@ -56,7 +57,7 @@ PRODUCERS = ("build-nightly-app", "build-nightly-ghostty-cli-helper")
 UNSIGNED_ARTIFACTS = ("cmux-nightly-unsigned-app", "cmux-nightly-remote-daemon", "cmux-nightly-ghostty-cli-helper",
                       "cmux-next-license-trees", "cmux-next-source-archive")
 RECOVERY_PREFIX = "cmux-nightly-notarization-recovery-"
-FAILED = {"failure", "timed_out"}
+FAILED = {"failure"}  # resume-unsigned-nightly.py validate() refuses timed_out
 PUSH_RUNS_READ = 30  # nightly-next push runs read, newest first: more than a day of ticks
 # Resumes are counted over every nightly-next dispatch in this window: the unsigned app they
 # resume is kept one day, so no earlier resume of a still-resumable run is older.

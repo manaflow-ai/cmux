@@ -8,6 +8,7 @@ at a time, and only for a build newer than the feed.
 from __future__ import annotations
 
 import importlib.util
+import re
 from pathlib import Path
 import sys
 import unittest
@@ -108,7 +109,8 @@ class DecideTests(unittest.TestCase):
 
     def test_cancelled_and_successful_runs_are_not_resumed(self):
         gh = FakeGitHub()
-        decide(gh, [push(NEWER, "cancelled"), push(NEWER + 1, "success"), push(NEWER + 2, None, "in_progress")])
+        decide(gh, [push(NEWER, "cancelled"), push(NEWER + 1, "success"), push(NEWER + 2, None, "in_progress"),
+                    push(NEWER + 3, "timed_out")])  # the validator refuses a timed_out source
         self.assertEqual(gh.dispatches, [])
 
     def test_one_resume_at_a_time(self):
@@ -207,6 +209,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("continue-on-error: true", step)
         self.assertIn("scripts/ci/nightly_next_unsigned_resume.py", step)
         self.assertNotIn("cancel", step.split("run:", 1)[1])
+
+    def test_the_feed_watch_runs_a_quarter_hour_off_the_tick(self):
+        # One GitHub scheduler delay must not hit the tick and its backstop together.
+        workflows = Path(__file__).resolve().parents[1] / ".github/workflows"
+        watch = re.search(r'cron: "([^"]+)"', (workflows / "nightly-next-feed-watch.yml").read_text()).group(1)
+        tick = re.search(r'cron: "([^"]+)"', (workflows / "nightly-next-tick.yml").read_text()).group(1)
+        minutes = lambda cron: {int(m) for m in cron.split()[0].split(",")}
+        self.assertTrue(all(min(abs(a - b), 60 - abs(a - b)) >= 10 for a in minutes(watch) for b in minutes(tick)),
+                        (watch, tick))
 
 
 if __name__ == "__main__":
