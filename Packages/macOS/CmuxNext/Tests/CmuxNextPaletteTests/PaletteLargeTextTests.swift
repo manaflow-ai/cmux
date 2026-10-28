@@ -5,13 +5,16 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// #26606: with a large text size the palette's search field and rows kept the density's heights,
-/// so the text was clipped top and bottom, and the long Search placeholder ran off its row. At every
-/// density, with the largest Interface Size (16 pt) and the largest density text size (20 pt), each
-/// label must sit inside its row at its full height, and the placeholder must truncate.
+/// #26606: at a large text size the Search placeholder ("Search workspaces, tabs, history, chats,
+/// settings and commands…") is wider than the field. It had no line break mode, so it wrapped inside
+/// the one-line field and showed the bottom of one line and the top of the next: clipped top and
+/// bottom. At every density, with the largest Interface Size (16 pt) and the largest density text
+/// size (20 pt), the placeholder must truncate on one line, and every label (search field, rows,
+/// headers, footer) must sit inside its row at its style's size.
 ///
 /// Also draws every case into one PNG (`CMUX_PALETTE_LARGE_TEXT_SNAPSHOT_PATH`, else
-/// `.build/palette-large-text.png` in the package) for the PR.
+/// `.build/palette-large-text.png` in the package) for the PR: Search on the left, the command
+/// list on the right.
 @MainActor
 @Suite(.paletteRanker)
 struct PaletteLargeTextTests {
@@ -32,18 +35,24 @@ struct PaletteLargeTextTests {
 
     @Test func textFitsItsRowsAtEveryDensity() async throws {
         _ = NSApplication.shared
-        let palette = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
-        #expect(palette.show(scope: PaletteScopeID.search))
-        await palette.model.settle()
-        defer { palette.hide() }
+        let search = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
+        #expect(search.show(scope: PaletteScopeID.search))
+        await search.model.settle()
+        let commands = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
+        commands.show(.commands)
+        await commands.model.settle()
+        defer {
+            search.hide()
+            commands.hide()
+        }
         var windows: [NSWindow] = []
         defer { windows.forEach { $0.close() } }
         var images: [(String, NSImage)] = []
         for item in Self.cases {
-            let image = try DensityTokens.$scoped.withValue(item.tokens) {
-                try Self.check(palette.model, item.label, windows: &windows)
+            try DensityTokens.$scoped.withValue(item.tokens) {
+                images.append(("Search, \(item.label)", try Self.check(search.model, item.label, windows: &windows, rows: 0)))
+                images.append(("Commands, \(item.label)", try Self.check(commands.model, item.label, windows: &windows, rows: 5)))
             }
-            images.append((item.label, image))
         }
         try Self.writeSheet(images)
     }
@@ -68,7 +77,7 @@ struct PaletteLargeTextTests {
         try DensityTokens.$scoped.withValue(large) {
             view.render()
             view.window?.setContentSize(PaletteLayout.windowSize)
-            _ = try Self.check(view, "live Compact → Comfortable, 18 pt")
+            _ = try Self.check(view, "live Compact → Comfortable, 18 pt", rows: 0)
         }
     }
 
@@ -82,40 +91,44 @@ struct PaletteLargeTextTests {
         windows.append(window)
     }
 
-    private static func check(_ model: PaletteModel, _ label: String, windows: inout [NSWindow]) throws -> NSImage {
+    private static func check(_ model: PaletteModel, _ label: String, windows: inout [NSWindow], rows: Int) throws -> NSImage {
         let view = PaletteContentView(model: model)
         host(view, windows: &windows)
-        return try check(view, label)
+        return try check(view, label, rows: rows)
     }
 
-    private static func check(_ view: PaletteContentView, _ label: String) throws -> NSImage {
+    /// `rows`: at least that many labels besides the search bar's (a page with results).
+    private static func check(_ view: PaletteContentView, _ label: String, rows: Int) throws -> NSImage {
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
 
         let field = view.searchBar.field
-        let placeholder = try #require(field.placeholderAttributedString, "\(label)")
-        let placeholderFont = try #require(placeholder.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
-        #expect(placeholderFont.pointSize == Typography.search.pointSize, "\(label): the placeholder draws in the field's size")
-        let style = placeholder.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
-        #expect(style?.lineBreakMode == .byTruncatingTail, "\(label): a long placeholder truncates with an ellipsis")
-        let placeholderHeight = ceil(placeholder.boundingRect(with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
-                                                              options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
-        #expect(field.frame.height >= placeholderHeight, "\(label): field \(field.frame.height) pt, placeholder \(placeholderHeight) pt")
         #expect(field.font?.pointSize == Typography.search.pointSize, "\(label): the field draws in the current search size")
+        #expect(field.frame.minY >= -0.5 && field.frame.maxY <= view.searchBar.bounds.height + 0.5,
+                "\(label): the field spans \(field.frame.minY)...\(field.frame.maxY) in a \(view.searchBar.bounds.height) pt bar")
+        if field.stringValue.isEmpty {
+            let placeholder = try #require(field.placeholderAttributedString, "\(label)")
+            let placeholderFont = try #require(placeholder.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
+            #expect(placeholderFont.pointSize == Typography.search.pointSize, "\(label): the placeholder draws in the field's size")
+            // The case is real: the placeholder is wider than its field, so it must give way on one line.
+            #expect(placeholder.size().width > field.bounds.width || !label.contains("20 pt"),
+                    "\(label): placeholder \(placeholder.size().width) pt in a \(field.bounds.width) pt field")
+            let style = placeholder.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            #expect(style?.lineBreakMode == .byTruncatingTail, "\(label): a long placeholder truncates with an ellipsis, on one line")
+        }
 
         var labels = 0
-        for text in textFields(in: view) where !text.isHiddenOrHasHiddenAncestor && !text.stringValue.isEmpty {
+        for text in textFields(in: view) where text !== field && !text.isHiddenOrHasHiddenAncestor && !text.stringValue.isEmpty {
             guard let parent = text.superview, let font = text.font else { continue }
             labels += 1
             if let style = (text as? PaletteLabel)?.fontSource?() {
                 #expect(font.pointSize == style.pointSize, "\(label): \"\(text.stringValue)\" draws at \(font.pointSize) pt, its style is \(style.pointSize) pt")
             }
-            let natural = ceil(font.ascender - font.descender)
-            #expect(text.frame.height >= natural, "\(label): \"\(text.stringValue)\" is \(text.frame.height) pt for \(natural) pt text")
+            #expect(text.frame.height >= PaletteText.height(text) - 0.5, "\(label): \"\(text.stringValue)\" is squeezed to \(text.frame.height) pt")
             #expect(text.frame.minY >= -0.5 && text.frame.maxY <= parent.bounds.height + 0.5,
                     "\(label): \"\(text.stringValue)\" spans \(text.frame.minY)...\(text.frame.maxY) in a \(parent.bounds.height) pt row")
         }
-        #expect(labels > 5, "\(label): the palette shows rows")
+        #expect(labels > rows, "\(label): \(labels) labels")
 
         let rep = try #require(view.bitmapImageRepForCachingDisplay(in: view.bounds))
         view.cacheDisplay(in: view.bounds, to: rep)
