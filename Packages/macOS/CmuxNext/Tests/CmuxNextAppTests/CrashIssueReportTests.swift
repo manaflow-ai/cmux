@@ -72,6 +72,28 @@ struct CrashIssueReportTests {
         #expect(report.body.contains("- Exception: EXC_BAD_ACCESS"))
     }
 
+    /// An update installed between the crash and the report: the report names the build that
+    /// crashed (the 2026-10-27 report said 4059411161803; macOS's report said 4062224162001).
+    @Test func aReportAfterAnUpdateNamesTheBuildThatCrashed() throws {
+        let file = FileManager.default.temporaryDirectory.appending(path: "cmux-\(UUID().uuidString).ips")
+        try Self.systemData().write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        let writer = CrashReportWriter(directory: FileManager.default.temporaryDirectory, bundleID: "com.cmuxterm.app.nightly",
+                                       version: "1.0.0-nightly.4059411161803 4059411161803")
+        var previous = Self.previous(context: nil)
+        previous.version = "1.0.0-nightly.4062224162001 4062224162001"
+        previous.commit = "aaaa111"
+        let fromMarker = CrashRecoveryService.issueReport(previous: previous, writer: writer, systemLog: file, info: ["CMUXCommit": "bbbb222"])
+        #expect(fromMarker.body.contains("- Version: 1.0.0-nightly.4062224162001 4062224162001"), "\(fromMarker.body)")
+        #expect(fromMarker.body.contains("- Commit: aaaa111"))
+        // A marker from before the fields: macOS's report names the build; the running commit is not it.
+        let fromSystem = CrashRecoveryService.issueReport(previous: Self.previous(context: nil), writer: writer, systemLog: file,
+                                                          info: ["CMUXCommit": "bbbb222"])
+        #expect(fromSystem.body.contains("- Version: 1.0.0-nightly.4062224162001 4062224162001"), "\(fromSystem.body)")
+        #expect(fromSystem.body.contains("- Commit: unknown"))
+        #expect(fromSystem.body.contains("- Exception: EXC_BAD_ACCESS (SIGSEGV)"))
+    }
+
     /// The context reaches the next launch through `run.json`.
     @Test func theRunMarkerKeepsTheContext() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "crash-context-\(UUID().uuidString)")
@@ -122,7 +144,11 @@ struct CrashIssueReportTests {
 
     /// The shape of macOS's report of the 2026-10-27 crash (`cmux-2026-10-27-210342.ips`).
     static func system() throws -> SystemCrashReport {
-        let header = #"{"app_name":"cmux","bug_type":"309","bundleID":"com.cmuxterm.app.nightly","name":"cmux"}"#
+        try #require(SystemCrashReport(data: try systemData()))
+    }
+
+    static func systemData() throws -> Data {
+        let header = #"{"app_name":"cmux","app_version":"1.0.0-nightly.4062224162001","build_version":"4062224162001","bug_type":"309","bundleID":"com.cmuxterm.app.nightly","name":"cmux"}"#
         let body: [String: Any] = [
             "procName": "cmux", "procPath": "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux",
             "procLaunch": "2026-10-27 21:03:37.6504 -0700", "captureTime": "2026-10-27 21:03:40.6300 -0700",
@@ -150,6 +176,6 @@ struct CrashIssueReportTests {
         var data = Data(header.utf8)
         data.append(UInt8(ascii: "\n"))
         data.append(try JSONSerialization.data(withJSONObject: body))
-        return try #require(SystemCrashReport(data: data))
+        return data
     }
 }

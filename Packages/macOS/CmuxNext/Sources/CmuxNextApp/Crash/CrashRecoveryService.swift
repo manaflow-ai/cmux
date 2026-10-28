@@ -33,8 +33,9 @@ final class CrashRecoveryService {
     /// `marksRun` false (tests, tools that build AppServices) leaves no
     /// marker and installs no signal handlers.
     init(bundleID: String?, marksRun: Bool) {
-        marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID)) : nil
         writer = CrashReportWriter.standard(bundleID: bundleID)
+        marker = marksRun ? AppRunMarker(directory: AppRunMarker.standardDirectory(bundleID: bundleID),
+                                         build: (writer.version, Bundle.main.infoDictionary?["CMUXCommit"] as? String)) : nil
         if let previous = marker?.recovery.previous {
             logger.error("previous run ended unexpectedly signal=\(previous.signal ?? 0) exception=\(previous.exception?.name ?? "none", privacy: .public) safe=\(self.recovery.skipsBrowserPages)")
             reportTask = Task { [weak self, writer] in  // task-owner: stored in reportTask, cancelled with the service
@@ -131,8 +132,13 @@ final class CrashRecoveryService {
         let log = systemLog ?? systemCrashLog(after: previous.launched)
         let system = log.flatMap { try? Data(blockingContentsOf: $0) }.flatMap(SystemCrashReport.init(data:))
         let symbolicator = StackSymbolicator()
-        return CrashIssueReport(previous: previous, version: writer.version, bundleID: writer.bundleID,
-                                commit: info["CMUXCommit"] as? String, system: system, systemReportName: log?.lastPathComponent,
+        // The crashed build, not this one: an update may have installed since. A marker from before
+        // these fields names it through macOS's report; this build's commit only when that is this build.
+        let running = info["CMUXCommit"] as? String
+        let version = previous.version ?? system?.version ?? writer.version
+        let commit = previous.commit ?? (version == writer.version ? running : nil)
+        return CrashIssueReport(previous: previous, version: version, bundleID: writer.bundleID,
+                                commit: commit, system: system, systemReportName: log?.lastPathComponent,
                                 executableFunction: { symbolicator.executableFunction(uuid: $0, imageOffset: $1, returnAddress: $2) })
     }
 

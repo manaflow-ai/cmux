@@ -39,6 +39,8 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
     /// `procPath` as macOS wrote it (the user name already replaced with `USER`).
     public var processPath: String
     public var incident: String?
+    /// The crashed build's version as the header gives it (`app_version build_version`), nil when absent.
+    public var version: String?
     public var exceptionType: String
     public var signal: String?
     public var termination: String?
@@ -95,6 +97,8 @@ public nonisolated struct SystemCrashReport: Sendable, Equatable {
         processName = body["procName"] as? String ?? header["name"] as? String ?? "unknown"
         processPath = body["procPath"] as? String ?? ""
         incident = body["incident"] as? String ?? header["incident_id"] as? String
+        let versionParts = [header["app_version"] as? String, header["build_version"] as? String].compactMap { $0 }
+        version = versionParts.isEmpty ? nil : versionParts.joined(separator: " ")
         let exception = body["exception"] as? [String: Any] ?? [:]
         exceptionType = exception["type"] as? String ?? "EXC_CRASH"
         signal = exception["signal"] as? String
