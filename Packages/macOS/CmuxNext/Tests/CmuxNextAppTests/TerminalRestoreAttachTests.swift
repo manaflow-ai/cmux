@@ -49,6 +49,34 @@ struct TerminalRestoreAttachTests {
         #expect(next.wait > 3)
     }
 
+    /// Audit P13 (2026-10-28): "Restoring…" stayed up to about 90 s with no reason and no Retry
+    /// (quietRestoreReconnects 45). A restored view whose attach is still missing after about 5 s
+    /// (the restore backoff's waits: 0, 0.5, 1, 2, 2 s) says why in plain words and offers Retry,
+    /// over its last frame, while it keeps retrying at the short restore backoff by itself.
+    @Test func aRestoreStillMissingAfterAboutFiveSecondsSaysWhyAndOffersRetry() throws {
+        var machine = Machine(initialSize: CellSize(cols: 80, rows: 24), visible: true, restoring: true)
+        var next = try #require(opened(machine.reduce(.start)))
+        var waited = 0.0
+        let seconds = [0.0, 0.5, 1, 2]  // the App's backoff steps 0...3 (DaemonTerminalIO.reattachBackoff)
+        while machine.status == .restoring, waited < 120 {
+            next = try #require(opened(machine.reduce(.openFailed(attempt: next.attempt))))
+            #expect(next.wait <= 3, "a stalled restore must keep the short backoff")
+            waited += seconds[min(next.wait, 3)]
+        }
+        #expect(waited <= 6, "the attach was missing for \(waited) s of backoff before the view said why")
+        // A reason and Retry: a disconnected status that no longer says it reconnects (TerminalRetryButton.shows).
+        guard case .disconnected(_, reconnecting: false) = machine.status else {
+            Issue.record("the view says \(machine.status), not a reason with Retry")
+            return
+        }
+        // It keeps retrying by itself at the short backoff, and a late answer goes live with no input.
+        next = try #require(opened(machine.reduce(.openFailed(attempt: next.attempt))))
+        #expect(next.wait <= 3)
+        _ = machine.reduce(.opened(7, attempt: next.attempt))
+        _ = machine.reduce(.replayDelivered(7))
+        #expect(machine.status == .connected)
+    }
+
     @Test func theConnectionBackDuringAnAttachReattachesAtOnceWhenThatAttachFails() throws {
         var machine = Machine(initialSize: CellSize(cols: 80, rows: 24), visible: true, restoring: true)
         var next = try #require(opened(machine.reduce(.start)))
