@@ -22,6 +22,14 @@ test("a peer's session name is the headline, not the peer machine", () => {
   expect(remote.peer).toBe("gcp-codex-lane-10");
 });
 
+test("legacy remote hosts survive an omitted kind while known local hosts stay hidden", () => {
+  const legacyRemote = sessionEntry({ sessionId: "legacy-remote", name: "chief-ui", host: "studio-mac" });
+  expect(resolveSenderIdentity({ name: "chief-ui", sessionId: "legacy-remote" }, legacyRemote).host).toBe("studio-mac");
+
+  const local = sessionEntry({ sessionId: "local", name: "coordinator", host: "This Mac", hostKind: "local" });
+  expect(resolveSenderIdentity({ name: "coordinator", sessionId: "local" }, local).host).toBeUndefined();
+});
+
 test("an ordinary slash in a session name is preserved without peer metadata", () => {
   expect(sessionTitle({ sessionId: "local", name: "team/review" })).toBe("team/review");
 });
