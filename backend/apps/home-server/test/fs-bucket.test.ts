@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
@@ -156,6 +156,35 @@ describe("self-hosted attachment bucket", () => {
       expect(await new Response((await bucket.get("home/v1/mine"))!.body!).text()).toBe("kept")
       await theirs.abort()
       expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("lists only stored objects and never walks the internal .multipart directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      await bucket.put("home/v1/a", "a")
+      // A key may still use .multipart as an inner path segment; only the bucket's own top-level directory is internal.
+      await bucket.put("home/v1/.multipart/b", "b")
+      const open = await bucket.createMultipartUpload("home/v1/big")
+      for (let n = 1; n <= 300; n++) await open.uploadPart(n, "x")
+      // Entries under .multipart that list would trip over if it walked in: one that looks like
+      // a stored object, and a dangling link that stat refuses. Skipping the directory sees neither.
+      writeFileSync(join(root, ".multipart", "stray"), "s")
+      writeFileSync(join(root, ".multipart", "stray.meta.json"), JSON.stringify({ etag: "e", size: 1, uploaded: 0 }))
+      symlinkSync(join(root, "missing"), join(root, ".multipart", "dangling"))
+
+      expect((await bucket.list()).objects.map((o) => o.key)).toEqual(["home/v1/.multipart/b", "home/v1/a"])
+      expect((await bucket.list({ prefix: "home/" })).objects.map((o) => o.key)).toEqual(["home/v1/.multipart/b", "home/v1/a"])
+      expect((await bucket.list({ prefix: ".multipart/" })).objects).toEqual([])
+
+      // The internal directory is not addressable as a key, so no caller can read, write or forge an upload record there.
+      for (const key of [".multipart", ".multipart/stray", `.multipart/${open.uploadId}.json`]) {
+        await expect(bucket.put(key, "{}")).rejects.toThrow(/invalid object key/)
+        await expect(bucket.get(key)).rejects.toThrow(/invalid object key/)
+        await expect(bucket.createMultipartUpload(key)).rejects.toThrow(/invalid object key/)
+      }
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
