@@ -18,16 +18,13 @@ public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
     /// Raw byte window for a selected file's patch. Later windows require the first revision.
     public var patchOffset: UInt64?
     public var patchRevision: String?
-    /// Opaque server-side capture key returned by the first page.
-    public var patchKey: String?
 
     public init(paths: [String] = [], contextLines: Int? = nil,
-                patchOffset: UInt64? = nil, patchRevision: String? = nil, patchKey: String? = nil) {
+                patchOffset: UInt64? = nil, patchRevision: String? = nil) {
         self.paths = paths
         self.contextLines = contextLines
         self.patchOffset = patchOffset
         self.patchRevision = patchRevision
-        self.patchKey = patchKey
     }
 
     /// The session host's limits.
@@ -60,11 +57,6 @@ public nonisolated struct AgentPaneGitDiffOptions: Equatable, Sendable {
         case let text as String:
             guard let offset = UInt64(text), String(offset) == text, options.paths.count == 1 else { return nil }
             options.patchOffset = offset
-        default: return nil
-        }
-        switch params?["patch_key"] {
-        case nil: break
-        case let key as String where !key.isEmpty && key.utf8.count <= 4096: options.patchKey = key
         default: return nil
         }
         switch params?["patch_revision"] {

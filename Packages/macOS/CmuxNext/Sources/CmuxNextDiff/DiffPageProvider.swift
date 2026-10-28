@@ -331,14 +331,13 @@ public final class DiffPageProvider: PageProvider {
             throw PageError(code: "remoteFileUnavailable", message: "The remote file is no longer in this diff")
         }
         let patch: String?
-        let captureKey = diff["patch_key"]?.stringValue
         if file["patch_truncated"]?.boolValue == true {
             let bytes = try await DiffPatchPages.read { [self] offset, revision in
                 guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }
                 do {
                     return try await git.diff(tab.grant.repository, scope: scope, includePatch: true,
                         options: AgentPaneGitDiffOptions(paths: [path], contextLines: Self.remoteFullFileContextLines,
-                                                        patchOffset: offset, patchRevision: revision, patchKey: captureKey))
+                                                        patchOffset: offset, patchRevision: revision))
                 } catch { throw Self.pageError(error) }
             }
             guard !isClosed, remoteSessions[id]?.generation == session.generation else { throw PageError.closed }

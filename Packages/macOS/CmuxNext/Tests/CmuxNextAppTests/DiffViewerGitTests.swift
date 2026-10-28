@@ -70,13 +70,12 @@ struct DiffViewerGitTests {
                 let start = Int(offset), end = min(start + 256 * 1024, bytes.count)
                 let revision = String(repeating: "a", count: 64)
                 #expect(options.patchRevision == (offset == 0 ? nil : revision))
-                #expect(options.patchKey == (offset == 0 ? nil : "capture-key"))
                 return ["patch_page": ["offset": .string(String(start)), "next_offset": .string(String(end)),
                     "total_bytes": .string(String(bytes.count)), "revision": .string(revision),
                     "data_base64": .string(bytes.subdata(in: start..<end).base64EncodedString()), "complete": .bool(end == bytes.count)]]
             }
             if pagedPatch != nil {
-                return ["patch_key": .string("capture-key"), "files": [["path": "remote.txt", "status": .string(initialStatus), "patch_truncated": true]]]
+                return ["files": [["path": "remote.txt", "status": .string(initialStatus), "patch_truncated": true]]]
             }
             // 100,000 unchanged blank lines fit under the daemon's 256 KiB per-file cap. The
             // hunk is internally valid, but its context reaches the request bound and therefore
