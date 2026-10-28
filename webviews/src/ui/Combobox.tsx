@@ -157,15 +157,14 @@ export function Combobox({
   const hasPinned = Boolean(pinnedSuggestions?.length);
   const deliberatelyHighlighted = useRef(false);
   const availableSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
-  // Base UI highlights item zero when the query changes. Put matching results first in its
-  // collection while the pinned actions remain visually fixed above the scrolling results.
-  const enabledSuggestions =
-    value.trim() && hasPinned
-      ? [
-          ...availableSuggestions.filter((item) => !pinnedSuggestions?.includes(item)),
-          ...availableSuggestions.filter((item) => pinnedSuggestions?.includes(item)),
-        ]
-      : availableSuggestions;
+  // Base UI highlights item zero for an empty query too. Put destinations first in its collection
+  // while the pinned actions remain visually fixed above the scrolling results.
+  const enabledSuggestions = hasPinned
+    ? [
+        ...availableSuggestions.filter((item) => !pinnedSuggestions?.includes(item)),
+        ...availableSuggestions.filter((item) => pinnedSuggestions?.includes(item)),
+      ]
+    : availableSuggestions;
   const disabledSuggestions = suggestions.filter(
     (item) => isItemDisabled?.(item) && !pinnedSuggestions?.includes(item),
   );

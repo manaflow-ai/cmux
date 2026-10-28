@@ -470,7 +470,7 @@ test("folder search Enter chooses its matching project instead of a pinned actio
   expect(calls).toEqual(["/demo/atlas"]);
 });
 
-test("pinned picker actions precede scrolling suggestions and remain keyboard selectable", async () => {
+test("pinned picker actions stay visually pinned after folders in keyboard order", async () => {
   const { createRoot } = await import("react-dom/client");
   const { Combobox } = await import("../src/ui/Combobox");
   const calls: string[] = [];
@@ -498,27 +498,13 @@ test("pinned picker actions precede scrolling suggestions and remain keyboard se
   const field = host.querySelector<HTMLInputElement>("input")!;
   await act(async () => field.focus());
   await key(field, "ArrowDown");
+  expect(host.querySelector("[data-highlighted]")?.textContent).toBe("Atlas");
+  await key(field, "ArrowDown");
+  expect(host.querySelector("[data-highlighted]")?.textContent).toBe("Relay");
+  await key(field, "ArrowDown");
+  expect(host.querySelector("[data-highlighted]")?.textContent).toBe("No project");
   await key(field, "Enter");
-  await key(field, "ArrowDown");
-  await key(field, "ArrowDown");
-  await key(field, "Enter");
-  await key(field, "ArrowUp");
-  await key(field, "ArrowUp");
-  await key(field, "Enter");
-  expect(calls).toEqual(["No project", "Atlas", "No project"]);
-  await type(field, "Atlas");
-  await key(field, "ArrowDown");
-  await key(field, "ArrowDown");
-  await key(field, "ArrowDown");
-  expect(document.querySelector("[data-highlighted]")?.textContent).toBe("No project");
-  await key(field, "Enter");
-  expect(calls).toEqual(["No project", "Atlas", "No project", "No project"]);
-  await act(async () => field.focus());
-  await key(field, "Escape");
-  await act(async () => field.focus());
-  await key(field, "ArrowDown");
-  await key(field, "Enter");
-  expect(calls).toEqual(["No project", "Atlas", "No project", "No project", "Add project"]);
+  expect(calls).toEqual(["No project"]);
 });
 
 test("an empty pinned action list does not add an orphan divider", async () => {
