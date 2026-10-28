@@ -1577,6 +1577,15 @@ function sameReferenceScope(previous: ReferenceScope | undefined, next: Referenc
   );
 }
 
+/// Whether two rows hold the same value in every own field (one level deep).
+function sameFields(previous: AcpmuxRow, next: AcpmuxRow): boolean {
+  if (previous === next) return true;
+  const before = previous as unknown as Record<string, unknown>;
+  const after = next as unknown as Record<string, unknown>;
+  const keys = Object.keys(after);
+  return keys.length === Object.keys(before).length && keys.every((key) => Object.is(before[key], after[key]));
+}
+
 function sameRowFrame(previous: Record<string, unknown>, next: Record<string, unknown>): boolean {
   const keys = Object.keys(next);
   if (keys.length !== Object.keys(previous).length) return false;
@@ -1589,6 +1598,10 @@ function sameRowFrame(previous: Record<string, unknown>, next: Record<string, un
       // the comparison because they are read outside the child renderer.
       const before = previous.row as AcpmuxRow;
       const after = next.row as AcpmuxRow;
+      // The running turn's live and working lines are drawn by turns.ts on every snapshot with a
+      // fixed version: what they say (the call in flight, its time, the clock offset) is in their
+      // fields, so they redraw whenever a field changes.
+      if (after.kind === THINKING || after.kind === WORKING) return sameFields(before, after);
       return (
         before.id === after.id &&
         before.version === after.version &&
