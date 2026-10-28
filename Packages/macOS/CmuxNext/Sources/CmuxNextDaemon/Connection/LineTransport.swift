@@ -344,7 +344,7 @@ final class LineTransport: Sendable {
             // A request the connection closed under never gets its reply.
             if let sent = entry.sent { recorder?.abandoned(sent) }
             switch entry.waiter {
-            case .reply(_, let slot): slot.resolve(.failure(error))
+            case .reply, .handled: entry.waiter.failure?(error)
             case .discard, .expired: break
             }
         }
@@ -406,6 +406,7 @@ final class LineTransport: Sendable {
         failAll(reason)
         writer.close()
         closeDescriptor()
+        endAttachStreams(reason)
         onClose(reason)
     }
 

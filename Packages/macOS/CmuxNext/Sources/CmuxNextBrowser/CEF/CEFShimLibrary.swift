@@ -200,6 +200,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let shutdown: @convention(c) () -> Void
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
+    /// `cmux_shim_set_window_request_policy`: windows, count, clicks, count, profile root, then the
+    /// Cmd, Shift-Cmd, Shift, Option and middle click actions (`CEFWindowRequestPolicy`).
+    let setWindowRequestPolicy: @convention(c) (
+        UnsafeRawPointer?, Int32, UnsafeRawPointer?, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32, Int32, Int32
+    ) -> Void
     /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
     let setFocusRequestHandler: @convention(c) (FocusRequestFn?) -> Void
     /// Browsers Chromium created outside cmux (fork API 8; -1 before).

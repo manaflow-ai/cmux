@@ -15,53 +15,68 @@ enum AgentChatCopyHandlers {
     private static let hostAction: ActionID = "agentChat.copyHost"
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind(nameAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
-            let info = infoReader(target)
-            let work: ActionWork = Task { await finish(AgentChatCopyOperations.name(info: info, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noName, copy: { copy($0, context: context) }) }
-            registry.track(work)
-        })
-        registry.bind(harnessSessionAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
-            let info = infoReader(target)
-            let work: ActionWork = Task { await finish(AgentChatCopyOperations.harnessSessionID(info: info, fallback: target.fallbackHarnessSessionID, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noHarnessSession, copy: { copy($0, context: context) }) }
-            registry.track(work)
-        })
-        registry.bind(conversationAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
-            let work: ActionWork = Task {
-                await finish(AgentChatCopyOperations.conversation({
-                    let result = try await target.view.callPageScript("return await window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? null;")
-                    return result as? String
-                }, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noConversation, failure: AgentChatCopyStrings.copyFailed, copy: { copy($0, context: context) })
-            }
-            registry.track(work)
-        })
-        registry.bind(detailsAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
-            let info = infoReader(target)
-            let work: ActionWork = Task {
-                await finish(AgentChatCopyOperations.details(info: info, identifier: target.sessionID,
-                                                     fallbackHarnessSessionID: target.fallbackHarnessSessionID,
-                                                     fallbackCWD: target.fallbackCWD, host: target.host,
-                                                     isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noDetails, copy: { copy($0, context: context) })
-            }
-            registry.track(work)
-        })
-        registry.bind(cwdAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
-            let info = infoReader(target)
-            let work: ActionWork = Task { await finish(AgentChatCopyOperations.workingDirectory(info: info, fallback: target.fallbackCWD, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noCWD, copy: { copy($0, context: context) }) }
-            registry.track(work)
-        })
-        registry.bind(hostAction, invoke: { invocation in
-            guard let target = focusedChat(context, invocation) else { return }
-            let work: ActionWork = Task { await finish(AgentChatCopyOperations.host(target.host, isCurrent: { isCurrent(target, context: context) }), missing: AgentChatCopyStrings.noHost, copy: { copy($0, context: context) }) }
-            registry.track(work)
-        })
+        let fields: [(ActionID, Field)] = [(nameAction, .name), (harnessSessionAction, .harnessSessionID), (conversationAction, .conversation),
+                                           (detailsAction, .details), (cwdAction, .workingDirectory), (hostAction, .host)]
+        for (id, field) in fields {
+            registry.bind(id, invoke: { invocation in
+                guard let target = focusedChat(context, invocation) else { return }
+                // The page or socket read is awaited off the action's turn; the copy is one task of the run's
+                // completion, and only while the chat is still the focused one.
+                registry.trackWork(owner: "AgentChatCopyHandlers.copy", on: context.services.mainWork) {
+                    await outcome(of: field, target, context: context)
+                } then: { result in
+                    guard case .success(let outcome) = result else { return nil }
+                    let (missing, failure) = strings(of: field)
+                    return finish(isCurrent(target, context: context) ? outcome : .stale, missing: missing, failure: failure,
+                                  copy: { copy($0, context: context) })
+                }
+            })
+        }
     }
 
-    private struct Target {
+    /// What one Copy row exports from the focused chat.
+    private nonisolated enum Field: Sendable {
+        case name, harnessSessionID, conversation, details, workingDirectory, host
+    }
+
+    /// `field` read from `target`'s session (its socket or its page), or stale once the chat is no longer the focused one.
+    private static func outcome(of field: Field, _ target: Target, context: AppActionContext) async -> AgentChatCopyOutcome {
+        let current: @MainActor () -> Bool = { isCurrent(target, context: context) }
+        let info = infoReader(target)
+        switch field {
+        case .name:
+            return await AgentChatCopyOperations.name(info: info, isCurrent: current)
+        case .harnessSessionID:
+            return await AgentChatCopyOperations.harnessSessionID(info: info, fallback: target.fallbackHarnessSessionID, isCurrent: current)
+        case .conversation:
+            return await AgentChatCopyOperations.conversation({
+                let result = try await target.view.callPageScript("return await window.cmuxAcpmuxBridge?.conversationMarkdown?.() ?? null;")
+                return result as? String
+            }, isCurrent: current)
+        case .details:
+            return await AgentChatCopyOperations.details(info: info, identifier: target.sessionID,
+                                                         fallbackHarnessSessionID: target.fallbackHarnessSessionID,
+                                                         fallbackCWD: target.fallbackCWD, host: target.host, isCurrent: current)
+        case .workingDirectory:
+            return await AgentChatCopyOperations.workingDirectory(info: info, fallback: target.fallbackCWD, isCurrent: current)
+        case .host:
+            return await AgentChatCopyOperations.host(target.host, isCurrent: current)
+        }
+    }
+
+    /// The refusals of `field`: nothing to copy, and a read that failed (nil: the same as nothing to copy).
+    private static func strings(of field: Field) -> (missing: String, failure: String?) {
+        switch field {
+        case .name: (AgentChatCopyStrings.noName, nil)
+        case .harnessSessionID: (AgentChatCopyStrings.noHarnessSession, nil)
+        case .conversation: (AgentChatCopyStrings.noConversation, AgentChatCopyStrings.copyFailed)
+        case .details: (AgentChatCopyStrings.noDetails, nil)
+        case .workingDirectory: (AgentChatCopyStrings.noCWD, nil)
+        case .host: (AgentChatCopyStrings.noHost, nil)
+        }
+    }
+
+    private nonisolated struct Target: Sendable {
         let view: AgentPaneView
         let tabKey: String
         let paneKey: String
@@ -90,7 +105,7 @@ enum AgentChatCopyHandlers {
 
     @MainActor
     private static func focusedChat(_ context: AppActionContext, _ invocation: ActionInvocation) -> Target? {
-        guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+        guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey, // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), once per run
               let view = context.services.agentTabs.existingView(key), let tab = context.services.locateTab(key)?.0,
               let session = view.model.sessionId, !session.isEmpty, tab.agentSession != nil else {
             context.refuse(AgentChatCopyStrings.notAChat)
@@ -111,6 +126,7 @@ enum AgentChatCopyHandlers {
 
     @MainActor
     private static func isCurrent(_ target: Target, context: AppActionContext) -> Bool {
+        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per check, before and after the read
         guard let located = context.services.locateTab(target.tabKey),
               context.services.paneController(for: located.1)?.currentTabKey == target.tabKey,
               context.services.windows.active?.focusedPane?.paneKey == target.paneKey,
