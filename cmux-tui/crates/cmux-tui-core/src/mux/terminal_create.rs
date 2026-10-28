@@ -1,6 +1,7 @@
 //! Terminal creation in a workspace: host ids and run results for created terminals, replayed placements, the create implementation, and binding a running terminal to its canonical workspace.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -13,7 +14,7 @@ impl Mux {
         )?;
         self.workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .terminal_host_id(&terminal_id)?
             .context("created terminal result has no durable host id")
     }
@@ -129,7 +130,7 @@ impl Mux {
         let workspace_key = self
             .state
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .workspace_by_id(workspace)
             .map(|workspace| workspace.key.clone())
             .ok_or_else(|| anyhow::anyhow!("unknown workspace {workspace}"))?;
@@ -146,17 +147,22 @@ impl Mux {
             on_exit,
         )?;
         crate::debug_spans::mark("create.fingerprinted");
-        let replay =
-            { self.workspace_registry.lock().unwrap().replay_terminal(mutation, &fingerprint)? };
+        let replay = {
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .replay_terminal(mutation, &fingerprint)?
+        };
         crate::debug_spans::mark("create.replay_checked");
         if let Some(replay) = replay {
-            let terminal_id = replay.result["terminal_id"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("stored terminal create result is missing id"))?;
+            let terminal_id =
+                replay.result.get("terminal_id").and_then(Value::as_str).ok_or_else(|| {
+                    anyhow::anyhow!("stored terminal create result is missing id")
+                })?;
             return self.replayed_terminal_placement(terminal_id);
         }
         let terminal_id = match requested_terminal_id {
-            Some(value) => TerminalId::from_hex(value).expect("validated terminal UUID"),
+            Some(value) => TerminalId::from_hex(value).context("invalid_terminal_id")?,
             None => TerminalId::random()?,
         };
         let reservation = TerminalReservationRequest {
@@ -181,7 +187,11 @@ impl Mux {
         let identity = self
             .resource_terminal_host_identity(&surface)
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let terminal_revision = self.workspace_registry.lock().unwrap().terminal_revision()?;
+        let terminal_revision = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_revision()?;
         crate::debug_spans::mark("create.terminal_revision");
         Ok(TerminalPlacementResult {
             placement: Some(placement),
@@ -226,7 +236,7 @@ impl Mux {
         reservation: Option<TerminalReservationRequest>,
     ) -> anyhow::Result<(RunPlacement, Arc<Surface>, Value)> {
         {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             if state.workspace_by_id(workspace).is_none() {
                 anyhow::bail!("unknown workspace {workspace}");
             }
@@ -236,7 +246,7 @@ impl Mux {
             hook();
         }
         let lifecycle = self.workspace_lifecycle(workspace);
-        let workspace_lifecycle = lifecycle.lock().unwrap();
+        let workspace_lifecycle = lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
         crate::debug_spans::mark("create.lifecycle_locked");
         #[cfg(test)]
         if let Some(hook) = self.terminal_create_after_materialization_lock.lock().unwrap().clone()
@@ -249,7 +259,7 @@ impl Mux {
             hook();
         }
         let workspace_key = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(workspace) = state.workspace_by_id(workspace) else {
                 anyhow::bail!("unknown workspace {workspace}");
             };
@@ -268,7 +278,10 @@ impl Mux {
             None => self.spawn_surface_in_workspace(&workspace_key, cwd, size, argv)?,
         };
         crate::debug_spans::mark("create.surface_spawned");
-        self.pending_workspace_surfaces.lock().unwrap().insert(surface.id, workspace);
+        self.pending_workspace_surfaces
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(surface.id, workspace);
         let pending_surface = self.pending_workspace_surface(surface.id);
         if let Some(name) = name {
             surface.set_name(Some(name));
@@ -306,7 +319,7 @@ impl Mux {
         let active_at = self.next_active_at();
         let mut rollback_removed = Vec::new();
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let result = (|| -> anyhow::Result<_> {
                 anyhow::ensure!(
                     state.surfaces.contains_key(&surface.id),
@@ -316,7 +329,7 @@ impl Mux {
                     .workspace_index(workspace)
                     .context("workspace disappeared while creating terminal")?;
                 let target =
-                    state.workspaces[wi].active_screen_ref().map(|screen| screen.active_pane);
+                    state.workspace_at(wi)?.active_screen_ref().map(|screen| screen.active_pane);
                 if let Some(target) = target {
                     let (_, si) = state
                         .screen_of(target)
@@ -331,14 +344,13 @@ impl Mux {
                     let index = pane.tabs.len() - 1;
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
-                    let screen = state.workspaces[wi].screens[si].id;
-                    let entity = crate::server::tree_entity_json(
+                    let screen = state.screen_at(wi, si)?.id;
+                    let entity = committed_tree_entity(
                         &state,
                         &notifications,
                         TreeDeltaKind::TabAdded,
                         surface.id,
-                    )
-                    .expect("new terminal tab is present in tree snapshot");
+                    );
                     let placement =
                         RunPlacement { surface: surface.id, pane: target, screen, workspace };
                     let created_path = self.created_resource_path_in_state(&state, surface.id)?;
@@ -365,7 +377,8 @@ impl Mux {
                     state.insert_pane(pane);
                     state.register_placed_tab_identity(surface.id);
                     stamp_pane_focus(self, &mut state, pane_id);
-                    state.workspaces[wi].screens.push(Screen {
+                    let target_workspace = state.workspace_at_mut(wi)?;
+                    target_workspace.screens.push(Screen {
                         id: screen_id,
                         public_id: screen_public_id,
                         name: None,
@@ -379,14 +392,13 @@ impl Mux {
                         layout_revision: 0,
                         layout_undo: Default::default(),
                     });
-                    state.workspaces[wi].active_screen = 0;
-                    let entity = crate::server::tree_entity_json(
+                    target_workspace.active_screen = 0;
+                    let entity = committed_tree_entity(
                         &state,
                         &notifications,
                         TreeDeltaKind::ScreenAdded,
                         screen_id,
-                    )
-                    .expect("first workspace screen is present in tree snapshot");
+                    );
                     let placement = RunPlacement {
                         surface: surface.id,
                         pane: pane_id,
@@ -448,7 +460,7 @@ impl Mux {
         let identity = surface
             .terminal_host_identity()
             .ok_or_else(|| anyhow::anyhow!("created terminal has no host identity"))?;
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let terminal = registry
             .terminal_record(&identity.terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("created terminal has no registry row"))?;
@@ -458,7 +470,7 @@ impl Mux {
                 terminal_lifecycle_name(terminal.lifecycle)
             );
         }
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         if !state.surfaces.contains_key(&surface.id) {
             anyhow::bail!("terminal closed while its topology binding was being created");
         }
