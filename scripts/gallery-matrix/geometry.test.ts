@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { lintGeometry, parseArtifact, parseConfig, type GeometryArtifact, type GeometryConfig, type GeometryRule } from "./geometry";
+import { main as lintMain } from "./geometry-lint";
 
 const sha = "92c51f49804f48da9f46a86bbebea2bc11cd7f99";
 const artifact = (): GeometryArtifact => ({ schemaVersion: 1, revision: { sha, source: "fixture" }, capture: { caseId: "rows", engine: "chromium", theme: "light", viewport: { width: 100, height: 100 }, deviceScaleFactor: 1, screenshot: "fixture.png", screenshotSha256: "0".repeat(64), coordinateSpace: "css-px" }, elements: [{ id: "a", kind: "web", source: "dom-rect", group: "icons", rect: { x: 10, y: 10, width: 16, height: 16 } }, { id: "b", kind: "web", source: "dom-rect", group: "icons", rect: { x: 10, y: 30, width: 16, height: 16 } }] });
@@ -66,4 +69,21 @@ test("hover, insets, radii and secondary styles require their own evidence", asy
   expect((await lint(value, rules)).passed).toBe(true);
   value.elements[0]!.hoverRect = { ...value.elements[0]!.rect, width: 100 };
   expect((await lint(value, rules)).findings[0]!.message).toContain("beyond its control");
+});
+
+test("CLI writes a failing report when screenshot evidence is missing", async () => {
+  const dir = mkdtempSync(join(process.cwd(), "geometry-cli-"));
+  try {
+    const artifacts = join(dir, "artifacts"); const report = join(dir, "report");
+    const configPath = join(dir, "config.json");
+    const value = artifact(); value.capture.screenshot = "missing.png";
+    mkdirSync(artifacts);
+    writeFileSync(join(artifacts, "rows.geometry.json"), JSON.stringify(value));
+    writeFileSync(configPath, JSON.stringify(config()));
+    expect(await lintMain(["--artifact-dir", artifacts, "--config", configPath, "--report-dir", report, "--expected-sha", sha])).toBe(1);
+    const result = JSON.parse(readFileSync(join(report, "geometry-report.json"), "utf8"));
+    expect(result.errors.some((error: string) => error.includes("screenshot evidence unavailable"))).toBe(true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

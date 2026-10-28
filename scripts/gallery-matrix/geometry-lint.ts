@@ -18,9 +18,18 @@ export async function main(args = process.argv.slice(2)): Promise<number> {
   const { values } = parseArgs({ args, options: { "artifact-dir": { type: "string" }, config: { type: "string" }, "report-dir": { type: "string" }, "expected-sha": { type: "string" } } });
   if (!values["artifact-dir"] || !values.config || !values["report-dir"] || !values["expected-sha"]) throw new Error("--artifact-dir, --config, --report-dir and --expected-sha are required");
   const config = parseConfig(JSON.parse(await readFile(values.config, "utf8")), values.config);
-  const artifacts = await Promise.all((await files(values["artifact-dir"])).map(async (file) => ({ file, artifact: parseArtifact(JSON.parse(await readFile(file, "utf8")), file) })));
+  const artifacts: Array<{ file: string; artifact: ReturnType<typeof parseArtifact> }> = [];
+  const parseErrors: string[] = [];
+  for (const file of await files(values["artifact-dir"])) {
+    try {
+      artifacts.push({ file, artifact: parseArtifact(JSON.parse(await readFile(file, "utf8")), file) });
+    } catch (error) {
+      parseErrors.push(`${file}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   await mkdir(values["report-dir"], { recursive: true });
   const report = await lintGeometry(artifacts, config, values["report-dir"]);
+  report.errors.push(...parseErrors);
   for (const { file, artifact } of artifacts) {
     report.errors.push(...await validateScreenshot(file, artifact));
     if (artifact.revision.sha !== values["expected-sha"]) report.errors.push(`${file}: capture SHA does not match --expected-sha`);

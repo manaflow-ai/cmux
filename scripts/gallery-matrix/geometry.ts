@@ -280,8 +280,12 @@ function resolveScreenshot(artifactFile: string, screenshot: string): string {
 async function writeCrop(artifactFile: string, finding: GeometryFinding, artifact: GeometryArtifact, reportDir: string): Promise<void> {
   const screenshot = resolveScreenshot(artifactFile, artifact.capture.screenshot);
   if (!existsSync(screenshot)) return;
-  const bytes = await readFile(screenshot);
-  const png = PNG.sync.read(bytes);
+  let png: PNG;
+  try {
+    png = PNG.sync.read(await readFile(screenshot));
+  } catch {
+    return;
+  }
   const selected = artifact.elements.filter((element) => finding.elementIds.includes(element.id));
   if (!selected.length) return;
   const scale = artifact.capture.coordinateSpace === "screenshot-pixels" ? 1 : artifact.capture.deviceScaleFactor || 1;
