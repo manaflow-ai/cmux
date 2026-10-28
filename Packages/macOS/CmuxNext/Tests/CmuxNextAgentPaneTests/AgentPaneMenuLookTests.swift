@@ -74,7 +74,7 @@ struct AgentPaneMenuLookTests {
         var page: [(String, [String: String])] = []
         var quoted: [String] = []
         var attached: [String] = []
-        let target = AgentPaneMessageTarget(text: "Rendered body", rowId: "summary-4", markdown: "**Body**", forkSeq: 4)
+        let target = AgentPaneMessageTarget(text: "Rendered body", rowId: "summary-4", sessionId: "chat-1", markdown: "**Body**", forkSeq: 4)
         // Rebuild with the seam callbacks because the helper's defaults intentionally do nothing.
         let webKit = Self.webKitMenu(MenuLookWebKitTarget())
         AgentPaneContextMenu.rebuild(
@@ -89,7 +89,7 @@ struct AgentPaneMenuLookTests {
                 quoteReply: { quoted.append($0) },
                 attachSelection: { attached.append($0) },
                 search: { page.append(("search", ["text": $0])) },
-                pinChapter: { page.append(("pin", ["rowId": $0])) },
+                pinChapter: { rowId, sessionId in page.append(("pin", ["rowId": rowId, "sessionId": sessionId])) },
             ),
         )
         let titles = webKit.items.map { $0.isSeparatorItem ? "-" : $0.title }
@@ -117,7 +117,15 @@ struct AgentPaneMenuLookTests {
         try Self.click(search)
         #expect(quoted == ["> selected words\n\n"])
         #expect(attached == ["selected words"])
-        #expect(page == [("pin", ["rowId": "summary-4"]), ("search", ["text": "selected words"])])
+        #expect(page == [("pin", ["rowId": "summary-4", "sessionId": "chat-1"]), ("search", ["text": "selected words"])])
+    }
+
+    @Test func reportCarriesTheOwningSessionForStaleMenuGuards() throws {
+        let target = try #require(
+            AgentPaneMessageTarget(report: ["text": "Reply", "rowId": "summary-4", "sessionId": "chat-1"]),
+        )
+        #expect(target.rowId == "summary-4")
+        #expect(target.sessionId == "chat-1")
     }
 
     /// Fork from Here's neighbour Open in Side Chat on a prompt runs the page's side chat action.

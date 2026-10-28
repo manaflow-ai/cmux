@@ -7,6 +7,8 @@ import CmuxNextDesign
 struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The transcript row id, used by the rail-owned Pin as chapter seam.
     var rowId: String?
+    /// The session that owns the transcript row. Native actions reject a stale menu after a chat switch.
+    var sessionId: String?
     /// The message as a person reads it; empty for an image outside a message (the gallery).
     var text: String
     /// An agent reply's Markdown source; nil for a prompt (it is plain text already).
@@ -28,9 +30,10 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
     var part: AgentPaneMenuPart?
 
-    init(text: String, rowId: String? = nil, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
+    init(text: String, rowId: String? = nil, sessionId: String? = nil, markdown: String? = nil, forkSeq: Int? = nil, sideChat: Bool = false, retryRowId: String? = nil,
          links: [URL] = [], opensImage: Bool = false, hasImage: Bool? = nil, part: AgentPaneMenuPart? = nil) {
         self.rowId = rowId
+        self.sessionId = sessionId
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
@@ -51,6 +54,7 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
         guard let object = body as? [String: Any] else { return nil }
         let text = object["text"] as? String ?? ""
         rowId = (object["rowId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        sessionId = (object["sessionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
         hasImage = opensImage || ((object["image"] as? NSNumber)?.boolValue ?? false)
         part = AgentPaneMenuPart(report: object["part"])
@@ -105,7 +109,7 @@ enum AgentPaneContextMenu {
         var pathItems: ((String) -> [NSMenuItem]?)? = nil
         var search: (String) -> Void = { _ in }
         /// Toggle the rail-owned bookmark for a transcript row.
-        var pinChapter: (String) -> Void = { _ in }
+        var pinChapter: (String, String) -> Void = { _, _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
         /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
@@ -234,10 +238,10 @@ enum AgentPaneContextMenu {
             if target.isPrompt {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.editAndResend, symbol: "pencil") { actions.edit(target.text) })
             }
-            if let rowId = target.rowId {
+            if let rowId = target.rowId, let sessionId = target.sessionId {
                 // The rail owns bookmark state; this callback is the menu's explicit seam.
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.pinAsChapter, symbol: "bookmark") {
-                    actions.pinChapter(rowId)
+                    actions.pinChapter(rowId, sessionId)
                 })
             }
             if let seq = target.forkSeq {

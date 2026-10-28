@@ -213,7 +213,9 @@ extension AgentPaneView {
             linkItems: { LinkMenu().linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
-            pinChapter: { [weak self] rowId in self?.runMessageAction("chat.pinChapter", ["rowId": rowId]) },
+            pinChapter: { [weak self] rowId, sessionId in
+                self?.runMessageAction("chat.pinChapter", ["rowId": rowId, "sessionId": sessionId])
+            },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
             pasteTarget: webView,
             inspectElement: AgentPaneTunables.pointerInspector.value ? {

@@ -331,6 +331,7 @@ import {
   forksAnyTurn,
   latestForkSeq,
   messageMenuTarget,
+  messageMenuSessionMatches,
   openReportedImage,
   setMessageMenuSource,
 } from "./conversation/messageMenu";
@@ -7841,12 +7842,20 @@ function AcpmuxPane() {
           },
           // Pin as chapter is the native menu's named rail action. Marking true is idempotent:
           // the bookmark transport publishes the resulting tick to every rail on this session.
-          "chat.pinChapter": async ({ rowId }) => {
+          "chat.pinChapter": async ({ rowId, sessionId }) => {
             const match = /^(?:user|summary)-(\d+)$/.exec(String(rowId ?? ""));
             const seq = match ? Number(match[1]) : NaN;
-            const sessionId = client.selectedSession;
-            if (!sessionId || !Number.isSafeInteger(seq) || seq <= 0) return;
-            await client.setBookmark(sessionId, seq, true);
+            const requestedSessionId = typeof sessionId === "string" ? sessionId : "";
+            // The native menu can outlive the transcript that opened it. Require both the client
+            // selection and the drawn snapshot to still name the target session before touching
+            // the rail; a stale menu after switching chats must be a no-op.
+            if (
+              !messageMenuSessionMatches(requestedSessionId, client.selectedSession, snapshotRef.current?.sessionId) ||
+              !Number.isSafeInteger(seq) ||
+              seq <= 0
+            )
+              return;
+            await client.setBookmark(requestedSessionId, seq, true);
           },
           "chat.history": () => client.loadOlder(),
           // Find in Chat (the app's Find commands on an agent pane).
