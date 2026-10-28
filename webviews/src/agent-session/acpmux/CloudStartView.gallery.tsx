@@ -5,6 +5,7 @@
 // layouts of the `cloud-start-look` experiment.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../gallery/format";
+import type { Play } from "../../gallery/play";
 import { cloudStartLook } from "./cloudStart.experiment";
 import { CloudStartView } from "./CloudStartView";
 import type { CloudStartProgress } from "./cloudStartProgress";
@@ -16,6 +17,10 @@ const begun: CloudStartProgress = {
   folder: "paint",
 };
 const known = { machine: "paint-dev", size: "4 CPU · 16 GB", secrets: 3, network: "limited" } as const;
+
+const showStart: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-cloud-start__status"));
+};
 
 export default componentEntry<ComponentProps<typeof CloudStartView>>({
   id: "agent-pane.cloud-start",
@@ -59,5 +64,7 @@ export default componentEntry<ComponentProps<typeof CloudStartView>>({
       },
     },
   },
-  experiment: { definition: cloudStartLook, script: [] },
+  // The gallery loads no experiment without a step (format.ts validateEntries): the card is static,
+  // so its one step waits for the card the arm draws.
+  experiment: { definition: cloudStartLook, script: [{ name: "Show the start", run: showStart }] },
 });
