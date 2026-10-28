@@ -1,7 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextHome
-import CmuxNextTestSupport
 import CmuxHomeCore
 @testable import MessagesLabSidebar
 import Testing
@@ -18,7 +17,7 @@ import Testing
 ///
 /// The clicks run as AppKit runs them: a left mouse-down on the list's document view at the
 /// item's place, with its mouse-up queued for the list's press-and-drag loop.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows) struct HomeOpenFocusesComposerTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeOpenFocusesComposerTests {
     struct Harness {
         let services: AppServices
         let window: NSWindow

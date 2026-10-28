@@ -216,8 +216,7 @@ final class ExtensionsMenuController {
     /// Closes the bubble's panel for good (its page is closing): ``close()`` only orders it out.
     func closePanel() {
         close()
-        panel.isReleasedWhenClosed = false
-        panel.close()
+        popup.closePanel()
     }
 
     /// Closes the bubble, then runs `work` with the handler (an item that opens a page, a popup
