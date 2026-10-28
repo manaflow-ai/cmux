@@ -146,6 +146,8 @@ export function ProjectChooser({
         className={inline ? "acpmux-project-button" : "acpmux-context-chip acpmux-project-button"}
         aria-label={inline ? `${t("project.label")}: ${label}` : t("project.label")}
         aria-haspopup="dialog"
+        // tooltip-allow: a truncated project label keeps its full path available.
+        title={current}
         aria-expanded={open}
         {...press}
       >

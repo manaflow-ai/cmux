@@ -5181,7 +5181,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.dev-holder.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
       - name: Upload DEV daily compile timing
@@ -5712,7 +5712,7 @@ jobs:
           name: cmux-next-dev-cas-holder-${{ steps.report.outputs.holder }}
           path: ${{ runner.temp }}/cmux-next-dev-cas-holder/holder.json
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 3
           overwrite: true
 
   request-cmux-next-dev-publish:

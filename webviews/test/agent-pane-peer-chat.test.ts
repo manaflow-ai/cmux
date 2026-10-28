@@ -144,44 +144,37 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
       await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
       await page.locator(".cv-worked").first().waitFor();
-      // Before any output the turn's one live line at its bottom times it from the prompt
-      // ("Thinking 5s", Thinking.tsx), moved onto this computer's clock.
-      const time = page.locator(".cv-worked.is-below .cv-worked__time");
-      await time.waitFor();
-      const label = (await time.textContent()) ?? "";
-      const seconds = /^(\d+)s$/.exec(label)?.[1];
-
-      // The peer starts a tool call: the turn has work now.
-      socket!.send(
-        JSON.stringify({
-          jsonrpc: "2.0",
-          method: "_acpmux/event",
-          params: {
-            sessionId: SESSION,
-            seq: 2,
-            at: peerNow(),
-            dir: "in",
-            kind: "tool_call",
-            msg: {
-              method: "session/update",
-              params: {
-                update: {
-                  sessionUpdate: "tool_call",
-                  toolCallId: "t1",
-                  title: "Run make",
-                  kind: "execute",
-                  status: "in_progress",
-                },
-              },
+      const send = (seq: number, kind: string, update: Record<string, unknown>) =>
+        socket!.send(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            method: "_acpmux/event",
+            params: {
+              sessionId: SESSION,
+              seq,
+              at: peerNow(),
+              dir: "in",
+              kind,
+              msg: { method: "session/update", params: { update: { sessionUpdate: kind, ...update } } },
             },
-          },
-        }),
-      );
-      // The call in flight ("Run make") is named once, on the same live line (Thinking.tsx, the
+          }),
+        );
+      // The peer starts a tool call: the turn has work now. Its stamp is the first live event, the
+      // one the pane reads the peer's clock from (direct.ts `observeClock`).
+      send(2, "tool_call", { toolCallId: "t1", title: "Run make", kind: "execute", status: "in_progress" });
+      // The call in flight ("Run make") is named once, on the turn's live line (Thinking.tsx, the
       // Codex-style turn). The line already reads before the call comes in: wait for the call's name.
       const row = page.locator(".cv-thinking", { hasText: "Run make" });
       await row.first().waitFor();
       const named = await row.count();
+      // The call ends: between steps the live line times the turn from the prompt ("Thinking 5s"),
+      // moved onto this computer's clock.
+      send(3, "tool_call_update", { toolCallId: "t1", status: "completed" });
+      await row.first().waitFor({ state: "detached" });
+      const time = page.locator(".cv-worked.is-below .cv-worked__time");
+      await time.waitFor();
+      const label = (await time.textContent()) ?? "";
+      const seconds = /^(\d+)s$/.exec(label)?.[1];
       const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
       expect({

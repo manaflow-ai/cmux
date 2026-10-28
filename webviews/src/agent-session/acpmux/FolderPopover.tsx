@@ -253,6 +253,8 @@ export function FolderPopover({
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
+        // tooltip-allow: the fixed footer column may truncate a long folder name.
+        title={current}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}

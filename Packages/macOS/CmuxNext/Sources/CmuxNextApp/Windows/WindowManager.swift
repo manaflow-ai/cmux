@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLayout
 import CmuxNextWakeups
 import Observation
 
@@ -469,6 +470,10 @@ final class WindowManager {
             if let id = window.content?.workspace.id { shown.insert(id) }
             if let id = window.state.workspaceID { shown.insert(id) }
             shown.formUnion(window.state.viewSet?.ids ?? [])
+            if LayoutTunables.dockedWorkspaces.value {
+                shown.formUnion(window.state.docks.visible.map(\.workspace))
+                if let stage = window.state.stageWorkspaceID { shown.insert(stage) }
+            }
         }
     }
 
