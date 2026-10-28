@@ -37,20 +37,21 @@ enum ConversationRow: Hashable {
     }
 }
 
-struct ReplyQuote: Hashable {
+struct ReplyQuote: Hashable, Sendable {
     var text: String
     var isOutgoing: Bool
     var hasImage: Bool
 }
 
-enum MessageFooter: Hashable {
+enum MessageFooter: Hashable, Sendable {
     case none
     /// "Delivered", or "Read" with its time drawn in the regular weight.
     case status(String, detail: String? = nil)
     case notDelivered
 }
 
-struct MessageRowModel: Hashable {
+/// A value: measuring tasks take rows off the main thread (`MessageLayoutCache.measureAway`).
+struct MessageRowModel: Hashable, Sendable {
     var rowID: String
     var message: ConversationMessage
     var isOutgoing: Bool
