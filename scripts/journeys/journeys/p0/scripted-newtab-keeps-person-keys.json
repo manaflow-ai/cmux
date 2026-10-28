@@ -34,7 +34,7 @@
        {"daemon_prompt": true},
        {"daemon_lacks": "keep-"},
        {"daemon_lacks": "more-"},
-       {"frame_text": "keep-${nonce}-more-${nonce}"}
+       {"composer_text": "keep-${nonce}-more-${nonce}"}, {"frame_text": "Your Chief"}
      ]}
   ]
 }

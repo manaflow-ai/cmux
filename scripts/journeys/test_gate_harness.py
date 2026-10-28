@@ -27,6 +27,7 @@ if "pane_frame_text" not in D.EXT_CONDITIONS:
     D.load_extensions(D)
 import ext_multiwindow as MW  # noqa: E402  (the module load_extensions installed)
 import ext_frametime as FT  # noqa: E402
+import ext_home as EH  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("journeys_run", HERE / "run.py")
 RUN = importlib.util.module_from_spec(_spec)
@@ -222,6 +223,34 @@ class ShownDrawsWithin(unittest.TestCase):
                                                 {"watch": "w", "since": "uncover"}, {})
         self.assertFalse(ok)
         self.assertIn("error", detail)
+
+
+class ComposerText(unittest.TestCase):
+    """scripted-newtab-keeps-person-keys reads the composer's text from the app, not from OCR."""
+
+    def journey(self, answer):
+        class App:
+            def rpc(self, method, params=None):
+                assert (method, params) == ("debug.home.drive", {"action": "field"})
+                if isinstance(answer, Exception):
+                    raise answer
+                return answer
+        j = D.Journey.__new__(D.Journey)
+        j.app = App()
+        return j
+
+    def test_the_app_read_judges_the_text(self):
+        ok, detail = EH.cond_composer_text(self.journey({"ok": True, "text": "keep-1-more-1", "focused": True}), "keep-1-more-1", {})
+        self.assertTrue(ok)
+        ok, _ = EH.cond_composer_text(self.journey({"ok": True, "text": "keep-1", "focused": True}), "keep-1-more-1", {})
+        self.assertFalse(ok)
+
+    def test_an_app_without_the_read_falls_back_to_the_frame_and_says_so(self):
+        j = self.journey(D.StepError("debug.home.drive: action must be focus, type, send"))
+        j.evaluate = lambda name, want, cache: (name == "frame_text", {"image": "check-01.png"})
+        ok, detail = EH.cond_composer_text(j, "keep-1-more-1", {})
+        self.assertTrue(ok)
+        self.assertIn("fallback", detail)
 
 
 if __name__ == "__main__":
