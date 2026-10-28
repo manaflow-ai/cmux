@@ -26,6 +26,10 @@ enum Strings {
     static var menuSidebarToggleIcon: String {
         String(localized: "menu.debug.sidebarToggleIcon", defaultValue: "Sidebar Toggle Icon", bundle: .module)
     }
+    static var menuDebugWindows: String { String(localized: "menu.debug.windows", defaultValue: "Debug Windows", bundle: .module) }
+    static var menuMotionInspector: String {
+        String(localized: "menu.debug.windows.motionInspector", defaultValue: "Motion Inspector", bundle: .module)
+    }
     static var menuStatusIcons: String {
         String(localized: "menu.debug.statusIcons", defaultValue: "Status Icons", bundle: .module)
     }

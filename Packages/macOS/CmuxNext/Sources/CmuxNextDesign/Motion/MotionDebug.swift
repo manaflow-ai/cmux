@@ -22,6 +22,8 @@ public import CmuxNextAppearance
 /// document cmux-motion's `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
 /// compares the two. `trace_start`, `trace_read` and `trace_stop` sample
 /// animated geometry on every display frame instead (DEBUG and bench builds, ``MotionFrameTrace``).
+/// The Motion Inspector's actions (`inspect_start`, `inspect_stop`, `time_scale`, `filter`, `step`, `running`,
+/// `findings`, `inspector`) are ``MotionInspector/handle(_:_:)``'s; scripts/cmux-next/motion.py drives them.
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {
     public init() {}
@@ -30,14 +32,26 @@ public struct MotionDebug {
     /// `samplers` read the animated geometry of the views they know (DEBUG and bench builds: ``MotionFrameTrace``).
     /// `commitProbe` (the handler's own) times each Core Animation commit from `start` to `stop`
     /// (`work` `ca.commit`).
+    /// `inspector`: the app's Motion Inspector window and model (the inspector actions answer an error without one).
     public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = [],
-                              commitProbe: MotionCommitProbe? = nil) -> [String: Any] {
+                              commitProbe: MotionCommitProbe? = nil, inspector: MotionInspectorWindow? = nil) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
         #if DEBUG || CMUX_BENCH_HOOKS
         if action.hasPrefix("trace_") {
             return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers + registeredSamplers)
         }
         #endif
+        // The Motion Inspector's actions (MotionInspector.handle): slow motion, the filter, frame steps, the
+        // live list of running animations and the gate bypasses.
+        if action == "window", let inspector {
+            // Opens (or with `open` false closes) Debug > Debug Windows > Motion Inspector, in any build with the
+            // socket; a script's open never takes the keys.
+            if params["open"] as? Bool == false { inspector.close() } else {
+                inspector.show(over: windows.first { $0.isVisible }, focus: false)
+            }
+            return inspector.inspector.report(records: false, endedRecords: false).merging(["window": inspector.isShown]) { _, new in new }
+        }
+        if let inspector, let answer = inspector.inspector.handle(action, params) { return answer }
         switch action {
         case "start":
             MotionTrace.start()

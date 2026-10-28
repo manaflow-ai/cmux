@@ -187,3 +187,10 @@ public final class MotionClock {
         return !entries.isEmpty
     }
 }
+
+// The Motion Inspector's clock seam, not wired yet: the clock never parks, resumes or steps for it.
+extension MotionClock {
+    public var isParkedByInspector: Bool { false }
+    func resumeFromInspector() {}
+    func inspectorStep(seconds: Double) -> Bool { false }
+}

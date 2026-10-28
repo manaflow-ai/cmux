@@ -1,0 +1,122 @@
+{
+  "title": "Motion Inspector: slow motion, the sidebar rows filter and the live list (Debug > Debug Windows > Motion Inspector)",
+  "windows": [
+    {
+      "name": "motion-inspector",
+      "title": "Motion Inspector"
+    }
+  ],
+  "steps": [
+    {
+      "title": "Launch",
+      "wait": 3,
+      "shot": false
+    },
+    {
+      "title": "Open the Motion Inspector (debug.motion window; it never takes the keys)",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "window"
+        }
+      },
+      "wait": 1,
+      "shot": false
+    },
+    {
+      "title": "Review the sidebar rows only",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "filter",
+          "kind": "sidebarRows"
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "10x slow motion",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "time_scale",
+          "value": 10
+        }
+      },
+      "wait": 0.5,
+      "shot": false
+    },
+    {
+      "title": "Three new workspaces: their rows open in slow motion",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Motion one"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Second",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Motion two"
+      ],
+      "wait": 0.3,
+      "shot": false
+    },
+    {
+      "title": "Third, mid-motion: the list shows each insert's spring, layers, frames and owner",
+      "cmux": [
+        "workspace",
+        "new",
+        "--name",
+        "Motion three"
+      ],
+      "wait": 0.8
+    },
+    {
+      "title": "Paused and stepped one frame",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "step",
+          "frames": 1
+        }
+      },
+      "wait": 0.5,
+      "record": true
+    },
+    {
+      "title": "Every kind, ungated animations found",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "findings"
+        }
+      },
+      "wait": 0.5,
+      "shot": false,
+      "record": "file",
+      "resultFile": "findings"
+    },
+    {
+      "title": "The live list as JSON",
+      "rpc": {
+        "method": "debug.motion",
+        "params": {
+          "action": "running",
+          "ended": true
+        }
+      },
+      "wait": 0.5,
+      "shot": false,
+      "record": "file",
+      "resultFile": "records"
+    }
+  ]
+}

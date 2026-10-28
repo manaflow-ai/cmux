@@ -161,6 +161,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
+    /// The Motion Inspector's rate for pages while it slows motion; not wired yet.
+    @MainActor public static func motionRate(of design: DesignSettings) -> Double? { nil }
+
     /// `data-cmux-energy` for `policy`: `saver` under Energy Saver (``MotionPolicy/energySaver``),
     /// else nil (no attribute).
     public static func energyValue(_ policy: MotionPolicy) -> String? {

@@ -460,6 +460,16 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 isDebugOnly: true,
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
             ),
+            // Debug menu > Debug Windows > Motion Inspector (DEV and NIGHTLY; plans/cmux-next/motion-inspector.md):
+            // slow motion, a frame step, the category filter and the live list of animations. `MainMenu` places
+            // the row in its Debug Windows submenu, so no `mainMenu`. Scripts use `debug.motion` (motion.py).
+            ActionDescriptor(
+                id: "debug.motionInspector",
+                title: String(localized: "action.debug.motionInspector", defaultValue: "Show Motion Inspector", bundle: .module),
+                keywords: ["motion", "animation", "slow motion", "inspector", "frame", "spring", "fade", "debug"],
+                category: .settings, symbol: "slowmo", surfaces: [.palette, .menu], isDebugOnly: true,
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.devOnly), contextMenuExemption: .noObject)
+            ),
             // Debug menu > Main-Thread Blocking (N) > Reset Counts (threading-model.md): zeroes the blocking
             // detector's per-site counts. `BlockingCallsMenu` places the row in its submenu, so no `mainMenu`.
             ActionDescriptor(

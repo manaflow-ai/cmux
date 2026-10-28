@@ -100,6 +100,20 @@ public final class DesignSettings {
             signals.designChanged([.motion])
         }
     }
+    /// What the Motion Inspector changes while it inspects (``MotionInspection``): its time scale and the
+    /// categories its filter leaves out. In memory only, never read from or written to cmux.json; `.off`
+    /// unless the inspector runs. Raises ``AppearanceSignals/Signal/motion``.
+    public var motionInspection = MotionInspection.off {
+        didSet {
+            guard motionInspection != oldValue else { return }
+            signals.designChanged([.motion])
+        }
+    }
+    /// The Motion Inspector inspecting through these settings now (it registers itself from its start to its
+    /// stop); nil while none does. The gates' hooks read `DesignSettings.shared`'s: one load and a nil check
+    /// per animation when nobody inspects. Typed by its seam: the inspector lives in CmuxNextDesign, above
+    /// these settings.
+    @ObservationIgnored public var activeMotionInspector: (any MotionInspecting)?
     /// `appearance.colorTransition.*`: how theme and color changes animate (``ColorTransition``;
     /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
     /// next theme payload.
