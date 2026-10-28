@@ -605,6 +605,16 @@ export function Composer({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  /// A new chat's text as the host keeps it (`onUnsentDraft`): the person's words only. The host keeps
+  /// no attachment with it, so each attachment's token goes, a placeholder still being read included.
+  const unsentText = (value: string) =>
+    withoutInlineTokens(
+      value,
+      (id) =>
+        attachmentsRef.current.some((chip) => chip.id === id) || pendingRef.current.some((chip) => chip.id === id),
+    );
   // A prompt sent while a pasted screenshot is still being read goes once its chip is ready.
   const holdForAttachments = useSendWhenAttached(loading + videoReading, sessionId, unsettled + videoReading);
   // The box makes a huge paste a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
@@ -711,7 +721,7 @@ export function Composer({
           writePersistedDraft(session, typed);
         }
         const unsent = unsentDraft.current;
-        if (unsent) unsent.push(typed);
+        if (unsent) unsent.push(unsentText(typed));
         await Promise.all([unsent?.settle(), settlePendingDraftWrites()]);
       },
       wake(state) {
@@ -861,7 +871,7 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
-    unsentDraft.current?.push(withoutInlineTokens(text, (id) => attachmentsRef.current.some((chip) => chip.id === id)));
+    unsentDraft.current?.push(unsentText(text));
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
