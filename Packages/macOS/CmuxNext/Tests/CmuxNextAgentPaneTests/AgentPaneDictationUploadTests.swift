@@ -29,6 +29,8 @@ struct AgentPaneDictationUploadTests {
         var finish: [String: Any] = AgentPaneReply.success(["path": "/home/me/.acpmux/uploads/chat-a/Recording.wav"])
         /// The chunk the stager refuses (its machine dropped), if any.
         var failsAtChunk: Int?
+        /// Runs as the stager takes the begin, before any chunk is read.
+        var onBegin: (() -> Void)?
         /// A size limit the stager enforces at begin, as the App's stagers did: Cloud's
         /// (`CloudUploads`, `upload_refused` past 32 MiB) and a peer's (`AgentPeerUploads`,
         /// `too_large` past 1 GiB). Nil once those caps are gone.
@@ -41,6 +43,7 @@ struct AgentPaneDictationUploadTests {
                 sessions.append(session)
                 switch request {
                 case .begin(_, let size, _, _):
+                    onBegin?()
                     if let limit = refusesOver, size > limit.bytes {
                         return AgentPaneReply.failure(code: limit.code, message: "This Mac won't send that file to the Cloud machine.")
                     }
@@ -238,5 +241,49 @@ struct AgentPaneDictationUploadTests {
         #expect((retried["value"] as? [String: Any])?["path"] as? String == "/home/me/.acpmux/uploads/chat-a/Recording.wav")
         #expect(stager.received == data)
         #expect(dictation.takeRecording(file.path, session: "chat-a") == nil, "a sent recording is not given back")
+    }
+
+    /// Review of #26966: the recording's checks read its path, and each chunk opened the path again,
+    /// so an issued recording replaced with a symlink after the check streamed whatever the link
+    /// named (any file this user can read) to the chat's machine. The file is opened once, without
+    /// following a link, checked as a regular file through that descriptor, and every chunk is read
+    /// from it.
+    @Test func aRecordingSwappedForASymlinkMidUploadSendsOnlyItsOwnBytes() async throws {
+        let (file, data) = try recordingFile(bytes: 1_300_000)
+        let folder = file.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let secret = folder.appending(path: "secret.bin")
+        let secretData = Data(repeating: 0x53, count: data.count)
+        try secretData.write(to: secret)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
+        let stager = Stager()
+        stager.onBegin = {
+            try? FileManager.default.removeItem(at: file)
+            try? FileManager.default.createSymbolicLink(at: file, withDestinationURL: secret)
+        }
+        model.onUploadStage = { stager.stage }
+        model.onDictationRecording = { _, _ in file }
+        let reply = await upload(file.path, in: model)
+        #expect(stager.received != secretData, "the link's file never went")
+        #expect(!stager.received.contains(0x53) || stager.received == data)
+        if reply["ok"] as? Bool == true { #expect(stager.received == data, "what went is the recording as it was opened") }
+    }
+
+    /// An issued recording that is a symlink when the upload starts is refused, and nothing is staged.
+    @Test func aRecordingThatIsASymlinkIsRefused() async throws {
+        let (file, _) = try recordingFile(bytes: 4_096)
+        let folder = file.deletingLastPathComponent()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let secret = folder.appending(path: "secret.bin")
+        try Data(repeating: 0x53, count: 4_096).write(to: secret)
+        try FileManager.default.removeItem(at: file)
+        try FileManager.default.createSymbolicLink(at: file, withDestinationURL: secret)
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
+        let stager = Stager()
+        model.onUploadStage = { stager.stage }
+        model.onDictationRecording = { _, _ in file }
+        let reply = await upload(file.path, in: model)
+        #expect(Self.errorCode(reply) == "upload_failed")
+        #expect(stager.requests.isEmpty, "nothing was staged")
     }
 }

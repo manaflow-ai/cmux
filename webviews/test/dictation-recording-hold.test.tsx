@@ -51,12 +51,22 @@ let intake: Intake;
 /// What each send carried: the paths (or names) of its chips.
 let sent: string[][] = [];
 let send: () => void = () => {};
+/// The chat the composer shows, and the chips a chat it left was handed (`elsewhere`).
+let showing = "chat-a";
+let keptFor: [string, string[]][] = [];
 
 /// A composer's intake and its send hold, as Composer.tsx wires them; a send reads the chips after
 /// the render that has them (a ref), as the composer's does.
 function Probe() {
-  intake = useAttachmentIntake({ allowImages: true, pasteTarget: () => undefined, scope: "chat-a" });
-  const hold = useSendWhenAttached(intake.loading, "chat-a", intake.unsettled);
+  intake = useAttachmentIntake({
+    allowImages: true,
+    pasteTarget: () => undefined,
+    scope: showing,
+    // A switch carries the prompt (a harness switch's new session), as Composer.tsx's can.
+    carries: () => true,
+    elsewhere: (chat, chips) => keptFor.push([chat, chips.map((chip) => chip.path ?? chip.name)]),
+  });
+  const hold = useSendWhenAttached(intake.loading, showing, intake.unsettled);
   const staged = useRef<readonly ComposerAttachment[]>([]);
   staged.current = intake.attachments;
   const go = () => {
@@ -91,6 +101,8 @@ function upload() {
 
 async function fresh() {
   sent = [];
+  showing = "chat-a";
+  keptFor = [];
   await act(async () => root.render(<Probe />));
   await act(async () => intake.setAttachments([]));
 }
@@ -163,4 +175,22 @@ test("the failed recording's x lets the waiting send go with the text alone", as
   await act(async () => intake.cancel(intake.pending[0]!.id));
   expect(sent).toEqual([[]]);
   expect(intake.pending).toEqual([]);
+});
+
+// Review of #26966: a carried switch (a harness switch's new session takes the prompt) moved a
+// pending host upload to the new chat, though the host had started it for the old one. Its answer,
+// a path on the old chat's machine, then landed in the new chat, whose agent cannot open it. A chip
+// the host makes keeps its chat: its answer goes to that chat's kept chips, never the new chat.
+test("a carried switch does not move a pending recording's upload to the new chat", async () => {
+  await fresh();
+  const host = upload();
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
+  showing = "chat-b";
+  await act(async () => root.render(<Probe />));
+  await act(async () => host.answer({ path: remote }));
+  expect(intake.attachments).toEqual([]);
+  expect(intake.pending).toEqual([]);
+  expect(keptFor).toEqual([["chat-a", [remote]]]);
+  await act(async () => send());
+  expect(sent).toEqual([[]]);
 });
