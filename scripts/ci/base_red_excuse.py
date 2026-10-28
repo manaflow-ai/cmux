@@ -144,14 +144,20 @@ def compile_pass_at(repo: str, sha: str, github) -> str | None:
     # Newest first; the same name is also release-compile-fast-admission's (a Linux wrapper that compiles
     # nothing), so only a job with the Mac compile's own steps counts, and the newest such attempt decides.
     for check in sorted(candidates, key=lambda found: found.get("id", -1), reverse=True):
-        job = github.json(f"repos/{repo}/actions/jobs/{check['id']}")
-        if job.get("head_sha") != sha or job.get("name") != check.get("name"):
+        # The check run's own Actions job, from its details link (a check run id is not a job id).
+        link = re.fullmatch(r"https://github\.com/" + re.escape(repo) + r"/actions/runs/(\d+)/job/(\d+)",
+                            check.get("details_url") or "")
+        if not link:
+            continue
+        job = github.json(f"repos/{repo}/actions/jobs/{link[2]}")
+        if (job.get("head_sha") != sha or job.get("name") != check.get("name")
+                or job.get("run_id") != int(link[1])):
             continue
         steps = {step.get("name"): step.get("conclusion") for step in job.get("steps") or []}
         if not COMPILE_STEPS & steps.keys():
             continue
         if job.get("conclusion") == "success" and any(steps.get(name) == "success" for name in COMPILE_STEPS):
-            return f"'{check['name']}' (job {check['id']})"
+            return f"'{check['name']}' (job {link[2]})"
         break
     status = github.json(f"repos/{repo}/commits/{sha}/status")
     for found in status.get("statuses") or []:

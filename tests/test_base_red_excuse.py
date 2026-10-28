@@ -380,12 +380,15 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
     def release_run(self, check_id, conclusion="success", *, steps=None, sha=HEAD, check_sha=HEAD):
         """A `cmux-next Release compile (Xcode 26)` check run and its job. steps: the Mac compile's by default."""
         steps = steps if steps is not None else [("Checkout", "success"), ("Release compile", conclusion)]
+        # A check run id is not its job id: the job comes from the details link.
+        job_id = 1000 + check_id
         self.gh.check_runs.append({"id": check_id, "name": self.RELEASE, "status": "completed",
                                    "conclusion": conclusion, "head_sha": check_sha,
+                                   "details_url": f"https://github.com/{REPO}/actions/runs/30/job/{job_id}",
                                    "app": {"slug": "github-actions"}})
-        self.gh.actions_jobs[check_id] = {"id": check_id, "name": self.RELEASE, "head_sha": sha,
-                                          "status": "completed", "conclusion": conclusion,
-                                          "steps": [{"name": name, "conclusion": state} for name, state in steps]}
+        self.gh.actions_jobs[job_id] = {"id": job_id, "run_id": 30, "name": self.RELEASE, "head_sha": sha,
+                                        "status": "completed", "conclusion": conclusion,
+                                        "steps": [{"name": name, "conclusion": state} for name, state in steps]}
 
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
@@ -439,7 +442,16 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.gh.statuses = [{"context": "cmux-next/compile", "state": "success"}]
         self.assertIn("cmux-next/compile status", "\n".join(self.judge()))
 
+    def test_a_release_compile_without_a_job_link_or_from_another_run_is_not_a_pass(self):
+        self.release_run(6)
+        self.gh.check_runs[-1]["details_url"] = "https://example.com/job/1006"
+        self.release_run(7)
+        self.gh.actions_jobs[1007]["run_id"] = 31
+        with self.assertRaises(excuse.Refused):
+            self.judge()
+
     def test_a_failed_cmux_next_compile_status_is_not_a_pass(self):
+        """The newest status per context decides: an older success behind it is stale."""
         self.gh.statuses = [{"context": "cmux-next/compile", "state": "failure"},
                             {"context": "cmux-next/compile", "state": "success"}]
         with self.assertRaises(excuse.Refused):
