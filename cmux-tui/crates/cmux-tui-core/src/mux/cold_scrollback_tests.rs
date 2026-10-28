@@ -129,7 +129,7 @@ fn cold_scrollback_pass_freezes_a_quiet_unviewed_terminal_with_one_deadline() {
             term.vt_write(format!("line {line}\r\n").as_bytes());
         }
     });
-    let policy = ColdPolicy { after: HOUR, pressure: normal };
+    let policy = ColdPolicy { after: HOUR, pressure: normal, codec: true, native_after: None };
     let mut tracker = ColdTracker::default();
     let start = Instant::now();
 
@@ -159,7 +159,7 @@ fn cold_scrollback_pass_compresses_nothing_under_memory_pressure() {
     let surface = mux.new_workspace(None, None).unwrap();
     let mut tracker = ColdTracker::default();
     let start = Instant::now();
-    let pressed = ColdPolicy { after: HOUR, pressure: warning };
+    let pressed = ColdPolicy { after: HOUR, pressure: warning, codec: true, native_after: None };
 
     mux.cold_scrollback_pass(&mut tracker, start, pressed);
     assert_eq!(
@@ -169,7 +169,7 @@ fn cold_scrollback_pass_compresses_nothing_under_memory_pressure() {
     );
     assert!(!surface.terminal_is_cold());
 
-    let calm = ColdPolicy { after: HOUR, pressure: normal };
+    let calm = ColdPolicy { after: HOUR, pressure: normal, codec: true, native_after: None };
     mux.cold_scrollback_pass(&mut tracker, start + 2 * HOUR, calm);
     assert!(surface.terminal_is_cold());
 }
@@ -178,25 +178,33 @@ fn cold_scrollback_pass_compresses_nothing_under_memory_pressure() {
 fn cold_scrollback_feature_snapshot_starts_the_worker_and_the_kill_switch_stops_it() {
     use cmux_features::{Channel, Snapshot};
     const NAME: &str = "coldScrollbackCompression";
+    // Native compression (`nativeScrollbackCompression`, on by default) runs
+    // on the same worker, so the codec's switch is read from the policy.
+    const NATIVE: &str = "nativeScrollbackCompression";
+    let codec = |features: Snapshot| ColdPolicy::for_features(&features).is_some_and(|p| p.codec);
     let started = |features: Snapshot| {
         let mux = Mux::new_for_test("cold-scrollback-feature", SurfaceOptions::default());
         mux.start_cold_scrollback(&features).unwrap();
         mux.cold_scrollback_wake.get().is_some()
     };
     for channel in [Channel::Dev, Channel::Nightly, Channel::Release] {
-        assert!(!started(Snapshot::defaults(channel)), "off by default on {channel:?}");
+        assert!(!codec(Snapshot::defaults(channel)), "off by default on {channel:?}");
     }
-    assert!(started(Snapshot::from_env(Channel::Release, Some(NAME), None)));
-    assert!(!started(Snapshot::from_env(Channel::Release, Some(NAME), Some(NAME))));
+    assert!(codec(Snapshot::from_env(Channel::Release, Some(NAME), None)));
+    assert!(!codec(Snapshot::from_env(Channel::Release, Some(NAME), Some(NAME))));
     // flags.json `DisabledFeatures` wins over the person's enable list.
-    assert!(!started(Snapshot::from_env(Channel::Release, Some(NAME), None).with_disabled([NAME])));
+    assert!(!codec(Snapshot::from_env(Channel::Release, Some(NAME), None).with_disabled([NAME])));
+    // The worker stops only when both are off.
+    let both = Snapshot::from_env(Channel::Release, Some(NAME), None).with_disabled([NAME, NATIVE]);
+    assert!(!started(both));
+    assert!(started(Snapshot::from_env(Channel::Release, Some(NAME), None)));
 }
 
 #[test]
 fn cold_scrollback_terminal_created_after_an_empty_pass_wakes_the_worker() {
     let mux = Mux::new_for_test("cold-scrollback-catalog-wake", SurfaceOptions::default());
     let wakes = mux.install_cold_scrollback_wake().unwrap();
-    let policy = ColdPolicy { after: HOUR, pressure: normal };
+    let policy = ColdPolicy { after: HOUR, pressure: normal, codec: true, native_after: None };
     let mut tracker = ColdTracker::default();
     let start = Instant::now();
     assert_eq!(mux.cold_scrollback_pass(&mut tracker, start, policy), None, "nothing to track");
@@ -215,7 +223,13 @@ fn cold_scrollback_worker_compresses_a_terminal_created_while_it_blocks() {
     let quiet = SurfaceOptions { command: Some(vec!["/bin/cat".into()]), ..Default::default() };
     let mux = Mux::new_for_test("cold-scrollback-worker", quiet);
     let after = Duration::from_millis(50);
-    mux.start_cold_scrollback_with(ColdPolicy { after, pressure: normal }).unwrap();
+    mux.start_cold_scrollback_with(ColdPolicy {
+        after,
+        pressure: normal,
+        codec: true,
+        native_after: None,
+    })
+    .unwrap();
     // The worker's first pass finds no terminal and blocks with no deadline.
     let surface = mux.new_workspace(None, None).unwrap();
 
@@ -253,7 +267,7 @@ fn cold_scrollback_pass_keeps_a_placement_scrolled_back_across_a_restore() {
         }
     });
     let scrolled = surface.view_scroll_delta(-100).unwrap().unwrap();
-    let policy = ColdPolicy { after: HOUR, pressure: normal };
+    let policy = ColdPolicy { after: HOUR, pressure: normal, codec: true, native_after: None };
     let mut tracker = ColdTracker::default();
     let start = Instant::now();
     mux.cold_scrollback_pass(&mut tracker, start, policy);

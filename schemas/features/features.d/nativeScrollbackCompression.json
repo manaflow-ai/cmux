@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "nativeScrollbackCompression",
+  "owner": "PL-memory",
+  "description": "The daemon compresses a terminal's scrollback pages in place (libghostty-vt, Ghostty 1.4) once it printed nothing for 2 s, one bounded step at a time on a utility thread that never waits for a parsing terminal. The terminal stays live.",
+  "defaults": { "dev": true, "nightly": true, "release": true },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "daemon",
+  "params": [],
+  "stories": ["memory-hidden"],
+  "sticky": false,
+  "runtimeMutable": false
+}

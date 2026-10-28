@@ -72,6 +72,12 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         process: crate::Process::Both,
     },
     crate::FeatureDef {
+        name: "nativeScrollbackCompression",
+        defaults: crate::Defaults { dev: true, nightly: true, release: true },
+        kind: crate::Kind::PerfPath,
+        process: crate::Process::Daemon,
+    },
+    crate::FeatureDef {
         name: "terminalHolder",
         defaults: crate::Defaults { dev: true, nightly: true, release: true },
         kind: crate::Kind::PerfPath,
@@ -110,6 +116,8 @@ pub mod feature {
         MEMORY_SCROLLBACK_PRESSURE = "memoryScrollbackPressure",
         /// Long-lived SQLite connections of the daemon and the app's page visit logs give their unused page cache back at warning and critical memory pressure, each on the connection's own executor; the pages read again on the next query.
         MEMORY_SQLITE_TRIM = "memorySqliteTrim",
+        /// The daemon compresses a terminal's scrollback pages in place (libghostty-vt, Ghostty 1.4) once it printed nothing for 2 s, one bounded step at a time on a utility thread that never waits for a parsing terminal. The terminal stays live.
+        NATIVE_SCROLLBACK_COMPRESSION = "nativeScrollbackCompression",
         /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
         TERMINAL_HOLDER = "terminalHolder",
         /// Terminal sizing counts one participant per app connection: all of an app's views of one terminal are leases of one participant (its latest active view sets its size), and disconnecting that participant ends only that terminal's views, not the app's connection.

@@ -98,7 +98,9 @@ use render_tap::{RenderHub, RenderTap};
 use spawn::{LocalLaunch, LocalSpawn};
 pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscription};
 pub use terminal_runtime::PtyTerminalRuntime;
-pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
+pub(crate) use terminal_runtime::{
+    ColdFreeze, NativeCompression, ScrollbackMemory, TerminalJournalGap, ThawWake,
+};
 use terminal_runtime::{
     PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard, TerminalReader,
 };

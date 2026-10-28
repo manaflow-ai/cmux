@@ -23,10 +23,25 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LockResult, PoisonError, TryLockError, TryLockResult, Weak};
 
-use ghostty_vt::{ColdPagesError, ColdRefused, ColdTerminal, Screen, Terminal};
+use ghostty_vt::{
+    ColdPagesError, ColdRefused, ColdTerminal, Screen, ScrollbackCompression, Terminal,
+};
 
 use crate::lock_rank::{LockRank, RankedGuard, RankedMutex};
 use crate::surface::{Surface, TerminalMemory};
+
+/// What [`Surface::compress_scrollback_steps`] did with a hot terminal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum NativeCompression {
+    /// Another thread held the terminal (it is parsing output): nothing done.
+    Busy,
+    /// Steps ran and more remain while it stays quiet.
+    Pending,
+    /// Nothing more to do until the activity token changes.
+    Complete { activity: u64 },
+    /// This platform cannot free memory by compressing pages.
+    Unsupported,
+}
 
 /// Called each time a cold terminal is restored, under its terminal lock:
 /// it may only signal (the cold-scrollback worker starts that terminal's
@@ -364,6 +379,42 @@ impl Surface {
             SlotState::Hot(terminal) => Some(f(terminal)),
             SlotState::Cold { .. } | SlotState::Moving => None,
         })
+    }
+
+    /// Up to `max_steps` bounded steps of libghostty-vt's own scrollback
+    /// compression (Ghostty 1.4: history pages compressed in place, restored
+    /// on access; the terminal stays live), each under its own `try_lock`, so
+    /// the reader that parses output never waits more than one step. A step
+    /// is skipped when the terminal's activity token is still `done`, the
+    /// token of its last complete pass. `None` for a browser surface or a
+    /// cold terminal (the codec already holds it), which stays cold.
+    pub(crate) fn compress_scrollback_steps(
+        &self,
+        done: Option<u64>,
+        max_steps: usize,
+    ) -> Option<NativeCompression> {
+        let pty = self.as_pty()?;
+        for _ in 0..max_steps {
+            let mut slot = match pty.term.slot.try_lock() {
+                Ok(slot) => slot,
+                Err(TryLockError::WouldBlock) => return Some(NativeCompression::Busy),
+                Err(TryLockError::Poisoned(poison)) => poison.into_inner(),
+            };
+            let SlotState::Hot(terminal) = &mut slot.0 else { return None };
+            let activity = terminal.compression_activity().ok()?;
+            if done == Some(activity) {
+                return Some(NativeCompression::Complete { activity });
+            }
+            match terminal.compress_scrollback(false).ok()? {
+                ScrollbackCompression::Pending => {}
+                ScrollbackCompression::Complete => {
+                    let activity = terminal.compression_activity().unwrap_or(activity);
+                    return Some(NativeCompression::Complete { activity });
+                }
+                ScrollbackCompression::Unsupported => return Some(NativeCompression::Unsupported),
+            }
+        }
+        Some(NativeCompression::Pending)
     }
 
     /// Whether the terminal is compressed now (no lock).

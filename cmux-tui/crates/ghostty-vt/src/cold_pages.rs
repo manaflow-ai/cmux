@@ -325,6 +325,19 @@ impl Terminal {
         })
     }
 
+    /// libghostty-vt's compression activity token
+    /// (`ghostty_terminal_compression_activity`): opaque, compare for
+    /// equality only. It changes when the terminal changes in a way that can
+    /// give compression new work, so a pass that ended
+    /// [`ScrollbackCompression::Complete`] needs no other until it changes.
+    pub fn compression_activity(&self) -> Result<u64> {
+        let mut activity = 0u64;
+        // SAFETY: `raw` is this wrapper's live terminal (shared borrow: the
+        // call only reads it); the out-pointer is valid for the call.
+        check(unsafe { sys::ghostty_terminal_compression_activity(self.raw, &mut activity) })?;
+        Ok(activity)
+    }
+
     /// libghostty-vt's own scrollback compression: each history page is
     /// compressed in place and restored when something reads it, so the
     /// terminal stays live. `full` does every page in one call; otherwise

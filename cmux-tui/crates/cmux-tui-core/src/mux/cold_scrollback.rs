@@ -21,6 +21,19 @@
 //!   a terminal enters the catalog (created, restored or adopted), a view
 //!   detaches, a cold terminal is restored, the persistence mode changes, or
 //!   a terminal the codec refused prints.
+//! Native scrollback compression (Ghostty 1.4) runs on the same worker and
+//! is on by default (daemon feature `nativeScrollbackCompression`): a hot
+//! terminal, viewed or not, that printed nothing for
+//! [`NATIVE_COMPRESSION_AFTER`] gets libghostty-vt's own page compression
+//! (`ghostty_terminal_compress`, history pages compressed in place and
+//! restored on access; the terminal stays live), one bounded step per
+//! `try_lock`, until it reports complete for its activity token. It is what
+//! the Ghostty app's renderer thread does after 250 ms idle
+//! (`renderer/Thread.zig`, `Compression`); the daemon waits longer because
+//! its terminals are the only copy and a burst of output often follows a
+//! short pause. A terminal that prints after its pass wakes the worker once
+//! (`OutputStore::wake_on_next_output`), so idle terminals cost no wakeups.
+//!
 //! - Off by default (daemon feature `coldScrollbackCompression`, read from
 //!   the daemon's [`cmux_features::Snapshot`], so the signed `flags.json`
 //!   `DisabledFeatures` list turns it off), and kept off until
@@ -34,7 +47,7 @@ use cmux_threads::ThreadQos;
 
 use super::*;
 use crate::supervised::{self, Fatal, ShutdownBehavior};
-use crate::surface::{ColdFreeze, ThawWake};
+use crate::surface::{ColdFreeze, NativeCompression, ThawWake};
 
 /// Wakes the cold-scrollback worker; a send never blocks.
 #[derive(Clone)]
@@ -51,6 +64,16 @@ impl ColdScrollbackWake {
 /// `DaemonBudget::cold_scrollback_after` (p07-memory-089) replaces it.
 pub(crate) const COLD_SCROLLBACK_AFTER: Duration = Duration::from_secs(10 * 60);
 
+/// How long a terminal prints nothing before native compression starts on it.
+pub(crate) const NATIVE_COMPRESSION_AFTER: Duration = Duration::from_secs(2);
+
+/// Native compression steps one terminal gets per pass (each takes the
+/// terminal lock on its own); a terminal with more work is due again at once.
+const NATIVE_STEPS_PER_PASS: usize = 32;
+
+/// How soon a terminal that was busy or had work left is tried again.
+const NATIVE_RETRY: Duration = Duration::from_millis(50);
+
 /// The kernel's memory pressure level.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MemoryPressure {
@@ -65,12 +88,37 @@ pub(crate) struct ColdPolicy {
     pub(crate) after: Duration,
     /// Read only when a terminal is due.
     pub(crate) pressure: fn() -> MemoryPressure,
+    /// The cold codec (`coldScrollbackCompression`); off: only native.
+    pub(crate) codec: bool,
+    /// Native compression's quiet period (`nativeScrollbackCompression`);
+    /// `None`: off.
+    pub(crate) native_after: Option<Duration>,
 }
 
 impl ColdPolicy {
-    fn daemon() -> Self {
-        Self { after: COLD_SCROLLBACK_AFTER, pressure: kernel_pressure }
+    /// The daemon's policy for `features`; `None` when both are off (no
+    /// worker).
+    pub(crate) fn for_features(features: &cmux_features::Snapshot) -> Option<Self> {
+        let codec = features.is_enabled(cmux_features::feature::COLD_SCROLLBACK_COMPRESSION);
+        let native = features.is_enabled(cmux_features::feature::NATIVE_SCROLLBACK_COMPRESSION);
+        (codec || native).then(|| Self::daemon(codec, native))
     }
+
+    fn daemon(codec: bool, native: bool) -> Self {
+        Self {
+            after: COLD_SCROLLBACK_AFTER,
+            pressure: kernel_pressure,
+            codec,
+            native_after: native.then_some(NATIVE_COMPRESSION_AFTER),
+        }
+    }
+}
+
+/// Native compression bookkeeping of one mux, owned by its worker thread:
+/// per terminal, the activity token its last complete pass ended at.
+#[derive(Debug, Default)]
+pub(crate) struct NativeTracker {
+    done: HashMap<TerminalPublicId, u64>,
 }
 
 /// One terminal as a pass observes it.
@@ -214,17 +262,17 @@ struct Observed {
 
 impl Mux {
     /// Start this owner's cold-scrollback worker when `features` turns
-    /// `coldScrollbackCompression` on. Call it once the mux is built: a
+    /// `coldScrollbackCompression` or `nativeScrollbackCompression` on. Call it once the mux is built: a
     /// terminal that enters the catalog later (an adoption that finishes on
     /// its own thread, a create) wakes the worker.
     pub fn start_cold_scrollback(
         self: &Arc<Self>,
         features: &cmux_features::Snapshot,
     ) -> std::io::Result<()> {
-        if !features.is_enabled(cmux_features::feature::COLD_SCROLLBACK_COMPRESSION) {
-            return Ok(());
+        match ColdPolicy::for_features(features) {
+            Some(policy) => self.start_cold_scrollback_with(policy),
+            None => Ok(()),
         }
-        self.start_cold_scrollback_with(ColdPolicy::daemon())
     }
 
     pub(crate) fn start_cold_scrollback_with(
@@ -271,19 +319,101 @@ impl Mux {
         }
     }
 
-    /// One pass at `now`: compress every due terminal, and return when the
-    /// next one is due (`None`: block until a wake).
+    /// One codec pass at `now` (no native compression): what the codec tests
+    /// drive. The worker runs [`Self::scrollback_pass`].
     pub(crate) fn cold_scrollback_pass(
         &self,
         tracker: &mut ColdTracker,
         now: Instant,
         policy: ColdPolicy,
     ) -> Option<Instant> {
-        if self.output_store.full_mode() {
+        let observed = self.cold_scrollback_terminals();
+        self.codec_pass(tracker, now, policy, &observed)
+    }
+
+    /// One worker pass at `now`: native compression of every quiet hot
+    /// terminal, then the codec for every due one. Returns when the next
+    /// terminal is due (`None`: block until a wake).
+    pub(crate) fn scrollback_pass(
+        &self,
+        cold: &mut ColdTracker,
+        native: &mut NativeTracker,
+        now: Instant,
+        policy: ColdPolicy,
+    ) -> Option<Instant> {
+        let observed = self.cold_scrollback_terminals();
+        let native_next = match policy.native_after {
+            Some(after) => self.native_pass(native, now, after, &observed),
+            None => None,
+        };
+        let codec_next = self.codec_pass(cold, now, policy, &observed);
+        [native_next, codec_next].into_iter().flatten().min()
+    }
+
+    /// Native compression for every hot terminal quiet for `after`; returns
+    /// the next time one is due (`None`: only an output wake makes one due).
+    fn native_pass(
+        &self,
+        tracker: &mut NativeTracker,
+        now: Instant,
+        after: Duration,
+        observed: &[Observed],
+    ) -> Option<Instant> {
+        let live: HashSet<&TerminalPublicId> = observed.iter().map(|t| &t.terminal_id).collect();
+        tracker.done.retain(|terminal_id, _| live.contains(terminal_id));
+        let mut next: Option<Instant> = None;
+        let mut due_at = |at: Instant| next = Some(next.map_or(at, |n| n.min(at)));
+        for terminal in observed {
+            let quiet_at = terminal.last_output.map_or(now, |output| output + after);
+            if quiet_at > now {
+                due_at(quiet_at);
+                continue;
+            }
+            let done = tracker.done.get(&terminal.terminal_id).copied();
+            match terminal.surface.compress_scrollback_steps(done, NATIVE_STEPS_PER_PASS) {
+                Some(NativeCompression::Complete { activity }) => {
+                    tracker.done.insert(terminal.terminal_id.clone(), activity);
+                    // Output after this pass makes it due again; until then
+                    // it costs no wakeup. If it printed since this pass read
+                    // it, look again now.
+                    if self
+                        .output_store
+                        .wake_on_next_output(&terminal.terminal_id, terminal.last_output)
+                    {
+                        due_at(now);
+                    }
+                }
+                Some(NativeCompression::Busy | NativeCompression::Pending) => {
+                    due_at(now + NATIVE_RETRY)
+                }
+                // Unsupported here, or cold (the codec holds it), or not a
+                // terminal: nothing to do until it prints.
+                Some(NativeCompression::Unsupported) | None => {
+                    if self
+                        .output_store
+                        .wake_on_next_output(&terminal.terminal_id, terminal.last_output)
+                    {
+                        due_at(now + after);
+                    }
+                }
+            }
+        }
+        next
+    }
+
+    /// The codec pass over `observed`: compress every due terminal, and
+    /// return when the next one is due (`None`: block until a wake).
+    fn codec_pass(
+        &self,
+        tracker: &mut ColdTracker,
+        now: Instant,
+        policy: ColdPolicy,
+        observed: &[Observed],
+    ) -> Option<Instant> {
+        if !policy.codec || self.output_store.full_mode() {
             tracker.clear();
             return None;
         }
-        let observed = self.cold_scrollback_terminals();
         let candidates: Vec<ColdCandidate<'_>> = observed
             .iter()
             .map(|terminal| ColdCandidate {
@@ -376,10 +506,11 @@ impl Mux {
 /// when the mux is gone (every sender lives in the mux).
 fn run_cold_scrollback(mux: &Weak<Mux>, wakes: &Receiver<()>, policy: ColdPolicy) {
     let mut tracker = ColdTracker::default();
+    let mut native = NativeTracker::default();
     loop {
         let Some(owner) = mux.upgrade() else { break };
         let now = Instant::now();
-        let next = owner.cold_scrollback_pass(&mut tracker, now, policy);
+        let next = owner.scrollback_pass(&mut tracker, &mut native, now, policy);
         drop(owner);
         let woke = match next {
             None => wakes.recv().map_err(|_| RecvTimeoutError::Disconnected),

@@ -6,7 +6,7 @@ use super::*;
 
 mod cold_terminal;
 pub(crate) use cold_terminal::{
-    ColdFreeze, ScrollbackMemory, TerminalCell, TerminalSlot, ThawWake,
+    ColdFreeze, NativeCompression, ScrollbackMemory, TerminalCell, TerminalSlot, ThawWake,
 };
 
 #[derive(Default)]
