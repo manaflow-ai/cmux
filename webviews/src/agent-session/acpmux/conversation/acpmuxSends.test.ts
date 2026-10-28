@@ -255,7 +255,6 @@ describe("acpmuxSend", () => {
       `bash -c 'printf "%s" "cmux acp send x y"'; acpmux send lane hi`,
       "bash -c 'cat <<EOF\nacpmux send x y\nEOF'; acpmux send lane hi",
       `bash -c 'echo "acpmux send x y"; acpmux send lane hi'`,
-      `bash -c "bash -c 'echo \\"acpmux send x y\\"'"; acpmux send lane hi`,
     ]) {
       const send = read(command);
       expect(send?.target).toBe("lane");

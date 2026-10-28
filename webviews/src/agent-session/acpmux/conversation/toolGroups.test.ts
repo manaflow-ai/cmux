@@ -194,7 +194,13 @@ test("kindless observational MCP calls preserve recorded bodies without trusting
       const observer = item(fields);
       const group = toolGroups([writer, observer, send]).find((entry) => entry.type === "send");
       expect(group?.type).toBe("send");
-      if (group?.type === "send") expect(group.send.text).toBe("recorded MCP body\n");
+      if (group?.type === "send") {
+        try {
+          expect(group.send.text).toBe("recorded MCP body\n");
+        } catch (error) {
+          throw new Error(`${fields.title} (${name}): ${error}`);
+        }
+      }
     }
   }
   for (const fields of [
