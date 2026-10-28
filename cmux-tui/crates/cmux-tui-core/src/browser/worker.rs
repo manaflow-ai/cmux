@@ -2,6 +2,7 @@
 //! pointer and lifecycle deadlines, and status/dirty/failure notifications.
 
 use super::*;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub(super) fn start_surface_thread(
     surface: Arc<Surface>,
@@ -11,9 +12,11 @@ pub(super) fn start_surface_thread(
     route_session_id: String,
 ) -> anyhow::Result<()> {
     let id = surface.id;
-    cmux_threads::spawn(
+    supervised::spawn_at(
         format!("browser-surface-{id}-events"),
         cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             // tab-attention-v1: the page URL this thread last asked about, so
             // repeated events on one page read nothing. Whether a mark goes is
@@ -252,9 +255,11 @@ pub(super) fn start_browser_worker(
     done_tx: Option<Sender<()>>,
 ) {
     let id = surface.id;
-    let _ = cmux_threads::spawn(
+    let _ = supervised::spawn_at(
         format!("browser-surface-{id}-worker"),
         cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let mut failures = BrowserWorkerErrorState::default();
             loop {

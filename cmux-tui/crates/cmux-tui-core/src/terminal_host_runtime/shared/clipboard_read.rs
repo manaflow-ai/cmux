@@ -31,6 +31,7 @@
 //! reports every change to the broker handler as a [`ClipboardReadSignal`]:
 //! a request, or a cancel when the host withdrew it or the connection ended.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
@@ -514,10 +515,14 @@ impl ClipboardReads {
     pub(crate) fn start_timer(&self, host: &Arc<HostShared>) -> std::io::Result<()> {
         let shared = self.shared.clone();
         let host = Arc::downgrade(host);
-        cmux_threads::spawn(
+        supervised::spawn_at(
             "terminal-host-clipboard",
             cmux_threads::ThreadQos::UserInitiated,
-            move || shared.run_timer(&host),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                shared.run_timer(&host);
+            },
         )
         .map(drop)
     }

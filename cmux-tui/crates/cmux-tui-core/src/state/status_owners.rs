@@ -21,6 +21,7 @@ use crate::state::prelude::*;
 use crate::state::status_meta::{self, OwnerEnd, OwnerProcess};
 use crate::state::store::{StateChanges, StateCommit, state_upsert};
 use crate::state::workspace_status_store as status;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     /// Remove every status entry `end` owns, in one commit. `None` when
@@ -186,14 +187,19 @@ fn spawn_watch(
     }
     let weak = Arc::downgrade(mux);
     let thread_key = key.clone();
-    let spawned =
-        cmux_threads::spawn("cmux-status-owner", cmux_threads::ThreadQos::Utility, move || {
+    let spawned = supervised::spawn_at(
+        "cmux-status-owner",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let outcome = wait(&weak);
             lock(watched()).remove(&thread_key);
             if let (Watch::Ended, Some(mux)) = (outcome, weak.upgrade()) {
                 clear_now(&mux, &end);
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         lock(watched()).remove(&key);
         eprintln!("cmux-tui: status owner watch failed to start: {error}");
@@ -358,8 +364,13 @@ struct Expiry {
 fn expiry() -> &'static Expiry {
     static EXPIRY: OnceLock<Expiry> = OnceLock::new();
     EXPIRY.get_or_init(|| {
-        let spawned =
-            cmux_threads::spawn("cmux-status-expiry", cmux_threads::ThreadQos::Utility, run_expiry);
+        let spawned = supervised::spawn_at(
+            "cmux-status-expiry",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            run_expiry,
+        );
         if let Err(error) = spawned {
             eprintln!("cmux-tui: status expiry thread failed to start: {error}");
         }

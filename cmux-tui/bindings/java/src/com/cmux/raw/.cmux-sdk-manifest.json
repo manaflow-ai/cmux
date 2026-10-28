@@ -1382,8 +1382,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "6df86d9672bd1e6f8ead8718bab440bac05254444cab1df86a14f7166cc599a4",
-      "size": 98134
+      "sha256": "e59786f61bdee6b43554ceb7933eda4051715d1e3889f50afdcf967c2a439a43",
+      "size": 98350
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -2142,8 +2142,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "467398632fa2cee19c6bc1908bfe156ce44cfacee987090e225d42e105fc5c1e",
-      "size": 86554
+      "sha256": "27486c5b048e3c4c6f89a12fd042419aed115c44f8a791ca91fbe70b8bdb88f7",
+      "size": 86733
     },
     {
       "path": "GetBlobRequest.java",
@@ -2651,6 +2651,11 @@
       "size": 2275
     },
     {
+      "path": "MemoryReportRequest.java",
+      "sha256": "de2a2340b0e27bac1d3354d8f463a45ad3f4e6b225fb11a8f0f74d271728acb1",
+      "size": 1363
+    },
+    {
       "path": "MintTerminalRendererByTerminalRequest.java",
       "sha256": "dc51740173526cc60375f80299ae6c753ba2dcdacb899e0712e79ce069dbc7cc",
       "size": 2852
@@ -3007,7 +3012,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "3f5447636df35106667356cded482316a92fd6f31d2ebc5783f4c8397d0f116d",
+      "sha256": "4cb81ed01915a55031aab264815dffa4174f1140e7c65bef6ac66ccf52300111",
       "size": 8063
     },
     {
@@ -4502,7 +4507,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d",
+  "ir_sha256": "6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

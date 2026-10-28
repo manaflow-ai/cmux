@@ -20,6 +20,7 @@
 //!   output pipes does not hold the reply: the pipes are read for a short
 //!   grace after git exits.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
@@ -244,11 +245,12 @@ impl Pipe {
         let (sender, done) = mpsc::channel();
         let buffer = Arc::clone(&kept);
         let half = limit / 2;
-        // A reader that cannot start drops the pipe: the child's writes fail
-        // (EPIPE) instead of filling it, and `collect` returns at once.
-        let _ = cmux_threads::spawn(
-            "git-user-run-pipe",
+        // A thread that does not start drops `sender`: `collect` returns at once with nothing kept.
+        let _ = supervised::spawn_at(
+            "git-run-pipe",
             cmux_threads::caller_qos(cmux_threads::ThreadQos::Utility),
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let mut chunk = [0_u8; 16 * 1024];
                 loop {

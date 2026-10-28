@@ -111,7 +111,8 @@ impl DirWatch {
             return None;
         }
         let thread_kq = kq.clone();
-        let spawned = cmux_threads::spawn(
+        // Owned by its DirWatch: it holds only the watch's own descriptors.
+        let spawned = crate::supervised::scoped_thread(
             "acpmux-record-watch",
             cmux_threads::ThreadQos::Utility,
             move || wait_events(&thread_kq, files, &mut on_change),
@@ -182,7 +183,8 @@ impl DirWatch {
             return None;
         }
         let thread_stop = stop.clone();
-        let spawned = cmux_threads::spawn(
+        // Owned by its DirWatch: it holds only the watch's own descriptors.
+        let spawned = crate::supervised::scoped_thread(
             "acpmux-record-watch",
             cmux_threads::ThreadQos::Utility,
             move || wait_inotify(&inotify, &thread_stop, &mut on_change),

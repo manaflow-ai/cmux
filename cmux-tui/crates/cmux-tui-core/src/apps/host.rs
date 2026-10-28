@@ -2,6 +2,7 @@
 //! [`FromHost`] lines on a reader thread that blocks on the socket, and
 //! report the exit once the socket closes and the child is reaped.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
@@ -101,14 +102,18 @@ impl HostProcess {
         let reader = ours.try_clone()?;
         let writer = ours.try_clone()?;
         let (queue, outgoing) = sync_channel(QUEUE);
-        cmux_threads::spawn(
+        supervised::spawn_at(
             format!("cmux-app-host-w:{name}"),
             cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || write_loop(writer, outgoing),
         )?;
-        cmux_threads::spawn(
+        supervised::spawn_at(
             format!("cmux-app-host:{name}"),
             cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let mut lines = BufReader::new(reader);
                 let mut line = Vec::new();

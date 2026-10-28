@@ -13,6 +13,8 @@ use cmux_cloud_wire::{
 };
 use serde_json::{Value, json};
 
+use crate::panic_free::JsonFields as _;
+
 use super::contract::{
     Target, conversation_change, inbox_entries, mux_pending, mux_wakes, snapshot_parts,
 };
@@ -189,24 +191,24 @@ impl CloudEvent {
                     "state": state,
                 });
                 if let Target::Conversation(id) = target {
-                    value["conversation"] = json!(id);
+                    value.insert("conversation", json!(id));
                 }
                 if let Some(reason) = reason {
-                    value["reason"] = json!(reason);
+                    value.insert("reason", json!(reason));
                 }
                 value
             }
             Self::SessionNeeded { reason, expires_at } => {
                 let mut value = json!({"event": "cloud-session-needed", "reason": reason});
                 if let Some(expires_at) = expires_at {
-                    value["expires_at"] = json!(expires_at);
+                    value.insert("expires_at", json!(expires_at));
                 }
                 value
             }
             Self::HostReplicaNeeded { reason, expires_at } => {
                 let mut value = json!({"event": "cloud-host-replica-needed", "reason": reason});
                 if let Some(expires_at) = expires_at {
-                    value["expires_at"] = json!(expires_at);
+                    value.insert("expires_at", json!(expires_at));
                 }
                 value
             }
@@ -229,7 +231,7 @@ impl CloudEvent {
             }),
         };
         if let Some(account) = self.account() {
-            value["account"] = json!(account);
+            value.insert("account", json!(account));
         }
         value
     }
@@ -346,7 +348,7 @@ impl StreamState {
     fn frame(&self, kind: &str) -> Value {
         let mut frame = json!({"t": kind});
         if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
-            frame["stream"] = json!(stream);
+            frame.insert("stream", json!(stream));
         }
         frame
     }
@@ -358,7 +360,7 @@ impl StreamState {
             .map(|out| {
                 let mut frame = out.to_value();
                 if let (Target::Inbox, Some(stream)) = (&self.target, self.stream_name()) {
-                    frame["stream"] = json!(stream);
+                    frame.insert("stream", json!(stream));
                 }
                 StreamAction::Send(frame.to_string())
             })
@@ -372,10 +374,10 @@ impl StreamState {
         let resume = self.mirror.resume(0);
         let mut frame = self.frame("subscribe");
         if let Some(after) = resume.after_seq {
-            frame["after_seq"] = json!(after);
+            frame.insert("after_seq", json!(after));
         }
         if !resume.pending.is_empty() {
-            frame["pending"] = json!(resume.pending);
+            frame.insert("pending", json!(resume.pending));
         }
         let mut actions = vec![StreamAction::Send(frame.to_string())];
         actions.extend(self.send(resume.send));
@@ -426,7 +428,7 @@ impl StreamState {
                 {
                     vec![StreamAction::Emit(CloudEvent::RunChanged {
                         conversation: conversation.clone(),
-                        run: frame["run"].clone(),
+                        run: frame.field("run").clone(),
                         steps: frame
                             .get("steps")
                             .and_then(Value::as_array)

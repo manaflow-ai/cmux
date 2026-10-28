@@ -3,6 +3,7 @@
 //! thread (storage, egress, or the daemon's own dispatcher), answered back
 //! to the host that asked if it is still the same process.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -137,9 +138,11 @@ impl Supervisor {
         let me = self.me.clone();
         let host_key = key.clone();
         let answer_to = process.clone();
-        let spawned = cmux_threads::spawn(
+        let spawned = supervised::spawn_at(
             "cmux-app-call",
             cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let Some(me) = me.upgrade() else { return };
                 let (ok, body) = match me.execute(&host_key, work) {

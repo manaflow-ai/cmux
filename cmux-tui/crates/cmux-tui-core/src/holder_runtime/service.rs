@@ -17,6 +17,7 @@ use cmux_holder::{Listed, SpawnRequest};
 use cmux_trace::crash_keys::{self, HolderLink as CrashKeyLink};
 
 use super::{HolderSink, HolderTerminal};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 mod trace;
 use crate::panic_free::RecoverPoison;
@@ -549,9 +550,11 @@ impl HolderService {
                 }
                 // The holder died: start a new one and hand it every master.
                 service.note_link_down(CrashKeyLink::Lost);
-                let _ = cmux_threads::spawn(
+                let _ = supervised::spawn_at(
                     "holder-restart",
                     cmux_threads::ThreadQos::UserInitiated,
+                    Fatal,
+                    ShutdownBehavior::Continue,
                     move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
@@ -667,9 +670,11 @@ impl HolderService {
         };
         if let Some(error) = unwatched {
             eprintln!("cmux-tui: the terminal holder's exit has its own wait thread ({error})");
-            let _ = cmux_threads::spawn(
+            let _ = supervised::spawn_at(
                 "holder-reaper",
                 cmux_threads::qos::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     let _ = child.wait();
                 },
@@ -722,9 +727,15 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = cmux_threads::spawn("cmux-holder-exe", cmux_threads::ThreadQos::Utility, || {
-        let _ = standalone_holder();
-    });
+    let _ = supervised::spawn_at(
+        "cmux-holder-exe",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        || {
+            let _ = standalone_holder();
+        },
+    );
 }
 
 /// `/tmp/cmux-hd-<uid>/<hash of the host root>.sock`: short enough for

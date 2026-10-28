@@ -15,6 +15,7 @@ use super::mirror::Origin;
 use super::supervisor::OpRouter;
 use crate::mux::Mux;
 use crate::request_origin::RequestOrigin;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::{Actor, MuxEvent, resource_router};
 
 use super::envelope::error;
@@ -76,14 +77,19 @@ impl OpRouter for MuxRouter {
         let Some(mux) = self.mux.upgrade() else { return };
         let events = mux.subscribe();
         drop(mux);
-        let _ =
-            cmux_threads::spawn("cmux-apps-events", cmux_threads::ThreadQos::Utility, move || {
+        let _ = supervised::spawn_at(
+            "cmux-apps-events",
+            cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 while let Ok(event) = events.recv() {
                     for stream in streams(&event) {
                         publish(stream);
                     }
                 }
-            });
+            },
+        );
     }
 
     fn spawn_backend_terminal(

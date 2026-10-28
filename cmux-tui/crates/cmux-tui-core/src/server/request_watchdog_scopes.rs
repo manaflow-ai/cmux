@@ -7,6 +7,8 @@
 //! watches each task a thread runs and not its idle wait
 //! (base/threading/hang_watcher.h, `WatchHangsInScope`).
 
+#[cfg(debug_assertions)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
@@ -236,10 +238,16 @@ pub(crate) fn process_exit(token: u32) {
 /// written to the hang log (tests/owner_panic.rs).
 #[cfg(debug_assertions)]
 pub(crate) fn spawn_owner_hang_test() {
-    let _ = cmux_threads::spawn("owner-hang-test", cmux_threads::ThreadQos::Utility, || {
-        let _token = process_enter(WatchKind::OwnerTest, 0);
-        loop {
-            std::thread::park();
-        }
-    });
+    let _ = supervised::spawn_at(
+        "owner-hang-test",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        || {
+            let _token = process_enter(WatchKind::OwnerTest, 0);
+            loop {
+                std::thread::park();
+            }
+        },
+    );
 }

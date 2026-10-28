@@ -56,6 +56,7 @@ use super::mirror::{Origin, Tier};
 use super::supervisor::{ApiError, Inner, MAX_CRASHES, Out, Responder, Supervisor};
 use super::timer::TimerId;
 use crate::backoff::Backoff;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Longest line a server may write (a 16 MiB file read, base64 encoded).
 const MAX_LINE_BYTES: u64 = 32 << 20;
@@ -207,14 +208,18 @@ impl ServerProcess {
         };
         let pid = Arc::new(Mutex::new(Some(child.id())));
         let (queue, outgoing) = sync_channel(QUEUE);
-        cmux_threads::spawn(
+        supervised::spawn_at(
             format!("cmux-app-server-w:{name}"),
             cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || write_loop(stdin, outgoing),
         )?;
-        cmux_threads::spawn(
+        supervised::spawn_at(
             format!("cmux-app-server-e:{name}"),
             cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 for line in BufReader::new(stderr).lines() {
                     let Ok(mut line) = line else { break };
@@ -230,9 +235,11 @@ impl ServerProcess {
             },
         )?;
         let reaper = pid.clone();
-        cmux_threads::spawn(
+        supervised::spawn_at(
             format!("cmux-app-server:{name}"),
             cmux_threads::ThreadQos::Utility,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let mut lines = BufReader::new(stdout);
                 let mut line = Vec::new();

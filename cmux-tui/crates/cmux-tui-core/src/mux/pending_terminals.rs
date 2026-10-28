@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::panic_free::{JsonFields, RecoverPoison};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 impl Mux {
     /// Terminals whose tabs must not read as dead while they have no runtime
@@ -178,8 +179,12 @@ impl Mux {
     ) {
         let mux = Arc::downgrade(self);
         let name = format!("terminal-unadoptable-{}", record.terminal_id);
-        let spawned =
-            cmux_threads::spawn(name, cmux_threads::ThreadQos::UserInitiated, move || {
+        let spawned = supervised::spawn_at(
+            name,
+            cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
                 if let Err(error) =
                     crate::terminal_host_runtime::wait_for_unadoptable_terminal_host_exit(&record)
                 {
@@ -206,7 +211,8 @@ impl Mux {
                     );
                 }
                 mux.emit(MuxEvent::TreeChanged);
-            });
+            },
+        );
         if spawned.is_err() {
             eprintln!("cmux-tui: no thread to watch an unadoptable terminal host");
         }

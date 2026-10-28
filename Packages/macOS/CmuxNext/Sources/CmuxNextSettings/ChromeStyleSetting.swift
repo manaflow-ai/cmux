@@ -1,5 +1,6 @@
 public import CmuxNextActions
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 
 /// `appearance.chromeStyle` in cmux.json (`ChromeStyle`): one string for the
 /// window's look, whose values supply the defaults of the curved main pane,

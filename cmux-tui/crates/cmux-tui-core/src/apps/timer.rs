@@ -3,6 +3,7 @@
 //! condition variable until the earliest deadline or a change; with nothing
 //! scheduled it blocks without a timeout (no polling, idle-wakeups.md).
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::BTreeMap;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
@@ -36,9 +37,11 @@ impl Timers {
         if !state.started {
             state.started = true;
             let shared = self.shared.clone();
-            let _ = cmux_threads::spawn(
+            let _ = supervised::spawn_at(
                 "cmux-apps-timers",
                 cmux_threads::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || run(&shared),
             );
         }

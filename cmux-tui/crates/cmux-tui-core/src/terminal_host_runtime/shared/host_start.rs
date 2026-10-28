@@ -5,6 +5,7 @@
 //! waker and the PTY readiness wait.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::Path;
@@ -223,9 +224,11 @@ pub(crate) fn start_host_runtime(
         },
     )?;
     let child_host = shared.clone();
-    cmux_threads::spawn(
+    supervised::spawn_at(
         "terminal-host-child",
         cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let observed_without_reaping = child.wait_exit_observed();
             if observed_without_reaping {

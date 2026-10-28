@@ -14,6 +14,7 @@
 //!   app's credit.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
@@ -93,10 +94,14 @@ impl RelaySet {
             emit,
             gone,
         };
-        cmux_threads::spawn(
+        supervised::spawn_at(
             "cmux-link-accept",
             cmux_threads::ThreadQos::UserInitiated,
-            move || accept.run(),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                accept.run();
+            },
         )?;
         self.relays.lock().recover_poison().insert(channel.to_owned(), relay);
         Ok(path)
@@ -174,9 +179,11 @@ impl Accept {
 
     fn serve(&self, mut reader: UnixStream, mut writer: UnixStream) {
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
-        let _ = cmux_threads::spawn(
+        let _ = supervised::spawn_at(
             "cmux-link-out",
             crate::thread_qos::ThreadType::Interactive.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
                     if writer.write_all(&bytes).is_err() {
@@ -193,9 +200,11 @@ impl Accept {
         );
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
         let (stopped, gone) = (self.stopped.clone(), self.gone.clone());
-        let _ = cmux_threads::spawn(
+        let _ = supervised::spawn_at(
             "cmux-link-in",
             crate::thread_qos::ThreadType::Interactive.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
             move || {
                 let mut buf = vec![0u8; CHUNK];
                 loop {

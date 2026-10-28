@@ -80,21 +80,25 @@ pub(crate) fn bridge(socket: cmux::local_socket::Stream) -> io::Result<Stream> {
     let mut writer = socket;
     let runtime = tokio::runtime::Handle::current();
     let reads = runtime.clone();
-    cmux_threads::spawn("acpmux-socket-read", cmux_threads::ThreadQos::UserInitiated, move || {
-        let mut buf = vec![0u8; BRIDGE_BUFFER];
-        loop {
-            let n = match reader.read(&mut buf) {
-                Ok(0) | Err(_) => break,
-                Ok(n) => n,
-            };
-            // Fails once this process dropped its read half.
-            if reads.block_on(inbound.write_all(&buf[..n])).is_err() {
-                break;
+    crate::supervised::scoped_thread(
+        "acpmux-socket-read",
+        cmux_threads::ThreadQos::UserInitiated,
+        move || {
+            let mut buf = vec![0u8; BRIDGE_BUFFER];
+            loop {
+                let n = match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => n,
+                };
+                // Fails once this process dropped its read half.
+                if reads.block_on(inbound.write_all(&buf[..n])).is_err() {
+                    break;
+                }
             }
-        }
-        // Dropping `inbound`: the read half reads end of file.
-    })?;
-    cmux_threads::spawn(
+            // Dropping `inbound`: the read half reads end of file.
+        },
+    )?;
+    crate::supervised::scoped_thread(
         "acpmux-socket-write",
         cmux_threads::ThreadQos::UserInitiated,
         move || {

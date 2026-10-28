@@ -11,6 +11,7 @@
 //! re-classifies an unsettled receipt at startup against the recorded
 //! shutdown window, with the same result.
 
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::BTreeMap;
 use std::sync::atomic::Ordering;
@@ -158,9 +159,11 @@ impl Mux {
         state.worker_running = true;
         drop(state);
         let worker = Arc::clone(timer);
-        if let Err(error) = cmux_threads::spawn(
+        if let Err(error) = supervised::spawn_at(
             "terminal-exit-settle",
             cmux_threads::ThreadQos::UserInitiated,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || worker.run_worker(mux),
         ) {
             timer.state.lock().recover_poison().worker_running = false;
