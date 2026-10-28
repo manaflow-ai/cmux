@@ -452,6 +452,7 @@ mod launch_classification {
         "--allowed-tools",
         "--append-system-prompt",
         "--append-system-prompt-file",
+        "--autocompact",
         "--betas",
         "--dangerously-load-development-channels",
         "--debug-file",
@@ -470,6 +471,7 @@ mod launch_classification {
         "-n",
         "--output-format",
         "--permission-mode",
+        "--permission-prompts",
         "--plugin-dir",
         "--plugin-url",
         "--remote-control-session-name-prefix",
@@ -480,6 +482,7 @@ mod launch_classification {
         "--settings",
         "--system-prompt",
         "--system-prompt-file",
+        "--system-prompt-snapshot",
         "--teammate-mode",
         "--tools",
     ];

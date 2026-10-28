@@ -376,17 +376,19 @@ var claudeTeamsOptionalValueOptions = map[string]bool{
 var claudeTeamsValueOptions = map[string]bool{
 	"--add-dir": true, "--agent": true, "--agents": true, "--allowedTools": true,
 	"--allowed-tools": true, "--append-system-prompt": true,
-	"--append-system-prompt-file": true, "--betas": true,
+	"--append-system-prompt-file": true, "--autocompact": true, "--betas": true,
 	"--dangerously-load-development-channels": true, "--debug-file": true,
 	"--disallowedTools": true, "--disallowed-tools": true, "--effort": true,
 	"--fallback-model": true, "--file": true, "--from-pr": true,
 	"--input-format": true, "--json-schema": true, "--max-budget-usd": true,
 	"--mcp-config": true, "--model": true, "--name": true, "-n": true,
-	"--output-format": true, "--permission-mode": true, "--plugin-dir": true,
+	"--output-format": true, "--permission-mode": true,
+	"--permission-prompts": true, "--plugin-dir": true,
 	"--plugin-url": true, "--remote-control-session-name-prefix": true,
 	"--resume": true, "-r": true, "--session-id": true,
 	"--setting-sources": true, "--settings": true, "--system-prompt": true,
-	"--system-prompt-file": true, "--teammate-mode": true, "--tools": true,
+	"--system-prompt-file": true, "--system-prompt-snapshot": true,
+	"--teammate-mode": true, "--tools": true,
 }
 
 var claudeTeamsVariadicOptions = map[string]bool{
