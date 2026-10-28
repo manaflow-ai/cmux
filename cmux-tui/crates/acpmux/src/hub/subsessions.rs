@@ -668,6 +668,7 @@ impl Hub {
                 person: false,
                 who: &who,
                 local: req.local,
+                peers: req.local,
                 // A child's name is made unique before this (`unique_name`).
                 name: None,
             })
@@ -1168,11 +1169,19 @@ impl Hub {
     /// `MAX_REPLY_CHARS`, so a cut never leaves a secret's head unmasked.
     pub fn last_reply(&self, s: &Session) -> Option<String> {
         let last = s.meta().last_seq;
-        let after = last.saturating_sub(4000);
-        let events = self.events(&s.id, after, 4000).ok()?;
+        self.reply_between(s, last.saturating_sub(4000), last)
+    }
+
+    /// [`Hub::last_reply`] among the records after `after` up to `upto` only (the last 4000 of
+    /// them): one turn's reply, read after later turns began (the Cloud hand-off reports,
+    /// `daemon/cloud_handoff.rs`).
+    pub fn reply_between(&self, s: &Session, after: u64, upto: u64) -> Option<String> {
+        let after = after.max(upto.saturating_sub(4000));
+        let count = usize::try_from(upto.saturating_sub(after)).unwrap_or(4000);
+        let events = self.events(&s.id, after, count).ok()?;
         let mut reply = String::new();
         let mut open = false;
-        for e in events {
+        for e in events.into_iter().take_while(|e| e.seq <= upto) {
             if e.dir == "mux" && matches!(e.kind.as_str(), "turn_started" | "user_message") {
                 open = false;
                 continue;

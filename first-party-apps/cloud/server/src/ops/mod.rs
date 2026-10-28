@@ -4,6 +4,7 @@
 mod auth;
 mod declared;
 mod delete_retry;
+mod environment;
 mod machine;
 mod machine_projection;
 mod migration;
@@ -53,6 +54,13 @@ const OPS: &[(&str, Kind)] = &[
     // A restore makes a new machine: it costs money like create.
     ("cloud.snapshot.restore", Kind::UserOnly),
     ("cloud.snapshot.delete", Kind::UserOnly),
+    // Environments: build and boot cost money and delete destroys a snapshot,
+    // so a person confirms them; set only edits a record.
+    ("cloud.environment.list", Kind::Read),
+    ("cloud.environment.set", Kind::Mutation),
+    ("cloud.environment.build", Kind::UserOnly),
+    ("cloud.environment.boot", Kind::UserOnly),
+    ("cloud.environment.delete", Kind::UserOnly),
     ("cloud.plan.get", Kind::Read),
     ("cloud.billing.checkout", Kind::UserOnly),
     // Classic migration (contract 4): one way per user, then per machine.
@@ -465,6 +473,7 @@ impl<C: ControlPlane> Server<C> {
             _ if name == "cloud.machine.upgrade" => migration::run(&mut ctx, name, args),
             "machine" => machine::run(&mut ctx, name, args),
             "snapshot" => snapshot::run(&mut ctx, name, args),
+            "environment" => environment::run(&mut ctx, name, args),
             "plan" | "billing" => plan::run(&mut ctx, name, args),
             "migration" => migration::run(&mut ctx, name, args),
             _ => Err(CloudError::new(codes::UNKNOWN_OP, format!("{name} has no handler"))),
