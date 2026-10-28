@@ -386,16 +386,16 @@ class Signer:
         self.issuer_serial = seq(spc.der(tbs[3]), spc.der(tbs[1]))
 
     def cms(self, cd: bytes, *, time: str = "261028120000Z", extra_signed=b"", unsigned=None,
-            cdhash: bytes | None = None) -> bytes:
+            cdhash: bytes | None = None, cdhashes_plist=None, reorder: bool = False) -> bytes:
         """A detached CMS SignedData over a CodeDirectory, as a code signature carries it."""
         signed = [attribute("1.2.840.113549.1.9.3", der_oid("1.2.840.113549.1.7.1")),
                   attribute(spc.SIGNING_TIME, tlv(0x17, time.encode())),
                   attribute("1.2.840.113549.1.9.4", tlv(0x04, hashlib.sha256(cd).digest())),
                   attribute(spc.APPLE_CDHASHES_PLIST,
-                            tlv(0x04, plistlib.dumps({"cdhashes": [cdhash or hashlib.sha256(cd).digest()[:20]]})))]
+                            tlv(0x04, (cdhashes_plist or plistlib.dumps)({"cdhashes": [cdhash or hashlib.sha256(cd).digest()[:20]]})))]
         extra_signed = extra_signed(cd) if callable(extra_signed) else extra_signed
         signed += [extra_signed] if extra_signed else []
-        attrs = der_set(*signed)
+        attrs = der_set(*signed) if not reorder else tlv(0x31, b"".join(sorted(signed, reverse=True)))
         signature = subprocess.run(["openssl", "dgst", "-sha256", "-sign", str(self.key)], input=attrs,
                                    check=True, capture_output=True).stdout
         unsigned = [attribute(spc.TIMESTAMP_TOKEN, seq(tlv(0x04, b"token at " + time.encode())))] \
@@ -437,7 +437,8 @@ class DerReaderTests(unittest.TestCase):
         long_form = b"\x04\x81\x03abc"  # a long-form length for a short string
         self.assertEqual(spc.read_tlv(long_form)[0].issues, ["non-minimal length (8103)"])
         unsorted = b"\x31\x06" + tlv(0x02, b"\x09") + tlv(0x02, b"\x01")
-        self.assertIn("SET: SET OF elements not in DER order", spc.framing_issues(spc.read_tlv(unsorted)[0]))
+        self.assertTrue(any(i.startswith("SET: SET OF elements not in DER order (order ")
+                            for i in spc.framing_issues(spc.read_tlv(unsorted)[0])))
 
     def test_truncated_input_raises(self):
         for bad in (b"\x30", b"\x30\x05\x02\x01", b"\x30\x80\x02\x01\x01"):
@@ -480,9 +481,10 @@ class StrictFixture(unittest.TestCase):
 
     def strict(self, a: Path, b: Path, env=None):
         out = self.root / "out.json"
+        out.unlink(missing_ok=True)
         proc = subprocess.run([sys.executable, "-I", str(SCRIPT), str(a), str(b), str(out), "--strict"],
                               capture_output=True, text=True, env=env)
-        return proc, json.loads(out.read_text())
+        return proc, json.loads(out.read_text()) if out.exists() else {}
 
     def signer_cms_of(self, body: bytes) -> bytes:
         return spc.blobs(body)[0x10000][8:]
@@ -748,6 +750,97 @@ class StrictSecondReviewTests(StrictFixture):
         proc, _ = self.strict(a, b)
         self.assertEqual(proc.returncode, 1)
         self.assertIn("CodeResources: mode differs", proc.stdout)
+
+
+
+@unittest.skipUnless(shutil.which("openssl"), "openssl makes the test signatures")
+class StrictThirdReviewTests(StrictFixture):
+    """Each way the third strict review found to pass two apps that differ."""
+
+    def resealed(self, app: Path, edit):
+        """app with its CodeResources bytes edited and its main executable re-signed over them."""
+        path = app / "Contents/_CodeSignature/CodeResources"
+        sealed = edit(path.read_bytes())
+        path.write_bytes(sealed)
+        (app / "Contents/MacOS/Demo").write_bytes(macho(b"TEXT" * 8, lambda cd: self.signer.cms(cd, time="261028130500Z"),
+                                                        resources_hash=hashlib.sha256(sealed).digest(), reserve=4096))
+        return app
+
+    def test_code_resources_bytes_and_types_count(self):
+        a = self.app("a")
+        b = self.resealed(self.app("b", time="261028130500Z"), lambda x: x.replace(b"<dict>", b"<!-- note --><dict>", 1))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("the same entries in different bytes", proc.stdout)
+
+        def forge(data):
+            plist = plistlib.loads(data)
+            plist["files2"]["Resources/other"]["hash2"] = "<sha256 of Contents/Resources/other>"
+            return plistlib.dumps(plist)
+        c = self.resealed(self.app("c", time="261028130500Z"), forge)
+        proc, _ = self.strict(a, c)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("files2/Resources/other: hash2", proc.stdout)
+
+    def test_cdhashes_plist_bytes_count(self):
+        commented = lambda value: plistlib.dumps(value).replace(b"<dict>", b"<!-- note --><dict>", 1)
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd), reserve=4096))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, cdhashes_plist=commented),
+                                                 reserve=4096))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("signed attribute 1.2.840.113635.100.9.1 differs", proc.stdout)
+
+    def test_tag_and_attribute_order_framing_count(self):
+        node = spc.read_tlv(b"\x3f\x10\x03\x02\x01\x05")[0]
+        self.assertEqual(spc.der(node), b"\x30\x03\x02\x01\x05")
+        self.assertEqual(node.issues, ["non-minimal tag (3f10)"])
+        a = make_app(self.root / "a", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, reorder=True), reserve=4096))
+        b = make_app(self.root / "b", tool=macho(b"T" * 32, lambda cd: self.signer.cms(cd, reorder=True), reserve=4096))
+        exe = b / "Contents/MacOS/Demo"
+        signed = spc.parse_cms(self.signer_cms_of(exe.read_bytes()))["signers"][0]["signed"]
+        self.assertTrue(any("not in DER order" in i for i in spc.framing_issues(signed)))
+        proc, _ = self.strict(a, a)
+        self.assertEqual(proc.returncode, 0, proc.stdout)
+        swapped = macho(b"T" * 32, lambda cd: self.signer.cms(cd, reorder=False), reserve=4096)
+        exe.write_bytes(swapped)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("SET OF elements not in DER order", proc.stdout)
+
+    def test_the_universal_container_counts(self):
+        thin = macho(b"T" * 32, lambda cd: self.signer.cms(cd), reserve=4096)
+        a = make_app(self.root / "a", tool=fat(thin))
+        b = make_app(self.root / "b", tool=fat(thin) + b"\0")
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("file length differs", proc.stdout)
+
+    def test_the_superblob_length_counts(self):
+        good = bytearray(macho(b"T" * 32, lambda cd: self.signer.cms(cd), pad=16))
+        sig_at = struct.unpack("<I", bytes(good[32 + 72 + 8:32 + 72 + 12]))[0]
+        longer = bytearray(good)
+        longer[sig_at + 4:sig_at + 8] = struct.pack(">I", struct.unpack(">I", bytes(good[sig_at + 4:sig_at + 8]))[0] + 1)
+        a, b = make_app(self.root / "a", tool=bytes(good)), make_app(self.root / "b", tool=bytes(longer))
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("superblob layout differs", proc.stdout)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads every directory")
+    def test_unreadable_directories_and_the_root_mode_count(self):
+        a, b = self.app("a"), self.app("b")
+        locked = b / "Contents/Resources"
+        locked.chmod(0)
+        try:
+            proc, _ = self.strict(a, b)
+        finally:
+            locked.chmod(0o755)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("unreadable paths", proc.stdout)
+        b.chmod(0o700)
+        proc, _ = self.strict(a, b)
+        self.assertEqual(proc.returncode, 1)
+        self.assertIn("modes differ", proc.stdout)
 
 
 if __name__ == "__main__":

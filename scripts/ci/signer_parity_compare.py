@@ -473,6 +473,7 @@ def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
     first = data[pos]
     pos += 1
     number = first & 0x1F
+    tag_start = pos - 1
     if number == 0x1F:
         number = 0
         while True:
@@ -483,6 +484,8 @@ def read_tlv(data: bytes, pos: int = 0, path: str = "", depth: int = 0):
             if not data[pos - 1] & 0x80:
                 break
     node = Node(first >> 6, bool(first & 0x20), number, path)
+    if number >= 0x1F and data[tag_start + 1] == 0x80 or number < 0x1F and first & 0x1F == 0x1F:
+        node.issues.append(f"non-minimal tag ({data[tag_start:pos].hex()})")
     node.path = f"{path}/{node.name()}" if path else node.name()
     length_byte = data[pos]
     pos += 1
@@ -565,7 +568,8 @@ def framing_issues(node: Node, skip=()) -> list:
     if node.cls == 0 and node.number == 17 or node.path.endswith("signedAttrs"):
         encoded = [der(c) for c in node.children]
         if encoded != sorted(encoded):
-            out.append(f"{node.path}: SET OF elements not in DER order")
+            order = hashlib.sha256(b"".join(hashlib.sha256(e).digest() for e in encoded)).hexdigest()[:16]
+            out.append(f"{node.path}: SET OF elements not in DER order (order {order})")
     for child in node.children:
         out += framing_issues(child, skip)
     return out
@@ -639,12 +643,19 @@ def attribute_value(attr_oid: str, values: Node, names: dict):
     compare equal; every other attribute is compared as it is."""
     if attr_oid not in CD_HASH_ATTRIBUTES:
         return der(values)
-    if attr_oid == APPLE_CDHASHES_PLIST and values.children:
-        try:
-            return named(plistlib.loads(values.children[0].value), names)
-        except Exception:
-            pass
-    return named(der(values), names)
+    return marked(der(values), names)
+
+
+def marked(data: bytes, names: dict) -> bytes:
+    """data with each named digest, raw or base64 (as an XML plist holds it),
+    replaced by a marker that holds a NUL byte, so no text value can forge it."""
+    import base64
+    tokens = {}
+    for digest, name in names.items():
+        tokens[digest] = tokens[base64.b64encode(digest)] = b"\0<" + name.encode() + b">\0"
+    for token in sorted(tokens, key=len, reverse=True):
+        data = data.replace(token, tokens[token])
+    return data
 
 
 def cd_hash_attribute_errors(attrs: list, names: dict, count: int) -> list:
@@ -822,6 +833,13 @@ def strict_slice(a: bytes, b: bytes, labels=("A", "B")):
             out.append(f"the signature index names a blob type twice ({side})")
     if out:
         return out, slots
+    oa, ob = blob_offsets(a), blob_offsets(b)
+    head_a, head_b = struct.unpack(">III", a[sa[0]:sa[0] + 12]), struct.unpack(">III", b[sb[0]:sb[0] + 12])
+    ends_a = max(o + len(ba[t]) for t, o in oa.items()) - sa[0]
+    ends_b = max(o + len(bb[t]) for t, o in ob.items()) - sb[0]
+    if oa != ob or head_a[0] != head_b[0] or head_a[1] - ends_a != head_b[1] - ends_b or \
+            any(len(ba[t]) != len(bb[t]) for t in ba if t != 0x10000) or max(oa, key=oa.get) != 0x10000:
+        return ["the signature superblob layout differs (blob offsets, lengths or padding)"], slots
     for side, blob in zip(labels, (ba.get(0x10000), bb.get(0x10000))):
         if blob is None or struct.unpack(">I", blob[:4])[0] != CMS_WRAPPER_MAGIC:
             out.append(f"no CMS signature blob ({side})" if blob is None else f"the CMS blob's magic is not 0xfade0b01 ({side})")
@@ -873,14 +891,18 @@ def resources_named(plist, home: str, names: dict):
     """A CodeResources property list with each digest named, but only in its hash
     fields and only when the digest is of that entry's own path (a file's bytes)
     or of a CodeDirectory of the nested code at that path."""
+    used = {}
     if not isinstance(plist, dict):
-        return plist
+        return plist, used
 
     def name(digest, entry):
         label = names.get(digest) if isinstance(digest, bytes) else None
         path = label_path(label)
         own = os.path.normpath(os.path.join(home, entry)) if home else os.path.normpath(entry)
-        return label if path and (path == own or path.startswith(own + "/")) else digest
+        if path and (path == own or path.startswith(own + "/")):
+            used[digest] = label
+            return ("digest of", label)  # a tuple: no property list value equals it
+        return digest
 
     out = dict(plist)
     for section in ("files", "files2"):
@@ -894,7 +916,7 @@ def resources_named(plist, home: str, names: dict):
             elif isinstance(value, dict):
                 value = {k: name(v, entry) if k in HASH_FIELDS else v for k, v in value.items()}
             out[section][entry] = value
-    return out
+    return out, used
 
 
 def manifest_named(data: bytes, rel: str, names: dict) -> bytes:
@@ -983,7 +1005,7 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
     lines, verdicts, pending, raw, sealed = [], {}, {}, {}, {}
     for rel, (pa, pb, da, db) in sorted(machos.items()):
         raw[rel] = (da, db)
-        diffs, slots = [], []
+        diffs, slots = container_errors(da, db, pa, pb), []
         for (arch, x), (_, y) in zip(pa, pb):
             try:
                 d, s = strict_slice(x, y, labels)
@@ -1036,9 +1058,11 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
         except Exception:
             return out + ["not a property list; bytes differ"]
         home = os.path.dirname(os.path.dirname(rel))
-        na, nb = resources_named(pa, home, known[0]), resources_named(pb, home, known[1])
+        (na, ua), (nb, ub) = resources_named(pa, home, known[0]), resources_named(pb, home, known[1])
         if na == nb:
-            return out
+            # The parsed lists agree; their bytes must too, but for those digests.
+            return out + ([] if marked(xa, ua) == marked(xb, ub) else
+                          ["the same entries in different bytes (formatting, comments or order)"])
         diffs = code_resources_diff_values(na, nb) or ["the property lists differ"]
         return out + [f"{d} (a hash not explained by a nested item that differs only by signing time)" for d in diffs]
 
@@ -1098,19 +1122,56 @@ def strict_compare(a_root, b_root, machos: dict, labels, failures: list) -> tupl
     return lines, count, verdicts
 
 
+def container_errors(da: bytes, db: bytes, pa, pb) -> list:
+    """A universal file's container (header with offsets and sizes, padding,
+    length) must be byte-identical; only the slices may differ."""
+    if len(da) != len(db):
+        return [f"file length differs ({len(da)} / {len(db)})"]
+    fa = fat_header(da)
+    if fa is None:
+        return []
+
+    def outside(data, parts):
+        out, pos = bytearray(data), 0
+        for _, body in parts:
+            at = data.index(body, pos) if body else pos
+            out[at:at + len(body)] = bytes(len(body))
+            pos = at + len(body)
+        return bytes(out)
+    return [] if outside(da, pa) == outside(db, pb) else ["the universal container (header, offsets or padding) differs"]
+
+
+def tree_errors(root: str) -> list:
+    """What strict mode cannot read: os.walk() otherwise skips an unreadable directory."""
+    errors = []
+    for _ in os.walk(root, onerror=lambda e: errors.append(f"cannot read {e.filename}: {e.strerror}")):
+        pass
+    return errors
+
+
 def main() -> int:
     args = parse_args()
-    if args.strict:
-        bad = [p for p in (args.a, args.b) if os.path.islink(p) or not os.path.isdir(p)]
-        if bad:
-            print(f"strict parity: FAIL (not a directory: {', '.join(bad)})")
-            return 1
-        try:
-            return compare(args)
-        except Exception as error:  # a malformed input fails strict mode, never crashes it open
-            print(f"strict parity: FAIL (cannot compare: {type(error).__name__}: {error})")
-            return 1
-    return compare(args)
+    if not args.strict:
+        return compare(args)
+
+    def fail(reason: str, details=()) -> int:
+        print("\n".join([*details, f"strict parity: FAIL ({reason})"]))
+        with open(args.out, "w", encoding="utf-8") as handle:
+            json.dump({"strict": {"error": reason, "details": list(details)}}, handle, indent=1)
+        return 1
+    bad = [p for p in (args.a, args.b) if os.path.islink(p) or not os.path.isdir(p)]
+    if bad:
+        return fail(f"not a directory: {', '.join(bad)}")
+    unreadable = tree_errors(args.a) + tree_errors(args.b)
+    if unreadable:
+        return fail(f"{len(unreadable)} unreadable paths", unreadable)
+    modes = [oct(stat.S_IMODE(os.stat(p).st_mode)) for p in (args.a, args.b)]
+    if modes[0] != modes[1]:
+        return fail(f"the app directories' modes differ: {modes[0]} / {modes[1]}")
+    try:
+        return compare(args)
+    except Exception as error:  # a malformed input fails strict mode, never crashes it open
+        return fail(f"cannot compare: {type(error).__name__}: {error}")
 
 
 def parse_args():
