@@ -255,7 +255,13 @@ describe("Review", () => {
 
     expect(await store.decide("sub_9", "approve", "")).toBe(true);
     const decided = provider.calls.filter((call) => call.op === RegistryOps.reviewDecide);
-    expect(decided.at(-1)?.params).toEqual({ id: "sub_9", decision: "approve", reason: "" });
+    expect(decided.at(-1)?.params).toEqual({
+      id: "sub_9",
+      decision: "approve",
+      reason: "",
+      app: "pixel-works/clock-pane",
+      version: "0.3.0",
+    });
     expect(store.getSnapshot().registry.queue).toEqual([]);
     store.stop();
   });

@@ -238,6 +238,8 @@ test("Reject needs a reason; Approve calls decide", async () => {
     id: "sub_9",
     decision: "approve",
     reason: "",
+    app: "pixel-works/clock-pane",
+    version: "0.3.0",
   });
   expect(page.querySelector(".apps-review .apps-empty")?.textContent).toBe("store.registry.selectSubmission");
   expect(page.querySelector(".apps-review .apps-review-note")?.textContent).toBe("store.registry.queueEmpty");
