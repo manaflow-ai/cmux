@@ -66,6 +66,7 @@ impl HandoffReport {
         if !valid_session(session) {
             return Err("session must be 1-128 of [A-Za-z0-9_.:-]".to_owned());
         }
+        // The store's bounds (routes.ts `turnNumber`): a safe integer, from 1.
         let Some(turn) = v.field("turn").as_u64().filter(|t| *t >= 1 && *t < (1 << 53)) else {
             return Err("turn must be a whole number from 1".to_owned());
         };
@@ -73,6 +74,7 @@ impl HandoffReport {
         if !STATUSES.contains(&status) {
             return Err("status must be running, needs-you, done or failed".to_owned());
         }
+        // A missing or null summary is no summary, as the store reads it (routes.ts `text`).
         let summary = match v.field("summary") {
             Value::Null => None,
             Value::String(s) if s.encode_utf16().count() <= SUMMARY_MAX => Some(s.clone()),
@@ -113,7 +115,7 @@ fn brief(handoff: &Value) -> Option<Value> {
     let state = handoff.field("state").as_str()?;
     let status = handoff.field("status").as_str()?;
     let mut out = json!({ "id": id, "turn": turn, "state": state, "status": status });
-    if let Some(at) = handoff.field("statusAt").as_str().filter(|at| at.len() <= 40) {
+    if let Some(at) = handoff.field("statusAt").as_str().filter(|at| at.chars().count() <= 40) {
         out["statusAt"] = json!(at);
     }
     Some(out)
