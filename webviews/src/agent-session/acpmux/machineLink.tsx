@@ -72,10 +72,10 @@ export function computerLink(
   return computer.id === "local" ? pane?.link : peerLink(computer);
 }
 
-/// A machine acpmux lists (it names a link state) or this chat's own, that is down or on its way:
-/// a pick, which reconnects it. A chat's machine acpmux no longer lists stays no pick.
-export function pickableDown(computer: Pick<Environment, "id" | "state" | "link">): boolean {
-  return computer.link !== undefined && (computer.id === "local" || computer.state !== undefined);
+/// A machine acpmux lists, or this chat's own, that is down or on its way: a pick, which
+/// reconnects it. A chat's machine acpmux no longer lists stays no pick.
+export function pickableDown(computer: Pick<Environment, "id" | "listed" | "link">): boolean {
+  return computer.link !== undefined && (computer.id === "local" || computer.listed === true);
 }
 
 /// Whether picking or sending to a machine with this link reconnects it first.

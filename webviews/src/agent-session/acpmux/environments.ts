@@ -8,10 +8,12 @@ export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `state`: its link state as acpmux says it (`connecting`, `connected`, `degraded`, `reconnecting`,
 /// `offline`; acpmux peer_link.rs `PeerState`), absent from an older daemon or relay.
 /// `link`: what the strip's mark draws for it (machineLink.tsx), set by the composer.
+/// `listed`: acpmux lists it as a peer now (a pick of it reconnects it when it is down).
 export type Environment = {
   id: string;
   label: string;
   kind: EnvironmentKind;
+  listed?: true;
   connected?: boolean;
   state?: string;
   link?: MachineLink;
@@ -271,6 +273,7 @@ export function knownMachines(
       id,
       label,
       kind: !cloudHost && peerKinds[id] === "ssh" ? "ssh" : "cloud",
+      ...(!cloudHost && listedPeers.has(id) ? { listed: true as const } : {}),
       ...(connected !== undefined ? { connected } : {}),
       ...(state !== undefined ? { state } : {}),
     });
