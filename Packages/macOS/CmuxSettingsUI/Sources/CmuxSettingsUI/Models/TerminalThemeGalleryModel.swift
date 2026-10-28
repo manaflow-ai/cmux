@@ -68,6 +68,10 @@ final class TerminalThemeGalleryModel {
     /// The managed block's theme before the first pick (`nil`: no block).
     private struct Snapshot {
         let managedThemeValue: String?
+        /// Whether picks keep a light/dark pair, decided at the first pick the
+        /// way the `cmux themes` picker fixes its target when it opens, so
+        /// previewing past the other side's theme does not drop the pair.
+        let keepsPair: Bool
     }
 
     @ObservationIgnored private let context: TerminalThemeGalleryContext
@@ -157,12 +161,12 @@ final class TerminalThemeGalleryModel {
     /// Uses `name` for the appearance in use and live-previews it.
     ///
     /// A pick always replaces the theme the terminal shows, so the highlighted
-    /// card is the theme on screen. When the config holds a light/dark pair,
-    /// only the side in use changes and the other side is kept, so the
-    /// terminal still switches with the app appearance; this is the target the
-    /// `cmux themes` picker chooses by default. With one theme for both
-    /// appearances, or none yet, a pick sets both sides, since Ghostty needs
-    /// both sides of a light/dark `theme` value.
+    /// card is the theme on screen. When the config holds a light/dark pair at
+    /// the first pick, that pick and later ones change only the side in use and
+    /// keep the other side, so the terminal still switches with the app
+    /// appearance; this is the target the `cmux themes` picker chooses by
+    /// default. With one theme for both appearances, or none yet, a pick sets
+    /// both sides, since Ghostty needs both sides of a light/dark `theme` value.
     func select(_ name: String) {
         let current: CmuxTerminalThemePair
         let managedValue: String?
@@ -174,8 +178,9 @@ final class TerminalThemeGalleryModel {
             return
         }
         selection = current
+        let keepsPair = snapshot?.keepsPair ?? Self.holdsPair(current)
         var next = current
-        if Self.holdsPair(current) {
+        if keepsPair, current.light != nil, current.dark != nil {
             switch slotInUse {
             case .light: next.light = name
             case .dark: next.dark = name
@@ -195,7 +200,7 @@ final class TerminalThemeGalleryModel {
             return
         }
         if snapshot == nil {
-            snapshot = Snapshot(managedThemeValue: managedValue)
+            snapshot = Snapshot(managedThemeValue: managedValue, keepsPair: keepsPair)
         }
         selection = next
         hasPendingChange = true

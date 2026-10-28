@@ -55,6 +55,9 @@ struct TerminalThemeSettingsRows: View {
             let galleryModel: TerminalThemeGalleryModel
             if let model {
                 galleryModel = model
+                // The side a pick writes follows the appearance, which may have
+                // changed while the rows were off screen.
+                galleryModel.appearanceDidChange(prefersDark: colorScheme == .dark)
                 galleryModel.refreshSelection()
             } else {
                 // Built on first appearance, not in init: the context reads config files.
