@@ -10,13 +10,14 @@ import CmuxTheme
 import Foundation
 import Testing
 
-private struct PlacementGalleryCaptured: Decodable, Sendable {
+struct PlacementGalleryCaptured: Decodable, Sendable {
     struct Write: Decodable, Sendable {
         let workspace_key: String
         let index: Int
     }
     let order: [String]
     let writes: [Write]
+    let attempts: Int
 }
 
 /// Native gallery fixture, not a live-daemon recording. The actual production
@@ -41,11 +42,13 @@ struct PlacementStaleRowsGalleryTests {
 
     /// Only removes/inserts the workspace at the index production code sent.
     /// It has no expected-order branch and renders no pixels.
-    private static let daemonScript = #"""
+    static let daemonScript = #"""
     import json, sys
     mixed = sys.argv[1] == '1'
+    mode = sys.argv[2] if len(sys.argv) > 2 else ''
+    attempts = 0
     keys, order, writes, waiting = ['k1'], ['k1'], [], []
-    names = {'k1': 'Placement first', 'k2': 'Placement second', 'k3': 'Placement third'}
+    names = {'k1': 'Placement first', 'k2': 'Placement second', 'k3': 'Placement third', 'k4': 'Placement fourth'}
     def answer(id, data):
         print(json.dumps({'id': id, 'ok': True, 'data': data}), flush=True)
     print('{"ok":true}', file=sys.stderr, flush=True)
@@ -63,23 +66,32 @@ struct PlacementStaleRowsGalleryTests {
                 {'session_id': 's-local', 'workspace_key': key, 'index': i} for i, key in enumerate(order)]}
         elif cmd == 'gallery-seed':
             keys, order, writes = ['k1', 'k2', 'k3'], ['k3', 'k1', 'k2'], []
+        elif cmd == 'gallery-seed-burst':
+            keys, order, writes = ['k1', 'k2', 'k3', 'k4'], ['k4', 'k3', 'k2', 'k1'], []
         elif cmd == 'gallery-wait-for-write' and not writes:
             waiting.append(request['id'])
             continue
         elif cmd == 'set-personal-workspace':
+            attempts += 1
+            if mode == 'disconnect':
+                sys.exit(0)
+            if mode == 'fail':
+                print(json.dumps({'id': request['id'], 'ok': False, 'error': 'placement refused'}), flush=True)
+                continue
             key, index = request['workspace_key'], request['index']
             order.remove(key)
             order.insert(min(index, len(order)), key)
             writes.append({'workspace_key': key, 'index': index})
+            print(json.dumps({'event': 'personal-changed'}), flush=True)
             for pending in waiting:
                 answer(pending, {})
             waiting.clear()
         elif cmd == 'gallery-report':
-            data = {'order': order, 'writes': writes}
+            data = {'order': order, 'writes': writes, 'attempts': attempts}
         answer(request['id'], data)
     """#
 
-    private static func waitForInitialSnapshot(_ services: AppServices) async throws {
+    static func waitForInitialSnapshot(_ services: AppServices) async throws {
         try await ControlDeadline.shared.run(method: "gallery initial snapshot", deadline: .now + .seconds(10)) { @MainActor in
             for await ready in ObservationStream({
                 services.daemon.connection != nil && services.daemon.store.isLoaded
