@@ -3,7 +3,7 @@
   "name": "terminalAsyncStart",
   "owner": "PL-daemon",
   "description": "A create-terminal with async_start and its own terminal_id replies at admission with starting:true; the terminal starts on the terminal work pool, and a terminal-started or terminal-start-failed event follows the reply.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",
   "process": "daemon",
