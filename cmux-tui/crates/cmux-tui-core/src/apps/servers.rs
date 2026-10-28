@@ -56,6 +56,7 @@ use super::mirror::{Origin, Tier};
 use super::supervisor::{ApiError, Inner, MAX_CRASHES, Out, Responder, Supervisor};
 use super::timer::TimerId;
 use crate::backoff::Backoff;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 /// Longest line a server may write (a 16 MiB file read, base64 encoded).
 const MAX_LINE_BYTES: u64 = 32 << 20;
@@ -207,54 +208,67 @@ impl ServerProcess {
         };
         let pid = Arc::new(Mutex::new(Some(child.id())));
         let (queue, outgoing) = sync_channel(QUEUE);
-        std::thread::Builder::new()
-            .name(format!("cmux-app-server-w:{name}"))
-            .spawn(move || write_loop(stdin, outgoing))?;
-        std::thread::Builder::new().name(format!("cmux-app-server-e:{name}")).spawn(move || {
-            for line in BufReader::new(stderr).lines() {
-                let Ok(mut line) = line else { break };
-                if line.len() > LOG_LINE_BYTES {
-                    let mut end = LOG_LINE_BYTES;
-                    while !line.is_char_boundary(end) {
-                        end -= 1;
+        supervised::spawn(
+            format!("cmux-app-server-w:{name}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || write_loop(stdin, outgoing),
+        )?;
+        supervised::spawn(
+            format!("cmux-app-server-e:{name}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                for line in BufReader::new(stderr).lines() {
+                    let Ok(mut line) = line else { break };
+                    if line.len() > LOG_LINE_BYTES {
+                        let mut end = LOG_LINE_BYTES;
+                        while !line.is_char_boundary(end) {
+                            end -= 1;
+                        }
+                        line.truncate(end);
                     }
-                    line.truncate(end);
+                    on_log(line);
                 }
-                on_log(line);
-            }
-        })?;
+            },
+        )?;
         let reaper = pid.clone();
-        std::thread::Builder::new().name(format!("cmux-app-server:{name}")).spawn(move || {
-            let mut lines = BufReader::new(stdout);
-            let mut line = Vec::new();
-            loop {
-                line.clear();
-                match lines.by_ref().take(MAX_LINE_BYTES + 1).read_until(b'\n', &mut line) {
-                    Ok(0) | Err(_) => break,
-                    // An oversized line ends the server.
-                    Ok(_) if line.last() != Some(&b'\n') => break,
-                    Ok(_) if line.iter().all(u8::is_ascii_whitespace) => {}
-                    Ok(_) => {
-                        on_line(serde_json::from_slice(&line).unwrap_or_else(
-                            |e| json!({ "type": "invalid", "error": e.to_string() }),
-                        ));
+        supervised::spawn(
+            format!("cmux-app-server:{name}"),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut lines = BufReader::new(stdout);
+                let mut line = Vec::new();
+                loop {
+                    line.clear();
+                    match lines.by_ref().take(MAX_LINE_BYTES + 1).read_until(b'\n', &mut line) {
+                        Ok(0) | Err(_) => break,
+                        // An oversized line ends the server.
+                        Ok(_) if line.last() != Some(&b'\n') => break,
+                        Ok(_) if line.iter().all(u8::is_ascii_whitespace) => {}
+                        Ok(_) => {
+                            on_line(serde_json::from_slice(&line).unwrap_or_else(
+                                |e| json!({ "type": "invalid", "error": e.to_string() }),
+                            ));
+                        }
                     }
                 }
-            }
-            // Stdout closed (or a bad line): end the process, then reap it.
-            if let Some(pid) = reaper.lock().unwrap().take() {
-                // SAFETY: signalling our own child by pid; it is not reaped yet.
-                unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
-            }
-            let exit = match child.wait() {
-                Ok(status) => {
-                    use std::os::unix::process::ExitStatusExt;
-                    Exit { code: status.code(), signal: status.signal() }
+                // Stdout closed (or a bad line): end the process, then reap it.
+                if let Some(pid) = reaper.lock().unwrap().take() {
+                    // SAFETY: signalling our own child by pid; it is not reaped yet.
+                    unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
                 }
-                Err(_) => Exit { code: None, signal: None },
-            };
-            on_exit(exit);
-        })?;
+                let exit = match child.wait() {
+                    Ok(status) => {
+                        use std::os::unix::process::ExitStatusExt;
+                        Exit { code: status.code(), signal: status.signal() }
+                    }
+                    Err(_) => Exit { code: None, signal: None },
+                };
+                on_exit(exit);
+            },
+        )?;
         Ok(Self { queue, pid })
     }
 

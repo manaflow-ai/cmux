@@ -39,9 +39,9 @@ public struct V2ControlDependencies: Sendable {
         self.now = now
         // Not a closure-literal default: see IrxPeerEngine.init (cx-bsue).
         self.sleep = sleep ?? { seconds in
-            // Duration.seconds traps for NaN and past Int64 seconds; a delay past
-            // 2^31 s (68 years) is clamped there. NaN sleeps 0.
-            try await Task.sleep(for: .seconds(seconds.isNaN ? 0 : min(max(0, seconds), 2_147_483_648)))
+            let leeway = IrxWakeLeeway(seconds: seconds)
+            // wakeup-allow: deadline the service's request timeouts, renewal dates and capped backoffs
+            try await Task.sleep(for: leeway.delay, tolerance: leeway.tolerance)
         }
         self.jitter = jitter
         self.journal = journal

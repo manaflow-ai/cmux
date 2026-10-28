@@ -196,7 +196,7 @@ final class SessionTransferService {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of `path` made for the call and writes one struct stat
         // into `info`, a local live for the call.
-        guard unsafe lstat(path, &info) == 0 else { return false }
+        guard unsafe blockingLstat(path, &info) == 0 else { return false }
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 

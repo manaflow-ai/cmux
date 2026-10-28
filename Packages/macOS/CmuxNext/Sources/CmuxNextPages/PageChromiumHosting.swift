@@ -161,7 +161,7 @@ public protocol PageChromiumPage: AnyObject {
     /// paths (fork API 29), so it makes no DevTools call there.
     func copySelection()
     /// Whether ``push(_:)`` reaches the page: the engine has the page push channel (`cmuxPageListen`,
-    /// fork API 39) and the app turned it on (feature `pagePushChannel`).
+    /// fork API 43) and the app turned it on (feature `pagePushChannel`).
     var pushesToPage: Bool { get }
     /// Hands `text` to the receiver the page's document registered with `cmuxPageListen`, as data: no
     /// script runs for it and nothing answers, as Chrome's WebUI pages get Mojo messages instead of

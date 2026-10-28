@@ -122,8 +122,10 @@ Usage:
                             [--isolation netns|auto|none] [--trace TRACE.json]
                                                      one case, its result JSON; --trace also takes a journal
                                                      checkpoint at setup and writes the case's trace with an
-                                                     oracle-restore-preview at every capture (invariant I9:
-                                                     invariants.py check TRACE.json)
+                                                     oracle-restore-preview at every capture (invariant I9)
+                                                     and the daemon's fd, thread and child counts after setup
+                                                     and after the last step (I15, resource_counts.py):
+                                                     invariants.py check TRACE.json
   driver_daemon.py smoke --binary CMUX_TUI [--cases 300] [--jobs 300] [--case CASE.json] [--isolation ...]
                                                      parallel cases (no-op by default), then nothing left
   driver_daemon.py facet --socket PATH               the daemon facet of a running daemon (canonical JSON)
@@ -186,6 +188,7 @@ import normalize  # noqa: E402 - sibling of this file (p15-oracle-013)
 import case_connections  # noqa: E402 - sibling of this file (p15-oracle-204): case connections and streams
 from case_connections import CaseConnection  # noqa: E402
 import invariants  # noqa: E402 - sibling of this file (p15-oracle-110, I8 of p15-oracle-204)
+import resource_counts  # noqa: E402 - sibling of this file (p15-oracle-217), invariant I15's daemon reading
 from cmux._protocol import ProtocolConnection  # noqa: E402
 from cmux.errors import (  # noqa: E402
     CmuxConnectionError,
@@ -1405,6 +1408,8 @@ class CaseState:
     captures: List[Capture] = field(default_factory=list)
     exits: List[DaemonExit] = field(default_factory=list)
     killed_by: Optional[str] = None
+    # I15: the daemon's resource_counts.py readings after setup and at teardown (a traced case only).
+    resources: Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]] = (None, None)
 
 
 class CaseRun:
@@ -1463,8 +1468,11 @@ class CaseRun:
                 self.daemon.start("setup")
                 if self.restore_previews:
                     self.fixture_checkpoint()
+                    self.state.resources = (self.daemon_resources("setup"), None)
                 for index, step in enumerate(self.case.get("steps") or ()):
                     self.run_step(index, step)
+                if self.restore_previews:
+                    self.state.resources = (self.state.resources[0], self.daemon_resources("teardown"))
             except CaseError as error:
                 status, message, at = error.status, error.message, error.step
             except CmuxError as error:
@@ -1495,14 +1503,38 @@ class CaseRun:
 
     def trace_doc(self) -> Dict[str, Any]:
         """The case as invariants.py reads it: raw checkpoints, each step's replies, the event logs, and in a
-        traced run I9's restore previews."""
+        traced run I9's restore previews and the daemon's resource_counts.py readings after setup and at
+        teardown (I15)."""
         rename = CaseReads(self.daemon, self.paths.session, 0).rename
         doc: Dict[str, Any] = {"schema": invariants.TRACE_SCHEMA, "case": self.case_id,
                                "steps": list(self.state.trace_steps.values()),
                                "eventLogs": self.streams.records(rename)}
         if self.case.get("allow_crashes"):
             doc["allow_crashes"] = list(self.case["allow_crashes"])
+        setup, teardown = self.state.resources
+        if setup is not None:
+            doc["setup"] = {"daemonResources": setup}
+        if teardown is not None:
+            doc["teardown"] = {"daemonResources": teardown}
         return doc
+
+    def daemon_resources(self, step: str) -> Optional[Dict[str, Any]]:
+        """The case daemon's descriptors, threads and children now (I15), with its oracle-state liveObjects (a
+        debug or oracle daemon), after a ping round trip on the driver's connection, so the daemon has answered
+        every request the case sent before it; None when the daemon is not running or cannot be read."""
+        if not self.daemon.running or self.daemon.raw is None:
+            return None
+        try:
+            self.daemon.request("session.ping", SELECTORS, None, REQUEST_S * self.scale)
+            state = self.daemon.raw.request(ORACLE_STATE)
+        except CmuxError as error:
+            raise self.sdk_failure(error, step, "the I15 reading") from None
+        pid = self.daemon.identity.get("pid")
+        reading = resource_counts.read(pid if isinstance(pid, int) else self.daemon.proc.pid)
+        live = (state.get("data") or {}).get("liveObjects") if state.get("ok") is True else None
+        if reading is not None and isinstance(live, dict):
+            reading["liveObjects"] = live
+        return reading
 
     def i8(self, trace: Mapping[str, Any]) -> List[str]:
         """I8's violations: its inputs, the raw daemon facets and the session event logs, are all in the trace.

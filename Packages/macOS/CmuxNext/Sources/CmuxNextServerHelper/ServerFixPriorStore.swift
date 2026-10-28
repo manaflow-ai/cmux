@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxThreading
 public import Foundation
 
 /// Where the helper keeps the value each applied fix replaced, so `revert`

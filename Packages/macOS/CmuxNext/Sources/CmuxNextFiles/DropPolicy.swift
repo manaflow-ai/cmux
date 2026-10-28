@@ -1,19 +1,28 @@
 public import Foundation
+import CmuxNextCompat
 
 /// Finder's rule for what a drop does: on the same volume it moves, onto
 /// another it copies; holding Option copies, holding Command moves.
 public struct DropPolicy: Sendable {
     private let volumeOf: @Sendable (URL) -> Int?
 
+    /// Makes a policy that reads each path's volume with `stat`'s `st_dev`.
+    public init() {
+        self.init(volumeOf: { Self.statVolume($0) })
+    }
+
     /// Makes a policy.
-    /// - Parameter volumeOf: The device id of a path (a seam for tests). Defaults to `stat`'s `st_dev`.
-    public init(volumeOf: @escaping @Sendable (URL) -> Int? = { url in
+    /// - Parameter volumeOf: The device id of a path (a seam for tests).
+    public init(volumeOf: @escaping @Sendable (URL) -> Int?) {
+        self.volumeOf = volumeOf
+    }
+
+    /// `stat`'s `st_dev` of `url`, or nil when the path cannot be read.
+    nonisolated private static func statVolume(_ url: URL) -> Int? {
         var info = stat()
         // SAFETY: stat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local live for the call.
-        return unsafe stat(url.path, &info) == 0 ? Int(info.st_dev) : nil
-    }) {
-        self.volumeOf = volumeOf
+        return unsafe blockingStat(url.path, &info) == 0 ? Int(info.st_dev) : nil
     }
 
     /// The mode for dropping `sources` into `destination`.
