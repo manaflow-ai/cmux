@@ -1558,3 +1558,19 @@ fn pane_of(to: &mut LineClient, key: &str) -> Option<Value> {
         .clone();
     ws["screens"][0]["panes"][0].get("id").cloned()
 }
+
+/// Where a workspace whose task asks for group `asked` goes, among the
+/// session's groups `existing` (names).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GroupChoice {
+    /// The existing group by this name.
+    Existing(String),
+    /// A new group by this name.
+    New(String),
+}
+
+/// The group a task's `Group:` name lands in (stub: always a new group).
+pub fn group_choice(asked: &str, existing: &[String]) -> GroupChoice {
+    let _ = existing;
+    GroupChoice::New(asked.to_owned())
+}
