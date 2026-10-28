@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 
 /// Update actions (menu, palette, shortcut, CLI `settings check-for-updates`
@@ -7,7 +8,9 @@ import Foundation
 /// use Sparkle, DEV builds probe the feed read-only. Install and channel
 /// switch are disabled, with the reason, where they cannot run.
 enum UpdateHandlers {
-    static func bind(into registry: ActionRegistry, updater: UpdaterService, openWhatsNew: @escaping @MainActor () -> Bool = { false },
+    /// - Parameter mainWork: The app's one main-thread scheduler: each action's end after its async work runs there.
+    static func bind(into registry: ActionRegistry, updater: UpdaterService, mainWork: MainWorkScheduler,
+                     openWhatsNew: @escaping @MainActor () -> Bool = { false },
                      stateDirectories: @escaping @MainActor () -> [URL?] = { [nil] }) {
         // The What's New top page (WHATS-NEW-AFTER-UPDATE): palette, Help menu, CLI.
         registry.bind("updates.whatsNew", run: { _ in _ = openWhatsNew() })
@@ -30,20 +33,29 @@ enum UpdateHandlers {
         updater.pulledWatch.stateDirectories = stateDirectories
         updater.pulledWatch.confirmRollBack = { [weak registry] proceed in registry?.confirmationPresenter?("updates.rollback", ActionInvocation()) { _ in proceed() } }
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
-        registry.bind("updates.rollback", run: { [weak registry] _ in
+        registry.bind("updates.rollback", run: { [weak registry] invocation in
             guard let registry else { return }
-            let work = Task { await UpdateDropBack(updater).failure(to: nil, stateDirectories: stateDirectories()) }
-            // task-owner: a palette or menu run nobody waits on shows a refusal; a CLI run returns it.
-            if registry.isCapturingWork {
-                registry.track(Task { await work.value.map { ActionWorkFailure(refusal: .unavailable, reason: $0) } })
-            } else {
-                Task { [weak registry] in if let why = await work.value { registry?.refuse(why) } }
+            let awaited = registry.isCapturingWork, dropBack = UpdateDropBack(updater), directories = stateDirectories()
+            // The drop back is awaited off main; its refusal is one task on main: a palette or menu run nobody waits
+            // on shows it, a CLI run returns it.
+            registry.trackWork(owner: "UpdateHandlers.rollback", on: mainWork) {
+                await dropBack.failure(to: nil, stateDirectories: directories)
+            } then: { [weak registry] result in
+                guard case .success(let why?) = result else { return nil }
+                if awaited { return ActionWorkFailure(refusal: .unavailable, reason: why) }
+                registry?.refuse(why)
+                return nil
             }
         })
         registry.bind("palette.switchAppChannel", unavailable: { updater.channelSwitchUnavailableReason }, invoke: { [weak registry] invocation in
             do {
                 let work = try updater.switchChannel(named: invocation["channel"]?.stringValue)
-                registry?.track(Task { await work.value.map { ActionWorkFailure($0) } })
+                registry?.trackWork(owner: "UpdateHandlers.switchChannel", on: mainWork) {
+                    await work.value
+                } then: { result in
+                    guard case .success(let failure?) = result else { return nil }
+                    return ActionWorkFailure(failure)
+                }
             } catch {
                 registry?.refuse(String(describing: error))
             }

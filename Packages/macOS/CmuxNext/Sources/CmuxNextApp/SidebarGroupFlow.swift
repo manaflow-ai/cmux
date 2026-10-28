@@ -27,6 +27,7 @@ struct SidebarGroupFlow {
         // The first palette color no group uses yet (never blue or grey, GroupColor.automatic).
         let color = GroupColor.automatic(used: Set(home.store.personal.groups.compactMap(\.color))) ?? .grey
         let flow = self
+        // main-hop-allow: the request is DaemonService's main-actor async send; the group's editor opens in its reply's job
         Task {
             let created = await home.request("create-personal-group") { connection -> WorkspaceGroupID in
                 v2 ? WorkspaceGroupID(rawValue: try await connection.state.createWorkspaceGroup(

@@ -1,0 +1,80 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "file-pages-r96",
+  "suite": "e2e",
+  "title": "The diff pickers refuse a CLI run without focus and show no picker (file-pages-r96 picker phase)",
+  "priority": "P1",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-file-pages-r96-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab",
+    "macOS's /var/empty (an empty, root-owned folder) is in no git repository: open-diff passes it as openDiffViewer's path, so the step does not depend on the pane's folder"
+  ],
+  "requires": ["actions", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "overlays"]},
+      "settleMaxMs": 5000,
+      "note": "the picker phase of scripts/cmux-next/file-pages-r96-e2e.py (kept)"
+    },
+    {
+      "id": "directory-diff",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "palette.openDirectoryDiffViewer", "entrypoint": "cli"},
+      "expect": {"outcome": "error", "error": "control.unavailable"},
+      "settleMaxMs": 5000,
+      "note": "a CLI run without focus may not change the view, so the picker refuses with its needsFocus reason (ViewerHandlers.showPicker); on db82ac3effe (the parent of 788d648a9ec) it opened the picker and answered ok"
+    },
+    {
+      "id": "no-directory-picker",
+      "op": "settle",
+      "waitFor": {"pointer": "/overlays/palette/open", "equals": false, "maxMs": 5000},
+      "settleMaxMs": 5000,
+      "note": "after the run's work settled, no palette page is open"
+    },
+    {
+      "id": "open-diff",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "openDiffViewer", "entrypoint": "cli", "params": {"path": "/var/empty"}},
+      "expect": {"outcome": "error", "error": "control.unavailable"},
+      "settleMaxMs": 10000,
+      "note": "`path` names a folder with no repository, so the diff read fails and the picker would ask for one; without focus the work refuses with the same reason (ViewerHandlers.backgroundPickerRefusal)"
+    },
+    {
+      "id": "no-diff-picker",
+      "op": "settle",
+      "waitFor": {"pointer": "/focus/paletteOpen", "equals": false, "maxMs": 5000},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "refused",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "overlays", "tabs"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "neither refused run opens a palette page, a sheet or a tab: the overlays and tabs facets equal the launch's",
+    "the focus stays on the launch terminal (a run without focus changes no view)",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "the refusal's text (The picker opens only when focus is requested.): driver_app reads no error details yet, and the text is localized",
+    "the script's keys phase (Cmd-K, Cmd-[ and Cmd-] in a markdown tab): it needs file fixtures that driver_app does not build (fixture.repo, $CASE_ROOT paths)",
+    "the script's grants, crash, dontsave and restore phases: page input through debug.page, the WebContent kill, quit sheets, an app crash and a relaunch (no case-v1 step or app crash kind; restart is p15-oracle-023 in the app driver)",
+    "the bytes on disk after each save: no snapshot facet reads file contents"
+  ]
+}

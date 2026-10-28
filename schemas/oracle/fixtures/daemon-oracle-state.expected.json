@@ -9,6 +9,7 @@
   "oracle": {
     "liveObjects": {
       "browsers": 0,
+      "holders": 4,
       "panes": 2,
       "screens": 1,
       "subscriptions": 4,

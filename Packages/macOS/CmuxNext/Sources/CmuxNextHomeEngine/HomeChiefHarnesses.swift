@@ -1,5 +1,6 @@
 public import CmuxNextCompat
 public import CmuxNextDaemon
+import CmuxNextIPC
 public import Foundation
 
 /// The engine each of this Mac's Chiefs runs on, for the Home list's badges
@@ -31,8 +32,8 @@ public nonisolated struct HomeChiefHarnesses: Sendable {
     public init(muxHome: URL, files: any MayBlockRunner, connection: DaemonConnection?) {
         self.init(muxHome: muxHome, files: files, list: {
             guard let connection else { return nil }
-            return try? await ResourceRelayClient(connection: connection).send(
-                operation: "chief.profile.list", params: ["machine": .string("current"), "session": .string("current")], idempotencyKey: nil)
+            return try? await ResourceOperationClient(connection: connection).read(V2ChiefProfileListRequest(),
+                                                                                   as: JSONValue.self)
         })
     }
 

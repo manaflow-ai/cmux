@@ -25,7 +25,7 @@ on:
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugMotion.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/DebugNewTab.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTabPage+Open.swift
-      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabSparePool.swift
+      - Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab/NewTabPreload.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripView+Sync.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripView+Layout.swift
       - Packages/macOS/CmuxNext/Sources/CmuxNextTabs/TabStripDebug.swift

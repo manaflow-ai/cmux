@@ -6,16 +6,16 @@ import AppKit
 /// fly in and out) is the vendored WindowView's, driven by `openThread`; the
 /// reply leaves through `ChatIntents.send` with the thread root.
 /// Offered only when the owner can take a reply (`ChatIntents.canReply`).
+@MainActor
 final class PaneThread {
     /// The owning controller (it holds this object; weak, so no cycle).
     private weak var controller: ChatController?
-    private var monitors: [Any] = []
+    /// The outside-click and Esc monitors; removed when this object goes with its controller.
+    private var monitors: [ScopedEventMonitor] = []
     /// The press the outside-click monitor took (a mouse down and its up share the number).
     private var swallowedPress: Int?
 
     init(controller: ChatController) { self.controller = controller }
-
-    deinit { monitors.forEach { NSEvent.removeMonitor($0) } }
 
     private var openThread: PartRef? { controller?.store?.state.ui.openThread }
     private var field: NSTextView? { controller?.demo?.compose.textView.view }
@@ -70,7 +70,7 @@ final class PaneThread {
     /// key focus is (the field handles its own Esc through `escape`).
     func install() {
         guard monitors.isEmpty else { return }
-        if let m = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] e in
+        if let m = ScopedEventMonitor(matching: .leftMouseDown, handler: { [weak self] e in
             guard let self, let controller = self.controller, self.isLive(e), controller.picker == nil else { return e }
             let host = controller.host
             let p = host.convert(e.locationInWindow, from: nil)
@@ -78,7 +78,7 @@ final class PaneThread {
             self.swallowedPress = e.eventNumber
             return nil
         }) { monitors.append(m) }
-        if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
+        if let m = ScopedEventMonitor(matching: .keyDown, handler: { [weak self] e in
             // Only while the key focus is in this pane (a terminal, the sidebar or the palette keep their Esc).
             guard e.keyCode == 53, let self, let controller = self.controller, self.isLive(e), controller.picker == nil,
                   let focus = controller.window?.firstResponder as? NSView, focus.isDescendant(of: controller.host),

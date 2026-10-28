@@ -1,29 +1,27 @@
 import CmuxNextSettings
 public import Foundation
-public import WebKit
 
 /// Watches `web-dev.json` and the overlay's `manifest.json` (``WebDevOverride``), keeps
-/// ``WebDevOverride/current`` and reloads every web view the page and agent pane scheme handlers
-/// served on a change (``WebBundleServedViews``, the one list a web UI update also reloads). Does
-/// nothing unless ``WebDevOverride/isEnabled``.
+/// ``WebDevOverride/current`` and, on a change, calls ``onChange``: its ``WebUIHost`` reloads the
+/// pages that show and marks the others to reload when they show (``WebUIHost/webBundleDidChange()``),
+/// the same path a web UI update takes. Does nothing unless ``WebDevOverride/isEnabled``.
+///
+/// The host owns the one watcher (``WebUIHost/devOverride``); the first page made starts it, through
+/// ``WebUIHost/open(_:)``, a preloaded page included, so a launch that
+/// shows no page reads nothing (the first page loads bundled and reloads once the file is read).
 public final class WebDevOverrideWatcher {
-    public static let shared = WebDevOverrideWatcher()
-
     private var fileWatcher: ConfigFileWatcher?
     private var manifestWatcher: ConfigFileWatcher?
     private var file: URL?
     private let home = FileManager.default.homeDirectoryForCurrentUser
     private var readTask: Task<Void, Never>?
     private var readRequested = false
+    /// The override changed: the served pages take it.
+    var onChange: @MainActor () -> Void
 
-    /// A page or agent pane scheme handler is serving `webView`, from any of its paths (bundled
-    /// file, dev server, overlay): it joins ``WebBundleServedViews`` so a change reloads it, and the
-    /// first one starts the watch, so a launch that shows no page reads nothing (the first page
-    /// loads bundled and reloads once the file is read).
-    public func served(_ webView: WKWebView) {
-        guard WebDevOverride.isEnabled else { return }
-        WebBundleServedViews.shared.add(webView)
-        start()
+    /// - Parameter onChange: Called after each change of ``WebDevOverride/current``.
+    public init(onChange: @escaping @MainActor () -> Void = {}) {
+        self.onChange = onChange
     }
 
     /// Arms the watch on `web-dev.json` in `configDirectory` (nil: next to `cmux-next.json`) and
@@ -34,6 +32,7 @@ public final class WebDevOverrideWatcher {
         let file = directory.appending(path: WebDevOverride.fileName)
         self.file = file
         let watcher = ConfigFileWatcher(url: file) { [weak self] in
+            // main-hop-allow: developer builds only (WebDevOverride.isEnabled); the watcher's coalesced event lands on its utility queue, and requestRead only flags the one read loop
             Task { @MainActor in self?.requestRead() } // task-owner: one coalesced read per file event
         }
         fileWatcher = watcher
@@ -44,6 +43,7 @@ public final class WebDevOverrideWatcher {
         guard file != nil else { return }
         readRequested = true
         guard readTask == nil else { return }
+        // main-hop-allow: developer builds only; the read runs @concurrent off main, and its resume only applies the value and reloads the served pages once
         readTask = Task { [weak self] in // task-owner: the watcher's one read loop; events while it runs coalesce
             while let file = self?.takeReadRequest(), let home = self?.home {
                 let value = await Self.read(file: file, home: home)
@@ -68,7 +68,7 @@ public final class WebDevOverrideWatcher {
         watchManifest(of: value.overlay)
         guard WebDevOverride.update(value) else { return }
         // The same URL again: the scheme handler answers it from where the override now says.
-        WebBundleServedViews.shared.reloadServed()
+        onChange()
     }
 
     /// Follows the overlay's `manifest.json`, which an install writes after its files.
@@ -79,6 +79,7 @@ public final class WebDevOverrideWatcher {
         manifestWatcher = nil
         guard let manifest else { return }
         let watcher = ConfigFileWatcher(url: manifest) { [weak self] in
+            // main-hop-allow: developer builds only (WebDevOverride.isEnabled); the watcher's coalesced event lands on its utility queue, and requestRead only flags the one read loop
             Task { @MainActor in self?.requestRead() } // task-owner: one coalesced read per manifest event
         }
         manifestWatcher = watcher

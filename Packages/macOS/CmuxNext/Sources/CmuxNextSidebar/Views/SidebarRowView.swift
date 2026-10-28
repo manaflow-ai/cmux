@@ -16,9 +16,9 @@ class SidebarRowView: NSView {
             guard isSelected != oldValue else { return }
             updateAccessibilitySelection()
             fadesNextFill = false
-            needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
-            needsLayout = true
+            // invalidate: the selection changed (the guard above).
+            needsDisplay = true; needsLayout = true
         }
     }
 
@@ -32,6 +32,9 @@ class SidebarRowView: NSView {
         self.key = key
         super.init(frame: .zero)
         wantsLayer = true
+        // A row's `updateLayer` sets layer colors only, so a resize (the sidebar's, a split's)
+        // does not repaint it; size-dependent geometry belongs in `layout()`.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerCurve = .continuous
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
     }
@@ -87,6 +90,7 @@ class SidebarRowView: NSView {
         themedToolTip = nil
         // A view that kept its content skips configure: it still paints once more, for a theme that
         // changed while it was out of the window (a lift). Labels redraw only on a changed value.
+        // invalidate: a recycled view shows another row (or comes back from a lift).
         needsDisplay = true
     }
 
@@ -104,6 +108,7 @@ class SidebarRowView: NSView {
         // leaves the old row's buttons behind (Leo 2026-10-20: no exit delay on hover-out).
         fadesNextFill = !isHovered
         fadesNextHover = false
+        // invalidate: hover changed (`isHovered` calls this on a change only).
         needsDisplay = true
     }
 
@@ -113,8 +118,8 @@ class SidebarRowView: NSView {
         isHovered = false
         fadesNextFill = false
         fadesNextHover = false
-        needsDisplay = true
-        needsLayout = true
+        // invalidate: the hovered row leaves the list; its fill and controls clear in this frame.
+        needsDisplay = true; needsLayout = true
     }
 
     /// The next fill change came from hover. Hover entry is immediate and the
@@ -169,13 +174,14 @@ class SidebarRowView: NSView {
     var layoutBounds: NSRect { NSRect(origin: .zero, size: targetSize ?? bounds.size) }
 
     override func setFrameSize(_ newSize: NSSize) {
-        let changed = newSize != frame.size
+        let oldSize = frame.size
         super.setFrameSize(newSize)
-        if changed { needsLayout = true }
+        if newSize != oldSize { needsLayout = true }
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: only invalidates: AppKit draws a hidden view when it shows
         super.viewDidChangeEffectiveAppearance()
+        // invalidate: the appearance changed; layer colors resolve again.
         needsDisplay = true
     }
 
@@ -213,8 +219,9 @@ final class EmptySectionRowView: SidebarRowView {
 
     func configure(pinned: Bool) { // a document Pinned too (`.custom(sec_pinned)`, SidebarListView.configure)
         label.setString(pinned ? Strings.pinnedEmpty : Strings.sectionEmpty)
+        // The label's height follows its font; new text moves nothing (the label redraws itself).
+        if label.font != SidebarStyle.subtitleFont { needsLayout = true }
         label.setFont(SidebarStyle.subtitleFont)
-        needsLayout = true
     }
 
     override func layout() {
@@ -223,7 +230,6 @@ final class EmptySectionRowView: SidebarRowView {
         let h = ceil(label.intrinsicContentSize.height)
         let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         label.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
-        needsDisplay = true
     }
 
     override func updateLayer() {

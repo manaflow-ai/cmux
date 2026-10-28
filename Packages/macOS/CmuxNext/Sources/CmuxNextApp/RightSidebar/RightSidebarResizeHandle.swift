@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// The grab strip on the right sidebar's edge facing the content: a drag
 /// resizes the sidebar. Invisible at rest; a hairline fades in while the
@@ -21,7 +22,7 @@ final class RightSidebarResizeHandle: NSView {
     /// frame interval's first event and once more at its frame, to the latest point, as Chromium
     /// delivers rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/
     /// main_thread_event_queue.cc`). Nil: every drag event resizes at once.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
     /// The sidebar edge the strip sits on (`.minX` beside content on its left, `.maxX` on its right).
@@ -42,17 +43,16 @@ final class RightSidebarResizeHandle: NSView {
         setAccessibilityLabel(RightSidebarStrings.resize)
         setAccessibilityIdentifier("cmux.rightSidebar.resize")
         hover = PointerHover(self) { [weak self] hovering in self?.isHovered = hovering }
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func resetCursorRects() {
-        if #available(macOS 15, *) {
-            addCursorRect(bounds, cursor: .columnResize)
-        } else {
-            addCursorRect(bounds, cursor: .resizeLeftRight)
-        }
+    /// The resize cursor, set when the pointer enters (``addCursorUpdateArea(_:)``): no cursor rects
+    /// for the window to rebuild while the sidebar's width follows a drag (p04-input-090).
+    override func cursorUpdate(with event: NSEvent) {
+        if #available(macOS 15, *) { NSCursor.columnResize.set() } else { NSCursor.resizeLeftRight.set() }
     }
 
     override func layout() {
@@ -68,13 +68,17 @@ final class RightSidebarResizeHandle: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyLineTheme()
+        guard window != nil else { return }
+        needsLayout = true // invalidate: another window's scale sets the line's width.
     }
 
+    // visibility-walk-allow: the body only sets the hairline layer's color (applyLineTheme: performWithTheme resolves the theme's appearance), R-appear's kept form
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyLineTheme()
     }
 
+    // visibility-walk-allow: no hidden gate; a strip hidden under a still pointer gets no mouse exit, so its hover ends here
     /// Hidden with the sidebar under a still pointer: no exit comes.
     override func viewDidHide() {
         super.viewDidHide()
@@ -82,8 +86,8 @@ final class RightSidebarResizeHandle: NSView {
     }
 
     private func applyLineTheme() {
+        // No layout: `layout()` places the line from the edge and scale, never from a color.
         performWithTheme { line.backgroundColor = Palette.separator.cgColor }
-        needsLayout = true
     }
 
     private func updateLine() {
@@ -108,6 +112,7 @@ final class RightSidebarResizeHandle: NSView {
         onDrag?(.began)
     }
 
+    // local-monitor-allow: the drag's events go through its window's FrameInputCoalescer (frameDrag) under pointerFrameDrags; with the feature off each event resizes at once, as before it
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
         guard isDragging else { return }
         if let frameDrag {

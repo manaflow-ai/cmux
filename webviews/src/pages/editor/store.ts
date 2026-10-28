@@ -3,7 +3,7 @@
 // after a pause when `editor.autoSave` is "afterDelay", on page hide and on the host's
 // `cmux.editor.flush`, and a save whose text equals the text on disk is skipped. A disk change reloads
 // the file when there are no local edits and raises the conflict banner when there are.
-import { isPageError, type PageClient } from "../shared/pageClient";
+import { isPageError, pageKeepAliveFor, type PageClient, type PageKeepAlive } from "../shared/pageClient";
 import type { DiffViewerAppearance } from "../../appearance";
 import {
   EDITOR_CHANGES,
@@ -163,6 +163,10 @@ export class EditorStore {
   /** What a discarded page of this tab showed (the config's `viewState`), until the file is in the view. */
   private pendingViewState: unknown = null;
   private readonly reporter;
+  /** `user_edits` while the file holds edits not on disk: the host keeps the hidden page (p13-webui-032). */
+  private readonly keepAlive: PageKeepAlive;
+  /** Whether the file held edits not on disk at the last state change; `user_edits` follows its changes. */
+  private dirty = false;
 
   constructor(
     private readonly client: PageClient | null,
@@ -170,6 +174,7 @@ export class EditorStore {
     reportSchedule: Schedule = defaultSchedule,
   ) {
     this.reporter = createEditReporter(() => this.reportEdited(), reportSchedule);
+    this.keepAlive = pageKeepAliveFor(client);
   }
 
   /** `cmux.editor.edited`: the host's unsaved state and recovery draft follow the view. */
@@ -193,6 +198,14 @@ export class EditorStore {
 
   private set(patch: Partial<EditorState>): void {
     this.state = { ...this.state, ...patch };
+    const { readOnly, status, conflict } = this.state;
+    const dirty = !readOnly && (status !== "saved" || conflict !== null);
+    if (dirty !== this.dirty) {
+      this.dirty = dirty;
+      // Saved: what was typed into the page is on disk, so the automatic edits end too (pageEdits.ts).
+      if (dirty) this.keepAlive.set("user_edits", true, this);
+      else this.keepAlive.editsSaved();
+    }
     for (const listener of this.listeners) listener();
   }
 

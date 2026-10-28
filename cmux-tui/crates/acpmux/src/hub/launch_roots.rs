@@ -38,7 +38,7 @@ impl Hub {
         let acpmux_home = crate::config::home();
         let env = profile.env.clone();
         let id = meta.harness.clone();
-        let found = tokio::task::spawn_blocking(move || {
+        let found = crate::daemon::spawn_blocking(move || {
             let refuse = |p: &Path| crate::chats::refusal(p, &home, &acpmux_home);
             launch_roots(&env, &home, &sessions_roots, &id, &refuse)
         })
@@ -55,7 +55,7 @@ impl Hub {
             if !specs.is_empty() {
                 let chats = chats.clone();
                 let _ =
-                    tokio::task::spawn_blocking(move || chats.record_launch_roots(&specs)).await;
+                    crate::daemon::spawn_blocking(move || chats.record_launch_roots(&specs)).await;
             }
         }
         if roots == meta.harness_roots {
@@ -101,7 +101,10 @@ pub fn launch_roots(
         else {
             continue;
         };
-        if path.is_absolute() && path.is_dir() && refuse(&path).is_none() {
+        if path.is_absolute()
+            && cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_dir())
+            && refuse(&path).is_none()
+        {
             let root = HarnessRoot { harness: profile_id.to_owned(), path };
             if !out.contains(&root) {
                 out.push(root);

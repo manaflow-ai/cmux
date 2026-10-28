@@ -62,12 +62,14 @@ extension LayoutRootView {
 /// scrolled past its edge, a screen sliding in).
 extension LayoutRootView: PaneCardSource {
     public var paneCardsInWindow: [PaneCard] {
-        guard window != nil, !isHiddenOrHasHiddenAncestor, !isParkedOrHasParkedAncestor else { return [] }
+        // Live: in a window, not hidden and not parked (`setLive` keeps it at each transition, no walk here).
+        guard isLive else { return [] }
         let visible = convert(bounds, to: nil)
         return screenViews.values.filter { !$0.isHidden && $0.alphaValue > 0.01 }.flatMap { screen in
             screen.displayedHosts.filter { !$0.isHidden && $0.alphaValue > 0.01 }.compactMap { host in
-                // A strip pan on the motion container shows the card moved by its translation.
-                let card = host.cardInWindow.offsetBy(dx: screen.panTranslation(of: host), dy: 0)
+                // A pan on the strip's motion container, or a row's or area's, shows the card moved by its translation.
+                let moved = screen.panTranslation(of: host)
+                let card = host.cardInWindow.offsetBy(dx: moved.dx, dy: moved.dy)
                 let rect = card.intersection(visible)
                 return rect.isEmpty ? nil : PaneCard(rect: rect, radius: PaneChromeGeometry.cornerRadius(for: host.contentRect, style: context.style))
             }

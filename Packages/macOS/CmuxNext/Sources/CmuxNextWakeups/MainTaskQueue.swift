@@ -7,11 +7,15 @@
 /// Work posted here runs in its class on the ``MainWorkScheduler`` (in class order, within the
 /// class budget, yielding to a person's input) while the queue may run. Whether it may run depends
 /// on the node:
-/// - Visible: every task runs, in post order.
+/// - Visible, or held by a capture vote (``VisibilityNode/wantsFrames``): every task runs, in post order.
 /// - Hidden or occluded: `visible` and `automation` tasks are held until the node shows; nothing a
 ///   person cannot see is drawn or applied for them. `background` tasks run at the scheduler's
 ///   aligned hidden wakes (``MainWorkScheduler/hiddenWake``; 1 s, Blink's `WakeUpBudgetPool`
-///   alignment), or are held when the app installs none.
+///   alignment), or are held when the app installs none. Their run time is charged to the
+///   scheduler's ``MainWorkScheduler/hiddenBudget``; while it is spent they wait for the first wake
+///   that has budget (Blink's `CPUTimeBudgetPool`, cpu_time_budget_pool.h).
+/// - Hidden with media in the last 30 s or a capture vote: `background` tasks run at once and are not
+///   charged, as Blink takes such a page out of its throttling.
 /// - Frozen (``VisibilityNode/freeze()``): nothing runs, not even at a wake (Blink's
 ///   `PageSchedulerImpl::SetPageFrozen`).
 /// - Disabled by a voter (``makeVoter()``): nothing runs until every voter enables it again
@@ -64,6 +68,8 @@ public final class MainTaskQueue {
     private var voters: Set<UInt32> = []
     private var disabledVoters: Set<UInt32> = []
     private var runsByNodeState = [0, 0, 0]
+    /// A background queue's watch of media on its node, which exempts its tasks from the hidden budget.
+    private var exemption: VisibilitySubscription?
 
     private struct Item {
         var work: (@MainActor () -> Void)?
@@ -77,6 +83,9 @@ public final class MainTaskQueue {
         self.workClass = workClass
         self.work = work
         self.owner = work.taskOwner(owner)
+        if workClass == .background {
+            exemption = node.subscribeExemption(owner: owner) { [weak self] in self?.schedule() }
+        }
     }
 
     // MARK: Posting
@@ -159,9 +168,9 @@ public final class MainTaskQueue {
 
     // MARK: Node changes
 
-    /// The node flipped, froze or unfroze (``VisibilityNode`` calls it).
+    /// The node flipped, a capture vote came or went, or the node froze or unfroze (``VisibilityNode`` calls it).
     func nodeDidChange() {
-        if node.isVisible { released = 0 }
+        if node.wantsFrames { released = 0 }
         schedule()
     }
 
@@ -169,8 +178,11 @@ public final class MainTaskQueue {
 
     private var mayRunNow: Bool {
         guard isEnabled, !node.isFrozen else { return false }
-        return node.isVisible || released > 0
+        return node.wantsFrames || released > 0 || (workClass == .background && charge == .exempt)
     }
+
+    /// How a task run now is charged to the hidden budget.
+    private var charge: CPUTimeBudgetPool.Charge { CPUTimeBudgetPool.Charge(of: node) }
 
     private func append(_ item: Item) {
         pending.append(item)
@@ -181,10 +193,16 @@ public final class MainTaskQueue {
     /// background tasks that may not.
     private func schedule() {
         guard pendingCount > 0, isEnabled, !node.isFrozen else { return }
-        if node.isVisible {
+        if node.wantsFrames {
             postPumps(upTo: pendingCount)
         } else if workClass == .background {
-            if released > 0 { postPumps(upTo: released) } else { requestHiddenWake() }
+            if charge == .exempt {
+                postPumps(upTo: pendingCount)
+            } else if released > 0 {
+                postPumps(upTo: released)
+            } else {
+                requestHiddenWake()
+            }
         }
     }
 
@@ -201,11 +219,21 @@ public final class MainTaskQueue {
         }
     }
 
-    /// One scheduler task: runs the head task if the queue may run now, else leaves it held.
+    /// One scheduler task: runs the head task if the queue may run now and a hidden one has budget,
+    /// else leaves it held for the next wake.
     private func pump() {
         pumps -= 1
-        guard pendingCount > 0, mayRunNow else { return work.budget.noteRanNothing() }
-        if !node.isVisible { released -= 1 }
+        guard pendingCount > 0, mayRunNow else {
+            work.budget.noteRanNothing()
+            return schedule()
+        }
+        let charge = self.charge
+        if charge == .hidden, !work.hiddenBudget.mayRun(.hidden) {
+            released = 0
+            work.budget.noteRanNothing()
+            return schedule()
+        }
+        if !node.wantsFrames, released > 0 { released -= 1 }
         let item = pending[head]
         pending[head] = Item(work: nil, key: nil, post: item.post)
         head += 1
@@ -213,8 +241,8 @@ public final class MainTaskQueue {
         compact()
         work.budget.notePost(item.post.starting(in: MainTaskPost.NodeState(node.effective)))
         runsByNodeState[node.effective.rawValue] += 1
-        item.work?()
-        if !node.isVisible, released == 0 { schedule() }
+        work.hiddenBudget.run(charge) { item.work?() }
+        if charge == .hidden, released == 0 { schedule() }
     }
 
     private func requestHiddenWake() {
@@ -224,11 +252,12 @@ public final class MainTaskQueue {
     }
 
     /// A hidden wake: the background tasks pending now may run, one scheduler task each; tasks
-    /// posted after it wait for the next wake.
+    /// posted after it wait for the next wake. With the hidden budget spent, none is released and
+    /// ``schedule()`` asks for the next wake.
     private func hiddenWakeFired() {
         wakeRequested = false
-        guard !node.isVisible else { return }
-        released = pendingCount
+        guard !node.wantsFrames else { return }
+        if charge == .hidden { released = work.hiddenBudget.mayRun(.hidden) ? pendingCount : 0 }
         schedule()
     }
 

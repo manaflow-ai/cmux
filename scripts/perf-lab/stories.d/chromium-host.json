@@ -1,0 +1,22 @@
+{
+  "id": "chromium-host",
+  "tier": "T1",
+  "description": "Chromium in process vs in its own host app (chromium-host-bench.py, browserHost.helper through the bench tunables file): per mode, each key and click from cmux's send to the frame that paints it and from the page's handler to its next animation frame, the frame intervals and long frames of a 3 s animation, and the share of cmux's main thread inside Chromium's pump idle and while the page scrolls, light session.",
+  "command": ["scripts/cmux-next/chromium-host-bench.py", "--count", "60"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "chromium_host\\.light\\.(inproc|helper)\\.(key_to_paint|click_to_paint|key_to_raf|click_to_raf|raf_interval)",
+     "unit": "ms", "better": "lower"},
+    {"name": "chromium_host\\.light\\.(inproc|helper)\\.long_frames", "unit": "count", "better": "lower"},
+    {"name": "chromium_host\\.light\\.(inproc|helper)\\.pump_share\\.(idle|scroll)", "unit": "ratio", "better": "lower"},
+    {"name": "chromium_host\\.light\\.(inproc|helper)\\.[a-z_]+\\.missed_runs", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.chromium_host", "debug:debug.chromium_host.measure", "debug:debug.cef", "debug:debug.key",
+            "debug:debug.mouse", "debug:debug.wakeups", "debug:debug.pane_chrome"],
+  "owner": "PL-cefhost",
+  "component": "Browser>ChromiumHost"
+}

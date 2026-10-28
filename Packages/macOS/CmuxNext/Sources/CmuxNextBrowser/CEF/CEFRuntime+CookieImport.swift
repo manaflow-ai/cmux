@@ -11,7 +11,7 @@ extension CEFRuntime {
         guard let shim, state == .ready else { throw BrowserTabError.closed }
         let json = try ChromiumCookieWrite.shimJSON(cookies)
         let reply = try await profileWrite(profile, label: "cookie import", timeout: Self.cookieImportTimeout) { path, id in
-            json.withCString { shim.importCookies(path, id, $0) }
+            shim.importCookies(path, id, json)
         }
         return ChromiumCookieWriteResult.parse(reply.json) ?? ChromiumCookieWriteResult(written: Int(reply.value), rejected: 0)
     }
@@ -25,9 +25,10 @@ extension CEFRuntime {
 
     /// One write into a profile's store that the shim answers with a site
     /// reply once the profile is ready: `start` gets the profile's cache path
-    /// and the reply id, and returns 1 when it started.
+    /// and the reply id, and returns 1 when it started (in host mode the host's
+    /// REPLY says so, as in ``siteCall(_:what:start:)``).
     func profileWrite(_ profile: BrowserProfileID, label: String, timeout: Duration,
-                      start: (UnsafePointer<CChar>, Int32) -> Int32) async throws -> CEFSiteReply {
+                      start: (_ cachePath: String, _ id: Int32) -> Int32) async throws -> CEFSiteReply {
         let key = storage.cachePath(for: profile).path
         usedProfiles.insert(profile)
         let id = nextSiteReply
@@ -37,7 +38,8 @@ extension CEFRuntime {
             siteReplyBrowsers[id] = nil
             earlySiteReplies[id] = nil
         }
-        guard key.withCString({ start($0, id) }) == 1 else { throw BrowserTabError.closed }
+        let sent = sendAsync { _ in start(key, id) }
+        guard try await answer(sent, label: "CEF \(label)", timeout: timeout) == 1 else { throw BrowserTabError.closed }
         if let early = earlySiteReplies[id] { return early }
         return try await siteReplies.reply(for: id, timeout: timeout) { BrowserTabError.timedOut("CEF \(label) (\(timeout))") }
     }

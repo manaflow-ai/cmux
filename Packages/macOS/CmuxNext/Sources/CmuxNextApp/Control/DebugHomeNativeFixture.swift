@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextHome
+import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
 
@@ -18,32 +19,35 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
-    /// The app's made-ahead file picker for each fixture's "+", and its main-thread scheduler.
+    /// The app's made-ahead file picker for each fixture's "+", its one deadline placer and its lanes.
     private let openPanel: MadeAheadOpenPanel
-    private let mainWork: MainWorkScheduler
+    private let deadlines: MainDeadlineScheduler
+    private let work: BackgroundWork
 
-    init(openPanel: MadeAheadOpenPanel, mainWork: MainWorkScheduler) {
+    init(openPanel: MadeAheadOpenPanel, deadlines: MainDeadlineScheduler, work: BackgroundWork) {
         self.openPanel = openPanel
-        self.mainWork = mainWork
+        self.deadlines = deadlines
+        self.work = work
     }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
-    /// The next page shows the attachment fixture (`{"attachments": true}`).
-    var nextAttachments = false
+    /// Whether each open asked for the attachment fixture (`{"attachments": true}`), for the tab it opened or selected.
+    let opens = PageOpenRequests<Bool>()
 
     var page: InternalPageID { .homeNativeFixture }
     var title: String { HomeNativeFixture.title }
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel, mainWork: mainWork)
-        nextAttachments = false
+        let attachments = opens.take(for: key) ?? opens.running ?? false
+        let fixture = HomeNativeFixture(attachments: attachments, openPanel: openPanel, deadlines: deadlines, work: work)
         fixtures[key] = fixture
         return fixture.container
     }
 
     func tabClosed(_ key: String) {
         fixtures.removeValue(forKey: key)?.close()
+        opens.forget(key)
     }
 
     /// Never discarded (`memoryDiscardInternalPages`): a fixture is opened to be captured or driven
@@ -80,7 +84,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
                 .flatMap(HomePageTab.transcript(in:))
         } else {
             // `window`: the Home view shown in that window (default: the active window's).
-            let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controller(for: $0)?.window }
+            let id = params["window"]?.stringValue, window = id.flatMap { services.windows.controllerBuildingIfWaiting(for: $0)?.window }
             if let id, window == nil { return .object(["error": .string("no window \(id)")]) }
             view = HomeNativeTranscriptView.shown(in: window ?? services.windows.active?.window)
         }
@@ -227,10 +231,13 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
-        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, mainWork: services.mainWork)) }
-        (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
-        let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
-            : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
+        let provider = services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture
+            ?? DebugHomeNativeFixture(openPanel: services.openPanel, deadlines: services.mainDeadlines, work: services.work)
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(provider) }
+        let view = provider.opens.open(attachments) {
+            fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
+                : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
+        }
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
 }

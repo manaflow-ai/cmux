@@ -120,7 +120,7 @@ public final class ImportSuggestionsCenter {
     /// This Mac's sources, read on the files lane at `.bestEffort` (a launch or activation scan nobody
     /// waits for); none when the scan was dropped (quit).
     static func scanLive(_ host: ImportCardsHost) async -> [ImportFinding] {
-        let environment = ImportEnvironment.live { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
+        let environment = ImportEnvironment.live()
         let variables = ProcessInfo.processInfo.environment
         let imported = await host.importedProfiles()
         let work = host.work

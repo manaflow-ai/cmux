@@ -3,36 +3,12 @@ import os
 import CmuxNextCompat
 
 /// Attach-connection lines to channel events (byte replay and snapshot
-/// attach).
+/// attach). Attach frames go through ``TerminalAttachFrameDecoder``.
 extension TerminalAttachment {
     private static let decodeLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon.attach")
-    /// Attach lines of a known event kind that failed to decode (a wire
-    /// contract drift); diagnostics and tests.
+    /// Attach lines and frames of a known event kind that failed to decode
+    /// (a wire contract drift); diagnostics and tests.
     static let undecodableLines = Atomic<Int>(0)
-
-    private struct VTState: Decodable {
-        var surface: SurfaceID?
-        var cols: Int
-        var rows: Int
-        var data: Data?
-        var replay: Data?
-        var colors: TerminalColors?
-        var kittyImageAliases: [KittyImageAlias]?
-        var kittyGraphicsState: KittyGraphicsState?
-        var pending: Data?
-
-        enum CodingKeys: String, CodingKey {
-            case surface, cols, rows, data, replay, colors, pending
-            case kittyImageAliases = "kitty_image_aliases"
-            case kittyGraphicsState = "kitty_graphics_state"
-        }
-
-        var terminalReplay: TerminalReplay {
-            TerminalReplay(cols: cols, rows: rows, data: replay ?? data ?? Data(), colors: colors,
-                           kittyImageAliases: kittyImageAliases ?? [], kittyGraphicsState: kittyGraphicsState,
-                           pending: pending ?? Data())
-        }
-    }
 
     private struct Output: Decodable {
         var surface: SurfaceID?
@@ -43,45 +19,6 @@ extension TerminalAttachment {
         /// The key press this output echoes (`send` carried it and the PTY read stamped it); absent
         /// from a daemon without exact flows or when no press was open.
         var flow: UInt64?
-    }
-
-    /// `snapshot {phase, generation, offset, version, cols?, rows?, colors?, data}`.
-    /// `marker_epoch` and `active_top_marker` (row markers for
-    /// `terminal-history`) are not used by the view.
-    private struct Snapshot: Decodable {
-        var surface: SurfaceID?
-        var phase: String
-        var generation: UInt64
-        var offset: UInt64
-        var version: UInt16
-        var cols: Int?
-        var rows: Int?
-        var colors: TerminalColors?
-        var data: Data
-        /// History chunks: `deflate` (raw DEFLATE) and the inflated length.
-        var compression: String?
-        var rawBytes: Int?
-        /// A local-history READY: `history: "local"` with the host's check.
-        var history: String?
-        var historyRows: UInt64?
-        var historyDigest: String?
-        var skippedImages: Int?
-
-        enum CodingKeys: String, CodingKey {
-            case surface, phase, generation, offset, version, cols, rows, colors, data, compression, history
-            case rawBytes = "raw_bytes"
-            case historyRows = "history_rows"
-            case historyDigest = "history_digest"
-            case skippedImages = "skipped_images"
-        }
-
-        /// The check of a local-history READY; nil (a plain READY whose
-        /// history is lost) when it is missing or malformed.
-        var localHistory: TerminalLocalHistoryCheck? {
-            guard phase == "ready", history == "local", let historyRows,
-                  let digest = historyDigest.flatMap(TerminalLocalHistoryCheck.digest(hex:)) else { return nil }
-            return TerminalLocalHistoryCheck(rows: historyRows, digest: digest)
-        }
     }
 
     private struct SizeStateEvent: Decodable {
@@ -106,61 +43,46 @@ extension TerminalAttachment {
         }
     }
 
+    /// A known event whose line lacks a field it needs.
+    private struct MissingField: Error {
+        var name: String
+    }
+
     /// The surface named by the first line of an attach (`vt-state`, or the
     /// READY `snapshot` of a snapshot attach); names an `unplaced` target.
     static func initialSurface(name: String, line: Data, decoder: WireDecoder) -> SurfaceID? {
         switch name {
-        case "vt-state": return try? decoder.decode(VTState.self, from: line).surface
+        case "vt-state": return try? decoder.decode(TerminalVTStateWire.self, from: line).surface
         case "snapshot": return try? decoder.decode(SurfaceScoped.self, from: line).surface
         default: return nil
         }
     }
 
-    /// Maps one attach-connection line to a channel event. Returns nil for
-    /// events that belong to another surface or that views ignore.
-    static func decodeAttachEvent(name: String, line: Data, surface: SurfaceID,
-                                  decoder: WireDecoder = WireCoding.decoder()) -> TerminalChannelEvent? {
-        decodeAttachLine(name: name, line: line, surface: surface, decoder: decoder)?.event
-    }
-
-    /// ``decodeAttachEvent(name:line:surface:)`` plus the generation an
-    /// `output` carries, for ``TerminalSnapshotSequencer``. `decoder` is the connection's: it counts
-    /// each decode, and its recorder each `output` payload decoded out of its line.
+    /// Maps one attach-connection line to a channel event, plus the generation an `output` carries,
+    /// for ``TerminalSnapshotSequencer``. Returns nil for events that belong to another surface or that
+    /// views ignore. `decoder` is the connection's: it counts each decode, and its recorder each
+    /// `output` payload decoded out of its line.
     static func decodeAttachLine(name: String, line: Data, surface: SurfaceID, decoder: WireDecoder) -> DecodedAttachLine? {
         func scoped(_ id: SurfaceID?) -> Bool { id == nil || id == surface }
         do {
             switch name {
             case "vt-state":
-                let state = try decoder.decode(VTState.self, from: line)
+                let state = try decoder.decode(TerminalVTStateWire.self, from: line)
                 guard scoped(state.surface) else { return nil }
                 return DecodedAttachLine(event: .replay(state.terminalReplay))
             case "snapshot":
-                let snapshot = try decoder.decode(Snapshot.self, from: line)
-                guard scoped(snapshot.surface), let phase = TerminalSnapshotFrame.Phase(rawValue: snapshot.phase),
-                      phase != .ready || (snapshot.cols != nil && snapshot.rows != nil)
-                else { return nil }  // A READY without its grid cannot lock the mirror's grid.
-                // An unknown codec or a bad chunk would corrupt the restore: refused.
-                guard let data = TerminalSnapshotInflate.inflate(snapshot.data, compression: snapshot.compression,
-                                                                 rawBytes: snapshot.rawBytes)
-                else {
-                    decodeLogger.error("""
-                        snapshot \(snapshot.phase, privacy: .public) chunk refused: compression \(snapshot.compression ?? "none", privacy: .public), \
-                        raw_bytes \(snapshot.rawBytes ?? -1), \(snapshot.data.count) bytes
-                        """)
-                    return nil
-                }
-                return DecodedAttachLine(event: .snapshot(TerminalSnapshotFrame(
-                    phase: phase, generation: snapshot.generation, offset: snapshot.offset, version: snapshot.version,
-                    cols: snapshot.cols, rows: snapshot.rows, colors: snapshot.colors,
-                    localHistory: snapshot.localHistory, skippedImages: snapshot.skippedImages, data: data)))
+                let snapshot = try decoder.decode(TerminalSnapshotWire.self, from: line)
+                guard let encoded = snapshot.data else { throw MissingField(name: "data") }
+                guard scoped(snapshot.surface), let frame = snapshot.frame(data: encoded) else { return nil }
+                return DecodedAttachLine(event: .snapshot(frame))
             case "output":
                 let output = try decoder.decode(Output.self, from: line)
-                decoder.recorder?.outputCopied(output.data.count)  // base64 out of the line, even if dropped below
+                decoder.recorder?.outputCopied(output.data.count)  // decoded out of the line, even if dropped below
                 guard scoped(output.surface) else { return nil }
                 return DecodedAttachLine(event: .output(output.data, colors: output.colors), generation: output.generation,
                                          flow: output.flow)
             case "resized":
-                let state = try decoder.decode(VTState.self, from: line)
+                let state = try decoder.decode(TerminalVTStateWire.self, from: line)
                 guard scoped(state.surface) else { return nil }
                 return DecodedAttachLine(event: .resized(state.terminalReplay))
             case "colors-changed":
@@ -191,11 +113,15 @@ extension TerminalAttachment {
                 return nil
             }
         } catch {
-            // Never silent: a known event the view cannot decode is a contract
-            // drift with the host. Kind and count only, no payload.
-            let count = undecodableLines.add(1, ordering: .relaxed).newValue
-            decodeLogger.error("attach line \(name, privacy: .public) failed to decode (\(count) so far)")
+            noteUndecodable(name)
             return nil
         }
+    }
+
+    /// Never silent: a known event the view cannot decode is a contract
+    /// drift with the host. Kind and count only, no payload.
+    static func noteUndecodable(_ name: String) {
+        let count = undecodableLines.add(1, ordering: .relaxed).newValue
+        decodeLogger.error("attach \(name, privacy: .public) failed to decode (\(count) so far)")
     }
 }

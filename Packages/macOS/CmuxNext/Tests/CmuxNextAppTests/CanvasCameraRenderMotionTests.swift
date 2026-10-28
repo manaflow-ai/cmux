@@ -75,18 +75,21 @@ import Testing
     @Test func aTakeBackHandsTheMainThreadWhatShows() {
         var motion = Self.handedOff()
         let shown = motion.shown(at: 10.05)
-        #expect(motion.takeBackFromRenderServer(at: 10.05))
+        let tookBack = motion.takeBackFromRenderServer(at: 10.05)  // mutating: outside #expect, which reads a copy
+        #expect(tookBack)
         #expect(motion.onRenderServer == nil)
         #expect(motion.state == shown, "the main thread starts from \(motion.state), not \(shown)")
         #expect(motion.isMoving && motion.target == Self.to)
-        #expect(!motion.takeBackFromRenderServer(at: 10.06), "a second take-back found springs")
+        let tookBackAgain = motion.takeBackFromRenderServer(at: 10.06)
+        #expect(!tookBackAgain, "a second take-back found springs")
     }
 
     /// A click took the move back (the main thread steps it, zoom still moving); the next change hands it over
     /// again: the render server starts at the main thread's zoom speed and follows its path, with no stop.
     @Test func aMovingMainThreadCameraHandsOverAtItsSpeed() {
         var motion = Self.handedOff()
-        #expect(motion.takeBackFromRenderServer(at: 10.05))
+        let tookBack = motion.takeBackFromRenderServer(at: 10.05)  // mutating: outside #expect, which reads a copy
+        #expect(tookBack)
         let dt = 1.0 / 120
         for _ in 0..<3 { _ = motion.advance(dt, parameters: Self.spring) }
         var cpu = motion
@@ -164,7 +167,7 @@ struct CanvasCameraRenderMotionTests {
         init(renderServer: Bool) {
             let tree = SplitNode.split("x", axis: .horizontal, ratio: 0.5, a: .leaf("a"), b: .leaf("b"))
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(tree))], activeScreenID: "s", focusedPane: "a")
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer }, mainWork: linklessMainWork())
             root.context.reduceMotionOverride = false
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)

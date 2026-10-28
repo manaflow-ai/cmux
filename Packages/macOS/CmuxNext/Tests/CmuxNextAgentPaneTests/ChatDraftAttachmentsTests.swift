@@ -15,16 +15,17 @@ struct ChatDraftAttachmentsTests {
     static let context = PageCallContext(page: PageDescriptor.agent.id)
     typealias Chip = AgentPaneWakeState.Attachment
 
-    static func call(_ method: String, _ params: [String: JSONValue]) async throws -> JSONValue {
-        let provider = AgentPageProvider { _ in nil }
+    /// A page's call on a provider given `store` by init, as each agent pane's is (nil keeps no chips).
+    static func call(_ method: String, _ params: [String: JSONValue], store: AgentPaneDraftAttachments?) async throws -> JSONValue {
+        let provider = AgentPageProvider(chatStores: AgentPaneChatStores(scrollAnchors: nil, draftAttachments: store), mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         return try await provider.call(AgentPageOps.namespace + method, params: .object(params), context: context)
     }
 
     /// Writes chat `session`'s chips as the page does; answers the ids whose contents the host keeps.
     @discardableResult
-    static func keep(_ chips: [Chip], for session: String) async throws -> [String] {
+    static func keep(_ chips: [Chip], for session: String, in store: AgentPaneDraftAttachments) async throws -> [String] {
         let list = try #require(JSONValue(foundation: try JSONSerialization.jsonObject(with: JSONEncoder().encode(chips))))
-        let reply = try await call("chat.draftAttachments", ["sessionId": .string(session), "attachments": list])
+        let reply = try await call("chat.draftAttachments", ["sessionId": .string(session), "attachments": list], store: store)
         guard case .object(let body) = reply, case .array(let held)? = body["held"] else {
             Issue.record("no held ids in \(reply)")
             return []
@@ -35,8 +36,8 @@ struct ChatDraftAttachmentsTests {
         }
     }
 
-    static func kept(_ session: String) async throws -> [Chip] {
-        let value = try await call("chat.draftAttachments.get", ["sessionId": .string(session)])
+    static func kept(_ session: String, in store: AgentPaneDraftAttachments) async throws -> [Chip] {
+        let value = try await call("chat.draftAttachments.get", ["sessionId": .string(session)], store: store)
         return try JSONDecoder().decode([Chip].self, from: JSONSerialization.data(withJSONObject: value.foundationObject))
     }
 
@@ -64,16 +65,12 @@ struct ChatDraftAttachmentsTests {
 
     @Test func aChatsScreenshotsComeBackWhenItShowsAgainOrTheAppRelaunches() async throws {
         let directory = try Self.directory()
-        defer {
-            AgentPaneDraftAttachments.shared = nil
-            try? FileManager.default.removeItem(at: directory)
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let notes = Chip(id: "link-notes", kind: "link", name: "notes", mimeType: "inode/directory", size: 0, path: "/tmp/notes")
 
         // This page: four pasted screenshots and an attached folder rest in chat s-1's composer.
         let store = AgentPaneDraftAttachments(directory: directory)
-        AgentPaneDraftAttachments.shared = store
-        let held = try await Self.keep([1, 2, 3, 4].map { Self.chip($0) } + [notes], for: "s-1")
+        let held = try await Self.keep([1, 2, 3, 4].map { Self.chip($0) } + [notes], for: "s-1", in: store)
         // The host says which chips' contents it holds, so the page sends them no more.
         #expect(held == ["shot-1", "shot-2", "shot-3", "shot-4"])
         let folder = try #require(store.folder(for: "s-1"))
@@ -86,98 +83,86 @@ struct ChatDraftAttachmentsTests {
 
         // The tab closes, or the chat is archived or deleted and its tab with it. A later page of the
         // chat (reopened, unarchived, restored) or the next run after a relaunch or a crash gets them back.
-        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
-        let back = try await Self.kept("s-1")
+        let later = AgentPaneDraftAttachments(directory: directory)
+        let back = try await Self.kept("s-1", in: later)
         #expect(back.map(\.name) == ["Screenshot 1.png", "Screenshot 2.png", "Screenshot 3.png", "Screenshot 4.png", "notes"])
         #expect(back.prefix(4).map { $0.data.flatMap { Data(base64Encoded: $0) } } == [1, 2, 3, 4].map(Self.screenshot))
         #expect(back.last?.path == "/tmp/notes")
         #expect(back.first?.originalPath == "/session/original/screenshot-1.png")
         #expect(back.first?.originalName == "Screenshot 1.png")
         // Shown again, the chips are still kept: closing that page too loses nothing.
-        #expect(try await Self.kept("s-1").count == 5)
+        #expect(try await Self.kept("s-1", in: later).count == 5)
         // Another chat gets none of them.
-        #expect(try await Self.kept("s-2").isEmpty)
+        #expect(try await Self.kept("s-2", in: later).isEmpty)
 
         // Sending them (or taking the last one out) forgets them: no list, no copies.
-        try await Self.keep([], for: "s-1")
+        try await Self.keep([], for: "s-1", in: later)
         #expect(!FileManager.default.fileExists(atPath: folder.path))
-        #expect(try await Self.kept("s-1").isEmpty)
+        #expect(try await Self.kept("s-1", in: later).isEmpty)
     }
 
     /// The page sends a chip's contents once; a later write names it without them and the file stays.
     /// A chip taken out loses its file.
     @Test func aChipsContentsAreWrittenOnceAndGoWithIt() async throws {
         let directory = try Self.directory()
-        defer {
-            AgentPaneDraftAttachments.shared = nil
-            try? FileManager.default.removeItem(at: directory)
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let store = AgentPaneDraftAttachments(directory: directory)
-        AgentPaneDraftAttachments.shared = store
         let folder = try #require(store.folder(for: "s-1"))
-        try await Self.keep([Self.chip(1)], for: "s-1")
+        try await Self.keep([Self.chip(1)], for: "s-1", in: store)
         let first = Self.files(in: folder).filter { $0.hasSuffix(".png") }
         try #require(first.count == 1)
 
-        #expect(try await Self.keep([Self.chip(1, contents: false), Self.chip(2)], for: "s-1") == ["shot-1", "shot-2"])
+        #expect(try await Self.keep([Self.chip(1, contents: false), Self.chip(2)], for: "s-1", in: store) == ["shot-1", "shot-2"])
         let both = Self.files(in: folder).filter { $0.hasSuffix(".png") }
         #expect(both.count == 2 && both.contains(first[0]), "the first chip's file was written again: \(both)")
-        #expect(try await Self.kept("s-1").map { $0.data.flatMap { Data(base64Encoded: $0) } } == [Self.screenshot(1), Self.screenshot(2)])
+        #expect(try await Self.kept("s-1", in: store).map { $0.data.flatMap { Data(base64Encoded: $0) } } == [Self.screenshot(1), Self.screenshot(2)])
 
         // The first chip taken out: its file goes.
-        try await Self.keep([Self.chip(2, contents: false)], for: "s-1")
+        try await Self.keep([Self.chip(2, contents: false)], for: "s-1", in: store)
         let left = Self.files(in: folder).filter { $0.hasSuffix(".png") }
         #expect(left.count == 1 && !left.contains(first[0]))
-        #expect(try await Self.kept("s-1").map(\.id) == ["shot-2"])
+        #expect(try await Self.kept("s-1", in: store).map(\.id) == ["shot-2"])
 
         // An image the host has no contents for (never sent, its file gone) is not brought back empty,
         // and the host says it holds none, so the page sends its contents next time.
-        #expect(try await Self.keep([Self.chip(3, contents: false)], for: "s-1").isEmpty)
-        #expect(try await Self.kept("s-1").isEmpty)
+        #expect(try await Self.keep([Self.chip(3, contents: false)], for: "s-1", in: store).isEmpty)
+        #expect(try await Self.kept("s-1", in: store).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
     @Test func duplicateAttachmentIdsKeepOnlyTheLatestChip() async throws {
         let directory = try Self.directory()
-        defer {
-            AgentPaneDraftAttachments.shared = nil
-            try? FileManager.default.removeItem(at: directory)
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let store = AgentPaneDraftAttachments(directory: directory)
-        AgentPaneDraftAttachments.shared = store
         var first = Self.chip(1)
         first.id = "same"
         var latest = Self.chip(2)
         latest.id = "same"
 
-        try await Self.keep([first, latest], for: "s-duplicate")
-        let kept = try await Self.kept("s-duplicate")
+        try await Self.keep([first, latest], for: "s-duplicate", in: store)
+        let kept = try await Self.kept("s-duplicate", in: store)
         #expect(kept.map(\.id) == ["same"])
         #expect(kept.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(2))
     }
 
     @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
         let directory = try Self.directory()
-        defer {
-            AgentPaneDraftAttachments.shared = nil
-            try? FileManager.default.removeItem(at: directory)
-        }
+        defer { try? FileManager.default.removeItem(at: directory) }
         let store = AgentPaneDraftAttachments(directory: directory)
         store.maximumBytes = 8
-        AgentPaneDraftAttachments.shared = store
         let small = Chip(id: "a", kind: "image", name: "a.png", mimeType: "image/png", size: 6, data: Data(repeating: 1, count: 6).base64EncodedString())
         var other = small
         other.id = "b"
         let folder = try #require(store.folder(for: "s-1"))
-        try await Self.keep([small, other], for: "s-1")
+        try await Self.keep([small, other], for: "s-1", in: store)
         #expect(!FileManager.default.fileExists(atPath: folder.path))
-        #expect(try await Self.kept("s-1").isEmpty)
-        try await Self.keep([small], for: "s-1")
-        #expect(try await Self.kept("s-1").map(\.id) == ["a"])
+        #expect(try await Self.kept("s-1", in: store).isEmpty)
+        try await Self.keep([small], for: "s-1", in: store)
+        #expect(try await Self.kept("s-1", in: store).map(\.id) == ["a"])
 
-        await #expect(throws: PageError.self) { _ = try await Self.call("chat.draftAttachments.get", [:]) }
+        await #expect(throws: PageError.self) { _ = try await Self.call("chat.draftAttachments.get", [:], store: store) }
         await #expect(throws: PageError.self) {
-            _ = try await Self.call("chat.draftAttachments", ["sessionId": .string("s-1"), "attachments": .string("nope")])
+            _ = try await Self.call("chat.draftAttachments", ["sessionId": .string("s-1"), "attachments": .string("nope")], store: store)
         }
     }
 }

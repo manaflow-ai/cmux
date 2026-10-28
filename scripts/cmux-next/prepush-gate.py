@@ -79,6 +79,9 @@ Also local only: "p10 settings only through the lander" (apply-stability-setting
 refuses a push whose own commits change a closure Package.swift's p10 settings (the generated block, the
 stabilitySwiftSettings literal, the tools version, a lander-only setting or a setting a stability-settings.json row
 names) outside a lander commit, or a lander commit that is not the rewrite of its rows. It fails open.
+These local-only rules (and the perf cron tests and the compile trailer) are the LOCAL_TIER table; local_tier_off()
+is the one switch: never under GITHUB_ACTIONS, --commits or --only, and not with --no-guardrails (p10-stability-199).
+A rule CI must not gate on (p10's new classes) joins that table or guardrails.py, never SCANNERS.
 Renames: the scanners check a renamed file at its old path in the base tree and the crash data that followed a
 rename needs no trailer, so a pure move adds none of their findings. The guardrails do not credit renames yet (they
 diff with --no-renames), so a moved file's existing guardrail debt still reads as new there.
@@ -113,7 +116,7 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
-from typing import NamedTuple
+from typing import Callable, NamedTuple
 
 DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
@@ -1281,6 +1284,72 @@ def stability_settings(repo: Path, ranges: list, trusted_scripts: Path | None) -
     return refused
 
 
+class LocalContext(NamedTuple):
+    """What a LOCAL_TIER rule reads: the push's own ranges (push_range.OwnRange), the installed checks copy for the
+    hook, the hook's pushed-ref lines and remote (the compile trailer), and start_guardrails()'s result (started
+    before the scanners, so the arch ratchet runs beside them)."""
+    repo: Path
+    ranges: list
+    trusted_scripts: Path | None
+    pushed_lines: list[str]
+    push_range: object
+    remote: str
+    started_guardrails: tuple
+
+
+class LocalRule(NamedTuple):
+    """A rule of the local-only tier: run by the hook and a plain run, never by CI (local_tier_off)."""
+    name: str
+    run: Callable[[LocalContext], bool]  # True: the push is refused
+    note: Callable[[LocalContext], str] = lambda _ctx: ""  # appended to its --timings line
+
+
+def _arch_ratchet_wait(ctx: LocalContext) -> str:
+    waited = getattr(ctx.started_guardrails[1], "waited", None)
+    return f"; of it {waited:.2f}s waiting for the arch ratchet" if isinstance(waited, float) else ""
+
+
+# The local-only tier (plans/cmux-next/chrome-parity/p10-stability.md, implementer rule 1; Lawrence 2026-10-23: no
+# new CI gates). CI runs this script too (--commits, and --base/--head on pull requests and car guards), so a rule
+# that judges debt CI does not gate on goes here and nowhere else; p10's new classes (raw continuations, SAFETY-TODO,
+# target settings, the Rust ast-grep rules) are guardrails.py rules for that reason.
+LOCAL_TIER = (
+    LocalRule("guardrails (line rules, and the arch ratchet's wait left: it ran next to the scanners)",
+              lambda ctx: guardrails(ctx.repo, ctx.ranges, ctx.started_guardrails), _arch_ratchet_wait),
+    LocalRule("perf cron tests", lambda ctx: perf_cron_tests(ctx.repo, ctx.ranges)),
+    LocalRule("baseline paths follow renames", lambda ctx: stale_baseline_paths(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
+    LocalRule("compile trailer", lambda ctx: compile_trailer(
+        ctx.repo, compile_ranges(ctx.repo, ctx.pushed_lines, ctx.push_range, ctx.remote), ctx.trusted_scripts)),
+    LocalRule("p10 settings only through the lander", lambda ctx: stability_settings(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
+)
+
+
+def local_tier_off(args: argparse.Namespace) -> str | None:
+    """Why this run skips LOCAL_TIER, or None when it runs it (the hook and a plain run). CI's runs (GITHUB_ACTIONS,
+    the --commits sweep) never run it, so CI gains no gate; --only names CI's layers, --no-guardrails is a manual
+    run's switch."""
+    if args.commits:
+        return "--commits"
+    if os.environ.get("GITHUB_ACTIONS"):
+        return "GITHUB_ACTIONS"
+    if args.only:
+        return "--only"
+    if args.no_guardrails:
+        return "--no-guardrails"
+    return None
+
+
+def run_local_tier(ctx: LocalContext, timings: bool) -> bool:
+    """Every LOCAL_TIER rule on CTX, in order (each prints its own findings); True when one refuses."""
+    refused = False
+    for rule in LOCAL_TIER:
+        t0 = time.monotonic()
+        refused = rule.run(ctx) or refused
+        if timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  {rule.name}{rule.note(ctx)}")
+    return refused
+
+
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
 # source lines unlike CI's check-app-size.sh. Its wakeup-ext rule loads wakeup-audit.py and, through it,
 # check-concurrency.sh (the Swift wakeup rules). push_range.py decides which commits are the push's own, for the
@@ -1415,6 +1484,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if fresh else 0
 
     if args.commits:
+        # CI's per-commit sweep: the CI checks only, never LOCAL_TIER (local_tier_off names --commits).
         commits = git(repo, "rev-list", "--reverse", "--no-merges", args.commits).decode().split()
         bad = 0
         for sha in commits:
@@ -1452,40 +1522,17 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
-    # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
-    local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
-    started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
+    off = local_tier_off(args)
+    if off:
+        log(f"prepush-gate: the local-only tier does not run here ({off})")
+    local = None if off else LocalContext(repo, ranges, trusted_scripts, pushed_lines, push_range, args.remote,
+                                          start_guardrails(repo, ranges, trusted_scripts))
     found_any = []
     for own in ranges:
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts)
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
-    guarded = False
-    if local_only:
-        t0 = time.monotonic()
-        guarded = guardrails(repo, ranges, started_guardrails)
-        if args.timings:
-            ratchet = started_guardrails[1]
-            waited = getattr(ratchet, "waited", None)
-            log(f"  {time.monotonic() - t0:5.2f}s  guardrails (line rules, and the arch ratchet's wait left: it "
-                "ran next to the scanners)"
-                + (f"; of it {waited:.2f}s waiting for the arch ratchet" if isinstance(waited, float) else ""))
-        t0 = time.monotonic()
-        guarded = perf_cron_tests(repo, ranges) or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
-        t0 = time.monotonic()
-        guarded = stale_baseline_paths(repo, ranges, trusted_scripts) or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  baseline paths follow renames")
-        t0 = time.monotonic()
-        guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
-        t0 = time.monotonic()
-        guarded = stability_settings(repo, ranges, trusted_scripts) or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  p10 settings only through the lander")
+    guarded = run_local_tier(local, args.timings) if local is not None else False
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:

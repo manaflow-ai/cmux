@@ -2,6 +2,8 @@ public import AppKit
 public import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextSignposts
+public import CmuxNextWakeups
 
 /// Which page the palette opens on.
 public enum PaletteMode: Sendable, Hashable {
@@ -21,10 +23,17 @@ public enum PaletteMode: Sendable, Hashable {
 /// ```
 public final class PaletteController {
     public let registry: ActionRegistry
+    private let mainWork: MainWorkScheduler // the app's one main-thread scheduler: the panel renders at its frames
     public let model: PaletteModel
     public var sources: PaletteSources
     /// Additional rows the app hides from the registry page based on live Labs/debug state.
     public var hiddenActionIDs: (() -> Set<ActionID>)?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, the App's
+    /// `hoverFrameInput`): the results and the Actions menu hover on a frame interval's first move and
+    /// once more at its frame, at the latest point. Nil: each move hovers at once.
+    public var hoverFrameInput: FrameInputCoalescers? {
+        didSet { contentView?.hoverFrameInput = hoverFrameInput }
+    }
 
     public private(set) var isVisible = false
     /// Called synchronously when the panel opens (true) or closes (false),
@@ -39,6 +48,8 @@ public final class PaletteController {
     /// at the start of each open so ``PaletteOpenTiming/input`` covers the key
     /// router's time before the palette runs.
     public var openingEventTimestamp: (() -> TimeInterval?)?
+    /// Where each open's `stall.palette_open` slice goes (tests pass one over their own trace runtime).
+    var stallSignposter: Signposter = .stall
     private var openStarted: ContinuousClock.Instant?
     private var openInput: Duration = .zero
     private var modelReady: ContinuousClock.Instant?
@@ -58,10 +69,10 @@ public final class PaletteController {
         registry: ActionRegistry,
         sources: PaletteSources = PaletteSources(),
         frecencyPersistence: (any FrecencyPersisting)? = UserDefaultsFrecencyPersistence(),
-        usage: (any PaletteUsageStore)? = nil
+        usage: (any PaletteUsageStore)? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
+        hoverFrameInput: FrameInputCoalescers? = nil
     ) {
-        self.registry = registry
-        self.sources = sources
+        (self.registry, self.mainWork, self.sources, self.hoverFrameInput) = (registry, mainWork, sources, hoverFrameInput)
         self.model = PaletteModel(usage: usage ?? LocalPaletteUsageStore(persistence: frecencyPersistence))
         // What an open's first frame does not show (the command page's workspaces and tabs)
         // loads once that frame is committed.
@@ -88,14 +99,11 @@ public final class PaletteController {
     ///   control's, inside the screen. Nil centers it over the window.
     @discardableResult
     public func show(scope: PaletteScopeID, query: String = "", relativeTo window: NSWindow? = nil, anchoredTo anchor: NSView? = nil) -> Bool {
-        configureScopes()
-        guard model.navigation.graph.contains(scope) else { return false }
-        markOpenStarted()
-        captureContext()
-        model.open(scope: scope, query: query)
-        modelReady = .now
-        present(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)))
-        return true
+        open(relativeTo: window ?? anchor?.window, anchor: anchor.flatMap(Self.screenRect(of:)),
+             when: { model.navigation.graph.contains(scope) }) {
+            captureContext()
+            model.open(scope: scope, query: query)
+        }
     }
 
     /// `view`'s frame on the screen, or nil when it is in no window.
@@ -137,12 +145,14 @@ public final class PaletteController {
         case 0:
             guard panel == nil else { return true }
             let panel = makePanel()
+            // sync-layout: the first open's layout, in an idle frame: the panel is not ordered in, so no window pass runs it.
             panel.contentView?.layoutSubtreeIfNeeded()
             return true
         case 1:
             guard let panel else { return false }
             configureScopes()
             model.reset(to: commandsPage())
+            // sync-layout: the command page's visible rows lay out here in an idle frame, not on the first open.
             panel.contentView?.layoutSubtreeIfNeeded()
             return false
         default:
@@ -153,32 +163,24 @@ public final class PaletteController {
     // MARK: Presentation
 
     public func toggle(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
-        if isVisible {
-            hide()
-        } else {
-            show(mode, relativeTo: window)
-        }
+        if isVisible { hide() } else { show(mode, relativeTo: window) }
     }
 
     /// Opens the palette over `window` (default: the key or main window).
     public func show(_ mode: PaletteMode = .commands, relativeTo window: NSWindow? = nil) {
-        configureScopes()
-        markOpenStarted()
-        captureContext()
-        model.reset(to: page(for: mode))
-        modelReady = .now
-        present(relativeTo: window)
+        open(relativeTo: window) {
+            captureContext()
+            model.reset(to: page(for: mode))
+        }
     }
 
     /// Opens the palette on `page` (a keyboard, menu or CLI run of an action
     /// the palette serves as a page).
     public func show(page: PalettePageSpec, relativeTo window: NSWindow? = nil) {
-        configureScopes()
-        markOpenStarted()
-        captureContext()
-        model.reset(to: page)
-        modelReady = .now
-        present(relativeTo: window)
+        open(relativeTo: window) {
+            captureContext()
+            model.reset(to: page)
+        }
     }
 
     /// Opens the palette to collect the missing arguments of `id`, then runs
@@ -201,11 +203,7 @@ public final class PaletteController {
             handler()
             return
         }
-        configureScopes()
-        markOpenStarted()
-        model.reset(to: effect, fallback: commandsPage())
-        modelReady = .now
-        present(relativeTo: window)
+        open(relativeTo: window) { model.reset(to: effect, fallback: commandsPage()) }
     }
 
     /// Captures the focused objects on open. An open palette keeps what it
@@ -213,6 +211,24 @@ public final class PaletteController {
     func captureContext() {
         guard !isVisible else { return }
         capturedTargets = sources.context?() ?? []
+    }
+
+    /// One open's main-thread work, inside one `stall.palette_open` thread slice (B/E, Chrome's scoped
+    /// `TRACE_EVENT0`, base/trace_event/common/trace_event_common.h): the scopes configured, `accepts` (false
+    /// opens nothing), the start mark, `buildModel` (the page's items and first results), then the panel shown.
+    /// The first frame's commit (``PaletteOpenTiming/commit``) runs in a later turn, outside the slice.
+    @discardableResult
+    private func open(relativeTo window: NSWindow?, anchor: NSRect? = nil, when accepts: () -> Bool = { true },
+                      buildModel: () -> Void) -> Bool {
+        let slice = stallSignposter.begin(.stallPaletteOpen)
+        defer { stallSignposter.end(.stallPaletteOpen, slice) }
+        configureScopes()
+        guard accepts() else { return false }
+        markOpenStarted()
+        buildModel()
+        modelReady = .now
+        present(relativeTo: window, anchor: anchor)
+        return true
     }
 
     private func markOpenStarted() {
@@ -282,6 +298,9 @@ public final class PaletteController {
     /// page it closed on (a refused command's notice).
     private func presentAgain() {
         guard !isVisible else { return }
+        // An open too (`onPresented` reports it): its main-thread work is one `stall.palette_open` slice.
+        let slice = stallSignposter.begin(.stallPaletteOpen)
+        defer { stallSignposter.end(.stallPaletteOpen, slice) }
         // Without a parent (opened while no window was key or main, as in a
         // no-activate run) `present` picks the key or main window again.
         present(relativeTo: parentWindow.flatMap { $0.isVisible ? $0 : nil })
@@ -335,7 +354,8 @@ public final class PaletteController {
 
     private func makePanel() -> PalettePanel {
         let panel = PalettePanel(size: PaletteLayout.windowSize)
-        let content = PaletteContentView(model: model)
+        let content = PaletteContentView(model: model, mainWork: mainWork)
+        content.hoverFrameInput = hoverFrameInput
         content.autoresizingMask = [.width, .height]
         content.onPreferredSizeChange = { [weak self, weak panel] size in
             guard let self, let panel, self.isVisible else { return }

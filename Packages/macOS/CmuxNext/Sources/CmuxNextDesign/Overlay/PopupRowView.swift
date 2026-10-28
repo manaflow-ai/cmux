@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextInput
 
 /// The one native popup row (hq `.cmux-scratch/omnibar-popups/REUSE.md` slice 2): the page menus
 /// past the window's edge (``WebPopupHost``), the Extensions menu and the Page Info bubble draw
@@ -42,13 +43,19 @@ open class PopupRowView: NSView {
     public var onActivate: (() -> Void)?
     /// The pointer moved onto the row (enabled interactive rows only).
     public var onHover: (() -> Void)?
+    /// The popup's one hover consumer (feature `pointerFrameHover`): the row's moves, enters and exits
+    /// go to it, and its delivery calls ``pointerMoved()`` on the row under the latest point, at most
+    /// twice a frame for the whole popup (Chromium's rAF-aligned moves, main_thread_event_queue.cc; its
+    /// boundary events come from those moves, boundary_event_dispatcher.cc). A press flushes it first;
+    /// the popup flushes it when the pointer leaves the popup. Nil: each enter and move acts at once.
+    public weak var hoverMoves: PointerFrameHover?
     /// The owner's highlight (the keyboard's row in a menu).
     public var isHighlighted = false { didSet { if oldValue != isHighlighted { needsDisplay = true } } }
     public var isEnabled = true {
         didSet {
             titleLabel.ink = isEnabled ? .primary : .tertiary
             (leadingView as? ThemedLabel)?.ink = isEnabled ? .primary : .tertiary
-            needsDisplay = true
+            if isEnabled != oldValue { needsDisplay = true }
         }
     }
     /// The row takes the keys (Tab, arrows) and draws the focus ring when it has them.
@@ -58,7 +65,6 @@ open class PopupRowView: NSView {
     private var isHovering = false { didSet { if oldValue != isHovering { needsDisplay = true } } }
     private var isPressed = false { didSet { if oldValue != isPressed { needsDisplay = true } } }
     private var showsFocus = false { didSet { needsDisplay = true } }
-    private var tracking: NSTrackingArea?
 
     public init(leading: NSView?, title: String, subtitle: String? = nil, trailing: NSView? = nil,
                 layout: Layout = Layout(), interactive: Bool = true) {
@@ -114,6 +120,9 @@ open class PopupRowView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(interactive ? .button : .staticText)
         setAccessibilityLabel([title, subtitle].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: ", "))
+        if interactive {
+            addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
+        }
     }
 
     /// The title's end yields while the row is narrower than its columns (a panel not yet sized).
@@ -174,35 +183,36 @@ open class PopupRowView: NSView {
         }
     }
 
+    // visibility-walk-allow: one invalidation; AppKit draws only views on screen, so a hidden row pays nothing
     open override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        needsDisplay = true
+        needsDisplay = true // invalidate: the appearance changed; the colors resolve again.
     }
 
     // MARK: Pointer
 
-    open override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        tracking = nil
-        guard isInteractive else { return }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-                                  owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
+    // Crossing into or out of a row is a position like a move: with a popup consumer it coalesces with the
+    // moves around it, so a sweep across the rows hovers at most twice a frame. A press is discrete: the
+    // popup's pending move lands first (`ShouldFlushQueue`).
     open override func mouseEntered(with event: NSEvent) {
         isHovering = true
-        if isEnabled { onHover?() }
+        if let hoverMoves { hoverMoves.crossed(event) } else if isEnabled { onHover?() }
     }
 
+    // local-monitor-allow: with feature pointerFrameHover the moves go to the popup's PointerFrameHover, on its
+    // window's FrameInputCoalescer (recipe R-input); off, each move hovers at once
     open override func mouseMoved(with event: NSEvent) {
-        // The keyboard moved the highlight away while the pointer stayed: a move takes it back.
+        if let hoverMoves { hoverMoves.moved(event) } else { pointerMoved() }
+    }
+
+    /// The pointer moved over the row (a move, or the popup's frame delivery of one): the keyboard
+    /// moved the highlight away while the pointer stayed, so the move takes it back.
+    public func pointerMoved() {
         if isEnabled, !isHighlighted { onHover?() }
     }
 
     open override func mouseExited(with event: NSEvent) {
+        hoverMoves?.crossed(event)
         isHovering = false
         isPressed = false
     }
@@ -210,6 +220,7 @@ open class PopupRowView: NSView {
     open override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
     open override func mouseDown(with event: NSEvent) {
+        hoverMoves?.flush()
         guard isInteractive else { return super.mouseDown(with: event) }
         isPressed = true
     }

@@ -19,6 +19,17 @@ costs nothing while it is unused:
                page of each engine next to the terminal.
 - compare: renders two or more result JSON files as a Markdown table.
 
+`run --out` takes a report file (a name ending in .json) or a folder. With a
+folder (how the lab story runner passes it) the run writes its report there as
+browser-engine-<tag>.json and its raw samples as cmux-perf-result/v1 in story
+browser-engine-<engine> (one --engines arm per run; session light):
+browser_engine.launch.socket_ready, browser_engine.key_latency.no_browser,
+browser_engine.<engine>.first_page_load, .warm_page_load, .open_rpc and
+.key_latency (ms); browser_engine.idle.app_footprint and
+browser_engine.<engine>.memory_per_tab (bytes); browser_engine.idle.cpu and
+browser_engine.<engine>.cpu_one_visible (percent of one core, app plus engine
+processes).
+
 Engine selection uses `browser.open_split` params: pass
 `--open-param chromium:engine=chromium` (repeatable, `<engine>:<key>=<value>`)
 so the bench keeps working whatever the per-open override is called. WebKit
@@ -33,6 +44,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import http.server
+import importlib.util
 import json
 import os
 import pathlib
@@ -47,6 +59,17 @@ import tempfile
 import threading
 import time
 from typing import Any
+
+
+_spec = importlib.util.spec_from_file_location(
+    "perf_import", pathlib.Path(__file__).resolve().parent.parent / "perf-lab" / "perf_import.py")
+perf_import = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(perf_import)
+perf_stats = perf_import.load("perf_stats")
+
+# result-v1 (run --out DIR): one story per engine arm, scripts/perf-lab/stories.d/browser-engine-<engine>.json.
+STORIES = {"webkit": "browser-engine-webkit", "chromium": "browser-engine-chromium"}
+SESSION = "light"
 
 CHROMIUM_FRAMEWORK = "Chromium Embedded Framework.framework"
 WEBKIT_PROCESS_MARKERS = ("com.apple.WebKit.WebContent", "com.apple.WebKit.Networking", "com.apple.WebKit.GPU")
@@ -188,7 +211,7 @@ def app_footprint_median(app_pid: int, samples: int = 5, interval_s: float = 0.4
         reads.append(int(info.ri_phys_footprint) if info else 0)
         if index < samples - 1:
             time.sleep(interval_s)
-    return int(statistics.median(reads))
+    return int(perf_stats.pct(reads, 0.5))
 
 
 def engine_snapshot(app_pid: int, app_path: str) -> dict[str, Any]:
@@ -323,23 +346,16 @@ def sanitize(raw: str, sep: str) -> str:
 
 
 def stats(values: list[float]) -> dict[str, float]:
+    """n, mean, p50, p95, p99 and max of the values (percentiles from perf_stats.pct)."""
     if not values:
         return {}
-    ordered = sorted(values)
-
-    def pct(p: float) -> float:
-        idx = (len(ordered) - 1) * p
-        lo = int(idx)
-        hi = min(lo + 1, len(ordered) - 1)
-        return ordered[lo] + (ordered[hi] - ordered[lo]) * (idx - lo)
-
     return {
         "n": len(values),
         "mean": round(statistics.mean(values), 3),
-        "p50": round(pct(0.5), 3),
-        "p95": round(pct(0.95), 3),
-        "p99": round(pct(0.99), 3),
-        "max": round(ordered[-1], 3),
+        "p50": round(perf_stats.pct(values, 0.5), 3),
+        "p95": round(perf_stats.pct(values, 0.95), 3),
+        "p99": round(perf_stats.pct(values, 0.99), 3),
+        "max": round(max(values), 3),
     }
 
 
@@ -531,12 +547,42 @@ def parse_open_params(raw: list[str]) -> dict[str, dict[str, Any]]:
     return result
 
 
-def key_latency(app: TaggedApp, args: argparse.Namespace) -> dict[str, Any]:
+def key_latency(app: TaggedApp, args: argparse.Namespace) -> list[float]:
     """Every repeat's samples pooled, so one quiet or noisy burst cannot pick the result."""
     samples: list[float] = []
     for _ in range(args.key_repeats):
         samples += app.raw_command_burst(f"simulate_shortcut {args.key_combo}", args.key_events)
-    return stats(samples)
+    return samples
+
+
+def cpu_total(cpu: dict[str, float]) -> float:
+    """CPU percent of the app and both engines' processes (cpu_percent_over's groups)."""
+    return round(sum(cpu.values()), 2)
+
+
+def run_series(result: dict[str, Any], raw: dict[str, list[float]], engine: str) -> list:
+    """The result-v1 series of one engine arm's run: the raw samples `raw` that run_engine and cmd_run kept, and the
+    one-per-run values of the report `result`. write_series skips an empty series (an engine that failed)."""
+    arm = result.get("engines", {}).get(engine, {})
+    idle = result.get("launch", {})
+    one = lambda value: [] if value is None else [value]
+    prefix = f"browser_engine.{engine}"
+    return [
+        perf_import.Series("browser_engine.launch.socket_ready", "ms", "lower", raw.get("launch", [])),
+        perf_import.Series("browser_engine.key_latency.no_browser", "ms", "lower", raw.get("key_no_browser", [])),
+        perf_import.Series("browser_engine.idle.app_footprint", "bytes", "lower",
+                           one(idle.get("idle", {}).get("app_footprint_bytes"))),
+        perf_import.Series("browser_engine.idle.cpu", "percent", "lower",
+                           one(cpu_total(idle["idle_cpu_percent"]) if "idle_cpu_percent" in idle else None)),
+        perf_import.Series(f"{prefix}.first_page_load", "ms", "lower", one(arm.get("first_page_load_ms"))),
+        perf_import.Series(f"{prefix}.warm_page_load", "ms", "lower", raw.get(f"{engine}.loads", [])[1:]),
+        perf_import.Series(f"{prefix}.open_rpc", "ms", "lower", raw.get(f"{engine}.opens", [])),
+        perf_import.Series(f"{prefix}.key_latency", "ms", "lower", raw.get(f"{engine}.keys", [])),
+        perf_import.Series(f"{prefix}.memory_per_tab", "bytes", "lower",
+                           one(arm.get("memory_per_tab_bytes", {}).get("total"))),
+        perf_import.Series(f"{prefix}.cpu_one_visible", "percent", "lower",
+                           one(cpu_total(arm["cpu_percent_one_visible"]) if "cpu_percent_one_visible" in arm else None)),
+    ]
 
 
 def open_tab(app: TaggedApp, workspace: str, url: str, params: dict[str, Any], timeout_ms: int) -> tuple[str, float, float]:
@@ -562,7 +608,8 @@ def open_tab(app: TaggedApp, workspace: str, url: str, params: dict[str, Any], t
 
 
 def run_engine(app: TaggedApp, engine: str, params: dict[str, Any], server: FixtureServer,
-               args: argparse.Namespace) -> dict[str, Any]:
+               args: argparse.Namespace, raw: dict[str, list[float]]) -> dict[str, Any]:
+    """One engine's numbers for the report; its raw samples go into `raw` (`<engine>.loads`, `.opens`, `.keys`)."""
     result: dict[str, Any] = {"open_params": params}
     workspace = app.rpc("workspace.create", {})
     ws = workspace.get("workspace_id") or workspace.get("id") or workspace_id(app)
@@ -574,6 +621,7 @@ def run_engine(app: TaggedApp, engine: str, params: dict[str, Any], server: Fixt
         surfaces.append(sid)
         opens.append(round(opened, 2))
         loads.append(round(loaded, 2))
+    raw[f"{engine}.loads"], raw[f"{engine}.opens"] = loads, opens
     result["first_page_load_ms"] = loads[0]
     result["warm_page_load_ms"] = stats(loads[1:]) if len(loads) > 1 else {}
     result["open_rpc_ms"] = stats(opens)
@@ -597,7 +645,8 @@ def run_engine(app: TaggedApp, engine: str, params: dict[str, Any], server: Fixt
     result["cpu_percent_one_visible"] = cpu_percent_over(app.pid, str(app.app), args.cpu_window_s)
     # Typing in the terminal next to a visible, animating page of this engine.
     app.rpc("workspace.select", {"workspace_id": ws})
-    result["key_latency_ms_with_visible_page"] = key_latency(app, args)
+    raw[f"{engine}.keys"] = key_latency(app, args)
+    result["key_latency_ms_with_visible_page"] = stats(raw[f"{engine}.keys"])
     # Close this engine's pages so the next engine is measured alone.
     app.rpc("workspace.close", {"workspace_id": ws})
     return result
@@ -615,6 +664,17 @@ def cmd_run(args: argparse.Namespace) -> int:
         raise BenchFailure("--launches must be at least 1")
     open_params = parse_open_params(args.open_param)
     engines = [e for e in args.engines.split(",") if e]
+    report_path, result_dir = out_paths(args.out, app.tag)
+    measured = None
+    if result_dir is not None:
+        if len(engines) != 1 or engines[0] not in STORIES:
+            raise BenchFailure(f"result-v1 needs one engine arm per run ({' or '.join(STORIES)}), not {args.engines!r}")
+        try:  # before the run: a run whose results cannot be named never starts
+            measured = perf_import.measured_build(str(app_path), args.build_config)
+        except perf_import.bench_launch().RecordError as exc:
+            raise BenchFailure(f"no result-v1 can name this run: {exc}") from None
+    raw: dict[str, list[float]] = {}
+    features = None
     result: dict[str, Any] = {
         "schema": 1,
         "tag": args.tag,
@@ -640,14 +700,18 @@ def cmd_run(args: argparse.Namespace) -> int:
                 launch_ms.append(round(app.launch(args.launch_timeout), 2))
                 if index < args.launches - 1:
                     app.quit()
+            raw["launch"] = launch_ms
             result["launch"]["socket_ready_ms"] = stats(launch_ms)
+            if measured is not None:
+                features = read_features(app)
             time.sleep(args.settle_s)
             result["launch"]["idle"] = engine_snapshot(app.pid, str(app_path))
             result["launch"]["idle_cpu_percent"] = cpu_percent_over(app.pid, str(app_path), args.cpu_window_s)
-            result["key_latency_ms_no_browser"] = key_latency(app, args)
+            raw["key_no_browser"] = key_latency(app, args)
+            result["key_latency_ms_no_browser"] = stats(raw["key_no_browser"])
             for engine in engines:
                 try:
-                    result["engines"][engine] = run_engine(app, engine, open_params.get(engine, {}), server, args)
+                    result["engines"][engine] = run_engine(app, engine, open_params.get(engine, {}), server, args, raw)
                 except BenchFailure as exc:
                     # Keep the other engines' numbers; record why this one stopped.
                     result["engines"][engine] = {"error": str(exc)}
@@ -655,10 +719,38 @@ def cmd_run(args: argparse.Namespace) -> int:
         finally:
             app.quit()
     text = json.dumps(result, indent=2, sort_keys=True)
-    if args.out:
-        pathlib.Path(args.out).write_text(text + "\n")
+    if report_path is not None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(text + "\n")
     print(text)
+    if measured is not None:
+        if features is None:
+            raise BenchFailure("the app gave no features.list snapshot: no result-v1 is written without its features")
+        path = perf_import.write_series(result_dir, STORIES[engines[0]], SESSION, engines[0],
+                                        run_series(result, raw, engines[0]), *measured, features=features)
+        print(f"wrote result-v1 {path}", file=sys.stderr)
     return 0
+
+
+def out_paths(out: str | None, tag: str) -> tuple[pathlib.Path | None, pathlib.Path | None]:
+    """(report file, result-v1 folder) of `run --out`: a .json name is the report alone (no result-v1); any other
+    name is a folder that holds browser-engine-<tag>.json and the result-v1 files."""
+    if not out:
+        return None, None
+    path = pathlib.Path(out)
+    if path.suffix == ".json":
+        return path, None
+    return path / f"browser-engine-{tag}.json", path
+
+
+def read_features(app: TaggedApp) -> tuple[dict[str, Any], str | None, str | None] | None:
+    """result-v1's (features, features_hash, safe_mode) of the running app (bench_launch.features_snapshot), or None
+    when the app did not answer features.list."""
+    try:
+        reply = app.rpc("features.list", {}, timeout=10)
+    except BenchFailure:
+        return None
+    return perf_import.bench_launch().features_snapshot(reply)
 
 
 def cmd_bundle(args: argparse.Namespace) -> int:
@@ -743,7 +835,10 @@ def main(argv: list[str]) -> int:
     run.add_argument("--launch-env", action="append", default=[],
                      help="KEY=VALUE for the app; {fixture:<name>} becomes a fixture page URL, "
                           "e.g. CMUX_CEF_DEBUG_URL={fixture:chromium-debug}")
-    run.add_argument("--out")
+    run.add_argument("--out", help="the report file (NAME.json), or a folder for the report and result-v1")
+    run.add_argument("--session", choices=[SESSION], help="the lab story runner passes it; only light")
+    run.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                     help="result-v1 build config of a bench-hooks bundle that does not stamp it")
     run.set_defaults(func=cmd_run)
 
     compare = sub.add_parser("compare", help="Markdown table from result JSON files")

@@ -23,4 +23,8 @@ public nonisolated struct AgentInventoryProviderRegisterRequest: DaemonRequest {
     /// Creates the opt-in request; the native owner validates the family set.
     /// - Parameter families: Families implemented by this verified app connection.
     public init(families: [String]) { self.families = families }
+
+    enum CodingKeys: String, CodingKey {
+        case families, inventoryWatch = "inventory_watch"
+    }
 }
