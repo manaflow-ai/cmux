@@ -33,6 +33,7 @@ extension BrowserProfileService {
     /// The omnibar avatar of tab `key`: nil while one profile exists, and
     /// for incognito tabs (their window says incognito).
     func omnibarBadge(forTab key: String) -> BrowserProfileBadge? {
+        guard let services else { return nil }
         guard BrowserProfileCascade.showsOmnibarBadge(profileCount: ordered.count),
               !services.cache.browserTabs.isIncognitoTab(key) else { return nil }
         let id = services.cache.tabModel(key).map(profileID(ofTab:)) ?? BrowserProfileRecord.defaultID
@@ -46,6 +47,7 @@ extension BrowserProfileService {
     /// only the strips whose badge changed map again. Pushing every strip here re-ran every pane
     /// snapshot twice at each launch, with nothing changed (cx-8w027.23, I2).
     func refreshPresentation() {
+        guard let services else { return }
         for (key, entry) in services.cache.browsers {
             entry.chrome.addressBar.setProfileBadge(omnibarBadge(forTab: key))
             entry.chrome.toolbarButtons.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)

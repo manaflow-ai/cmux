@@ -12,14 +12,18 @@ extension HomeFirstRunView {
     /// The bottom edge of the lowest part the panel shows, in its own
     /// coordinates; nil when it shows none (`home-chief-long-draft`).
     var debugShownBottom: CGFloat? {
+        // visibility-walk-allow: DEBUG capture read of what AppKit draws: the panel hides the parts that do not fit, and no node holds them
         ([hero, switchCard, agentsHeader] + rows).filter { !$0.isHiddenOrHasHiddenAncestor }
             .map { convert($0.bounds, from: $0).maxY }.max()
     }
 
     /// Which of the hero, the Switching card and the action rows show.
     var debugShownParts: [String: Bool] {
-        ["hero": !hero.isHiddenOrHasHiddenAncestor, "switch_card": !switchCard.isHiddenOrHasHiddenAncestor,
-         "action_rows": actionRows.contains { !$0.isHiddenOrHasHiddenAncestor }]
+        // visibility-walk-allow: DEBUG capture read of which parts AppKit draws; no node holds the panel's parts
+        let heroShown = !hero.isHiddenOrHasHiddenAncestor, cardShown = !switchCard.isHiddenOrHasHiddenAncestor
+        // visibility-walk-allow: DEBUG capture read of which parts AppKit draws; no node holds the panel's rows
+        let rowsShown = actionRows.contains { !$0.isHiddenOrHasHiddenAncestor }
+        return ["hero": heroShown, "switch_card": cardShown, "action_rows": rowsShown]
     }
 
     /// Clicks agent row `index`: a mouse down and up at its centre sent
@@ -30,6 +34,7 @@ extension HomeFirstRunView {
     func debugClickAgent(_ index: Int, pointer: Bool) -> String? {
         guard agentRows.indices.contains(index) else { return nil }
         let row = agentRows[index]
+        // visibility-walk-allow: DEBUG click: the hit test of a row AppKit draws, as the pointer would find it
         guard !row.isHiddenOrHasHiddenAncestor, let window = row.window, let content = window.contentView else { return nil }
         let handler = onAgent
         var opened: String?

@@ -27,6 +27,18 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// The first fork API with `cmux_shim_tab_send_mouse_move` (`CefBrowserHost::SendMouseMoveEvent`): the same fork
     /// line as the surface copy (p13-webui-077 adds both), numbered by the train with it.
     static let mouseMoveForkAPI: Int32 = surfaceCopyForkAPI
+    /// The first fork API with `cmux_tab_page_push` and `cmuxPageListen` (p13-webui-079, manaflow-ai/cef
+    /// `cp/p13-webui-079` on `cp/p06-scheduler-212`): a string to a cmux-page document's receiver, with no script.
+    /// Max + 1 of the fork lines and of the numbers the app claims (38 is ``surfaceCopyForkAPI``).
+    static let pagePushForkAPI: Int32 = 39
+
+    /// The first fork API whose page window joins the app's Core Animation commit only for a deadline
+    /// the app set (`cmux_browser_set_resize_sync`). With none, `UpdateWindowGeometry` does not call
+    /// `CATransactionCoordinator::Synchronize`, so a resize waits neither before the commit (up to
+    /// `kUIPaintTimeout`, 500 ms) nor after it for the GPU's reply (`kPostCommitTimeout`, 50 ms):
+    /// Chromium's `ui/accelerated_widget_mac/ca_transaction_observer.mm`, fork e07a2f78
+    /// (`cef_cmux.h` "API 27"; the earlier, never released API 27 commits lack the skip).
+    static let resizeSyncForkAPI: Int32 = 27
 
     /// `cmux_shim_fork_api_version()`; 0 for stock CEF or no shim.
     var forkAPIVersion: Int32
@@ -38,6 +50,8 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     var shimHasSurfaceCopy = false
     /// The shim exports `cmux_shim_tab_send_mouse_move` (`CEFShimLibrary.tabSendMouseMove`).
     var shimHasMouseMove = false
+    /// The shim exports `cmux_shim_tab_page_push` (`CEFShimLibrary.tabPagePush`).
+    var shimHasPagePush = false
 
     /// No always-on per-tab DevTools session: a tab gets a DevTools agent only when DevTools opens
     /// or an agent drives it over CDP, so Chrome's process reuse can put up to 2 same-site main
@@ -64,6 +78,15 @@ nonisolated struct CEFForkFeatures: Equatable, Sendable {
     /// A mouse move with no button reaches the page as the person's own (``CEFTab/sendMouseMove(x:y:)``), with no
     /// DevTools agent, as the native click does. Below this API a scripted hover needs DevTools input.
     var mouseMove: Bool { shimHasMouseMove && forkAPIVersion >= Self.mouseMoveForkAPI }
+
+    /// A cmux page can get its host events and replies as data (``CEFPagePush``): the page registers a
+    /// receiver with `cmuxPageListen` and each push calls it with a string, as Chrome's WebUI pages get Mojo
+    /// messages instead of a script per call. Below this API, or with an older shim, every delivery is a script.
+    var pagePush: Bool { shimHasPagePush && forkAPIVersion >= Self.pagePushForkAPI }
+
+    /// A page-window resize holds the app's commit only while the app gives that page a deadline.
+    /// Below it Chromium 154 waits on every resize, so `CEFSwitches` keeps `AsyncLiveResize` on.
+    var resizeWaitsOnlyForDeadline: Bool { forkAPIVersion >= Self.resizeSyncForkAPI }
 }
 
 extension CEFForkFeatures {
@@ -71,6 +94,6 @@ extension CEFForkFeatures {
     init(_ shim: CEFShimLibrary) {
         self.init(forkAPIVersion: shim.forkAPIVersion(), shimHasRendererPaths: shim.hasRendererPaths,
                   shimHasTabVisibility: shim.tabSetVisibility != nil, shimHasSurfaceCopy: shim.tabCopySurface != nil,
-                  shimHasMouseMove: shim.tabSendMouseMove != nil)
+                  shimHasMouseMove: shim.tabSendMouseMove != nil, shimHasPagePush: shim.tabPagePush != nil)
     }
 }

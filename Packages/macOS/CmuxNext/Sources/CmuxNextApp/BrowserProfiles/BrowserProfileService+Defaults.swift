@@ -14,18 +14,21 @@ extension BrowserProfileService {
     }
 
     func qualified(_ workspaceID: String) -> QualifiedWorkspace? {
+        guard let services else { return nil }
         guard let (workspace, daemon) = services.machines.workspace(id: workspaceID) else { return nil }
         return QualifiedWorkspace(session: daemon.store.registryID ?? daemon.machineID, key: workspace.key?.rawValue ?? workspace.id)
     }
 
     /// Whether the home daemon holds personal state (`profiles-v1`).
     var usesPersonalState: Bool {
+        guard let services else { return false }
         let home = services.machines.local.store
         return home.supportsProfiles && home.personal.isLoaded
     }
 
     /// The workspace's own browser profile, nil when it has none.
     func workspaceDefault(_ workspaceID: String?) -> String? {
+        guard let services else { return nil }
         guard let workspaceID, let qualified = qualified(workspaceID) else { return nil }
         if usesPersonalState,
            let id = services.machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.browserProfileID {
@@ -39,6 +42,7 @@ extension BrowserProfileService {
     /// tab badge or avatar follows that window's room), else the room of the window that shows
     /// the workspace, else the active window's (a one-time choice: a new tab's profile).
     func roomDefault(_ workspaceID: String?, room: ProfileID? = nil) -> String? {
+        guard let services else { return nil }
         let windows = services.windows
         let room = room ?? workspaceID.flatMap { windows.registry.value.owner(of: $0) }.flatMap { windows.states[$0]?.profileID }
             ?? windows.active?.state.profileID ?? .defaultProfile
@@ -72,6 +76,7 @@ extension BrowserProfileService {
     /// `setWorkspaceDefault` for a workspace no snapshot reported yet (one
     /// this app is creating).
     func setWorkspaceDefault(_ id: String?, for qualified: QualifiedWorkspace) throws {
+        guard let services else { return }
         if usesPersonalState {
             let update: FieldUpdate<BrowserProfileKey> = id.map { .set(BrowserProfileKey(rawValue: $0)) } ?? .clear
             let request = SetPersonalWorkspaceRequest(sessionID: qualified.session, workspaceKey: WorkspaceKey(rawValue: qualified.key),
@@ -83,6 +88,7 @@ extension BrowserProfileService {
 
     /// Workspaces whose browser profile is `id` (file and personal state).
     func workspacesUsing(_ id: String) -> [QualifiedWorkspace] {
+        guard let services else { return [] }
         var found = book.workspaceDefaults.filter { $0.value == id }.compactMap { entry -> QualifiedWorkspace? in
             let parts = entry.key.split(separator: "|", maxSplits: 1).map(String.init)
             return parts.count == 2 ? QualifiedWorkspace(session: parts[0], key: parts[1]) : nil

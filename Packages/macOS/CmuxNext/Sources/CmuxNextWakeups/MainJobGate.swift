@@ -18,8 +18,10 @@ import Darwin
 /// - Strict FIFO: while anything is held, every job that is not exempt appends, input or not, so
 ///   no job overtakes one enqueued before it (SE-0431's order).
 /// - Release: ``forwardOldest()`` after each frame commit while no input is pending (one job per
-///   pass, so each commits before the next), and ``releaseAll(_:)`` of the whole FIFO in order at
-///   the one-refresh deadline, at a nested run loop's entry and at uninstall.
+///   pass, so each commits before the next), and ``releaseAll(_:setting:)`` of the whole FIFO in
+///   order at the one-refresh deadline, at a nested run loop's entry and at uninstall. A release
+///   that stops holding sets its bit in the same critical section as the release, so no job
+///   enqueued meanwhile overtakes a released one.
 ///
 /// ```swift
 /// let state = InputPendingState()
@@ -33,6 +35,8 @@ public final class MainJobGate: Sendable {
         var job: UInt
         var original: UInt
         var priority: UInt8
+        /// When the gate held it (`uptimeNanos`); 0 for a job it never held.
+        var heldAt: UInt64 = 0
     }
 
     /// Who enqueued a held job.
@@ -100,6 +104,11 @@ public final class MainJobGate: Sendable {
     private let exemptCounts: [GateWord] = ExemptRule.allCases.map { _ in GateWord() }
     private let releaseCounts: [GateWord] = Release.allCases.map { _ in GateWord() }
     private let stampOverflow = GateWord()
+    /// Held jobs forwarded one refresh or more after they were held.
+    private let deferredCount = GateWord()
+    /// The refresh the run loop's deadline last used (``releaseIfOverdue(refreshNanos:)``): the
+    /// threshold of ``Counters/deferredOverOneFrame``.
+    private let lastRefreshNanos = Atomic<UInt64>(16_666_667)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// The input-turn hop recorder (task 022): every job enqueued while input is pending or in dispatch.
     private let recorder: MainJobGateDiagnostics?
@@ -111,6 +120,8 @@ public final class MainJobGate: Sendable {
         var head = 0
         /// When the first job of this hold was held (`uptimeNanos`).
         var since: UInt64 = 0
+        /// Counts holds: the run loop arms one deadline wake per hold.
+        var hold: UInt64 = 0
 
         var isEmpty: Bool { head == entries.count }
         var count: Int { entries.count - head }
@@ -162,6 +173,8 @@ public final class MainJobGate: Sendable {
     /// The slow path: the word is not zero.
     @inline(never)
     func enqueue(_ entry: Entry, bits: InputPendingState.Bits, onMain: Bool) {
+        // A release that stops holding is in progress: the lock orders this job after the released ones.
+        if bits.contains(.held), !bits.isDisjoint(with: [.bypass, .nestedLoop]) { return hold(entry, onMain: onMain) }
         guard !bits.contains(.bypass) else { return forward(entry) }
         #if DEBUG || CMUX_BENCH_HOOKS
         if let recorder, !bits.isDisjoint(with: .input) {
@@ -186,18 +199,21 @@ public final class MainJobGate: Sendable {
         return nil
     }
 
-    /// Appends `entry`, or forwards it when nothing is held and no input is pending or in
-    /// dispatch any more (decided under the lock, against the word as it is now).
+    /// Appends `entry`, or forwards it when nothing is held and holding is suspended or no input
+    /// is pending or in dispatch any more (decided under the lock, against the word as it is now).
     private func hold(_ entry: Entry, onMain: Bool) {
         let first = fifo.withLock { held -> Bool? in
             let now = state.bits
-            if !now.isDisjoint(with: [.nestedLoop, .bypass]) || (held.isEmpty && now.isDisjoint(with: .input)) {
+            if held.isEmpty && (!now.isDisjoint(with: [.nestedLoop, .bypass]) || now.isDisjoint(with: .input)) {
                 forward(entry)
                 return nil
             }
+            var entry = entry
+            entry.heldAt = uptimeNanos()
             let first = held.isEmpty
             if first {
-                held.since = uptimeNanos()
+                held.since = entry.heldAt
+                held.hold &+= 1
                 state.insert(.held)
             }
             held.entries.append(entry)
@@ -218,8 +234,18 @@ public final class MainJobGate: Sendable {
     /// Stops holding and releases every held job in order (the hook uninstalls it): a job that
     /// comes meanwhile passes behind them.
     func stop() {
-        state.insert(.bypass)
-        releaseAll(.uninstalled)
+        releaseAll(.uninstalled, setting: .bypass)
+    }
+
+    /// A nested run loop starts: releases every held job in order and holds nothing until
+    /// ``exitNestedLoop()``.
+    func enterNestedLoop() {
+        releaseAll(.nestedLoop, setting: .nestedLoop)
+    }
+
+    /// The nested run loop ended: holding starts again.
+    func exitNestedLoop() {
+        state.remove(.nestedLoop)
     }
 
     /// Forwards the oldest held job; false when none is held.
@@ -227,7 +253,7 @@ public final class MainJobGate: Sendable {
     func forwardOldest() -> Bool {
         let forwarded = fifo.withLock { held -> Bool in
             guard !held.isEmpty else { return false }
-            forward(held.entries[held.head])
+            send(held.entries[held.head], now: uptimeNanos(), refresh: lastRefreshNanos.load(ordering: .relaxed))
             held.head += 1
             if held.isEmpty {
                 held.clear()
@@ -239,13 +265,17 @@ public final class MainJobGate: Sendable {
         return forwarded
     }
 
-    /// Forwards every held job in order; returns how many.
+    /// Forwards every held job in order; returns how many. `bits` (``InputPendingState/Bits/bypass``,
+    /// ``InputPendingState/Bits/nestedLoop``) are set in the same critical section, so a job that
+    /// sees them while ``InputPendingState/Bits/held`` is still set waits for the lock and goes after.
     @discardableResult
-    func releaseAll(_ reason: Release) -> Int {
+    func releaseAll(_ reason: Release, setting bits: InputPendingState.Bits = []) -> Int {
         let released = fifo.withLock { held -> Int in
+            if !bits.isEmpty { state.insert(bits) }
             let count = held.count
             guard count > 0 else { return 0 }
-            for index in held.head..<held.entries.count { forward(held.entries[index]) }
+            let now = uptimeNanos(), refresh = lastRefreshNanos.load(ordering: .relaxed)
+            for index in held.head..<held.entries.count { send(held.entries[index], now: now, refresh: refresh) }
             held.clear()
             state.remove(.held)
             return count
@@ -254,12 +284,31 @@ public final class MainJobGate: Sendable {
         return released
     }
 
+    /// Forwards a held job (under the lock) and counts it when it waited `refresh` or longer.
+    private func send(_ entry: Entry, now: UInt64, refresh: UInt64) {
+        forward(entry)
+        if now >= entry.heldAt, now - entry.heldAt >= refresh { deferredCount.add() }
+    }
+
     /// Releases every held job when the first of them was held `refreshNanos` or longer ago.
     @discardableResult
     func releaseIfOverdue(refreshNanos: UInt64) -> Bool {
-        let now = uptimeNanos()
-        let overdue = fifo.withLock { held in !held.isEmpty && now &- held.since >= refreshNanos }
+        lastRefreshNanos.store(refreshNanos, ordering: .relaxed)
+        let overdue = fifo.withLock { held -> Bool in
+            let now = uptimeNanos()
+            return !held.isEmpty && now >= held.since && now - held.since >= refreshNanos
+        }
         return overdue && releaseAll(.deadline) > 0
+    }
+
+    /// The hold in progress and the nanoseconds left until its one-refresh deadline; nil when
+    /// nothing is held or the deadline has passed.
+    func deadline(refreshNanos: UInt64) -> (hold: UInt64, remaining: UInt64)? {
+        fifo.withLock { held -> (hold: UInt64, remaining: UInt64)? in
+            guard !held.isEmpty else { return nil }
+            let due = held.since &+ refreshNanos, now = uptimeNanos()
+            return due > now ? (held.hold, due - now) : nil
+        }
     }
 
     /// Jobs held now.
@@ -322,12 +371,14 @@ public final class MainJobGate: Sendable {
         public var releasedBy: [String: UInt64]
         /// `MainWork` tasks past ``MainJobGate/stampLimit``: only their first job passed.
         public var stampOverflow: UInt64
+        /// Held jobs forwarded one refresh or more after they were held.
+        public var deferredOverOneFrame: UInt64
         /// Jobs held now.
         public var held: Int
 
         enum CodingKeys: String, CodingKey {
             case heldByOrigin = "held_by_origin", exemptByRule = "exempt_by_rule", releasedBy = "released_by"
-            case stampOverflow = "stamp_overflow", held
+            case stampOverflow = "stamp_overflow", deferredOverOneFrame = "deferred_over_one_frame", held
         }
     }
 
@@ -335,7 +386,15 @@ public final class MainJobGate: Sendable {
         Counters(heldByOrigin: Self.named(Origin.allCases, heldCounts, \.name),
                  exemptByRule: Self.named(ExemptRule.allCases, exemptCounts, \.name),
                  releasedBy: Self.named(Release.allCases, releaseCounts, \.name),
-                 stampOverflow: UInt64(stampOverflow.value.load(ordering: .relaxed)), held: heldCount)
+                 stampOverflow: UInt64(stampOverflow.value.load(ordering: .relaxed)),
+                 deferredOverOneFrame: UInt64(deferredCount.value.load(ordering: .relaxed)), held: heldCount)
+    }
+
+    /// Starts the counters over (`debug.input` action `reset`); held jobs stay held.
+    public func resetCounters() {
+        for word in heldCounts + exemptCounts + releaseCounts + [stampOverflow, deferredCount] {
+            word.value.store(0, ordering: .relaxed)
+        }
     }
 
     private static func named<Key>(_ keys: [Key], _ words: [GateWord], _ name: (Key) -> String) -> [String: UInt64] {

@@ -61,7 +61,7 @@ struct PageChatOpenStageTests {
         let log = RecordLog()
         let open = log.open()
         let view = page(chatOpen: ChatOpenStages(open), chromium: FakeChromiumHosting())
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.close()
         #expect(Array(log.stages.prefix(4)) == [.chromiumStart, .browserCreated, .setupDone, .navigationStart])

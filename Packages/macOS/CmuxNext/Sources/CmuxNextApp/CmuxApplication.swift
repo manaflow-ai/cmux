@@ -142,8 +142,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     }
 
     private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
-        let outerDispatch = jobGate?.state.beginDispatch()
-        defer { if let outerDispatch { jobGate?.state.endDispatch(restoring: outerDispatch) } }
+        let outerDispatch = jobGate?.beginDispatch()
+        defer { if let outerDispatch { jobGate?.endDispatch(restoring: outerDispatch) } }
         // Every key-down: the probe opens a sample while it records and for its 1-in-16 key.echo_frame sample.
         let probesKey = event.type == .keyDown && TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
         defer { if probesKey { TypingLatencyProbe.shared.mark(.dispatchEnd) } }

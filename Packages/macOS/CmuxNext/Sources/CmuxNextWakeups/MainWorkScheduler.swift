@@ -77,6 +77,9 @@ public final class MainWorkScheduler {
     /// A layout plan applied in this run loop turn and not committed yet (``PlanApplyTurn``): the layout
     /// notes it, the in-process CEF pump starts no slice inside it.
     public let planApplies: PlanApplyTurn
+    /// The CPU-time budget of hidden nodes' work, on the budget's clock: every ``MainTaskQueue`` and
+    /// ``MainDeadline`` on this scheduler charges its hidden runs to this one pool.
+    public let hiddenBudget: CPUTimeBudgetPool
 
     /// Times the render pass after each frame's scheduled work while any link runs (nil in tests).
     private var renderPasses: RenderPassMeter?
@@ -140,9 +143,11 @@ public final class MainWorkScheduler {
         wakeUps = MainWakeUpQueue(energy: energy)
         otherLinksRunning = otherLinks.anyRunning
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
+        hiddenBudget = CPUTimeBudgetPool(uptimeNanos: budget.uptimeNanos)
         // Its own ambient clients follow the policy it owns, like the app's and the windows' (FrameScheduler+Energy.swift).
         frames.follow(energy)
-        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, on: frames) { [weak budget] _ in
+        // frame-client: one tick while the input-response pass is open (the budget is main state); key to frame
+        inputResponseTick = FrameClient(owner: "MainFrameBudget.inputResponse", isAnimation: false, rate: .motion, on: frames) { [weak budget] _ in
             budget?.isInputResponseOpen ?? false
         }
         if measuresRenderPasses {

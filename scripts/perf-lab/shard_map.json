@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 24700,
-            "T2": 44580
+            "T1": 27040,
+            "T2": 48780
           },
           "stories": {
             "T1": [
@@ -28,6 +28,9 @@
               "crash-survival-webkit",
               "daemon-ops",
               "drag-lag",
+              "frame_pacing.fling",
+              "frame_pacing.golden",
+              "frame_pacing.instant",
               "fullscreen-transition",
               "home-idle",
               "home-perf",
@@ -56,6 +59,8 @@
               "palette-open-webkit",
               "pane-stress",
               "perf-gate",
+              "power",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",
@@ -100,6 +105,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -151,7 +157,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 44580
+            "T2": 48780
           },
           "stories": {
             "T2": [
@@ -178,6 +184,7 @@
               "browser-engine-chromium",
               "browser-engine-webkit",
               "browser-idle-cost",
+              "browser-macro",
               "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
@@ -229,7 +236,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 12250
+            "T1": 13450
           },
           "stories": {
             "T0": [
@@ -245,6 +252,8 @@
               "burst",
               "command-pan",
               "daemon-ops",
+              "frame_pacing.fling",
+              "frame_pacing.instant",
               "home-perf",
               "launch-cold-realistic",
               "launch-connect",
@@ -257,6 +266,7 @@
               "open-panel",
               "palette-open-webkit",
               "pane-stress",
+              "power",
               "sidebar-doc",
               "sidebar-drag",
               "sidebar-rows-live",
@@ -273,7 +283,7 @@
           "index": 1,
           "seconds": {
             "T0": 150,
-            "T1": 12450
+            "T1": 13590
           },
           "stories": {
             "T0": [
@@ -290,6 +300,7 @@
               "crash-survival",
               "crash-survival-webkit",
               "drag-lag",
+              "frame_pacing.golden",
               "fullscreen-transition",
               "home-idle",
               "idle-tabs",
@@ -306,6 +317,7 @@
               "omnibar-click-webkit",
               "palette-open",
               "perf-gate",
+              "qos-inversions",
               "relaunch-e2e",
               "remote-browser-media",
               "renderer-sharing",

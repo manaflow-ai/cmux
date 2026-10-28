@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextInputModel
 import CmuxNextOracle
 import Testing
 

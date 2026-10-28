@@ -1,0 +1,9 @@
+[{
+	"appearance": true,
+	/* * */ "sidebar": {
+		"workspaceRow": {
+			"icon": false
+		}
+	}
+}
+]
