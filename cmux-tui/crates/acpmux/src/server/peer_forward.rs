@@ -106,7 +106,11 @@ pub(super) async fn forward(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    forward_inner(hub, conn, m, params).await.transpose()
+    let reply = forward_inner(hub, conn, m, params).await.transpose();
+    if conn.origin == Origin::Peer {
+        return reply.map(|r| r.map_err(super::redact::hide_unreachable_peer));
+    }
+    reply
 }
 
 async fn forward_inner(
