@@ -145,7 +145,8 @@ targets=()
 for arch in $archs; do targets+=("$([[ "$arch" == arm64 ]] && printf aarch64 || printf x86_64)-apple-darwin"); done
 if command -v rustup >/dev/null 2>&1; then
   # Both steps skip the network when the toolchain and its targets are on disk.
-  rustup run "$toolchain" rustc --version >/dev/null 2>&1 \
+  # The build needs both cargo and rustc; a toolchain missing either is installed (repaired) as before.
+  { rustup run "$toolchain" cargo --version && rustup run "$toolchain" rustc --version; } >/dev/null 2>&1 \
     || rustup toolchain install "$toolchain" --profile minimal >/dev/null
   # shellcheck source=scripts/lib/rust-targets.sh
   source "$repo_root/scripts/lib/rust-targets.sh"

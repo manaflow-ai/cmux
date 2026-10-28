@@ -27,11 +27,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = "scripts/lib/rust-targets.sh"
 SCRIPT_SUFFIXES = (".sh", ".bash", ".py", ".mjs", ".js", ".ts")
-# `rustup target add` or `rustup +1.95.0 target add` on a command line.
-SHELL_ADD = re.compile(r"\brustup\s+(?:\+\S+\s+)?target\s+add\b")
-# The same as a Python or JavaScript argv list: "rustup", "target", "add".
-ARGV_ADD = re.compile(r"[\"']rustup[\"']\s*,\s*(?:[\"']\+[^\"']*[\"']\s*,\s*)?[\"']target[\"']\s*,\s*[\"']add[\"']")
-QUOTED = re.compile(r"\"(?:\\.|[^\"\\])*\"|'[^']*'")
+# `rustup target add`, with any flags or a `+toolchain` between the words.
+SHELL_ADD = re.compile(r"\brustup(?:\s+(?:\+|-)\S*)*\s+target(?:\s+-\S*)*\s+add\b")
+# A command string that starts with it: `bash -c "rustup target add x"`.
+STRING_ADD = re.compile(r"^\s*(?:\S*/)?" + SHELL_ADD.pattern.removeprefix(r"\b"))
+# The same as a Python or JavaScript argv list: "rustup", "target", "add", flags allowed between.
+ARGV_ADD = re.compile(r"[\"'](?:\S*/)?rustup[\"']\s*,\s*(?:[\"'][+-][^\"']*[\"']\s*,\s*)*[\"']target[\"']\s*,\s*"
+                      r"(?:[\"']-[^\"']*[\"']\s*,\s*)*[\"']add[\"']")
+QUOTED = re.compile(r"\"((?:\\.|[^\"\\])*)\"|'([^']*)'")
 
 
 def tracked_scripts() -> list[str]:
@@ -40,14 +43,48 @@ def tracked_scripts() -> list[str]:
     return sorted(name for name in names if name.endswith(SCRIPT_SUFFIXES) and name != HELPER)
 
 
-def unguarded_target_adds(text: str) -> list[int]:
-    """1-based line numbers in TEXT that run `rustup target add` directly."""
-    found = []
+def logical_lines(text: str) -> list[tuple[int, str]]:
+    """(first line number, text) with backslash-continued lines joined."""
+    joined: list[tuple[int, str]] = []
+    pending: tuple[int, str] | None = None
     for number, line in enumerate(text.splitlines(), start=1):
+        if pending is not None:
+            number, line = pending[0], pending[1] + " " + line.lstrip()
+        if line.endswith("\\"):
+            pending = (number, line[:-1])
+            continue
+        pending = None
+        joined.append((number, line))
+    if pending is not None:
+        joined.append(pending)
+    return joined
+
+
+def unguarded_target_adds(text: str) -> list[int]:
+    """Line numbers in TEXT that run `rustup target add` directly.
+
+    A quoted single word ("rustup") is a command word, so its quotes are dropped. A quoted phrase is
+    prose (an error message telling a person what to run) unless it starts with the command itself.
+    """
+    found = []
+    for number, line in logical_lines(text):
         code = line.lstrip()
         if code.startswith(("#", "//")):
             continue
-        if SHELL_ADD.search(QUOTED.sub("", code)) or ARGV_ADD.search(code):
+        if ARGV_ADD.search(code):
+            found.append(number)
+            continue
+        phrases: list[str] = []
+
+        def unquote(match: re.Match[str]) -> str:
+            body = match.group(1) if match.group(1) is not None else match.group(2)
+            if re.search(r"\s", body):
+                phrases.append(body)
+                return " _ "
+            return body
+
+        bare = QUOTED.sub(unquote, code)
+        if SHELL_ADD.search(bare) or any(STRING_ADD.search(phrase) for phrase in phrases):
             found.append(number)
     return found
 
@@ -79,6 +116,12 @@ class RustTargetsInstalledFirst(unittest.TestCase):
             'rustup +1.95.0 target add x86_64-apple-darwin',
             '  rustup target add --toolchain "$t" "$x" >/dev/null',
             'subprocess.run(["rustup", "target", "add", target], check=True)',
+            'subprocess.run(["rustup", "+1.95.0", "target", "add", t])',
+            '"rustup" target add x86_64-apple-darwin',
+            'rustup --verbose target add x86_64-apple-darwin',
+            '/usr/local/bin/rustup target add x86_64-apple-darwin',
+            'bash -c "rustup target add x86_64-apple-darwin"',
+            'rustup \\\n  target add \\\n  x86_64-apple-darwin',
         ]
         allowed = [
             '# rustup target add aarch64-apple-darwin',
