@@ -107,6 +107,8 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
         const cardBox = card.getBoundingClientRect();
         const rowBox = card.querySelector<HTMLElement>(".acpmux-ask-row")!.getBoundingClientRect();
         const notes = card.querySelectorAll(".acpmux-ask-note").length;
+        // The folder the command runs in, one line under the row (Codex's approval scope, #24595).
+        const scopes = card.querySelectorAll(".acpmux-ask-scope").length;
         const answerBoxes = answers.map((button) => button.getBoundingClientRect());
         return {
           mono: /mono|menlo|courier/i.test(style.fontFamily),
@@ -114,9 +116,10 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
           oneLine: holderBox.height <= parseFloat(style.lineHeight) + 1,
           cut: style.textOverflow === "ellipsis" && holder.scrollWidth > holder.clientWidth,
           rowHeight: rowBox.height,
-          // The card is the row plus its one-line notes (what Always grants), nothing more.
-          cardExtra: cardBox.height - rowBox.height - notes * 24,
+          // The card is the row plus its one-line notes (what Always grants) and scope, nothing more.
+          cardExtra: cardBox.height - rowBox.height - (notes + scopes) * 24,
           notes,
+          scopes,
           rim: Math.max(
             parseFloat(cardStyle.borderTopWidth),
             parseFloat(cardStyle.borderLeftWidth),
@@ -141,6 +144,7 @@ await requireBrowserLane("permission-ask-row-look.test.ts", async () => {
       expect(seen.rowHeight).toBeLessThanOrEqual(40);
       expect(seen.rowHeight).toBeGreaterThanOrEqual(28);
       expect(seen.notes).toBe(1);
+      expect(seen.scopes).toBe(1);
       expect(seen.cardExtra).toBeLessThanOrEqual(10);
       expect(seen.panelScrolls).toBe(false);
       expect(seen.holderHeight).toBeGreaterThanOrEqual(14);

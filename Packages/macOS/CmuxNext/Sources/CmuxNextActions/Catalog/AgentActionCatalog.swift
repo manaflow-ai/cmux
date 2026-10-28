@@ -386,9 +386,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
-                // It starts the workspace's terminal: action.run waits the
-                // terminal start deadline, not 2 s, so the caller's run ends
-                // once the workspace exists (it renames it later by key).
+                // It makes a workspace and its chat tab (no terminal): action.run
+                // waits the terminal start deadline, not 2 s, so the caller's run
+                // ends once the workspace exists (it renames it later by key).
                 startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),

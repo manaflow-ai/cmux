@@ -2,7 +2,7 @@
 /**
  * Cloud environments on the cmux-next provider path: cold boot (base image, then clone + setup on the
  * new machine) versus a boot from the environment's snapshot. Drives the real CloudDO driver stack
- * (FreestyleCloudDriver behind GuardedCloudDriver behind GuardedCloudSandbox) on the development
+ * (FreestyleCloudProvider behind GuardedCloudDriver behind GuardedCloudSandbox) on the development
  * lane: names cmuxnp-dev-cld-, image cmuxnp-dev-vmimg-. Deletes every machine and the snapshot.
  *
  *   set -a; source ~/.secrets/cmux.env; set +a
@@ -10,7 +10,8 @@
  */
 import { writeFileSync } from "node:fs"
 import { awaitSandboxReady, buildEnvironmentSnapshot, environmentBootPlan, parseEnvironmentSpec } from "@cmux/cloud-env"
-import { FreestyleCloudDriver, GuardedCloudDriver } from "../src/cloud-driver.ts"
+import { GuardedCloudDriver } from "../src/cloud-driver.ts"
+import { FreestyleCloudProvider } from "../src/providers/freestyle/cloud.ts"
 import { GuardedCloudSandbox } from "../src/cloud-env-sandbox.ts"
 
 const args = process.argv.slice(2)
@@ -28,7 +29,7 @@ if (!parsed.ok) { console.error(parsed.error.message); process.exit(2) }
 const spec = parsed.spec
 const rand = () => [...crypto.getRandomValues(new Uint8Array(20))].map((b) => "abcdefghijklmnopqrstuvwxyz0123456789"[b % 36]).join("")
 const tag = { team: "team_envbench", machine: `vm_${rand()}` }
-const sandbox = new GuardedCloudSandbox(new GuardedCloudDriver(new FreestyleCloudDriver(key, "https://api.freestyle.sh", image), prefix), tag, "freestyle")
+const sandbox = new GuardedCloudSandbox(new GuardedCloudDriver(new FreestyleCloudProvider(key, "https://api.freestyle.sh", image), prefix), tag, "freestyle")
 const now = () => performance.now()
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
 const live = new Set<string>()
@@ -78,7 +79,7 @@ try {
 } finally {
   for (const name of live) await sandbox.destroy(name).catch((e) => { console.error(`destroy ${name} failed`, e); ok = false })
   if (snapshot) {
-    const raw = new FreestyleCloudDriver(key, "https://api.freestyle.sh", image)
+    const raw = new FreestyleCloudProvider(key, "https://api.freestyle.sh", image)
     const found = await raw.findSnapshot(snapshot).catch(() => null)
     if (found) await raw.deleteSnapshot(found.id).catch((e) => { console.error(`snapshot ${snapshot} delete failed`, e); ok = false })
   }

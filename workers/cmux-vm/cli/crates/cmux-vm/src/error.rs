@@ -89,6 +89,35 @@ impl CliError {
         self
     }
 
+    pub fn with_recovery(mut self, recovery: &str) -> Self {
+        self.message.push_str("; ");
+        self.message.push_str(recovery);
+        self
+    }
+
+    /// Add the VM and operation to an error from a VM-scoped command.
+    pub fn for_vm(mut self, vm_id: &str, operation: &str) -> Self {
+        let next = match operation {
+            "client-session create" => format!("cmux-vm client-session list {vm_id}"),
+            "client-session list" | "client-session revoke" => {
+                format!("cmux-vm client-session list {vm_id}")
+            }
+            _ => format!("cmux-vm get {vm_id}"),
+        };
+        self.message = format!(
+            "VM {vm_id} {operation} failed: {}; next: `{next}`",
+            self.message
+        );
+        // A 4xx means the server refused before minting; any other failure
+        // (network, 5xx, a cut-off body) may have minted a session.
+        let refused = matches!(self.status, Some(400..=499));
+        if operation == "client-session create" && !refused {
+            self.message
+                .push_str("; revoke any newly created session before retrying");
+        }
+        self
+    }
+
     pub async fn from_api(error: Error<ByteStream>) -> Self {
         match error {
             Error::ErrorResponse(response) => {

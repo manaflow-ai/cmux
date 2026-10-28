@@ -1482,7 +1482,8 @@ jobs:
     # trusted NEXT runner admits only build-nightly-app. Never a hosted Mac past
     # the fork branch, never macOS 15. glaeda sizes it light at its measured cores.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || inputs.nightly_next_unsigned_run != '' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || needs.resolve-nightly-ghostty-cli-helper.outputs.hit == 'true' && (vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') || github.ref == 'refs/heads/nightly-next' && (needs.pick-nightly-build-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-build-runner.outputs.owned != needs.pick-nightly-build-runner.outputs.dedicated && needs.pick-nightly-build-runner.outputs.owned || needs.pick-nightly-build-runner.outputs.blacksmith || 'blacksmith-6vcpu-macos-26') || github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && (github.event_name == 'push' || github.event_name == 'schedule') && vars.CI_PR_POOL_OWNED == '1' && github.ref == 'refs/heads/main' && vars.CI_SEED_TRUSTED_POOL || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 20
+    # zig-fetch-all.sh may retry each source-archive fetch (about 8.5 min at most per tree).
+    timeout-minutes: 30
     env:
       NIGHTLY_FAST_BUILD: ${{ needs.decide.outputs.fast_build }}
       NIGHTLY_COMPILE_ARCHS: ${{ needs.decide.outputs.compile_archs }}
@@ -3735,7 +3736,7 @@ jobs:
     # A different Blacksmith Linux size than the primary's, so a stalled 4 vCPU
     # queue does not hold the fallback too; never GitHub-hosted (Leo, 2026-10-27:
     # "just put it on blacksmith / 16vcpu blacksmiths do exist").
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-8vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 100
     strategy:
       fail-fast: false
@@ -4021,7 +4022,7 @@ jobs:
   prepare-nightly-variant:
     needs: [prepare-nightly-variant-primary, prepare-nightly-variant-fallback]
     if: always() && (needs.prepare-nightly-variant-primary.result == 'success' || needs.prepare-nightly-variant-fallback.result == 'success')
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     steps:
       - name: Accept primary or fallback preparation
         run: echo "nightly preparation completed on the primary or fallback route"
@@ -4041,7 +4042,10 @@ jobs:
     # vars.MACOS_RUNNER_26: a pick never blocks signing. It runs on Blacksmith Linux, as
     # prepare-nightly-variant does (LINUX_RUNNER, which the overflow switch moves).
     continue-on-error: true
-    runs-on: ${{ vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-6vcpu-macos-26' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # The owned pick mints the routing token (GLAEDA_ROUTE_APP_KEY), so the key is read in the
+    # routing environment, as pick-nightly-build-runner does (tests/test_supplychain_security.py).
+    environment: ci-routing-agent
     # Room for every step budget in turn (the Blacksmith pick 2, then the owned pick's token
     # mints 1 + 1 and picker 2) plus checkout, so the job is never cut off before its outputs;
     # the Blacksmith pick runs first so `runner` is set before the owned steps start.
@@ -5494,8 +5498,7 @@ jobs:
     steps:
       - *signer-checkout-build
       - *signer-checkout-tools
-      - &signer-notices
-        name: Initialize cmux-next notices submodule
+      - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
         run: bash scripts/ci/init-submodule.sh ghostty-next
       - name: Select Xcode
@@ -6240,7 +6243,8 @@ jobs:
         env:
           DEV_RING: ${{ steps.ring.outputs.mode || 'off' }}
         run: |
-          bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh $(printf 'nightly-out/%s ' $NIGHTLY_FEEDS)
+          read -r -a feeds <<<"$NIGHTLY_FEEDS"
+          bash .publish-tooling/scripts/ci/nightly-steps/publish-next-feed-keep-nightly.sh "${feeds[@]/#/nightly-out/}"
 
       - name: Tag the new build's items from the live Dev ring switch
         if: needs.decide.outputs.should_publish == 'true' && needs.decide.outputs.track == 'nightly-next' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
@@ -7155,17 +7159,23 @@ jobs:
   # fresh secret-free pooled runner (no environment or secret). Its verified sha256 is the only DMG publish-nightly-identity-legacy
   # publishes.
   verify-nightly-identity-legacy:
-    needs: [legacy-identity-target, sign-nightly-identity-legacy]
+    needs: [legacy-identity-target, sign-nightly-identity-legacy, pick-nightly-sign-runner]
     if: "!cancelled() && needs.sign-nightly-identity-legacy.outputs.signed_ok == 'true' && needs.sign-nightly-identity-legacy.outputs.dmg_sha256 != ''"
     continue-on-error: true
     permissions:
       contents: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # No environment and no secrets, like verify-signed-nightly: a free owned Mac first, then the
+    # Blacksmith label legacy-identity-target picked. Routing order Linux, owned Macs, Blacksmith
+    # last (Leo, 2026-10-24); on 2026-10-28 this job queued over 20 min on blacksmith-6vcpu-macos-26
+    # behind pull request jobs while blacksmith-12vcpu-macos-26 started nothing. A re-run (attempt 2
+    # on, the owned-pool rescue's) takes the Blacksmith alternate as before.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     outputs:
       tested_sha256: ${{ steps.verify.outputs.tested_sha256 }}
     env:
-      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      # An owned Mac has the PR lane's Xcode pin (as verify-signed-nightly); Blacksmith the macOS 26 one.
+      CMUX_CI_XCODE_APP: ${{ needs.pick-nightly-sign-runner.outputs.attempt == github.run_attempt && needs.pick-nightly-sign-runner.outputs.owned != '' && vars.CMUX_CI_XCODE_APP_PR || vars.CMUX_CI_XCODE_APP_MACOS_26 }}
       CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
       NIGHTLY_BUILD: ${{ needs.legacy-identity-target.outputs.build }}
       SIGNED_SHA256: ${{ needs.sign-nightly-identity-legacy.outputs.dmg_sha256 }}
