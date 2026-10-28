@@ -211,8 +211,9 @@ class DefaultsAside:
             if self.defaults("export", self.bundle_id, str(partial)) == 0 and partial.exists():
                 os.replace(partial, self.backup)
                 if self.defaults("delete", self.bundle_id) != 0:
-                    self.backup.unlink()
-                    raise CannotRun(f"could not set the {self.bundle_id} defaults aside (defaults delete failed)")
+                    # The copy stays: the delete may have half-run, and the next run puts it back first.
+                    raise CannotRun(f"could not set the {self.bundle_id} defaults aside (defaults delete failed); "
+                                    f"the copy stays in {self.backup}")
             else:
                 partial.unlink(missing_ok=True)
                 self.absent.touch()
@@ -520,6 +521,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--startup-timeout", type=float, default=90.0, help="how long Home may take to render")
     parser.add_argument("--out")
     args = parser.parse_args(argv)
+    # Evidence stays readable by the runner account when this runs as the console user (a sudo hop).
+    os.umask(0o022)
     if args.out:
         os.makedirs(args.out, exist_ok=True)
     # A short root: the socket path must fit sun_path (104 bytes).
