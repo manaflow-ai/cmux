@@ -316,12 +316,14 @@ final class CmuxSettingsFileStore {
     }
 
     // Only keys present in the next snapshot can force-apply; removed keys restore backups instead.
+    // File-authoritative keys force-apply on every load or reload; passive replay still yields.
     private func newOrChangedManagedDefaultKeys(
         previous: [String: ManagedSettingsValue],
         next: [String: ManagedSettingsValue]
     ) -> Set<String> {
         Set(next.compactMap { key, value in
-            previous[key] == value ? nil : key
+            previous[key] == value
+                && !TerminalTextBoxInputSettings.settingsFileAuthoritativeKeys.contains(key) ? nil : key
         })
     }
 

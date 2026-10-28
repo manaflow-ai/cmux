@@ -123,6 +123,9 @@ enum TerminalTextBoxInputSettings {
     static let lastSelectedSubmitActionKey = "terminal.textBoxLastSelectedSubmitAction"
     static let lastSelectedSubmitActionDefaultKey = "terminal.textBoxLastSelectedSubmitActionDefault"
     static let defaultSubmitActionID = TextBoxSubmitAction.textEntryAction.id
+    /// Keys whose cmux.json value applies on every settings-file load or reload,
+    /// even when a Settings change left app defaults on another value (#26540).
+    static let settingsFileAuthoritativeKeys: Set<String> = [showOnNewTerminalsKey, focusOnNewTerminalsKey]
 
     static func showOnNewTerminals(defaults: UserDefaults = .standard) -> Bool {
         if defaults.object(forKey: showOnNewTerminalsKey) == nil {
