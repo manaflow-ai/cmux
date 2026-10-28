@@ -20,7 +20,8 @@ public import Sentry
 /// `preContext` / `postContext` / `vars` (across exception, thread, and event
 /// stack traces); thread `name`; debug-image `codeFile`; request `url` /
 /// `queryString` / `fragment` / `headers`; `tags`; `extra`; `context`; and
-/// breadcrumb `message` / `data`. Request `cookies` and the `user` identity
+/// breadcrumb `message` / `data` (less the URLSession breadcrumb's
+/// `http.query` / `http.fragment`, dropped whole). Request `cookies` and the `user` identity
 /// fields are dropped wholesale because their values rarely match a secret
 /// pattern.
 ///
@@ -125,10 +126,17 @@ public struct SentryEventScrubber: Sendable {
     public func scrub(_ breadcrumb: Breadcrumb) -> Breadcrumb {
         breadcrumb.message = scrubber.scrub(optional: breadcrumb.message)
         if let data = breadcrumb.data {
-            breadcrumb.replaceData(scrubber.scrub(dictionary: data))
+            var kept = data
+            for key in Self.requestContentKeys { kept.removeValue(forKey: key) }
+            breadcrumb.replaceData(scrubber.scrub(dictionary: kept))
         }
         return breadcrumb
     }
+
+    /// The URLSession breadcrumb's query and fragment (sentry-cocoa `SentryNetworkTracker.addBreadcrumb`),
+    /// dropped whole: their keys (`q`, `query`) name no secret, so the key-aware scrub would keep a search
+    /// the person typed, and no pattern can tell typed text from an id.
+    static let requestContentKeys = ["http.query", "http.fragment"]
 
     /// Returns a scrubbed copy of a breadcrumb the scope may still share.
     private func scrubbedCopy(of breadcrumb: Breadcrumb) -> Breadcrumb {

@@ -4,13 +4,12 @@ import Testing
 @testable import CmuxNextCrashReporting
 
 /// p08-startup-032: both start profiles use the same options, so the handlers-first start (feature
-/// `sentryHandlersFirst`) keeps crash capture, session tracking, network breadcrumbs and app-hang
-/// tracking; it only pauses app-hang reports until `resumeAfterStartup()`.
+/// `sentryHandlersFirst`) keeps crash capture, session tracking and app-hang tracking; it only pauses
+/// app-hang reports until `resumeAfterStartup()`. Network breadcrumbs are off in both (audit 17).
 @Suite struct CrashReporterStartProfileTests {
     @Test func theOptionsKeepEveryIntegrationTheSDKInstallsAtStart() {
         let options = CrashReporter(policy: Self.policy(telemetryOptIn: true)).options()
         #expect(options.enableCrashHandler)
-        #expect(options.enableNetworkBreadcrumbs, "URLSession breadcrumbs would be lost for the whole run")
         #expect(options.enableAutoSessionTracking)
         #expect(options.enableAppHangTracking)
         #expect(options.appHangTimeoutInterval == 8.0)

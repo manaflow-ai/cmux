@@ -10,8 +10,9 @@ import CmuxNextCompat
 /// exceptions, app hangs) to Sentry, under ``CrashReportingPolicy``.
 ///
 /// Same options as the main app (`AppDelegate`): no default PII, no
-/// performance tracing (its root transaction cannot be scrubbed), every
-/// event, breadcrumb and span through `SentryEventScrubber`. No structured
+/// performance tracing (its root transaction cannot be scrubbed), no
+/// URLSession breadcrumbs (request addresses), every event, breadcrumb and
+/// span through `SentryEventScrubber`. No structured
 /// logs: cmux-next has no log bridge, so it sends nothing the main app does
 /// not. App hangs come from ``HangTracking``.
 ///
@@ -36,7 +37,7 @@ import CmuxNextCompat
 /// Start cost (p08-startup-032). `SentrySDK.start` on main installs every
 /// integration in that call; the SDK (sentry-cocoa 9.28) has no public API
 /// to install one later. Session tracking already does its file I/O on the
-/// SDK's own queue, and network breadcrumbs stay on for the whole run. So
+/// SDK's own queue (network breadcrumbs are off, audit 17). So
 /// ``StartProfile/handlersFirst`` changes no option: it only pauses app-hang
 /// reports until ``resumeAfterStartup()``. The app's `crash.sentry_start`
 /// and `crash.sentry_started` launch marks bound the call
@@ -137,10 +138,14 @@ public final class CrashReporter: Sendable {
         // MetricKit's hang, CPU and disk diagnostics repeat what the watchdog and the system crash forwarder
         // send; the SDK turns it on by default in v10.
         options.enableMetricKit = false
-        // Swizzling stays on for the two macOS hooks that need it: uncaught NSException reports (NSApplication
-        // reportException:) and URLSession breadcrumbs. With tracing off the SDK installs no other swizzle, and
-        // its breadcrumb tracker only observes NSApplication notifications (no timer).
+        // Swizzling stays on for the one macOS hook that needs it: uncaught NSException reports (NSApplication
+        // reportException:). With tracing off the SDK installs no other swizzle, and its breadcrumb tracker only
+        // observes NSApplication notifications (no timer).
         options.enableSwizzling = true
+        // No URLSession breadcrumbs (audit 17): each holds the request's address, query and fragment, and the
+        // app's requests carry what the person typed and browsed (the omnibox suggest query, a saved or probed
+        // page). Chrome's crash reports hold no URL history either.
+        options.enableNetworkBreadcrumbs = false
         options.attachStacktrace = true
         options.enableCaptureFailedRequests = false
         // Objective-C exceptions that reach NSApplication's reportException:
