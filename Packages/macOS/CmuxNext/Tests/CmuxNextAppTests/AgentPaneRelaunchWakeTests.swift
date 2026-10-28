@@ -197,29 +197,17 @@ struct AgentPaneRelaunchWakeTests {
         #expect(!FileManager.default.fileExists(atPath: file.path) && !FileManager.default.fileExists(atPath: folder.path))
     }
 
-    /// A tab that does not fit the attachments' cap is not kept, and none of its files stay; the
-    /// saves before this change (contents inline in the JSON) still come back.
-    @Test func attachmentsPastTheCapLeaveNoFilesAndOldSavesStillRestore() async throws {
+    /// The saves before chips' contents went to files (contents inline in the JSON) still come back.
+    @Test func oldSavesStillRestore() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
-        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
         let store = AgentPaneRelaunchWake(file: file)
-        store.maximumAttachmentBytes = 8
-        // The small tab's chip leaves room for one of this tab's two chips, not both: the first
-        // one's file is written before the second does not fit.
-        let huge = AgentPaneWakeState(attachments: (0..<2).map {
-            AgentPaneWakeState.Attachment(id: "big-\($0)", kind: "image", name: "big.png", mimeType: "image/png", size: 3, data: "AAAA")
-        })
         let small = AgentPaneWakeState(attachments: [
             AgentPaneWakeState.Attachment(id: "s", kind: "image", name: "s.png", mimeType: "image/png", size: 3, data: "AAAA"),
+            AgentPaneWakeState.Attachment(id: "t", kind: "text", name: "t.txt", mimeType: "text/plain", size: 2, text: "hi"),
         ])
-        await store.save(["tab_huge": huge, "tab_small": small])
-        let left = try FileManager.default.contentsOfDirectory(atPath: folder.path)
-        #expect(left.count == 1, "the dropped tab's files stayed: \(left)")
-        #expect(await store.take(on: Self.work) == ["tab_small": small])
-
         let inline = ["tab_old": AgentPaneWakeState(attachments: small.attachments, shell: true, shellText: "ls")]
         try JSONEncoder().encode(inline).write(to: file)
         #expect(await store.take(on: Self.work) == inline, "a save the last build wrote did not come back")
@@ -259,7 +247,7 @@ struct AgentPaneRelaunchWakeTests {
     }
 
     /// Slice (c) of the main-thread sweep: the launch read the states (up to 8 MB) and their attachments'
-    /// files (up to 128 MB) on the main thread as it made the tab store.
+    /// files on the main thread as it made the tab store.
     @Test func theSavedStatesAreReadOffTheMainThread() async throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

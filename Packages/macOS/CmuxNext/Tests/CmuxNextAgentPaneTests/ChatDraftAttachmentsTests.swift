@@ -181,24 +181,13 @@ struct ChatDraftAttachmentsTests {
         #expect(kept.map(\.data) == chips.map(\.data), "a chip came back without its bytes")
     }
 
-    @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
+    @Test func badCallsAreRefused() async throws {
         let directory = try Self.directory()
         defer {
             AgentPaneDraftAttachments.shared = nil
             try? FileManager.default.removeItem(at: directory)
         }
-        let store = AgentPaneDraftAttachments(directory: directory)
-        store.maximumBytes = 8
-        AgentPaneDraftAttachments.shared = store
-        let small = Chip(id: "a", kind: "image", name: "a.png", mimeType: "image/png", size: 6, data: Data(repeating: 1, count: 6).base64EncodedString())
-        var other = small
-        other.id = "b"
-        let folder = try #require(store.folder(for: "s-1"))
-        try await Self.keep([small, other], for: "s-1")
-        #expect(!FileManager.default.fileExists(atPath: folder.path))
-        #expect(try await Self.kept("s-1").isEmpty)
-        try await Self.keep([small], for: "s-1")
-        #expect(try await Self.kept("s-1").map(\.id) == ["a"])
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
 
         await #expect(throws: PageError.self) { _ = try await Self.call("chat.draftAttachments.get", [:]) }
         await #expect(throws: PageError.self) {
