@@ -1474,8 +1474,9 @@ export class AcpmuxDirectClient {
   /// newer one is dropped (its list may lack a peer the newer one has).
   private peerReadsStarted = 0;
   private peerReadApplied = 0;
-  /// Pushes taken on this connection (any peer): a reconnect leaves what one said alone.
-  private peerPushesTaken = 0;
+  /// Each peer's pushes taken on this connection: how many, and the last. A reconnect leaves what
+  /// one said since it began alone, and lays them again on any list it installs itself.
+  private peerPushLog = new Map<string, { count: number; params: unknown }>();
   /// The peer list was read on this connection: until it is (a failed read), opening the list reads it.
   private peersRead = false;
   /// Each peer's last push taken (its `at`): a lagging watcher's repeat of an older note is not news.
@@ -6612,7 +6613,8 @@ export class AcpmuxDirectClient {
       this.peerNoteAt.set(peer, at);
     }
     if (typeof peer === "string" && peer && this.peerReads > 0) this.pushedDuringReads.set(peer, params);
-    this.peerPushesTaken += 1;
+    if (typeof peer === "string" && peer)
+      this.peerPushLog.set(peer, { count: (this.peerPushLog.get(peer)?.count ?? 0) + 1, params });
     if (this.applyPeerState(params, false) && !this.snapshotHold) this.emit();
   }
   /// Applies one pushed peer state; true when it changed what the pane shows. `replayed`: applied
@@ -6682,33 +6684,32 @@ export class AcpmuxDirectClient {
   private async reconnectPeerNow(name: string, wait: boolean, dropped: boolean): Promise<void> {
     const shown = this.peerStates;
     const applied = this.peerReadApplied;
-    const pushes = this.peerPushesTaken;
+    const pushed = new Map([...this.peerPushLog].map(([peer, entry]) => [peer, entry.count]));
+    const pushedSince = (peer: string) => (this.peerPushLog.get(peer)?.count ?? 0) !== (pushed.get(peer) ?? 0);
     if (dropped || this.peerDown(name)) {
       this.peerStates = { ...this.peerStates, [name]: "connecting" };
       if (!this.snapshotHold) this.emit();
     }
-    const reply = await this.snapshotPeers(() =>
-      this.request("_acpmux/peer_reconnect", { name, wait }, wait ? PEER_RECONNECT_WAIT_MS : undefined).catch(() => undefined),
+    const reply = await this.request("_acpmux/peer_reconnect", { name, wait }, wait ? PEER_RECONNECT_WAIT_MS : undefined).catch(
+      () => undefined,
     );
-    // The list is read once more now the reconnect settled: a read that started while it waited
-    // may say the machine as it was before, and answer before or after this reply. This read
-    // starts last, so it wins whichever order they answer in (`snapshotPeers` drops an older one).
-    if (reply !== undefined && !this.snapshotHold) this.emit();
-    const pushesAtReply = this.peerPushesTaken;
-    const beforeFollowUp = this.peerReadApplied;
-    await this.refreshPeers();
-    // The follow-up read failed: the reconnect's own answer stands (a read during the wait may have
-    // replaced it with the machine as it was before), unless a push said something newer since.
-    if (reply !== undefined && this.peerReadApplied === beforeFollowUp && this.peerPushesTaken === pushesAtReply) {
+    if (reply !== undefined) {
+      // acpmux answered once the link settled, after every list read sent before this answer came:
+      // it goes in as the newest read (an older one that answers later is dropped), with each
+      // peer's last push since the reconnect began laid on top.
+      this.peerReadApplied = ++this.peerReadsStarted;
       this.readPeers(reply);
+      this.peersRead = true;
+      for (const [peer, entry] of this.peerPushLog) if (pushedSince(peer)) this.applyPeerState(entry.params, true);
       if (!this.snapshotHold) this.emit();
       return;
     }
-    // Neither acpmux nor a push said anything since (every read failed): the spinner goes back to
-    // what was shown before, and the next open reads the list again.
+    await this.refreshPeers();
+    // Neither acpmux nor a push about this machine said anything since (every read failed): the
+    // spinner goes back to what was shown before, and the next open reads the list again.
     if (
       this.peerReadApplied === applied &&
-      this.peerPushesTaken === pushes &&
+      !pushedSince(name) &&
       this.peerStates[name] === "connecting" &&
       shown[name] !== "connecting"
     ) {

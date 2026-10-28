@@ -429,6 +429,50 @@ test("a push during a reconnect whose reads fail is kept, and a reconnect's answ
   expect(raced.states.at(-1)?.["gpu-box"]).toBe("connected");
 });
 
+test("a reconnect's own answer goes in as the newest list, under the pushes since it began", async () => {
+  // A read begun during the wait answers last, after the read following the reconnect failed: dropped.
+  const raced = await client("offline");
+  raced.hold();
+  raced.waitReconnects();
+  const reconnect = raced.client.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  const open = raced.client.refreshPeersOnOpen();
+  raced.failNext(1, false);
+  raced.settleReconnect();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  raced.release(true);
+  await Promise.all([reconnect, open]);
+  expect(raced.states.at(-1)?.["gpu-box"]).toBe("connected");
+
+  // A push since the reconnect began (the link dropped again) stays over its answer.
+  const dropped = await client("offline", { events: true });
+  dropped.waitReconnects();
+  const again = dropped.client.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  dropped.notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "reconnecting", lastSeen: 1, error: null, at: 9 });
+  dropped.failNext(1, false);
+  dropped.settleReconnect();
+  await again;
+  expect(dropped.states.at(-1)?.["gpu-box"]).toBe("reconnecting");
+});
+
+test("another machine's push never keeps a failed reconnect's spinner", async () => {
+  const { client: pane, states, notify, failNext, waitReconnects, settleReconnect, add } = await client("offline", {
+    events: true,
+  });
+  add("new-box");
+  await pane.refreshPeers();
+  failNext(1);
+  waitReconnects();
+  const reconnect = pane.reconnectPeer("gpu-box", true);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  notify("_acpmux/peer_state_changed", { peer: "new-box", state: "reconnecting", lastSeen: 1, error: null, at: 9 });
+  settleReconnect();
+  await reconnect;
+  expect(states.at(-1)?.["gpu-box"]).toBe("offline");
+  expect(states.at(-1)?.["new-box"]).toBe("reconnecting");
+});
+
 test("a lagging watcher's older note never replaces a newer one", async () => {
   const { states, notify } = await client("connected", { events: true });
   notify("_acpmux/peer_state_changed", { peer: "gpu-box", state: "connected", lastSeen: 1, error: null, at: 5 });
