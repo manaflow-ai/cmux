@@ -43,11 +43,14 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
       await page.evaluate(async () => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -1e9, bubbles: true }));
-        scroller.scrollTop = 0;
+        scroller.scrollTop = 600;
         for (let frame = 0; frame < 24; frame++) await window.cmuxPaintFrame();
       });
       const showOlder = async (shown: boolean) => {
-        await page.evaluate((shown) => (window as unknown as { __showOlder(shown: boolean): void }).__showOlder(shown), shown);
+        await page.evaluate(
+          (shown) => (window as unknown as { __showOlder(shown: boolean): void }).__showOlder(shown),
+          shown,
+        );
         await page.evaluate(async () => {
           await window.cmuxPaintFrame();
           await window.cmuxPaintFrame();
@@ -85,13 +88,21 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
         const result = await page.evaluate(async (way) => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           const seen = new Set<string>();
-          const samples: { phase: string; paint: number; top: number; blank: boolean; entering: string[] }[] = [];
+          const samples: {
+            phase: string;
+            paint: number;
+            top: number;
+            target: boolean;
+            blank: boolean;
+            entering: string[];
+          }[] = [];
           const end = () => scroller.scrollHeight - scroller.clientHeight;
           let phase = "prime";
           let frames = 0;
           let targetFrames = 0;
           let started = 0;
           let targetLatency: number | null = null;
+          let targetPaintLatency: number | null = null;
           await new Promise<void>((resolve) => {
             window.cmuxAfterPaint(
               (paint) => {
@@ -101,16 +112,22 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
                   return box.height > 0 && box.bottom > view.top && box.top < view.bottom;
                 });
                 const entering = visible
-                  .filter((row) => seen.has(row.dataset.rowId!) && row.matches(".acpmux-row--enter, .acpmux-row--older"))
+                  .filter(
+                    (row) => seen.has(row.dataset.rowId!) && row.matches(".acpmux-row--enter, .acpmux-row--older"),
+                  )
                   .map((row) => row.dataset.rowId!);
-                const blank = visible.length === 0 || visible.some((row) => {
-                  const style = getComputedStyle(row);
-                  return Number(style.opacity) < 1 || !row.textContent?.trim();
-                });
+                const blank =
+                  visible.length === 0 ||
+                  visible.some((row) => {
+                    const style = getComputedStyle(row);
+                    return Number(style.opacity) < 1 || !row.textContent?.trim();
+                  });
                 if (phase === "return") {
-                  samples.push({ phase, paint, top: scroller.scrollTop, blank, entering });
-                  if (Math.abs(scroller.scrollTop - end()) < 1) {
+                  const target = Math.abs(scroller.scrollTop - end()) < 1;
+                  samples.push({ phase, paint, top: scroller.scrollTop, target, blank, entering });
+                  if (target) {
                     targetLatency ??= paint - started;
+                    if (!blank) targetPaintLatency ??= paint - started;
                     targetFrames += 1;
                   }
                 }
@@ -139,13 +156,17 @@ await requireBrowserLane("transcript-cached-rows-browser.test.ts", async () => {
           return {
             frames: samples.length,
             blankFrames: samples.filter((sample) => sample.blank).length,
+            targetBlankFrames: samples.filter((sample) => sample.target && sample.blank).length,
             cacheHitEntranceFrames: samples.filter((sample) => sample.entering.length > 0).length,
             targetFrames,
             targetLatency,
+            targetPaintLatency,
             samples,
           };
         }, way);
-        console.log(`transcript-cached-rows: ${JSON.stringify({ way, sourceRows: seeded.rows, turns: 3000, ...result })}`);
+        console.log(
+          `transcript-cached-rows: ${JSON.stringify({ way, sourceRows: seeded.rows, turns: 3000, ...result })}`,
+        );
         expect(result.targetFrames).toBeGreaterThanOrEqual(12);
         expect(result.blankFrames).toBe(0);
         expect(result.cacheHitEntranceFrames).toBe(0);
