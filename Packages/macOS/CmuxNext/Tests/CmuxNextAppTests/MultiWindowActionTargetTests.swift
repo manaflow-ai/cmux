@@ -422,6 +422,18 @@ import Testing
         #expect(acted === own, "a Home action from window 2 acts on another window's Home")
     }
 
+    /// Window 2 shows a workspace (not Home): a Home action from it (send, leave, toggle Channels with no view named)
+    /// acts on window 2's own Home, never on the home workspace's dock in window 1.
+    @Test func homeActionsFromWindowTwoOnAWorkspaceUseWindowTwosHome() throws {
+        let world = try Self.homeWorld()
+        defer { world.close() }
+        try #require(world.w2.state.page == nil && world.w2.state.workspaceID == "mwh-2")
+        let key = HomeDockTab.dockKey(world.services, windowID: world.w2.state.id, page: world.w2.state.page)
+        #expect(key == HomeDockTab.windowKey(world.w2.state.id), "a Home action from window 2 resolves the Home \(key ?? "nil")")
+        let own = HomeDockTab.dockKey(world.services, windowID: world.w1.state.id, page: world.w1.state.page)
+        #expect(own != HomeDockTab.windowKey(world.w1.state.id), "window 1 lists the home workspace: its Home is that workspace's dock")
+    }
+
     /// Each window marks Home or Channels by the Home it shows: window 2's own Home on Channels marks Channels in
     /// window 2 only; window 1 (the home workspace's dock, on Messages) keeps Home marked.
     @Test func eachWindowMarksChannelsByItsOwnHome() throws {
