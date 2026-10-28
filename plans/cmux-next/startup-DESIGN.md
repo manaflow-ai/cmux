@@ -879,3 +879,131 @@ bench_startup, bench_startup_daemon_marks, bench_startup_milestones, launch_jour
 pgo_page_fault_order, pgo_scenarios, rust_pgo_scenarios, startup_queue, trace_launch): 336 tests, 24 skipped,
 1 error (the `trace_launch` fixture of check 11), 1 failure (`test_bench_launch`: `bench_tagged.py` does not
 import under `python3 -I`, `No module named 'bench_launch'`).
+
+## 15. Spike: `ghostty_init` and config parse off main (task 112)
+
+Task 112 of [p08-startup.md](chrome-parity/p08-startup.md): a time-boxed read (4 h, no run) of libghostty's
+thread safety for `ghostty_init` and the config parse. Read at `b2ba1b3a4cf` (origin/perf/chrome-parity) with
+ghostty-next at `ef6ce279aef`, the GhosttyNextKit pin (`Packages/Shared/CmuxGhosttyKit/Package.swift:116`).
+That archive is built `-Doptimize=ReleaseFast -Dsentry=false -Di18n=false` (ghostty-next
+`next/build-xcframework.sh:36-42`), so the Sentry and i18n steps below are compiled out. Ghostty paths are
+relative to the ghostty-next tree; `std` paths are Zig 0.16.0's, the pin's `minimum_zig_version`.
+
+### Answer
+
+1. **Config parse: yes, and it already runs off main.** p02-threads-129 (`a649fdca30f`, `60ecabf1a97`) runs
+   every `ghostty_config_*` load and finalize on `GhosttyLaneConfigLoader` (the files lane at `.userBlocking`,
+   `GhosttyConfigLoading.swift`) and applies the result on main once (`GhosttyRuntime+ConfigLoad.swift`).
+   026 (`7bb7b45647b`) put the launch build on that path. The read below finds no reason to move it back
+   and no new work. No follow-up task.
+2. **`ghostty_init`: no. It stays in `main()` between M8 and M9 (`CmuxNextApp.swift:82`), as the first
+   libghostty call, before the second thread starts.** Nothing in it needs the main thread. But it writes
+   process-global state that no lock guards: the environment, the C locale, signal dispositions and the
+   open-file limit. A copy that runs at the same time as main's next steps races main's `environ` reads.
+   That race already happened once: `60ecabf1a97` moved `ghostty_init` from the warm-up thread back to main
+   for it. To run it safely on another thread, cmux must own the locale step, and main still races
+   `setlocale`. The move can save at most `ghostty_init`'s own main time. The 072 seed measured
+   `ghostty_init`, the main-thread config load, `ghostty_app_new` and 3 page registers together at 4.0 ms
+   p50 (section 13, S7). So no follow-up task moves it. Its own interval is the always-on signpost
+   `launch.ghostty_init` (068, `TerminalTimings.ghosttyInitBegan`): read it in the next fleet launch run, and
+   reopen this spike only if its p50 is 2 ms or more, from "What a move needs" below.
+3. **Side finding: `ghostty_init` undoes the app's SIGPIPE policy.** This needs a fix: follow-up 112-F1.
+
+### What `ghostty_init` does
+
+`ghostty_init` (`src/main_c.zig:110-135`) calls `global.init(.c)` (`src/global.zig:55-226`). The steps, in order:
+
+| # | Step | Source | Process-global effect | Off main |
+|---|---|---|---|---|
+| G1 | `state = .{...}` | `global.zig:35`, `59-86` | A plain `var`, with no atomic and no lock. Every later `ghostty_*` call reads it (`global.alloc()`, `io()`, `environ()`, `args()`, `global.zig:256-372`). | Every later call needs a happens-before edge from this write. Today the `swift_once` of `GhosttyRuntime.libraryInitialized` (`GhosttyRuntime.swift:200-209`) gives it. |
+| G2 | Allocator | `global.zig:89-111` | ReleaseFast uses `std.heap.c_allocator` (malloc, thread-safe). | yes |
+| G3 | `std.Io.Threaded.init` | `global.zig:118-121`; std `Io/Threaded.zig:1607-1665` | Starts no thread (the pool spawns workers only for `async` and `concurrent`, `Threaded.zig:2112`, `2164`). Installs a no-op handler for SIGIO and SIGPIPE (`Threaded.zig:1652-1662`). | Thread-safe, but it overwrites signal state (112-F1). |
+| G4 | `allocTmpDir`, `cli.action.detectArgs`, `GHOSTTY_LOG` | `global.zig:124-155` | Reads `TMPDIR` and `GHOSTTY_LOG` from the `environ` slice, and argv. No writes. | yes, while nothing writes `environ` |
+| G5 | `initSignals` | `global.zig:157-158`, `409-427` | `sigaction(SIGPIPE, SIG_IGN)`. | Thread-safe, but it changes the app's signal policy (112-F1). |
+| G6 | `rlimits = .init()` | `global.zig:181`; `src/os/file.zig:14-50` | Sets the soft open-file limit to the hard limit (a setrlimit binary search when the hard limit is unlimited). `main()` set it to `OpenFileLimit`'s ceiling just before (M6). | Thread-safe; its order with M6 sets the final limit. |
+| G7 | Sentry `crash.init` | `global.zig:183-193` | Compiled out (`-Dsentry=false`). It was the environ race of the iOS crash `a411a370c99`. | - |
+| G8 | `internal_os.ensureLocale` | `global.zig:208`; `src/os/locale.zig:12-77`, `81-144` | When `LANG` is unset or empty (a Finder or `open` launch: launchd sets no `LANG`), reads `NSLocale.currentLocale` and does `setenv("LANG")` and `setenv("LANGUAGE")`. Always calls `setlocale(LC_ALL, "")`. When `LANG` is invalid: `setenv` and `unsetenv("LANG")`, then the fallback `setenv("LANG", "en_US.UTF-8")`. | **no**: an environment write and a locale write (below) |
+| G9 | `syncEnviron` | `global.zig:209`, `307-322` | Keeps a slice of `std.c.environ`, valid only while nothing writes `environ` again (the cx-9dh7 crash; `ProcessEnvironmentGuard`). | Only after the last environment write |
+| G10 | `glslang.init`, `oni.init` | `global.zig:212-215`; `pkg/glslang/init.zig:3-5`, `pkg/oniguruma/init.zig:7-12` | One-time library globals. Nothing uses either library before `ghostty_init` returns: shaders compile on renderer threads after `ghostty_surface_new`, and the config keeps `url.regex` as a string (`src/config/Config.zig:4064-4068`). | Yes, under G1's edge |
+| G11 | `resourcesDir` | `global.zig:219`; `src/os/resourcesdir.zig:41-58` | ReleaseFast reads `GHOSTTY_RESOURCES_DIR` from the `environ` slice. cmux sets it before the freeze (M8, `GhosttyRuntime.prepareProcessEnvironment`), so no disk call. The sentinel walk (`maybeDir`, disk) runs only when the variable is missing. | yes |
+| G12 | `i18n.init` | `global.zig:223`; `src/os/i18n.zig:29` | Compiled out (`-Di18n=false`). | - |
+
+### Why `ghostty_init` stays on main, before the second thread
+
+- **The environment (G8, G9).** POSIX does not make `setenv` safe against a concurrent `getenv` on another
+  thread: the reader can see a freed or half-built `environ`. In the common case (a Finder launch, no
+  `LANG`), G8 writes `LANG` and `LANGUAGE`. That write comes after cmux's freeze (M8); it is safe only
+  because the process still has one thread. Main reads `environ` right after:
+  `ProcessInfo.processInfo.environment` for `TypingLatencyProbe.startFlows` (`CmuxNextApp.swift:119`),
+  `AppEnvironment.current` (`:103`) and later steps. The warm-up thread had this race, and `60ecabf1a97`
+  fixed it by moving the call to main.
+- **The C locale (G8).** `setlocale(LC_ALL, "")` runs on every launch. POSIX says `setlocale` "need not be
+  thread-safe", and Apple's `setlocale(3)` makes no promise. A concurrent locale-dependent libc call on
+  main (`strtod`, `printf` number formats) can see a half-changed locale.
+- **The order with main's own process steps (G3, G5, G6).** On another thread these writes have no fixed
+  order with M5 (`ChildSignalDefaults`) and M6 (`OpenFileLimit`). On main today they come after M5 and M6
+  and override them (112-F1).
+- **Chrome does the same split.** Process-global setup (`base::CommandLine::Init`, ICU) runs on the main
+  thread in `content/app/content_main.cc` and `content/app/content_main_runner_impl.cc`, before
+  `StartBrowserThreadPool` (same file) starts the thread pool. Chrome moves file reads and parsing off the
+  UI thread (as the config parse here), not process setup.
+
+### What a move needs (only if `launch.ghostty_init` p50 >= 2 ms)
+
+1. cmux runs Ghostty's locale step itself in `prepareLaunchEnvironment`, before the freeze, with the same
+   rules (`locale.zig:12-144`: `LANG` from `NSLocale` when unset, `LANGUAGE` from the preferred languages,
+   the invalid-`LANG` and `en_US.UTF-8` fallbacks), checked with `setlocale(LC_ALL, "")`. Then G8 finds a
+   valid `LANG` and writes no `environ`. It still calls `setlocale`, so main must make no locale-dependent
+   libc call until the thread ends. No static check can prove that, and that is the main reason for "no".
+2. M5 and M6 run again after the thread ends, or 112-F1's fix is in place first.
+3. Every libghostty caller waits on one ready signal. The `swift_once` already is that signal:
+   `GhosttyConfigInputs.buildConfig` (`GhosttyConfigInputs+Build.swift:14`) and `GhosttyRuntime.start(with:)`
+   call `initializeLibrary()` first. The files lane's first config build then waits for the thread, not
+   for main.
+
+### Why the config parse is safe off main
+
+- Each entry point (`src/config/CApi.zig:15-107`) works on its own `Config` with its own arena
+  (`Config.zig:4050-4054`). It uses only `global.alloc()` (malloc, G2), `global.io()` (`std.Io.Threaded`,
+  whose shared state its `mutex` guards, `Threaded.zig:32`), and the `environ` and argv slices, read-only
+  (the environment is frozen).
+- `Config.finalize` (`Config.zig:4774-`) reads `SHELL` and `TERM_PROGRAM` from the slice, calls `getppid`
+  (`src/os/desktop.zig:35`) and `getpwuid_r` (`src/os/passwd.zig:37`, reentrant), and loads the theme file
+  under `global.resourcesDir()` (G11, read-only). `getpwuid_r` can make an IPC call to opendirectoryd, and
+  the loads read files. This is blocking work, and it belongs off the UI thread (Chrome's `MayBlock` rule,
+  `base/threading/thread_restrictions.h`).
+- Two builds at the same time (a reload and a theme config) share no state except malloc and
+  `std.Io.Threaded`. Each build comes after `ghostty_init` through G1's edge.
+- These stay on main and are not part of this spike: `ghostty_app_new` (`launch.ghostty_app_new`),
+  `ghostty_app_update_config` and every surface call (the embedded apprt's app is driven from main by
+  `ghostty_app_tick`). The first surface's cost is task 091.
+- Minor finding: three test helpers touch `GhosttyRuntime.shared` only to run `ghostty_init`
+  (`GhosttyRuntime+DefaultFiles.swift:49`, `GhosttyRuntime+Theme.swift:79`,
+  `GhosttyRuntime+UnfocusedSplit.swift:40`). `GhosttyRuntime.initializeLibrary()` does that without
+  building the runtime. Change them at the next edit of those files; no task of its own.
+
+### Follow-up 112-F1: `ghostty_init` takes back the app's SIGPIPE policy
+
+- **Finding (from the source; no launch was run).** `main()` installs the app's signal policy (M5,
+  `CmuxNextApp.swift:70`): a caught no-op SIGPIPE handler, because an ignored SIGPIPE stays ignored across
+  `exec` in every child (`ChildSignalDefaults.swift:7-21`). Then `main()` calls `ghostty_init`
+  (`CmuxNextApp.swift:82`), which sets SIGPIPE two times: a no-op handler (G3), then `SIG_IGN` (G5,
+  `global.zig:415-426`). The last write wins, so the app runs with SIGPIPE ignored. Every child that the
+  app starts without `POSIX_SPAWN_SETSIGDEF` (for example a Foundation `Process`) starts with SIGPIPE
+  ignored: the `yes | head` spin that `ChildSignalDefaults` exists to stop. The ChromiumHost and the crash
+  watcher pass `POSIX_SPAWN_SETSIGDEF` (`ChromiumHostLauncher.swift:170`, `CrashWatcher.swift:145`), so they
+  are safe. `ChildSignalDefaultsTests` calls the policy alone, so it cannot see the order.
+- **Files.** `CmuxNextApp/CmuxNextApp.swift`, and a test in `CmuxNextAppTests` or `CmuxNextTerminalTests`.
+- **Change.** Install the signal policy after `GhosttyRuntime.initializeLibrary()`, as one named launch
+  step: the process signal policy, after the last library that writes it. Keep `OpenFileLimit().raise()`
+  before `ghostty_init`: its `Change.before` must stay launchd's limit for the shells (`OpenFileLimit.swift`).
+  G6 then sets the soft limit above the 65,536 ceiling. Either accept that and say so in `OpenFileLimit`'s
+  note, or apply `Change.after` again after `ghostty_init`. If CEF ever runs in the app process, check
+  `CefInitialize` the same way: Chromium's `SetupSignalHandlers` (`content/app/content_main_runner_impl.cc`)
+  ignores SIGPIPE.
+- **Acceptance.** In a tagged launch after `startup_complete`, `ps -o sigignore= -p <app pid>` does not
+  have SIGPIPE's bit (signal 13, `0x1000`) set, and a `Process` child of the app has the default SIGPIPE
+  disposition.
+- **Test phase.** A regression test that runs the launch's process prelude (the library init, then the
+  policy) and reads `sigaction(SIGPIPE)`: the handler is not `SIG_IGN`. It fails while the policy runs before
+  `ghostty_init`. Run it with `ChildSignalDefaultsTests` in a fleet `swift test`.
