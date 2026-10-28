@@ -211,7 +211,8 @@ final class SidebarScrollBench {
     func run(step: CGFloat = 40, passes: Int = 2, depth: CGFloat? = nil) -> [Frame] {
         var frames: [Frame] = []
         for pass in 0...max(passes, 0) {
-            let bottom = min(maxY, depth ?? maxY)
+            // Read each step, as `maxY` follows the list's height (ticks can change it mid-pass).
+            var bottom: CGFloat { min(maxY, depth ?? maxY) }
             var y: CGFloat = 0
             var down: [Frame] = []
             while y < bottom { y = min(bottom, y + step); down.append(frame(to: y)) }
