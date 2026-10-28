@@ -159,3 +159,10 @@ after `80cbb16fd9a98586bcfe29c2e1ee7b90522bb643`, both drifted 0 px. The lint
 allows 0.5 px, with no accepted drift. Unit fixtures replay these measured x
 coordinates with explicitly synthetic box dimensions; fleet captures remain
 the screenshot evidence. Both audit configurations run even if one fails.
+
+Session status also captures `header-action-alignment` in both appearances,
+matching capture `9831817724357efacf50b5ff` at product head
+`7821c60b2bcc18efa9e1f29c08fa95ff80fe4ae0`. Its before Play fails on a 5 px
+DOM Range center difference; the same assertion completes after within 0.5 px.
+The raw sidecar records button boxes, not range coordinates, so range positions
+are collected afresh by the durable collector rather than inferred from boxes.

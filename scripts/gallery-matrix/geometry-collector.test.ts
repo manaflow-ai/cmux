@@ -37,3 +37,10 @@ fleetTest("collector captures every header and nearest row, excluding transparen
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("collector rejects ambiguous container/child groups before creating evidence", async () => {
+  const page = {} as Parameters<typeof collectGeometry>[0];
+  const identity = {} as Parameters<typeof collectGeometry>[2];
+  await expect(collectGeometry(page, [{ group: "rows", selector: "button", containerSelector: ".row", containerGroup: "rows" }], identity, ".")).rejects.toThrow("must be distinct");
+  await expect(collectGeometry(page, [{ group: "parts", selector: "button", containerSelector: ".row", containerGroup: "rows" }, { group: "rows", selector: "section" }], identity, ".")).rejects.toThrow("must be distinct");
+});

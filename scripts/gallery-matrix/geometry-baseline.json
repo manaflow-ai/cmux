@@ -44,6 +44,16 @@
       "caseId": "session-status-opencode-dark",
       "engine": "chromium",
       "theme": "dark"
+    },
+    {
+      "caseId": "session-status-header-light",
+      "engine": "chromium",
+      "theme": "light"
+    },
+    {
+      "caseId": "session-status-header-dark",
+      "engine": "chromium",
+      "theme": "dark"
     }
   ],
   "rules": [
@@ -77,7 +87,9 @@
         "session-status-codex-light",
         "session-status-codex-dark",
         "session-status-opencode-light",
-        "session-status-opencode-dark"
+        "session-status-opencode-dark",
+        "session-status-header-light",
+        "session-status-header-dark"
       ]
     },
     {
@@ -96,7 +108,9 @@
         "session-status-codex-light",
         "session-status-codex-dark",
         "session-status-opencode-light",
-        "session-status-opencode-dark"
+        "session-status-opencode-dark",
+        "session-status-header-light",
+        "session-status-header-dark"
       ]
     }
   ],
@@ -230,6 +244,36 @@
         "height": 360,
         "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
       }
+    },
+    {
+      "id": "session-status-header-light",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "header-action-alignment",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors Light",
+        "colorScheme": "light",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
+    },
+    {
+      "id": "session-status-header-dark",
+      "path_or_url": "frame.html",
+      "params": {
+        "entry": "agent-pane.harness-status",
+        "variant": "header-action-alignment",
+        "frame": "component",
+        "locale": "en",
+        "theme": "Apple System Colors",
+        "colorScheme": "dark",
+        "width": 620,
+        "height": 360,
+        "source": "src/agent-session/acpmux/HarnessStatusCard.gallery.tsx"
+      }
     }
   ],
   "selectors": {
@@ -321,6 +365,36 @@
       }
     ],
     "session-status-opencode-dark": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-header-light": [
+      {
+        "group": "status-actions",
+        "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      },
+      {
+        "group": "status-visible-content",
+        "selector": ".acpmux-harness-status__copy-all > span[aria-hidden=false], .acpmux-harness-status__close",
+        "measurement": "text-range",
+        "containerSelector": ".acpmux-harness-status__head",
+        "containerGroup": "status-headers"
+      }
+    ],
+    "session-status-header-dark": [
       {
         "group": "status-actions",
         "selector": ".acpmux-harness-status__copy-all, .acpmux-harness-status__close",

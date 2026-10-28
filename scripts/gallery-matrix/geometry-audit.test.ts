@@ -9,7 +9,7 @@ const baseline = JSON.parse(readFileSync(join(import.meta.dir, "geometry-baselin
 test("audit baseline pairs both appearances and every required group has a selector", () => {
   const config = parseConfig(baseline);
   const cases = parseManifest(baseline.cases);
-  expect(config.required).toHaveLength(8);
+  expect(config.required).toHaveLength(10);
   expect(new Set(config.required.map((value) => value.theme))).toEqual(new Set(["light", "dark"]));
   for (const tuple of config.required) {
     expect(cases.find((value) => value.id === tuple.caseId)?.params?.colorScheme).toBe(tuple.theme);
