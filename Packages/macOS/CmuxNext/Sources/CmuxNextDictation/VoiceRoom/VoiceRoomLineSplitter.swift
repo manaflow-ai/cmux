@@ -47,7 +47,10 @@ public struct VoiceRoomLineSplitter: Sendable {
             cut = space
         }
         guard let cut else { return [] }
-        return take(characters, through: cut)
+        let lines = take(characters, through: cut)
+        // The words after the cut were heard in this same update, so its level counts for them too.
+        peak = level
+        return lines
     }
 
     /// Everything not sent yet, at the end of the session; the splitter starts over.
