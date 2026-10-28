@@ -449,6 +449,17 @@ func within<T: Sendable>(_ limit: Duration, _ work: @escaping @Sendable () async
         #expect(preferences.muted("conv_chief"))
         await backend.markRead(upToSeq: 3)
         #expect(!daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" })
+        // QA 2026-10-27: a new backend (the link came back) still knows the
+        // position read here; it was in memory only, so unread came back.
+        let again = ChiefDaemonBackend(client: DaemonClient(channel: try await MockMacLink { _, request in daemon.respond(request) }
+            .openChannel(service: "chief", args: [:])), preferences: preferences)
+        var reconnected = again.events().makeAsyncIterator()
+        var readAfterReconnect: Int?
+        while readAfterReconnect == nil, let event = await reconnected.next() {
+            if case .readState(let state) = event { readAfterReconnect = state.lastReadSeq }
+        }
+        #expect(readAfterReconnect == 3)
+        again.close()
         // Back on: the position read here goes to the Mac.
         _ = try await backend.updateListState(ConversationListStateChange(sendReadReceipts: true))
         #expect(daemon.ops.contains { $0["kind"] as? String == "read_cursor.set" && $0["seq"] as? Int == 3 })
