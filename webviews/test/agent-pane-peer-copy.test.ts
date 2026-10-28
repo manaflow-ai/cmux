@@ -1519,6 +1519,7 @@ test("the command list read of the session before it was recreated is not shown 
 });
 
 test("a cold open whose attach fails keeps none of the records that came before it failed", async () => {
+  (globalThis as any).__dbg = true;
   // A chat on this Mac, read by no tab: the open attaches it cold, with its records streamed.
   const first = new Daemon();
   first.down = false;
@@ -1553,11 +1554,13 @@ test("a cold open whose attach fails keeps none of the records that came before 
   live.push(client);
   const opening = client as unknown as { open(): Promise<void>; lastSeq: number };
   await expect(opening.open()).rejects.toThrow();
+  console.error("DBG test after-reject");
   await flush();
   expect(opening.lastSeq).toBe(0);
   expect(text(drawn.at(-1))).not.toContain("stray");
   // The next open reads the chat from nothing: no gap is read after 41 and 42 as if they were.
   await opening.open();
+  console.error("DBG test after-second-open");
   await flush();
   const asked = second.asked.filter((message) => message.method === "_acpmux/events");
   expect(asked.some((message) => message.params?.afterSeq === 42)).toBe(false);

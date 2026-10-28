@@ -1616,6 +1616,7 @@ export class AcpmuxDirectClient {
   }
 
   private async open(): Promise<void> {
+    if ((globalThis as any).__dbg) console.error("DBG open-start");
     if (this.opening || this.closed) return;
     this.opening = true;
     // A reconnect owns the attach of the copy on screen from its start: a row that says its machine
@@ -1686,6 +1687,7 @@ export class AcpmuxDirectClient {
     // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
     // the open has read the chat: no half-read frame (an empty transcript, no composer) in between.
     const hold = this.holdSnapshots(OPEN_HOLD_MS);
+    if ((globalThis as any).__dbg) console.error("DBG socket-open");
     try {
       const initialized = await this.request("initialize", {
         protocolVersion: 1,
@@ -1705,7 +1707,9 @@ export class AcpmuxDirectClient {
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
       this.readPeers(await this.request("_acpmux/status", {}).catch(() => undefined));
+    if ((globalThis as any).__dbg) console.error("DBG status");
       const first = await this.sessionPages.first();
+    if ((globalThis as any).__dbg) console.error("DBG sessions-first");
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
         first !== undefined &&
@@ -1793,12 +1797,14 @@ export class AcpmuxDirectClient {
           }
         }
         let page: EventRecord[] = [];
+    if ((globalThis as any).__dbg) console.error("DBG before-attach");
         try {
           page = await this.attach(sessionId, generation, keptThrough);
         } catch (error) {
           // A peer chat whose machine is down keeps what it drew, marked as the Mac's copy, and
           // reads the machine when its row says it is back (`sessionChanged`): the page stays open.
           const kept = await this.keepPeerCopy(sessionId, generation, error);
+    if ((globalThis as any).__dbg) console.error("DBG after-keep");
           // The chat could not be read: a tail drawn from the host must not stay on screen as if
           // this page had read the chat, here as in `select` — and the pane has to be told, or it
           // keeps drawing the snapshot that carried those rows. A cold open drew none, but the
@@ -1851,6 +1857,7 @@ export class AcpmuxDirectClient {
       this.scheduleReadAhead(READ_AHEAD_DELAY_MS);
     } catch (error) {
       this.wire.lifecycle("connect failed", {
+    if ((globalThis as any).__dbg) console.error("DBG outer-catch");
         message: error instanceof Error ? error.message : String(error),
       });
       this.releaseCopyAttach(mine);
