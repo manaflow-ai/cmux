@@ -110,16 +110,32 @@ export function UserBubble({
       {strip && (
         <div className="cv-user__files cv-user__inline-strip" data-inline-attachment-strip="true">
           {orderedMedia(orderedParts!).map((part, index) =>
-            part.kind === "image" ? <span key={`${part.id}-${index}`}>{renderImage(part)}</span> :
-            <span key={`${part.kind}-${part.id ?? part.name}-${index}`} className="cv-user__inline-file" title={part.name}><FileDoc size={14} /><span className="cv-user__inline-file-name">{part.name}</span></span>,
+            part.kind === "image" ? (
+              <span key={`${part.id}-${index}`}>{renderImage(part)}</span>
+            ) : (
+              <span
+                key={`${part.kind}-${part.id ?? part.name}-${index}`}
+                className="cv-user__inline-file"
+                title={part.name}
+              >
+                <FileDoc size={14} />
+                <span className="cv-user__inline-file-name">{part.name}</span>
+              </span>
+            ),
           )}
         </div>
       )}
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
-      {(strip ? shownParts!.some((part) => part.kind === "text" && part.text.trim()) : hasInterleaved || text.trim()) && (
+      {(strip
+        ? shownParts!.some((part) => part.kind === "text" && part.text.trim())
+        : hasInterleaved || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
-          {hasInterleaved ? <InlinePromptContent parts={shownParts!} show={show} renderImage={renderImage} /> : <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />}
+          {hasInterleaved ? (
+            <InlinePromptContent parts={shownParts!} show={show} renderImage={renderImage} />
+          ) : (
+            <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
+          )}
           {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
           {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
         </div>

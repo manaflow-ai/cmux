@@ -23,7 +23,11 @@ export const InlinePromptContent = memo(function InlinePromptContent({
             </span>
           );
         return (
-          <span key={`${part.kind}-${part.id ?? part.name}-${index}`} className="cv-user__inline-file" title={part.name}>
+          <span
+            key={`${part.kind}-${part.id ?? part.name}-${index}`}
+            className="cv-user__inline-file"
+            title={part.name}
+          >
             <FileDoc size={14} />
             <span className="cv-user__inline-file-name">{part.name}</span>
             {part.kind === "pasted" && <span className="cv-user__inline-file-note">pasted text</span>}
