@@ -1,4 +1,5 @@
 import type { AcpmuxRow } from "../model";
+import { textFromContent } from "../direct";
 import {
   markPullRequestActivityVersion,
   markPullRequestCommandVersion,
@@ -137,6 +138,7 @@ export class SubagentFold {
   private readonly viewRevisions = new Map<string, ViewRevisions>();
   private readonly settledViews = new Map<string, { state: string; name: string }>();
   private readonly viewTools = new Map<string, Map<string, boolean>>();
+  private readonly pendingReplySummaries = new Set<string>();
   /// Each subagent view's rows, while its version holds.
   private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
   private readonly versions = new Map<string, number>();
@@ -569,6 +571,11 @@ export class SubagentFold {
     this.own.set(id, entries);
     const update = entry.update;
     let streaming = update?.sessionUpdate === "agent_message_chunk" || update?.sessionUpdate === "agent_thought_chunk";
+    if (streaming && textFromContent(update?.content)) {
+      if (update?.sessionUpdate === "agent_message_chunk") this.pendingReplySummaries.add(id);
+      // The first thought can settle a reply; subsequent thought deltas keep its summary cached.
+      if (update?.sessionUpdate === "agent_thought_chunk" && this.pendingReplySummaries.delete(id)) streaming = false;
+    }
     if (update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") {
       const tools = this.viewTools.get(id) ?? new Map<string, boolean>();
       const call = String(update.toolCallId ?? `tool-${entry.event.seq}`);
@@ -592,7 +599,10 @@ export class SubagentFold {
     if (previous?.state === agent.state && previous.name === agent.name) return false;
     this.settledViews.set(agent.id, { state: agent.state, name: agent.name });
     const last = this.own.get(agent.id)?.at(-1);
-    if (last && agent.state !== "running") last.settled = true;
+    if (agent.state !== "running") {
+      if (last) last.settled = true;
+      this.pendingReplySummaries.delete(agent.id);
+    }
     this.bumpViewRevision(agent.id);
     this.bump(agent.id);
     return true;
