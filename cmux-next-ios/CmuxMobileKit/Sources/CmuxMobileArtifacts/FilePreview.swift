@@ -9,7 +9,8 @@ public struct LocalFile: Hashable, Sendable {
     public var data: Data?
     /// A photo (decoded as an image whatever its name says).
     public var isImage: Bool
-    /// A local copy, when the bytes live on disk (a picked video).
+    /// The file on disk when its bytes are not held: a picked video's local
+    /// copy, or a picked file (security-scoped; its preview opens the scope).
     public var fileURL: URL?
 
     public init(id: String, name: String, data: Data?, isImage: Bool, fileURL: URL? = nil) {
@@ -44,8 +45,11 @@ public struct LocalFileArtifactSource: ArtifactSource {
     let fallback: any ArtifactSource
     /// Reads the bytes of a file the phone names but does not hold (a recorded prompt's image).
     let fetch: (@Sendable (LocalFile) async -> Data?)?
+    let scope: any SecurityScope
+    /// Scopes open for files on disk, held as long as this source (the open
+    /// preview): Quick Look, the player and Share read the file after `load`.
+    private let accesses = OpenAccesses()
 
-    /// `scope` is not used yet (stub).
     public init(files: [LocalFile], fallback: any ArtifactSource = UnavailableArtifactSource(),
                 fetch: (@Sendable (LocalFile) async -> Data?)? = nil,
                 scope: any SecurityScope = SystemSecurityScope()) {
@@ -54,11 +58,17 @@ public struct LocalFileArtifactSource: ArtifactSource {
         self.files = byReference
         self.fallback = fallback
         self.fetch = fetch
+        self.scope = scope
     }
 
     public func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent {
         guard let file = files[artifact.reference] else { return try await fallback.load(artifact) }
         if let url = file.fileURL, file.data == nil {
+            // A picked file is the picked file itself, never a copy of its bytes:
+            // its scope opens here and stays open while the preview is.
+            guard accesses.open(ScopedFile(url, scope: scope), for: artifact.reference) else {
+                throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.")
+            }
             return artifact.kind == .video ? .file(url) : .quickLook(url)
         }
         var data = file.data
@@ -69,6 +79,29 @@ public struct LocalFileArtifactSource: ArtifactSource {
         }
         guard let data else { throw ArtifactUnavailable("\(file.name) isn't on this iPhone anymore.") }
         return try LinkFileArtifactSource.content(for: artifact, data: data)
+    }
+}
+
+/// The security scopes a `LocalFileArtifactSource` holds open, one per file;
+/// each closes when the source (the preview) is released.
+private final class OpenAccesses: @unchecked Sendable {
+    private let lock = NSLock()
+    /// Only touched under `lock`.
+    private var byReference: [String: ScopedFile.Access] = [:]
+
+    /// Opens `file`'s scope for `reference` (again: the one already open) and
+    /// says whether the file can be read; one that can't is closed at once.
+    func open(_ file: ScopedFile, for reference: String) -> Bool {
+        let access = lock.withLock { () -> ScopedFile.Access in
+            if let open = byReference[reference] { return open }
+            let open = file.open()
+            byReference[reference] = open
+            return open
+        }
+        if (try? access.url.checkResourceIsReachable()) == true { return true }
+        lock.withLock { if byReference[reference] === access { byReference[reference] = nil } }
+        access.close()
+        return false
     }
 }
 

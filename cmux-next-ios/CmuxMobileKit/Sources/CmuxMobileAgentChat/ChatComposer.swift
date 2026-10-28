@@ -128,14 +128,14 @@ struct ChatComposer: View {
 
     /// Picked files, and the reason when one can't be attached. Any size: a
     /// small file's bytes are read now (through the picker's security-scoped
-    /// URL), a larger one keeps its URL and streams to the Mac at send, which
-    /// reopens its security scope (`LinkUpload.upload(fileAt:)`).
+    /// URL), a larger one keeps its URL, and each later reader reopens its
+    /// scope (`ScopedFile`): the preview while it is open, the upload while it streams.
     static func readFiles(_ urls: [URL]) -> ([AgentAttachment], String?) {
         var files: [AgentAttachment] = []
         var refused: String?
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let access = ScopedFile(url).open()
+            defer { access.close() }
             guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else {
                 refused = "Couldn't read \(url.lastPathComponent)."
                 continue

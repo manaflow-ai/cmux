@@ -277,13 +277,13 @@ struct TerminalComposer: View {
         }
     }
 
-    /// Files of any size keep their URL and stream to the Mac at send, which
-    /// reopens the picker's security scope (`LinkUpload.upload(fileAt:)`);
-    /// the thumbnail and size are read now, while the scope is open.
+    /// Files of any size keep their URL, and each later reader reopens the
+    /// picker's security scope (`ScopedFile`): the preview while it is open,
+    /// the upload while it streams. The thumbnail and size are read now, in scope.
     private func loadFiles(_ urls: [URL]) async {
         for url in urls {
-            let scoped = url.startAccessingSecurityScopedResource()
-            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            let access = ScopedFile(url).open()
+            defer { access.close() }
             let type = UTType(filenameExtension: url.pathExtension) ?? .data
             let request = QLThumbnailGenerator.Request(fileAt: url, size: CGSize(width: 56, height: 56), scale: 3, representationTypes: .thumbnail)
             let thumbnail = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).uiImage

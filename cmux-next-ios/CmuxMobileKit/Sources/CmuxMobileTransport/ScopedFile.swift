@@ -16,7 +16,11 @@ public struct SystemSecurityScope: SecurityScope {
     public func stopAccessing(_ url: URL) { url.stopAccessingSecurityScopedResource() }
 }
 
-/// A picked file kept by its URL. Stub: it does not open the scope yet.
+/// A picked file kept by its URL, never a copy of its bytes (attachments
+/// have no size cap). Files lets the app read it only inside its security
+/// scope, and the picker closes that scope right after the pick, so every
+/// reader (a preview, the player, an upload) opens it around its own use:
+/// `withAccess` for one read, `open()` for a use that outlives a call.
 public struct ScopedFile: Sendable {
     public let url: URL
     let scope: any SecurityScope
@@ -26,22 +30,40 @@ public struct ScopedFile: Sendable {
         self.scope = scope
     }
 
-    /// Stub: runs `body` without opening the scope.
+    /// Runs `body` with the scope open and closes it after, also when `body` throws.
     public func withAccess<T>(_ body: (URL) throws -> T) rethrows -> T {
-        try body(url)
+        let access = open()
+        defer { access.close() }
+        return try body(access.url)
     }
 
-    /// Stub: an access that never opened the scope.
+    /// Opens the scope until the access is closed or released, whichever comes first.
     public func open() -> Access {
-        Access(url: url)
+        Access(url: url, scope: scope, started: scope.startAccessing(url))
     }
 
-    /// Stub: closing does nothing.
-    public final class Access: Sendable {
+    /// An open security scope: stops once, on `close()` or on deinit.
+    public final class Access: @unchecked Sendable {
         public let url: URL
+        private let scope: any SecurityScope
+        private let lock = NSLock()
+        /// Only touched under `lock`.
+        private var started: Bool
 
-        init(url: URL) { self.url = url }
+        init(url: URL, scope: any SecurityScope, started: Bool) {
+            self.url = url
+            self.scope = scope
+            self.started = started
+        }
 
-        public func close() {}
+        public func close() {
+            let stop = lock.withLock { () -> Bool in
+                defer { started = false }
+                return started
+            }
+            if stop { scope.stopAccessing(url) }
+        }
+
+        deinit { close() }
     }
 }
