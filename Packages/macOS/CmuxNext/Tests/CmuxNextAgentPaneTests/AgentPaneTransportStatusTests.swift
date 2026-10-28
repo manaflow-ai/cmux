@@ -19,6 +19,41 @@ struct AgentPaneTransportStatusTests {
                                      options: AcpmuxPermissionOptions(), remoteWire: remote)
     }
 
+    @Test func onlyOneStatusReadCanRunPerConnection() {
+        let slot = AcpmuxStatusReadSlot()
+        #expect(slot.begin())
+        #expect(!slot.begin())
+        slot.end()
+        #expect(slot.begin())
+        slot.end()
+    }
+
+    @Test func localStatusRepliesRespectTheInboundByteLimit() throws {
+        var limits = AgentPaneTransport.Limits()
+        limits.maximumQueuedBytes = 8
+        let url = try #require(URL(string: "ws://127.0.0.1"))
+        let socket = AcpmuxPaneSocket(request: URLRequest(url: url), limits: limits,
+                                     options: AcpmuxPermissionOptions(), sessions: AcpmuxPaneSessions(),
+                                     ids: AcpmuxRequestIds(), signal: {})
+        socket.receiveLocalReply("a reply larger than eight bytes")
+        let batch = socket.take(maximumFrames: 10, maximumBytes: 100)
+        #expect(batch.frames.isEmpty)
+        #expect(batch.closed?.error == .inboundOverflow)
+    }
+
+    @Test func closingTheConnectionDropsLateStatusReplies() throws {
+        let old = try Self.socket()
+        #expect(old.statusRead.begin())
+        old.close(code: 1000, reason: "reconnect", error: nil)
+        old.receiveLocalReply(#"{"jsonrpc":"2.0","id":1,"result":{"peers":[]}}"#)
+        #expect(old.queuedFrames == 0)
+        let replacement = try Self.socket()
+        #expect(replacement.statusRead.begin())
+        old.statusRead.end()
+        #expect(!replacement.statusRead.begin())
+        replacement.statusRead.end()
+    }
+
     @Test func localStatusUsesTheExistingUnixSocket() throws {
         let ids = AcpmuxRequestIds()
         let socket = try Self.socket()

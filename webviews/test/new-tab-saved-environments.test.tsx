@@ -1,3 +1,4 @@
+import type { MachineResources } from "../src/agent-session/acpmux/machineResources";
 // Saved environments on the New Tab page (preview, `labs.previewFeatures`), rebuilt from #20831 on
 // the environment picker of #22131: the host keeps named environments (`environment.list`,
 // `environment.save`, `environment.remove`), the picker lists them in a Saved section over the
@@ -105,11 +106,13 @@ async function mount({
   worktree = "ok",
   tabCwd = "/Users/you",
   peerStart = "ok",
+  peerResources,
 }: {
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
   peerStart?: "ok" | "refused" | "none";
+  peerResources?: Record<string, MachineResources>;
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -156,6 +159,7 @@ async function mount({
         snapshot={noChat([], {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+          ...(peerResources ? { peerResources } : {}),
         })}
         lastAgent="claude"
         cwd={tabCwd}
@@ -321,6 +325,20 @@ test("picking another machine acpmux lists starts the chat there", async () => {
   // Another machine's folder is not this Mac's: no local folder check.
   expect(calls.some((call) => call.method === "workspace.useFolder")).toBe(false);
   expect(calls.find((call) => call.method === "chat.send")?.params).toEqual({ text: "tail the logs" });
+});
+
+test("the New Tab Computer menu carries cached machine health into its warning row", async () => {
+  await mount({
+    peerResources: {
+      devbox: { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
+    },
+  });
+  await click(environmentButton());
+  const machine = row("devbox");
+  expect(machine?.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBe("true");
+  expect(machine?.querySelector(".acpmux-menu-description")?.textContent).toBe(
+    t("composer.machineHighLoad", { busy: 14, cores: 10 }),
+  );
 });
 
 test("a chat started on another machine with no folder there does not take this tab's folder", async () => {

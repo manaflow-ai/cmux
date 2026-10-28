@@ -30,29 +30,35 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 batch.next = .decide(facts, box)
                 return batch
-            case .status(let pageID, let relayID, let path):
-                // Do not hold the ordered send line on a daemon read. The call
-                // is bounded and the socket drops a late injection after close;
-                // a reconnect has a distinct socket and request-id table.
-                // task-owner: this bounded task ends after the status deadline;
-                // socket closure drops its result, so it owns no repeating work.
+            case .status(_, let relayID, let path):
+                guard socket.statusRead.begin() else {
+                    // A refresh may overlap the initial read. Refuse just this request through
+                    // the bounded inbound path; never open another connection or close the pane.
+                    socket.receiveLocalReply(Self.statusError(relayID: relayID))
+                    batch.outcomes.append(.sent)
+                    continue
+                }
+                // task-owner: one read per socket, ending within two seconds; its slot is released
+                // on every exit. A closed socket drops the result through the normal inbound path.
                 Task.detached(priority: .utility) {
+                    defer { socket.statusRead.end() }
                     let result = try? await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status",
-                                                                     deadline: .seconds(2))
-                    ids.cancel(relayID)
-                    let reply: String
-                    if let result,
-                       let shape = AcpmuxPaneMethods.replyShapes["_acpmux/status"] {
-                        reply = AcpmuxPaneMethods.filteredReply(["result": result], shape: shape, pageID: pageID)
-                    } else {
-                        reply = "{\"jsonrpc\":\"2.0\",\"id\":\(pageID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
-                    }
-                    socket.inject(reply)
+                                                                   deadline: .seconds(2))
+                    let reply = result.flatMap {
+                        AcpmuxRequestIds.encode(["jsonrpc": "2.0", "id": relayID, "result": $0])
+                    } ?? Self.statusError(relayID: relayID)
+                    // The regular inbound path bounds queued bytes/frames, resolves the relay id,
+                    // and applies the status reply shape before anything reaches the page.
+                    socket.receiveLocalReply(reply)
                 }
                 batch.outcomes.append(.sent)
             }
         }
         return batch
+    }
+
+    nonisolated private static func statusError(relayID: Int) -> String {
+        "{\"jsonrpc\":\"2.0\",\"id\":\(relayID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
     }
 
     /// What the rules that need no main-actor state make of one frame: refused (a ticket in it, if
