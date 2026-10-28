@@ -133,6 +133,7 @@ export function parseArtifact(value: unknown, file = "artifact"): GeometryArtifa
     if (typeof element.id !== "string" || !element.id || ids.has(element.id) || (element.kind !== "web" && element.kind !== "native") || !["dom-rect", "ax-frame", "view-frame"].includes(String(element.source)) || !rectValid(element.rect)) throw new Error(`${file}: element ${index} has invalid or duplicate id/kind/source/rect`);
     ids.add(element.id);
     if (element.kind === "web" && element.source !== "dom-rect") throw new Error(`${file}: web element ${element.id} must use dom-rect source`);
+    if (element.kind === "native" && element.source === "dom-rect") throw new Error(`${file}: native element ${element.id} must use ax-frame or view-frame source`);
     const style = element.style;
     if (style !== undefined && (!style || typeof style !== "object")) throw new Error(`${file}: element ${element.id} style must be an object`);
     if (element.hoverRect !== undefined && !rectValid(element.hoverRect)) throw new Error(`${file}: element ${element.id} hoverRect is invalid`);
@@ -171,7 +172,7 @@ export function parseConfig(value: unknown, file = "geometry config"): GeometryC
     if (rule.kind === "required-source" && !["dom-rect", "ax-frame", "view-frame"].includes(rule.requiredSource)) throw new Error(`${file}: required-source rule ${rule.id} has invalid source`);
   }
   const accepted = item.acceptedFindings;
-  if (accepted !== undefined && (!accepted || typeof accepted !== "object" || Object.values(accepted as object).some((value) => !value || typeof value !== "object" || !finite((value as AcceptedFinding).maxDeltaPx) || typeof (value as AcceptedFinding).reason !== "string"))) throw new Error(`${file}: acceptedFindings entries need maxDeltaPx/reason`);
+  if (accepted !== undefined && (!accepted || typeof accepted !== "object" || Object.values(accepted as object).some((value) => !value || typeof value !== "object" || !finite((value as AcceptedFinding).maxDeltaPx) || (value as AcceptedFinding).maxDeltaPx < 0 || typeof (value as AcceptedFinding).reason !== "string" || !(value as AcceptedFinding).reason.trim()))) throw new Error(`${file}: acceptedFindings entries need non-negative maxDeltaPx and non-empty reason`);
   return { schemaVersion: GEOMETRY_SCHEMA_VERSION, revision: revision as GeometryConfig["revision"], required: required as GeometryConfig["required"], rules, acceptedFindings: accepted as GeometryConfig["acceptedFindings"] };
 }
 
@@ -209,7 +210,8 @@ function measurementArtifact(artifact: GeometryArtifact): GeometryArtifact {
 function lintRule(findings: GeometryFinding[], rule: GeometryRule, artifact: GeometryArtifact): void {
   if (rule.appliesTo && !rule.appliesTo.includes(artifact.capture.caseId)) return;
   const elements = artifact.elements.filter((element) => element.group === rule.group);
-  const minCount = rule.minCount ?? 2;
+  const peerRule = ["peer-alignment", "peer-size", "spacing", "text-baseline"].includes(rule.kind);
+  const minCount = rule.minCount ?? (peerRule ? 2 : 1);
   if (elements.length < minCount) {
     pushFinding(findings, rule, artifact, elements.map((element) => element.id), `missing evidence for group ${rule.group}: expected at least ${minCount} elements`);
     return;
