@@ -312,7 +312,7 @@ impl Peer {
         let (health, health_at) = self.health_summary();
         json!({
             "name": self.name,
-            "url": self.url,
+            "url": shown_url(&self.url),
             "connected": self.connected.load(Ordering::SeqCst),
             "error": self.last_error.lock_or_recover().clone(),
             "remoteVersion": self.remote_version.lock_or_recover().as_ref().map(|(v, _)| v.clone()),
@@ -899,14 +899,39 @@ impl Drop for ForgetPending {
 }
 
 /// `url` without its `token=` query items, and the first one's value.
+/// `url` as clients see it: without a query token (``lift_query_token``).
+pub fn shown_url(url: &str) -> String {
+    lift_query_token(url).0
+}
+
+/// Whether a query item's key (percent-decoded, any case) is `token`.
+fn is_token_key(key: &str) -> bool {
+    let mut decoded = Vec::with_capacity(key.len());
+    let bytes = key.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%'
+            && i + 2 < bytes.len()
+            && let Ok(byte) = u8::from_str_radix(&key[i + 1..i + 3], 16)
+        {
+            decoded.push(byte);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    decoded.eq_ignore_ascii_case(b"token")
+}
+
 pub fn lift_query_token(url: &str) -> (String, Option<String>) {
     let (rest, fragment) = url.split_once('#').map_or((url, None), |(r, f)| (r, Some(f)));
     let Some((base, query)) = rest.split_once('?') else { return (url.to_owned(), None) };
     let mut token = None;
     let kept: Vec<&str> = query
         .split('&')
-        .filter(|item| match item.strip_prefix("token=") {
-            Some(t) => {
+        .filter(|item| match item.split_once('=').filter(|(key, _)| is_token_key(key)) {
+            Some((_, t)) => {
                 if token.is_none() && !t.is_empty() {
                     token = Some(t.to_owned());
                 }
