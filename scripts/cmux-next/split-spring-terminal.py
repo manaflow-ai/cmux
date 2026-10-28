@@ -56,6 +56,16 @@ if "--suite=launch-check" in sys.argv:
 # build in split-spring.sh has run by then). launch-check above reports it itself, in `check`'s own --json shape.
 if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in sys.argv:
     require_gui_session("split-spring")
+# `--suite=first5s`: the first 5 s of typing after a new terminal tab, split, New Tab page and browser tab, one key per
+# 50 ms from a sender that reports its own lateness (first-5s-typing.py; `--apps-sha256=A,B` measures fleet builds).
+if "--suite=first5s" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])
+# `--suite=bench-idle`: wakeups and CPU of an idle app and hidden workspaces (bench_idle.py; its own options after the
+# suite, for example `--scenarios=terminals,mixed-hidden`).
+if "--suite=bench-idle" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench_idle.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=bench-idle"])
 # `--suite=first-keys`: the first keys typed into new terminals from Home's dock all reach them, and how fast
 # (new-terminal-first-keys.py; dogfood v2.1 lost them).
 if "--suite=first-keys" in sys.argv:
