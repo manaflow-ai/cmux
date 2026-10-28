@@ -149,6 +149,25 @@ extension SessionSnapshotImportTrustTests {
         #expect(report.droppedPanelCount == 1)
     }
 
+    @Test("duplicate-only workspaces still consume the global fallback budget")
+    func duplicateOnlyWorkspacesConsumeFallbackBudget() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = Self.workspace(panels: [panel], layout: nil)
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = Array(
+            repeating: Self.workspace(panels: [panel], layout: nil),
+            count: SessionPersistencePolicy.maxPanelsPerSnapshot + 2
+        )
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        #expect(restored.windows.first?.tabManager.workspaces.count == SessionPersistencePolicy.maxPanelsPerSnapshot)
+        #expect(report.droppedWorkspaceCount == 2)
+    }
+
     @Test("trusted restore bounds a skewed deep layout without overflowing the stack")
     func trustedRestoreBoundsSkewedDeepLayout() throws {
         let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())

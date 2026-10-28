@@ -51,6 +51,11 @@ struct SessionSnapshotRestoreNormalizer {
                         admittedPanelIDs: &admittedPanelIDs,
                         report: &report
                     )
+                    if workspace.panels.isEmpty {
+                        // A duplicate-only workspace still causes TabManager
+                        // to create its fallback terminal.
+                        panelBudget -= 1
+                    }
                 }
                 let normalized = layouts.normalize(workspace.layout, panelIDs: workspace.panels.map(\.id))
                 workspace.layout = normalized.layout
