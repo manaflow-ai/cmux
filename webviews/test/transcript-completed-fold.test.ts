@@ -157,3 +157,14 @@ test("render cards keep their call order around the answer and inside their own 
     "u2", "render-third", "a2", "s2",
   ]);
 });
+
+test("a pending edit remains available beside the completed fold", () => {
+  const pending = row("pending", "activity", {
+    items: [{ kind: "tool", text: "", tool: { id: "edit", title: "Edit retry.ts", kind: "edit", status: "pending" } }],
+  });
+  const rows = completedTurn();
+  rows.splice(2, 0, pending);
+  const shown = turnView(rows, new Set());
+  expect(shown.find((entry) => entry.id === pending.id)).toMatchObject({ items: pending.items });
+  expect(shown.find((entry) => entry.id === pending.id)?.ended).not.toBe(true);
+});

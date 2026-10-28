@@ -109,7 +109,7 @@ test("long reply, then a tool, then 'Pushed.': only the final reply stays in sig
   expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:pushed", "turnSummary:end"]);
 });
 
-test("completed compactions, subagent reports, and notes fold with the work", () => {
+test("completed compactions and subagent reports fold, while a refusal stays available", () => {
   const rows = [
     row("u", "user"),
     ran("read"),
@@ -119,7 +119,7 @@ test("completed compactions, subagent reports, and notes fold with the work", ()
     answer("final"),
     summary(),
   ];
-  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "assistant:final", "turnSummary:end"]);
+  expect(drawn(rows)).toEqual(["user:u", "worked:worked-u", "notice:refused", "assistant:final", "turnSummary:end"]);
 });
 
 test("a running turn draws as before: nothing folds", () => {
