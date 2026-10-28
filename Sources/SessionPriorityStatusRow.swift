@@ -59,7 +59,8 @@ enum SessionPriorityStatusRow {
         return SidebarStatusEntry(
             key: key,
             value: segments.joined(separator: " · "),
-            icon: tier == .urgent ? "bolt.fill" : "tortoise.fill",
+            // A hare and a tortoise; `bolt.fill` is the running agent's own status icon.
+            icon: tier == .urgent ? "hare.fill" : "tortoise.fill",
             priority: priority
         )
     }
