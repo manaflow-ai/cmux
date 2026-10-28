@@ -180802,7 +180802,127 @@
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏的“新建工作区”按钮、空间、个人资料按钮和搜索按钮仅在指针位于侧边栏上方时显示。关闭时始终显示。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和搜尋按鈕僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
       }
-    }
+    },
+      "settings.agentPane.showMachineLoadWarnings": {
+        "comment": "Agent Chat setting: whether the Computer menu warns about remote machine CPU or memory pressure.",
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Show Machine Load Warnings"
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Warnungen zur Maschinenlast anzeigen"
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Afficher les avertissements de charge de la machine"
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "إظهار تحذيرات حمل الجهاز"
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Mostrar advertencias de carga de la máquina"
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "顯示機器負載警告"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "显示机器负载警告"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "컴퓨터 부하 경고 표시"
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "マシン負荷の警告を表示"
+            }
+          }
+        }
+      },
+      "settings.agentPane.showMachineLoadWarnings.help": {
+        "comment": "Agent Chat setting help: explains the Computer menu machine-load warning.",
+        "extractionState": "manual",
+        "localizations": {
+          "en": {
+            "stringUnit": {
+              "state": "translated",
+              "value": "Shows a warning when a remote machine is at its CPU or memory budget in the Computer menu."
+            }
+          },
+          "de": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Zeigt im Computermenü eine Warnung an, wenn ein entfernter Rechner sein CPU- oder Speicherlimit erreicht."
+            }
+          },
+          "fr": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Affiche un avertissement dans le menu Ordinateur lorsqu’une machine distante atteint sa limite de processeur ou de mémoire."
+            }
+          },
+          "ar": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "يعرض تحذيرًا في قائمة الكمبيوتر عندما يصل جهاز بعيد إلى حد المعالج أو الذاكرة."
+            }
+          },
+          "es": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "Muestra una advertencia en el menú Ordenador cuando una máquina remota alcanza su límite de CPU o memoria."
+            }
+          },
+          "zh-Hant": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "遠端機器達到 CPU 或記憶體上限時，在「電腦」選單中顯示警告。"
+            }
+          },
+          "zh-Hans": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "远程机器达到 CPU 或内存上限时，在“电脑”菜单中显示警告。"
+            }
+          },
+          "ko": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "원격 컴퓨터가 CPU 또는 메모리 한도에 도달하면 컴퓨터 메뉴에 경고를 표시합니다."
+            }
+          },
+          "ja": {
+            "stringUnit": {
+              "state": "needs_review",
+              "value": "リモートマシンが CPU またはメモリの上限に達したとき、「コンピュータ」メニューに警告を表示します。"
+            }
+          }
+        }
+      }
   },
   "version": "1.0"
 }

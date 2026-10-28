@@ -36,11 +36,13 @@ import { ProjectBadge } from "./ProjectBadge";
 import { projectSuffixes } from "./projectSuffix";
 import { belowCheckout, folderRepo, isMainCheckout, worktreeName, type ProjectRepo } from "./projectRepos";
 import { isAgentHome, projectLabel } from "./sessionList";
-import { translate as t } from "./i18n";
+import { translate as t, useT } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
 import type { RunModeRows } from "./sandboxRun";
+import { machineLoadWarning, type MachineResources } from "./machineResources";
+import { useComposerSettings } from "./composerSettings";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -68,11 +70,19 @@ type Location = {
   repo?: ProjectRepo;
   section?: string;
   disabled?: boolean;
+  warning?: boolean;
 };
-type Computer = Location & { kind: EnvironmentKind; connected?: boolean; state?: string; cloudMachine?: CloudMachine };
+type Computer = Location & {
+  kind: EnvironmentKind;
+  connected?: boolean;
+  state?: string;
+  cloudMachine?: CloudMachine;
+  resources?: MachineResources;
+};
 const NO_PEER_KINDS: Record<string, "ssh" | "cloud"> = {};
 const NO_PEER_CONNECTED: Record<string, boolean> = {};
 const NO_PEER_STATES: Record<string, string> = {};
+const NO_PEER_RESOURCES: Record<string, MachineResources> = {};
 const NO_OFFLOADS: readonly OffloadKind[] = [];
 
 /// The location strip on the composer card's top edge (hq#1957 composer location strip): folder ·
@@ -87,6 +97,7 @@ export function ComposerContext({
   peerKinds = NO_PEER_KINDS,
   peerConnected = NO_PEER_CONNECTED,
   peerStates = NO_PEER_STATES,
+  peerResources = NO_PEER_RESOURCES,
   environments = false,
   started = false,
   onProject,
@@ -108,6 +119,7 @@ export function ComposerContext({
   cloudMachines,
   onCloudMachine = (machine) => void runCloudMachine(machine),
   runMode,
+  showMachineLoadWarnings,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -119,6 +131,8 @@ export function ComposerContext({
   /// Each peer's link state (`AcpmuxSnapshot.peerStates`): a machine still connecting or down is
   /// listed greyed with it, and is not a pick.
   peerStates?: Record<string, string>;
+  /// Each peer's cached one-minute host health from the same acpmux reading as the sidebar.
+  peerResources?: Record<string, MachineResources>;
   /// Preview features on (`labs.previewFeatures`): the computer control is the environment picker
   /// (EnvironmentPicker.tsx), with Local, SSH and Cloud sections and ⌥⌘1–9.
   environments?: boolean;
@@ -167,7 +181,11 @@ export function ComposerContext({
   onCloudMachine?(machine: CloudMachine): void;
   /// A new chat's Run as in the environment picker (Persistent or Sandboxed, hq#3367).
   runMode?: RunModeRows;
+  /// Gallery seam; the persisted composer setting is used when omitted.
+  showMachineLoadWarnings?: boolean;
 }) {
+  const t = useT();
+  const composerSettings = useComposerSettings();
   const newChat = !started && onProject !== undefined;
   const accountMachines = useCloudMachines();
   const shownMachines = cloudMachines ?? accountMachines;
@@ -175,13 +193,34 @@ export function ComposerContext({
   // one's transport and state, in both the environment picker and the plain Computer menu; for a
   // new chat, then the account's Cloud machines acpmux does not list (a paused one, say).
   const computers = useMemo(() => {
-    const listed = availableComputers(summary, sessions, peers, peerKinds, localName, peerConnected, peerStates);
+    const listed = availableComputers(
+      summary,
+      sessions,
+      peers,
+      peerKinds,
+      localName,
+      peerConnected,
+      peerStates,
+      peerResources,
+    );
     if (!newChat) return listed;
     const detail = t(CONTEXT_LABELS.cloud);
     return withCloudMachines(listed, shownMachines, peers, computerId(summary)).map((row) =>
       isCloudMachineRow(row) ? { ...row, detail } : row,
     );
-  }, [summary, sessions, peers, peerKinds, peerConnected, peerStates, localName, newChat, shownMachines]);
+  }, [
+    summary,
+    sessions,
+    peers,
+    peerKinds,
+    peerConnected,
+    peerStates,
+    peerResources,
+    localName,
+    newChat,
+    shownMachines,
+    t,
+  ]);
   // The list opened, and every few seconds while it is open: acpmux's peers and, for a new chat,
   // the app's Cloud machines are read again.
   const onRefreshMachines =
@@ -197,16 +236,32 @@ export function ComposerContext({
     const sections = environmentSections(computers);
     return orderEnvironments(computers).map(({ detail: _kind, ...computer }) => {
       const ready = environmentReady(computer);
+      const warning = machineLoadWarning(
+        computer.resources,
+        showMachineLoadWarnings ?? composerSettings.showMachineLoadWarnings,
+      );
       return {
         ...computer,
         section: t(SECTION_LABELS[sections.get(computer.id) ?? "fleet"]),
         // An account Cloud machine acpmux does not list says what a pick does, and is a pick.
         ...(ready
           ? {}
-          : { ...(isCloudMachineRow(computer) ? {} : { disabled: true }), detail: environmentStateLabel(computer) }),
+          : {
+              ...(isCloudMachineRow(computer) ? {} : { disabled: true }),
+              detail: environmentStateLabel(computer),
+            }),
+        ...(ready && warning
+          ? {
+              warning: true,
+              detail:
+                warning.kind === "load"
+                  ? t("composer.machineHighLoad", { busy: warning.busy, cores: warning.cores })
+                  : t("composer.machineLowMemory", { free: formatFreeMemory(warning.freeGB) }),
+            }
+          : {}),
       };
     });
-  }, [computers]);
+  }, [computers, composerSettings.showMachineLoadWarnings, showMachineLoadWarnings, t]);
   const initialComputer = computerId(summary);
   // A pick in the Computer menu holds until the chat or its computer changes; then the new chat's
   // own computer shows in the render that shows it (it followed in an effect, a frame late: the
@@ -438,8 +493,16 @@ export function ComposerContext({
               extras={
                 !started && onConnect
                   ? [
-                      { id: "ssh", label: t(CONTEXT_LABELS.connectSSH), onSelect: () => onConnect("ssh") },
-                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onConnect("cloud") },
+                      {
+                        id: "ssh",
+                        label: t(CONTEXT_LABELS.connectSSH),
+                        onSelect: () => onConnect("ssh"),
+                      },
+                      {
+                        id: "cloud",
+                        label: t(CONTEXT_LABELS.newCloudMachine),
+                        onSelect: () => onConnect("cloud"),
+                      },
                     ]
                   : undefined
               }
@@ -508,6 +571,7 @@ function availableComputers(
   localName: string | undefined,
   peerConnected: Record<string, boolean>,
   peerStates: Record<string, string>,
+  peerResources: Record<string, MachineResources>,
 ): Computer[] {
   const localLabel =
     localName || (summary?.hostKind === "local" && summary.host ? summary.host : t(CONTEXT_LABELS.local));
@@ -515,9 +579,17 @@ function availableComputers(
   const current = summary ? [summary] : [];
   for (const machine of knownMachines(peers, sessions, peerKinds, current, peerConnected, peerStates)) {
     const detail = t(machine.kind === "ssh" ? "composer.envSSH" : CONTEXT_LABELS.cloud);
-    computers.push({ ...machine, detail });
+    computers.push({
+      ...machine,
+      detail,
+      ...(peerResources[machine.id] ? { resources: peerResources[machine.id] } : {}),
+    });
   }
   return computers;
+}
+
+function formatFreeMemory(gb: number): string {
+  return Number.isInteger(gb) ? String(gb) : gb.toFixed(1);
 }
 
 function availableFolders(summary: Summary | undefined, sessions: Session[], computer: string): Location[] {
@@ -789,6 +861,7 @@ function LocationPicker({
                 data-section={section}
                 data-first-section={section && index === 0 ? "" : undefined}
                 data-ready={folder?.disabled ? "false" : undefined}
+                data-warning={folder?.warning ? "true" : undefined}
                 aria-disabled={folder?.disabled ? true : undefined}
               >
                 <span className="acpmux-menu-label">{folder?.label ?? path}</span>

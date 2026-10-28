@@ -30,6 +30,26 @@ extension AgentPaneTransport {
             case .decide(let facts, let box):
                 batch.next = .decide(facts, box)
                 return batch
+            case .status(let pageID, let relayID, let path):
+                // Do not hold the ordered send line on a daemon read. The call
+                // is bounded and the socket drops a late injection after close;
+                // a reconnect has a distinct socket and request-id table.
+                // task-owner: this bounded task ends after the status deadline;
+                // socket closure drops its result, so it owns no repeating work.
+                Task.detached(priority: .utility) {
+                    let result = try? await AcpmuxStatusClient.call(socketPath: path, method: "_acpmux/status",
+                                                                     deadline: .seconds(2))
+                    ids.cancel(relayID)
+                    let reply: String
+                    if let result,
+                       let shape = AcpmuxPaneMethods.replyShapes["_acpmux/status"] {
+                        reply = AcpmuxPaneMethods.filteredReply(["result": result], shape: shape, pageID: pageID)
+                    } else {
+                        reply = "{\"jsonrpc\":\"2.0\",\"id\":\(pageID),\"error\":{\"code\":-32000,\"message\":\"status unavailable\"}}"
+                    }
+                    socket.inject(reply)
+                }
+                batch.outcomes.append(.sent)
             }
         }
         return batch
@@ -69,6 +89,10 @@ extension AgentPaneTransport {
                 return .refuse(.refuse(.requestIdInFlight, method: nil, requestID: nil), spend: nil)
             }
             relayID = next
+        }
+        if method == "_acpmux/status", let pageID, let relayID, let path = snapshot.socketPath,
+           !snapshot.remoteWire {
+            return .status(pageID: pageID, relayID: relayID, path: path)
         }
         if !snapshot.isFirst, let method { snapshot.sessions.sent(method: method, id: pageID) }
         let error = sendNow(box, relayID: relayID, socket: socket)
