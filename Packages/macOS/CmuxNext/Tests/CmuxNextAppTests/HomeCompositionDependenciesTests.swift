@@ -29,10 +29,10 @@ struct HomeCompositionDependenciesTests {
         let root = FileManager.default.temporaryDirectory.appending(path: "home-composition-\(UUID())")
         defer { try? FileManager.default.removeItem(at: root) }
         let user = cell.signedIn ? CMUXAuthUser(id: "fixture-user", primaryEmail: "fixture@example.invalid", displayName: "A user") : nil
-        let source = CompositionHomeSource(cloud: cell.cloud)
+        let source = try await CompositionHomeSource(cloud: cell.cloud)
         let snapshot = try await source.inbox()
         let services = AppServices(environment: AppEnvironment.current(["CMUX_NEXT_AUTH_CAPTURE_FIXTURE": "1"]))
-        let roster = cell.cloud ? HomeCloudChiefs(hosted: CloudChief(id: "agent_fixture", displayName: "Chief", isDefault: true,
+        let roster = cell.cloud ? HomeCloudChiefs(hosted: CloudChief(id: "agent_chief", displayName: "Chief", isDefault: true,
                                                                     mainConversation: source.id.rawValue, rev: 1)) : HomeCloudChiefs()
         let harnesses = cell.harness == "none" ? [:] : ["claude": cell.harness == "signed-in"]
         services.homeComposition = (HomeCompositionDependencies(
@@ -85,11 +85,13 @@ struct HomeCompositionDependenciesTests {
     }
 }
 
-/// Existing HomeSource wire values, never a second account or health model.
+/// The existing in-memory owner supplies the ledger and participant identity. This wrapper
+/// only empties its initial Chief and changes the declared local/cloud owner for composition.
 /// Sendable: the snapshot is immutable, the stream/continuation are Sendable, and
 /// the only mutable counter is protected by lock on every read and write.
 private nonisolated final class CompositionHomeSource: HomeSource, @unchecked Sendable {
-    let id = ConversationID("conv_fixture")
+    let id = ConversationID("conv_chief")
+    private let base = MockHomeSource(options: .init(chiefHistory: 1, latency: .zero, replyDelay: .zero))
     private let snapshot: InboxSnapshot
     private let stream: AsyncStream<HomeEvent>
     private let continuation: AsyncStream<HomeEvent>.Continuation
@@ -97,12 +99,15 @@ private nonisolated final class CompositionHomeSource: HomeSource, @unchecked Se
     private var sent = 0
     var submissions: Int { lock.withLock { sent } }
 
-    init(cloud: Bool) {
-        let me = Participant(id: ParticipantID("user_fixture"), kind: .human, displayName: "A user")
-        let chief = Participant(id: ParticipantID("agent_fixture"), kind: .agent, displayName: "Chief", agentClass: .chief)
-        let date = Date(timeIntervalSince1970: 1_000)
-        snapshot = InboxSnapshot(me: me, conversations: [ConversationSummary(id: id, owner: cloud ? .cloud : .local,
-            title: "Chief", participants: [me, chief], createdAt: date, updatedAt: date)], rev: 1)
+    init(cloud: Bool) async throws {
+        var inbox = try await base.inbox()
+        inbox.conversations = inbox.conversations.filter { $0.id == id }
+        for index in inbox.conversations.indices {
+            inbox.conversations[index].owner = cloud ? .cloud : .local
+            inbox.conversations[index].lastSeq = 0
+            inbox.conversations[index].lastMessage = nil
+        }
+        snapshot = inbox
         (stream, continuation) = AsyncStream.makeStream()
         continuation.yield(.connection(.online))
         continuation.yield(.inbox(snapshot))
@@ -119,9 +124,9 @@ private nonisolated final class CompositionHomeSource: HomeSource, @unchecked Se
     func history(of conversation: ConversationID, before seq: Seq, limit: Int) async throws -> [Message] { [] }
     func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if case .setTyping = intent.op { lock.withLock { sent += 1 } }
-        return HomeOpResult(rev: 1)
+        return try await base.submit(intent)
     }
     func search(_ query: String, limit: Int) async throws -> [HomeSearchHit] { [] }
-    func resolve(_ contact: ContactAddress) async throws -> ContactResolution { .invitable(contact) }
+    func resolve(_ contact: ContactAddress) async throws -> ContactResolution { try await base.resolve(contact) }
 }
 #endif
