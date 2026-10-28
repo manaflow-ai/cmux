@@ -98,6 +98,10 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     /// The main-thread budget's run-loop turn meter (``meterTurns(_:)``).
     private var turnMeter: MainTurnMeter?
+    /// The window the event in dispatch goes to instead of AppKit's key window: DEBUG automation's key for a window
+    /// that is not key (``sendEvent(_:deliveringTo:)``). Nil for every other event; taken once, so a nested event goes
+    /// to AppKit.
+    fileprivate var deliveryWindow: NSWindow?
 
     /// Times every main run-loop turn on `meter`, each `sendEvent` as its input-dispatch span. Called
     /// once in `CmuxNextApp.main`, before `run()`.
@@ -174,13 +178,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if let tap { BenchSpans.measure("app.inputTap.observe") { tap.deliverObserve(event) } }
     }
 
-    /// The input events whose queueing is measured: the user's own keys, clicks and wheel (Chromium's
-    /// EventLatency kinds), never the app's synthetic input (`SyntheticInput`). A re-sent event (a held key
-    /// replayed, a chord re-sent) is the watchdog's to skip: it is no newer than the newest it counted.
-    static func measuresQueueing(_ type: NSEvent.EventType, synthetic: Bool) -> Bool {
-        !synthetic && (scopesDispatch(type) || type == .keyUp || type == .scrollWheel)
-    }
-
     /// The input events whose dispatch acts in the window they came from (`dispatchScope`).
     static func scopesDispatch(_ type: NSEvent.EventType) -> Bool {
         switch type {
@@ -194,7 +191,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .keyDown, FindPillView.forwardArrowKeyDownToEditingPill(event, in: keyWindow ?? event.window) { return }
         Self.dispatchThroughTap(event, tap: inputTap) { delivered in
             dispatchDelivered = true
-            super.sendEvent(delivered)
+            if let window = takeDeliveryWindow() { window.sendEvent(delivered) } else { super.sendEvent(delivered) }
         }
         // After AppKit handled the move: a browser toolbar under the pointer in a window that is
         // not key sets its cursor last (`ArrowCursorView.pointerDidMove`).
@@ -304,6 +301,19 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 }
 
 extension CmuxApplication {
+    /// The input events whose queueing is measured: the user's own keys, clicks and wheel (Chromium's
+    /// EventLatency kinds), never the app's synthetic input (`SyntheticInput`). A re-sent event (a held key
+    /// replayed, a chord re-sent) is the watchdog's to skip: it is no newer than the newest it counted.
+    static func measuresQueueing(_ type: NSEvent.EventType, synthetic: Bool) -> Bool {
+        !synthetic && (scopesDispatch(type) || type == .keyUp || type == .scrollWheel)
+    }
+
+    /// ``deliveryWindow``, now nil: the event in dispatch is the only one that goes there.
+    fileprivate func takeDeliveryWindow() -> NSWindow? {
+        defer { deliveryWindow = nil }
+        return deliveryWindow
+    }
+
     /// The gate follows `debug.mainJobGate` once the settings load (nil before: nothing installs).
     func followMainJobGate(_ settings: SettingsController, on mainWork: MainWorkScheduler) {
         jobGate?.follow(on: mainWork) { [weak settings] in
@@ -365,3 +375,17 @@ nonisolated struct AssistiveClientRequests: Equatable {
         Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CmuxApplication {
+    /// DEBUG automation's key for a window that is not key (`debug.key` in a background app): every stage of
+    /// ``sendEvent(_:)`` (input tap, job gate, typing probe, input latency slot, key interceptor), then the event to
+    /// `window` instead of AppKit's dispatch, which sends a key only to the key window.
+    func sendEvent(_ event: NSEvent, deliveringTo window: NSWindow) {
+        let outer = deliveryWindow
+        deliveryWindow = window
+        defer { deliveryWindow = outer }
+        sendEvent(event)
+    }
+}
+#endif
