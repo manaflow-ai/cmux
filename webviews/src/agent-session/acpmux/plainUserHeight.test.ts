@@ -82,3 +82,18 @@ test("Markdown-looking, multiline, attachment and Chief paths retain their parse
     lexer.mockRestore();
   }
 });
+
+test("plain height follows width and font changes without stale placement", () => {
+  const cache = new Map();
+  const row = prompt(long);
+  const estimate = (width: number) => layoutConversation([row], width, cache).heights[0]!;
+  setChatDisplay({ "agentPane.display.font.size": 14 });
+  const narrow = estimate(320);
+  const wide = estimate(1400);
+  expect(wide).toBeLessThan(narrow);
+  setChatDisplay({ "agentPane.display.font.size": 20 });
+  const larger = estimate(1400);
+  expect(larger).toBeGreaterThan(wide);
+  // A repeated layout at the same metrics remains stable for the rows below it.
+  expect(estimate(1400)).toBe(larger);
+});
