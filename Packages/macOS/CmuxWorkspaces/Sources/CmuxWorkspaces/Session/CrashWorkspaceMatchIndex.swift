@@ -49,7 +49,7 @@ struct CrashWorkspaceMatchIndex {
         return match
     }
 
-    private nonisolated func titleKey(_ workspace: CrashWorkspaceSignature) -> TitleKey? {
+    private nonisolated func titleKey(_ workspace: CrashWorkspaceSignature) -> CrashWorkspaceTitleKey? {
         guard let title = workspace.title, !title.isEmpty, !workspace.directory.isEmpty else { return nil }
         return CrashWorkspaceTitleKey(title: title, description: workspace.description, directory: workspace.directory)
     }
