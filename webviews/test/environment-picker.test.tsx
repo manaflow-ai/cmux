@@ -404,6 +404,26 @@ test("a started chat on this Mac: the picker shows this Mac and Move to Cloud, w
   expect(mounted).toEqual([]);
 });
 
+test("a started chat whose machine the App says is down: picking that machine reconnects it", async () => {
+  const { setMachineLink } = await import("../src/agent-session/acpmux/machineLink");
+  setMachineLink({ machine: "m-1", link: "offline", words: "Offline" });
+  try {
+    const reconnects: string[] = [];
+    const calls: unknown[][] = [];
+    await mount(true, {
+      ...startedOn("local"),
+      onOffload: (kind: string) => calls.push(["offload", kind]),
+      onReconnectMachine: (id: string) => reconnects.push(id),
+    });
+    await openPicker();
+    await act(async () => machineRows()[0]!.click());
+    expect(reconnects).toEqual(["local"]);
+    expect(calls).toEqual([]);
+  } finally {
+    setMachineLink(null);
+  }
+});
+
 test("a started Cloud chat: the picker shows its machine and Bring Back Local", async () => {
   const { calls } = await mountStarted("cloud");
   await openPicker();
