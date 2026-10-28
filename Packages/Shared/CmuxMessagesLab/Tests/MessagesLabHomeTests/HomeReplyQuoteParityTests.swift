@@ -110,8 +110,9 @@ import Testing
         let right = try #require(label.map(\.x).max())
         // Messages: the label's ink ends 11 pt left of the quote's right end ("3 Replies", 2x: 1282 vs 1304 px).
         #expect(abs((box.maxX - right) - 11) <= 1.5, "the label ends \(box.maxX - right) pt left of the quote's end; Messages: 11 pt")
-        // Its baseline ("3" and "R" bottoms) 14 pt under the quote; descenders go lower.
-        let caps = label.filter { $0.x < box.maxX - 30 }.map(\.y).max() ?? 0
+        // Its baseline ("3" and "R" bottoms, the label's left 13 pt; the "p" descends) 14 pt under the quote.
+        let left = try #require(label.map(\.x).min())
+        let caps = label.filter { $0.x < left + 13 }.map(\.y).max() ?? 0
         #expect(abs((caps - box.maxY) - 13.75) <= 1, "the label's baseline is \(caps - box.maxY) pt under the quote; Messages: 14 pt")
     }
 
