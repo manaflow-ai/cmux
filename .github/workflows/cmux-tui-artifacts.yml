@@ -2612,7 +2612,10 @@ jobs:
     name: macOS cross-compile run-time check (x86_64 under Rosetta, compare only)
     needs: [macos-cross-shadow]
     if: always() && needs.macos-cross-shadow.result != 'skipped' && needs.macos-cross-shadow.result != 'cancelled'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    # A literal Blacksmith 6 vCPU label, not vars.MACOS_RUNNER_26: that names the
+    # nightly app build's blacksmith-12vcpu-macos-26, which no cmux-tui job may take
+    # (tests/test_ci_tui_routes_avoid_nightly_label.py).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 20
     continue-on-error: true
     permissions:
