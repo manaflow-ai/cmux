@@ -12,6 +12,15 @@ Client side (the agent's host: the Linux VM or a laptop; nothing builds here):
                                                            `oracle.py diff --product app ...` hands its argv here
 Selection: --suite, --filter, --repeat, --retry-limit, --shuffle, --seed, --batch-limit, --config (bench, the
 default, or debug: oracle.py's --build of the run), --dry-run (plan only: the step builds nothing).
+Same-host pairing (p15-oracle-008): in a diff, shard i of the second side runs on the worker shard i of the first
+side ran on (`--target-worker`), and each side's receipt records its host, macOS version and main display
+(oracle.py host_info). Before anything merges, every shard's two receipts must name the same host, OS and display
+(diff.py's same-host keys); a pair that does not is refused as host-mismatch (exit 3, fleet.json "verdict":
+"host-mismatch", "mismatched": {"shard i": [fields]}), and nothing is compared. diff.py checks every case's host again
+after the shards merge. Different shards may land on different minis; a case is never compared across them.
+This is Pinpoint's rule of running both changes of a comparison on one bot (chromium/src
+third_party/catapult/dashboard/dashboard/pinpoint/models/quest/run_test.py: later executions are pinned to the bot
+of the first, because results from two devices are not comparable).
 Seeded faults (p15-oracle-026): `run --mutant P` and `diff --base SHA --head SHA --head-mutant P` build that side
 with tests/oracle/mutants/app/<name>.patch applied; the step applies the copy in its own checkout, so the patch must
 be in the commit's tree, with the same content as here.
@@ -41,10 +50,11 @@ Outputs (outside the checkout, default /tmp/oracle/fleet/<run id>):
     <side>/              the merged run dir (oracle.py merge_runs: no gap, no overlap, one config)
     compare/             diff only: oracle.py diff --base-run ... --head-run ... (diff.py, divergence.json)
     fleet.json           {"schema": "cmux-oracle-fleet-v1", "runId", "sides": {side: {"sha", "shards": [...],
-                          "merged", "ok", "workers"}}, "ok"}
+                          "merged", "ok", "workers"}}, "ok"}; a refused diff pair adds "verdict": "host-mismatch"
+                          and "mismatched": {"shard i": [the host fields that differ or were not recorded]}
 Exit codes: 0 every shard merged and the receipt is ok (diff: no unexplained divergence), 1 the merged receipt has
 unexpected results (diff: divergences), 2 bad arguments, 3 incomplete (a shard refused, failed or without a receipt;
-diff: refused by oracle.py), 4 diff.py internal error.
+diff: a host-mismatch pair, or refused by oracle.py), 4 diff.py internal error.
 
 Chrome reference (chromium/src):
 - testing/trigger_scripts/base_test_triggerer.py: one swarming task per shard, the shard's index and total in
@@ -79,6 +89,7 @@ REPO = HERE.parents[2]
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import diff  # noqa: E402  (host_mismatch: the same-host keys, p15-oracle-008)
 import oracle  # noqa: E402  (the sibling CLI: merge_runs, write_merged, DEFAULT_RETRY_LIMIT, new_run_id)
 import patch_mutants  # noqa: E402  (the app mutants' header checks, p15-oracle-026)
 
@@ -500,7 +511,8 @@ def merge_side(side: Side, out: Path) -> None:
     side.ok = bool(view.receipt.get("ok"))
 
 
-def fleet_record(run_id: str, sides: Sequence[Side], *, comparison: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def fleet_record(run_id: str, sides: Sequence[Side], *, comparison: Optional[Dict[str, Any]] = None,
+                 mismatched: Optional[Dict[str, List[str]]] = None) -> Dict[str, Any]:
     record: Dict[str, Any] = {"schema": FLEET_SCHEMA, "runId": run_id, "script": SCRIPT, "class": STEP_CLASS,
                               "sides": {}}
     for side in sides:
@@ -515,7 +527,9 @@ def fleet_record(run_id: str, sides: Sequence[Side], *, comparison: Optional[Dic
         }
     if comparison is not None:
         record["comparison"] = comparison
-    record["ok"] = all(s.ok for s in sides) and (comparison is None or comparison.get("exit") == 0)
+    if mismatched:
+        record["verdict"], record["mismatched"] = "host-mismatch", mismatched
+    record["ok"] = all(s.ok for s in sides) and (comparison is None or comparison.get("exit") == 0) and not mismatched
     return record
 
 
@@ -622,6 +636,29 @@ def complete_pair(fleet: Fleet, first: Shard, second: Shard) -> None:
         second.save()
 
 
+def receipt_host(shard: Shard) -> Optional[Dict[str, Any]]:
+    """The host a shard's receipt records (oracle.py host_info), or None when it has none."""
+    if shard.run_dir is None:
+        return None
+    try:
+        host = json.loads((shard.run_dir / "receipt.json").read_text(encoding="utf-8")).get("host")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return host if isinstance(host, dict) else None
+
+
+def pairing_problems(first: Side, second: Side) -> Dict[str, List[str]]:
+    """Each shard whose two receipts do not name one host, OS version and display (diff.py's same-host keys)."""
+    problems: Dict[str, List[str]] = {}
+    for a, b in zip(first.shards, second.shards):
+        if a.run_dir is None or b.run_dir is None:
+            continue  # merge_side reports a shard without a receipt
+        fields = diff.host_mismatch(receipt_host(a), receipt_host(b))
+        if fields:
+            problems[f"shard {a.index}"] = fields
+    return problems
+
+
 def cmd_diff(args: argparse.Namespace) -> int:
     if args.product != "app":
         raise UsageError(f"--product {args.product}: fleet.py runs the app product; cmux-tui products diff on the VM")
@@ -639,6 +676,15 @@ def cmd_diff(args: argparse.Namespace) -> int:
     first, second = sides
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.shards) as pool:
         list(pool.map(lambda pair: complete_pair(fleet, *pair), zip(first.shards, second.shards)))
+    mismatched = pairing_problems(first, second)
+    if mismatched:
+        path = write_fleet(out, fleet_record(run_id, sides, mismatched=mismatched))
+        print("fleet: host-mismatch: a shard's two sides ran on different hosts, OS versions or displays; "
+              "nothing compared")
+        for where, fields in sorted(mismatched.items(), key=lambda item: int(item[0].split()[1])):
+            print(f"  {where}: {', '.join(fields)}")
+        print(f"fleet: {path}")
+        return EXIT_INCOMPLETE
     for side in sides:
         merge_side(side, out)
         print_side(side)
@@ -760,18 +806,18 @@ def build_parser() -> argparse.ArgumentParser:
     add_client_args(run)
     run.set_defaults(func=cmd_run)
 
-    diff = sub.add_parser("diff", allow_abbrev=False, help="two sides per shard on one worker, then oracle.py diff")
-    diff.add_argument("--product", default="app")
-    diff.add_argument("--base")
-    diff.add_argument("--head")
-    diff.add_argument("--switch")
-    diff.add_argument("--arm", choices=["launch-config"])
-    diff.add_argument("--engine", help="webkit,chromium: one arm per engine (oracle.py run --engine), engine parity")
-    diff.add_argument("--ref")
-    diff.add_argument("--head-mutant", help="build the head with tests/oracle/mutants/app/<name>.patch applied")
-    add_selection_args(diff)
-    add_client_args(diff)
-    diff.set_defaults(func=cmd_diff)
+    diff_cmd = sub.add_parser("diff", allow_abbrev=False, help="two sides per shard on one worker, then oracle.py diff")
+    diff_cmd.add_argument("--product", default="app")
+    diff_cmd.add_argument("--base")
+    diff_cmd.add_argument("--head")
+    diff_cmd.add_argument("--switch")
+    diff_cmd.add_argument("--arm", choices=["launch-config"])
+    diff_cmd.add_argument("--engine", help="webkit,chromium: one arm per engine (oracle.py run --engine), engine parity")
+    diff_cmd.add_argument("--ref")
+    diff_cmd.add_argument("--head-mutant", help="build the head with tests/oracle/mutants/app/<name>.patch applied")
+    add_selection_args(diff_cmd)
+    add_client_args(diff_cmd)
+    diff_cmd.set_defaults(func=cmd_diff)
 
     step = sub.add_parser("step", allow_abbrev=False, help="inside a fleet step (scripts/measure/oracle.sh): run the shard and pack it")
     step.add_argument("--ref", required=True)

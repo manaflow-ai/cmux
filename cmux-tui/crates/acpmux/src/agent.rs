@@ -6,6 +6,7 @@
 use crate::config::HarnessProfile;
 use crate::no_panic::RwLockExt;
 use crate::rpc::{Id, Message, RpcError};
+use crate::supervised::{Fatal, ShutdownBehavior, Supervisor};
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 mod command;
 #[cfg(unix)]
 pub(crate) mod session_tmp;
+mod supervision;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
     host_environment, pinned_preview_format, preview_format,
@@ -217,6 +219,8 @@ pub struct ChildAgent {
     /// The question preview format its command was pinned to, for a direct
     /// start (a host's is recorded where the host starts, `hub/hosts.rs`).
     pub preview_format: Option<crate::hub::questions::PreviewFormat>,
+    /// The daemon's supervisor: its readers act on the hub's sessions (`crate::supervised`).
+    supervisor: Supervisor,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -250,8 +254,9 @@ impl ChildAgent {
         cwd: &std::path::Path,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
+        supervisor: &Supervisor,
     ) -> Result<Arc<Self>> {
-        Self::spawn_with(name, profile, cwd, inbound, tap, None, None, None).await
+        Self::spawn_with(name, profile, cwd, inbound, tap, None, None, None, supervisor).await
     }
 
     /// Spawn with an explicit command line (used by the Claude stdio backend,
@@ -267,6 +272,7 @@ impl ChildAgent {
         // (session id, session name): exported to the agent as ACPMUX_* so
         // it can drive its own session and siblings through the CLI.
         session: Option<(&str, &str)>,
+        supervisor: &Supervisor,
     ) -> Result<Arc<Self>> {
         // The build-session kill switch: no process for a harness it does not allow (cx-9ettq).
         crate::launch_policy::refuse_unless_allowed(name)?;
@@ -318,11 +324,12 @@ impl ChildAgent {
             hosted: None,
             all_tools: std::sync::atomic::AtomicBool::new(false),
             preview_format,
+            supervisor: supervisor.clone(),
             #[cfg(windows)]
             job,
         });
 
-        tokio::spawn(async move {
+        crate::supervised::spawn_scoped(async move {
             let mut stdin = stdin;
             while let Some(line) = stdin_rx.recv().await {
                 if stdin.write_all(line.as_bytes()).await.is_err() {
@@ -355,7 +362,7 @@ impl ChildAgent {
             let pending = pending.clone();
             let tap = tap.clone();
             let agent_for_exit = agent.clone();
-            tokio::spawn(async move {
+            agent.supervise("agent.stdout", Fatal, ShutdownBehavior::Skip, async move {
                 let mut lines = BufReader::new(stdout).lines();
                 // The leader can exit while a descendant still holds stdout
                 // open; watch it so its exit is reported regardless.
@@ -941,6 +948,7 @@ impl ChildAgent {
         awaiting: Vec<Id>,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
+        supervisor: &Supervisor,
     ) -> Result<Attached> {
         use crate::agent_host::link::{Connect, connect};
         let (link, adopted): (Arc<crate::agent_host::link::Link>, _) =
@@ -951,7 +959,7 @@ impl ChildAgent {
                 }
             };
         let (agent, responses) =
-            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap);
+            Self::from_link(name, link, &adopted, resume_after, awaiting, inbound, tap, supervisor);
         Ok(Attached::Ready(agent, adopted, responses))
     }
 
@@ -965,6 +973,7 @@ impl ChildAgent {
         awaiting: Vec<Id>,
         inbound: mpsc::Sender<Inbound>,
         tap: Tap,
+        supervisor: &Supervisor,
     ) -> (Arc<Self>, Vec<Response>) {
         // Never reuse an id the harness may still answer.
         let (stdin_tx, _unused) = mpsc::channel::<String>(1);
@@ -1000,6 +1009,7 @@ impl ChildAgent {
             }),
             all_tools: std::sync::atomic::AtomicBool::new(false),
             preview_format: None,
+            supervisor: supervisor.clone(),
             #[cfg(windows)]
             job: None,
         });
@@ -1012,7 +1022,7 @@ impl ChildAgent {
     /// entry meanwhile, and one ack covers every entry written by then.
     fn start_reader(self: &Arc<Self>, link: Arc<crate::agent_host::link::Link>) {
         let reader = self.clone();
-        tokio::spawn(async move {
+        self.supervise("agent.host-entries", Fatal, ShutdownBehavior::Skip, async move {
             let Some(hosted) = reader.hosted.as_ref() else { return };
             let (acks, ack_rx) = mpsc::unbounded_channel();
             // Bounded by the host: it stops reading its harness once its unacknowledged entries
@@ -1260,37 +1270,4 @@ pub(crate) fn spawn_error(what: &str, e: std::io::Error) -> anyhow::Error {
 }
 
 #[cfg(all(test, unix))]
-mod spawn_error_tests {
-    use super::*;
-
-    #[test]
-    fn out_of_descriptors_says_it_is_the_daemon_and_what_to_do() {
-        let error = spawn_error("start host", std::io::Error::from_raw_os_error(libc::EMFILE));
-        let text = format!("{error:#}");
-        assert!(text.starts_with("start host: the acpmux daemon is out of open files"), "{text}");
-        assert!(text.contains("acpmux daemon shutdown"), "{text}");
-        let other = spawn_error("start host", std::io::Error::from_raw_os_error(libc::ENOENT));
-        assert!(format!("{other:#}").starts_with("start host: "), "{other:#}");
-    }
-
-    #[tokio::test]
-    async fn direct_spawn_failure_does_not_expose_harness_argv() {
-        const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
-        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
-            "argv": ["/nonexistent/acpmux-test-harness", "--token", SENTINEL]
-        }))
-        .unwrap();
-        let (inbound, _rx) = mpsc::channel(1);
-        let tap: Tap = Arc::new(|_, _, _| Some(WriteTicket::done()));
-        let error =
-            match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
-            {
-                Ok(_) => panic!("a missing harness started"),
-                Err(error) => error,
-            };
-        assert!(
-            !error.to_string().contains(SENTINEL),
-            "spawn failure exposed harness argv: {error:#}"
-        );
-    }
-}
+mod spawn_error_tests;

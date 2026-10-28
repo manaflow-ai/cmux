@@ -444,7 +444,7 @@ fn request_watchdog_leaves_a_long_wait_for_out() {
     mux.close_surface(surface.id).unwrap();
 }
 
-/// A v2 resource line runs on the connection thread; a slow one is named by
+/// A v2 resource line runs on its connection's control sequence; a slow one is named by
 /// its operation.
 #[test]
 fn request_watchdog_records_a_slow_resource_line() {
@@ -478,7 +478,7 @@ fn request_watchdog_records_a_slow_resource_line() {
 }
 
 /// A frame a connection handler answers itself (`agent-cli-intents-list`
-/// reads the workspace registry on the connection thread) is watched and
+/// reads the workspace registry on its connection's control sequence) is watched and
 /// named by its handler.
 #[cfg(unix)]
 #[test]
@@ -512,8 +512,10 @@ fn request_watchdog_records_a_slow_sniffed_frame() {
 }
 
 /// A remote-relay `fs.*` frame is watched from the first line of the frame
-/// (the client registry is held 300 ms, so its checks are slow) and, ended
-/// before the watchdog looks, named by the handler it ended in.
+/// (the client registry is held 300 ms, so the reader's client lookup is
+/// slow) and, ended before the watchdog looks, named by the stage it ended
+/// in: the reader hands a remote line to the relay on its connection's
+/// control sequence (p05-ipc-086).
 #[cfg(unix)]
 #[test]
 fn request_watchdog_records_a_slow_remote_fs_frame() {
@@ -549,6 +551,6 @@ fn request_watchdog_records_a_slow_remote_fs_frame() {
 
     let snapshot = wait_settled(&mux.request_watchdog, 1);
     assert_eq!(snapshot.total, 1, "{snapshot:?}");
-    assert_eq!(snapshot.recent[0].method, "frame:fs");
+    assert_eq!(snapshot.recent[0].method, "frame:remote-relay");
     assert_eq!(snapshot.recent[0].client, client);
 }

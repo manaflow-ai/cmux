@@ -654,7 +654,8 @@ def fake_run(tmp: Path, cases: Mapping[str, Sequence[Tuple[str, str, Any]]],
             if step != last:
                 index, last = index + 1, step
             rows.append({"case": case, "step": step, "index": index, "checkpoint": checkpoint, "snapshot": snapshot})
-    receipt = {"runId": "r", "sha": "abc", "host": {"name": "h", "os": "macOS", "osVersion": "26", "arch": "arm64"},
+    host = {"name": "h", "os": "macOS", "osVersion": "26", "arch": "arm64", "display": "none"}
+    receipt = {"runId": "r", "sha": "abc", "host": host,
                "cases": {case: {"result": (results or {}).get(case, "Pass")} for case in cases}}
     (tmp / "receipt.json").write_text(json.dumps(receipt), encoding="utf-8")
     (tmp / "checkpoints.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
