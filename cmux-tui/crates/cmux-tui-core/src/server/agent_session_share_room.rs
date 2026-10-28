@@ -468,12 +468,10 @@ fn delete(mux: &Arc<Mux>, share_id: &str, held: Option<Held>) {
                     abandon(&mux, &id, true);
                 }
                 if attempted && shares(&mux).now() >= v.expires_at {
-                    if v.delete {
-                        if !done(&mux, &id, &op) {
-                            tokio::time::sleep(wait).await;
-                            wait = (wait * 2).min(timing.backoff_max);
-                            continue;
-                        }
+                    if v.delete && !done(&mux, &id, &op) {
+                        tokio::time::sleep(wait).await;
+                        wait = (wait * 2).min(timing.backoff_max);
+                        continue;
                     }
                     return;
                 }
