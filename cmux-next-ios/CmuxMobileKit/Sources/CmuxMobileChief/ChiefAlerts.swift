@@ -36,6 +36,17 @@ public struct ChiefPreferences: @unchecked Sendable {
         defaults.set(on, forKey: key("receipts", conversationID))
     }
 
+    /// Where this phone has read to with Send Read Receipts off (the Mac's
+    /// cursor stays behind): kept, so a reconnect or relaunch does not bring
+    /// the unread count back.
+    public func readHere(_ conversationID: String) -> Int? {
+        defaults.object(forKey: key("readHere", conversationID)) as? Int
+    }
+
+    public func setReadHere(_ seq: Int, _ conversationID: String) {
+        defaults.set(seq, forKey: key("readHere", conversationID))
+    }
+
     /// The newest message seen with the conversation open on this phone
     /// (Home's Needs You for an unseen question): kept, so a relaunch does not
     /// bring back every question already seen.

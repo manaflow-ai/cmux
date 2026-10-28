@@ -198,7 +198,7 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             if let receipts = change.sendReadReceipts {
                 preferences.setSendsReadReceipts(receipts, id)
                 // Turning receipts back on reports where this phone has read to.
-                if receipts, let lastRead = lastReadHere { await markRead(lastRead) }
+                if receipts, let lastRead = lastReadHere ?? preferences.readHere(id) { await markRead(lastRead) }
             }
             guard var info = info ?? wire.info(["id": id]) else {
                 throw ConversationBackendError(code: -4, message: "no conversation")
@@ -346,9 +346,11 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
 
         func markRead(_ seq: Int) async {
             guard let id = try? await resolve() else { return }
-            lastReadHere = max(lastReadHere ?? 0, seq)
-            // Send Read Receipts off: the read position stays on this phone.
+            lastReadHere = max(lastReadHere ?? preferences.readHere(id) ?? 0, seq)
+            // Send Read Receipts off: the read position stays on this phone
+            // (kept, so a new backend after a reconnect still knows it).
             guard preferences.sendsReadReceipts(id) else {
+                if let lastReadHere, preferences.readHere(id) != lastReadHere { preferences.setReadHere(lastReadHere, id) }
                 yieldReadState(lastRead: seq)
                 return
             }
@@ -411,7 +413,8 @@ public final class ChiefDaemonBackend: ConversationFileBackend, @unchecked Senda
             continuation?.yield(.connected(info: info, meID: identity.meID, lagged: lagged))
             // With receipts off the Mac's cursor lags what this phone read.
             let server = wire.readCursor(summary, of: identity.meID)
-            yieldReadState(lastRead: preferences.sendsReadReceipts(id) ? server : max(server, lastReadHere ?? 0))
+            let here = lastReadHere ?? preferences.readHere(id) ?? 0
+            yieldReadState(lastRead: preferences.sendsReadReceipts(id) ? server : max(server, here))
         }
 
         /// Takes a conversation summary's counters. `movingRev` advances the

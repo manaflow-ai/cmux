@@ -185,7 +185,11 @@ public final class ChiefComposer {
         if !others.isEmpty, !message.text.isEmpty {
             routed.text = "To \(others.map(\.name).joined(separator: ", ")): \(message.text)"
         }
-        open(.chief(place))
+        // Forwarded from inside this Chief's own conversation: send there,
+        // instead of pushing a second copy of the same screen over it.
+        if session.conversationID == nil || ChiefSession.conversationOnScreen != session.conversationID {
+            open(.chief(place))
+        }
         session.send(routed)
     }
 

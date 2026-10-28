@@ -343,8 +343,14 @@ def main():  # noqa: C901 - one live run of several scenarios
         def delete_open():
             back_home()
             open_row(names["beta"], timeout=60)
+            # The Mac's own action, else its CLI (action.run refuses with "not_run"
+            # when the Mac's main thread is busy on a loaded mini).
             run = debug(mac, "action.run", {"action": "home.deleteChief", "origin": "script",
-                                            "args": {"chief": chiefs["beta"], "confirm": True}})
+                                            "args": {"chief": chiefs["beta"], "confirm": True}}, timeout=30)
+            if run.get("ok") is not True:
+                log(f"   action.run refused ({json.dumps(run)[:200]}); deleting with the CLI")
+                cli = mac.cmux("chief", "delete", chiefs["beta"], check=False, timeout=60)
+                run = {"ok": cli.returncode == 0, "via": "cli"}
             time.sleep(6)
             shot("beta-deleted-while-open")
             still_open = bool(sim.find(ident="conversation.composer.text"))
