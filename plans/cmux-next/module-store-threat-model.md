@@ -131,3 +131,48 @@ is not built on the Mac (cmux-tui/AGENTS.md).
 
 Not covered yet: the supervisor's git calls against a real host, the browser host's origin
 enforcement, the consent sheet, the store UI, and the DNS check in section 8.
+
+## 10. Comparison: OpenCode GUI plugins (2026-10-27)
+
+Source: https://opencode.ai/v2/docs/build/plugins/gui/ (their GUI plugin API, marked experimental).
+Their model: a code plugin (`Plugin.define`) with a `setup` part that runs in every window and a `main`
+part that runs once in the Electron main process. It contributes commands, panels, slots, menus,
+settings pages, styles and link handlers through `ctx.add(Registry, item)`. It is distributed as an
+npm package with a `./gui-experimental` export and one prebuilt CommonJS bundle.
+
+Their page documents no permission model and no sandbox. Its only guards are build-time import checks,
+the rule that a plugin may provide only tokens whose ids start with its own id, and refusal of reserved ids.
+
+| Topic | OpenCode GUI plugins | This design (module store) | Decision |
+| --- | --- | --- | --- |
+| Unit | Code that adds UI hooks (commands, panels, slots, menus, settings, styles) | One tab: a web URL, or an offline page. No code | Keep ours. Their hooks need a permission model they do not document |
+| Code execution | JS in every window and in Electron main with Node access | None in v1. Any future JS runs in the sandboxed app host (app-platform 13) | Reject. This is the main difference |
+| Permissions | Not documented; build-time import checks and id prefixes only | Scope allowlist, every origin listed, consent sheet, elevated scopes never granted at install | Keep ours |
+| Identity | Ids prefixed with the plugin id; reserved ids refused | Publisher must equal the repository owner; reserved publishers refused | Already aligned. Adopt the prefix rule for contributions in v2 |
+| Distribution and update | npm package; an installed GUI changes only with the package version | Git repository pinned to a SHA or tag; digest over every file; an update needs approval with a diff | Keep ours. A registry version can be republished, our pin cannot |
+| Packaging | One prebuilt CJS file; dynamic imports inlined; build fails on disallowed imports | Files in the tree, all digested; no build step at install | Adopt the single-entry rule for any future JS module: one prebuilt entry, no dynamic import, so the reviewed bytes are the bytes that run |
+| Status | `Live<T>`: `pending`, `active`, `inactive` with `reason` `disabled` or `failed` | No status vocabulary in v1 | Adopt for the store list (task item 4: the browse and search list): `pending` (fetching or verifying), `active`, `inactive` with reason `disabled` or `failed`. A failed reason names the refusal code (for example `digest.tampered`, `pin.moved`) |
+| Enable and disable | Settings > Extensions switch, separate from removal | installed, enabled, hidden states (app-platform V9); uninstall is separate | Keep ours |
+| Lifecycle | Registrations end with their owner; `ctx.signal`; cleanup last-in first-out; async cleanup capped at 3 s; reloads on rebuild, option change or update, never on a server restart | Closing the tab ends it; uninstall deletes tree, storage, grants and approval in one commit | Adopt the 3-second cap on teardown in the supervisor. Keep ours for uninstall. An approved update reloads the tab; nothing reloads without approval |
+| Platform gating | `os`: `macos`, `windows`, `linux`; omit to run everywhere | `requires.platforms` exists in the schema but is refused for git modules in v1 | Candidate for v2, not adopted now |
+| Styles | Arbitrary CSS string while active | Custom CSS and CSP refused | Keep refusal. CSS can leak data through `url()` without any script |
+| Embedded views | `WebContentsView`; `dispose()` removes the view but does not close its page | Web tab in its own profile under the origin list | Add to the host checklist: teardown must close the page, not just hide it |
+| Contributed commands | Declarative `Command` with `slash`, `bind`, `run` | None in v1 | Candidate for v2: declarative commands that only open the module's tab. Not adopted now |
+| Stores and i18n | `Store.global` and `Store.session`; locale fallback to `en` | `storage:local`, `storage:synced`; no module strings | Keep ours. Adopt the `en` fallback for module strings in v2 |
+| Main-process IPC | Typed `Ipc` contracts; calls wait while main starts; reject on failure | No main-process code | Not applicable in v1 |
+
+### 10.1 Adopted into this design now
+
+1. Status vocabulary for the store list: `pending`, `active`, `inactive` (reason `disabled` or `failed`). Design only; the code lands with the supervisor.
+2. Teardown cap: 3 seconds for any module cleanup, after which the tab is closed.
+3. Single-entry packaging rule for any future JavaScript module: one prebuilt file, no dynamic import.
+4. Id-prefix rule for future contributions (commands, tokens): an id must start with the module's own id.
+
+### 10.2 Not adopted
+
+- Code in the window or in the browser main process. A module stays a tab with no code.
+- Custom CSS or CSP. Refused.
+- Registry-mutable versions. An installed module changes only through a pinned, approved update.
+- Platform gating and declarative commands: kept as v2 candidates above.
+
+The OpenCode API is experimental. Nothing here depends on it, and we should not pin to it.
