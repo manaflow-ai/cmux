@@ -62,11 +62,15 @@ final class AccountsService: AccountsServices {
         #else
         keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
         #endif
+        #if DEBUG
         if services.environment.authCaptureFixture {
             labels = AccountLabelerStore(provider: CaptureFixtureLabelSalt())
         } else {
             labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
         }
+        #else
+        labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
+        #endif
         activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
             self?.model.appDidBecomeActive()
         }
@@ -75,16 +79,19 @@ final class AccountsService: AccountsServices {
     /// The detection inputs. The login env is captured once per launch
     /// (keys exported in shell rc files count); only presence is used.
     func detectionEnvironment() async -> DetectionEnvironment {
-        let captureFixture = services.environment.authCaptureFixture
         let keys = keys
-        let saved: Set<AIProvider> = captureFixture ? [] : await Task.detached { keys.savedProviders() }.value
+        let saved = await Task.detached { keys.savedProviders() }.value
         let labeler = await labeler()
+        #if DEBUG
+        if services.environment.authCaptureFixture {
+            return DetectionEnvironment(home: URL(fileURLWithPath: "/cmux-auth-capture/providers", isDirectory: true),
+                                        environment: [:], files: CaptureFixtureFiles(), keychain: NoKeychain(),
+                                        servers: NoLocalServerProbe(), labeler: labeler, savedKeys: [])
+        }
+        #endif
         if let fixtureHome {
-            return DetectionEnvironment(home: fixtureHome,
-                                        environment: captureFixture ? [:] : ProcessInfo.processInfo.environment,
-                                        files: captureFixture ? CaptureFixtureFiles() : LiveFileReader(), keychain: NoKeychain(),
-                                        servers: captureFixture ? NoLocalServerProbe() : HTTPServerProbe(),
-                                        labeler: labeler, savedKeys: saved)
+            return DetectionEnvironment(home: fixtureHome, environment: ProcessInfo.processInfo.environment, files: LiveFileReader(),
+                                        keychain: NoKeychain(), servers: HTTPServerProbe(), labeler: labeler, savedKeys: saved)
         }
         if loginEnvironment == nil { loginEnvironment = await LoginEnvironment.shared.capture() ?? ProcessInfo.processInfo.environment }
         return DetectionEnvironment(home: FileManager.default.homeDirectoryForCurrentUser, environment: loginEnvironment ?? [:],
@@ -110,8 +117,8 @@ final class AccountsService: AccountsServices {
     var client: CodeRouterClient? {
         let cloud = services.cloud
         let auth = cloud.auth, labels = labels
-        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, tokens: { try await auth.tokens() },
-                                teamID: { await auth.teamID }, labeler: { await labels.labeler() })
+        return CodeRouterClient(baseURL: cloud.configuration.apiBaseURL, account: auth,
+                                labeler: { await labels.labeler() })
     }
 
     // MARK: AccountsServices
@@ -182,7 +189,9 @@ final class AccountsService: AccountsServices {
     /// so the provider's own login runs where the user can see and answer it.
     @discardableResult
     private func runInTerminal(_ line: String) -> Bool {
-        let line = services.environment.authCaptureFixture ? "/usr/bin/printf 'Provider sign-in capture: local terminal opened\\n'" : line
+        #if DEBUG
+        let line = services.environment.authCaptureFixture ? "/usr/bin/printf 'Provider sign-in capture: local terminal opened\n'" : line
+        #endif
         let opened = services.inFrontPane { $0.newTerminalTab(typing: line + "\r") }
         if !opened { logger.info("no local pane for a terminal tab") }
         return opened
@@ -191,7 +200,9 @@ final class AccountsService: AccountsServices {
     /// Opens `url` in a new browser tab of the main window's local pane.
     @discardableResult
     private func openPage(_ url: URL) -> Bool {
+        #if DEBUG
         let url = services.environment.authCaptureFixture ? URL(fileURLWithPath: "/dev/null") : url
+        #endif
         let opened = services.inFrontPane { $0.newBrowserTab(url: url) }
         if !opened { logger.info("no local pane for a browser tab") }
         return opened
@@ -206,6 +217,7 @@ private struct NoKeychain: KeychainProbing {
     func hasGenericPassword(service: String) -> Bool { false }
 }
 
+#if DEBUG
 /// Capture fixture: provider detection must not probe a developer's loopback
 /// model servers. Its isolated provider home is still read through the real
 /// detector and file reader.
@@ -213,7 +225,6 @@ private struct NoLocalServerProbe: LocalServerProbing {
     func isReachable(_ url: URL) async -> Bool { false }
 }
 
-#if DEBUG
 private final class CaptureFixtureProviderKeyStore: ProviderKeyStoring, Sendable {
     private let values = Mutex<[AIProvider: String]>([:])
 
@@ -223,7 +234,6 @@ private final class CaptureFixtureProviderKeyStore: ProviderKeyStoring, Sendable
     func delete(for provider: AIProvider) throws { _ = values.withLock { $0.removeValue(forKey: provider) } }
 }
 
-#endif
 
 /// A virtual provider home: even an existing file at this path is never read.
 private struct CaptureFixtureFiles: FileReading {
@@ -234,3 +244,5 @@ private struct CaptureFixtureFiles: FileReading {
 private struct CaptureFixtureLabelSalt: AccountLabelSaltProviding {
     func salt() throws -> Data { Data("cmux-auth-capture-label-salt".utf8) }
 }
+
+#endif
