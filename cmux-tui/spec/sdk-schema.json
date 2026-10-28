@@ -11261,7 +11261,7 @@
    "constraints": [
     "terminals counts the daemon's PTY terminals; unmeasured counts those moving between hot and cold or that libghostty-vt could not report, which add to no byte field.",
     "The byte fields are memory-report's totals; bytes is their sum and the sum of every terminal's bytes.",
-    "scrollback_rows counts rows above the viewport of hot terminals only.",
+    "scrollback_rows counts rows above the viewport of the active screen of hot terminals only (about 0 on the alternate screen).",
     "top lists at most 5 terminals, most bytes first, ties by surface."
    ]
   },

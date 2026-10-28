@@ -91,7 +91,9 @@ pub struct TerminalMemorySection {
     /// PTY terminals whose terminal was moving between hot and cold, or that
     /// libghostty-vt could not report; counted in `terminals` only.
     pub unmeasured: u64,
-    /// Scrollback rows above the viewport of the hot terminals. A cold
+    /// Scrollback rows above the viewport of the hot terminals, on each
+    /// terminal's active screen: a terminal on its alternate screen counts
+    /// about 0 here while its primary history stays in `bytes`. A cold
     /// terminal's rows are inside its compressed snapshot and are not read.
     pub scrollback_rows: u64,
     /// Every byte the daemon holds for its terminals: the sum of the rows'
@@ -113,7 +115,8 @@ pub struct TerminalMemoryRow {
     /// Its pages of both screens and Kitty images (hot), or its compressed
     /// state (cold), plus its holder ring copy.
     pub bytes: u64,
-    /// Scrollback rows above the viewport; `None` unless hot.
+    /// Scrollback rows above the viewport of the active screen (about 0 on
+    /// the alternate screen); `None` unless hot.
     pub scrollback_rows: Option<u64>,
 }
 

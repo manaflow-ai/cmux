@@ -52,7 +52,7 @@ const HANGS: &str = "hangs";
 /// The optional section that reports the daemon's own large in-memory
 /// owners: terminals, output store, journal ring and outbound text
 /// (server/memory_stats.rs).
-const MEMORY: &str = "memory";
+pub(super) const MEMORY: &str = "memory";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.

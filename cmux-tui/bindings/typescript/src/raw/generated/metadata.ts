@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3. */
+/* cmux-tui mux protocol 12, IR d63f2f3334d243ef0d3b8040f917019eb1e7c376990c703a63f3d8cf6a87bbb5. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "c4919a0a6565c9e2629e91c42fddc67e190d12abc9562f97484eb2040df98be3" as const;
+export const SDK_IR_SHA256 = "d63f2f3334d243ef0d3b8040f917019eb1e7c376990c703a63f3d8cf6a87bbb5" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -14934,7 +14934,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "terminals counts the daemon's PTY terminals; unmeasured counts those moving between hot and cold or that libghostty-vt could not report, which add to no byte field.",
       "The byte fields are memory-report's totals; bytes is their sum and the sum of every terminal's bytes.",
-      "scrollback_rows counts rows above the viewport of hot terminals only.",
+      "scrollback_rows counts rows above the viewport of the active screen of hot terminals only (about 0 on the alternate screen).",
       "top lists at most 5 terminals, most bytes first, ties by surface."
     ],
     "fields": {
