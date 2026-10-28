@@ -28,6 +28,12 @@ extension CMUXCLI {
             telemetry.breadcrumb("claude-hook.difficulty.overridden")
             return
         }
+        // Left alone for `--effort`, a launch variable, or a `/effort` cmux saw.
+        // An app that predates the key leaves it out; only `false` skips.
+        guard probe["adjustable"] as? Bool != false else {
+            telemetry.breadcrumb("claude-hook.difficulty.not-adjustable")
+            return
+        }
 
         let claudePid = mappedSession?.pid ?? claudeAgentPID(from: env)
         guard !shouldSuppressNestedAgentVisibleMutations(currentAgentPID: claudePid, env: env) else {

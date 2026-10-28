@@ -106,6 +106,7 @@ extension ControlCommandCoordinator {
                 "workspace_id": .string(probe.workspaceId.uuidString),
                 "manual": .bool(probe.manual),
                 "override_present": .bool(probe.overridePresent),
+                "adjustable": .bool(probe.adjustable),
                 "difficulty_auto": orNull(probe.difficultyAuto),
             ]))
         }

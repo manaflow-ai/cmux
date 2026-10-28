@@ -31,6 +31,10 @@ struct SessionPrioritySnapshot: Equatable, Sendable {
     var target: SessionPriorityTarget?
     /// Empty while session priority is off.
     var panes: [Pane]
+
+    /// Whether cmux adjusts this workspace's effort: it has a target, so it is not marked manual
+    /// and not every Claude pane is left alone. The turn-end difficulty rating is skipped otherwise.
+    var isAdjustable: Bool { target != nil }
 }
 
 extension SessionPrioritySnapshot {

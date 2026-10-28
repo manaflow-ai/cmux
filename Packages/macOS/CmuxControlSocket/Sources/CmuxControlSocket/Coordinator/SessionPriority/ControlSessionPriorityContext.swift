@@ -85,6 +85,10 @@ public struct ControlSessionPriorityProbe: Sendable {
     public var workspaceId: UUID
     public var manual: Bool
     public var overridePresent: Bool
+    /// Whether cmux adjusts the workspace's effort, i.e. it has a target:
+    /// `false` while the workspace is marked manual or every Claude pane is
+    /// left alone (`--effort`, a launch variable, a `/effort` cmux saw).
+    public var adjustable: Bool
     /// The automatic difficulty cmux holds for the workspace (`easy`,
     /// `normal` or `hard`), or `nil` before the first rating.
     public var difficultyAuto: String?
@@ -94,12 +98,14 @@ public struct ControlSessionPriorityProbe: Sendable {
         workspaceId: UUID,
         manual: Bool,
         overridePresent: Bool,
+        adjustable: Bool,
         difficultyAuto: String?
     ) {
         self.enabled = enabled
         self.workspaceId = workspaceId
         self.manual = manual
         self.overridePresent = overridePresent
+        self.adjustable = adjustable
         self.difficultyAuto = difficultyAuto
     }
 }

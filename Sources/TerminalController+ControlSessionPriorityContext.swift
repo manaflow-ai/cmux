@@ -118,6 +118,7 @@ extension TerminalController: ControlSessionPriorityContext {
             workspaceId: workspace.id,
             manual: state.isManual,
             overridePresent: state.difficultyOverride != nil,
+            adjustable: SessionPriorityCoordinator.shared.snapshot(for: workspace).isAdjustable,
             difficultyAuto: state.autoDifficulty?.rawValue
         )
     }
