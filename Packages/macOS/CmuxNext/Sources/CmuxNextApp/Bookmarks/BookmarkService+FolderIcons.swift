@@ -15,7 +15,7 @@ import CmuxNextWakeups
 /// until it is read; the bar that drew it then redraws (no polling).
 extension BookmarkService {
     /// The machine that keeps bookmarks and their stored icons.
-    var iconOwner: DaemonService { services.machines.local }
+    var iconOwner: DaemonService { machines.local }
 
     /// Folder icons can be set and removed: the home daemon serves `bookmark-icon-v1`.
     var supportsFolderIcons: Bool { iconOwner.supports(DaemonCapability.bookmarkIcon.rawValue) }
@@ -66,6 +66,7 @@ extension BookmarkService {
     /// that drew the folder symbol for it through their tabs' nodes (``reloadBar(_:)``). `visible`: the
     /// icons show on the bars.
     func followFolderIcons() {
+        guard let services else { return }
         folderIconObservation = ServiceObservation(.visible, owner: "BookmarkService.folderIcons", on: services.mainWork) { [weak self] in
             self?.landedAwaitedFolderIcons() ?? []
         } apply: { [weak self] landed in

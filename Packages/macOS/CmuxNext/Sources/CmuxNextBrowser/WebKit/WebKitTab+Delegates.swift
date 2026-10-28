@@ -109,8 +109,10 @@ extension WebKitTab: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation?) {
         restored.navigationCommitted(url: webView.url)
+        contentCommitted()
         formResubmissionCommitted()
         pageDidCommit()
+        processSiteCommitted()
         guard let id = navigationID(for: navigation, creating: false) else { return }
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
@@ -162,17 +164,17 @@ extension WebKitTab: WKNavigationDelegate {
         apply(.failed(id, failure))
     }
 
-    /// WebKit gives no reason; the sad tab says the page crashed.
+    /// WebKit gives no reason; the sad tab says the page crashed. The end is a stability event (no URL).
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
-        // No commit or finish is coming, so the page area goes back to
-        // WebKit's own background rather than keeping none for good.
-        // Unconditionally, not through `pageDidFinish`: a crash can leave
-        // `webView.url` nil, which that one reads as a blank page and skips,
-        // putting the tab back in the stuck state this is here to prevent.
+        contentProcessEnded()
+        // No commit or finish is coming, so the page area goes back to WebKit's own background rather than
+        // keeping none for good. Unconditionally, not through `pageDidFinish`: a crash can leave `webView.url`
+        // nil, which that one reads as a blank page and skips, putting the tab back in the stuck state this is here to prevent.
         pageBaseHold.cancel()
         setDrawsPageBackground(true)
         removeStandIn()
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
+        processSiteEnded()
         firstContentFrame.contentShown() // the sad tab is what the new tab shows
     }
 

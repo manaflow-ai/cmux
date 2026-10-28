@@ -47,11 +47,11 @@ public final class LagSpikeReporter: Sendable {
     /// Test seam: an explicit enabled check, sink and monotonic clock.
     public init(limiter: LagSpikeRateLimiter, isEnabled: @escaping @Sendable () -> Bool, sink: @escaping Sink,
                 uptime: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }) {
-        self.limiter = Mutex(limiter)
+        self.limiter = Mutex(limiter, rank: .lagSpikeLimiter)
         self.isEnabled = isEnabled
         self.sink = sink
         self.uptime = uptime
-        self.contextProvider = Mutex(nil)
+        self.contextProvider = Mutex(nil, rank: .lagSpikeContextProvider)
     }
 
     /// Sets the context read for each admitted spike (main thread).
@@ -60,10 +60,10 @@ public final class LagSpikeReporter: Sendable {
     }
 
     /// One finished main-thread stall; `phase` (the stall record's `phase`, `cef_pump`) goes into the
-    /// event's context as `main_thread_phase`.
+    /// event's context as `main_thread_phase`, and `cef` (the record's `cef`) is its `hang.cef` tag.
     /// - Returns: whether it was admitted (sent).
     @discardableResult
-    public func noteStall(duration: Duration, cpu: Duration, addresses: [UInt], phase: String? = nil) -> Bool {
+    public func noteStall(duration: Duration, cpu: Duration, addresses: [UInt], phase: String? = nil, cef: Bool = false) -> Bool {
         guard isEnabled() else { return false }
         let nanos = UInt64(clamping: max(Int64(0), duration.components.seconds) * 1_000_000_000
             + duration.components.attoseconds / 1_000_000_000)
@@ -71,7 +71,7 @@ public final class LagSpikeReporter: Sendable {
         guard limiter.withLock({ $0.admit(durationNanos: nanos, nowNanos: now) }) else { return false }
         var context = contextProvider.withLock { $0 }?() ?? [:]
         if let phase { context["main_thread_phase"] = phase }
-        let event = LagSpikeEvent(duration: duration, cpu: cpu, addresses: addresses, context: context)
+        let event = LagSpikeEvent(duration: duration, cpu: cpu, addresses: addresses, context: context, cef: cef)
         let sink = self.sink
         Task.detached(priority: .utility) { sink(event) }
         return true

@@ -30,6 +30,7 @@ extension HomeService {
     /// unpublished; the next launch tries again. Nothing is stopped. Every
     /// other build's Chief home starts empty.
     func installChiefMigration() {
+        guard let services else { return }
         let home = chief.home
         guard home.importsOldChiefs else { return }
         let create = HomeChiefName.createRequest(user: Self.localUser, mux: Self.mux)

@@ -8,21 +8,29 @@ render rate, 1 is full rate) and prints one table row per mode: flings, frames
 per fling, the median of the flings' p50 and p95 frame intervals, and dropped
 frames over all flings. A mode past its threshold is flagged in the table and
 reported on stderr as a ::warning:: annotation. The script never exits non-zero
-for a regression: this bench gates nothing.
+for a regression: this bench gates nothing. Medians come from the perf lab's
+perf_stats (lab_rows.py).
+
+The perf lab story `frame_pacing.fling` (lab_story.py) writes the same files, with
+each fling's raw frame intervals (`perf_stats` `raw`), and records `rows()` as
+result-v1.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import statistics
 import sys
 from datetime import datetime, timezone
 from argparse import ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
 
+from lab_rows import Row, perf_stats
+
 MODES = {"0": "capped (60 Hz)", "1": "full rate (120 Hz)"}
+# The render rate's name in result-v1 metric names (fling.<rate>.*).
+RATES = {"0": "capped", "1": "full"}
 # Frame interval medians a healthy run stays within on a 120 Hz display: full
 # rate draws every 8.3 ms frame, capped every other one (16.7 ms).
 P50_LIMIT_MS = {"0": 18.0, "1": 9.0}
@@ -67,26 +75,70 @@ class ModeResult:
         }
 
 
-def load_mode(out: Path, mode: str) -> ModeResult | None:
+@dataclass(frozen=True)
+class Fling:
+    """One measured fling's file: the page's fling stats and, when the bench asked for them, its raw frames."""
+
+    frames: int
+    p50_ms: float
+    p95_ms: float
+    dropped: int
+    intervals_ms: tuple
+    blank_frames: int | None
+
+
+def load_flings(out: Path, mode: str) -> list[Fling]:
+    """The mode's flings that drew frames. A fling the page never drew (a locked console) has none to judge, and a
+    file whose RPC answered with an error is left out."""
     flings = []
     for path in sorted(out.glob(f"{mode}-*.json")):
         try:
-            fling = json.loads(path.read_text())["fling"]
-            flings.append((int(fling["frames"]), float(fling["p50_ms"]), float(fling["p95_ms"]), int(fling["dropped_frames"])))
-        except (ValueError, KeyError, TypeError):
+            reply = json.loads(path.read_text())
+            fling = reply["fling"]
+            perf = reply.get("perf") if isinstance(reply.get("perf"), dict) else {}
+            raw = perf.get("samples") if isinstance(perf.get("samples"), list) else []
+            flings.append(Fling(
+                frames=int(fling["frames"]), p50_ms=float(fling["p50_ms"]), p95_ms=float(fling["p95_ms"]),
+                dropped=int(fling["dropped_frames"]),
+                intervals_ms=tuple(float(sample["interval_ms"]) for sample in raw),
+                blank_frames=int(perf["blank_frames"]) if "blank_frames" in perf else None))
+        except (ValueError, KeyError, TypeError, AttributeError):
             continue
-    # A fling the page never drew (a locked console) has no frames to judge.
-    flings = [fling for fling in flings if fling[0] > 0]
+    return [fling for fling in flings if fling.frames > 0]
+
+
+def rows(out: Path) -> list[Row]:
+    """result-v1 rows of the lab story `frame_pacing.fling`, per render rate: every frame interval of the measured
+    flings (when their files carry raw frames), and per fling its dropped frames, their share and its blank frames."""
+    found: list[Row] = []
+    for mode, rate in RATES.items():
+        flings = load_flings(out, mode)
+        if not flings:
+            continue
+        intervals = tuple(interval for fling in flings for interval in fling.intervals_ms)
+        if intervals:
+            found.append(Row(f"fling.{rate}.frame_interval", "ms", "lower", intervals))
+        found.append(Row(f"fling.{rate}.dropped", "count", "lower", tuple(fling.dropped for fling in flings)))
+        found.append(Row(f"fling.{rate}.dropped_fraction", "ratio", "lower",
+                         tuple(round(fling.dropped / fling.frames, 4) for fling in flings)))
+        blank = tuple(fling.blank_frames for fling in flings if fling.blank_frames is not None)
+        if blank:
+            found.append(Row(f"fling.{rate}.blank_frames", "count", "lower", blank))
+    return found
+
+
+def load_mode(out: Path, mode: str) -> ModeResult | None:
+    flings = load_flings(out, mode)
     if not flings:
         return None
     return ModeResult(
         mode=mode,
         flings=len(flings),
-        frames=statistics.median(fling[0] for fling in flings),
-        p50_ms=statistics.median(fling[1] for fling in flings),
-        p95_ms=statistics.median(fling[2] for fling in flings),
-        dropped=sum(fling[3] for fling in flings),
-        total_frames=sum(fling[0] for fling in flings),
+        frames=perf_stats.pct([fling.frames for fling in flings], 0.5),
+        p50_ms=perf_stats.pct([fling.p50_ms for fling in flings], 0.5),
+        p95_ms=perf_stats.pct([fling.p95_ms for fling in flings], 0.5),
+        dropped=sum(fling.dropped for fling in flings),
+        total_frames=sum(fling.frames for fling in flings),
     )
 
 

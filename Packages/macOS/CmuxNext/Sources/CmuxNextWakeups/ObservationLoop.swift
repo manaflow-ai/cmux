@@ -23,12 +23,25 @@ import Observation
 ///     self?.render()
 /// }
 /// ```
+///
+/// A pass whose value costs a walk of the model, and whose apply writes a model, splits into `read`
+/// and `apply`. Only `read` is tracked, and it runs once per render, never in a will-set (a
+/// ``ServiceObservation`` reads again in each will-set until the cause is person).
+///
+/// ```swift
+/// rowsLoop = ObservationLoop(owner: "sidebar.rows", delivery: .visible(nil), on: mainWork) {
+///     store.rowsOfEveryWorkspace()
+/// } apply: { [weak self] rows in
+///     self?.model.rows = rows
+/// }
+/// ```
 @MainActor
 public final class ObservationLoop {
     /// The loop's name on the board, in the watchdog's records and `debug.observations`.
     public let owner: String
 
-    private let render: @MainActor () -> Void
+    /// One render: the tracked read, then what it updates.
+    private let step: @MainActor (ObservationLoopTrigger) -> Void
     private let trigger = ObservationLoopTrigger()
     private var watch: FrameObservation<UInt64>?
     private var cancelled = false
@@ -47,10 +60,37 @@ public final class ObservationLoop {
     ///   - file: The creating file (leave the default): the board names it as each render's post site.
     ///   - line: The creating line (leave the default).
     ///   - render: Reads the model and updates its owner; it runs on the main actor with tracking.
-    public init(owner: String, delivery: FrameObservationDelivery, on work: MainWorkScheduler,
-                file: StaticString = #fileID, line: UInt = #line, _ render: @escaping @MainActor () -> Void) {
+    public convenience init(owner: String, delivery: FrameObservationDelivery, on work: MainWorkScheduler,
+                            file: StaticString = #fileID, line: UInt = #line, _ render: @escaping @MainActor () -> Void) {
+        self.init(owner: owner, delivery: delivery, on: work, file: file, line: line) { trigger in
+            Self.tracked(trigger, render)
+        }
+    }
+
+    /// Computes `read` and gives its value to `apply` once, in the caller's turn, then again once
+    /// per delivery after anything `read` read changes. `apply` is not tracked: what it reads or
+    /// writes never starts a render.
+    ///
+    /// - Parameters:
+    ///   - owner: The loop's name (interned once on the scheduler's board).
+    ///   - delivery: When a change renders again.
+    ///   - work: The app's one main-thread scheduler.
+    ///   - file: The creating file (leave the default): the board names it as each render's post site.
+    ///   - line: The creating line (leave the default).
+    ///   - read: The observed expression; it runs on the main actor with tracking, once per render.
+    ///   - apply: The side effect for each value `read` computed.
+    public convenience init<Value>(owner: String, delivery: FrameObservationDelivery, on work: MainWorkScheduler,
+                                   file: StaticString = #fileID, line: UInt = #line,
+                                   read: @escaping @MainActor () -> Value, apply: @escaping @MainActor (Value) -> Void) {
+        self.init(owner: owner, delivery: delivery, on: work, file: file, line: line) { trigger in
+            apply(Self.tracked(trigger, read))
+        }
+    }
+
+    private init(owner: String, delivery: FrameObservationDelivery, on work: MainWorkScheduler,
+                 file: StaticString, line: UInt, step: @escaping @MainActor (ObservationLoopTrigger) -> Void) {
         self.owner = owner
-        self.render = render
+        self.step = step
         renderTracked()
         watch = FrameObservation(owner: owner, delivery: delivery, on: work, file: file, line: line) { [trigger] in
             trigger.generation
@@ -72,10 +112,14 @@ public final class ObservationLoop {
     private func renderTracked() {
         guard !cancelled else { return }
         renders += 1
-        let trigger = trigger
+        step(trigger)
+    }
+
+    /// Runs `body` with tracking; the first change of what it read bumps `trigger`, in that change's turn.
+    private static func tracked<T>(_ trigger: ObservationLoopTrigger, _ body: @MainActor () -> T) -> T {
         // view-observation-allow: the render's own reads; the FrameObservation on the trigger schedules the next render
         withObservationTracking {
-            render()
+            body()
         } onChange: { @Sendable in
             // main-hop-allow: models change on main, so this runs inline in the change's turn, where its cause is current
             MainDelivery().run { trigger.generation &+= 1 }

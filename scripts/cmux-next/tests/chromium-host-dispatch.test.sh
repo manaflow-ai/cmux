@@ -16,6 +16,13 @@
 #                           (ChromiumHost/client, built as a shared library
 #                           from the committed client/generated/remote_shim.inc)
 #                           on a socket pair: what cmux's shim reads
+#   host_choosers_test.cpp  the chooser payloads (host_choosers.h), then the
+#                           dispatcher and the real remote shim on a socket
+#                           pair: the color, device and screen-share handlers
+#                           end to end (task p01-process-228)
+#   host_page_resource_test.cpp  the same pair: cmux-page:// schemes as preinit
+#                           ops with their verdicts, PAGE_RESOURCE and a 10 MB
+#                           answer in shared memory (task p01-process-070)
 # Every test links a fake of the shim: the test's own functions, and a weak
 # zero stub for each other export of cmux_cef_shim.h (the generated cases call
 # them all). First, the sources compile alone with -Werror against the same
@@ -24,7 +31,7 @@
 #
 # Not in CI (lead, 2026-10-23: no new CI tests); run it when you change
 # host_dispatch.{h,mm}, host_mirror.{h,mm}, host_text_input.{h,mm}, host_resize.h, host_wheel_ack.h,
-# host_page_activity.h, the generator's host output or the ops JSON.
+# host_page_activity.h, host_choosers.h, the generator's host output or the ops JSON.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 work="$(mktemp -d "${TMPDIR:-/tmp}/chromium-host-dispatch.XXXXXX")"
@@ -109,3 +116,11 @@ fi
   "$host/tests/host_mirror_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
   ${test_libs[@]+"${test_libs[@]}"}
 "$work/host_mirror_test"
+"${cxx[@]}" "${flags[@]}" -I"$host/client" -O1 -DCMUX_REMOTE_SHIM_PATH="\"$client\"" -o "$work/host_choosers_test" \
+  "$host/tests/host_choosers_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
+  ${test_libs[@]+"${test_libs[@]}"}
+"$work/host_choosers_test"
+"${cxx[@]}" "${flags[@]}" -I"$host/client" -O1 -DCMUX_REMOTE_SHIM_PATH="\"$client\"" -o "$work/host_page_resource_test" \
+  "$host/tests/host_page_resource_test.cpp" -x c++ "${sources[@]}" -x none "$work/src/chromium_host_control.cc" \
+  ${test_libs[@]+"${test_libs[@]}"}
+"$work/host_page_resource_test"

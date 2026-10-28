@@ -63,22 +63,41 @@ public struct AlignedWakeups: Sendable {
     ///   - owner: Who asked; the `WakeupLedger` owner of the deadline (reason `deadline`).
     ///   - delay: How long to wait at least (zero or less: the next fire).
     ///   - placement: Where the deadline goes.
+    ///   - file: The line that asked, named by the arm census in Debug and bench builds (leave the default).
+    ///   - line: See `file`.
     ///   - action: Runs on the main actor in the boundary's fire; it should post its work, not do it.
     /// - Returns: The ticket that cancels it.
     @discardableResult
     public func schedule(owner: String, after delay: Duration, placement: Placement = .flexible,
+                         file: StaticString = #fileID, line: UInt = #line,
                          _ action: @escaping MainWakeUpQueue.Action) -> Ticket {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // One record per deadline in the launch's arm census (p08-startup-085); its fire is the record's first.
+        let action = Self.census(queue.ledger.armCensus, owner: owner, site: ArmCensus.Site(file: file, line: line), action)
+        #endif
         switch placement {
         case .precise:
-            Ticket(token: queue.insert(owner: owner, after: delay, policy: .precise, action))
+            return Ticket(token: queue.insert(owner: owner, after: delay, policy: .precise, action))
         case .flexible:
-            Ticket(token: queue.insert(owner: owner, after: delay, policy: .flexibleNoSooner, action))
+            return Ticket(token: queue.insert(owner: owner, after: delay, policy: .flexibleNoSooner, action))
         case .hidden:
-            Ticket(token: queue.insertHidden(owner: owner, after: delay, action))
+            return Ticket(token: queue.insertHidden(owner: owner, after: delay, action))
         }
     }
 
-    /// ``schedule(owner:after:placement:_:)`` for a deadline given as an instant on the queue's clock
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// `action`, recording its first fire when `census` records the deadline's arm.
+    private static func census(_ census: ArmCensus, owner: String, site: ArmCensus.Site,
+                               _ action: @escaping MainWakeUpQueue.Action) -> MainWakeUpQueue.Action {
+        guard let slot = census.armed(.mainDeadline, owner: owner, site: site) else { return action }
+        return {
+            census.fired(slot)
+            action()
+        }
+    }
+    #endif
+
+    /// ``schedule(owner:after:placement:file:line:_:)`` for a deadline given as an instant on the queue's clock
     /// (uptime ns), so a deadline that moves to another placement keeps its due time. Callable from any
     /// thread.
     @discardableResult

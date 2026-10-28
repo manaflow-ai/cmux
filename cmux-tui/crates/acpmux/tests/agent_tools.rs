@@ -354,6 +354,8 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert_eq!(memory["args"], json!(["agent-memory", "mcp"]), "{servers}");
     assert_eq!(memory["env"]["CMUX_AGENT_SESSION"], json!(id), "{servers}");
 
+    daemon_serves_the_subsession_and_secret_tools(&hub, &mut local, &root).await;
+
     // The switch turns it off for the next session.
     // SAFETY: as above; no session is starting concurrently.
     unsafe { std::env::set_var("ACPMUX_AGENT_TOOLS", "0") };
@@ -361,4 +363,238 @@ async fn local_sessions_get_the_browser_and_cua_tools_and_skills() {
     assert_eq!(local.ask(&id, "mcp").await, "[]");
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The folded agent tool servers of `session` (`CMUX_MCP_UPSTREAMS`).
+async fn upstreams_of(local: &mut Client, session: &str) -> Vec<Value> {
+    let servers: Value = serde_json::from_str(&local.ask(session, "mcp").await).unwrap();
+    let cmux = servers.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap();
+    let env = cmux["env"].as_array().unwrap();
+    let folded = env.iter().find(|e| e["name"] == "CMUX_MCP_UPSTREAMS").unwrap();
+    let folded: Value = serde_json::from_str(folded["value"].as_str().unwrap()).unwrap();
+    folded.as_array().unwrap().clone()
+}
+
+fn named<'a>(upstreams: &'a [Value], name: &str) -> &'a Value {
+    let found = upstreams.iter().find(|s| s["name"] == name);
+    found.unwrap_or_else(|| panic!("no {name}: {upstreams:?}"))
+}
+
+fn tool_names(listed: &Value) -> Vec<String> {
+    let tools = listed["result"]["tools"].as_array().unwrap_or_else(|| panic!("{listed}"));
+    tools.iter().filter_map(|t| t["name"].as_str().map(str::to_owned)).collect()
+}
+
+/// An agent tool connection: its first `initialize` carries `meta`.
+async fn tool_client(hub: &Arc<Hub>, meta: &Value) -> (Client, Value) {
+    let mut c = client(hub, Origin::Local);
+    let params = json!({"protocolVersion": "2025-06-18", "_meta": meta});
+    let (reply, _) = c.call_text("initialize", params).await;
+    (c, reply)
+}
+
+/// p07-memory-092: with `agentToolsInDaemon` on, the sub-session and secret
+/// tools are the daemon's own (`server/agent_mcp.rs`): `cmux mcp serve`
+/// dials the daemon for them instead of starting two processes per agent, a
+/// harness that runs stdio servers itself gets the byte-copy relay
+/// (`mcp_relay.rs`), and each serves only the session its caller token proves.
+async fn daemon_serves_the_subsession_and_secret_tools(
+    hub: &Arc<Hub>,
+    local: &mut Client,
+    root: &Path,
+) {
+    // Off (the default): the two servers are processes of their own.
+    let off = local.new_session("fake").await;
+    let before = upstreams_of(local, &off).await;
+    let started = |list: &[Value]| list.iter().filter(|s| s.get("socket").is_none()).count();
+    assert_eq!(named(&before, "cmux-subsessions")["args"], json!(["subsession-mcp"]));
+    assert_eq!(named(&before, "cmux-secrets")["args"], json!(["secret-mcp"]));
+    // SAFETY: as in the caller; no session is starting concurrently.
+    unsafe { std::env::set_var("CMUX_ENABLE_FEATURES", "agentToolsInDaemon") };
+
+    // An install without the small relay keeps the stdio servers for a harness
+    // that runs them itself; `cmux mcp serve` still dials the daemon.
+    let bare_id = local.new_session("fake").await;
+    let bare = upstreams_of(local, &bare_id).await;
+    for (name, word) in [("cmux-subsessions", "subsession-mcp"), ("cmux-secrets", "secret-mcp")] {
+        let spec = named(&bare, name);
+        assert_eq!(spec["args"], json!([word]), "{spec}");
+        assert_eq!(spec["env"]["ACPMUX_MCP_SERVER"], name, "{spec}");
+        assert!(spec["socket"].is_string(), "{spec}");
+    }
+    // secret-mcp reads its session from its own key.
+    let secrets = named(&bare, "cmux-secrets");
+    assert_eq!(secrets["env"]["ACPMUX_SECRET_SESSION"], json!(bare_id), "{secrets}");
+    // The relay beside the cmux binaries (the app bundle's bin, where acpmux is a link to cmux).
+    let relay = fake_bin(&root.join("bin"), "acpmux-mcp-relay");
+
+    // 20 agents: each starts two processes fewer, and both tool sets name the daemon.
+    let mut sessions = Vec::new();
+    let (mut processes_before, mut processes_after) = (0, 0);
+    for _ in 0..20 {
+        let id = local.new_session("fake").await;
+        let after = upstreams_of(local, &id).await;
+        processes_before += started(&before);
+        processes_after += started(&after);
+        for name in ["cmux-subsessions", "cmux-secrets"] {
+            let spec = named(&after, name);
+            assert_eq!(spec["command"], json!(relay), "{spec}");
+            assert_eq!(spec["args"], json!([]), "{spec}");
+            assert_eq!(spec["env"]["ACPMUX_MCP_SERVER"], name, "{spec}");
+            assert_eq!(spec["env"]["ACPMUX_SESSION_ID"], json!(id), "{spec}");
+            assert!(spec["socket"].is_string(), "{spec}");
+            let meta = &spec["initializeMeta"]["acpmux"];
+            assert_eq!(meta["mcpServer"], name, "{spec}");
+            assert_eq!(meta["callerSession"]["sessionId"], json!(id), "{spec}");
+        }
+        sessions.push((id, after));
+    }
+    assert_eq!(processes_before - processes_after, 40, "20 agents drop 2 processes each");
+
+    // The tools through the daemon: listed and called as the proven session.
+    let (a, a_specs) = &sessions[0];
+    let (b, _) = &sessions[1];
+    let sub_meta = named(a_specs, "cmux-subsessions")["initializeMeta"].clone();
+    let (mut sub, init) = tool_client(hub, &sub_meta).await;
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux-subsessions", "{init}");
+    let rules = init["result"]["instructions"].as_str().unwrap_or_default();
+    assert!(rules.contains("start_session"), "{init}");
+    let (listed, _) = sub.call_text("tools/list", json!({})).await;
+    let names = tool_names(&listed);
+    assert!(names.iter().any(|n| n == "start_session"), "{names:?}");
+    assert!(names.iter().any(|n| n == "wait_for_sessions"), "{names:?}");
+    let call = json!({"name": "list_sessions", "arguments": {}});
+    let (listed, _) = sub.call_text("tools/call", call).await;
+    assert_eq!(listed["result"]["isError"], false, "{listed}");
+    assert!(listed["result"]["structuredContent"].is_object(), "{listed}");
+    // An attached connection speaks MCP only: no daemon method answers on it.
+    let (refused, _) = sub.call_text("_acpmux/sessions", json!({})).await;
+    assert_eq!(refused["error"]["code"], -32601, "{refused}");
+
+    let secret_meta = named(a_specs, "cmux-secrets")["initializeMeta"].clone();
+    let (mut secrets, init) = tool_client(hub, &secret_meta).await;
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux-secrets", "{init}");
+    let (listed, _) = secrets.call_text("tools/list", json!({})).await;
+    assert_eq!(tool_names(&listed), ["request_secret", "run_with_secret"], "{listed}");
+    // A ref no card gave: the daemon's own refusal, for session a.
+    let call = json!({"name": "run_with_secret",
+        "arguments": {"secretRef": "nope", "env": "K", "argv": ["true"]}});
+    let (spent, _) = secrets.call_text("tools/call", call).await;
+    assert_eq!(spent["result"]["isError"], true, "{spent}");
+    let said = spent["result"]["content"][0]["text"].as_str().unwrap_or_default();
+    assert!(!said.is_empty() && !said.contains("unknown tool"), "{spent}");
+
+    // Another session's credential is refused: a's id with b's token, and no token.
+    let b_token = acpmux::hub::person::caller_token(b);
+    let mut forged = sub_meta.clone();
+    forged["acpmux"]["callerSession"] = json!({"sessionId": a, "token": b_token});
+    let (_, refused) = tool_client(hub, &forged).await;
+    assert_eq!(refused["error"]["data"]["reason"], "agentTools.caller_required", "{refused}");
+    let mut bare = sub_meta.clone();
+    bare["acpmux"].as_object_mut().unwrap().remove("callerSession");
+    let (_, refused) = tool_client(hub, &bare).await;
+    assert_eq!(refused["error"]["data"]["reason"], "agentTools.caller_required", "{refused}");
+    let mut unknown = sub_meta.clone();
+    unknown["acpmux"]["mcpServer"] = json!("cmux-forum");
+    let (_, refused) = tool_client(hub, &unknown).await;
+    assert_eq!(refused["error"]["data"]["reason"], "agentTools.unknown_server", "{refused}");
+
+    relay_carries_the_tools_in_under_a_megabyte(hub, a, root).await;
+    // SAFETY: as above.
+    unsafe { std::env::remove_var("CMUX_ENABLE_FEATURES") };
+}
+
+/// The relay a stdio harness runs, against this hub on a real socket: the
+/// agent's MCP lines reach the daemon's tools through `acpmux-mcp-relay`, the
+/// program the packages ship beside acpmux, which stays at or under 1 MB (macOS
+/// phys_footprint, Linux private dirty pages), against 4.6 to 4.7 MB for each
+/// stdio server it replaces.
+async fn relay_carries_the_tools_in_under_a_megabyte(hub: &Arc<Hub>, session: &str, root: &Path) {
+    let socket = PathBuf::from(format!("/tmp/acpmux-relay-{}.sock", std::process::id()));
+    let listener = acpmux::server::bind_unix(&socket).await.unwrap();
+    let served = tokio::spawn(acpmux::server::serve_unix(hub.clone(), listener));
+    let scratch = root.join("relay");
+    std::fs::create_dir_all(&scratch).unwrap();
+    let small = relay_round_trip(daemon_env::relay(&scratch), session, &socket).await;
+    assert!(small <= 1 << 20, "acpmux-mcp-relay uses {small} bytes, over 1 MB");
+    served.abort();
+    let _ = std::fs::remove_file(&socket);
+}
+
+/// `relay` as `session`'s sub-session server on `socket`: initialize, list and
+/// call through it, then its footprint; it ends with the agent's pipe.
+async fn relay_round_trip(mut relay: tokio::process::Command, session: &str, socket: &Path) -> u64 {
+    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    relay
+        .env("ACPMUX_MCP_SERVER", "cmux-subsessions")
+        .env("ACPMUX_SESSION_ID", session)
+        .env("ACPMUX_SESSION_TOKEN", acpmux::hub::person::caller_token(session))
+        .env("ACPMUX_SESSION_TOKEN_SOCKET", socket)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .kill_on_drop(true);
+    let mut child = relay.spawn().unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let mut next_id = 0;
+    let mut rpc = async |m: &str, params: Value| -> Value {
+        next_id += 1;
+        let line = json!({"jsonrpc": "2.0", "id": next_id, "method": m, "params": params});
+        stdin.write_all(format!("{line}\n").as_bytes()).await.unwrap();
+        let reply = tokio::time::timeout(Duration::from_secs(30), lines.next_line())
+            .await
+            .expect("the relay answered")
+            .unwrap()
+            .expect("the relay is open");
+        let reply: Value = serde_json::from_str(&reply).unwrap();
+        assert_eq!(reply["id"], next_id, "{reply}");
+        reply
+    };
+    let init = rpc("initialize", json!({"protocolVersion": "2025-06-18"})).await;
+    assert_eq!(init["result"]["serverInfo"]["name"], "cmux-subsessions", "{init}");
+    let listed = rpc("tools/list", json!({})).await;
+    assert!(tool_names(&listed).len() >= 8, "{listed}");
+    let call = rpc("tools/call", json!({"name": "list_sessions", "arguments": {}})).await;
+    assert_eq!(call["result"]["isError"], false, "{call}");
+    let bytes = private_footprint(child.id().unwrap()).expect("the relay's footprint");
+    let _ = rpc;
+    drop(stdin);
+    let status =
+        tokio::time::timeout(Duration::from_secs(10), child.wait()).await.unwrap().unwrap();
+    assert!(status.success(), "the relay ends with the agent's pipe: {status}");
+    bytes
+}
+
+/// Memory a process keeps for itself: Linux's private dirty pages, the
+/// nearest to macOS phys_footprint.
+#[cfg(target_os = "linux")]
+fn private_footprint(pid: u32) -> Option<u64> {
+    let rollup = std::fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).ok()?;
+    let line = rollup.lines().find(|l| l.starts_with("Private_Dirty:"))?;
+    let kb: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
+    Some(kb * 1024)
+}
+
+/// macOS phys_footprint (what Activity Monitor shows), `proc_pid_rusage` V4.
+#[cfg(target_os = "macos")]
+fn private_footprint(pid: u32) -> Option<u64> {
+    #[repr(C)]
+    struct RusageInfoV4 {
+        head: [u64; 2],
+        times_and_wakeups: [u64; 5],
+        wired_size: u64,
+        resident_size: u64,
+        phys_footprint: u64,
+        rest: [u64; 27],
+    }
+    unsafe extern "C" {
+        fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut std::ffi::c_void) -> i32;
+    }
+    let mut usage = std::mem::MaybeUninit::<RusageInfoV4>::zeroed();
+    // SAFETY: a writable buffer of sizeof(rusage_info_v4), the size flavor 4 writes.
+    if unsafe { proc_pid_rusage(i32::try_from(pid).ok()?, 4, usage.as_mut_ptr().cast()) } != 0 {
+        return None;
+    }
+    // SAFETY: zeroed, then filled by the kernel; every field is an integer.
+    Some(unsafe { usage.assume_init() }.phys_footprint)
 }
