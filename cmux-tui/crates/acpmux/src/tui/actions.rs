@@ -531,7 +531,7 @@ impl App {
                 if let Some(u) = &self.web_url {
                     // Deep link to the selected session; the token stays out of the status bar.
                     let url = match self.selected_id() {
-                        Some(id) => format!("{u}&session={id}"),
+                        Some(id) => crate::hub::web_url_for_session(u, &id),
                         None => u.clone(),
                     };
                     let _ = std::process::Command::new(if cfg!(target_os = "macos") {
