@@ -198,3 +198,44 @@ test("the publish fold keeps the newer handoff record carried by a coalesced sna
   frames.shift()?.();
   expect(shown.handoff?.record).toBe(newer.handoff!.record);
 });
+
+test("an explicit handoff clear remains cleared through a same-frame partial snapshot", () => {
+  const frames: (() => void)[] = [];
+  let shown = {
+    ...emptySnapshot(),
+    sessionId: "chat",
+    canHandoff: true,
+    handoff: { ready: true, record: { id: "committed-A" } },
+  } as unknown as AcpmuxSnapshot;
+  const presenter = snapshotFrames(
+    (run) => frames.push(run),
+    (next) => {
+      shown = keepHandoff(shown, next);
+    },
+  );
+  presenter.push({ ...shown, handoff: { ready: true } });
+  presenter.push({ ...shown, handoff: { ready: false } });
+  frames.shift()?.();
+  expect(shown.handoff?.record).toBeUndefined();
+});
+
+test("a handoff record cannot cross a same-frame session change and return", () => {
+  const frames: (() => void)[] = [];
+  let shown = {
+    ...emptySnapshot(),
+    sessionId: "chat-A",
+    canHandoff: true,
+    handoff: { ready: true, record: { id: "committed-A" } },
+  } as unknown as AcpmuxSnapshot;
+  const presenter = snapshotFrames(
+    (run) => frames.push(run),
+    (next) => {
+      shown = keepHandoff(shown, next);
+    },
+  );
+  presenter.push({ ...emptySnapshot(), sessionId: "chat-B", canHandoff: true });
+  presenter.push({ ...emptySnapshot(), sessionId: "chat-A", canHandoff: true });
+  frames.shift()?.();
+  expect(shown.sessionId).toBe("chat-A");
+  expect(shown.handoff?.record).toBeUndefined();
+});
