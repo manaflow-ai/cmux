@@ -571,6 +571,12 @@ export class ConversationDO extends OwnerDO<Head> {
     return store.takeSlot(this.sqlStore, id, mode, consume, actor)
   }
 
+  /** This actor's `uploading` slot whose completion may be resumed (store.completingSlot). */
+  async completingSlot(entity: string, id: string, mode: store.UploadSlot["mode"], actor: string): Promise<store.UploadSlot | null> {
+    if (!this.existingState(entity)) return null
+    return store.completingSlot(this.sqlStore, id, mode, actor)
+  }
+
   /** The open slot whose declared poster or preview may be PUT now (moved to `uploading`). */
   async derivedSlot(entity: string, id: string): Promise<store.UploadSlot | null> {
     if (!this.existingState(entity)) return null
@@ -630,15 +636,23 @@ export class ConversationDO extends OwnerDO<Head> {
    * After the Worker verified the bytes of `uploading` slot `slotId`: records the upload for a
    * still-current participant of an open conversation and settles the slot in the same step.
    * `exists`: the bytes were already here, the caller deletes the slot's object and refunds.
+   * `objectId` (the slot's): when the slot is gone because this upload already committed (a retry
+   * after a lost answer), its record answers `stored` again, so the caller never deletes a kept object.
    */
   async commitAttachment(
     entity: string,
     slotId: string,
-    etag?: string
+    etag?: string,
+    objectId?: string
   ): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: conversation.DerivedImage } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }> {
     if (!this.existingState(entity)) return { ok: false, code: "slot_gone" }
     const slot = store.slotIn(this.sqlStore, slotId, "uploading")
-    if (!slot) return { ok: false, code: "slot_gone" }
+    if (!slot) {
+      const kept = objectId ? store.recordByObjectId(this.sqlStore, objectId) : undefined
+      if (!kept) return { ok: false, code: "slot_gone" }
+      const image = conversation.recordedImageOf(kept)?.image
+      return { ok: true, state: "stored", object_key: kept.object_key, ...(image ? { derived: { hash: image.hash, mime_type: image.mime_type, byte_count: image.byte_count } } : {}) }
+    }
     const a = this.acting(entity, slot.actor)
     if (!a || !a.open) {
       store.settleSlot(this.sqlStore, slot, false)

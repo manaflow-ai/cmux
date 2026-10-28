@@ -60,6 +60,7 @@ interface ConversationAttachments {
   attachmentAccess(entity: string, actor: string, hash: string): Promise<AttachmentAccess>
   createUploadSlot(entity: string, actor: string, quotaUser: string, meta: { hash: string; byte_count: number; mime_type: string; derived?: Image }, mode: UploadSlot["mode"], id: string): Promise<UploadSlot | null>
   uploadSlot(entity: string, id: string, mode: UploadSlot["mode"], consume: boolean, actor?: string): Promise<UploadSlot | null>
+  completingSlot(entity: string, id: string, mode: UploadSlot["mode"], actor: string): Promise<UploadSlot | null>
   derivedSlot(entity: string, id: string): Promise<UploadSlot | null>
   settleDerived(entity: string, id: string, etag: string | null): Promise<void>
   settleSlot(entity: string, id: string): Promise<void>
@@ -69,7 +70,7 @@ interface ConversationAttachments {
   recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean>
   multipartEtags(entity: string, id: string): Promise<Array<string>>
   reopenMultipart(entity: string, id: string): Promise<boolean>
-  commitAttachment(entity: string, slotId: string, etag?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
+  commitAttachment(entity: string, slotId: string, etag?: string, objectId?: string): Promise<{ ok: true; state: "stored" | "exists"; object_key: string; derived?: Image } | { ok: false; code: "auth.forbidden" | "archived" | "slot_gone" }>
   downloadAccess(entity: string, actor: string, by: { hash: string } | { object_id: string }, at?: { message_id: string; part_index: number }): Promise<DownloadAccess | "forbidden">
 }
 interface UserAttachments {
@@ -209,7 +210,8 @@ const readJson = async <T>(request: Request): Promise<T | null> => (await reques
  */
 const finish = async (env: Env, conversation: string, slot: UploadSlot, etag: string | undefined): Promise<Response> => {
   const bucket = env.HOME_ATTACHMENTS!
-  const committed = await conversationOf(env, conversation).commitAttachment(conversation, slot.id, etag)
+  // The object id makes the commit idempotent: a retry after a commit whose answer was lost finds this slot's record.
+  const committed = await conversationOf(env, conversation).commitAttachment(conversation, slot.id, etag, slot.object_id)
   if (!committed.ok) {
     await bucket.delete(slotKeys(slot))
     if (committed.code === "archived") return failure({ status: 409, code: "archived", message: "this conversation takes no new messages" })
@@ -438,7 +440,11 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const conversation = body.conversation
   const conv = conversationOf(env, conversation)
   const invalid = failure({ status: 403, code: "attachment.slot_invalid", message: "the upload slot is invalid, used or expired; ask for a new one" })
-  const peek = await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)
+  const open = await conv.uploadSlot(conversation, body.slot, "multipart", false, caller.actor)
+  // A completion of this caller's slot that already started (R2 may have joined the parts while the owner commit
+  // failed) is completed again: the join below finds the object by its size and sha256 and the commit is idempotent.
+  const resumed = open ? null : await conv.completingSlot(conversation, body.slot, "multipart", caller.actor)
+  const peek = open ?? resumed
   if (!peek?.multipart_upload_id) return invalid
   const missing = derivedMissing(peek)
   if (missing) return missing
@@ -448,7 +454,7 @@ export const handleAttachmentMultipartComplete = async (request: Request, env: E
   const etags = await conv.multipartEtags(conversation, peek.id)
   if (etags.length !== parts || peek.multipart_hash !== `${peek.hash}:${peek.byte_count}`) return failure({ status: 409, code: "attachment.part_missing", message: "one or more upload parts are missing" })
   if (listed?.some((p: { etag: string }, i: number) => p.etag !== etags[i])) return failure({ status: 409, code: "attachment.part_missing", message: "the parts do not match the stored parts" })
-  const slot = await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor)
+  const slot = resumed ?? (await conv.uploadSlot(conversation, peek.id, "multipart", true, caller.actor))
   if (!slot?.multipart_upload_id) return invalid
   const bucket = env.HOME_ATTACHMENTS!
   const upload = bucket.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)

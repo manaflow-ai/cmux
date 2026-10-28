@@ -234,6 +234,16 @@ export const releaseMultipartPart = (sql: Sql, id: string, claim: string): void 
 }
 
 /**
+ * The `uploading` slot `id` of `mode` and `actor` whose completion started and may not have
+ * committed (its owner commit failed, or the request that began it is gone), while its key is
+ * still kept (before the expiry grace). Never consumes: the completion that commits settles it.
+ */
+export const completingSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], actor: string): UploadSlot | null => {
+  const s = slotIn(sql, id, "uploading")
+  return s && s.mode === mode && s.actor === actor && s.expires_at + UPLOADING_GRACE_MS > Date.now() ? s : null
+}
+
+/**
  * Records part `part` of open multipart slot `id` under the claim its request took
  * (claimMultipartPart) and ends the claim; only if no other part was recorded since its PUT read
  * `before` (the hash state it resumed), so parts land once and in order. Each part renews the
