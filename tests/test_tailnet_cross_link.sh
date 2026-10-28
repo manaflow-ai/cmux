@@ -3,7 +3,10 @@
 # Run on a cross-build job after macos-cross.sh toolchain, never on an agent host.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-sysroot=${XC_ROOT:?run macos-cross.sh toolchain first}/sysroot
+# macos-cross.sh keeps XC_ROOT local to its process. Reuse its documented
+# default when this check runs as the next workflow command.
+xc_root=${XC_ROOT:-${RUNNER_TEMP:-$HOME}/macos-cross}
+sysroot="$xc_root/sysroot"
 llvm=${LLVM_BIN:-/usr/lib/llvm-19/bin}
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 cat > "$work/probe.c" <<'C'
