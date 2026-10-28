@@ -15,20 +15,17 @@ pub(super) fn capture_status_output(
     argv: &[String],
     timeout: Duration,
     stop: &StatusWorkerStop,
-) -> (Vec<u8>, Option<std::process::Child>) {
+) -> (Vec<u8>, Option<cmux_process::Child>) {
     use std::io::Read;
 
     let Some(program) = argv.first() else { return (Vec::new(), None) };
-    let mut command = std::process::Command::new(program);
+    let mut command = cmux_process::Command::new(program);
     command
         .args(&argv[1..])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::piped())
+        .stderr(cmux_process::Stdio::null())
+        .process_group(0);
     // Final unlocked stop check directly before the spawn. Holding the
     // raise lock across spawn would let a stalled filesystem block reload
     // and shutdown on the UI thread, so the residual race is resolved the
@@ -135,7 +132,7 @@ pub(super) fn capture_status_output(
     argv: &[String],
     timeout: Duration,
     stop: &StatusWorkerStop,
-) -> (Vec<u8>, Option<std::process::Child>) {
+) -> (Vec<u8>, Option<cmux_process::Child>) {
     use std::io::{Read, Seek, SeekFrom};
     use std::sync::atomic::AtomicU64;
 
@@ -147,19 +144,15 @@ pub(super) fn capture_status_output(
         CAPTURE_SEQUENCE.fetch_add(1, Ordering::Relaxed)
     ));
     let Ok(file) = std::fs::File::create(&path) else { return (Vec::new(), None) };
-    let mut command = std::process::Command::new(program);
+    let mut command = cmux_process::Command::new(program);
     command
         .args(&argv[1..])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::from(file))
-        .stderr(std::process::Stdio::null());
+        .stdin(cmux_process::Stdio::null())
+        .stdout(cmux_process::Stdio::from(file))
+        .stderr(cmux_process::Stdio::null());
     // Start suspended so the job assignment below covers the process
     // before it can spawn any descendant; resume only after assignment.
-    {
-        use std::os::windows::process::CommandExt;
-        use windows_sys::Win32::System::Threading::CREATE_SUSPENDED;
-        command.creation_flags(CREATE_SUSPENDED);
-    }
+    command.creation_flags(windows_sys::Win32::System::Threading::CREATE_SUSPENDED);
     // Final unlocked stop check; see the Unix path for the trade-off.
     if stop.is_raised() {
         let _ = std::fs::remove_file(&path);
@@ -240,7 +233,7 @@ pub(super) struct StatusCommandJob {
 
 #[cfg(windows)]
 impl StatusCommandJob {
-    fn assign(child: &std::process::Child) -> std::io::Result<Self> {
+    fn assign(child: &cmux_process::Child) -> std::io::Result<Self> {
         use windows_sys::Win32::Foundation::CloseHandle;
         use windows_sys::Win32::System::JobObjects::{
             AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
@@ -251,6 +244,7 @@ impl StatusCommandJob {
             OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE,
         };
 
+        // SAFETY: both arguments are optional and null: default security, no name.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error());
@@ -261,6 +255,8 @@ impl StatusCommandJob {
         let information_size =
             u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
                 .expect("Windows job information fits in u32");
+        // SAFETY: `job.handle` is the job created above; the pointer and size describe
+        // `information`, a live JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -272,12 +268,15 @@ impl StatusCommandJob {
         {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: OpenProcess takes no pointer; it returns null on failure, checked below.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(std::io::Error::last_os_error());
         }
+        // SAFETY: both handles are open: the job created above and `process`, checked non-null.
         let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
         let assign_error = (assigned == 0).then(std::io::Error::last_os_error);
+        // SAFETY: `process` is open and closed once, here.
         unsafe {
             CloseHandle(process);
         }
@@ -289,6 +288,7 @@ impl StatusCommandJob {
 
     fn terminate(&self) {
         use windows_sys::Win32::System::JobObjects::TerminateJobObject;
+        // SAFETY: `self.handle` is the job this value owns, open until it drops.
         unsafe {
             TerminateJobObject(self.handle, 1);
         }
@@ -300,6 +300,7 @@ impl Drop for StatusCommandJob {
     fn drop(&mut self) {
         use windows_sys::Win32::Foundation::CloseHandle;
         // Kill-on-close terminates any remaining descendants here.
+        // SAFETY: `self.handle` is the job this value owns; this drop closes it once.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -309,13 +310,14 @@ impl Drop for StatusCommandJob {
 /// Resume the suspended status command after its job assignment, same
 /// pattern as the journal hook runner in cmux-tui-core.
 #[cfg(windows)]
-pub(super) fn resume_suspended_status_child(child: &std::process::Child) -> std::io::Result<()> {
+pub(super) fn resume_suspended_status_child(child: &cmux_process::Child) -> std::io::Result<()> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, TH32CS_SNAPTHREAD, THREADENTRY32, Thread32First, Thread32Next,
     };
     use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
 
+    // SAFETY: takes no pointer; failure returns INVALID_HANDLE_VALUE, checked below.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
@@ -326,23 +328,29 @@ pub(super) fn resume_suspended_status_child(child: &std::process::Child) -> std:
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };
+        // SAFETY: `snapshot` is open and `thread_entry` is a live THREADENTRY32 with `dwSize` set.
         if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
             return Err(std::io::Error::last_os_error());
         }
         loop {
             if thread_entry.th32OwnerProcessID == child.id() {
+                // SAFETY: OpenThread takes no pointer; it returns null on failure, checked below.
                 let thread =
                     unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, thread_entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(std::io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is open (checked non-null above).
                 let resume_result = unsafe { ResumeThread(thread) };
                 let resume_error = (resume_result == u32::MAX).then(std::io::Error::last_os_error);
+                // SAFETY: `thread` is open and closed once, here.
                 unsafe {
                     CloseHandle(thread);
                 }
                 return resume_error.map_or(Ok(()), Err);
             }
+            // SAFETY: `snapshot` is open and `thread_entry` is a live THREADENTRY32 with `dwSize`
+            // set.
             if unsafe { Thread32Next(snapshot, &mut thread_entry) } == 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
@@ -351,6 +359,7 @@ pub(super) fn resume_suspended_status_child(child: &std::process::Child) -> std:
             }
         }
     })();
+    // SAFETY: `snapshot` is open and closed once, here, after the closure that used it.
     unsafe {
         CloseHandle(snapshot);
     }
@@ -363,7 +372,7 @@ pub(super) fn resume_suspended_status_child(child: &std::process::Child) -> std:
 /// it, and blocking on it would transitively hang reload and shutdown.
 /// Returns whether the child was reaped; the caller keeps an unreaped
 /// child and refuses to start another command behind it.
-pub(super) fn kill_status_command_group(child: &mut std::process::Child) -> bool {
+pub(super) fn kill_status_command_group(child: &mut cmux_process::Child) -> bool {
     #[cfg(unix)]
     // SAFETY: plain syscall on the child's own process group id.
     unsafe {

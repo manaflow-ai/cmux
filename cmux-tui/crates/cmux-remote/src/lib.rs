@@ -1,5 +1,7 @@
 //! Native remote runtime for cmux-tui.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(unix)]
 pub mod admin;
 pub mod bridge;

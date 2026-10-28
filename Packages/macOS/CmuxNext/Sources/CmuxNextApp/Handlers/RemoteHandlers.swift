@@ -4,6 +4,25 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextWakeups
+
+extension SSHService {
+    /// The app's SSH machines (`AppServices.ssh`), made on first use (the `SSH.start` post, a remote
+    /// action), never in init (p08-startup-021), as Chrome makes a keyed service on its first
+    /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
+    /// The install offer and the current remote-hosts policy are set before any reader gets it.
+    static func made(for services: AppServices) -> SSHService {
+        let made = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork,
+                              work: services.work, appEvents: services.appEvents, workspaceEvents: services.workspaceEvents)
+        services.madeSSH = made
+        made.offerInstall = { [weak registry = services.registry] session in
+            // Asks through the registry's confirmation sheet (remote.install is destructive).
+            _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
+        }
+        made.applyPolicy(disabled: services.registry.disabledFeatures.contains(.remoteHosts))
+        return made
+    }
+}
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -13,17 +32,13 @@ import CmuxNextServer
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh
-        let available: @MainActor () -> String? = { ssh.unavailableReason }
-        let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
-        ssh.offerInstall = { [weak registry] session in
-            // Asks through the registry's confirmation sheet (remote.install is destructive).
-            _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
-        }
+        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        let available: @MainActor () -> String? = { context.services.ssh.unavailableReason }
+        let hasMachine: @MainActor () -> String? = { context.services.ssh.unavailableReason ?? (context.services.ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
             let interactive = !registry.isCapturingRefusal
             let connect = { (text: String) in
-                let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
+                let session = try context.services.ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive)
                 if interactive { showWhenConnected(session, context) }
@@ -55,41 +70,40 @@ enum RemoteHandlers {
         CloudHandlers.bind("remote.newWorkspace", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             guard session.daemon.connection != nil else { throw ActionFailure(message: RemoteStrings.notConnected(session.host.label)) }
-            let work: ActionWork = Task {
-                let id: String
-                do {
-                    id = try await context.services.windows.createWorkspace(WorkspaceSpawn(), on: session.daemon)
-                } catch {
+            let windows = context.services.windows, daemon = session.daemon, spawn = WorkspaceSpawn()
+            // The create is awaited off main; the new workspace shows (or the failure is told) in one task on main.
+            registry.trackWork(owner: "RemoteHandlers.newWorkspace", on: context.services.mainWork) {
+                try await windows.createWorkspace(spawn, on: daemon)
+            } then: { result in
+                switch result {
+                case .success(let id):
+                    CloudHandlers.show(id, context)
+                    return nil
+                case .failure(let error):
                     // The real reason (a terminal start deadline on a slow
                     // host, a refusal), never a bare "not connected" (cx-tzlqb).
-                    session.daemon.logger.error("remote new workspace failed: \(String(describing: error), privacy: .public)")
+                    daemon.logger.error("remote new workspace failed: \(String(describing: error), privacy: .public)")
                     return ActionWorkFailure(RemoteStrings.newWorkspaceFailed(session.host.label, error))
                 }
-                CloudHandlers.show(id, context)
-                return nil
             }
-            registry.track(work)
         }
         CloudHandlers.bind("remote.reconnect", registry, reason: hasMachine) { invocation in
-            ssh.reconnect(try machine(invocation, context))
+            context.services.ssh.reconnect(try machine(invocation, context))
         }
         CloudHandlers.bind("remote.disconnect", registry, reason: hasMachine) { invocation in
-            ssh.disconnect(try machine(invocation, context))
+            context.services.ssh.disconnect(try machine(invocation, context))
         }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         CloudHandlers.bind("remote.install", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
-            let interactive = !registry.isCapturingRefusal
-            let work: ActionWork = Task {
-                do {
-                    try await ssh.install(session)
-                    return nil
-                } catch {
-                    if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-                    return ActionWorkFailure(String(describing: error))
-                }
+            let interactive = !registry.isCapturingRefusal, ssh = context.services.ssh
+            registry.trackWork(owner: "RemoteHandlers.install", on: context.services.mainWork) {
+                try await ssh.install(session)
+            } then: { result in
+                guard case .failure(let error) = result else { return nil }
+                if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
+                return ActionWorkFailure(String(describing: error))
             }
-            registry.track(work)
         }
         // The raw SSH or install error of a machine whose connect failed
         // (its sidebar header shows it as the tooltip, cx-zdh8).
@@ -103,13 +117,12 @@ enum RemoteHandlers {
         CloudHandlers.bind("remote.forget", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             if invocation.origin == .user, let window = CloudHandlers.window(context) {
-                return RemoteForgetUndo.forget(session, ssh: ssh, in: window)
+                return RemoteForgetUndo.forget(session, ssh: context.services.ssh, in: window)
             }
-            let work: ActionWork = Task {
+            let ssh = context.services.ssh
+            registry.trackWork(owner: "RemoteHandlers.forget", on: context.services.mainWork) {
                 await ssh.forget(session)
-                return nil
-            }
-            registry.track(work)
+            } then: { _ in nil }
         }
         // The Add Machine card (plans/cmux-next/add-machine-DESIGN.md). A destination (the CLI, MCP)
         // only fills the card: the enroll starts when the person presses Add, never from outside the
@@ -128,7 +141,12 @@ enum RemoteHandlers {
         CloudHandlers.bind("machine.doctor", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context), card = context.services.addMachine
             card.check(host: session.host.destination.description, machineID: session.machineID, over: CloudHandlers.window(context))
-            registry.track(Task { await card.finished().map { ActionWorkFailure($0) } })
+            registry.trackWork(owner: "RemoteHandlers.doctor", on: context.services.mainWork) {
+                await card.finished()
+            } then: { result in
+                guard case .success(let failure?) = result else { return nil }
+                return ActionWorkFailure(failure)
+            }
         }
     }
 
@@ -154,24 +172,72 @@ enum RemoteHandlers {
     /// the active window once its tree loads (creating one when it has
     /// none). Gives up when the machine stops connecting.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
+        let daemon = session.daemon, windows = context.services.windows, end = context.registry.completion(on: context.services.mainWork)
+        // Ends when the tree loads or the machine stops connecting. The workspace shown, or the failure told, is one
+        // task of the run's completion; a workspace the machine lacks is made off main first.
+        end.start {
+            guard await connected(session, context, end: end), let id = await windows.createWorkspace(on: daemon) else { return }
+            end.post(owner: "RemoteHandlers.showWhenConnected") { CloudHandlers.show(id, context) }
+        }
+    }
+
+    /// Waits until `session`'s tree loads or it stops connecting, then, in one task of `end` that decides on the state
+    /// it reads then, shows its first workspace or tells the failure. True: the tree loaded with no workspace. One
+    /// ServiceObservation reads the state again only when it changes; a connection that dropped before that task ran,
+    /// while the machine still connects, is waited for again, never told as a failure.
+    private static func connected(_ session: SSHMachineSession, _ context: AppActionContext, end: ActionCompletion) async -> Bool {
         let daemon = session.daemon
-        // task-owner: ends when the tree loads or the machine stops connecting
-        Task { @MainActor in
-            for await (loaded, status) in ObservationStream({ (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus) }) {
-                if loaded {
-                    let id: String?
-                    if let first = daemon.store.workspaces.first { id = first.id } else { id = await context.services.windows.createWorkspace(on: daemon) }
-                    if let id { CloudHandlers.show(id, context) }
-                    return
+        let outcome: @MainActor @Sendable () -> ConnectOutcome = {
+            connectOutcome(loaded: daemon.store.isLoaded && daemon.connection != nil, status: session.linkStatus)
+        }
+        await ObservedCondition(owner: "RemoteHandlers.showWhenConnected", .visible, on: context.services.mainWork).until {
+            outcome() != .stillConnecting
+        }
+        let needsWorkspace = await end.apply(owner: "RemoteHandlers.showWhenConnected") { () -> Bool? in
+            switch outcome() {
+            case .stillConnecting:
+                return nil
+            case .stopped(let tell):
+                if tell {
+                    CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label), RemoteStrings.detail(session) ?? "",
+                                        in: CloudHandlers.window(context))
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed:
-                    if status != .offline { CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label),
-                                                                 RemoteStrings.detail(session) ?? "", in: CloudHandlers.window(context)) }
-                    return
-                }
+                return false
+            case .loaded:
+                guard let first = daemon.store.workspaces.first else { return true }
+                CloudHandlers.show(first.id, context)
+                return false
             }
+        }
+        guard let needsWorkspace else {
+            return Task.isCancelled ? false : await connected(session, context, end: end)
+        }
+        return needsWorkspace
+    }
+
+    /// Where a connect wait stands (``showWhenConnected(_:_:)``).
+    enum ConnectOutcome: Equatable {
+        /// The machine's tree loaded over a live connection.
+        case loaded
+        /// The machine stopped connecting; `tell`: a failure the person must fix, not a plain offline.
+        case stopped(tell: Bool)
+        /// Neither: the machine still connects, or reconnects after a drop.
+        case stillConnecting
+    }
+
+    /// The outcome for a machine whose tree is `loaded` over a live connection, with link status `status`.
+    static func connectOutcome(loaded: Bool, status: SSHConnectionMachine.Status) -> ConnectOutcome {
+        if loaded { return .loaded }
+        guard stoppedConnecting(status) else { return .stillConnecting }
+        return .stopped(tell: status != .offline)
+    }
+
+    /// Whether a machine with link status `status` stopped connecting (offline, or a failure the person must fix);
+    /// it may still connect from any other status.
+    static func stoppedConnecting(_ status: SSHConnectionMachine.Status) -> Bool {
+        switch status {
+        case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: false
+        case .offline, .authFailed, .hostKeyUntrusted, .installFailed: true
         }
     }
 }

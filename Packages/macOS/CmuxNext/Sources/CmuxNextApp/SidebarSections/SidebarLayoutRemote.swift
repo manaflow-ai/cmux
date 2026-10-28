@@ -1,11 +1,13 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
 import Foundation
 
 /// The owner of the sidebar layout as the service reaches it: the home
 /// daemon's `sidebar-layout-v1` (or a fake in tests).
+/// Sendable: a main-actor object the service's off-main tasks call.
 @MainActor
-protocol SidebarLayoutRemote: AnyObject {
+protocol SidebarLayoutRemote: AnyObject, Sendable {
     /// The store serves the layout and the connection is up.
     var isAvailable: Bool { get }
     /// Changes when the owner's personal state changes (a refetch signal).
@@ -47,20 +49,21 @@ nonisolated func isDisconnect(_ error: any Error) -> Bool {
 /// The home daemon (`services.machines.local`).
 @MainActor
 final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
-    private unowned let services: AppServices
+    /// The app's machines (`AppServices.machines`), which hold no reference back to the services.
+    private let machines: MachineRegistry
 
     init(services: AppServices) {
-        self.services = services
+        machines = services.machines
     }
 
-    private var daemon: DaemonService { services.machines.local }
+    private var daemon: DaemonService { machines.local }
 
     var isAvailable: Bool { daemon.connection != nil && daemon.supports(DaemonCapabilities.sidebarLayout) }
     var changeToken: UInt64 { daemon.store.personal.revision }
 
     var legacyPins: [LegacyPins] {
-        let refs = WorkspaceLayoutRefs(machines: services.machines)
-        return services.machines.daemons.compactMap { daemon in
+        let refs = WorkspaceLayoutRefs(machines: machines)
+        return machines.daemons.compactMap { daemon in
             guard let session = daemon.store.registryID, !daemon.store.isProvisional else { return nil }
             var pins = LegacyPins(session: session, refs: [])
             for workspace in daemon.store.workspaces where workspace.pinned {
@@ -73,7 +76,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
     }
 
     func clearLegacyPins(_ refs: [LayoutItemRef]) {
-        let resolver = WorkspaceLayoutRefs(machines: services.machines)
+        let resolver = WorkspaceLayoutRefs(machines: machines)
         for ref in refs {
             guard let (workspace, daemon) = resolver.workspace(for: ref), workspace.pinned, let key = workspace.key,
                   daemon.supports(DaemonCapabilities.workspacePin) else { continue }
@@ -88,7 +91,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
 
     func update(_ op: SidebarLayoutOp, key: String) async throws -> SidebarLayoutDocument {
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        let wire = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(op))
+        let wire = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(op))
         return try Self.document(try await SidebarLayoutStateClient(connection: connection).update(op: wire, idempotencyKey: key).layout)
     }
 
@@ -98,7 +101,7 @@ final class DaemonSidebarLayoutRemote: SidebarLayoutRemote {
             var revision: String
             var sections: [LayoutSection]
         }
-        let snapshot = try JSONDecoder().decode(Snapshot.self, from: JSONEncoder().encode(value))
+        let snapshot = try JSONDecoder().blockingDecode(Snapshot.self, from: JSONEncoder().encode(value))
         return SidebarLayoutDocument(revision: UInt64(snapshot.revision) ?? 0, sections: snapshot.sections)
     }
 }

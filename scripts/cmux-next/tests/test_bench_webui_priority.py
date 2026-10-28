@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bench-webui.py priority (task p13-webui-083): the pure parts, on any OS.
+"""bench-webui.py priority-roles (task p13-webui-083): the pure parts, on any OS.
 
 1. procs.role_of reads a backgrounded process from its threads' priority ceilings: MAXPRI_THROTTLE (Chrome's
    kBestEffort: low-priority CPU), MAXPRI_SUPPRESSED (App Nap); an uncapped one by its main thread's base priority.
@@ -130,12 +130,14 @@ class PurgeTests(unittest.TestCase):
 
 class DispatcherTests(unittest.TestCase):
     def test_priority_arguments(self):
-        args = bench_webui.parser().parse_args(["priority", "--app", "/x.app", "--engine", "webkit", "--pages", "apps,settings"])
-        self.assertEqual((args.mode, args.engine, args.pages, args.purge_arm), ("priority", "webkit", ["apps", "settings"], False))
+        args = bench_webui.module_parser("priority-roles").parse_args(
+            ["--app", "/x.app", "--engine", "webkit", "--pages", "apps,settings"])
+        self.assertEqual((args.mode, args.engine, args.pages, args.purge_arm),
+                         ("priority-roles", "webkit", ["apps", "settings"], False))
 
     def test_unknown_page_is_refused_before_launch(self):
         with self.assertRaises(SystemExit) as raised:
-            bench_webui.main(["priority", "--app", "/x.app", "--pages", "nope"])
+            bench_webui.main(["priority-roles", "--app", "/x.app", "--pages", "nope"])
         self.assertIn("--pages takes", str(raised.exception))
 
 

@@ -15,6 +15,8 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     /// Bundle files the scene's images come from, when this Mac has them.
     public let bundleDirectory: URL?
     weak var client: AppsClient?
+    /// The client's decoded bundle images (held here because `client` is weak).
+    let bundleImages: AppBundleImageCache
     /// Extra members of the mount's context (a hover card's `target`), passed to the export.
     let extraContext: [String: AppJSON]
 
@@ -28,6 +30,7 @@ public final class AppMount: AppSceneInteraction, Identifiable {
         self.surface = surface
         self.bundleDirectory = bundleDirectory
         self.client = client
+        bundleImages = client.bundleImages
         model.interaction = self
     }
 
@@ -36,7 +39,9 @@ public final class AppMount: AppSceneInteraction, Identifiable {
     }
 
     /// A fresh `AppSceneHostingView` for AppKit hosts (the sidebar).
-    public func makeView() -> AppSceneHostingView { AppSceneHostingView(model: model, bundleDirectory: bundleDirectory) }
+    public func makeView() -> AppSceneHostingView {
+        AppSceneHostingView(model: model, bundleDirectory: bundleDirectory, bundleImages: bundleImages)
+    }
 
     var context: AppJSON {
         var context = extraContext
@@ -74,6 +79,8 @@ extension AppsClient {
     private func enqueue(_ operation: @escaping @MainActor (any AppsTransport) async -> Void) {
         let previous = tail
         // task-owner: one transport call chained after the previous one (mount, unmount and event order)
+        // main-hop-allow: the transport is main-actor (AppsTransport); each send awaits the one before it, so the
+        // supervisor sees mounts, unmounts and the person's events in order; the daemon I/O runs off main
         tail = Task { [transport] in
             await previous?.value
             await operation(transport)

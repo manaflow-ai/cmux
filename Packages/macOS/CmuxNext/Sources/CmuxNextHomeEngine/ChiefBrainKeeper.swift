@@ -85,6 +85,7 @@ public final class ChiefBrainKeeper {
         guard !starting, let connection = connection() else { return }
         starting = true
         // task-owner: reads the endpoint, then spawns the detached host once
+        // main-hop-allow: resolveHost is the app's main-actor async seam (its endpoint read runs off main) and `starting` is this keeper's main-actor state; this task only starts the launch and watches its pid in the resume
         Task { [weak self] in
             guard let self else { return }
             // The start is over either way: a later ask may start again.

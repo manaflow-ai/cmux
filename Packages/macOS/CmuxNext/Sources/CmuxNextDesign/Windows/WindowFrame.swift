@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CoreGraphics
+import CmuxNextCompat
 import Darwin
 import Foundation
 import ImageIO
@@ -37,17 +38,16 @@ public nonisolated struct WindowFrame: Sendable {
     }
 
     /// Reads the window's composited image back to back until `until` ms after `start`. `crop`: the
-    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale.
-    @concurrent public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
-                                         until: Double) async -> [WindowFrame] {
-        typealias CreateImage = @convention(c) (CGRect, UInt32, UInt32, UInt32) -> Unmanaged<CGImage>?
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return [] }
-        let create = unsafeBitCast(symbol, to: CreateImage.self)
+    /// part to keep, as fractions of the image (top-left origin), e.g. a tab strip at full scale. Each
+    /// read waits for the window server: run it on a system lane, never on main or the pool.
+    public static func record(_ window: CGWindowID, scale: Double, crop: CGRect? = nil, from start: ContinuousClock.Instant,
+                              until: Double) -> [WindowFrame] {
         var frames: [WindowFrame] = []
         // Each pass reads one image (a window server round trip); the loop ends at the deadline.
         while elapsed(since: start) < until {
             // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | NominalResolution.
-            guard let image = create(.null, 1 << 3, window, (1 << 0) | (1 << 9))?.takeRetainedValue() else { break }
+            guard let image = blockingWindowListCreateImage(.null, .optionIncludingWindow, window,
+                                                            CGWindowImageOption(rawValue: (1 << 0) | (1 << 9))) else { break }
             let at = elapsed(since: start)
             // A frame the crop cannot cut is dropped, so every frame of a strip has one size.
             let kept = crop.map { unit in
@@ -61,16 +61,11 @@ public nonisolated struct WindowFrame: Sendable {
 
     init?(_ image: CGImage, scale: Double, at milliseconds: Double) {
         let width = max(1, Int(Double(image.width) * scale)), height = max(1, Int(Double(image.height) * scale))
-        var pixels = [UInt8](repeating: 0, count: width * height * 4)
-        let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
-            guard let context = CGContext(data: buffer.baseAddress, width: width, height: height, bitsPerComponent: 8,
-                                          bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4, space: CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { context in
             context.interpolationQuality = .low
             context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-            return true
-        }
-        guard drawn else { return nil }
+        })?.bytes else { return nil }
         self.milliseconds = milliseconds
         self.width = width
         self.height = height
@@ -126,9 +121,11 @@ public nonisolated struct WindowFrame: Sendable {
     var image: CGImage? {
         let data = Data(pixels) as CFData
         guard let provider = CGDataProvider(data: data) else { return nil }
-        return CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
-                       space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
-                       provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        // SAFETY: the decode-array pointer is nil (the default decode), so Core Graphics reads no memory through it;
+        // the pixels come from `provider`, which the image retains.
+        return unsafe CGImage(width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: width * 4,
+                              space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                              provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
     }
 
     public func write(to path: String) {
@@ -143,9 +140,10 @@ public nonisolated struct WindowFrame: Sendable {
         let gap = 4, full = frames.count * (first.width + gap) - gap
         let factor = min(1, 16_384 / Double(max(1, full)))
         let cell = Double(first.width + gap) * factor
-        guard let context = CGContext(data: nil, width: Int((Double(full) * factor).rounded(.up)), height: max(1, Int((Double(first.height) * factor).rounded(.up))),
-                                      bitsPerComponent: 8, bytesPerRow: 0,
-                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        guard let context = CGContext.pixelOwningBitmap(width: Int((Double(full) * factor).rounded(.up)),
+                                                        height: max(1, Int((Double(first.height) * factor).rounded(.up))),
+                                                        space: CGColorSpaceCreateDeviceRGB(),
+                                                        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
         else { return }
         context.interpolationQuality = .medium
         for (index, frame) in frames.enumerated() {

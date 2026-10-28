@@ -242,3 +242,55 @@ fn a_confirmed_user_claim_on_a_page_relay_is_still_refused() {
         assert_page_refused(&send(&mux, &relay, &v2(operation, params(), Some(claim))), operation);
     }
 }
+
+/// A page stream's refusal: a hard class names itself (`required: agent`),
+/// any other operation is off its page's list (`page_not_allowed`).
+fn assert_stream_refused(reply: &Value, operation: &str) {
+    assert_eq!(reply["ok"], false, "{operation}: {reply}");
+    assert_eq!(reply["error"]["code"], "origin.forbidden", "{operation}: {reply}");
+    let details = &reply["error"]["details"];
+    let refused = details["required"] == "agent" || details["reason"] == "page_not_allowed";
+    assert!(refused, "{operation}: {reply}");
+}
+
+/// On a streamed page relay (`page-streams-v1`) every page's stream keeps
+/// default deny: no page's allow list opens a hard class, and a native
+/// confirmation for that stream does not either.
+#[test]
+fn every_page_stream_is_denied_the_hard_classes() {
+    use super::page_stream_tests::{Line, on_stream};
+    let mux = mux("streams");
+    let mut app = Line::connect(&mux);
+    set_role_for_test(&mux, app.client, "main");
+    set_peer_key_for_test(&mux, app.client, "token:10.1");
+    set_verified_app_for_test(&mux, app.client, true);
+    let mut relay = Line::streamed_relay(&mux);
+    let pages = ["home-channels", "history", "apps", "agent"];
+    let streams: Vec<(u16, String)> =
+        (1..).zip(pages).map(|(stream, page)| (stream, relay.open(&mux, stream, page))).collect();
+    for class in [INPUT, SCREEN_READ, ATTACH, RENDERER, FILE_SYSTEM, READS] {
+        for operation in class {
+            for (stream, relay_id) in &streams {
+                let request = v2(operation, params(), on_stream(*stream));
+                assert_stream_refused(&relay.send(&mux, &request), operation);
+                let issue = v2(
+                    "origin.confirmation.issue",
+                    json!({
+                        "machine": "current",
+                        "session": "current",
+                        "operation": operation,
+                        "params_sha256": params_sha256(&params()),
+                        "relay_connection_id": relay_id,
+                    }),
+                    None,
+                );
+                let issued = app.send(&mux, &issue);
+                let token = issued["result"]["token"].as_str().expect("token").to_string();
+                let claim = json!({"claim": "user", "confirmation": token, "stream": stream});
+                let confirmed = v2(operation, params(), Some(claim));
+                assert_stream_refused(&relay.send(&mux, &confirmed), operation);
+            }
+        }
+    }
+    mux.shutdown();
+}

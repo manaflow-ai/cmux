@@ -23,9 +23,10 @@ nonisolated struct AgentPaneSafeFetch: AgentPaneImageFetching {
     static let maximumMediaBytes = 200 << 20
     static let mediaTimeout: Duration = .seconds(120)
 
-    /// The guarded fetch; tests replace its resolver (the one lookup) or its timeout.
+    /// The guarded fetch; the App wires its resolver (the one lookup, ``AgentPaneReplyLinks/useResolver(_:)``),
+    /// tests replace it or the timeout. Unwired, it fetches nothing.
     var guarded = GuardedRemoteFetch(maximumBytes: AgentPaneSafeFetch.maximumBytes, timeout: AgentPaneSafeFetch.timeout,
-                                     accept: GuardedRemoteFetch.imageAccept)
+                                     accept: GuardedRemoteFetch.imageAccept, resolver: UnwiredRemoteResolver())
 
     /// The fetch for a reply's web video or audio: the same rules, a larger cap, a longer timeout.
     static var media: AgentPaneSafeFetch {

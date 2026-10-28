@@ -6,7 +6,8 @@ set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/scripts" "$TMP/build/app.app/Contents/Frameworks"
-cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$TMP/scripts/"
+cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" "$ROOT/scripts/cmux-next/bundle-ublock.sh" \
+  "$ROOT/scripts/cmux-next/lipo-dsym.sh" "$TMP/scripts/"
 cat > "$TMP/scripts/ensure-cef.sh" <<'STUB'
 #!/usr/bin/env bash
 echo "stub ensure-cef args=[$*]" >&2

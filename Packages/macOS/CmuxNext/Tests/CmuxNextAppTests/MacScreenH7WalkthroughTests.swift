@@ -1,5 +1,6 @@
 import CmuxNextDevices
 @testable import CmuxNextMacScreen
+import CmuxNextWakeups
 import CryptoKit
 import Foundation
 import Testing
@@ -77,7 +78,7 @@ struct MacScreenDevicesKeychainTests {
         #expect(hub.relays.count == 2)
 
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        let pages = MacScreenPages(store: MacScreenStore(file: file))
+        let pages = MacScreenPages(store: MacScreenStore(file: file), deadlines: linklessDeadlines(), appEvents: AppEvents(center: NotificationCenter()))
         let settings = MacScreenDevicesSettings(pages: pages)
         pages.hubConfigured = true
         pages.hub = hub
@@ -94,7 +95,7 @@ struct MacScreenAskForAccessTests {
     /// Ask for Access › Full Control from a View Only Mac: the hub now asks the host
     /// (`pending`), so this Mac waits for the host's answer instead of showing a refusal.
     @Test func askingAboveTheSavedAccessWaitsForTheHost() {
-        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff") { nil }
+        let viewer = MacScreenHubViewer(deviceID: "0b6c1a2e-3d4f-4a5b-8c9d-aabbccddeeff", deadlines: linklessDeadlines()) { nil }
         viewer.phase = .requesting(.full)
         viewer.requestAnswered(.success(HubSession(id: "s1", state: .pending, scope: .full)), scope: .full, hub: nil)
         #expect(viewer.phase == .waitingForApproval(sessionID: "s1", scope: .full))

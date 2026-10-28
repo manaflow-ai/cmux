@@ -2,6 +2,8 @@
 //! checks and removes cmux-tui's journal hook entries and plugins in each
 //! provider's native config.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(test)]
 use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, BTreeSet};
@@ -10,23 +12,18 @@ use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 #[cfg(unix)]
 use std::os::fd::AsRawFd;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-#[cfg(not(unix))]
-use std::process::Command;
-use std::process::{Child, Output, Stdio};
+use std::process::Output;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::Context as _;
+#[cfg(not(unix))]
+use cmux_process::Command;
+use cmux_process::{Child, Stdio};
 #[cfg(unix)]
 use cmux_tui_platform::unix_process_scope::{UnixChildExitSignal, UnixProcessScope};
 use serde_json::{Map, Value, json};
-#[cfg(not(unix))]
-use wait_timeout::ChildExt;
 #[cfg(windows)]
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
 #[cfg(windows)]
@@ -785,7 +782,9 @@ struct HermesWindowsJob {
 
 #[cfg(windows)]
 impl HermesWindowsJob {
-    fn assign_and_resume(child: &std::process::Child) -> io::Result<Self> {
+    fn assign_and_resume(child: &Child) -> io::Result<Self> {
+        // SAFETY: both arguments are null, which CreateJobObjectW accepts as default security and
+        // no name.
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(io::Error::last_os_error());
@@ -796,6 +795,8 @@ impl HermesWindowsJob {
         let information_size =
             u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
                 .expect("Windows job information fits in u32");
+        // SAFETY: `job.handle` is the open job and the pointer is to the live local `information`,
+        // whose size is the length passed; SetInformationJobObject only reads it.
         if unsafe {
             SetInformationJobObject(
                 job.handle,
@@ -807,12 +808,17 @@ impl HermesWindowsJob {
         {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: OpenProcess takes plain values; it returns a new handle or null.
         let process = unsafe { OpenProcess(PROCESS_SET_QUOTA | PROCESS_TERMINATE, 0, child.id()) };
         if process.is_null() {
             return Err(io::Error::last_os_error());
         }
+        // SAFETY: `job.handle` is the open job and `process` the non-null handle opened above; both
+        // stay open for the call.
         let assigned = unsafe { AssignProcessToJobObject(job.handle, process) };
         let assign_error = (assigned == 0).then(io::Error::last_os_error);
+        // SAFETY: `process` is the non-null handle OpenProcess returned, owned only here and closed
+        // once.
         unsafe {
             CloseHandle(process);
         }
@@ -824,6 +830,8 @@ impl HermesWindowsJob {
     }
 
     fn terminate(&self) {
+        // SAFETY: `self.handle` is the job handle this value owns, open until Drop; no pointers are
+        // passed.
         unsafe {
             TerminateJobObject(self.handle, 1);
         }
@@ -833,6 +841,7 @@ impl HermesWindowsJob {
 #[cfg(windows)]
 impl Drop for HermesWindowsJob {
     fn drop(&mut self) {
+        // SAFETY: `self.handle` is the job handle this value owns, closed here exactly once.
         unsafe {
             CloseHandle(self.handle);
         }
@@ -840,7 +849,9 @@ impl Drop for HermesWindowsJob {
 }
 
 #[cfg(windows)]
-fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
+fn resume_hermes_child(child: &Child) -> io::Result<()> {
+    // SAFETY: CreateToolhelp32Snapshot takes plain values; it returns a new handle or
+    // INVALID_HANDLE_VALUE.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(io::Error::last_os_error());
@@ -851,16 +862,22 @@ fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
                 .expect("Windows thread entry size fits in u32"),
             ..THREADENTRY32::default()
         };
+        // SAFETY: `snapshot` is the open snapshot and `entry` a live THREADENTRY32 whose dwSize is
+        // set to its size, as Thread32First requires.
         if unsafe { Thread32First(snapshot, &mut entry) } == 0 {
             return Err(io::Error::last_os_error());
         }
         loop {
             if entry.th32OwnerProcessID == child.id() {
+                // SAFETY: OpenThread takes plain values; it returns a new handle or null.
                 let thread = unsafe { OpenThread(THREAD_SUSPEND_RESUME, 0, entry.th32ThreadID) };
                 if thread.is_null() {
                     return Err(io::Error::last_os_error());
                 }
+                // SAFETY: `thread` is the non-null handle OpenThread returned, open for the call.
                 let resumed = unsafe { ResumeThread(thread) };
+                // SAFETY: `thread` is the non-null handle OpenThread returned, owned only here and
+                // closed once.
                 unsafe {
                     CloseHandle(thread);
                 }
@@ -869,6 +886,8 @@ fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
                 }
                 return Ok(());
             }
+            // SAFETY: `snapshot` is the open snapshot and `entry` the live THREADENTRY32 filled by
+            // the previous call.
             if unsafe { Thread32Next(snapshot, &mut entry) } == 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::NotFound,
@@ -877,6 +896,8 @@ fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
             }
         }
     })();
+    // SAFETY: `snapshot` is the valid handle CreateToolhelp32Snapshot returned, owned only here and
+    // closed once after the closure that uses it returns.
     unsafe {
         CloseHandle(snapshot);
     }
@@ -886,7 +907,9 @@ fn resume_hermes_child(child: &std::process::Child) -> io::Result<()> {
 #[cfg(unix)]
 fn read_hermes_output(mut pipe: impl Read + AsRawFd, deadline: Instant) -> io::Result<Vec<u8>> {
     let fd = pipe.as_raw_fd();
+    // SAFETY: `pipe` keeps `fd` open for the call; F_GETFL takes no pointer argument.
     let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+    // SAFETY: `pipe` keeps `fd` open for the call; F_SETFL takes an int flag set, no pointer.
     if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
         return Err(io::Error::last_os_error());
     }
@@ -917,6 +940,8 @@ fn read_hermes_output(mut pipe: impl Read + AsRawFd, deadline: Instant) -> io::R
                     remaining.as_millis().max(1).min(libc::c_int::MAX as u128) as libc::c_int;
                 let mut descriptor =
                     libc::pollfd { fd, events: libc::POLLIN | libc::POLLHUP, revents: 0 };
+                // SAFETY: `descriptor` is one live pollfd and the count passed is 1, so poll
+                // touches only it.
                 let ready = unsafe { libc::poll(&mut descriptor, 1, timeout_ms) };
                 if ready < 0 {
                     let error = io::Error::last_os_error();
@@ -1004,15 +1029,17 @@ impl HermesReapState {
     }
 }
 
+/// The Hermes command's reader and reaper threads serve a helper child,
+/// which runs at `cmux_threads::HELPER_CHILD`.
+const HERMES_HELPER_QOS: cmux_threads::ThreadQos = cmux_threads::HELPER_CHILD;
+
 fn spawn_hermes_reaper(state: Arc<HermesReapState>) -> io::Result<()> {
     let reaper_state = Arc::clone(&state);
     if hermes_reaper_spawn_should_fail() {
         drop(reaper_state);
         return Err(io::Error::other("forced Hermes reaper spawn failure"));
     }
-    std::thread::Builder::new()
-        .name("hermes-command-reaper".into())
-        .spawn(move || reaper_state.reap())
+    cmux_threads::spawn("hermes-command-reaper", HERMES_HELPER_QOS, move || reaper_state.reap())
         .map(|_| ())
 }
 
@@ -1066,7 +1093,7 @@ fn run_hermes_command_with_timeout(
     #[cfg(windows)]
     command.creation_flags(CREATE_SUSPENDED);
     #[cfg(unix)]
-    tree.configure(&mut command);
+    tree.configure(&mut command).context("prepare Hermes process scope")?;
     let mut child = command.spawn().with_context(|| format!("run {}", binary.display()))?;
     #[cfg(test)]
     publish_hermes_test_child(child.id());
@@ -1116,10 +1143,9 @@ fn run_hermes_command_with_timeout(
             anyhow::bail!("Hermes stderr pipe is unavailable");
         }
     };
-    let stdout = match std::thread::Builder::new()
-        .name("hermes-command-stdout".into())
-        .spawn(move || read_hermes_output(stdout_pipe, deadline))
-    {
+    let stdout = match cmux_threads::spawn("hermes-command-stdout", HERMES_HELPER_QOS, move || {
+        read_hermes_output(stdout_pipe, deadline)
+    }) {
         Ok(stdout) => stdout,
         Err(error) => {
             #[cfg(unix)]
@@ -1129,10 +1155,9 @@ fn run_hermes_command_with_timeout(
             return Err(error).context("start Hermes stdout reader");
         }
     };
-    let stderr = match std::thread::Builder::new()
-        .name("hermes-command-stderr".into())
-        .spawn(move || read_hermes_output(stderr_pipe, deadline))
-    {
+    let stderr = match cmux_threads::spawn("hermes-command-stderr", HERMES_HELPER_QOS, move || {
+        read_hermes_output(stderr_pipe, deadline)
+    }) {
         Ok(stderr) => stderr,
         Err(error) => {
             #[cfg(unix)]
@@ -2686,7 +2711,7 @@ fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
             Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
                 // Lock contention, not synchronization: flock has no
                 // wait-with-timeout, so poll at a short interval to a deadline.
-                std::thread::sleep(Duration::from_millis(25));
+                cmux_threads::checked::sync::sleep(Duration::from_millis(25));
             }
             Err(_) => return None,
         }
@@ -2915,7 +2940,7 @@ mod tests {
         );
         let (result_sender, result_receiver) = std::sync::mpsc::sync_channel(1);
         let started = Instant::now();
-        let worker = std::thread::spawn(move || {
+        let worker = cmux_threads::spawn("hermes-test-worker", HERMES_HELPER_QOS, move || {
             FORCE_HERMES_REAPER_SPAWN_FAILURE.with(|failure| failure.set(true));
             let result = run_hermes_command_with_timeout(
                 Path::new("/bin/sh"),
@@ -2923,7 +2948,8 @@ mod tests {
                 Duration::from_secs(2),
             );
             result_sender.send(result).unwrap();
-        });
+        })
+        .unwrap();
 
         let startup_deadline = Instant::now() + Duration::from_secs(1);
         let pid = loop {
@@ -2995,7 +3021,7 @@ mod tests {
             }
         }
 
-        let child = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let child = cmux_process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
         let pid = libc::pid_t::try_from(child.id()).unwrap();
         let _child_guard = ChildGuard(pid);
         let child_exit = UnixChildExitSignal::observe(child.id()).unwrap();
@@ -3364,7 +3390,7 @@ mod tests {
         // thread with a bounded wait so a regression fails fast as a timeout
         // panic instead of hanging the suite.
         let (sender, receiver) = std::sync::mpsc::channel();
-        std::thread::spawn(move || {
+        cmux_threads::spawn("hooks-test-fifo", cmux_threads::ThreadQos::Utility, move || {
             let status = Plan { action: Action::Status, providers: vec!["codex".into()] };
             let install = Plan { action: Action::Install, providers: vec!["codex".into()] };
             let uninstall = Plan { action: Action::Uninstall, providers: vec!["codex".into()] };
@@ -3373,7 +3399,8 @@ mod tests {
                 run_with_context(&install, &worker_context),
                 run_with_context(&uninstall, &worker_context),
             ));
-        });
+        })
+        .unwrap();
         let (status_result, install_result, uninstall_result) = receiver
             .recv_timeout(Duration::from_secs(60))
             .expect("codex operations must fail closed on a FIFO config instead of blocking");

@@ -12,6 +12,7 @@ extension BrowserProfileService {
     /// default naming it is cleared, and its engine data is removed now when
     /// no engine opened it in this process, else at the next launch.
     func delete(_ id: String) throws {
+        guard let services else { return }
         guard id != BrowserProfileRecord.defaultID else { throw BrowserProfileBookError.defaultProfile }
         guard isKnown(id) else { throw BrowserProfileBookError.unknownProfile }
         for (tab, pane) in browserTabs(in: id) {
@@ -40,6 +41,7 @@ extension BrowserProfileService {
 
     /// Every browser tab (on every machine) whose record names `id`.
     func browserTabs(in id: String) -> [(TabModel, PaneModel)] {
+        guard let services else { return [] }
         var found: [(TabModel, PaneModel)] = []
         for (workspace, _) in services.machines.allWorkspaces {
             for pane in workspace.screens.flatMap(\.panes) {
@@ -53,16 +55,18 @@ extension BrowserProfileService {
     /// this process (Chromium and WebKit keep an opened store's files until
     /// the process ends); the rest waits for the next launch.
     func cleanUpDeletedProfiles() {
+        guard let services else { return }
         // A service that never loaded its file (tests) touches no data.
         let pending = book.pendingCleanup
         guard file != nil, !pending.isEmpty else { return }
-        let cef = services.cache.cef, webKit = services.cache.webKit.profileStore
+        // An engine not built yet opened no profile in this process; the cleanup never builds it.
+        let cef = services.cache.chromium.built, webKit = services.cache.webKit.profileStore
         let ready = pending.filter { id in
             guard let profile = BrowserProfileRecord.engineProfile(for: id) else { return true }
-            return !cef.hasOpened(profile) && !webKit.loadedProfiles.contains(profile)
+            return cef?.hasOpened(profile) != true && !webKit.loadedProfiles.contains(profile)
         }
         guard !ready.isEmpty else { return }
-        let cleanup = BrowserProfileStorageCleanup(chromiumRoot: cef.storageRoot)
+        let cleanup = BrowserProfileStorageCleanup(chromiumRoot: CEFEngine.storageRoot)
         let bundleID = services.environment.launch.bundleID
         // task-owner: one-shot removal of deleted profiles' files; reports back once
         Task { [weak self] in
@@ -104,6 +108,7 @@ extension BrowserProfileService {
 
     /// Each profile's imported history goes into its omnibar; Keep in Sync starts watching.
     private func seedImportedHistory() {
+        guard let services else { return }
         guard importStore != nil else { return }
         let sync = services.onboarding.historySync, profiles = ordered.map(\.id)
         // task-owner: one-shot launch load of the import store; the sync owns its watches

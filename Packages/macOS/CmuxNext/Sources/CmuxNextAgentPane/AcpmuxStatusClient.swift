@@ -1,3 +1,6 @@
+import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 import Foundation
 import Network
 
@@ -150,7 +153,7 @@ nonisolated enum AcpmuxStatusClient {
         var initialized = false
         var buffer = Data()
         // Notifications never satisfy the handshake or the operation.
-        while true {  // wakeup-allow: each pass awaits socket data; EOF, error or the deadline ends it
+        while true {  // wakeup-allow: bounded each pass awaits socket data; EOF, an error or the call's deadline ends it
             guard let chunk = try await transport.receive() else { throw Failure.closed }
             buffer += chunk
             while let newline = buffer.firstIndex(of: 0x0A) {
@@ -179,7 +182,7 @@ nonisolated enum AcpmuxStatusClient {
 
     /// The `result` of the reply to `id` in `line`, nil for any other message.
     static func reply(to id: Int, in line: Data) throws -> [String: Any]? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any],
               (object["id"] as? NSNumber)?.intValue == id else { return nil }
         if let error = object["error"] as? [String: Any] {
             throw Failure.rpc(error["message"] as? String ?? "acpmux request failed")
@@ -189,41 +192,45 @@ nonisolated enum AcpmuxStatusClient {
 
     /// `reply(to:in:)` that keeps the error's JSON-RPC code and data (``AcpmuxRPCError``).
     static func detailedReply(to id: Int, in line: Data) throws -> [String: Any]? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any],
               (object["id"] as? NSNumber)?.intValue == id else { return nil }
         if let error = object["error"] as? [String: Any] { throw AcpmuxRPCError(error) }
         return object["result"] as? [String: Any] ?? [:]
     }
 
     static func start(_ connection: NWConnection) async throws {
-        let gate = AgentPaneResumeOnce()
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
-            connection.stateUpdateHandler = { state in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
+            // The first ready, failed or cancelled state answers. Network calls this handler on the
+            // connection's queue one state at a time, so dropping it there leaves no later state to answer.
+            connection.stateUpdateHandler = { [weak connection] state in
                 switch state {
                 case .ready:
-                    gate.run { continuation.resume() }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(returning: ())
                 case .failed(let error), .waiting(let error):
-                    gate.run { continuation.resume(throwing: Failure.unreachable("\(error)")) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(throwing: Failure.unreachable("\(error)"))
                 case .cancelled:
-                    gate.run { continuation.resume(throwing: CancellationError()) }
+                    connection?.stateUpdateHandler = nil
+                    continuation.resume(throwing: CancellationError())
                 default:
                     break
                 }
             }
-            connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status"))
+            connection.start(queue: DispatchQueue(label: "cmux.next.agent-pane.acpmux-status", qos: .userInitiated))
         }
     }
 
     static func send(_ data: Data, on connection: NWConnection) async throws {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             connection.send(content: data, completion: .contentProcessed { error in
-                if let error { continuation.resume(throwing: error) } else { continuation.resume() }
+                if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: ()) }
             })
         }
     }
 
     static func receive(on connection: NWConnection) async throws -> Data? {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Data?, any Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
                 if let data, !data.isEmpty {
                     continuation.resume(returning: data)
@@ -238,6 +245,7 @@ nonisolated enum AcpmuxStatusClient {
 }
 
 /// A JSON result handed across the deadline boundary.
+// crash-allow: one `let` holding a JSONSerialization result (immutable Foundation containers, never `.mutableContainers`), only read after it crosses.
 nonisolated struct ResultBox: @unchecked Sendable {
     let value: [String: Any]
     init(_ value: [String: Any]) { self.value = value }

@@ -4,10 +4,16 @@ use crate::panic_free::RecoverPoison;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::sync::mpsc::{RecvError, RecvTimeoutError, TryRecvError};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::event_cause::EventCause;
 use crate::{MuxEvent, PaneId, ScreenId, SurfaceId, TreeDelta, TreeDeltaKind, WorkspaceId};
+
+mod fan_out;
+
+pub(crate) use fan_out::StateReleasePublish;
+use fan_out::{Bus, MuxEventSubscriber, Published, Subscribers};
 
 // A subscriber may drain accepted events after crossing this limit, then observes a disconnect.
 const MAX_PENDING_EVENTS: usize = 4_096;
@@ -50,14 +56,23 @@ pub(crate) fn defer_session_paths<R>(f: impl FnOnce() -> R) -> (R, DeferredSessi
     (output, DeferredSessionPaths(recorded))
 }
 
-#[derive(Default)]
+/// The mux event bus. An emit is queued in order and its fan-out (each
+/// subscriber's filter and mailbox push) runs outside `Mux::state`: a thread
+/// that holds `Mux::state` only queues, and delivers what it queued once it
+/// releases the lock ([`StateReleasePublish`]), so no thread waits for the
+/// state lock while a fan-out runs. One queue for every thread keeps the
+/// state order of emits made under the lock (a per-thread buffer would let
+/// a later holder's delta overtake an earlier one). Chromium likewise
+/// notifies observers outside the lock that guards their list
+/// (base/observer_list_threadsafe.h, `ObserverListThreadSafe::Notify`).
 pub struct MuxEventBroadcaster {
-    subscribers: Mutex<Vec<MuxEventSubscriber>>,
+    bus: Arc<Bus>,
 }
 
-struct MuxEventSubscriber {
-    mailbox: Weak<MuxEventMailbox>,
-    filter: MuxEventFilter,
+impl Default for MuxEventBroadcaster {
+    fn default() -> Self {
+        Self { bus: Arc::new(Bus::default()) }
+    }
 }
 
 enum MuxEventFilter {
@@ -71,6 +86,9 @@ enum MuxEventFilter {
     LaunchSnapshot,
     /// Local conversation changes (the host replica's Chief stream).
     Conversations,
+    /// Only events of these kinds: a page relay's interest set, so an event
+    /// it never hears is not cloned into its mailbox or rendered.
+    Kinds(MuxEventKinds),
     AttachedSurface(SurfaceId),
     SurfaceSession(SurfaceSessionScope),
 }
@@ -91,14 +109,17 @@ pub struct MuxEventReceiver {
 struct MuxEventMailbox {
     state: Mutex<MuxEventMailboxState>,
     changed: Condvar,
+    /// The subscriber's drain task when it runs on a sequence instead of
+    /// blocking on `changed` (attach streams, p05-ipc-079).
+    ready_hook: crate::stream_interrupt::ReadyHook,
 }
 
 #[derive(Default)]
 struct MuxEventMailboxState {
     next_sequence: u128,
-    events: VecDeque<(u128, MuxEvent)>,
+    events: VecDeque<(u128, Arc<MuxEvent>, EventCause)>,
     coalesced_sequences: HashMap<CoalescedEventKey, u128>,
-    coalesced: BTreeMap<u128, (CoalescedEventKey, MuxEvent)>,
+    coalesced: BTreeMap<u128, (CoalescedEventKey, Arc<MuxEvent>, EventCause)>,
     closed: bool,
     overflowed: bool,
 }
@@ -113,9 +134,30 @@ enum CoalescedEventKey {
     Scroll(SurfaceId),
 }
 
+impl CoalescedEventKey {
+    /// The slot a pending event of this kind replaces, if it coalesces.
+    fn of(event: &MuxEvent) -> Option<Self> {
+        match *event {
+            MuxEvent::AgentChanged { surface, .. } => Some(Self::Agent(surface)),
+            MuxEvent::TitleChanged { surface, .. } => Some(Self::Title(surface)),
+            MuxEvent::ProgramStatusChanged { surface, .. } => Some(Self::ProgramStatus(surface)),
+            MuxEvent::SurfaceOutput(surface) => Some(Self::SurfaceOutput(surface)),
+            MuxEvent::ScrollChanged { surface, .. } => Some(Self::Scroll(surface)),
+            MuxEvent::ConfigReloadRequested => Some(Self::ConfigReload),
+            _ => None,
+        }
+    }
+}
+
 impl MuxEventBroadcaster {
     pub fn subscribe(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::All)
+    }
+
+    /// The verified app's stream: every event, delivered before any other
+    /// subscriber's.
+    pub(crate) fn subscribe_frontend(&self) -> MuxEventReceiver {
+        self.subscribe_as(MuxEventFilter::All, true)
     }
 
     pub fn subscribe_config_reload(&self) -> MuxEventReceiver {
@@ -132,6 +174,11 @@ impl MuxEventBroadcaster {
 
     pub(crate) fn subscribe_conversations(&self) -> MuxEventReceiver {
         self.subscribe_with_filter(MuxEventFilter::Conversations)
+    }
+
+    /// A subscription that receives only events of `kinds`.
+    pub(crate) fn subscribe_kinds(&self, kinds: MuxEventKinds) -> MuxEventReceiver {
+        self.subscribe_with_filter(MuxEventFilter::Kinds(kinds))
     }
 
     pub fn subscribe_attached_surface(&self, surface: SurfaceId) -> MuxEventReceiver {
@@ -153,6 +200,8 @@ impl MuxEventBroadcaster {
         }))
     }
 
+    /// Move `surface`'s session subscribers to a new path and wake them with
+    /// a `TreeChanged`, in order with the events published around it.
     pub(crate) fn update_surface_session_path(
         &self,
         surface: SurfaceId,
@@ -168,18 +217,11 @@ impl MuxEventBroadcaster {
         if deferred.is_some() {
             return;
         }
-        let mut subscribers = self.subscribers.lock().recover_poison();
-        subscribers.retain_mut(|subscriber| {
-            let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
-            if let MuxEventFilter::SurfaceSession(scope) = &mut subscriber.filter
-                && scope.surface == surface
-            {
-                scope.workspace = workspace;
-                scope.screen = screen;
-                scope.pane = pane;
-                return mailbox.push(MuxEvent::TreeChanged);
-            }
-            true
+        let cause = EventCause::current();
+        Bus::publish(&self.bus, |sequence| Published::SessionPath {
+            sequence,
+            path: (surface, workspace, screen, pane),
+            cause,
         });
     }
 
@@ -192,24 +234,181 @@ impl MuxEventBroadcaster {
     }
 
     fn subscribe_with_filter(&self, filter: MuxEventFilter) -> MuxEventReceiver {
+        self.subscribe_as(filter, false)
+    }
+
+    fn subscribe_as(&self, filter: MuxEventFilter, frontend: bool) -> MuxEventReceiver {
         let mailbox = Arc::new(MuxEventMailbox::default());
-        self.subscribers
-            .lock()
-            .recover_poison()
-            .push(MuxEventSubscriber { mailbox: Arc::downgrade(&mailbox), filter });
+        let mut subscribers = self.bus.subscribers.lock().recover_poison();
+        let since = self.bus.queue.lock().recover_poison().next_sequence;
+        subscribers.prune();
+        subscribers.insert(
+            MuxEventSubscriber { mailbox: Arc::downgrade(&mailbox), filter, since },
+            frontend,
+        );
         MuxEventReceiver { mailbox }
     }
 
+    /// Subscriptions whose receiver is still alive (`oracle-state`).
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    pub(crate) fn live_subscriber_count(&self) -> usize {
+        let subscribers = self.bus.subscribers.lock().recover_poison();
+        subscribers.all().filter(|subscriber| subscriber.mailbox.strong_count() > 0).count()
+    }
+
+    /// Deliver `event` with the cause of this thread's scope
+    /// ([`EventCause::current`]).
     pub fn emit(&self, event: MuxEvent) {
-        let mut subscribers = self.subscribers.lock().recover_poison();
-        subscribers.retain_mut(|subscriber| {
-            let Some(mailbox) = subscriber.mailbox.upgrade() else { return false };
-            !subscriber.filter.accepts(&event) || mailbox.push(event.clone())
-        });
+        self.emit_caused(event, EventCause::current());
+    }
+
+    /// Publish `event` once, shared by every subscriber that hears it. Under
+    /// `Mux::state` it is only queued, and delivered when the lock is
+    /// released.
+    pub(crate) fn emit_caused(&self, event: MuxEvent, cause: EventCause) {
+        let event = Arc::new(event);
+        Bus::publish(&self.bus, |sequence| Published::Event { sequence, event, cause });
+    }
+}
+
+/// The variant of a [`MuxEvent`], the unit of a [`MuxEventKinds`] interest
+/// set. Chromium routes an event only to listeners registered for its name
+/// (extensions/browser/event_router.cc, `EventRouter::DispatchEventImpl`);
+/// a subscription with an interest set is filtered the same way, on the bus.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MuxEventKind {
+    SurfaceOutput,
+    SurfaceResized,
+    SurfaceResizeFailed,
+    SurfaceExited,
+    ProgramStatusChanged,
+    TitleChanged,
+    AgentChanged,
+    AgentPresenceChanged,
+    Bell,
+    Notification,
+    GraphicsStatus,
+    Status,
+    ConfigReloadRequested,
+    WindowTitleRequested,
+    ScrollChanged,
+    TreeChanged,
+    TreeSelectionChanged,
+    TreeDelta,
+    FrontendProjectionChanged,
+    PersonalChanged,
+    BookmarksChanged,
+    HistoryChanged,
+    SettingsChanged,
+    KeybindingsChanged,
+    Conversation,
+    CloudConversation,
+    TerminalRegistryChanged,
+    TerminalReaped,
+    LayoutChanged,
+    ClientAttached,
+    ClientChanged,
+    ClientDetached,
+    SizeStateChanged,
+    ClientListInvalidated,
+    PairingRequested,
+    PairingResolved,
+    MachineUsageChanged,
+    DiagnosticSite,
+    Empty,
+}
+
+// Every kind is one bit of `MuxEventKinds`.
+const _: () = assert!(MuxEventKind::COUNT <= u64::BITS as usize);
+
+impl MuxEventKind {
+    /// How many kinds there are (`Empty` is the last).
+    pub(crate) const COUNT: usize = Self::Empty as usize + 1;
+
+    pub(crate) const fn of(event: &MuxEvent) -> Self {
+        match event {
+            MuxEvent::SurfaceOutput(_) => Self::SurfaceOutput,
+            MuxEvent::SurfaceResized { .. } => Self::SurfaceResized,
+            MuxEvent::SurfaceResizeFailed { .. } => Self::SurfaceResizeFailed,
+            MuxEvent::SurfaceExited(..) => Self::SurfaceExited,
+            MuxEvent::ProgramStatusChanged { .. } => Self::ProgramStatusChanged,
+            MuxEvent::TitleChanged { .. } => Self::TitleChanged,
+            MuxEvent::AgentChanged { .. } => Self::AgentChanged,
+            MuxEvent::AgentPresenceChanged { .. } => Self::AgentPresenceChanged,
+            MuxEvent::Bell(_) => Self::Bell,
+            MuxEvent::Notification(_) => Self::Notification,
+            MuxEvent::GraphicsStatus(_) => Self::GraphicsStatus,
+            MuxEvent::Status(_) => Self::Status,
+            MuxEvent::ConfigReloadRequested => Self::ConfigReloadRequested,
+            MuxEvent::WindowTitleRequested(_) => Self::WindowTitleRequested,
+            MuxEvent::ScrollChanged { .. } => Self::ScrollChanged,
+            MuxEvent::TreeChanged => Self::TreeChanged,
+            MuxEvent::TreeSelectionChanged => Self::TreeSelectionChanged,
+            MuxEvent::TreeDelta(_) => Self::TreeDelta,
+            MuxEvent::FrontendProjectionChanged { .. } => Self::FrontendProjectionChanged,
+            MuxEvent::PersonalChanged { .. } => Self::PersonalChanged,
+            MuxEvent::BookmarksChanged(_) => Self::BookmarksChanged,
+            MuxEvent::HistoryChanged { .. } => Self::HistoryChanged,
+            MuxEvent::SettingsChanged(_) => Self::SettingsChanged,
+            MuxEvent::KeybindingsChanged(_) => Self::KeybindingsChanged,
+            MuxEvent::Conversation(_) => Self::Conversation,
+            MuxEvent::CloudConversation(_) => Self::CloudConversation,
+            MuxEvent::TerminalRegistryChanged { .. } => Self::TerminalRegistryChanged,
+            MuxEvent::TerminalReaped { .. } => Self::TerminalReaped,
+            MuxEvent::LayoutChanged(..) => Self::LayoutChanged,
+            MuxEvent::ClientAttached { .. } => Self::ClientAttached,
+            MuxEvent::ClientChanged { .. } => Self::ClientChanged,
+            MuxEvent::ClientDetached(_) => Self::ClientDetached,
+            MuxEvent::SizeStateChanged { .. } => Self::SizeStateChanged,
+            MuxEvent::ClientListInvalidated => Self::ClientListInvalidated,
+            MuxEvent::PairingRequested(_) => Self::PairingRequested,
+            MuxEvent::PairingResolved { .. } => Self::PairingResolved,
+            MuxEvent::MachineUsageChanged(_) => Self::MachineUsageChanged,
+            MuxEvent::DiagnosticSite(_) => Self::DiagnosticSite,
+            MuxEvent::Empty => Self::Empty,
+        }
+    }
+}
+
+/// A set of [`MuxEventKind`]s: what one subscriber wants to hear.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct MuxEventKinds(u64);
+
+impl MuxEventKinds {
+    pub(crate) const NONE: Self = Self(0);
+
+    pub(crate) const fn with(self, kind: MuxEventKind) -> Self {
+        Self(self.0 | 1 << kind as u32)
+    }
+
+    pub(crate) const fn union(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+
+    pub(crate) const fn contains(self, kind: MuxEventKind) -> bool {
+        self.0 & (1 << kind as u32) != 0
+    }
+
+    pub(crate) const fn accepts(self, event: &MuxEvent) -> bool {
+        self.contains(MuxEventKind::of(event))
     }
 }
 
 impl MuxEventFilter {
+    /// The surface a scoped filter hears, its key in `Subscribers::by_surface`.
+    fn surface(&self) -> Option<SurfaceId> {
+        match self {
+            Self::AttachedSurface(surface) => Some(*surface),
+            Self::SurfaceSession(scope) => Some(scope.surface),
+            Self::All
+            | Self::ConfigReload
+            | Self::TerminalTopology
+            | Self::LaunchSnapshot
+            | Self::Conversations
+            | Self::Kinds(_) => None,
+        }
+    }
+
     fn accepts(&mut self, event: &MuxEvent) -> bool {
         match self {
             Self::All => true,
@@ -233,6 +432,7 @@ impl MuxEventFilter {
                     | MuxEvent::Empty
             ),
             Self::Conversations => matches!(event, MuxEvent::Conversation(_) | MuxEvent::Empty),
+            Self::Kinds(kinds) => kinds.accepts(event),
             Self::AttachedSurface(surface) => match event {
                 MuxEvent::Notification(notification) => notification.surface == Some(*surface),
                 MuxEvent::ScrollChanged { surface: event_surface, .. } => {
@@ -272,7 +472,9 @@ impl SurfaceSessionScope {
             | MuxEvent::ClientDetached(_)
             | MuxEvent::ClientListInvalidated
             | MuxEvent::TreeChanged
-            | MuxEvent::TreeSelectionChanged => false,
+            | MuxEvent::TreeSelectionChanged
+            // The daemon's sites go to the app's control connection only.
+            | MuxEvent::DiagnosticSite(_) => false,
             MuxEvent::GraphicsStatus(_)
             | MuxEvent::Status(_)
             | MuxEvent::ConfigReloadRequested
@@ -327,109 +529,107 @@ impl SurfaceSessionScope {
 
 impl Drop for MuxEventBroadcaster {
     fn drop(&mut self) {
-        for subscriber in self.subscribers.get_mut().recover_poison().drain(..) {
+        let mut subscribers = self.bus.subscribers.lock().recover_poison();
+        for subscriber in subscribers.all() {
             if let Some(mailbox) = subscriber.mailbox.upgrade() {
                 mailbox.close();
             }
         }
+        *subscribers = Subscribers::default();
     }
 }
 
 impl MuxEventMailbox {
-    fn push(&self, event: MuxEvent) -> bool {
+    fn push(&self, event: Arc<MuxEvent>, cause: EventCause) -> bool {
         let mut state = self.state.lock().recover_poison();
         if state.closed {
             return false;
         }
         let sequence = state.next_sequence;
         state.next_sequence = state.next_sequence.saturating_add(1);
-        let accepted = match event {
-            event @ MuxEvent::AgentChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::Agent(surface), event)
-            }
-            event @ MuxEvent::TitleChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::Title(surface), event)
-            }
-            event @ MuxEvent::ProgramStatusChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::ProgramStatus(surface), event)
-            }
-            event @ MuxEvent::SurfaceOutput(surface) => {
-                state.push_coalesced(sequence, CoalescedEventKey::SurfaceOutput(surface), event)
-            }
-            event @ MuxEvent::ScrollChanged { surface, .. } => {
-                state.push_coalesced(sequence, CoalescedEventKey::Scroll(surface), event)
-            }
-            MuxEvent::ConfigReloadRequested => state.push_coalesced(
-                sequence,
-                CoalescedEventKey::ConfigReload,
-                MuxEvent::ConfigReloadRequested,
-            ),
-            event @ MuxEvent::SurfaceExited(surface, _) => {
-                state.discard_surface_state(surface);
-                if !state.reserve_pending_slot() {
-                    false
-                } else {
-                    state.events.push_back((sequence, event));
+        let accepted = if let Some(key) = CoalescedEventKey::of(&event) {
+            state.push_coalesced(sequence, key, event, cause)
+        } else {
+            match *event {
+                MuxEvent::SurfaceExited(surface, _) => {
+                    state.discard_surface_state(surface);
+                    state.push_pending(sequence, event, cause)
+                }
+                MuxEvent::Empty => {
+                    let mut terminal_events = state
+                        .events
+                        .iter()
+                        .filter(|(_, event, _)| {
+                            matches!(**event, MuxEvent::SurfaceExited(..))
+                                || matches!(
+                                    &**event,
+                                    MuxEvent::TreeDelta(delta)
+                                        if delta.kind == TreeDeltaKind::WorkspaceClosed
+                                )
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    let keep = MAX_PENDING_EVENTS.saturating_sub(1);
+                    if terminal_events.len() > keep {
+                        terminal_events.drain(..terminal_events.len() - keep);
+                    }
+                    state.events.clear();
+                    state.coalesced_sequences.clear();
+                    state.coalesced.clear();
+                    state.events.extend(terminal_events);
+                    state.events.push_back((sequence, event, cause));
                     true
                 }
-            }
-            MuxEvent::Empty => {
-                let mut terminal_events = state
-                    .events
-                    .iter()
-                    .filter(|(_, event)| {
-                        matches!(event, MuxEvent::SurfaceExited(..))
-                            || matches!(
-                                event,
-                                MuxEvent::TreeDelta(delta)
-                                    if delta.kind == TreeDeltaKind::WorkspaceClosed
-                            )
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>();
-                let keep = MAX_PENDING_EVENTS.saturating_sub(1);
-                if terminal_events.len() > keep {
-                    terminal_events.drain(..terminal_events.len() - keep);
-                }
-                state.events.clear();
-                state.coalesced_sequences.clear();
-                state.coalesced.clear();
-                state.events.extend(terminal_events);
-                state.events.push_back((sequence, MuxEvent::Empty));
-                true
-            }
-            event => {
-                if !state.reserve_pending_slot() {
-                    false
-                } else {
-                    state.events.push_back((sequence, event));
-                    true
-                }
+                _ => state.push_pending(sequence, event, cause),
             }
         };
+        drop(state);
         if !accepted {
             self.changed.notify_all();
+            self.ready_hook.wake();
             return false;
         }
         self.changed.notify_one();
+        self.ready_hook.wake();
         true
     }
 
     fn close(&self) {
         self.state.lock().recover_poison().closed = true;
         self.changed.notify_all();
+        self.ready_hook.wake();
     }
 }
 
 impl MuxEventMailboxState {
-    fn push_coalesced(&mut self, sequence: u128, key: CoalescedEventKey, event: MuxEvent) -> bool {
+    /// Replaces the pending event of `key`, if any. The kept event takes
+    /// the higher of the two causes: a person's change folded into a later
+    /// program one is still the person's.
+    fn push_coalesced(
+        &mut self,
+        sequence: u128,
+        key: CoalescedEventKey,
+        event: Arc<MuxEvent>,
+        cause: EventCause,
+    ) -> bool {
+        let mut cause = cause;
         if let Some(previous) = self.coalesced_sequences.get(&key).copied() {
-            self.coalesced.remove(&previous);
+            if let Some((_, _, previous_cause)) = self.coalesced.remove(&previous) {
+                cause = cause.merge(previous_cause);
+            }
         } else if !self.reserve_pending_slot() {
             return false;
         }
         self.coalesced_sequences.insert(key, sequence);
-        self.coalesced.insert(sequence, (key, event));
+        self.coalesced.insert(sequence, (key, event, cause));
+        true
+    }
+
+    fn push_pending(&mut self, sequence: u128, event: Arc<MuxEvent>, cause: EventCause) -> bool {
+        if !self.reserve_pending_slot() {
+            return false;
+        }
+        self.events.push_back((sequence, event, cause));
         true
     }
 
@@ -458,20 +658,37 @@ impl MuxEventMailboxState {
     }
 
     fn pop(&mut self) -> Option<MuxEvent> {
-        let event_sequence = self.events.front().map(|(sequence, _)| *sequence);
+        self.pop_caused().map(|(event, _)| event)
+    }
+
+    /// The next event, owned: the last mailbox to take a shared event takes
+    /// it without a copy.
+    fn pop_caused(&mut self) -> Option<(MuxEvent, EventCause)> {
+        self.pop_shared().map(|(event, cause)| (Arc::unwrap_or_clone(event), cause))
+    }
+
+    fn pop_shared(&mut self) -> Option<(Arc<MuxEvent>, EventCause)> {
+        let event_sequence = self.events.front().map(|(sequence, ..)| *sequence);
         let coalesced_sequence = self.coalesced.first_key_value().map(|(sequence, _)| *sequence);
         let next_sequence = [event_sequence, coalesced_sequence].into_iter().flatten().min()?;
         if event_sequence == Some(next_sequence) {
-            self.events.pop_front().map(|(_, event)| event)
+            self.events.pop_front().map(|(_, event, cause)| (event, cause))
         } else {
-            let (_, (key, event)) = self.coalesced.pop_first()?;
+            let (_, (key, event, cause)) = self.coalesced.pop_first()?;
             self.coalesced_sequences.remove(&key);
-            Some(event)
+            Some((event, cause))
         }
     }
 }
 
 impl MuxEventReceiver {
+    /// Runs `hook` after each event and when the mailbox closes, for a
+    /// subscriber whose drain polls `try_recv` on a sequence instead of
+    /// blocking. False when a hook is set already.
+    pub(crate) fn on_ready(&self, hook: impl Fn() + Send + Sync + 'static) -> bool {
+        self.mailbox.ready_hook.set(hook)
+    }
+
     pub fn close(&self) {
         self.mailbox.close();
     }
@@ -479,7 +696,7 @@ impl MuxEventReceiver {
     /// Wake this receiver alone with a `TreeChanged` token. Owner-internal
     /// consumers use it for state changes that no broadcast event carries.
     pub(crate) fn wake(&self) {
-        self.mailbox.push(MuxEvent::TreeChanged);
+        self.mailbox.push(Arc::new(MuxEvent::TreeChanged), EventCause::Program);
     }
 
     pub fn overflowed(&self) -> bool {
@@ -516,9 +733,19 @@ impl MuxEventReceiver {
         &self,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_caused_until_interrupted(interrupt).map(|(event, _)| Arc::unwrap_or_clone(event))
+    }
+
+    /// [`Self::recv_until_interrupted`] with the event's cause. The event is
+    /// the one every subscriber shares: a reader that only renders it never
+    /// copies it.
+    pub(crate) fn recv_caused_until_interrupted(
+        &self,
+        interrupt: &crate::stream_interrupt::StreamInterrupt,
+    ) -> Result<(Arc<MuxEvent>, EventCause), RecvTimeoutError> {
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
-            if let Some(event) = state.pop() {
+            if let Some(event) = state.pop_shared() {
                 return Ok(event);
             }
             if state.closed {
@@ -532,8 +759,13 @@ impl MuxEventReceiver {
     }
 
     pub fn try_recv(&self) -> Result<MuxEvent, TryRecvError> {
+        self.try_recv_caused().map(|(event, _)| event)
+    }
+
+    /// [`Self::try_recv`] with the event's cause.
+    pub(crate) fn try_recv_caused(&self) -> Result<(MuxEvent, EventCause), TryRecvError> {
         let mut state = self.mailbox.state.lock().recover_poison();
-        if let Some(event) = state.pop() {
+        if let Some(event) = state.pop_caused() {
             Ok(event)
         } else if state.closed {
             Err(TryRecvError::Disconnected)
@@ -547,11 +779,19 @@ impl MuxEventReceiver {
     }
 
     pub fn recv_timeout(&self, timeout: Duration) -> Result<MuxEvent, RecvTimeoutError> {
+        self.recv_caused_timeout(timeout).map(|(event, _)| event)
+    }
+
+    /// [`Self::recv_timeout`] with the event's cause.
+    pub(crate) fn recv_caused_timeout(
+        &self,
+        timeout: Duration,
+    ) -> Result<(MuxEvent, EventCause), RecvTimeoutError> {
         let started = Instant::now();
         let mut remaining = timeout;
         let mut state = self.mailbox.state.lock().recover_poison();
         loop {
-            if let Some(event) = state.pop() {
+            if let Some(event) = state.pop_caused() {
                 return Ok(event);
             }
             if state.closed {
@@ -561,7 +801,7 @@ impl MuxEventReceiver {
                 self.mailbox.changed.wait_timeout(state, remaining).recover_poison();
             state = next;
             if waited.timed_out() {
-                if let Some(event) = state.pop() {
+                if let Some(event) = state.pop_caused() {
                     return Ok(event);
                 }
                 if state.closed {
@@ -572,4 +812,25 @@ impl MuxEventReceiver {
             remaining = timeout.saturating_sub(started.elapsed());
         }
     }
+
+    /// The checked wait of a mailbox-owning thread: the next event, waiting
+    /// at most `timeout` (`None`: until one arrives or the bus closes). It is
+    /// checked as a [`cmux_threads::BlockingKind::Recv`] at the caller's line,
+    /// so it is never called on a request or echo thread.
+    #[track_caller]
+    pub(crate) fn wait_event(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<MuxEvent, RecvTimeoutError> {
+        cmux_threads::assert_blocking_allowed(cmux_threads::BlockingKind::Recv);
+        match timeout {
+            // wakeup-allow: deadline the caller's one timeout; an event or the bus closing ends it first
+            Some(timeout) => self.recv_timeout(timeout),
+            None => self.recv().map_err(|_| RecvTimeoutError::Disconnected),
+        }
+    }
 }
+
+#[cfg(test)]
+#[path = "event_bus_tests.rs"]
+mod tests;

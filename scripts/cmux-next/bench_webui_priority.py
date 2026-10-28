@@ -1,4 +1,4 @@
-"""bench-webui.py priority: the scheduling role, QoS and footprint of every cmux process while cmux's own pages
+"""bench-webui.py priority-roles: the scheduling role, QoS and footprint of every cmux process while cmux's own pages
 (Settings, History, ...) are shown, hidden and parked (plans/cmux-next/chrome-parity/p13-webui.md, task 083, done
 check D12).
 
@@ -290,13 +290,13 @@ def main(args) -> int:
     written to --out, not an exit status (agents read them; no CI gate)."""
     unknown = [name for name in args.pages if name not in PAGES]
     if unknown or not args.pages:
-        raise SystemExit(f"bench-webui priority: --pages takes {','.join(PAGES)} (got {unknown or 'none'})")
+        raise SystemExit(f"bench-webui priority-roles: --pages takes {','.join(PAGES)} (got {unknown or 'none'})")
     if sys.platform != "darwin":
-        raise SystemExit("bench-webui priority: macOS only (a fleet GUI mini, never a laptop)")
+        raise SystemExit("bench-webui priority-roles: macOS only (a fleet GUI mini, never a laptop)")
     import bench_memory as bm  # macOS only: loads libproc at import
     import bench_power as bp
     engines = ["chromium", "webkit"] if args.engine == "both" else [args.engine]
-    report = {"mode": "priority", "app": os.path.realpath(args.app), "pages": args.pages, "arms": []}
+    report = {"mode": "priority-roles", "app": os.path.realpath(args.app), "pages": args.pages, "arms": []}
     status = 0
     try:
         for engine in engines:
@@ -309,7 +309,7 @@ def main(args) -> int:
             print(f"PERF-WEBUI-PURGE state=all-hidden page_renderer_footprint_base_mb={gain['base_mb']} "
                   f"purge_mb={gain['purge_mb']} gain_mb={gain['gain_mb']}", flush=True)
     except SessionShapeError as error:
-        print(f"bench-webui priority: {error}", file=sys.stderr)
+        print(f"bench-webui priority-roles: {error}", file=sys.stderr)
         status = 1
     finally:
         if args.out:

@@ -88,6 +88,54 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
     });
 }
 
+/// p02-threads task 210: a hosted surface's reader and its host-frames
+/// demultiplexer are echo path threads.
+#[cfg(unix)]
+#[test]
+fn hosted_reader_threads_are_echo_path_threads() {
+    let mux = Mux::new_for_test("hosted-echo-rows", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, _host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let id = 9_212;
+    let _surface = Surface::spawn_hosted(
+        id,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+
+    for name in [format!("surface-{id}-host"), format!("surface-{id}-host-frames")] {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let rows = loop {
+            let rows: Vec<_> = cmux_threads::snapshot()
+                .into_iter()
+                .filter(|row| row.name == name)
+                .map(|row| row.declared)
+                .collect();
+            if !rows.is_empty() || Instant::now() >= deadline {
+                break rows;
+            }
+            std::thread::yield_now();
+        };
+        assert!(!rows.is_empty(), "{name} is registered while it runs");
+        let echo = crate::echo_thread::ECHO_PATH_QOS;
+        assert!(rows.iter().all(|qos| *qos == echo), "{name}: {rows:?}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {
@@ -269,6 +317,38 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
         stager.push(suffix).unwrap(),
         Some(HostedTransition::Output(bytes)) if bytes == vec![0xbb]
     ));
+}
+
+/// p09-observability-018: the host's echo frame names the key press the
+/// host's PTY read took, and the daemon applies that flow, not a guess of
+/// its own. A connection that did not negotiate the flag refuses it.
+#[cfg(unix)]
+#[test]
+fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
+    let flagged = |sequence| {
+        let mut frame = Frame::new(
+            MessageKind::Output,
+            crate::terminal_host_protocol::flow_trailer_payload(b"ls", 42),
+        );
+        frame.flags = FLAG_INPUT_FLOW;
+        frame.sequence = sequence;
+        frame
+    };
+    let mut stager = HostedFrameStager::new(0, true).with_input_flow(true);
+    assert!(matches!(
+        stager.push(flagged(1)).unwrap(),
+        Some(HostedTransition::FlowOutput { output, flow: 42 }) if output == b"ls"
+    ));
+    let mut plain = Frame::new(MessageKind::Output, b"$ ".to_vec());
+    plain.sequence = 2;
+    assert!(matches!(stager.push(plain).unwrap(), Some(HostedTransition::Output(_))));
+    let mut short = Frame::new(MessageKind::Output, vec![1, 2, 3]);
+    short.flags = FLAG_INPUT_FLOW;
+    short.sequence = 3;
+    assert!(stager.push(short).is_err(), "a short trailer fails closed");
+
+    let mut unnegotiated = HostedFrameStager::new(0, true);
+    assert!(unnegotiated.push(flagged(1)).is_err(), "an unnegotiated flow fails closed");
 }
 
 #[cfg(unix)]
@@ -577,5 +657,64 @@ fn hosted_reconnect_backoff_releases_geometry_before_waiting() {
     assert!(
         geometry_released_before_backoff,
         "host reconnect backoff held the geometry transaction lock"
+    );
+}
+
+/// A hosted terminal's reader (`surface-<id>-host`, an echo thread) runs
+/// its host's lifecycle once a connection ends: the lost connection's
+/// commit to the registry, the reconnect's record reads and handshake, or
+/// the exit commit. In the detector's panic mode (the Debug default) the
+/// reader panicked there (hosted_reader.rs `after_stream`), so the terminal
+/// neither reconnected nor ended, and the suite's terminal_host_recovery
+/// tests waited for it. Here the host goes away with no Exit frame and no
+/// record to reconnect to: the reader must reach its own end (the reconnect
+/// fails and the terminal is marked lost) instead of dying at the loss.
+#[cfg(unix)]
+#[test]
+fn a_hosted_terminals_lost_connection_is_handled_in_panic_mode() {
+    cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
+    let mux = Mux::new_for_test("hosted-loss-panic-mode", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let surface = Surface::spawn_hosted(
+        9_213,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+    let before = cmux_threads::blocking::snapshot();
+    drop(host);
+    let pty = surface.as_pty().unwrap();
+    let ended = pty.reader_completion.wait_until(Instant::now() + Duration::from_secs(30));
+    assert!(ended, "the reader ends after the failed reconnect");
+    // The reader made no blocking call while blocking was disallowed (a
+    // violation is recorded, then panics): the lifecycle ran outside the
+    // streaming phase's restriction.
+    let violations: Vec<_> = cmux_threads::blocking::snapshot()
+        .sites
+        .into_iter()
+        .filter(|site| !site.lane_sync)
+        .filter(|site| {
+            site.file.contains("surface/hosted_reader")
+                || site.file.contains("terminal_host_runtime")
+        })
+        .filter(|site| before.site(site.file, site.line).map(|b| b.count) != Some(site.count))
+        .collect();
+    assert!(
+        violations.is_empty(),
+        "blocking calls the reader made where it disallows them: {violations:?}"
     );
 }

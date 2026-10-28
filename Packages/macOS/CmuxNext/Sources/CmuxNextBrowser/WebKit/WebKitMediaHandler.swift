@@ -28,6 +28,8 @@ final class WebKitMediaHandler: NSObject, WKScriptMessageHandler {
     }
 }
 
+extension WebKitTab: BrowserAudibleReporting {}
+
 extension WebKitTab: BrowserAudioMuting {
     public func setAudioMuted(_ muted: Bool) {
         apply(.audioMutedChanged(muted))

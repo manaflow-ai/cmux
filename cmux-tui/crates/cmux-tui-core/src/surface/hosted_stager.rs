@@ -10,6 +10,12 @@ use super::*;
 #[derive(Debug)]
 pub(super) enum HostedTransition {
     Output(Vec<u8>),
+    /// [`Self::Output`] of the host's first PTY read after the key press
+    /// `flow` reached the PTY: its echo (`FLAG_INPUT_FLOW`).
+    FlowOutput {
+        output: Vec<u8>,
+        flow: u64,
+    },
     OutputWithColors {
         output: Vec<u8>,
         colors: TerminalColorOverrides,
@@ -54,6 +60,9 @@ pub(super) struct HostedFrameStager {
     protocol_version: u16,
     expected_sequence: u64,
     smart_renderer: bool,
+    /// The connection negotiated `FLAG_INPUT_FLOW`: an `Output` may carry
+    /// a key press's flow.
+    input_flow: bool,
     pending: Option<PendingHostedTransition>,
 }
 
@@ -73,8 +82,16 @@ impl HostedFrameStager {
             protocol_version,
             expected_sequence: sequence_boundary.wrapping_add(1),
             smart_renderer,
+            input_flow: false,
             pending: None,
         }
+    }
+
+    /// Accept `Output` frames that carry a key press's flow: the
+    /// connection negotiated `FLAG_INPUT_FLOW`.
+    pub(super) fn with_input_flow(mut self, input_flow: bool) -> Self {
+        self.input_flow = input_flow;
+        self
     }
 
     pub(super) fn push(&mut self, frame: Frame) -> Result<Option<HostedTransition>, &'static str> {
@@ -123,6 +140,12 @@ impl HostedFrameStager {
                     self.pending = Some(PendingHostedTransition::Output(frame.payload));
                     Ok(None)
                 }
+                FLAG_INPUT_FLOW if self.input_flow => {
+                    let (output, flow) = split_flow_trailer(frame.flags, &frame.payload)
+                        .ok_or("short Output flow trailer")?;
+                    let output = output.to_vec();
+                    Ok(Some(HostedTransition::FlowOutput { output, flow }))
+                }
                 _ => Err("unknown Output flags"),
             },
             MessageKind::Resized => {
@@ -136,17 +159,23 @@ impl HostedFrameStager {
                     return Err("invalid Resized frame");
                 }
                 if valid_smart {
-                    let cols = u16::from_le_bytes([frame.payload[0], frame.payload[1]]);
-                    let rows = u16::from_le_bytes([frame.payload[2], frame.payload[3]]);
+                    let (cols, rows, cell_pixels) = match *frame.payload.as_slice() {
+                        [c0, c1, r0, r1] => {
+                            (u16::from_le_bytes([c0, c1]), u16::from_le_bytes([r0, r1]), None)
+                        }
+                        [c0, c1, r0, r1, w0, w1, h0, h1] => (
+                            u16::from_le_bytes([c0, c1]),
+                            u16::from_le_bytes([r0, r1]),
+                            Some((
+                                u16::from_le_bytes([w0, w1]).max(1),
+                                u16::from_le_bytes([h0, h1]).max(1),
+                            )),
+                        ),
+                        _ => return Err("invalid Resized frame"),
+                    };
                     let (cols, rows) =
                         crate::terminal_host_runtime::normalize_terminal_geometry(cols, rows)
                             .map_err(|_| "invalid Resized geometry")?;
-                    let cell_pixels = (frame.payload.len() == 8).then(|| {
-                        (
-                            u16::from_le_bytes([frame.payload[4], frame.payload[5]]).max(1),
-                            u16::from_le_bytes([frame.payload[6], frame.payload[7]]).max(1),
-                        )
-                    });
                     return Ok(Some(HostedTransition::Resized { cols, rows, cell_pixels }));
                 }
                 let crate::terminal_host_runtime::DecodedHostResize {

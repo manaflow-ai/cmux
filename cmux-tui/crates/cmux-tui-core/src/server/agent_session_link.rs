@@ -10,13 +10,16 @@
 //! thread, which may block (backpressure): acpmux then fills its own bounded
 //! per-connection queue and reports `_acpmux/lagged`.
 
+use crate::server::request_hang_watch::ipc_reply;
+use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -87,10 +90,13 @@ impl AcpmuxLink {
         });
         let pending = link.pending.clone();
         let closed = link.closed.clone();
-        std::thread::Builder::new()
-            .name("mux-acpmux-link".into())
-            .stack_size(THREAD_STACK_BYTES)
-            .spawn(move || read_loop(reader, pending, closed, on_inbound))?;
+        // Requests wait in `call` for the replies it reads: their class.
+        cmux_threads::spawn_with_stack(
+            "mux-acpmux-link",
+            crate::thread_qos::ThreadType::Interactive.qos(),
+            THREAD_STACK_BYTES,
+            move || read_loop(reader, pending, closed, on_inbound),
+        )?;
         Ok(link)
     }
 
@@ -118,7 +124,8 @@ impl AcpmuxLink {
             self.forget(id);
             return Err(LinkError::Closed);
         }
-        let result = receiver.recv_timeout(timeout).unwrap_or(Err(LinkError::Timeout));
+        let result = ipc_reply(|| waits::recv_timeout(&receiver, timeout))
+            .unwrap_or(Err(LinkError::Timeout));
         self.forget(id);
         result
     }

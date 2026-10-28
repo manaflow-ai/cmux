@@ -49,6 +49,9 @@
       "additionalProperties": {
         "$ref": "#/$defs/event"
       }
+    },
+    "families": {
+      "$ref": "#/$defs/families"
     }
   },
   "$defs": {
@@ -153,6 +156,74 @@
         },
         "constraints": {
           "$ref": "#/$defs/constraints"
+        },
+        "method_id": {
+          "$ref": "#/$defs/wireId"
+        },
+        "priority": {
+          "$ref": "#/$defs/ipcPriority"
+        },
+        "priority_changed_reason": {
+          "$ref": "#/$defs/ipcReason"
+        },
+        "ordering": {
+          "description": "independent only for read-only, non-stream-scoped reads.",
+          "enum": [
+            "sequence",
+            "independent"
+          ]
+        },
+        "durability": {
+          "enum": [
+            "read_only",
+            "memory",
+            "reply_before_journal",
+            "reply_after_journal"
+          ]
+        },
+        "payload": {
+          "enum": [
+            "json",
+            "binary"
+          ]
+        },
+        "layout_version": {
+          "description": "Version byte of a binary payload layout; bumped on every layout change.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 255
+        },
+        "stream_scoped": {
+          "type": "boolean"
+        },
+        "crosses_stream_ok": {
+          "description": "Why this command may pass items queued on its target surface's stream.",
+          "$ref": "#/$defs/ipcReason"
+        },
+        "max_bytes": {
+          "$ref": "#/$defs/maxBytes"
+        },
+        "spawns_terminal": {
+          "type": "boolean"
+        },
+        "coalesce": {
+          "$ref": "#/$defs/coalesce"
+        },
+        "urgent": {
+          "type": "boolean"
+        },
+        "clients": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "macos",
+              "ios",
+              "cli",
+              "sdk"
+            ]
+          }
         }
       }
     },
@@ -246,6 +317,18 @@
         },
         "payload": {
           "$ref": "#/$defs/objectType"
+        },
+        "event_id": {
+          "$ref": "#/$defs/wireId"
+        },
+        "priority": {
+          "$ref": "#/$defs/ipcPriority"
+        },
+        "priority_changed_reason": {
+          "$ref": "#/$defs/ipcReason"
+        },
+        "coalesce": {
+          "$ref": "#/$defs/coalesce"
         }
       }
     },
@@ -303,6 +386,14 @@
         },
         "description": {
           "type": "string"
+        },
+        "omit_nil": {
+          "description": "Encoders omit the member instead of writing null.",
+          "type": "boolean"
+        },
+        "max_bytes": {
+          "description": "UTF-8 byte bound of a string member, or of each item of an array of strings; required for strings in a binary layout.",
+          "$ref": "#/$defs/maxBytes"
         }
       }
     },
@@ -577,6 +668,92 @@
           "minLength": 1
         }
       }
+    },
+    "families": {
+      "description": "Framed-IPC families (transports.md, Framed IPC method attributes). Append-only: a family id is never reused or renumbered. Commands use 0x01-0x5F, events 0xC0-0xFE; 0x60-0xBF belongs to resource-operations-v2.",
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9]*(-[a-z0-9]+)*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "description"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "anyOf": [
+              {
+                "minimum": 1,
+                "maximum": 95
+              },
+              {
+                "minimum": 192,
+                "maximum": 254
+              }
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "next_ordinal": {
+            "description": "The next ordinal to assign. Every ordinal below it was assigned once and is never given again, even after its command or event is removed; it never decreases.",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 256
+          }
+        }
+      }
+    },
+    "wireId": {
+      "description": "family << 8 | ordinal.",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "ipcPriority": {
+      "enum": [
+        "input",
+        "control",
+        "bulk",
+        "background"
+      ]
+    },
+    "ipcReason": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "coalesce": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "description": "Fields that identify the queued item a newer one replaces.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "additive": {
+          "description": "Numeric fields summed into the replacing item.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "maxBytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 33554432
     }
   }
 }

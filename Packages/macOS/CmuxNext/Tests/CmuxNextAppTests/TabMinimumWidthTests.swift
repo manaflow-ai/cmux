@@ -18,7 +18,7 @@ import Testing
             selected = TabID("tab\(count - 1)")
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 40), styleMask: [.borderless],
                               backing: .buffered, defer: false)
-            strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: selected))
+            strip = TabStripView.testing(model: TabStripModel(tabs: tabs, selectedID: selected))
             strip.dragsWindowFromEmptySpace = false
             strip.frame = NSRect(x: 0, y: 0, width: width, height: TabStripView.preferredHeight)
             window.contentView = strip

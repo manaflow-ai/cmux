@@ -71,6 +71,7 @@ final class RemoteTerminalPlaceholderView: NSView {
         applyColors()
     }
 
+    // visibility-walk-allow: three color stores (a tint, two text colors), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

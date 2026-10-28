@@ -17,7 +17,7 @@ struct PageFocusContentTests {
         case "editor": .editor
         case "markdown": .markdown
         case "diff": .diff
-        default: PageDescriptor(id: "cmux.focus-test", resource: "focus-test", namespaces: ["cmux.focus-test."])
+        default: PageDescriptor(id: "cmux.focus-test", resource: "focus-test", processGroup: .solo, namespaces: ["cmux.focus-test."])
         }
         let router = PageRouter(descriptor: descriptor, routes: [])
         var sent: [JSONValue] = []

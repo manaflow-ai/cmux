@@ -1,9 +1,9 @@
 public import CmuxNextBrowser
-import CmuxNextCompat
 public import CmuxNextDaemon
 public import CmuxNextDaemonService
 import CmuxNextRemoteLocalhost
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import CryptoKit
 public import Foundation
 import Observation
@@ -20,7 +20,9 @@ public final class RemoteLocalhostService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "remote-localhost")
     /// cmux.json `browser.remoteLocalhost*`, live.
     public var setting: RemoteLocalhostSetting = .fallback
-    @ObservationIgnored private var observation: Task<Void, Never>?
+    /// The app's main-thread scheduler: the setting's follow flushes in it.
+    private let mainWork: MainWorkScheduler
+    private var observation: ServiceObservation<RemoteLocalhostSetting>?
 
     /// DEBUG builds: `CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET` names a second
     /// cmux-tui socket whose machine the tabs of this Mac use, so the
@@ -28,23 +30,51 @@ public final class RemoteLocalhostService {
     /// release builds.
     private let debugSocket: String?
 
-    public init(machines: any RemoteLocalhostMachines, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    public init(machines: any RemoteLocalhostMachines, mainWork: MainWorkScheduler,
+                environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.machines = machines
+        self.mainWork = mainWork
+        debugSocket = Self.debugSocketPath(in: environment)
+    }
+
+    private static func debugSocketPath(in environment: [String: String]) -> String? {
         #if DEBUG
-        debugSocket = environment["CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
+        return environment["CMUX_NEXT_REMOTE_LOCALHOST_DEBUG_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }
         #else
-        debugSocket = nil
+        return nil
         #endif
+    }
+
+    /// Whether every tab of `daemon` routes to `.thisMac`, whatever the service's state: a tab of
+    /// this Mac with no debug socket. Asked before the service is made, so this Mac's pages make
+    /// none (p08-startup-021).
+    public static func routesToThisMac(_ daemon: DaemonService,
+                                       environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        daemon.isLocal && debugSocketPath(in: environment) == nil
+    }
+
+    /// `base` for a tab whose route is `.thisMac`, as ``configuration(for:url:base:)`` gives it,
+    /// with no service state.
+    public static func thisMacConfiguration(url: URL?, base: BrowserTabConfiguration) -> BrowserTabConfiguration {
+        var configuration = base
+        if case .profile(let guardMode) = RemoteLocalhostStorePlan.plan(route: .thisMac, url: url) {
+            configuration.navigationGuard = guardMode
+        }
+        return configuration
     }
 
     private static let debugMachineName = "debug-remote"
 
+    /// Follows cmux.json `browser.remoteLocalhost*`: the current value applies in this turn (a
+    /// service made by a tab's first route routes that tab by the person's setting), later ones
+    /// as they change, in one visible flush (the loopback chips show the route; the routes must change while
+    /// nothing shows them too, so it is a ServiceObservation).
     public func follow(_ settings: SettingsController) {
         observation?.cancel()
-        observation = Task { [weak self] in
-            for await value in ObservationStream({ settings.snapshot.remoteLocalhost }) {
-                self?.setting = value
-            }
+        observation = ServiceObservation(.visible, owner: "remote-localhost.setting", on: mainWork) {
+            settings.snapshot.remoteLocalhost
+        } apply: { [weak self] value in
+            self?.setting = value
         }
     }
 
@@ -262,8 +292,8 @@ public final class RemoteLocalhostService {
     /// its streams and browser runtimes end with it.
     public func closeClient(of daemon: DaemonService) {
         guard let client = clients.removeValue(forKey: ObjectIdentifier(daemon)) else { return }
-        // task-owner: one connection close; ends when the client has closed.
-        Task { await client.close() }
+        // task-owner: one connection close, off main (the client is its own actor); ends when the client has closed.
+        Task { @concurrent in await client.close() }
     }
 
     public func shutdown() async {

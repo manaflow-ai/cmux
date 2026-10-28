@@ -4,6 +4,7 @@ import AppKit
 @testable import CmuxNextDaemon
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -13,6 +14,7 @@ import Testing
 @MainActor struct EmptyTerminalPreviewTests {
     @Test func aTerminalWithNoOutputYetHasNoPreview() async throws {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         // The runner's window may report itself occluded: draw anyway, as automation launches do.
         let drew = WindowDrawPolicy.drawsWhenOccluded
         WindowDrawPolicy.drawsWhenOccluded = true
@@ -21,14 +23,14 @@ import Testing
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), title: "~"))
         // A terminal of the cache whose screen this test writes.
         let scripted = ScriptedTerminalIO()
-        let session = TerminalSession(io: scripted)
+        let session = TerminalSession(io: scripted, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let attachment = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: nil, generation: nil)
         let io = DaemonTerminalIO(target: .init(attachment: attachment, initialSize: CellSize(cols: 80, rows: 24)), resizes: ResizeCoordinator(), visible: false,
                                   endpoint: { throw CancellationError() })
         services.cache.terminals[tab.id] = TerminalEntry(validity: "test", session: session, io: io,
                                                          themeKey: TerminalThemeKey(machine: services.daemon.machineID, tab: tab),
-                                                         store: services.daemon.store, surface: tab.surface)
+                                                         store: services.daemon.store, surface: tab.surface, mainWork: services.mainWork)
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

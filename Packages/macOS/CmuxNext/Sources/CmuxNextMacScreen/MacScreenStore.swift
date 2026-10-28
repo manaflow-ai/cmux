@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 import Security
@@ -69,7 +70,7 @@ public final class MacScreenStore {
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
         let service = "\(bundle).mac-screen"
         return MacScreenStore(file: support.appending(path: bundle).appending(path: "mac-screen.json"), removeLinkPairings: {
-            SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+            _ = blockingSecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
         })
     }
 
@@ -82,7 +83,7 @@ public final class MacScreenStore {
             loadTask = Task { [weak self] in
                 let stored = await Task.detached { () -> File? in
                     guard let data = try? Data(contentsOf: file) else { return nil }
-                    return try? JSONDecoder().decode(File.self, from: data)
+                    return try? JSONDecoder().blockingDecode(File.self, from: data)
                 }.value
                 guard let self else { return }
                 if let stored {

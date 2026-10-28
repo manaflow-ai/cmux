@@ -6,6 +6,7 @@ impl WorkspaceRegistry {
     /// Reserve a process generation for the userland journal-plugin
     /// supervisor. The value lives in the session registry so a daemon restart
     /// can never reuse a generation that a persisted roster fence retired.
+    #[track_caller]
     pub(crate) fn reserve_journal_plugin_generation(&self) -> anyhow::Result<u64> {
         let db = self.connection.get();
         let transaction =

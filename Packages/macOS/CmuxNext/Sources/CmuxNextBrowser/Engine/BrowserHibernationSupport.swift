@@ -2,7 +2,11 @@ public import AppKit
 
 /// Pages that can save their history for hibernation: the App closes the
 /// page and later recreates it from the state.
-public protocol BrowserHibernationSource: AnyObject {
+///
+/// Main actor as a whole, as every requirement is: a protocol that also refines a main-actor
+/// protocol (`BrowserStreamedPage` over `BrowserWakeStandIn`) can then imply this conformance,
+/// which an inferred isolated conformance of a main-actor page could not.
+@MainActor public protocol BrowserHibernationSource: AnyObject {
     /// The history to recreate this page with, or nil when this engine or
     /// build cannot restore it (then the page is not hibernated, because a
     /// reload into a blank history would lose back/forward).
@@ -66,18 +70,82 @@ extension CEFTab: BrowserHibernationSource {
 
     public func hibernationState() -> BrowserRestoreState? {
         guard supportsHibernation, let browserID, let shim = runtime.shim,
-              let raw = shim.tabNavigationState(browserID) else { return nil }
-        defer { shim.free(raw) }
-        return .chromium(String(cString: raw))
+              let state = shim.tabNavigationState(browserID) else { return nil }
+        return .chromium(state)
+    }
+}
+
+/// A cmux page in a browser tab (`cmux://history`, `cmux://bookmarks`, `cmux://vault`,
+/// `cmux://screenshots`, `cmux://agent-activity`): cmux's own view, no site and no back/forward
+/// history. It hibernates as a web page does, to a `HibernatedBrowserTab` showing its last
+/// picture, and waking builds the page again at its address with the view state it saved. Chrome
+/// keeps a discarded tab's navigation entries with their scroll and form state
+/// (content/public/browser/navigation_entry.h) and loads the tab again when it shows
+/// (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc).
+public protocol BrowserAppPage: BrowserHibernationSource {
+    /// The page's `cmux://` address.
+    @MainActor var pageAddress: URL { get }
+    /// The page draws its content in its first frame (a native view): its wake needs no picture
+    /// over it. A page in a web engine paints after its document loads, so its wake shows the
+    /// stand-in (`BrowserWakeStandIn`) or counts as uncovered.
+    @MainActor var drawsInFirstFrame: Bool { get }
+    /// The page's address and what it shows besides: search text, selection, scroll. Asked right
+    /// before the page goes; a page in a web engine reads its document (bounded).
+    @MainActor func saveViewState() async -> BrowserAppPageState
+    /// Puts `state` back on this page, built again after a hibernation.
+    @MainActor func restoreViewState(_ state: BrowserAppPageState)
+}
+
+extension BrowserAppPage {
+    /// A cmux page can be built again; the App's `memoryDiscardPageTabs` decides whether it hibernates.
+    public var supportsHibernation: Bool { true }
+    /// A cmux page is never a form submission's result.
+    public var showsFormSubmission: Bool { false }
+    /// A cmux page shows no web notifications.
+    public var allowsNotifications: Bool { false }
+
+    /// Its address only: the hibernation asks ``saveViewState()`` for the rest.
+    public func hibernationState() -> BrowserRestoreState? { .appPage(BrowserAppPageState(url: pageAddress)) }
+}
+
+/// What a hibernated cmux page (`BrowserAppPage`) gets back when it is built again: the same
+/// fields as an internal page's view state (`ContentViewState`, p07-memory 022).
+public nonisolated struct BrowserAppPageState: Hashable, Sendable {
+    /// A scroll position, in the document's coordinates.
+    public nonisolated struct Point: Hashable, Sendable {
+        public var x: Double
+        public var y: Double
+
+        public init(x: Double, y: Double) {
+            self.x = x
+            self.y = y
+        }
+    }
+
+    /// The page's `cmux://` address.
+    public var url: URL
+    /// The visible origin of its main list or document.
+    public var scroll: Point?
+    /// The text of its search or filter field.
+    public var search: String?
+    /// What it had selected (a folder, a row, a session).
+    public var selection: String?
+
+    public init(url: URL, scroll: Point? = nil, search: String? = nil, selection: String? = nil) {
+        self.url = url
+        self.scroll = scroll
+        self.search = search
+        self.selection = selection
     }
 }
 
 extension BrowserRestoreState {
     /// The back/forward history `page` can be recreated from (Duplicate Tab,
     /// Reopen Closed Tab): a hibernated page's saved state, else what a live
-    /// page saves now.
+    /// page saves now. A cmux page has none: it opens at its address.
     @MainActor public static func history(of page: any BrowserTab) -> BrowserRestoreState? {
-        if let hibernated = page as? HibernatedBrowserTab { return hibernated.restoreState }
-        return (page as? any BrowserHibernationSource)?.hibernationState()
+        let saved = (page as? HibernatedBrowserTab)?.restoreState ?? (page as? any BrowserHibernationSource)?.hibernationState()
+        if case .appPage? = saved { return nil }
+        return saved
     }
 }

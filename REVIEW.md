@@ -144,6 +144,17 @@ scripts/review-history.py cluster --cache review-history.jsonl > clusters.md
   #12607), and share constants instead of syncing them by comment (#16427).
 - **Performance (20):** no full rescans or `String(format:)` per row, and no quadratic lookups
   (#15748, #15744, #19096).
+- **Perf claims need fleet numbers (added 2026-10-26; not from the history).** A PR or commit
+  that says "faster", "no regression" or gives before and after numbers shows fleet numbers:
+  the light and STRESS benches of [perf-lead.md](plans/cmux-next/perf-lead.md#1-targets), and,
+  when `scripts/perf-lab/lab.py try` is on its base, the try receipt lines pasted without changes.
+  For a receipt, check that the base sha is the change's merge base or parent and the head sha is
+  its head. Base sha equal to head sha is correct only for a claim about a default-off feature,
+  with the `--feature <name>=on|off` argument written next to the lines. Check that the claim
+  matches the strict verdict that the
+  [perf try receipts](skills/cmux-testing/SKILL.md#perf-try-receipts) table requires for it:
+  strict UNKNOWN or a floored DIFFERENT is not "no regression". A mean or a local-Mac number is
+  not evidence.
 
 About a fifth of addressed comments (1,032) fit no group here; they're one-off logic bugs. Run
 the clusterer and read its "Unmatched" list for new themes before adding a section.

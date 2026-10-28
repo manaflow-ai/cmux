@@ -3,6 +3,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 
 #if DEBUG || CMUX_BENCH_HOOKS
 /// `debug.windows` and `debug.surfaces` (DEBUG builds; a release router drops
@@ -14,7 +15,9 @@ enum DebugWindowsControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
         [
             // Chrome text weight vs a stock label (text-weight-e2e.py).
-            .async("debug.text_weight") { call in .object(await TextWeightProbe(dark: call.params["dark"]?.boolValue ?? true).measure().mapValues { .number($0) }) },
+            .async("debug.text_weight") { [work = services.work] call in
+                .object(await TextWeightProbe(dark: call.params["dark"]?.boolValue ?? true, lanes: work).measure().mapValues { .number($0) })
+            },
             // ChromeLabel layout, ink, layer drawing and accessibility vs a stock label (text-weight-e2e.py).
             .mainActor("debug.label_parity") { call in .value(JSONValue(foundation: LabelParityProbe(imageDirectory: call.params["dir"]?.stringValue.map { URL(fileURLWithPath: $0) }).measure().foundation) ?? .null) },
             // Window membership and the window invariants (no window
@@ -25,7 +28,8 @@ enum DebugWindowsControl {
                 report["windows"] = report["windows"]?.arrayValue.map { entries in
                     JSONValue.array(entries.map { entry -> JSONValue in
                         guard case .object(let fields) = entry, let id = fields["id"]?.stringValue else { return entry }
-                        return .object(fields.merging(Self.restoreFields(windows, id: id)) { _, new in new })
+                        let shown = fields.merging(Self.restoreFields(windows, id: id)) { _, new in new }
+                        return .object(shown.merging(Self.occlusionFields(windows, id: id)) { _, new in new })
                     })
                 }
                 report["displays"] = .number(Double(NSScreen.screens.count))
@@ -38,9 +42,9 @@ enum DebugWindowsControl {
             },
             // `text: true` adds each terminal mirror's viewport text, and each
             // terminal pane's `terminal_id` and `host_pid` (SurfaceHostReport).
-            .async("debug.surfaces") { [weak services] call in
+            .async("debug.surfaces") { [weak services, work = services.mainWork] call in
                 let includeText = call.params["text"]?.boolValue == true
-                let built: (JSONValue, [SurfaceHostReport.Target])? = await MainActor.run {
+                let built = await work.apply(.automation, owner: "debug.surfaces") { () -> (JSONValue, [SurfaceHostReport.Target])? in
                     guard let services else { return nil }
                     return (SurfaceDiagnosticsReport.make(services, includeText: includeText), SurfaceHostReport.targets(services))
                 }
@@ -48,6 +52,14 @@ enum DebugWindowsControl {
                 return SurfaceHostReport.annotate(report, identities: await SurfaceHostReport.identities(targets))
             },
         ]
+    }
+
+    /// Window `id`'s occlusion: `family_occluded`, what its ``WindowOcclusionFamily`` says (null while it has
+    /// none: the feature `windowOcclusionFamily` is off or no reader follows it). bench_idle.py's covered-window
+    /// checks that the window behind a same-size one is occluded before it measures.
+    static func occlusionFields(_ windows: WindowManager, id: String) -> [String: JSONValue] {
+        let family = windows.controller(for: id)?.window.flatMap(WindowOcclusionFamily.installed(on:))
+        return ["family_occluded": family.map { .bool($0.isOccluded) } ?? .null]
     }
 
     /// The fields of window `id` its `WindowRecord` saves, as the window shows

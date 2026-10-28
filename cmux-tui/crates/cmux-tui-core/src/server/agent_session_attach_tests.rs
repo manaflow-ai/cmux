@@ -141,6 +141,7 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
             "_acpmux/permission_respond" => Some(json!({})),
+            "acp.trust.get" => Some(json!({"level": "trusted"})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
             "session/prompt" => {
@@ -428,8 +429,95 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
     assert_eq!(reply["error_code"], json!(code), "{reply}");
 }
 
+/// Hands `message` to the route its head's `cmd` names (server/routes.rs), as
+/// the connection's dispatch does: `None` when no route takes it.
+fn through_route(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let head = RequestHead::parse(message);
+    let route = head.cmd().and_then(routes::find)?;
+    (route.entry)(&routes::RouteLine { mux, client, message, writer, head: &head })
+}
+
+/// Hands a v2 line to the operation route its `operation` names
+/// (server/routes.rs), as the connection's dispatch does.
+fn through_operation_route(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let head = RequestHead::parse(message);
+    let route = head.operation().and_then(routes::find_operation)?;
+    (route.entry)(&routes::RouteLine { mux, client, message, writer, head: &head })
+}
+
 include!("agent_session_observe_tests.rs");
 include!("agent_session_children_tests.rs");
+
+// MARK: Request-thread moves (p02-threads 220)
+
+/// An agent tab of this store with no session yet (what a start needs).
+fn own_agent_tab(mux: &Arc<Mux>) -> SurfaceId {
+    let (_, pane) = terminal_pane(mux);
+    let host = format!("registry:{}", mux.registry_identity().0);
+    let created = run(
+        mux,
+        json!({"cmd":"new-conversation-tab","pane":pane,
+               "agent_session":{"host":host,"session":null,"harness":"claude"}}),
+    );
+    created["surface"].as_u64().unwrap()
+}
+
+fn queued_writer() -> (Arc<BoundedOutbound>, MessageWriter) {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    (outbound, writer)
+}
+
+/// The home folder rule resolves the folder on disk: a start checks it on
+/// its worker, so the request thread never touches the disk.
+#[test]
+fn a_start_checks_its_folder_off_the_request_thread() {
+    let fake = FakeAcpmux::start("start-offreq");
+    let mux = mux_with(&fake, "asa-start-offreq");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+    let surface = own_agent_tab(&mux);
+    let (outbound, writer) = queued_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let frame = json!({"id":1,"cmd":"agent-session-start","surface":surface,"cwd":"/"});
+    let handled = request_thread_tests::on_request_thread_with(&mux, move |mux| {
+        through_route(mux, client, &frame.to_string(), &writer)
+    });
+    assert_eq!(handled, Some(true));
+    assert_code(&request_thread_tests::next_reply(&outbound), "agent_session.above_home");
+    fake.no_connection();
+}
+
+/// A routed `agent_session.trust.get` asks acpmux, another process: a work
+/// item asks and answers, the request thread only checks the request.
+#[test]
+fn a_routed_trust_read_asks_acpmux_off_the_request_thread() {
+    let fake = FakeAcpmux::start("trust-offreq");
+    let mux = mux_with(&fake, "asa-trust-offreq");
+    mux.set_agent_start_host(Arc::new(|| AgentStartHost::Allowed));
+    let surface = own_agent_tab(&mux);
+    let (outbound, writer) = queued_writer();
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let envelope = json!({"protocol":"cmux.protocol/2","type":"request","id":"trust_1",
+                          "operation":"agent_session.trust.get",
+                          "params":{"surface":surface,"cwd":"/tmp"}});
+    let handled = request_thread_tests::on_request_thread_with(&mux, move |mux| {
+        through_operation_route(mux, client, &envelope.to_string(), &writer)
+    });
+    assert_eq!(handled, Some(true));
+    let reply = request_thread_tests::next_reply(&outbound);
+    assert_eq!(reply["ok"], json!(true), "{reply}");
+    assert_eq!(reply["result"]["level"], json!("trusted"), "{reply}");
+}
 
 // MARK: Capability and trust
 
@@ -460,7 +548,7 @@ fn the_remote_relay_denies_every_agent_session_verb() {
     let client = mux.control_clients.register(ClientTransport::Remote, writer.clone());
     for frame in every_verb(surface) {
         assert!(remote_relay::gate::check_frame(&frame.to_string()).is_err());
-        remote_relay::handle_frame(&mux, client, &frame.to_string(), &writer);
+        remote_relay::handle_frame(&mux, client, &frame.to_string(), &writer, Instant::now());
         let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
         assert_code(&reply, "remote_denied");
     }
@@ -500,8 +588,7 @@ fn every_verb_is_refused_on_every_untrusted_connection() {
     let unregistered = 999_999;
     for client in [websocket, stamped, unregistered] {
         for frame in every_verb(surface) {
-            let handled =
-                agent_session_attach::try_handle(&mux, client, &frame.to_string(), &writer);
+            let handled = through_route(&mux, client, &frame.to_string(), &writer);
             assert_eq!(handled, Some(true));
             let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
             assert_code(&reply, "agent_session.not_trusted");

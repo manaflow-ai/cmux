@@ -7,7 +7,7 @@ import Testing
 /// Blink throttles hidden timers. Each switch below turns one of those off for every renderer
 /// (content/public/common/content_switches.cc): automation browsers pass them (cmux-browser-host's CDP Chrome
 /// does), but cmux's own Chromium must not, or no hidden page renderer ever backgrounds
-/// (`bench-webui.py priority`, p13-webui task 083, done check D12).
+/// (`bench-webui.py priority-roles`, p13-webui task 083, done check D12).
 @Suite struct CEFRendererBackgroundingSwitchTests {
     static let keepRenderersForeground = [
         "disable-renderer-backgrounding",

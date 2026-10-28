@@ -1,5 +1,6 @@
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { hiddenRowKeys } from "../availability";
 import { useSettingsRouter, useSettingsState, useStore } from "../context";
 import { installKeyboard, runPageCommand } from "../keyboard";
 import { parseLocation, sectionHref } from "../router";
@@ -8,6 +9,8 @@ import { rowsByKey } from "../schema";
 import { t } from "../strings";
 import { filterRows } from "../search";
 import { managedOf, valueOf } from "../store";
+import { contributeOracleState, noteOracleStateChanged } from "../../../protocol/oracle-state";
+import { settingsOracleReading } from "../oracleState";
 import { ReadOnlyBanner } from "./ReadOnlyBanner";
 import { SearchField } from "./SearchField";
 import { SearchResults } from "./SearchResults";
@@ -101,6 +104,15 @@ export function SettingsApp() {
   );
   // A DEV-only category (Development) is never shown outside DEV builds, however it was reached.
   const section = shownSection(location.section, state.host?.dev_build === true);
+  // The refactor oracle's page state, in developer builds only (oracleState.ts): read when the host
+  // asks; each route change tells the host.
+  const shown = useRef({ location, section });
+  shown.current = { location, section };
+  useEffect(
+    () => contributeOracleState(() => settingsOracleReading(shown.current.location, shown.current.section)),
+    [],
+  );
+  useEffect(() => noteOracleStateChanged(), [href, section]);
   const submit = () => {
     const first = filterRows({
       query,
@@ -108,13 +120,14 @@ export function SettingsApp() {
       valueOf: (key) => valueOf(state, key),
       isChanged,
       devBuild: state.host?.dev_build === true,
+      hidden: hiddenRowKeys(state.host),
     })[0]?.rows[0];
     if (first) reveal(first.key);
   };
 
   return (
     <div className="settings" ref={keyboardRef}>
-      <aside className="sidebar">
+      <aside className="sidebar" data-page-scroll="sections">
         <SearchField
           query={query}
           onQuery={setQuery}
@@ -125,7 +138,7 @@ export function SettingsApp() {
         />
         <SectionList current={searching ? null : section} onSelect={clearField} />
       </aside>
-      <main className="content">
+      <main className="content" data-page-scroll="content">
         <div className="column">
           {!state.connected ? (
             <ReadOnlyBanner />

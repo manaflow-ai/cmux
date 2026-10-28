@@ -132,7 +132,8 @@ extension BrowserTabOpen {
         let configuration = BrowserTabConfiguration(
             initialURL: request.url,
             machineStore: store,
-            navigationGuard: .loopbackOnly
+            navigationGuard: .loopbackOnly,
+            origin: .user  // the person's open in the Cloud page
         )
         let page: any BrowserTab
         do {
