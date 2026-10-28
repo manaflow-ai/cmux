@@ -17,39 +17,46 @@ public import CmuxNextWakeups
     public let node: VisibilityNode
     /// The app is hidden (`NSApplication.didHideNotification` came last).
     public private(set) var isAppHidden: Bool
-    /// The displays sleep (`NSWorkspace.screensDidSleepNotification` came last).
-    public private(set) var screensAsleep = false
+    /// The displays sleep (``DisplaySleepWatch``: the screens' notices, and the displays' real state
+    /// on a system wake, a display change and at creation).
+    public private(set) var screensAsleep: Bool
     /// Whether one of the app's windows shows; ``windowNode(_:name:)`` tracks each window.
     public let shownWindows = ShownWindows()
     /// The notices it follows; kept here, as a subscription holds its fan-out only weakly.
     private let appEvents: AppEvents
-    private let workspaceEvents: AppEvents
+    /// The displays' sleep, which keeps the workspace's events.
+    private let displays: DisplaySleepWatch
     private var subscriptions: [EventSubscription] = []
 
     /// - Parameters:
-    ///   - appEvents: The app's notices (`NSApplication.didHideNotification`, `didUnhideNotification`).
+    ///   - appEvents: The app's notices (`NSApplication.didHideNotification`, `didUnhideNotification`,
+    ///     `didChangeScreenParametersNotification`).
     ///   - workspaceEvents: The fan-out on `NSWorkspace.shared.notificationCenter`, where the
-    ///     display sleep and wake notices are posted.
+    ///     display sleep and wake and the system wake notices are posted.
     ///   - isAppHidden: Whether the app is hidden now (`NSApp.isHidden`).
+    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``;
+    ///     tests pass their own).
     ///   - uptime: The clock of the tree's `hiddenSince`.
     ///   - workCounts: Where the tree counts its work (`debug.layout_counters`); nil counts nothing.
     public init(appEvents: AppEvents, workspaceEvents: AppEvents, isAppHidden: Bool,
-                displaysAsleep: @escaping @MainActor () -> Bool = { false },
+                displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep,
                 uptime: @escaping VisibilityNode.Uptime = VisibilityNode.systemUptime,
                 workCounts: VisibilityWorkCounts? = nil) {
+        let owner = "AppVisibilitySource"
+        let displays = DisplaySleepWatch(workspaceEvents: workspaceEvents, appEvents: appEvents, owner: owner, probe: displaysAsleep)
         self.isAppHidden = isAppHidden
         self.appEvents = appEvents
-        self.workspaceEvents = workspaceEvents
-        node = VisibilityNode(root: "app", own: isAppHidden ? .hidden : .visible, uptime: uptime, workCounts: workCounts)
-        let owner = "AppVisibilitySource"
+        self.displays = displays
+        screensAsleep = displays.asleep
+        node = VisibilityNode(root: "app", own: AppVisibilitySource.visibility(appHidden: isAppHidden, screensAsleep: displays.asleep),
+                              uptime: uptime, workCounts: workCounts)
         subscriptions = [
             // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             appEvents.subscribe(NSApplication.didHideNotification, owner: owner) { [weak self] in self?.setHidden(true) },
             // raw-observer-allow: an AppEvents subscription, the recipe R-notif asks for (the app's one observer per notice); only the notice's name matches
             appEvents.subscribe(NSApplication.didUnhideNotification, owner: owner) { [weak self] in self?.setHidden(false) },
-            workspaceEvents.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.setAsleep(true) },
-            workspaceEvents.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.setAsleep(false) },
         ]
+        displays.onChange = { [weak self] asleep in self?.setAsleep(asleep) }
     }
 
     /// `window`'s node (``WindowVisibilitySource``) under the app's, counted in ``shownWindows``.

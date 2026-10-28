@@ -361,7 +361,7 @@ import Testing
                 orderedWindows: { [weak self] in self?.order() ?? [] },
                 facts: { [policy] in policy.read($0) }, isAppHidden: { [weak self] in self?.appHidden ?? false },
                 drawsWhenOccluded: false, center: center, workspaceEvents: AppEvents(center: NotificationCenter()),
-                mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+                displaysAsleep: { false }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             checker.onChange = { [weak self] window, offScreen in
                 guard let self else { return }
                 changes.append(Change(window == ObjectIdentifier(tracked) ? tracked : other, offScreen))
@@ -420,7 +420,8 @@ import Testing
             workspaceEvents = AppEvents(center: workspaceCenter)
             checker = WindowOcclusionChecker(windows: { return [window, coverWindow] }, orderedWindows: { return [coverWindow, window] },
                                              facts: { [policy] in policy.read($0) }, isAppHidden: { false }, drawsWhenOccluded: false,
-                                             center: center, workspaceEvents: workspaceEvents, mainWork: services.mainWork)
+                                             center: center, workspaceEvents: workspaceEvents, displaysAsleep: { false },
+                                             mainWork: services.mainWork)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-occluded-discard-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

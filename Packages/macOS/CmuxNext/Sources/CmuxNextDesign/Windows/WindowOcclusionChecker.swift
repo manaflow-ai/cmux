@@ -59,7 +59,7 @@ public nonisolated struct WindowOcclusionFacts: Equatable, Sendable {
 /// own ancestors, and the active window is never covered by an inactive one at the same or a lower
 /// level, even when `orderedWindows` lags behind the window server.
 public nonisolated struct WindowOcclusionRule: Sendable {
-    /// The displays sleep (`NSWorkspace.screensDidSleepNotification`): every window is off screen.
+    /// The displays sleep (``DisplaySleepWatch``): every window is off screen.
     public var displaysAsleep: Bool
     /// The app is hidden (Cmd-H, `NSApplication.isHidden`): every window is off screen.
     public var appHidden: Bool
@@ -108,7 +108,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 /// resize starting and ending, a resize, a window closing, a window becoming or resigning main
 /// (Chrome added these for Cmd-` cycling, which skips `orderWindow:relativeTo:`), fullscreen
 /// transitions (whose spurious occlusion changes are ignored for the transitioning window), the
-/// app hiding or unhiding, and the displays sleeping or waking. Chrome also swizzles
+/// app hiding or unhiding, and the displays sleeping or waking (``DisplaySleepWatch``, which also
+/// reads the displays on a system wake and a display change, and at start). Chrome also swizzles
 /// `-[NSWindow orderWindow:relativeTo:]` to see reorders; cmux does not swizzle AppKit: its one
 /// owner of window ordering, `WindowActivation`, reports each order it makes
 /// (``windowsDidReorder()``). As in Chrome, events coalesce into one pass on a later main turn
@@ -142,8 +143,12 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     private let center: NotificationCenter
     /// The sender-free window and app notices of ``center``, one observer per name.
     private let notices: AppEvents
-    /// The displays' sleep and wake (NSWorkspace's center).
+    /// The displays' sleep and wake and the system's wake (NSWorkspace's center).
     private let workspaceEvents: AppEvents
+    /// Whether every display sleeps now, read at start and when a notice may have changed it.
+    private let displaysAsleep: DisplaySleepWatch.Probe
+    /// The displays' sleep while started.
+    private var displays: DisplaySleepWatch?
     private let mainWork: MainWorkScheduler
     private var rule = WindowOcclusionRule()
     private var offScreen: Set<ObjectIdentifier> = []
@@ -165,6 +170,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
     ///   - drawsWhenOccluded: Automation launches keep occluded windows drawing, and so on screen here.
     ///   - center: Window and application notifications.
     ///   - workspaceEvents: The displays' sleep and wake: the app's events of NSWorkspace's center.
+    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``;
+    ///     tests pass their own).
     ///   - mainWork: The app's main-thread scheduler, where the coalesced pass is posted.
     public init(windows: @escaping @MainActor () -> [NSWindow],
                 orderedWindows: @escaping @MainActor () -> [NSWindow] = { NSApp?.orderedWindows ?? [] },
@@ -172,7 +179,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
                 isAppHidden: @escaping @MainActor () -> Bool = { NSApp?.isHidden ?? false },
                 drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
                 center: NotificationCenter = .default,
-                workspaceEvents: AppEvents, displaysAsleep: @escaping @MainActor () -> Bool = { false },
+                workspaceEvents: AppEvents,
+                displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep,
                 mainWork: MainWorkScheduler) {
         self.windows = windows
         self.orderedWindows = orderedWindows
@@ -182,6 +190,7 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         self.center = center
         notices = AppEvents(center: center)
         self.workspaceEvents = workspaceEvents
+        self.displaysAsleep = displaysAsleep
         self.mainWork = mainWork
     }
 
@@ -221,9 +230,12 @@ public nonisolated struct WindowOcclusionRule: Sendable {
             // Hiding the app orders every window out without an occlusion change of its own.
             notices.subscribe(NSApplication.didHideNotification, owner: owner, pass),
             notices.subscribe(NSApplication.didUnhideNotification, owner: owner, pass),
-            workspaceEvents.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.displaysSlept(true) },
-            workspaceEvents.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.displaysSlept(false) },
         ]
+        // A display change posts on the window notices' center, NSApplication's.
+        let displays = DisplaySleepWatch(workspaceEvents: workspaceEvents, appEvents: notices, owner: owner, probe: displaysAsleep)
+        displays.onChange = { [weak self] asleep in self?.displaysSlept(asleep) }
+        self.displays = displays
+        rule.displaysAsleep = displays.asleep
         schedule()
     }
 
@@ -232,6 +244,8 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         observations.removeAll()
         subscriptions.forEach { $0.cancel() }
         subscriptions.removeAll()
+        displays?.cancel()
+        displays = nil
         passPending = false
         let reported = offScreen
         offScreen.removeAll()

@@ -17,6 +17,7 @@ extension WindowOcclusionChecker {
     ///   - drawsWhenOccluded: Automation launches keep occluded windows drawing: no family is occluded.
     ///   - center: Window and application notifications.
     ///   - workspaceEvents: The displays' sleep and wake: the app's events of NSWorkspace's center.
+    ///   - displaysAsleep: Whether every display sleeps now (tests pass their own).
     ///   - mainWork: The app's main-thread scheduler, where the coalesced pass is posted.
     /// - Returns: The checker, already started.
     public static func feedingFamilies(windows: @escaping @MainActor () -> [NSWindow] = { NSApp?.windows ?? [] },
@@ -25,11 +26,12 @@ extension WindowOcclusionChecker {
                                        isAppHidden: @escaping @MainActor () -> Bool = { NSApp?.isHidden ?? false },
                                        drawsWhenOccluded: Bool = WindowDrawPolicy.drawsWhenOccluded,
                                        center: NotificationCenter = .default, workspaceEvents: AppEvents,
+                                       displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep,
                                        mainWork: MainWorkScheduler) -> WindowOcclusionChecker {
         let tracked: @MainActor () -> [NSWindow] = { windows().filter { WindowOcclusionFamily.installed(on: $0) != nil } }
         let checker = WindowOcclusionChecker(windows: tracked, orderedWindows: orderedWindows, facts: facts, isAppHidden: isAppHidden,
                                              drawsWhenOccluded: drawsWhenOccluded, center: center, workspaceEvents: workspaceEvents,
-                                             mainWork: mainWork)
+                                             displaysAsleep: displaysAsleep, mainWork: mainWork)
         let report: @MainActor (ObjectIdentifier, Bool) -> Void = { id, offScreen in
             let window = tracked().first { ObjectIdentifier($0) == id }
             window.flatMap(WindowOcclusionFamily.installed(on:))?.set(occluded: offScreen)

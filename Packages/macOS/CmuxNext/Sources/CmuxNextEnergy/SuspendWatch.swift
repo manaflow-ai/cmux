@@ -11,7 +11,8 @@ internal import Network
 /// in power_monitor_device_source_mac.mm), and its network change notifier tells the sockets when
 /// the network is back. Here the notices are NSWorkspace's: `willSleepNotification` and
 /// `didWakeNotification` for the system, `screensDidSleepNotification` and
-/// `screensDidWakeNotification` for the displays. After each wake one ``NetworkPathWait`` runs until
+/// `screensDidWakeNotification` for the displays, whose state ``DisplaySleepWatch`` also reads on a
+/// system wake, a display change and at start (a wake may come with no screens notice). After each wake one ``NetworkPathWait`` runs until
 /// the path is satisfied and then counts one resume; nothing watches the network otherwise.
 @MainActor
 public final class SuspendWatch {
@@ -19,7 +20,8 @@ public final class SuspendWatch {
     public nonisolated struct State: Sendable, Equatable {
         /// Between `willSleepNotification` and `didWakeNotification`.
         public var suspended = false
-        /// Between `screensDidSleepNotification` and `screensDidWakeNotification`.
+        /// The displays sleep (``DisplaySleepWatch``): from `screensDidSleepNotification` until
+        /// `screensDidWakeNotification`, or a system wake or display change that finds a display awake.
         public var screensAsleep = false
         /// The wakes whose network path came back, counted from ``start()``.
         public var networkResumes: UInt64 = 0
@@ -37,8 +39,12 @@ public final class SuspendWatch {
     var onChange: (@MainActor (State) -> Void)?
 
     private let events: AppEvents
+    private let appEvents: AppEvents
     private let path: NetworkPathWait
+    private let displaysAsleep: DisplaySleepWatch.Probe
     private var subscriptions: [EventSubscription] = []
+    /// The displays' sleep while started.
+    private var displays: DisplaySleepWatch?
     /// The path wait of the last wake; nil once it reported or a sleep dropped it.
     private var pathWait: NetworkPathWait.Handle?
     /// Counts wakes, so a path report of an older wake changes nothing.
@@ -48,28 +54,38 @@ public final class SuspendWatch {
     ///
     /// - Parameters:
     ///   - events: The fan-out on `NSWorkspace.shared.notificationCenter` (`AppServices.workspaceEvents`).
+    ///   - appEvents: The fan-out on `NotificationCenter.default` (`AppServices.appEvents`), where a
+    ///     display change is posted.
     ///   - path: The network path wait (``NetworkPathWait/system(on:)``; tests pass their own).
+    ///   - displaysAsleep: Whether every display sleeps now (``DisplaySleepWatch/everyDisplayAsleep()``;
+    ///     tests pass their own).
     public init(events: AppEvents, appEvents: AppEvents, path: NetworkPathWait,
-                displaysAsleep: @escaping @MainActor () -> Bool = { false }) {
+                displaysAsleep: @escaping DisplaySleepWatch.Probe = DisplaySleepWatch.everyDisplayAsleep) {
         self.events = events
+        self.appEvents = appEvents
         self.path = path
+        self.displaysAsleep = displaysAsleep
     }
 
-    /// Follows the notices; a second call does nothing.
+    /// Follows the notices and reads the displays; a second call does nothing.
     public func start() {
         guard subscriptions.isEmpty else { return }
         let owner = "SuspendWatch"
         subscriptions = [
             events.subscribe(NSWorkspace.willSleepNotification, owner: owner) { [weak self] in self?.willSleep() },
             events.subscribe(NSWorkspace.didWakeNotification, owner: owner) { [weak self] in self?.didWake() },
-            events.subscribe(NSWorkspace.screensDidSleepNotification, owner: owner) { [weak self] in self?.setScreensAsleep(true) },
-            events.subscribe(NSWorkspace.screensDidWakeNotification, owner: owner) { [weak self] in self?.setScreensAsleep(false) },
         ]
+        let displays = DisplaySleepWatch(workspaceEvents: events, appEvents: appEvents, owner: owner, probe: displaysAsleep)
+        displays.onChange = { [weak self] asleep in self?.setScreensAsleep(asleep) }
+        self.displays = displays
+        setScreensAsleep(displays.asleep)
     }
 
     /// Stops following the notices and drops a path wait; the state stays as it was.
     public func stop() {
         subscriptions = []
+        displays?.cancel()
+        displays = nil
         dropPathWait()
     }
 

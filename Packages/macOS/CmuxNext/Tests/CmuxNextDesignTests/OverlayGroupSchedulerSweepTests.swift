@@ -119,7 +119,7 @@ import Testing
         let checker = WindowOcclusionChecker(windows: { [window] }, orderedWindows: { [window] },
                                              facts: { WindowOcclusionFacts(id: ObjectIdentifier($0), frame: CGRect(x: 0, y: 0, width: 10, height: 10)) },
                                              isAppHidden: { false }, drawsWhenOccluded: false, center: center,
-                                             workspaceEvents: AppEvents(center: workspace), mainWork: work)
+                                             workspaceEvents: AppEvents(center: workspace), displaysAsleep: { false }, mainWork: work)
         checker.start()
         center.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         center.post(name: NSWindow.didBecomeMainNotification, object: window)
