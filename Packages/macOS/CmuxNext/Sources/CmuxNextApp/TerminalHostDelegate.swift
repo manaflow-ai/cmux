@@ -11,7 +11,7 @@ import CmuxNextTerminal
 /// notifications come from the daemon, which parses every terminal's output.
 final class TerminalHostDelegate: TerminalSessionDelegate {
     private let linkRouter: LinkRouter
-    weak var services: AppServices? { didSet { if let services { Self.routeLinks(to: services, router: linkRouter) } } }
+    weak var services: AppServices? { didSet { if let services { routeLinks(to: services, router: linkRouter) } } }
 
     init(linkRouter: LinkRouter = .shared) {
         self.linkRouter = linkRouter
@@ -142,29 +142,26 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         linkRouter.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
     }
 
-    /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
-    /// subagent's link runs `link.open`; a cmux link opens a browser tab on the default engine
-    /// where ``LinkOpener`` places it (the pane right of the clicked tab's pane, or a new split). With no window it waits for one, never the system, which may be cmux
-    /// itself as the default browser (a loop).
-    private static func routeLinks(to services: AppServices, router: LinkRouter) {
-        router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
-        router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
-        router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
-        // A click in a chat or page view opens beside the pane showing it (not the focused pane).
-        router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
-        router.openInCmux = { [weak services] url, background, source in
-            guard let services else { return }
-            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
-            guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
-            let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
-            services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
-        }
-    }
-
     /// The tab showing `session`, or nil (the focused pane) for a surface the
     /// cache does not own.
     private func target(of session: TerminalSession, in services: AppServices) -> ActionTargetRef? {
         services.cache.tabKey(for: session).map { ActionTargetRef(kind: .tab, id: $0) }
+    }
+}
+
+/// Wires the shared link router to the app services once the composition root is ready.
+private func routeLinks(to services: AppServices, router: LinkRouter) {
+    router.routing = { [weak services] in services?.settings?.snapshot.linkRouting ?? .fallback }
+    router.textEditor = { [weak services] in services?.settings?.snapshot.textEditor.application ?? "" }
+    router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
+    // A click in a chat or page view opens beside the pane showing it (not the focused pane).
+    router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
+    router.openInCmux = { [weak services] url, background, source in
+        guard let services else { return }
+        // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
+        guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
+        // A link clicked in an agent chat (its chips) reuses the page's tab on the right, as its card's Open does.
+        let fromChat = source.map(services.agentTabs.isAgentTab) ?? false
+        services.linkOpener.openWeb(url, from: pane, background: background, reusesTab: fromChat)
     }
 }

@@ -36,6 +36,7 @@ public final class LinkRouter {
 
     private let openSystemURL: (URL) -> Void
 
+    /// Creates a router, optionally injecting the system URL opener for deterministic tests.
     public init(openSystemURL: ((URL) -> Void)? = nil) {
         self.openSystemURL = openSystemURL ?? { NSWorkspace.shared.openInBackground($0) }
     }
