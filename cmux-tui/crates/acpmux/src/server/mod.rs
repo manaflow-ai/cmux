@@ -82,6 +82,9 @@ pub struct Conn {
     requests: std::sync::atomic::AtomicU64,
     /// Its first request was an `initialize` that got the person challenge.
     challenged: AtomicBool,
+    /// Secret advertised by this authenticated peer link during initialize;
+    /// only that link can mint owner-policy grants.
+    owner_link_secret: StdMutex<Option<String>>,
     /// This connection's challenge nonce (`hub/person.rs`).
     pub(super) nonce: String,
     /// It proved the person key for its challenge.
@@ -209,6 +212,10 @@ impl Conn {
         self.person.load(Ordering::SeqCst)
     }
 
+    pub(super) fn owner_link_secret(&self) -> Option<String> {
+        self.owner_link_secret.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     /// The acpmux session this connection proved it runs in (`hub/person.rs` (a)).
     pub(super) fn caller(&self) -> Option<&str> {
         self.caller.get().map(String::as_str)
@@ -229,6 +236,19 @@ impl Conn {
         // Stripped from every request; read from a first unix `initialize` only (person.rs (a)).
         let caller = params.as_mut().and_then(crate::hub::person::take_caller);
         let n = self.requests.fetch_add(1, Ordering::SeqCst) + 1;
+        if n == 1
+            && m == method::INITIALIZE
+            && self.origin == Origin::Peer
+            && self.auth == ConnAuth::PeerToken
+        {
+            let secret = params
+                .as_ref()
+                .and_then(|p| p.pointer("/_meta/acpmux/ownerLinkSecret"))
+                .and_then(Value::as_str)
+                .filter(|s| s.len() == 64 && s.bytes().all(|b| b.is_ascii_hexdigit()))
+                .map(str::to_owned);
+            *self.owner_link_secret.lock().unwrap_or_else(|e| e.into_inner()) = secret;
+        }
         if n == 1 && m == method::INITIALIZE && self.challengeable() {
             self.challenged.store(true, Ordering::SeqCst);
         }
@@ -1211,6 +1231,7 @@ async fn serve_connection_from(
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
         challenged: AtomicBool::new(false),
+        owner_link_secret: StdMutex::new(None),
         nonce: crate::hub::person::new_nonce(),
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),

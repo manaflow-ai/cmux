@@ -718,25 +718,6 @@ impl PersonGate {
             .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
     }
 
-    /// Signs a policy raise for a peer. The key never leaves this daemon;
-    /// the receiving owner daemon verifies the same person-key signature.
-    pub fn owner_policy_proof(&self, session: &str, policy: &str, host: &str) -> Option<String> {
-        let key = self.key.lock().unwrap_or_else(|e| e.into_inner()).clone()?;
-        owner_policy_proof(&key, session, policy, host)
-    }
-
-    /// Verifies a peer's owner policy signature against this daemon's person key.
-    pub fn owner_policy_proves(
-        &self,
-        session: &str,
-        policy: &str,
-        host: &str,
-        proof: &str,
-    ) -> bool {
-        let Some(expected) = self.owner_policy_proof(session, policy, host) else { return false };
-        cmux_local_auth::tokens_match(proof, &expected)
-    }
-
     /// Whether `presented` is this launch's key (constant time).
     pub fn matches(&self, presented: &str) -> bool {
         self.key
@@ -798,11 +779,17 @@ pub fn person_proof(key: &str, transport: &str, nonce: &str, connection: &str) -
     )))
 }
 
-fn owner_policy_proof(key: &str, session: &str, policy: &str, host: &str) -> Option<String> {
+pub(crate) fn owner_policy_proof_for_key(
+    key: &str,
+    session: &str,
+    policy: &str,
+    host: &str,
+    nonce: &str,
+) -> Option<String> {
     use cmux_local_auth::frontend_proof::{hex, hmac_sha256, unhex};
     let key = unhex::<32>(key)?;
     let mut message = OWNER_POLICY_DOMAIN.to_vec();
-    for value in [session, policy, host] {
+    for value in [session, policy, host, nonce] {
         message.extend_from_slice(value.as_bytes());
         message.push(0);
     }

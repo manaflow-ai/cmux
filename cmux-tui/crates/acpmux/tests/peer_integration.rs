@@ -110,7 +110,11 @@ impl C {
 const PERSON_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
 async fn client(h: Arc<Hub>) -> C {
-    let _ = h.person.install_spawn_key(PERSON_KEY);
+    client_with_key(h, PERSON_KEY).await
+}
+
+async fn client_with_key(h: Arc<Hub>, key: &str) -> C {
+    let _ = h.person.install_spawn_key(key);
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
     tokio::spawn(serve_connection(h, in_rx, out_tx));
@@ -260,7 +264,11 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
 #[tokio::test]
 async fn a_person_proven_local_policy_raise_reaches_the_owned_peer() {
     let b = hub(config(PermissionPolicy::Ask)).await;
-    let mut cb = client(b.clone()).await;
+    let mut cb = client_with_key(
+        b.clone(),
+        "abcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    )
+    .await;
     let created = cb
         .call(
             method::SESSION_NEW,
@@ -279,7 +287,11 @@ async fn a_person_proven_local_policy_raise_reaches_the_owned_peer() {
     a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
         .await
         .unwrap();
-    let mut ca = client(a.clone()).await;
+    let mut ca = client_with_key(
+        a.clone(),
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    )
+    .await;
     let result = ca
         .call(method::MUX_SET_POLICY, json!({"session": "b/owner-policy", "policy": "approve-all"}))
         .await

@@ -514,6 +514,10 @@ pub struct Hub {
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// One-time owner-policy grants accepted by this daemon. Nonces are
+    /// process-scoped, so captured grants cannot be replayed after a
+    /// reconnect or later policy narrowing.
+    pub(super) owner_policy_nonces: StdMutex<std::collections::HashSet<String>>,
     /// Who has each chat open and who types in it, in memory only (`presence.rs`).
     pub presence: presence::Presence,
     /// How long a move may go without its client (`transfer_watch.rs`).
@@ -563,6 +567,10 @@ pub struct Hub {
 }
 
 impl Hub {
+    pub(crate) fn spend_owner_policy_nonce(&self, nonce: &str) -> bool {
+        self.owner_policy_nonces.lock().unwrap_or_else(|e| e.into_inner()).insert(nonce.to_owned())
+    }
+
     pub fn new(config: Config, store: Box<dyn Store>) -> Arc<Self> {
         Self::new_with_mailbox(config, store, Mailbox::memory())
     }
@@ -663,6 +671,7 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            owner_policy_nonces: StdMutex::new(std::collections::HashSet::new()),
             presence: Default::default(),
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),

@@ -31,16 +31,15 @@ pub(crate) const CWD_OUTSIDE_ROOTS: &str = "remote.cwd_outside_roots";
 /// daemon's hint.
 pub(in crate::server) async fn check(
     hub: &std::sync::Arc<crate::hub::Hub>,
-    origin: crate::server::Origin,
-    auth: crate::server::ConnAuth,
+    conn: &crate::server::Conn,
     device: Option<&str>,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
-    let peer = super::control_of(origin, auth, params) == crate::hub::Control::Peer;
-    let mut result = super::check_inner(hub, origin, auth, device, m, params).await;
+    let peer = super::control_of(conn.origin, conn.auth, params) == crate::hub::Control::Peer;
+    let mut result = super::check_inner(hub, conn, device, m, params).await;
     if m == crate::rpc::method::SESSION_NEW
-        && origin.web_class()
+        && conn.origin.web_class()
         && let Err(e) = &mut result
         && let Some(Value::Object(data)) = &mut e.data
         && data.get("reason").and_then(Value::as_str).is_some_and(|r| r.starts_with("remote."))

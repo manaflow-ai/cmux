@@ -133,15 +133,8 @@ pub(super) async fn handle_notification(
             }
             let device = super::remote_guard::full_access_device(hub, conn, &params);
             if conn.origin != Origin::Local
-                && let Err(e) = super::remote_guard::check(
-                    hub,
-                    conn.origin,
-                    conn.auth,
-                    device.as_deref(),
-                    m,
-                    &mut params,
-                )
-                .await
+                && let Err(e) =
+                    super::remote_guard::check(hub, conn, device.as_deref(), m, &mut params).await
             {
                 tracing::debug!(conn = %conn.id, "cancel refused: {e}");
                 return;
@@ -426,15 +419,7 @@ async fn dispatch_brief(
         }
     }
     if conn.origin != Origin::Local {
-        super::remote_guard::check(
-            hub,
-            conn.origin,
-            conn.auth,
-            None,
-            method::SESSION_NEW,
-            &mut new_params,
-        )
-        .await?;
+        super::remote_guard::check(hub, conn, None, method::SESSION_NEW, &mut new_params).await?;
     }
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &new_params)
@@ -612,8 +597,7 @@ pub(super) async fn handle_request(
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
         let device = super::remote_guard::full_access_device(hub, conn, &params);
-        super::remote_guard::check(hub, conn.origin, conn.auth, device.as_deref(), m, &mut params)
-            .await?;
+        super::remote_guard::check(hub, conn, device.as_deref(), m, &mut params).await?;
     }
     caller_sends_no_files(hub, conn, m, &params)?;
     // Only the person allows or widens what runs without asking (`hub/person.rs`): one
@@ -623,8 +607,7 @@ pub(super) async fn handle_request(
     let remote_authenticated = conn.auth.authenticated()
         && super::remote_guard::control_of(conn.origin, conn.auth, &params)
             == crate::hub::Control::Web;
-    let owner_policy_grant =
-        super::remote_guard::owner_policy_grant(hub, conn.origin, conn.auth, &params);
+    let owner_policy_grant = super::remote_guard::owner_policy_grant(hub, conn, &params);
     let verdict = hub
         .person_check(
             conn.is_person(),
@@ -1970,10 +1953,10 @@ async fn dispatch_request(
                 .parse()
                 .map_err(RpcError::invalid_params)?;
             refuse_full_access_policy(hub, Some(policy))?;
-            if let Some(host) =
-                super::remote_guard::owner_policy_host(hub, conn.origin, conn.auth, &params)
-            {
-                hub.set_policy_unless_moving_from_owner(&s, policy, &host).await?;
+            if let Some(host) = super::remote_guard::owner_policy_host(hub, conn, &params) {
+                let nonce = super::remote_guard::owner_policy_nonce(&params)
+                    .expect("owner_policy_host validates the nonce");
+                hub.set_policy_unless_moving_from_owner(&s, policy, &host, &nonce).await?;
             } else {
                 hub.set_policy_unless_moving(&s, policy).await?;
             }

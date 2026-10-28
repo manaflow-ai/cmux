@@ -96,9 +96,14 @@ use peer_folder::{
 const OWNER_POLICY_GRANT: &str = "ownerPolicyGrant";
 const OWNER_POLICY_HOST: &str = "ownerPolicyHost";
 const OWNER_POLICY_PROOF: &str = "ownerPolicyProof";
+const OWNER_POLICY_NONCE: &str = "ownerPolicyNonce";
 
 fn owner_policy_meta(params: &Value) -> Option<&serde_json::Map<String, Value>> {
     params.pointer("/_meta/acpmux").and_then(Value::as_object)
+}
+
+pub(super) fn owner_policy_nonce(params: &Value) -> Option<&str> {
+    owner_policy_meta(params).and_then(|meta| meta.get(OWNER_POLICY_NONCE)).and_then(Value::as_str)
 }
 
 fn valid_owner_host(host: &str) -> bool {
@@ -112,12 +117,15 @@ fn valid_owner_host(host: &str) -> bool {
 /// The HMAC is checked with the receiving daemon's enrolled owner key.
 pub(super) fn owner_policy_grant(
     hub: &crate::hub::Hub,
-    origin: super::Origin,
-    auth: super::ConnAuth,
+    conn: &super::Conn,
     params: &Value,
 ) -> bool {
-    if origin != super::Origin::Peer
-        || !crate::hub::vm_boundary::owner(auth, control_of(origin, auth, params), params)
+    if conn.origin != super::Origin::Peer
+        || !crate::hub::vm_boundary::owner(
+            conn.auth,
+            control_of(conn.origin, conn.auth, params),
+            params,
+        )
     {
         return false;
     }
@@ -129,19 +137,28 @@ pub(super) fn owner_policy_grant(
     let Some(proof) = meta.get(OWNER_POLICY_PROOF).and_then(Value::as_str) else {
         return false;
     };
+    let Some(nonce) = meta.get(OWNER_POLICY_NONCE).and_then(Value::as_str) else {
+        return false;
+    };
     let Some(session) = params.get("sessionId").and_then(Value::as_str) else { return false };
     let Some(policy) = params.get("policy").and_then(Value::as_str) else { return false };
-    valid_owner_host(host) && hub.person.owner_policy_proves(session, policy, host, proof)
+    valid_owner_host(host)
+        && nonce.len() == 64
+        && nonce.bytes().all(|b| b.is_ascii_hexdigit())
+        && !hub.owner_policy_nonces.lock().unwrap_or_else(|e| e.into_inner()).contains(nonce)
+        && conn.owner_link_secret().is_some_and(|secret| {
+            crate::hub::person::owner_policy_proof_for_key(&secret, session, policy, host, nonce)
+                .is_some_and(|expected| cmux_local_auth::tokens_match(proof, &expected))
+        })
 }
 
 /// The source host recorded with an owner grant.
 pub(super) fn owner_policy_host(
     hub: &crate::hub::Hub,
-    origin: super::Origin,
-    auth: super::ConnAuth,
+    conn: &super::Conn,
     params: &Value,
 ) -> Option<String> {
-    owner_policy_grant(hub, origin, auth, params).then(|| {
+    owner_policy_grant(hub, conn, params).then(|| {
         owner_policy_meta(params)
             .and_then(|meta| meta.get(OWNER_POLICY_HOST))
             .and_then(Value::as_str)
@@ -155,7 +172,7 @@ pub(super) fn owner_policy_host(
 /// the marker through the forwarding daemon. The local person key signs the
 /// exact session, policy, and source host that the peer will receive.
 pub(super) fn mark_policy_forwarded(
-    hub: &crate::hub::Hub,
+    peer: &crate::peer::Peer,
     origin: super::Origin,
     auth: super::ConnAuth,
     person: bool,
@@ -167,20 +184,22 @@ pub(super) fn mark_policy_forwarded(
         meta.remove(OWNER_POLICY_GRANT);
         meta.remove(OWNER_POLICY_HOST);
         meta.remove(OWNER_POLICY_PROOF);
+        meta.remove(OWNER_POLICY_NONCE);
     }
     if person && matches!(origin, super::Origin::Local | super::Origin::LocalApp) {
         let session = forwarded.get("sessionId").and_then(Value::as_str);
         let policy = params.get("policy").and_then(Value::as_str);
         let host = crate::hub::host_label();
-        if let (Some(session), Some(policy), Some(proof)) =
-            (session, policy, hub.person.owner_policy_proof(session, policy, host))
-        {
+        let nonce = crate::hub::person::new_nonce();
+        if let (Some(session), Some(policy)) = (session, policy) {
+            let proof = peer.owner_policy_proof(session, policy, host, &nonce);
             crate::hub::merge_mux_meta(
                 forwarded,
                 serde_json::json!({
                     OWNER_POLICY_GRANT: true,
                     OWNER_POLICY_HOST: host,
                     OWNER_POLICY_PROOF: proof,
+                    OWNER_POLICY_NONCE: nonce,
                 }),
             );
         }
@@ -278,12 +297,13 @@ fn refused(what: &str) -> RpcError {
 /// connection that is not the unix socket (`hint::check` adds `servedAs`).
 async fn check_inner(
     hub: &std::sync::Arc<crate::hub::Hub>,
-    origin: super::Origin,
-    auth: super::ConnAuth,
+    conn: &super::Conn,
     device: Option<&str>,
     m: &str,
     params: &mut Value,
 ) -> Result<(), RpcError> {
+    let origin = conn.origin;
+    let auth = conn.auth;
     // The mode rules below give an authenticated connection more (any mode
     // of the Codex bridge, `Hub::any_mode_for_web`): none without a proof.
     if !auth.authenticated() {
@@ -406,7 +426,7 @@ async fn check_inner(
     let mut deferred = None;
     if web {
         let peer = control_of(origin, auth, params) == crate::hub::Control::Peer;
-        match web_only(m, params, peer, owner_policy_grant(hub, origin, auth, params)) {
+        match web_only(m, params, peer, owner_policy_grant(hub, conn, params)) {
             Err(e) if m == method::SESSION_NEW => deferred = Some(e),
             other => other?,
         }

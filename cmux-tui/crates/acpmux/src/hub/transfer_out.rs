@@ -329,9 +329,13 @@ impl Hub {
         session: &Arc<Session>,
         policy: crate::config::PermissionPolicy,
         host: &str,
+        nonce: &str,
     ) -> Result<(), RpcError> {
         if session.moving().is_some() {
             return Err(super::queue::moving_error());
+        }
+        if !self.spend_owner_policy_nonce(nonce) {
+            return Err(crate::hub::person::person_required("reusing an owner policy grant"));
         }
         self.set_policy_from_owner(session, policy, host).await;
         Ok(())
