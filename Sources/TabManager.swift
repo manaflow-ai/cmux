@@ -7127,7 +7127,7 @@ extension TabManager {
         let selectedManagedCloudIndex = selectedWorkspaceIndex.flatMap { selected in
             managedCloudIndexSet.contains(selected) ? selected : nil
         }
-        let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexSet.first
+        let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexSet.min()
         var indexMap: [Int: Int] = [:]
         var filtered: [SessionWorkspaceSnapshot] = []
         for (index, snapshot) in snapshots.enumerated() {

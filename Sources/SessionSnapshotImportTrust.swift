@@ -109,8 +109,8 @@ enum SessionSnapshotImportTrust {
                 let originalGroupMembers: [UUID: [UUID]] = {
                     var members: [UUID: [UUID]] = [:]
                     for workspace in window.tabManager.workspaces {
-                        if let groupID = workspace.groupId {
-                            members[groupID, default: []].append(workspace.workspaceId)
+                        if let groupID = workspace.groupId, let workspaceID = workspace.workspaceId {
+                            members[groupID, default: []].append(workspaceID)
                         }
                     }
                     return members
@@ -131,8 +131,8 @@ enum SessionSnapshotImportTrust {
                 let retainedGroupMembers: [UUID: [UUID]] = {
                     var members: [UUID: [UUID]] = [:]
                     for workspace in retained {
-                        if let groupID = workspace.groupId {
-                            members[groupID, default: []].append(workspace.workspaceId)
+                        if let groupID = workspace.groupId, let workspaceID = workspace.workspaceId {
+                            members[groupID, default: []].append(workspaceID)
                         }
                     }
                     return members
