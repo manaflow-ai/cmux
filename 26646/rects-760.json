@@ -1,0 +1,37 @@
+{
+  "width": 760,
+  "before": [
+    758,
+    758,
+    758,
+    758
+  ],
+  "after": [
+    758,
+    758,
+    758,
+    758
+  ],
+  "action": {
+    "copy": {
+      "x": 708,
+      "y": 62,
+      "width": 28,
+      "height": 28,
+      "top": 62,
+      "right": 736,
+      "bottom": 90,
+      "left": 708
+    },
+    "chevron": {
+      "x": 744,
+      "y": 66,
+      "width": 14,
+      "height": 14,
+      "top": 66,
+      "right": 758,
+      "bottom": 80,
+      "left": 744
+    }
+  }
+}
