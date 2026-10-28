@@ -134,6 +134,7 @@ jobs:
       - name: Refuse polling loops in scripts and workflows
         if: ${{ matrix.group == 'ci' }}
         run: |
+          python3 scripts/ci/polling_scan/test_vendored_sync.py
           python3 scripts/ci/polling_scan/test_polling_scan.py
           python3 scripts/ci/polling_scan/polling_scan.py --root . --allowlist scripts/ci/polling_scan/allowlist.json
 

@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Vendored from manaflow-ai/cmuxterm-hq tools/agent-guards/polling_scan.py; keep the two copies in sync.
-# Change the judge there first, then copy it here unchanged below this header.
 """Fail on polling loops checked into a repo's scripts and workflows.
 
 The rulebook bans polling loops (`until ...; do sleep`, `while true`, `gh pr checks --watch`,

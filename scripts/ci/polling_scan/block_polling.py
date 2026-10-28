@@ -1,6 +1,4 @@
 #!/usr/bin/env python3
-# Vendored from manaflow-ai/cmuxterm-hq tools/agent-guards/block_polling.py; keep the two copies in sync.
-# Change the judge there first, then copy it here unchanged below this header.
 """PreToolUse(Bash) judge for block-gh-polling.sh: refuse real polling loops.
 
 The old hook matched text, so a command that only *mentioned* a loop (a pkill of
@@ -606,32 +604,54 @@ def judge_commands(cmds):
     return next((msg for _, msg in iter_violations(cmds)), None)
 
 
-GH_TEXT = re.compile(r"^\s*gh\s*$|(?:^|[\s;&|(])gh\s+[a-z]|api\.github\.com")
+# `gh` then any global options (-R o/r, --repo=o/r, --hostname h) then a subcommand word
+GH_TEXT = re.compile(r"^\s*gh\s*$|(?:^|[\s;&|(])gh(?:\s+-{1,2}[\w-]+(?:[=\s]+[^\s-]\S*)?)*\s+[a-z]|api\.github\.com")
 
 
 def python_polls(tree):
-    """A for/while loop in a python AST whose body calls something named *sleep and names GitHub
-    (a "gh" argv word, a "gh ..." command string, or an api.github.com URL)."""
+    """A for/while loop in a python AST whose body (or a function of the same file it calls, transitively)
+    calls something named *sleep and names GitHub (a "gh" argv word, a "gh ..." command string, or an
+    api.github.com URL). Docstrings and bare string statements are not evidence."""
     import ast
-    for loop in ast.walk(tree):
-        if not isinstance(loop, (ast.For, ast.AsyncFor, ast.While)):
-            continue
+
+    def call_name(node):
+        f = node.func
+        return f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
+
+    def facts(root):
+        """(sleeps, github, names of the calls made) in root's subtree."""
+        skip = {id(e.value) for e in ast.walk(root) if isinstance(e, ast.Expr) and isinstance(e.value, ast.Constant)}
         sleeps = github = False
-        docstrings = {id(d.body[0].value) for d in ast.walk(loop)
-                      if isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and d.body
-                      and isinstance(d.body[0], ast.Expr) and isinstance(d.body[0].value, ast.Constant)}
-        docstrings |= {id(e.value) for e in ast.walk(loop) if isinstance(e, ast.Expr) and isinstance(e.value, ast.Constant)}
-        for node in ast.walk(loop):
-            if id(node) in docstrings:
+        calls = set()
+        for node in ast.walk(root):
+            if id(node) in skip:
                 continue
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant):
-                continue  # a bare string statement is a comment, not a call argument
             if isinstance(node, ast.Call):
-                f = node.func
-                name = f.attr if isinstance(f, ast.Attribute) else f.id if isinstance(f, ast.Name) else ""
+                name = call_name(node)
+                if isinstance(node.func, ast.Name):
+                    calls.add(name)  # only a bare name can be a function of this file; subprocess.run is not run()
                 sleeps = sleeps or name.endswith("sleep")
             if isinstance(node, ast.Constant) and isinstance(node.value, str) and GH_TEXT.search(node.value):
                 github = True
+        return sleeps, github, calls
+
+    funcs = {d.name: facts(d) for d in ast.walk(tree) if isinstance(d, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    # a function's GitHub and sleep evidence includes the functions it calls, to a fixed point
+    changed = True
+    while changed:
+        changed = False
+        for name, (sl, gh, calls) in list(funcs.items()):
+            nsl = sl or any(funcs[c][0] for c in calls if c in funcs)
+            ngh = gh or any(funcs[c][1] for c in calls if c in funcs)
+            if (nsl, ngh) != (sl, gh):
+                funcs[name] = (nsl, ngh, calls)
+                changed = True
+    for loop in ast.walk(tree):
+        if not isinstance(loop, (ast.For, ast.AsyncFor, ast.While)):
+            continue
+        sleeps, github, calls = facts(loop)
+        sleeps = sleeps or any(funcs[c][0] for c in calls if c in funcs)
+        github = github or any(funcs[c][1] for c in calls if c in funcs)
         if sleeps and github:
             return True
     return False
