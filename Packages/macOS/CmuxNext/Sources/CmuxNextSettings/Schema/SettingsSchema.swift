@@ -197,6 +197,15 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback),
                 keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
             ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.showMenuBarIconPath, section: .general, group: window,
+                title: SettingsText.keyed("settings.app.showMenuBarIcon", "Show Menu Bar Icon"),
+                help: SettingsText.keyed("settings.app.showMenuBarIcon.help",
+                                        "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."),
+                kind: .toggle,
+                default: .bool(CmuxConfigSnapshot.showMenuBarIconFallback),
+                keywords: ["menu bar", "status item", "menubar", "tray", "icon", "raycast", "extra", "discord", "logs"]
+            ),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.terminalFirst(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),

@@ -158,10 +158,13 @@ extension CloudHandlers {
     /// The machine New Cloud Workspace opens on, nil for a new one. It keeps the
     /// active-window fallback for any caller (it only opens a workspace, and with
     /// no machine a CLI run starts a new one), but a named `--target machine:<id>`
-    /// that is not there is refused, never answered with a new machine.
+    /// that is not there is refused, never answered with a new machine. With several
+    /// machines and none in view, it opens on the first one in sidebar order that is
+    /// connected or ``CloudMachine/takesUnnamedWorkspaces`` (the workspace joins that
+    /// machine's group); only with none a new VM starts and bills (Lawrence msg 1334).
     static func workspaceMachine(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> CloudMachineSession? {
         if invocation.target?.kind == .machine { return try machine(invocation, context) }
-        return try? machine(invocation, context, fallsBack: true)
+        return (try? machine(invocation, context, fallsBack: true)) ?? context.services.machines.cloud.first { $0.daemon.connection != nil || $0.machine.takesUnnamedWorkspaces }
     }
 
     // MARK: cloud new-machine with options
