@@ -12,7 +12,7 @@ import Testing
 @Suite(.timeLimit(.minutes(1)))
 struct AgentPageHiddenDeltasTests {
     @Test func twentyThousandDeltasWhileHiddenAllArriveIntact() async throws {
-        let provider = AgentPageProvider { _ in nil }
+        let provider = AgentPageProvider(mainWork: AgentPaneMainThread.standalone().mainWork) { _ in nil }
         let page = PageHoldHarness(descriptor: .agent, prefix: AgentPageOps.namespace, provider: provider)
         let reply = await page.subscribe(AgentPageProvider.hostEvents)
         try #require(reply["t"]?.stringValue == "ok", "\(reply)")

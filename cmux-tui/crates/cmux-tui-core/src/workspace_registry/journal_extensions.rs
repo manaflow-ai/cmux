@@ -2571,7 +2571,7 @@ fn operation_receipt(
 }
 
 fn encode_hex(bytes: &[u8]) -> String {
-    lower_hex(bytes)
+    hex_bytes(bytes)
 }
 
 fn decode_sha256(value: &str) -> anyhow::Result<[u8; 32]> {

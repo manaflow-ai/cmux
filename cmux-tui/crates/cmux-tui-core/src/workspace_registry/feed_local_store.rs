@@ -135,7 +135,7 @@ fn trim_feed_local_folded(transaction: &Transaction<'_>) -> anyhow::Result<()> {
 pub(crate) fn feed_item_id(notification: &NotificationPublicId) -> String {
     let digest: [u8; 32] =
         Sha256::digest(format!("cmux-feed-item:{}", notification.as_str())).into();
-    format!("fi_{}", lower_hex(&digest[..10]))
+    format!("fi_{}", hex_bytes(&digest[..10]))
 }
 
 /// `notify:<daemon session>:<public notification id>` (section 9.1 item 3).

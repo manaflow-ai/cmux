@@ -222,4 +222,24 @@ extension ActionRegistry {
         registry.mainWork = mainWork
         return registry
     }
+
+    /// ``standard(runTiming:turnObserver:mainWork:)`` seeded with the catalog `launch` built off the main
+    /// thread: the App's registry, whose read of the catalog ``ActionCatalogLaunch/descriptors()`` times.
+    ///
+    /// - Parameters:
+    ///   - launch: The launch's catalog build.
+    ///   - runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
+    ///   - turnObserver: Hears the end of every outermost perform turn, or nil.
+    ///   - mainWork: The app's one main-thread scheduler (``ActionRegistry/mainWork``), or nil (tests).
+    @MainActor
+    public static func standard(launch: ActionCatalogLaunch, runTiming: any ActionRunTiming,
+                                turnObserver: (any ActionRunObserver)? = nil, mainWork: MainWorkScheduler? = nil) -> ActionRegistry {
+        let registry = ActionRegistry(catalog: launch.descriptors(), aliases: ActionCatalog.legacyAliases, runTiming: runTiming,
+                                      turnObserver: turnObserver)
+        if let mainWork {
+            registry.causes = mainWork.causes
+            registry.mainWork = mainWork
+        }
+        return registry
+    }
 }

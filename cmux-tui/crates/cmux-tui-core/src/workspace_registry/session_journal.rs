@@ -2170,7 +2170,7 @@ fn payload_str<'a>(payload: &'a Value, field: &str) -> Option<&'a str> {
 }
 
 fn encode_bytes_hex(bytes: &[u8]) -> String {
-    lower_hex(bytes)
+    hex_bytes(bytes)
 }
 
 pub(crate) fn journal_record_for_archive(record: &SessionJournalRecord) -> SessionJournalRecord {

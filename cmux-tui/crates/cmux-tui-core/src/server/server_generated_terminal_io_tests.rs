@@ -5,6 +5,11 @@
 //! lines built from the schema's own fields. Both sides parse the way the
 //! daemon does, through the `id` + flattened `cmd` request wrapper.
 //!
+//! Commands and fields the schema added after the freeze are added to the
+//! frozen family by hand, as the hand-written variant would have declared
+//! them: attach-streams-v1 (p05-ipc-074) `stream` on attach-surface and
+//! snapshot-request, and cancel-stream.
+//!
 //! Fixture errors must match too, with two wording differences: a line that misses
 //! several required fields may name another of them (the generated fields are
 //! in schema name order), and an out-of-range size names the schema's `u64` or
@@ -81,6 +86,8 @@ struct OldSnapshotRequestParams {
     have: Option<SnapshotHave>,
     #[serde(default)]
     request_id: Option<String>,
+    #[serde(default)]
+    stream: Option<u16>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -200,6 +207,12 @@ enum OldTerminalIo {
         rows: Option<u16>,
         #[serde(flatten)]
         snapshot: OldSnapshotAttachParams,
+        #[serde(default)]
+        stream: Option<u16>,
+    },
+    /// End one client-minted attach stream (attach-streams-v1).
+    CancelStream {
+        stream: u16,
     },
     PasteImage {
         surface: SurfaceId,
@@ -264,6 +277,7 @@ fn generated(request: &Request) -> Option<Value> {
         Command::SetCellPixels(p) => serde_json::to_value(p),
         Command::Subscribe(p) => serde_json::to_value(p),
         Command::AttachSurface(p) => serde_json::to_value(p),
+        Command::CancelStream(p) => serde_json::to_value(p),
         Command::PasteImage(p) => serde_json::to_value(p),
         Command::UrlOpen(p) => serde_json::to_value(p),
         Command::UrlOpenSubscribe(p) => serde_json::to_value(p),

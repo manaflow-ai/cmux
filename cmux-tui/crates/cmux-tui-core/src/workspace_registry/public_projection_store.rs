@@ -742,7 +742,7 @@ impl WorkspaceRegistry {
 fn agent_id(terminal_id: &TerminalPublicId) -> anyhow::Result<AgentPublicId> {
     let digest: [u8; 32] =
         Sha256::digest(format!("cmux.protocol/2/agent/{terminal_id}").as_bytes()).into();
-    let payload = lower_hex(&digest[..16]);
+    let payload = hex_bytes(&digest[..16]);
     AgentPublicId::parse(format!("agent_{payload}")).map_err(Into::into)
 }
 

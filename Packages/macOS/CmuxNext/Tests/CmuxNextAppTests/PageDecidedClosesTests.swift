@@ -1,4 +1,5 @@
 import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -13,14 +14,15 @@ import Testing
         var userCloses: [Bool] = []
     }
 
-    private func make(_ recorder: Recorder) -> PageDecidedCloses<Pane, [TabID]> {
+    private func make(_ recorder: Recorder, _ rig: MainDeadlineRig) -> PageDecidedCloses<Pane, [TabID]> {
         PageDecidedCloses(prepare: { _, ids in recorder.prepared.append(ids); return ids },
-                          send: { prepared, _, user in recorder.sent.append(prepared); recorder.userCloses.append(user) })
+                          send: { prepared, _, user in recorder.sent.append(prepared); recorder.userCloses.append(user) },
+                          deadlines: rig.deadlines)
     }
 
     @Test func pagesThatCloseJoinOneSend() {
-        let recorder = Recorder(), left = Pane(), right = Pane()
-        let closes = make(recorder)
+        let recorder = Recorder(), left = Pane(), right = Pane(), rig = MainDeadlineRig()
+        let closes = make(recorder, rig)
         closes.begin(closing: [(left, ["a", "c"])], deciding: [(left, ["b"]), (right, ["d"])], userClose: true)
         #expect(recorder.prepared == [["a", "c"]], "the tabs that do not wait leave their strip at once")
         #expect(recorder.sent.isEmpty && closes.isWaiting)
@@ -35,15 +37,21 @@ import Testing
         #expect(recorder.userCloses == [true])
         #expect(!closes.isWaiting)
         #expect(closes.absorb([(right, ["d"])]).map(\.ids) == [["d"]], "a finished gesture takes nothing")
+        #expect(!rig.hasArmedWake, "a finished gesture kept its deadline's wake")
     }
 
-    @Test func aPageThatKeepsItsTabDoesNotHoldTheRest() async throws {
-        let recorder = Recorder(), pane = Pane()
-        let closes = make(recorder)
-        closes.deadline = .milliseconds(20)
+    /// The gesture's bound is a `visible` deadline on the app's placer (p06-scheduler-329, R-timer): nothing goes
+    /// before it, and the rest closes at it, no sooner.
+    @Test func aPageThatKeepsItsTabDoesNotHoldTheRest() {
+        let recorder = Recorder(), pane = Pane(), rig = MainDeadlineRig()
+        let closes = make(recorder, rig)
         closes.begin(closing: [(pane, ["a"])], deciding: [(pane, ["b"])], userClose: false)
-        let deadline = ContinuousClock.now + .seconds(10)
-        while recorder.sent.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(rig.hasArmedWake, "the gesture armed no deadline")
+        rig.advance(by: .seconds(1))
+        rig.fireAtNow()
+        #expect(recorder.sent.isEmpty, "the rest closed before the deadline")
+        rig.fireAndRun()
+        #expect(rig.elapsed >= 2, "the rest closed \(rig.elapsed) s in")
         #expect(recorder.sent == [[["a"]]], "the rest closes at the deadline")
         #expect(!closes.isWaiting)
         // The page closes later (after Stay, the person closes it again): its own close.

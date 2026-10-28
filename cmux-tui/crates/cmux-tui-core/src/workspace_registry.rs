@@ -305,7 +305,8 @@ impl ResourceEffectPepper {
         key_block[..RESOURCE_EFFECT_PEPPER_BYTES].copy_from_slice(self.0.as_ref());
         let mut inner_pad = [0x36_u8; BLOCK_BYTES];
         let mut outer_pad = [0x5c_u8; BLOCK_BYTES];
-        for ((inner, outer), key) in inner_pad.iter_mut().zip(outer_pad.iter_mut()).zip(&key_block)
+        for ((inner, outer), key) in
+            inner_pad.iter_mut().zip(outer_pad.iter_mut()).zip(key_block.iter())
         {
             *inner ^= key;
             *outer ^= key;
@@ -336,17 +337,7 @@ fn update_sha256_part(hasher: &mut Sha256, value: &[u8]) {
 }
 
 fn hex_sha256(digest: [u8; 32]) -> String {
-    lower_hex(&digest)
-}
-
-/// Lowercase hex of `bytes`, two digits a byte. `from_digit` of a nibble
-/// (always below 16) never takes the `'0'` arm.
-pub(crate) fn lower_hex(bytes: &[u8]) -> String {
-    let mut encoded = String::with_capacity(bytes.len().saturating_mul(2));
-    for nibble in bytes.iter().flat_map(|byte| [byte >> 4, byte & 0x0f]) {
-        encoded.push(char::from_digit(u32::from(nibble), 16).unwrap_or('0'));
-    }
-    encoded
+    hex_bytes(&digest)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -843,9 +834,7 @@ fn pending_session_reset_kind(rest: &str) -> Option<PendingSessionResetKind> {
 }
 
 fn is_canonical_reset_uuid_v4(value: &str) -> bool {
-    let Ok(bytes) = <&[u8; 36]>::try_from(value.as_bytes()) else {
-        return false;
-    };
+    let Ok(bytes) = <&[u8; 36]>::try_from(value.as_bytes()) else { return false };
     bytes[8] == b'-'
         && bytes[13] == b'-'
         && bytes[18] == b'-'
@@ -898,7 +887,8 @@ fn pending_session_reset_dirs(
         let Some(file_name) = file_name.to_str() else {
             continue;
         };
-        let Some(rest) = file_name.strip_prefix(&prefix).and_then(|rest| rest.strip_suffix(suffix))
+        let Some(rest) =
+            file_name.strip_prefix(prefix.as_str()).and_then(|rest| rest.strip_suffix(suffix))
         else {
             continue;
         };
@@ -1105,7 +1095,7 @@ fn reset_confirmation_snapshot(
     }
     let digest: [u8; 32] = hash.finalize().into();
     Ok(ResetConfirmationSnapshot {
-        confirm_reset: lower_hex(&digest[..12]),
+        confirm_reset: digest.iter().take(12).map(|byte| format!("{byte:02x}")).collect(),
         session_fingerprint,
         terminal_host_fingerprint,
         pending_reset_dir_fingerprints,
@@ -1126,7 +1116,7 @@ fn canonical_reset_path_token(path: &Path) -> String {
 fn reset_path_token(path: &Path) -> String {
     use std::os::unix::ffi::OsStrExt;
 
-    format!("unix-hex:{}", lower_hex(path.as_os_str().as_bytes()))
+    format!("unix-hex:{}", hex_bytes(path.as_os_str().as_bytes()))
 }
 
 #[cfg(windows)]
@@ -1137,12 +1127,22 @@ fn reset_path_token(path: &Path) -> String {
     for unit in path.as_os_str().encode_wide() {
         bytes.extend_from_slice(&unit.to_le_bytes());
     }
-    format!("windows-utf16le-hex:{}", lower_hex(&bytes))
+    format!("windows-utf16le-hex:{}", hex_bytes(&bytes))
 }
 
 #[cfg(all(not(unix), not(windows)))]
 fn reset_path_token(path: &Path) -> String {
     format!("display:{}", path.display())
+}
+
+fn hex_bytes(bytes: &[u8]) -> String {
+    use std::fmt::Write as _;
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        // Writing to a String cannot fail.
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
 }
 
 fn reset_manifest_path_key(relative_path: &Path) -> String {
@@ -1750,9 +1750,8 @@ fn reset_child_file_content_sha256(
         if read == 0 {
             break;
         }
-        let chunk = buffer.get(..read).context("reset file read past its buffer")?;
         budget.add_file_bytes(display_path, read as u64)?;
-        hash.update(chunk);
+        hash.update(buffer.get(..read).context("read returned more bytes than its buffer holds")?);
     }
     let current = reset_child_stat(parent_fd, name, display_path)?;
     if reset_stat_metadata_fingerprint(&current) != reset_stat_metadata_fingerprint(expected) {
@@ -2313,9 +2312,8 @@ fn reset_file_content_sha256(
         if read == 0 {
             break;
         }
-        let chunk = buffer.get(..read).context("reset file read past its buffer")?;
         budget.add_file_bytes(path, read as u64)?;
-        hash.update(chunk);
+        hash.update(buffer.get(..read).context("read returned more bytes than its buffer holds")?);
     }
     let current = fs::symlink_metadata(path)
         .with_context(|| format!("inspect reset file {}", path.display()))?;
@@ -4659,11 +4657,12 @@ fn validate_terminal(terminal: &RegistryTerminal) -> anyhow::Result<()> {
 }
 
 fn validate_terminal_identity(label: &str, value: &str) -> anyhow::Result<()> {
-    if value.len() != 32
-        || !value.bytes().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
-        || value.as_bytes().get(12) != Some(&b'4')
-        || !matches!(value.as_bytes().get(16), Some(b'8'..=b'b'))
-    {
+    let canonical = <&[u8; 32]>::try_from(value.as_bytes()).is_ok_and(|bytes| {
+        bytes.iter().all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            && bytes[12] == b'4'
+            && matches!(bytes[16], b'8'..=b'b')
+    });
+    if !canonical {
         anyhow::bail!("{label} must be a 32-character lowercase UUIDv4 hex value");
     }
     Ok(())
@@ -5349,9 +5348,11 @@ fn session_storage_component(session: &str) -> String {
     format!("{readable}-{hash:016x}")
 }
 
+/// A random v4 UUID. Code that can answer a randomness failure calls
+/// [`try_new_uuid_v4`].
 #[allow(
     clippy::expect_used,
-    reason = "INVARIANT: the OS entropy source does not fail once the process runs; Chrome CHECKs the same read (base/rand_util_posix.cc)"
+    reason = "INVARIANT: getrandom fails only when the OS CSPRNG is gone; Chrome's base/rand_util_posix.cc CHECKs the same read"
 )]
 pub(crate) fn new_uuid_v4() -> String {
     try_new_uuid_v4().expect("operating system randomness unavailable")

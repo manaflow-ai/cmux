@@ -30,9 +30,9 @@ fn short_terminal_identities_are_rejected() {
 }
 
 #[test]
-fn lower_hex_is_two_lowercase_digits_a_byte() {
-    assert_eq!(lower_hex(&[]), "");
-    assert_eq!(lower_hex(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
+fn hex_bytes_is_two_lowercase_digits_a_byte() {
+    assert_eq!(hex_bytes(&[]), "");
+    assert_eq!(hex_bytes(&[0x00, 0x0f, 0xa0, 0xff]), "000fa0ff");
     let digest: [u8; 32] = Sha256::digest(b"cmux").into();
     let expected = digest.iter().map(|byte| format!("{byte:02x}")).collect::<String>();
     assert_eq!(hex_sha256(digest), expected);
