@@ -197,16 +197,15 @@ fn gb(bytes: u64) -> String {
 }
 
 /// `acpmux host vm-host`'s line for an `_acpmux/vm_host` reply:
-/// `this machine: vmHost on (a VM cmux created: on by default)`.
+/// `this machine: vmHost on (unsandboxed only for its owner's own sessions, …)`.
 pub fn vm_host_line(name: Option<&str>, v: &Value) -> String {
     let who = name.unwrap_or("this machine");
-    let state = if v["vmHost"] == true { "on" } else { "off" };
-    let why = match (v["configured"].as_bool(), v["cmuxVm"] == true) {
-        (Some(false), _) => "turned off in its config",
-        (Some(true), true) => "on in its config",
-        (Some(true), false) => "on in its config; not a VM cmux created",
-        (None, true) => "a VM cmux created: on by default",
-        (None, false) => "not a VM cmux created",
+    let on = v["vmHost"] == true;
+    let state = if on { "on" } else { "off" };
+    let why = match (on, v["configured"].as_bool()) {
+        (_, Some(false)) => "turned off in its config",
+        (true, _) => "unsandboxed only for its owner's own sessions, when the Cloud API says so",
+        (false, _) => "always sandboxed here",
     };
     format!("{who}: vmHost {state} ({why})")
 }
@@ -219,12 +218,18 @@ mod tests {
         let v = json!({"vmHost": true, "cmuxVm": true, "configured": null});
         assert_eq!(
             super::vm_host_line(None, &v),
-            "this machine: vmHost on (a VM cmux created: on by default)"
+            "this machine: vmHost on (unsandboxed only for its owner's own sessions, when the Cloud API says so)"
         );
         let v = json!({"vmHost": false, "cmuxVm": true, "configured": false});
         assert_eq!(
             super::vm_host_line(Some("cloud-a"), &v),
             "cloud-a: vmHost off (turned off in its config)"
+        );
+        // A Mac: its Seatbelt sandbox always runs.
+        let v = json!({"vmHost": false, "cmuxVm": false, "configured": null});
+        assert_eq!(
+            super::vm_host_line(None, &v),
+            "this machine: vmHost off (always sandboxed here)"
         );
     }
 

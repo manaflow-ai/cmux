@@ -108,7 +108,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
                 group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
-                group("settings.group.columns"), group("settings.group.autoArchive"),
+                group("settings.group.columns"), group("settings.group.autoArchive"), group("settings.group.workspaceHibernation"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
@@ -207,7 +207,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "notifications", title: section(.notifications), symbol: "bell",
             groups: [
-                group("settings.group.banners"), group("settings.group.dismissal"), group("settings.group.attention"),
+                // Sounds: per-event sounds, volume, timing and the burst cooldown
+                // (NotificationSoundSettingsSchema); its per-level maps stay off the page.
+                group("settings.group.banners"), group("settings.group.sounds"), group("settings.group.dismissal"),
+                group("settings.group.attention"),
                 group("settings.group.feedMirror"), group("settings.group.githubInbox"),
             ],
             actions: [.notifications], aliases: [.notifications]),

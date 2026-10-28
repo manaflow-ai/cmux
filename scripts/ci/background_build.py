@@ -127,7 +127,7 @@ def stop(state: Path) -> int:
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
                 os.killpg(group, sig)
-            except ProcessLookupError:
+            except (ProcessLookupError, PermissionError):
                 break
             print(f"sent {signal.Signals(sig).name} to {name} (process group {group})")
             if sig == signal.SIGTERM:
