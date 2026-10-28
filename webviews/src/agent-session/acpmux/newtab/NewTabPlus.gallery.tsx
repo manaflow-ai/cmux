@@ -1,4 +1,5 @@
 // l10n-allow-file: synthetic gallery content, not shipped labels.
+import { useState } from "react";
 import { componentEntry } from "../../../gallery/format";
 import { noChat } from "../../../gallery/fixtures/acpmux";
 import type { Play } from "../../../gallery/play";
@@ -19,8 +20,15 @@ const skill: Play = async (ctx) => {
   await ctx.waitFor(
     () => (ctx.find({ selector: ".nt-field" }) as HTMLTextAreaElement).value === "/review Keep the complete draft",
   );
+  if (ctx.document.querySelector('.nt-row[data-type="open"]'))
+    throw new Error("a selected skill was offered as a file URL");
+  await ctx.click({ selector: ".nt-send" });
+  await ctx.waitFor(
+    () => ctx.document.querySelector("[data-skill-sent]")?.textContent === "/review Keep the complete draft",
+  );
 };
 function Fixture({ variant }: { variant: string }) {
+  const [sent, setSent] = useState("");
   const modes = {
     currentModeId: variant === "planning" ? "plan" : "default",
     availableModes: [{ id: "default" }, { id: "plan" }],
@@ -44,20 +52,25 @@ function Fixture({ variant }: { variant: string }) {
           onPlusMode: async () => undefined,
         };
   return (
-    <NewTabScreen
-      snapshot={snapshot}
-      cwd="/project"
-      startCwd="/project"
-      template="default"
-      onAsk={() => {}}
-      onOpen={() => {}}
-      onSearch={() => {}}
-      onShell={() => {}}
-      onJump={() => {}}
-      onOpenSession={() => {}}
-      onShowAll={() => {}}
-      {...capabilities}
-    />
+    <>
+      <output hidden data-skill-sent>
+        {sent}
+      </output>
+      <NewTabScreen
+        snapshot={snapshot}
+        cwd="/project"
+        startCwd="/project"
+        template="default"
+        onAsk={(_harness, text) => setSent(text)}
+        onOpen={() => {}}
+        onSearch={() => {}}
+        onShell={() => {}}
+        onJump={() => {}}
+        onOpenSession={() => {}}
+        onShowAll={() => {}}
+        {...capabilities}
+      />
+    </>
   );
 }
 export default componentEntry<{ variant: string }>({
@@ -94,7 +107,7 @@ export default componentEntry<{ variant: string }>({
       play: open,
     },
     skill: {
-      note: "Selecting a skill preserves the complete existing draft as its arguments.",
+      note: "Selecting a skill preserves and sends the complete existing draft as command arguments.",
       props: { variant: "ready" },
       play: skill,
     },
