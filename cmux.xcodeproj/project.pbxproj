@@ -1398,6 +1398,9 @@
 		112080C00000000000000008 /* CMUXCLI+ConfigValidation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112080A00000000000000008 /* CMUXCLI+ConfigValidation.swift */; };
 		112950000000000000000006 /* CMUXCLI+ContinuationSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */; };
 		807AC28C2C2457B59F8792AC /* CMUXCLI+Current.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */; };
+		D1FF1C0A00000000000000B1 /* CMUXCLI+DifficultyAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */; };
+		D1FF1C0A00000000000000B2 /* CMUXCLI+DifficultyAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */; };
+		D1FF1C0A00000000000000B3 /* CMUXCLI+DifficultyAssessment.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */; };
 		D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */; };
 		C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */; };
 		12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */; };
@@ -6299,6 +6302,7 @@
 		112080A00000000000000008 /* CMUXCLI+ConfigValidation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ConfigValidation.swift"; sourceTree = "<group>"; };
 		112950000000000000000005 /* CMUXCLI+ContinuationSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+ContinuationSupport.swift"; sourceTree = "<group>"; };
 		E1A09ECE26DDC67D94CF18B1 /* CMUXCLI+Current.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+Current.swift"; sourceTree = "<group>"; };
+		D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DifficultyAssessment.swift"; sourceTree = "<group>"; };
 		D1FF51000000000000000002 /* CMUXCLI+DiffSidecar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffSidecar.swift"; sourceTree = "<group>"; };
 		C0DE75890000000000000002 /* CMUXCLI+DiffViewerBundledAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerBundledAssets.swift"; sourceTree = "<group>"; };
 		054B01530302FCEEAA5CFEAD /* CMUXCLI+DiffViewerPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CMUXCLI+DiffViewerPreferences.swift"; sourceTree = "<group>"; };
@@ -13055,6 +13059,7 @@
 				D3AD00000000000000000001 /* ClaudeHookSessionStore+CodexTurnAdmission.swift */,
 				C6209A020000000000000001 /* CodexRestoreValidationResult.swift */,
 				5257257034CA4729B1211166 /* CMUXCLI+AutoNaming.swift */,
+				D1FF1C0A00000000000000A2 /* CMUXCLI+DifficultyAssessment.swift */,
 				5257257034CA4729B121116A /* CMUXCLI+AutoNamingDispatch.swift */,
 				5257257034CA4729B1211167 /* CMUXCLI+AutoNamingGenericHooks.swift */,
 				5257257034CA4729B1211168 /* CMUXCLI+AutoNamingHooks.swift */,
@@ -15380,6 +15385,7 @@
 				C11757000000000000000048 /* CLIWorkspaceStableIDMockServer.swift in Sources */,
 				C11757000000000000000037 /* CLIWorkspaceStableIDTests.swift in Sources */,
 				0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
+				D1FF1C0A00000000000000B1 /* CMUXCLI+DifficultyAssessment.swift in Sources */,
 				D3C184780000000000000001 /* CMUXCLIInboxWaitMemoryTests.swift in Sources */,
 				C11757000000000000000038 /* CMUXOpenHTMLFocusTests.swift in Sources */,
 				1606FB10C21C603790FEE7D3 /* CodexAutoNamingArgumentsTests.swift in Sources */,
@@ -18341,6 +18347,7 @@
 				112080C00000000000000008 /* CMUXCLI+ConfigValidation.swift in Sources */,
 				112950000000000000000006 /* CMUXCLI+ContinuationSupport.swift in Sources */,
 				807AC28C2C2457B59F8792AC /* CMUXCLI+Current.swift in Sources */,
+				D1FF1C0A00000000000000B2 /* CMUXCLI+DifficultyAssessment.swift in Sources */,
 				D1FF51000000000000000001 /* CMUXCLI+DiffSidecar.swift in Sources */,
 				C0DE75890000000000000001 /* CMUXCLI+DiffViewerBundledAssets.swift in Sources */,
 				12BFD5CF87D8B35D610B3880 /* CMUXCLI+DiffViewerPreferences.swift in Sources */,
@@ -19122,6 +19129,7 @@
 				8295A0058295A0058295A005 /* CmuxAlertContentTests.swift in Sources */,
 				947194719471947194719472 /* CmuxBundledBinPathIntegrationTests.swift in Sources */,
 					0CB4E9797AD54D3BB9CF06F9 /* CMUXCLI+AutoNaming.swift in Sources */,
+					D1FF1C0A00000000000000B3 /* CMUXCLI+DifficultyAssessment.swift in Sources */,
 				173751C62F967C585036C9C0 /* CMUXCLICodexUnavailableAdmissionTests.swift in Sources */,
 					C0DE31390000000000000115 /* CMUXCLIErrorOutputRegressionTests+Events.swift in Sources */,
 					C0DE31390000000000000105 /* CMUXCLIErrorOutputRegressionTests.swift in Sources */,

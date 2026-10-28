@@ -288,6 +288,10 @@ struct ClaudeHookSessionRecord: Codable {
     var autoNameRecentMessages: [AutoNamingTranscriptMessage]?
     var autoNameMessageSequence: Int?
     var hadPendingBackgroundWorkAtStop: Bool?
+    // Automatic task-difficulty assessment throttle (optional so older stores decode).
+    var difficultyLastAssessedAt: TimeInterval?
+    var difficultyInFlightAt: TimeInterval?
+    var difficultyLastResult: String?
     /// Unsandboxed Cursor shell calls that cmux asked Cursor to gate. The
     /// after/failure hooks do not carry a native approval decision, so the
     /// command identity is the only safe completion correlation available.
@@ -1132,6 +1136,58 @@ final class ClaudeHookSessionStore {
                 record.autoNameLastLineCount = baselineLineCount
                 record.autoNameLastNamedAt = now.timeIntervalSince1970
             }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+        }
+    }
+
+    /// Atomically evaluates the difficulty-assessment throttle and, on
+    /// `.proceed`, stamps the in-flight marker in the same locked transaction.
+    /// Synthesizes a minimal record when none exists yet (mirrors `beginAutoNaming`).
+    func beginDifficultyAssessment(
+        sessionId: String,
+        workspaceId: String,
+        surfaceId: String,
+        now: Date
+    ) throws -> DifficultyAssessmentDecision {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return .skipTooSoon }
+        return try withLockedState { state in
+            var record = state.sessions[normalized] ?? ClaudeHookSessionRecord(
+                sessionId: normalized,
+                workspaceId: workspaceId,
+                surfaceId: surfaceId,
+                startedAt: now.timeIntervalSince1970,
+                updatedAt: now.timeIntervalSince1970
+            )
+            let decision = DifficultyAssessmentEngine.throttleDecision(
+                inFlightAt: record.difficultyInFlightAt,
+                lastAssessedAt: record.difficultyLastAssessedAt,
+                now: now
+            )
+            if decision == .proceed {
+                record.difficultyInFlightAt = now.timeIntervalSince1970
+            }
+            record.updatedAt = Date().timeIntervalSince1970
+            state.sessions[normalized] = record
+            return decision
+        }
+    }
+
+    /// Clears the in-flight marker and stamps the attempt time (success or
+    /// failure) so a failing classifier is not retried every turn.
+    func finishDifficultyAssessment(
+        sessionId: String,
+        result: ClaudeSessionDifficulty?,
+        now: Date
+    ) throws {
+        let normalized = normalizeSessionId(sessionId)
+        guard !normalized.isEmpty else { return }
+        try withLockedState { state in
+            guard var record = state.sessions[normalized] else { return }
+            record.difficultyInFlightAt = nil
+            record.difficultyLastAssessedAt = now.timeIntervalSince1970
+            if let result { record.difficultyLastResult = result.rawValue }
             record.updatedAt = Date().timeIntervalSince1970
             state.sessions[normalized] = record
         }
