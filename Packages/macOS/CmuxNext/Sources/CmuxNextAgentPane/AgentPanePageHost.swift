@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextWakeups
 
