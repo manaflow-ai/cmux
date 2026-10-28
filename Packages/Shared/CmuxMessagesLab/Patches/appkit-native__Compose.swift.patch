@@ -41,7 +41,16 @@
          onPress(event)
          super.mouseDown(with: event)
          if let up = NSApp.currentEvent, up.type == .leftMouseUp { onRelease(up) }
-@@ -48,12 +73,14 @@
+@@ -42,18 +67,22 @@
+     /// it has no window (the offscreen harness and captures). AppKit sets it again on each backing
+     /// change and window move, so this runs after AppKit does (and from `ComposeView.rescale`).
+     func applyScale() {
+-        let s = window?.backingScaleFactor ?? DisplayScale.current
++        // cmux: in a zoomed Chief chat (MessagesLabHomeView.zoom) the text draws at the window's scale times the zoom,
++        // so the magnified field text stays sharp.
++        let s = window.map { $0.backingScaleFactor * enclosingContentZoom } ?? DisplayScale.current
+         if let l = layer, l.contentsScale != s { l.contentsScale = s }
+     }
      override func viewDidChangeBackingProperties() { super.viewDidChangeBackingProperties(); applyScale() }
  
      override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
@@ -56,7 +65,16 @@
          defer { if Self.caretLog { Self.log("key done") } }
          // Marked text (IME composition) owns Return and Esc.
          if hasMarkedText() { super.keyDown(with: event); return }
-@@ -101,6 +128,12 @@
+@@ -62,6 +91,8 @@
+             if flags.contains(.option) || flags.contains(.shift) { insertText("\n", replacementRange: selectedRange()); return }
+             onSend(); return
+         }
++        // cmux: Ctrl+J (keyCode 38) is a newline, as in a terminal.
++        if event.keyCode == 38, flags == .control { insertText("\n", replacementRange: selectedRange()); return }
+         if event.keyCode == 53 { onEscape(); return }
+         super.keyDown(with: event)
+     }
+@@ -101,6 +132,12 @@
      }
      var caretSuspended = false { didSet { updateCaret(reset: false) } }
  
@@ -69,7 +87,7 @@
      func installCaret() {
          guard Self.ownCaret else { return }
          insertionPointColor = .clear
-@@ -141,7 +174,8 @@
+@@ -141,7 +178,8 @@
              if let r = caretRect(at: sel.location, upstream: textLayoutManager?.textSelections.first?.affinity == .upstream) {
                  local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
              } else {
@@ -79,7 +97,7 @@
                  let r = convert(window.convertFromScreen(screen), from: nil)
                  local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
              }
-@@ -183,11 +217,13 @@
+@@ -183,11 +221,13 @@
      /// not depend on the blink's phase at the grab (Messages' still references show it solid).
      static let solidCaret = ProcessInfo.processInfo.arguments.contains("--still-grab")
  
@@ -95,7 +113,7 @@
          let a = CAKeyframeAnimation(keyPath: "opacity")
          a.calculationMode = .discrete
          // One period from the first fade-out: out 1 -> 0 in four steps, off, in 0 -> 1.
-@@ -208,6 +244,7 @@
+@@ -208,6 +248,7 @@
          return ok
      }
      override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
@@ -103,7 +121,19 @@
          caretByEdit = editing
          super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
          // A caret move (an arrow key) shows the caret by this rule whatever AppKit scrolls; an
-@@ -231,6 +268,9 @@
+@@ -227,10 +268,21 @@
+     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
+     /// menu's "Check Spelling While Typing" switches it.
+     lazy var spell = DeferredSpellChecker(view: self)
++    /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
++    func setSpellCheckingEnabled(_ enabled: Bool) {
++        if DeferredSpellChecker.useAppKit {
++            isContinuousSpellCheckingEnabled = enabled
++        } else {
++            spell.enabled = enabled
++        }
++    }
+     override func toggleContinuousSpellChecking(_ sender: Any?) {
          if DeferredSpellChecker.useAppKit { super.toggleContinuousSpellChecking(sender) } else { spell.enabled.toggle() }
      }
      override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
@@ -113,7 +143,7 @@
          if !DeferredSpellChecker.useAppKit, item.action == #selector(toggleContinuousSpellChecking(_:)) {
              (item as? NSMenuItem)?.state = spell.enabled ? .on : .off
              return true
-@@ -243,6 +283,7 @@
+@@ -243,6 +295,7 @@
          return ok
      }
      override func resignFirstResponder() -> Bool {
@@ -121,7 +151,7 @@
          let ok = super.resignFirstResponder()
          DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
          return ok
-@@ -288,6 +329,18 @@
+@@ -288,6 +341,18 @@
      private var storageEdits = 0
      private var storageObserver: NSObjectProtocol?
      private var observedStorage: ObjectIdentifier?
@@ -140,7 +170,7 @@
      override func viewDidMoveToWindow() {
          super.viewDidMoveToWindow()
          applyScale()
-@@ -377,13 +430,36 @@
+@@ -377,13 +442,36 @@
              tlm.ensureLayout(for: tlm.documentRange)
              laidOut = state
          }
@@ -182,7 +212,7 @@
      }
      /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
      /// whole text is laid out again from scratch (equal when no layout input went stale).
-@@ -419,14 +495,115 @@
+@@ -419,14 +507,115 @@
          return super.scrollToVisible(rect)
      }
  
@@ -215,7 +245,7 @@
 +        }
 +        if let onPasteImage, pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }  // cmux
          super.paste(sender)
-     }
++    }
 +
 +    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
 +    /// plain text only, at the caret (replacing the selection), as its own undo
@@ -270,7 +300,7 @@
 +        let takes = takesDrag(sender)  // cmux
 +        onDropTargetChange(takes)  // cmux
 +        return takes ? .copy : super.draggingEntered(sender)  // cmux
-+    }
+     }
 +    override func draggingUpdated(_ sender: any NSDraggingInfo) -> NSDragOperation {
 +        let takes = takesDrag(sender)  // cmux
 +        onDropTargetChange(takes)  // cmux: the host ignores a repeat
@@ -299,7 +329,7 @@
  }
  
  /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -632,10 +809,40 @@
+@@ -632,10 +821,40 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
      var onSendPulse: ((CFTimeInterval) -> Void)?
@@ -341,7 +371,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
-@@ -658,16 +865,32 @@
+@@ -658,16 +877,32 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -379,7 +409,7 @@
      }
      /// The field's tallest text part. Real Messages (compose-e2e messages, 2026-10-10, 628 pt
      /// wide): the glass stops at the same height in a 940, 740 and 600 pt window (a fixed height,
-@@ -678,9 +901,16 @@
+@@ -678,9 +913,16 @@
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
          if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
@@ -397,7 +427,7 @@
      /// The empty draft's one line at any text width from this (a space is about 4 pt wide).
      static let emptyLineMinWidth: CGFloat = 20
      private var emptyLinesMemo: (CGFloat, Int)?
-@@ -749,6 +979,7 @@
+@@ -749,6 +991,7 @@
          tv.textColor = Fixture.incomingText
          tv.insertionPointColor = Fixture.caret
          tv.installCaret()
@@ -405,7 +435,7 @@
          tv.textContainer?.lineFragmentPadding = 0
          // AppKit puts `textContainerInset.height` above and below the text when it sizes the
          // document; the container origin puts the text at the top inset.
-@@ -767,7 +998,7 @@
+@@ -767,7 +1010,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -414,7 +444,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -790,6 +1021,7 @@
+@@ -790,6 +1033,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -422,7 +452,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -835,6 +1067,8 @@
+@@ -835,6 +1079,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -431,7 +461,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -849,7 +1083,8 @@
+@@ -849,7 +1095,8 @@
      private func textFrame(height h: CGFloat) -> CGRect {
          let f = rect(height: h)
          let chipH: CGFloat = strip.height
@@ -441,7 +471,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -867,10 +1102,11 @@
+@@ -867,10 +1114,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -454,7 +484,7 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -940,11 +1176,11 @@
+@@ -940,11 +1188,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -468,14 +498,14 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -958,7 +1194,54 @@
+@@ -958,9 +1206,56 @@
      }
  
      private func renderChips() {
 -        strip.update(chips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
 +        strip.update(stripChips, width: ComposeView.fieldWidth(bounds.width), scale: renderScale)
-+    }
-+
+     }
+ 
 +    // cmux: attachments sit in the field's text at the caret (Draft+InlineMarks.swift), not in a
 +    // strip above it; the strip stays empty.
 +    private var stripChips: [Attachment] { [] }
@@ -521,10 +551,12 @@
 +        }
 +        let loc = min(selection.location, new.length)
 +        return NSRange(location: loc, length: min(selection.length, new.length - loc))
-     }
- 
++    }
++
      /// The attachment whose remove control is at p (window coordinates).
-@@ -984,12 +1267,19 @@
+     func chip(at p: CGPoint) -> ID? {
+         let f = fieldRect
+@@ -984,12 +1279,19 @@
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -547,7 +579,7 @@
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1007,8 +1297,7 @@
+@@ -1007,8 +1309,7 @@
          CATransaction.begin(); CATransaction.setDisableActions(true)
          // With an attachment Messages shows neither the placeholder nor the audio glyph
          // (compose-attach-image stills).
@@ -557,7 +589,7 @@
          CATransaction.commit()
          let h = height(for: d.text, width: bounds.width)
          let old = fieldHeight
-@@ -1045,6 +1334,7 @@
+@@ -1045,6 +1346,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
@@ -565,3 +597,12 @@
      }
  
      /// The glass over a bubble still inside the field after the fill has
+@@ -1079,7 +1381,7 @@
+         guard size.width > 0, size.height > 0, var rep = tv.bitmapImageRepForCachingDisplay(in: shown) else { return }
+         // AppKit sizes the cache for the main screen when the view has no window (1x on a Mac
+         // whose main display is 1x); the snapshot is drawn at the scale of the tree it goes into.
+-        let scale = tv.window?.backingScaleFactor ?? renderScale
++        let scale = tv.window.map { $0.backingScaleFactor * tv.enclosingContentZoom } ?? renderScale  // cmux: a zoomed Chief chat
+         // no trap on a NaN or huge size (crash ratchet)
+         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
+         if rep.pixelsWide != wide || rep.pixelsHigh != high,

@@ -1,13 +1,13 @@
 import type { SqlStore } from "@cmux/ownership"
 import { SignJWT } from "jose"
 import { issuer, signer } from "./auth.ts"
-import type { EdgeTlsRule } from "./cloud-driver-body.ts"
+import type { EdgeTlsRule } from "./providers/contract.ts"
 import type { Env } from "./env.ts"
 
 /**
  * The coderouter edge of a Cloud machine (plans/cmux-next/vm-coderouter-edge.md). The image's agents
  * dial https://coderouter.cmux.internal with a public placeholder key (web/services/coderouter/
- * vmGuestEnv.ts). An inline Freestyle TLS rule steers that name to the coderouter host and injects
+ * vmGuestEnv.ts). An inline provider TLS edge rule steers that name to the coderouter host and injects
  * one header with a per-machine token; the guest never holds a credential.
  *
  * The token is an ES256 JWT signed with the API's own key (auth.ts signer) in the shape coderouter's
