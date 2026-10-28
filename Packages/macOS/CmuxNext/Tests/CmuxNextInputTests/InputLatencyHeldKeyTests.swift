@@ -41,3 +41,24 @@ struct InputLatencyHeldKeyTests {
         #expect(slot.dispatchStart - slot.arrivedMain == 600_000_000, "the hold is not its own stage")
     }
 }
+
+/// The inline stack of key slots in dispatch.
+struct DispatchingKeysTests {
+    private static func token(_ index: UInt32) -> InputLatencyToken { InputLatencyToken(rawValue: 1 << 8 | index) }
+
+    @Test func pushRemoveAndOverflowKeepTheInnermost() {
+        var keys = DispatchingKeys()
+        #expect(keys.top == nil)
+        for index in 0..<6 { keys.push(Self.token(UInt32(index))) }
+        #expect(keys.count == 4)
+        #expect(keys.top == Self.token(5))
+        keys.remove(Self.token(5))
+        #expect(keys.top == Self.token(4))
+        keys.remove(Self.token(3)) // a middle entry
+        #expect(keys.top == Self.token(4))
+        keys.remove(Self.token(4))
+        #expect(keys.top == Self.token(2))
+        keys.remove(Self.token(9)) // not there
+        #expect(keys.count == 1)
+    }
+}

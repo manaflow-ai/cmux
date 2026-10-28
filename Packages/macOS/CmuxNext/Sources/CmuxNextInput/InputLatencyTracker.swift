@@ -110,9 +110,9 @@ public final class InputLatencyTracker {
     /// to its ``endDispatch(_:)``: a terminal arms its echo stages on it (p04-input-094). A key dispatched inside another
     /// key's dispatch (a held key run again) is the dispatching key until its own dispatch ends; then the outer one is
     /// again.
-    public var dispatchingKey: InputLatencyToken? { dispatchingKeys.last }
-    /// The key slots in dispatch, outermost first; reserved, so a push never allocates.
-    private var dispatchingKeys: ContiguousArray<InputLatencyToken> = []
+    public var dispatchingKey: InputLatencyToken? { dispatchingKeys.top }
+    /// The key slots in dispatch, innermost on top: a fixed inline stack, so the per-key path never allocates.
+    private var dispatchingKeys = DispatchingKeys()
     /// Host presentation reports since launch that matched no open Chromium page slot (``hostPresented(eventNanos:at:)``):
     /// an input the tracker did not track, a slot that closed at its deadline first, or a report with no usable time.
     public internal(set) var unmatchedHostPresentations: UInt64 = 0
@@ -159,7 +159,6 @@ public final class InputLatencyTracker {
         self.now = now
         pending.reserveCapacity(table.capacity)
         waiting.reserveCapacity(table.capacity)
-        dispatchingKeys.reserveCapacity(8)
         boundary.start { [weak self] in self?.turnEnded($0) }
     }
 
@@ -226,7 +225,7 @@ public final class InputLatencyTracker {
             hasFrameInterval = true
         }
         pending.append(Pending(token: token, window: window, target: target, kind: kind, hasFrameInterval: hasFrameInterval))
-        if kind == .keyPress { dispatchingKeys.append(token) }
+        if kind == .keyPress { dispatchingKeys.push(token) }
         boundary.arm()
         return token
     }
@@ -270,7 +269,7 @@ public final class InputLatencyTracker {
     // perf-hot: 0.05us input-latency-mark
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
-        if let index = dispatchingKeys.lastIndex(of: token) { dispatchingKeys.remove(at: index) }
+        dispatchingKeys.remove(token)
     }
 
     /// Drops `token`'s slot, opened this turn, without recording it: its event was taken by a cmux path that runs it
@@ -280,7 +279,7 @@ public final class InputLatencyTracker {
         guard let index = pending.lastIndex(where: { $0.token == token }) else { return }
         let entry = pending.remove(at: index)
         if entry.hasFrameInterval { frameIntervals?.end(token, target: entry.target, outcome: .missed) }
-        if let key = dispatchingKeys.lastIndex(of: token) { dispatchingKeys.remove(at: key) }
+        dispatchingKeys.remove(token)
         _ = table.close(token)
     }
 
