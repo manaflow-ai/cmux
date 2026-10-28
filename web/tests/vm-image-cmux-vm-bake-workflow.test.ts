@@ -51,6 +51,7 @@ function evaluate(value: string, ctx: { inputs: Inputs; out: string; snapshot: s
       "secrets.FREESTYLE_API_KEY": ctx.key,
       "steps.bake.outputs.snapshot": ctx.snapshot,
       "steps.prod_bake.outputs.snapshot": ctx.snapshot,
+      "needs.prod-gate.outputs.reviewed": "yes",
     };
     if (expr in fixed) return fixed[expr]!;
     throw new Error(`unhandled expression ${expr}`);
@@ -203,6 +204,8 @@ describe("cloud-vm-image-bake.yml mode prod-copy", () => {
     const planned = await runStep("Plan the production copy", PROD_COPY, dir, "sh-test", { key: "k", bunOut: "FLAGS --prod-copy --agent-tools --team-vm\\nVAR TEAM_VM_SNAPSHOT\\n" });
     expect(planned.result.status).toBe(0);
     expect(planned.argv).toEqual([`scripts/cmux-vm-image/prod-copy.ts plan --dev-snapshot ${PROD_COPY.dev_snapshot}`, "scripts/cmux-vm-image/prod-copy.ts account-check"]);
+    // account-check learns from the gate whether the environment has required reviewers (the first copy needs them).
+    expect(planned.env.CMUX_PROD_ENV_REVIEWED).toBe("yes");
     const outputs = readFileSync(path.join(dir, "github-output"), "utf8");
     expect(outputs).toBe("flags=--prod-copy --agent-tools --team-vm\nvar=TEAM_VM_SNAPSHOT\nteam_vm=--team-vm\n");
     const plan = { flags: "--prod-copy --agent-tools --team-vm", var: "TEAM_VM_SNAPSHOT", team_vm: "--team-vm" };
