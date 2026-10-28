@@ -998,8 +998,11 @@ export function Composer({
     if (holdForAttachments(() => submitNow.current(force, steer))) return false;
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
-    const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
-    if (!prompt && attachments.length === 0) {
+    const placed = placeInline((field.current?.agentText(draftText) ?? draftText).trim(), attachments, {
+      dropped: (id) => pending.some((chip) => chip.id === id),
+    });
+    const prompt = placed.text;
+    if (!prompt.trim() && placed.attachments.length === 0) {
       plusDraft.current = undefined;
       return false;
     }
@@ -1061,7 +1064,6 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const placed = placeInline(prompt, attachments, { dropped: (id) => pending.some((chip) => chip.id === id) });
     const sent = placed.attachments;
     const taken = onSend(placed.text, sent, steer);
     if (taken === false) return false;
