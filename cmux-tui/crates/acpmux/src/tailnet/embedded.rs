@@ -698,6 +698,19 @@ mod tests {
         assert_eq!(controller.snapshot().state, "stopped");
     }
 
+    #[test]
+    fn intentional_logout_close_is_not_reported_as_listener_failure() {
+        let temporary = tempfile::tempdir().unwrap();
+        let config = NodeConfig::new(temporary.path(), "test");
+        let node = Arc::new(Node::new(&config).unwrap());
+        let controller = Controller::new(temporary.path(), "test");
+        controller.inner.lock().unwrap().state = LifecycleState::Running(Arc::clone(&node));
+        assert!(controller.listener_is_current(&node));
+        controller.request_logout();
+        assert!(!controller.listener_is_current(&node));
+        assert_eq!(controller.snapshot().state, "stopped");
+    }
+
     #[tokio::test]
     async fn tailnet_shutdown_fences_a_queued_start_before_node_creation() {
         let temporary = tempfile::tempdir().unwrap();
