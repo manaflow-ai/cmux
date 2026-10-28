@@ -129,30 +129,64 @@ fn orphaned_owner_stays_idle_after_its_clients_go_away() {
     assert!(used <= SPIN_LIMIT, "the owner used {used:?} of CPU in 5 s after its clients left");
 }
 
+/// A disk image this test attached at `volume`; dropped after the owner
+/// (declared before it), it detaches the volume if it is still attached and
+/// removes the image and its scratch directory.
+#[cfg(target_os = "macos")]
+struct Volume {
+    root: PathBuf,
+    mount: PathBuf,
+}
+
+#[cfg(target_os = "macos")]
+impl Volume {
+    fn attach(root: &Path, megabytes: u64) -> Self {
+        fs::create_dir_all(root).unwrap();
+        let image = root.join("owner.dmg");
+        let volume = Self { root: root.to_path_buf(), mount: root.join("volume") };
+        let size = format!("{megabytes}m");
+        let image = image.to_str().unwrap();
+        hdiutil(&["create", "-quiet", "-size", &size, "-fs", "HFS+", "-volname", "oil", image]);
+        hdiutil(&["attach", "-quiet", "-nobrowse", "-mountpoint", volume.path(), image]);
+        volume
+    }
+
+    fn path(&self) -> &str {
+        self.mount.to_str().unwrap()
+    }
+}
+
+#[cfg(target_os = "macos")]
+impl Drop for Volume {
+    fn drop(&mut self) {
+        if self.mount.join("cwd").exists() {
+            let _ = Command::new("hdiutil").args(["detach", "-force", self.path()]).output();
+        }
+        let _ = fs::remove_dir_all(&self.root);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn hdiutil(args: &[&str]) {
+    let output = Command::new("hdiutil").args(args).output().unwrap();
+    assert!(output.status.success(), "hdiutil {args:?}: {output:?}");
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
-    let root = scratch("volume");
-    fs::create_dir_all(&root).unwrap();
     let source = PathBuf::from(env!("CARGO_BIN_EXE_cmux-tui"));
     let megabytes = fs::metadata(&source).unwrap().len() / (1 << 20) * 3 / 2 + 64;
-    let (image, volume) = (root.join("owner.dmg"), root.join("volume"));
-    let hdiutil = |args: &[&str]| {
-        let output = Command::new("hdiutil").args(args).output().unwrap();
-        assert!(output.status.success(), "hdiutil {args:?}: {output:?}");
-    };
-    let image_arg = image.to_str().unwrap();
-    let size = format!("{megabytes}m");
-    hdiutil(&["create", "-quiet", "-size", &size, "-fs", "HFS+", "-volname", "oil", image_arg]);
-    hdiutil(&["attach", "-quiet", "-nobrowse", "-mountpoint", volume.to_str().unwrap(), image_arg]);
-    fs::create_dir_all(volume.join("cwd")).unwrap();
-    let bin = volume.join("cmux-tui");
+    let volume = Volume::attach(&scratch("volume"), megabytes);
+    let mount = PathBuf::from(volume.path());
+    fs::create_dir_all(mount.join("cwd")).unwrap();
+    let bin = mount.join("cmux-tui");
     fs::copy(&source, &bin).unwrap();
-    let owner = Owner::ensure(&root.join("owner"), &bin, &volume.join("cwd"));
+    let owner = Owner::ensure(&scratch("volume-owner"), &bin, &mount.join("cwd"));
     let before = cpu(owner.pid).expect("the owner is running");
     // Force-remove the volume under the running owner, as the runner's
     // instance-store volume vanished under the leaked owners.
-    hdiutil(&["detach", "-force", volume.to_str().unwrap()]);
+    hdiutil(&["detach", "-force", volume.path()]);
     // A client makes the owner run code it has not run yet (the leaked
     // owners spun once a thread did).
     let _client = UnixStream::connect(&owner.socket).map(|mut stream| {

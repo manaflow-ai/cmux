@@ -99,7 +99,8 @@ fn arm() -> io::Result<ExeRevokeExit> {
     if let Some(failed) = receipts[..n as usize].iter().find(|receipt| receipt.data != 0) {
         return Err(io::Error::from_raw_os_error(failed.data as i32));
     }
-    wire(wait_for_revoke as *const () as usize);
+    // Without its exit path resident the watcher could fault like the rest.
+    wire(wait_for_revoke as *const () as usize)?;
     let thread = std::thread::Builder::new().name("exe-revoke-exit".into()).spawn(move || {
         // Both descriptors stay open while the thread waits.
         let _held = (exe, reader);
@@ -155,13 +156,15 @@ fn exit_now() -> ! {
 
 /// Wires the code pages at `address` (and the next one, as the function may
 /// cross a page), so they stay resident after the executable is revoked.
-/// Best effort: a refused `mlock` leaves the pages as the last run left them.
-fn wire(address: usize) {
+fn wire(address: usize) -> io::Result<()> {
     // SAFETY: sysconf has no preconditions.
     let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) } as usize;
     let start = address & !(page - 1);
     // SAFETY: two mapped text pages of this executable; mlock only pins them.
-    unsafe { libc::mlock(start as *const libc::c_void, 2 * page) };
+    if unsafe { libc::mlock(start as *const libc::c_void, 2 * page) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 #[cfg(test)]
