@@ -1266,11 +1266,12 @@ export function ChatInspector({
     subagents: subagentsSection,
     tasks,
   };
-  const orderedCards = cardOrder
+  const visibleCardOrder = cardOrder.filter((id) => cardNodes[id] !== false && cardNodes[id] != null);
+  const orderedCards = visibleCardOrder
     .map((id) => [id, cardNodes[id]] as const)
     .filter((entry): entry is readonly [InspectorOrderId, ReactNode] => entry[1] !== false && entry[1] != null)
     .map(([id, node]) => (
-      <InspectorCard key={id} id={id} order={cardOrder} onMove={moveCard}>
+      <InspectorCard key={id} id={id} order={visibleCardOrder} onMove={moveCard}>
         {node}
       </InspectorCard>
     ));

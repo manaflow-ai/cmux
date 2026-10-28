@@ -28,19 +28,32 @@ function dragData() {
   } as unknown as DataTransfer;
 }
 
-function mount(onMove: (id: InspectorOrderId, target: InspectorOrderId, after?: boolean) => void) {
+function mount(
+  onMove: (id: InspectorOrderId, target: InspectorOrderId, after?: boolean) => void,
+  order: readonly InspectorOrderId[] = DEFAULT_INSPECTOR_ORDER,
+) {
   const container = document.createElement("main");
   document.body.append(container);
   const root = createRoot(container);
   act(() => {
     root.render(
-      <InspectorCard id="changes" order={DEFAULT_INSPECTOR_ORDER} onMove={onMove}>
+      <InspectorCard id="changes" order={order} onMove={onMove}>
         <div data-testid="body">Changes</div>
       </InspectorCard>,
     );
   });
   return { container, root };
 }
+
+test("keyboard reordering skips sections omitted from the visible cards", async () => {
+  const moves: unknown[] = [];
+  const { container } = mount((...move) => moves.push(move), ["changes", "context"]);
+  const handle = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-card__handle")!;
+  await act(async () =>
+    handle.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
+  );
+  expect(moves).toEqual([["changes", "context", true]]);
+});
 
 test("card handle uses ArrowUp/ArrowDown without toggling its section", async () => {
   const moves: unknown[] = [];
