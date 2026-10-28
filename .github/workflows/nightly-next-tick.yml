@@ -39,7 +39,9 @@ permissions: {}
 jobs:
   request:
     if: github.repository == 'manaflow-ai/cmux'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    # CI_CONTROL_RUNNER, when set, takes this control job off Blacksmith Linux
+    # (2026-10-28: every Blacksmith Linux size stopped starting jobs from ~20:00Z).
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CONTROL_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     # 15 minutes of work, plus the hour its gh calls may wait for a rate limit (below).
     timeout-minutes: 75
     # One tick runs and the newest waits: GitHub replaces an older pending tick

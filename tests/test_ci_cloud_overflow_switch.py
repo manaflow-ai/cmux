@@ -455,13 +455,11 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("ubuntu-24.04", runs_on)
         self.assertNotIn("ubuntu-latest", runs_on)
         self.assertNotIn("github-hosted-required", runs_on)
-        # Overflow on: a Blacksmith Linux size the probe does not ask for. Overflow off: Blacksmith macOS,
-        # so the watch can put overflow back whatever the Linux sizes do.
-        # Whenever the probe itself may ask for that size, the watch takes macOS, so it never queues
-        # behind its own probe.
-        self.assertEqual(runs_on, "${{ (vars.CI_CLOUD_OVERFLOW_SAVED || startsWith(vars.LINUX_RUNNER, "
-                                  "'blacksmith-16vcpu-') || startsWith(inputs.probe_label, 'blacksmith-16vcpu-')) && "
-                                  f"'blacksmith-6vcpu-macos-26' || '{switch.LINUX_FAILOVER}' }}}}")
+        # Never Blacksmith Linux: the probe only asks for Blacksmith Linux, and on 2026-10-28 every Linux
+        # size stopped at once while the watch queued on 16 vCPU beside its probe. Blacksmith macOS, or
+        # CI_CONTROL_RUNNER when set, so the watch can decide and put overflow back whatever Linux does.
+        self.assertEqual(runs_on, "${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
+        self.assertNotIn("ubuntu", runs_on)
         self.assertTrue(switch.LINUX_FAILOVER.startswith("blacksmith-16vcpu-"))
         self.assertNotEqual(switch.LINUX_FAILOVER, switch.DEFAULT_PROBE_LABEL)
         names = set(switch.SWITCHED_VARIABLES) | {switch.RECORD_VARIABLE, switch.OVERRIDES_VARIABLE,
@@ -471,6 +469,13 @@ class WorkflowTests(unittest.TestCase):
                       or f"            {name}=${{{{ vars.{name} }}}}\n" in self.text)
             self.assertTrue(passed, name)
         self.assertIn("force-cancel", self.text)
+
+    def test_a_watch_stuck_on_one_label_never_holds_another_labels_group(self) -> None:
+        # 2026-10-28: run 40758329180's watch sat queued on Blacksmith Linux and held the one group,
+        # so every later scheduled run was replaced while pending and nothing decided.
+        group = re.search(r"(?m)^concurrency:\n  group: (.*)$", self.text).group(1)
+        self.assertEqual(group, "ci-cloud-overflow-probe-${{ vars.CI_CONTROL_RUNNER || 'blacksmith-6vcpu-macos-26' }}")
+        self.assertIn("  cancel-in-progress: false\n", self.text)
 
     def test_watch_uses_existing_route_app_credentials(self) -> None:
         self.assertIn("vars.GLAEDA_ROUTE_APP_ID", self.text)

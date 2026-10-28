@@ -985,12 +985,26 @@ sending overflow there, not to reroute a lane. `ci-cloud-overflow-probe.yml`
 does that automatically (`scripts/ci/cloud_overflow_switch.py`). Every 10
 minutes its `probe` job asks for one Blacksmith label and prints a line, and
 its `watch` job waits for the probe. The watch never runs on GitHub-hosted
-Ubuntu: while overflow is on it takes `blacksmith-16vcpu-ubuntu-2404` (a size
-the probe does not ask for), and while it is off it takes
-`blacksmith-6vcpu-macos-26`, so it can always put overflow back. On
-2026-10-27 a watch on hosted Ubuntu queued 94 minutes behind the switch's own
-failover and held the workflow's concurrency group, so every later run was
-evicted with nothing decided.
+Ubuntu or on Blacksmith Linux: it takes `blacksmith-6vcpu-macos-26` (or
+`CI_CONTROL_RUNNER` when set), a pool separate from the Linux one the probe
+tests, so it can always decide and put overflow back. On 2026-10-27 a watch
+on hosted Ubuntu queued 94 minutes behind the switch's own failover; on
+2026-10-28 (about 20:00Z to 21:15Z) every Blacksmith Linux size stopped at
+once and the watch queued on 16 vCPU Linux beside its probe. Both times the
+stuck run held the workflow's concurrency group and every later run was
+replaced with nothing decided. The group is now keyed by the watch's label,
+so a run stuck on one label never holds a run on another.
+
+`CI_CONTROL_RUNNER` (unset by default) also moves the light nightly control
+jobs off Blacksmith Linux: `nightly-next-tick.yml` (request),
+`nightly-next-feed-watch.yml` (watch) and `nightly.yml`
+(promote-nightly-next). Set it to a label that starts while Blacksmith Linux
+does not, for example `blacksmith-6vcpu-macos-26`; delete it to put them back
+on `blacksmith-2vcpu-ubuntu-2404`. The watch has run on that macOS label; the
+other three are plain bash, Python and gh but had not run on macOS when this
+was added, so read the first run after setting it. This moves only control
+jobs: a nightly's Linux cross-builds still wait for Blacksmith Linux (or the
+break-glass `LINUX_RUNNER` change below).
 
 - **The probe waits `CI_CLOUD_PROBE_MINUTES` (default 5, 2 to 20) with no
   runner.** Overflow goes off. The switch first writes the
