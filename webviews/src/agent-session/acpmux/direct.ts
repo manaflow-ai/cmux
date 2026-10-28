@@ -4326,7 +4326,7 @@ export class AcpmuxDirectClient {
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
-      this.rows.set(id, {
+      const row: AcpmuxRow = {
         id,
         version: (existing?.version ?? 0) + 1,
         at: existing?.at ?? event.at,
@@ -4334,7 +4334,8 @@ export class AcpmuxDirectClient {
         toolCount: items.filter((entry) => entry.kind === "tool").length,
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
-      });
+      };
+      this.rows.set(id, row, itemIndex < 0 || !row.streaming);
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {

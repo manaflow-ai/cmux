@@ -590,6 +590,8 @@ export class SubagentFold {
   private settleView(agent: Subagent): boolean {
     if (this.settledViews.get(agent.id) === agent.state) return false;
     this.settledViews.set(agent.id, agent.state);
+    const last = this.own.get(agent.id)?.at(-1);
+    if (last && agent.state !== "running") last.settled = true;
     this.bumpViewRevision(agent.id);
     this.bump(agent.id);
     return true;

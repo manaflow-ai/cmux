@@ -391,24 +391,16 @@ test("update-branch is a Change and JSON titles preserve apostrophes", () => {
 
 test("Sources preserve issue, URL and shorthand reference meaning", () => {
   const github = "https://github.com/acme/app";
+  const issue = toolsRows(shell("gh issue view 7 -R acme/app --json title", '{"title":"Scratch"}'));
+  const pr = [...toolsRows(shell("gh pr view 7 -R acme/app")), assistant("See acme/app#7", 2)];
   const cases: [Rows, string, string, "issue" | "url" | "pullRequest"][] = [
-    [
-      toolsRows(shell("gh issue view 7 -R acme/app --json title", '{"title":"Scratch"}')),
-      `${github}/issues/7`,
-      "Scratch",
-      "issue",
-    ],
+    [issue, `${github}/issues/7`, "Scratch", "issue"],
     [[assistant(`See ${github}/issues/8`, 1)], `${github}/issues/8`, "acme/app #8", "issue"],
     [[assistant("Read https://example.com/guide", 1)], "https://example.com/guide", "example.com/guide", "url"],
     [toolsRows(shell("echo acme/app#7")), `${github}/issues/7`, "acme/app#7", "url"],
     [[assistant("See acme/app#7", 1)], `${github}/issues/7`, "acme/app#7", "url"],
     [[assistant(`See ${github}/pull/9`, 1)], `${github}/pull/9`, "acme/app #9", "pullRequest"],
-    [
-      [...toolsRows(shell("gh pr view 7 -R acme/app")), assistant("See acme/app#7", 2)],
-      `${github}/pull/7`,
-      "acme/app #7",
-      "pullRequest",
-    ],
+    [pr, `${github}/pull/7`, "acme/app #7", "pullRequest"],
   ];
   for (const [rows, url, label, kind] of cases)
     expect(sessionSummary(rows, "acme/app").sources).toEqual([{ url, label, kind }]);
@@ -456,4 +448,13 @@ test("only explicit title data supplies titles; edits preserve their supplied ti
     activity([shell("gh pr edit 41 -R acme/app --title 'New title'", "https://github.com/acme/app/pull/41")], 3),
   );
   expect(transcriptPullRequests(rows)[0]?.title).toBe("New title");
+});
+test("shell substitutions and conditions retain executed mutations", () => {
+  for (const command of [
+    "url=$(gh pr create -R acme/app); echo $url",
+    "if gh pr merge 41 -R acme/app --squash; then echo merged; fi",
+  ]) {
+    const rows = toolsRows(shell(command, "https://github.com/acme/app/pull/41"));
+    expect(transcriptPullRequests(rows)[0]?.changed).toBe(true);
+  }
 });

@@ -73,6 +73,11 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(settled[0]?.streaming).toBe(false);
   expect(transcriptSummaryVersion(settled)).not.toBe(transcriptSummaryVersion(extended));
   expect(sessionSummary(settled, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
+  feed(fold, { sessionUpdate: "subagent_state_update" }, { subagents: [{ id: "a", state: "running" }] });
+  feed(fold, say("Next reply"), { subagent: "a" });
+  const resumed = fold.views().a!;
+  expect(resumed.map((row) => row.streaming)).toEqual([false, true]);
+  expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
 test("nested completion invalidates the parent summary revision", () => {

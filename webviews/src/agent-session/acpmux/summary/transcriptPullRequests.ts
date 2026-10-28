@@ -180,7 +180,9 @@ function toolFindings(tool: Tool): Finding[] {
   const command = tool.command ?? "";
   const plain = bare(command);
   const calls = plain
+    .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/)
+    .map((part) => part.replace(/^\s*if\s+/, ""))
     .filter((part) => EXECUTED_PR_COMMAND.test(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
     .join("\n");
   const found: Finding[] = [];

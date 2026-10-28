@@ -8,7 +8,7 @@ import { hiddenCall } from "../hiddenTools";
 import { SUBAGENTS, type Event, type Subagent } from "./subagentFold";
 
 /// One of a subagent's own updates, or the point where it spawned a subagent.
-export type ChildEntry = { event: Event; update?: any; spawned?: string };
+export type ChildEntry = { event: Event; update?: any; spawned?: string; settled?: boolean };
 
 /// The rows of subagent `id`'s view, in the order its updates came.
 /// `version` is the view's version: a group row redraws whenever its subagents change.
@@ -25,7 +25,7 @@ export function childRows(
   let reply: string | undefined;
   let activity: string | undefined;
   let group: { row: string; ids: string[] } | undefined;
-  for (const { event, update, spawned } of entries) {
+  for (const { event, update, spawned, settled } of entries) {
     if (spawned) {
       if (!group) {
         group = { row: `${id}:${SUBAGENTS}-${event.seq}`, ids: [] };
@@ -48,7 +48,7 @@ export function childRows(
         at: existing?.at ?? event.at,
         kind: "assistant",
         text: `${existing?.text ?? ""}${text}`,
-        streaming: agents.get(id)?.state === "running",
+        streaming: false,
       });
       reply = rowId;
       activity = undefined;
@@ -93,7 +93,9 @@ export function childRows(
       if (!known) activity = rowId;
       reply = undefined;
     }
+    if (settled) reply = activity = undefined;
   }
+  if (reply && agents.get(id)?.state === "running") rows.get(reply)!.streaming = true;
   // Group rows list their subagents as they are now; a change redraws the group.
   for (const { row, ids } of groups) {
     const subagents = ids.flatMap((agent) => {
