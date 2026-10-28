@@ -55,18 +55,19 @@ fn dev_build() -> bool {
 
 /// The CFBundleIdentifier of the .app that contains this executable, if any.
 fn containing_bundle_id() -> Option<String> {
-    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let exe = cmux_blocking::fs::canonicalize(std::env::current_exe().ok()?).ok()?;
     let bundle = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app"))?;
     let plist = bundle.join("Contents").join("Info.plist");
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("/usr/bin/plutil")
-            .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
-            .arg(&plist)
-            .stdin(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .output()
-            .ok()?;
+        let out = cmux_blocking::process::output(
+            std::process::Command::new("/usr/bin/plutil")
+                .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+                .arg(&plist)
+                .stdin(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null()),
+        )
+        .ok()?;
         let id = String::from_utf8(out.stdout).ok()?.trim().to_owned();
         (out.status.success() && !id.is_empty()).then_some(id)
     }

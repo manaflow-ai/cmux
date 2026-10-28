@@ -41,6 +41,8 @@ pub fn lookup_user(name: &str) -> Option<User> {
     // SAFETY: `result` points at the initialized `pwd`, whose strings
     // live in `buf`.
     let pwd = unsafe { pwd.assume_init() };
+    // SAFETY: pw_dir is a NUL-terminated string getpwnam_r stored in `buf`, which lives until
+    // the copy into `home` is made.
     let home = unsafe { CStr::from_ptr(pwd.pw_dir) }.to_string_lossy().into_owned();
     Some(User {
         name: name.to_owned(),

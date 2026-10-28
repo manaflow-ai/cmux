@@ -27,7 +27,7 @@ struct PageRetirerTests {
     }
 
     private func makeHost(_ hosting: FakeChromiumHosting) -> WebUIHost {
-        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never,
+        WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: LifecycleDeadlineRig.never,
                   retirer: Self.heldRetirer())
     }
 

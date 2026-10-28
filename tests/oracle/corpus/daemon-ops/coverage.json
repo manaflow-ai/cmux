@@ -4,7 +4,7 @@
   "catalog_sha256": "4c2922739cc0197b0344681e4f831efd0206fb6f85a4296760f0e60424dbb799",
   "suite": "daemon-ops",
   "total": 201,
-  "covered": 169,
+  "covered": 168,
   "verdicts": "not run",
   "retries": 200,
   "unretried": {
@@ -42,7 +42,8 @@
     "project.add": "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); p15-oracle-244 gives a case a folder outside those roots for project.add; no product offers git_repo yet: p15-oracle-243 makes the case runner build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME; the daemon product gets git_repo with it, and the git family's first VM run follows",
     "tab.create_browser": "no product runs it yet: the daemon product has no browser engine (engine_unavailable before the handler), and driver_app.py hands resource.call to driver_daemon.py; p15-oracle-239 runs requires-chromium cases on the app product's own daemon, whose browser host is the provider",
     "terminal.viewport.scroll": "the call moves only the compatibility view's scroll anchor (Surface::view_scroll_delta), and no read or facet field returns it, so no case can see the view move; p15-oracle-246 adds the readback",
-    "workspace.agent_folder.set": "placeholders params.path: p15-oracle-064 tunes the success case"
+    "workspace.agent_folder.set": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and workspace.agent_folder.set is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "workspace.ensure_app": "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-248 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)"
   },
   "missing": [],
   "families": {
@@ -57,7 +58,7 @@
     "chief": 24,
     "misc": 28
   },
-  "placeholder_operations": 3,
+  "placeholder_operations": 2,
   "tokens": {
     "$CASE_ROOT": "the case's state root (hermetic_env.py ROOT_TOKEN, p15-oracle-200)"
   },
@@ -3984,14 +3985,15 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "path",
-        "rule": "value must be a string"
+        "code": "origin.forbidden"
       },
-      "placeholders": [
-        "params.path"
-      ],
-      "retry": "daemon-ops/workspace-agent-folder-set-ok/retry"
+      "placeholders": [],
+      "retry": "daemon-ops/workspace-agent-folder-set-ok/retry",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and workspace.agent_folder.set is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "workspace.close": {
       "family": "workspace",
@@ -4033,12 +4035,15 @@
       },
       "fixture": [],
       "error": {
-        "code": "validation.invalid",
-        "field": "app",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-ensure-app-ok/retry"
+      "retry": "daemon-ops/workspace-ensure-app-ok/retry",
+      "gap": "no app is installed on the case daemon: first-party packages come from the app bundle, else apps/first-party beside the binary, and the oracle build has neither (first_party_dir.rs resolve); p15-oracle-248 stages the built first-party packages under the case root and points the debug-assertion daemon at them (CMUX_APPS_FIRST_PARTY_DIR), so cmux/notes is installed and enabled by default (apps/catalog.rs)",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "workspace.ensure_home": {
       "family": "workspace",
@@ -4065,12 +4070,13 @@
         "fx-workspace"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "expected_revision",
-        "rule": "value must be an unsigned decimal string"
+        "code": "selector.not_found"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-focus-ok/retry"
+      "retry": "daemon-ops/workspace-focus-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "workspace.layout.apply": {
       "family": "workspace",
@@ -4113,15 +4119,20 @@
         "error": "daemon-ops/workspace-open-url-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-browser-profile",
+        "fx-app-browser",
+        "focus-app-browser"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "url",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-open-url-ok/retry"
+      "retry": "daemon-ops/workspace-open-url-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "workspace.place": {
       "family": "workspace",
@@ -4130,15 +4141,18 @@
         "error": "daemon-ops/workspace-place-error"
       },
       "fixture": [
-        "fx-workspace"
+        "fx-workspace",
+        "fx-workspace-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-place-ok/retry"
+      "retry": "daemon-ops/workspace-place-ok/retry",
+      "tuned": [
+        "error",
+        "success"
+      ]
     },
     "workspace.rename": {
       "family": "workspace",
@@ -4223,12 +4237,13 @@
         "fx-checklist"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "item",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-checklist-remove-ok/retry"
+      "retry": "daemon-ops/workspace-checklist-remove-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "workspace_checklist.update": {
       "family": "workspace",
@@ -4241,12 +4256,13 @@
         "fx-checklist"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "item",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "validation.invalid"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-checklist-update-ok/retry"
+      "retry": "daemon-ops/workspace-checklist-update-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "workspace_group.create": {
       "family": "workspace",
@@ -4273,12 +4289,13 @@
         "fx-workspace-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "workspace_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-group-delete-ok/retry"
+      "retry": "daemon-ops/workspace-group-delete-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "workspace_group.move": {
       "family": "workspace",
@@ -4290,12 +4307,13 @@
         "fx-workspace-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "workspace_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-group-move-ok/retry"
+      "retry": "daemon-ops/workspace-group-move-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "workspace_group.update": {
       "family": "workspace",
@@ -4307,12 +4325,13 @@
         "fx-workspace-group"
       ],
       "error": {
-        "code": "validation.invalid",
-        "field": "workspace_group",
-        "rule": "value has too few UTF-8 bytes"
+        "code": "resource.not_found"
       },
       "placeholders": [],
-      "retry": "daemon-ops/workspace-group-update-ok/retry"
+      "retry": "daemon-ops/workspace-group-update-ok/retry",
+      "tuned": [
+        "error"
+      ]
     },
     "workspace_log.append": {
       "family": "workspace",

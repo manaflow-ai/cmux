@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextPages
+import CmuxNextWakeups
 
 /// A chat shown again after another tab (cx-f6i7): its pane may have changed size meanwhile (the
 /// strip hides when the tab over it closes), and the engine shows the page's last frame, at the old
@@ -45,6 +46,8 @@ public final class AgentPageRedraw {
         let script = "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));"
         guard page != nil else { return done() }
         // task-owner: one frame wait; ends with the page's answer
+        // main-hop-allow: callPageFunction is the page host's main-actor async call (the engine's script round trip);
+        // this task only starts it, and its one resume ends the wait the chat's show holds (PanePaintHold)
         Task { @MainActor [weak page] in
             _ = await page?.callPageFunction(script)
             done()
@@ -74,6 +77,8 @@ public final class AgentPageRedraw {
     /// From the pane's `layout()`: notes the size the page draws at, and answers ``when(_:_:)``.
     func laidOut(_ pane: NSView) {
         // A hidden page follows the pane's size but draws nothing: its drawn size stays.
+        // visibility-walk-allow: the size the page draws at is what AppKit composites, and a pane parks a hidden page
+        // (isHidden) while its tab stays selected, which a node does not say; one walk per pane layout
         guard pane.window != nil, !pane.bounds.isEmpty, !pane.isHiddenOrHasHiddenAncestor else { return }
         let size = pane.bounds.size
         guard size != drawnSize else {
@@ -116,6 +121,8 @@ public final class AgentPageRedraw {
 
     /// A capture for the app's New Tab frame is on the way (one per page at a time).
     public var givesNewTabFrame = false
+    /// That capture's settle deadline, held while it is pending (``AgentPaneNewTabFrame/capture(_:in:)``).
+    var newTabSettle: MainDeadline?
 
     /// The page as it drew out of sight (a parked New Tab spare), at its size and appearance.
     private var remembered: (image: NSImage, size: CGSize, appearance: NSAppearance.Name?, generation: UInt64)?
@@ -131,6 +138,8 @@ public final class AgentPageRedraw {
         guard let page, page.snapshotKeepsClearAreas else { return }
         let (size, place, generation) = (pane.frame.size, pane.superview, AgentPaneNewTabFrame.shared.generation)
         // task-owner: one snapshot; dropped when the page moved or resized meanwhile
+        // main-hop-allow: snapshot() is the page host's main-actor async picture (the engine's capture); this task only
+        // starts it, and its one resume keeps the picture when the page is still where it was
         Task { @MainActor [weak self, weak page, weak pane, weak place] in
             guard let image = await page?.snapshot(), image.size == size, page?.snapshotKeepsClearAreas == true,
                   let pane, pane.superview === place, pane.frame.size == size else { return }

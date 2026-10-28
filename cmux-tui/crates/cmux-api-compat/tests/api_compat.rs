@@ -1,12 +1,16 @@
 //! Behavior tests for cmux-api-compat. Every test name contains `api_compat`
 //! so `scripts/ci/cmux-tui-focused-test.sh api_compat` selects them.
+//!
+//! Translation vectors (an input, a rule chain, the output or refusal) live in
+//! `cmux-tui/spec/api-compat-fixtures.json` (`vectors`), not here: the oracle's
+//! api-compat suite reads the same file. Tests here cover what a vector cannot
+//! say: borrowing, caching, broadcast counts, the handshake and properties.
 
 mod api_compat {
     use std::sync::Arc;
 
     use cmux_api_compat::handshake::{RevisionHello, Translator, negotiate};
-    use cmux_api_compat::{Change, Compat, Conversion, Direction, MessageChange, Schema};
-    use serde_json::{Value, json};
+    use cmux_api_compat::{Change, Compat, MessageChange, Schema};
 
     const KIND: &str = "event:workspace";
 
@@ -32,119 +36,6 @@ mod api_compat {
     }
 
     #[test]
-    fn api_compat_rename_upgrades_and_downgrades() {
-        let c = compat(vec![vec![rename("/ws/*/name", "title")]]);
-        let old = r#"{"ws":[{"name":"a","id":1},{"id":2}]}"#;
-        let new = r#"{"ws":[{"title":"a","id":1},{"id":2}]}"#;
-        assert_eq!(tr(&c, 1, 2, old), new);
-        assert_eq!(tr(&c, 2, 1, new), old);
-    }
-
-    #[test]
-    fn api_compat_add_and_remove_use_defaults_in_the_right_direction() {
-        let c = compat(vec![
-            vec![Change::Add { path: "/opts/zoom".into(), default: json!(1) }],
-            vec![Change::Remove { path: "/legacy".into(), default: json!("x") }],
-        ]);
-        // Old client (rev 1) -> new server (rev 3): zoom filled in, legacy dropped.
-        assert_eq!(tr(&c, 1, 3, r#"{"opts":{},"legacy":"y"}"#), r#"{"opts":{"zoom":1}}"#);
-        // A present member keeps its value.
-        assert_eq!(tr(&c, 1, 3, r#"{"opts":{"zoom":2}}"#), r#"{"opts":{"zoom":2}}"#);
-        // New server -> old client: zoom removed, legacy restored with its default.
-        assert_eq!(tr(&c, 3, 1, r#"{"opts":{"zoom":2}}"#), r#"{"opts":{},"legacy":"x"}"#);
-    }
-
-    /// Fleet proptest find (5f9ba6b): a rename onto a key the input already
-    /// has emitted that key twice. A rename replaces its target.
-    #[test]
-    fn api_compat_rename_onto_an_existing_key_replaces_it() {
-        let c = compat(vec![
-            vec![Change::Remove { path: "/a".into(), default: json!(0) }],
-            vec![Change::Move { from: "/a".into(), path: "/r1".into() }],
-        ]);
-        assert_eq!(tr(&c, 3, 1, r#"{"a":null}"#), r#"{"a":0}"#);
-        let c = compat(vec![vec![rename("/a", "b")]]);
-        assert_eq!(tr(&c, 1, 2, r#"{"b":1,"a":2}"#), r#"{"b":2}"#);
-        assert_eq!(tr(&c, 1, 2, r#"{"b":1}"#), r#"{}"#);
-    }
-
-    /// Fleet proptest find (ba8b81c): a move creates the missing parents of
-    /// its destination, so a later rule under that parent runs after it.
-    #[test]
-    fn api_compat_add_under_a_parent_a_move_created() {
-        let c = compat(vec![
-            vec![Change::Move { from: "/e".into(), path: "/c/r0".into() }],
-            vec![Change::Add { path: "/c/r1".into(), default: json!(1) }],
-        ]);
-        let up: Value = serde_json::from_str(&tr(&c, 1, 3, r#"{"e":null}"#)).unwrap();
-        assert_eq!(up, json!({"c": {"r0": null, "r1": 1}}));
-    }
-
-    #[test]
-    fn api_compat_move_across_parents_round_trips() {
-        let c =
-            compat(vec![vec![Change::Move { from: "/cwd".into(), path: "/location/cwd".into() }]]);
-        let up: Value = serde_json::from_str(&tr(&c, 1, 2, r#"{"cwd":"/tmp","id":3}"#)).unwrap();
-        assert_eq!(up, json!({"location": {"cwd": "/tmp"}, "id": 3}));
-        let down: Value =
-            serde_json::from_str(&tr(&c, 2, 1, r#"{"location":{"cwd":"/tmp"},"id":3}"#)).unwrap();
-        assert_eq!(down, json!({"location": {}, "cwd": "/tmp", "id": 3}));
-    }
-
-    #[test]
-    fn api_compat_retype_and_rename_value() {
-        let c = compat(vec![
-            vec![Change::Retype {
-                path: "/ws/*/unread".into(),
-                up: Conversion::NumberToString,
-                down: Conversion::StringToNumber,
-            }],
-            vec![Change::RenameValue {
-                path: "/ws/*/state".into(),
-                from: json!("idle"),
-                to: json!("ready"),
-            }],
-        ]);
-        assert_eq!(
-            tr(&c, 1, 3, r#"{"ws":[{"unread":3,"state":"idle"},{"unread":0,"state":"busy"}]}"#),
-            r#"{"ws":[{"unread":"3","state":"ready"},{"unread":"0","state":"busy"}]}"#
-        );
-        assert_eq!(
-            tr(&c, 3, 1, r#"{"ws":[{"unread":"3","state":"ready"}]}"#),
-            r#"{"ws":[{"unread":3,"state":"idle"}]}"#
-        );
-    }
-
-    #[test]
-    fn api_compat_fill_acts_only_in_its_direction() {
-        let c = compat(vec![vec![Change::Fill {
-            path: "/title".into(),
-            default: json!(""),
-            direction: Direction::Down,
-        }]]);
-        assert_eq!(tr(&c, 1, 2, "{}"), "{}");
-        assert_eq!(tr(&c, 2, 1, "{}"), r#"{"title":""}"#);
-    }
-
-    #[test]
-    fn api_compat_untouched_values_are_copied_byte_for_byte() {
-        let c = compat(vec![vec![rename("/a/name", "title")]]);
-        // Odd spacing, number forms and escapes outside the rule path survive as written.
-        let input = "{ \"big\" : [1.0e10, -0.0, \"\\u00e9\\n\"] , \"a\" : {\"name\" : 1 , \"x\" : { \"y\" : 2 }}}\n";
-        let out = tr(&c, 1, 2, input);
-        assert_eq!(
-            out,
-            "{\"big\":[1.0e10, -0.0, \"\\u00e9\\n\"],\"a\":{\"title\":1,\"x\":{ \"y\" : 2 }}}\n"
-        );
-    }
-
-    #[test]
-    fn api_compat_escaped_keys_match_their_rule() {
-        let c = compat(vec![vec![rename("/a~1b", "c")]]);
-        assert_eq!(tr(&c, 1, 2, r#"{"a\/b":1}"#), r#"{"c":1}"#);
-    }
-
-    #[test]
     fn api_compat_identity_chain_borrows_the_input() {
         let c = compat(vec![vec![]]);
         let input = br#"{"a":1}"#;
@@ -153,13 +44,6 @@ mod api_compat {
             c.translate("event:other", 1, 2, input).unwrap(),
             std::borrow::Cow::Borrowed(_)
         ));
-    }
-
-    #[test]
-    fn api_compat_malformed_input_on_a_rule_path_is_an_error() {
-        let c = compat(vec![vec![rename("/a/name", "title")]]);
-        assert!(c.translate(KIND, 1, 2, br#"{"a":{"name":1"#).is_err());
-        assert!(c.translate(KIND, 1, 2, br#"{"a":1} trailing"#).is_err());
     }
 
     #[test]
@@ -207,13 +91,6 @@ mod api_compat {
         assert!(program.trie_size() <= 4, "trie has {} nodes", program.trie_size());
         assert_eq!(tr(&c, 1, 10_001, r#"{"w":[{"name":1}]}"#), r#"{"w":[{"n10000":1}]}"#);
         assert_eq!(tr(&c, 10_001, 1, r#"{"w":[{"n10000":1}]}"#), r#"{"w":[{"name":1}]}"#);
-    }
-
-    #[test]
-    fn api_compat_out_of_range_revisions_are_refused() {
-        let c = compat(vec![vec![rename("/a", "b")]]);
-        assert!(c.translate(KIND, 1, 3, b"{}").is_err());
-        assert!(c.translate(KIND, 0, 2, b"{}").is_err());
     }
 
     #[test]
@@ -379,7 +256,12 @@ mod api_compat {
     }
 
     mod fixtures {
-        use cmux_api_compat::fixtures::{Case, Fixtures, check_fixtures};
+        use std::collections::BTreeSet;
+
+        use cmux_api_compat::fixtures::{
+            Case, ErrorKind, Expect, Fixtures, Outcome, Translation, Vector, check_fixtures,
+            check_vectors,
+        };
         use cmux_api_compat::{Change, MessageChange, Schema};
         use serde_json::json;
 
@@ -403,11 +285,12 @@ mod api_compat {
         fn api_compat_fixtures_every_rule_needs_both_directions() {
             let up = case(12, 13, json!({"tab": 1}), json!({"surface": 1}));
             let down = case(13, 12, json!({"surface": 1}), json!({"tab": 1}));
-            let only_up = Fixtures { cases: vec![up.clone()] };
+            let only_up = Fixtures { cases: vec![up.clone()], vectors: Vec::new() };
             let problems = check_fixtures(&schema(), &only_up);
             assert_eq!(problems.len(), 1, "{problems:?}");
             assert!(problems[0].contains("downgrade"), "{problems:?}");
-            assert!(check_fixtures(&schema(), &Fixtures { cases: vec![up, down] }).is_empty());
+            let both = Fixtures { cases: vec![up, down], vectors: Vec::new() };
+            assert!(check_fixtures(&schema(), &both).is_empty());
         }
 
         #[test]
@@ -417,6 +300,7 @@ mod api_compat {
                     case(12, 13, json!({"tab": 1}), json!({"tab": 1})),
                     case(13, 12, json!({"surface": 1}), json!({"tab": 1})),
                 ],
+                vectors: Vec::new(),
             };
             let problems = check_fixtures(&schema(), &wrong);
             assert_eq!(problems.len(), 1, "{problems:?}");
@@ -434,10 +318,129 @@ mod api_compat {
             .unwrap();
             assert_eq!(check_fixtures(&schema, &fixtures), Vec::<String>::new());
         }
+
+        fn spec_fixtures() -> Fixtures {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../spec/api-compat-fixtures.json");
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+        }
+
+        /// The translator's behavior vectors live in the spec file, which the
+        /// oracle's api-compat suite also reads (gen_api_compat.py).
+        #[test]
+        fn api_compat_fixtures_spec_vectors_pass() {
+            let fixtures = spec_fixtures();
+            assert_eq!(check_vectors(&fixtures), Vec::<String>::new());
+        }
+
+        /// Every rule op, both refusals a message can get, and both output
+        /// forms keep a vector, so the file cannot lose a behavior unnoticed.
+        #[test]
+        fn api_compat_fixtures_spec_vectors_cover_every_rule_and_refusal() {
+            let fixtures = spec_fixtures();
+            let mut ops = BTreeSet::new();
+            let mut expects = BTreeSet::new();
+            for vector in &fixtures.vectors {
+                for revision in &vector.translation.schema.revisions {
+                    for change in &revision.changes {
+                        ops.insert(
+                            serde_json::to_value(&change.change).unwrap()["op"]
+                                .as_str()
+                                .unwrap()
+                                .to_owned(),
+                        );
+                    }
+                }
+                expects.insert(
+                    match &vector.expect {
+                        Expect::Bytes(_) => json!("bytes"),
+                        Expect::Json(_) => json!("json"),
+                        Expect::Error(kind) => json!(kind),
+                    }
+                    .to_string(),
+                );
+            }
+            assert_eq!(
+                ops.into_iter().collect::<Vec<_>>(),
+                ["add", "fill", "move", "remove", "rename", "rename_value", "retype"],
+                "rule ops with a vector"
+            );
+            assert_eq!(
+                expects.into_iter().collect::<Vec<_>>(),
+                [r#""bytes""#, r#""json""#, r#""malformed""#, r#""unsupported_revision""#],
+                "expectations with a vector"
+            );
+        }
+
+        fn vector(id: &str, input: &str, expect: Expect) -> Vector {
+            Vector {
+                id: id.into(),
+                title: "t".into(),
+                translation: Translation {
+                    schema: schema(),
+                    message: "event:tab".into(),
+                    from: 12,
+                    to: 13,
+                    input: input.into(),
+                },
+                expect,
+            }
+        }
+
+        #[test]
+        fn api_compat_fixtures_wrong_vectors_are_reported() {
+            let good = vector("good", r#"{"tab":1}"#, Expect::Bytes(r#"{"surface":1}"#.into()));
+            let fixtures = Fixtures {
+                cases: Vec::new(),
+                vectors: vec![
+                    good.clone(),
+                    good,
+                    vector("wrong-bytes", r#"{"tab":1}"#, Expect::Bytes(r#"{"tab":1}"#.into())),
+                    vector("wrong-json", r#"{"tab":1}"#, Expect::Json(json!({"tab": 1}))),
+                    vector("wrong-refusal", "{", Expect::Error(ErrorKind::UnsupportedRevision)),
+                    vector("no-refusal", r#"{"tab":1}"#, Expect::Error(ErrorKind::Malformed)),
+                    vector("Not-A-Slug", "{}", Expect::Json(json!({}))),
+                ],
+            };
+            let problems = check_vectors(&fixtures);
+            let heads: Vec<_> =
+                problems.iter().map(|p| p.split(':').next().unwrap_or_default()).collect();
+            assert_eq!(
+                heads,
+                [
+                    "vector good",
+                    "vector wrong-bytes",
+                    "vector wrong-json",
+                    "vector wrong-refusal",
+                    "vector no-refusal",
+                    r#"vector "Not-A-Slug""#,
+                ],
+                "{problems:?}"
+            );
+            assert!(problems[0].ends_with("the id repeats"), "{problems:?}");
+        }
+
+        /// The reply the oracle's `__oracle-api-compat` mode prints.
+        #[test]
+        fn api_compat_fixtures_outcome_wire_form() {
+            let ok = vector("ok", r#"{"tab":1}"#, Expect::Json(json!({})));
+            assert_eq!(
+                serde_json::to_value(ok.translation.run()).unwrap(),
+                json!({"output": r#"{"surface":1}"#})
+            );
+            let refused = vector("refused", r#"{"tab":"#, Expect::Json(json!({})));
+            let outcome = serde_json::to_value(refused.translation.run()).unwrap();
+            assert_eq!(outcome["error"]["kind"], json!("malformed"), "{outcome}");
+            assert!(outcome["error"]["message"].as_str().is_some_and(|m| m.contains("malformed")));
+            assert!(matches!(
+                serde_json::from_value::<Outcome>(outcome).unwrap(),
+                Outcome::Error { kind: ErrorKind::Malformed, .. }
+            ));
+        }
     }
 
     mod properties {
-        use cmux_api_compat::{Change, Compat, Conversion, Direction, MessageChange, Schema};
+        use cmux_api_compat::{Change, Compat, Conversion, MessageChange, Schema};
         use proptest::prelude::*;
         use serde_json::{Map, Value, json};
 
@@ -620,17 +623,6 @@ mod api_compat {
                 let _ = compat.translate("m", 0, compat.current(), &bytes);
                 let _ = compat.translate("m", compat.current(), 0, &bytes);
             }
-        }
-
-        #[test]
-        fn api_compat_fill_direction_is_respected_in_chains() {
-            let compat = build(&[Change::Fill {
-                path: "/a".into(),
-                default: json!(1),
-                direction: Direction::Up,
-            }]);
-            assert_eq!(&*compat.translate("m", 0, 1, b"{}").unwrap(), br#"{"a":1}"#);
-            assert_eq!(&*compat.translate("m", 1, 0, b"{}").unwrap(), b"{}");
         }
     }
 

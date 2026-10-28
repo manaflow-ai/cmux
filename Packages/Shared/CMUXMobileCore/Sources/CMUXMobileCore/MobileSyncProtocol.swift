@@ -182,9 +182,10 @@ public struct MobileSyncPairingPayload: Equatable, Sendable, Codable {
         var base64 = value
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
-        let padding = base64.count % 4
-        if padding > 0 {
-            base64.append(String(repeating: "=", count: 4 - padding))
+        switch base64.utf8.count % 4 {
+        case 2: base64.append("==")
+        case 3: base64.append("=")
+        default: break // complete, or a remainder of 1 that no padding makes valid
         }
         return Data(base64Encoded: base64)
     }
@@ -210,8 +211,8 @@ public struct MobileSyncFrameCodec {
               let payloadLength = UInt32(exactly: payload.count) else {
             throw MobileSyncFrameCodecError.frameTooLarge(payload.count)
         }
-        var length = payloadLength.bigEndian
-        var frame = Data(bytes: &length, count: headerByteCount)
+        var frame = Data(capacity: headerByteCount + payload.count)
+        frame.appendBigEndian(payloadLength)
         frame.append(payload)
         return frame
     }
