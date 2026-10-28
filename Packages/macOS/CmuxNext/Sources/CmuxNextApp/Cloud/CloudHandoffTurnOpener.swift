@@ -18,33 +18,46 @@ struct CloudHandoffTurnOpener {
     let services: AppServices
 
     /// The page's runner for every pane (``AgentPageChats/seed(_:)``): `view` is the pane that asked.
+    /// The pane's chat and its machine are read before the store's calls and again after them: an
+    /// answer for a pane that moved to another chat or machine meanwhile names no turn and starts no
+    /// watch.
     static func runner(_ tabs: AgentTabStore, services: AppServices) -> @MainActor (AgentPaneView?, String) async -> [String: Any] {
         { [weak tabs, weak services] view, session in
             guard let services else { return AgentPaneReply.failure(code: "cloud_disabled", message: "cloud_disabled") }
             if let refusal = refusal(services) { return AgentPaneReply.failure(code: refusal, message: refusal) }
-            guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
-                  let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
-                  let machine = services.machines.session(daemon.machineID)?.machineID else {
+            let place = { () -> (tab: String, machine: String, host: String?)? in
+                guard let view, let key = tabs?.views.first(where: { $0.value === view })?.key, let (tab, _) = services.locateTab(key),
+                      view.model.sessionId == nil || view.model.sessionId == session,
+                      let daemon = try? services.machines.agentDaemon(forTab: tab), !daemon.isLocal,
+                      let machine = services.machines.session(daemon.machineID)?.machineID else { return nil }
+                return (tab.id, machine, tab.agentSession?.host)
+            }
+            guard let before = place() else { return AgentPaneReply.failure(code: "not_cloud", message: "not_cloud") }
+            let opened = await CloudHandoffTurnOpener(services: services).reply(session: session, machine: before.machine)
+            guard case .turn(let id, let number) = opened else { return Self.answer(opened) }
+            guard let after = place(), after.tab == before.tab, after.machine == before.machine else {
                 return AgentPaneReply.failure(code: "not_cloud", message: "not_cloud")
             }
-            return await CloudHandoffTurnOpener(services: services).reply(session: session, machine: machine, host: tab.agentSession?.host)
+            services.agentTabs.pageChats.handoffNotices?.watch(handoff: id, session: session, host: before.host)
+            return AgentPaneReply.success(["turn": number])
         }
     }
 
-    /// The page's reply: `{turn}`, or a refusal code.
-    func reply(session: String, machine: String, host: String?) async -> [String: Any] {
+    /// The store's answer for `session` on `machine`, or a refusal code.
+    func reply(session: String, machine: String) async -> Opened {
         do {
-            switch try await Self.open(session: session, machine: machine, client: ownerClient()) {
-            case .turn(let id, let number):
-                services.agentTabs.pageChats.handoffNotices?.watch(handoff: id, session: session, host: host)
-                return AgentPaneReply.success(["turn": number])
-            case .refused(let code):
-                return AgentPaneReply.failure(code: code, message: code)
-            }
+            return try await Self.open(session: session, machine: machine, client: ownerClient())
         } catch {
             services.cloud.logger.error("hand-off turn not opened: \(CloudStrings.errorText(error), privacy: .public)")
-            let code = Self.storeCode(error) ?? "handoff.unavailable"
-            return AgentPaneReply.failure(code: code, message: code)
+            return .refused(Self.storeCode(error) ?? "handoff.unavailable")
+        }
+    }
+
+    /// The page's reply for a refusal (a turn is answered once its pane is checked again).
+    static func answer(_ opened: Opened) -> [String: Any] {
+        switch opened {
+        case .turn(_, let number): return AgentPaneReply.success(["turn": number])
+        case .refused(let code): return AgentPaneReply.failure(code: code, message: code)
         }
     }
 
