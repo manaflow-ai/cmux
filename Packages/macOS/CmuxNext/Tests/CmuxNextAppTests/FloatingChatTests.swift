@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAgentPane
+@testable import CmuxNextAgentPane
 import Foundation
 import Testing
 @testable import CmuxNextApp
@@ -371,5 +371,36 @@ struct FloatingChatTests {
         #expect(none["ok"] as? Bool == true)
         #expect(none["value"] is NSNull)
     }
-}
 
+    /// A fresh Quick Composer draft has no session or AgentTabs row to own it. Its text and chips must
+    /// survive a quit/update and be handed to the next fresh panel without clobbering an existing value.
+    @Test func aFreshQuickDraftSurvivesRelaunchWithItsAttachment() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "quick-draft-red-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let attachment = AgentPaneWakeState.Attachment(id: "quick-a", kind: "image", name: "a.png",
+                                                       mimeType: "image/png", size: 3, data: "YWJj")
+        let attachmentStore = AgentPaneDraftAttachments(directory: directory)
+        let previous = AgentPaneDraftAttachments.shared
+        AgentPaneDraftAttachments.shared = attachmentStore
+        defer { AgentPaneDraftAttachments.shared = previous }
+        _ = await attachmentStore.keep(AgentPaneDraftAttachments.json([attachment]), for: "quick-composer-v1")
+
+        let suite = "quick-draft-red-\(UUID().uuidString)"
+        let (firstRig, first) = try Self.rig(floating: false, suite: suite)
+        first.show()
+        let firstChat = try #require(first.chat)
+        _ = await firstChat.model.respond(to: Self.request("chat.unsentDraft", ["text": "build A draft"]))
+        // The update leaves no session behind; a new controller is the next launch.
+        let (secondRig, second) = try Self.rig(floating: false, suite: suite)
+        second.show()
+        let secondChat = try #require(second.chat)
+        let wake = await secondChat.model.wakeSource?()
+        let data = try JSONEncoder().encode(wake)
+        let value = try JSONSerialization.jsonObject(with: data, options: .fragmentsAllowed) as? [String: Any]
+        #expect(value?["draftText"] as? String == "build A draft")
+        #expect(wake?.attachments == [attachment])
+        _ = firstRig
+        _ = secondRig
+    }
+}

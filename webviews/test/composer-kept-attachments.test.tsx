@@ -120,16 +120,16 @@ const notes: ComposerAttachment = {
 
 /// One chat page: a composer for `sessionId` with the host's store, as App.tsx renders it.
 async function openPage(
-  sessionId: string,
+  sessionId: string | undefined,
   store: KeptAttachments | undefined,
-  options: { switching?: boolean; sent?: () => void } = {},
+  options: { switching?: boolean; sent?: () => void; draftKey?: string } = {},
 ) {
   const { createRoot } = await import("react-dom/client");
   const { Composer } = await import("../src/agent-session/acpmux/Composer");
   const handle = createRef<ComposerHandle>();
   const snapshot = noChat([], {
     sessionId,
-    summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 },
+    ...(sessionId ? { summary: { sessionId, harness: "codex", cwd: "/Users/you/src/app", turnCount: 0 } } : {}),
   });
   root ??= createRoot(host);
   await act(async () =>
@@ -150,6 +150,7 @@ async function openPage(
         switching={options.switching}
         handle={handle}
         keptAttachments={store}
+        draftKey={options.draftKey}
       />,
     ),
   );
@@ -343,4 +344,38 @@ test("a page going away sends a write still resting", async () => {
     window.dispatchEvent(new window.Event("pagehide"));
   });
   expect(store.writes.map((write) => write.attachments.map((chip) => chip.id))).toEqual([["shot-1"]]);
+});
+
+test("a fresh Quick Composer keeps its screenshot before a session exists", async () => {
+  const store = new Host();
+  const page = await openPage(undefined, store, { draftKey: "quick-composer-v1" });
+  act(() => page.current!.attach(screenshot(1)));
+  // Quitting before the settle delay still keeps the standalone composer's chip.
+  closePage();
+
+  const reopened = await openPage(undefined, store, { draftKey: "quick-composer-v1" });
+  expect(shown(reopened).map((chip) => chip.id)).toEqual(["shot-1"]);
+  expect(shown(reopened)[0]?.data).toBe(btoa("png-bytes-1"));
+});
+
+test("starting a session does not leave Quick's old chips in the next fresh draft", async () => {
+  const store = new Host();
+  const page = await openPage(undefined, store, { draftKey: "quick-composer-v1" });
+  act(() => page.current!.attach(screenshot(1)));
+  // The session arrives before the chip's debounce; the old scope is now cleared.
+  await openPage("chat-a", store, { draftKey: "quick-composer-v1" });
+  closePage();
+  const reopened = await openPage(undefined, store, { draftKey: "quick-composer-v1" });
+  expect(shown(reopened)).toEqual([]);
+});
+
+test("a fresh Quick wake restores text and a late wake preserves a newer edit", async () => {
+  const page = await openPage(undefined, new Host(), { draftKey: "quick-composer-v1" });
+  act(() => page.current!.wake({ draftText: "before the update" }));
+  await settle();
+  expect(page.current!.wakeState().draftText).toBe("before the update");
+  act(() => page.current!.prefill("newer "));
+  await settle();
+  act(() => page.current!.wake({ draftText: "stale text" }));
+  expect(page.current!.wakeState().draftText).toBe("newer before the update");
 });
