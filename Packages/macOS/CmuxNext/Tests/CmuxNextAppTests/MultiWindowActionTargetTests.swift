@@ -175,13 +175,16 @@ import Testing
                 guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: press.flags, timestamp: stamp,
                                                    windowNumber: shell.windowNumber, context: nil, characters: press.characters,
                                                    charactersIgnoringModifiers: press.characters, isARepeat: false, keyCode: press.keyCode) else { continue }
-                world.services.windows.dispatching(eventFrom: shell) {
-                    _ = world.services.keyRouter.dispatchingSynthetic(event) { world.services.routeKeyDown(event, shell) }
-                }
+                // No event-origin scope: the key router itself names the window the key was typed in.
+                _ = world.services.keyRouter.dispatchingSynthetic(event) { world.services.routeKeyDown(event, shell) }
+                if index == 1 { world.personMoves(to: world.w3) }
                 await world.probe.drain()
                 for (id, window) in world.probe.now {
                     if index == 0 { inFirst.insert(id) } else { inNew.insert(id) }
                     if window != controller.state.id { wrong.append("\(shortcut.displayString) \(id.rawValue) -> \(world.name(window))") }
+                    if let later = world.probe.later[id], later != controller.state.id {
+                        wrong.append("\(shortcut.displayString) \(id.rawValue) later -> \(world.name(later))")
+                    }
                 }
             }
         }
@@ -286,6 +289,31 @@ import Testing
         for _ in 0..<2000 where seen.after == nil { await Task.yield() }
         #expect(seen.after == world.w3.state.id, "the run's work after it brought window 3 forward acted in \(world.name(seen.after))")
         #expect(seen.person == world.w3.state.id, "the window the person is in is \(world.name(seen.person)), not window 3")
+    }
+
+    /// The same through the order record `WindowActivation.show` writes (`windowDidOrder(_:inFront:)`), before
+    /// AppKit's key notice: the run's later work already acts in the window it brought forward.
+    @Test func aRunFollowsTheWindowItOrderedInFront() async throws {
+        let world = try Self.world()
+        defer { world.close() }
+        let shell2 = try #require(world.w2.window)
+        @MainActor final class Seen { var after: String? }
+        let seen = Seen()
+        let registry = world.services.registry, services = world.services, w3 = world.w3
+        registry.bind("zoomWindow", invoke: { _ in
+            // task-owner: the test's own continuation, awaited below
+            Task { @MainActor in
+                await Task.yield()
+                if let shell3 = w3.window { services.windows.windowDidOrder(shell3, inFront: true) }
+                seen.after = services.windows.active?.state.id
+            }
+        })
+        world.services.keyWindowSource = { shell2 }
+        world.services.windows.dispatching(eventFrom: shell2) {
+            _ = registry.perform("zoomWindow", invocation: ActionInvocation(origin: .user))
+        }
+        for _ in 0..<2000 where seen.after == nil { await Task.yield() }
+        #expect(seen.after == world.w3.state.id, "the run's work after it ordered window 3 in acted in \(world.name(seen.after))")
     }
 
     // MARK: Home and the sidebar, real handlers
