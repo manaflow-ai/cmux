@@ -238,7 +238,7 @@ fn command(params: &Value, start: &Start, host: Option<&str>, on_host: bool) -> 
     change_option(&mut words, "--cwd", start.cwd.as_deref());
     let prompt_file = params.pointer("/_meta/acpmux/promptFileText").and_then(Value::as_str);
     let input = prompt_file
-        .filter(|_| change_option(&mut words, "--prompt-file", Some("-")))
+        .filter(|_| change_option(&mut words, "--prompt-file", Some("/dev/stdin")))
         .map(str::to_owned);
     let rendered = words.iter().map(|w| quote(w)).collect::<Vec<_>>();
     let inner = format!("acpmux {}", rendered.join(" "));
@@ -503,7 +503,7 @@ mod tests {
         assert_eq!(
             got,
             r#"printf %s 'line 1; $(touch nope)
-line '\''two'\''' | (acpmux new --host=b -m codex --prompt-file=- --tag 'a=$()' 'a prompt with '\''quotes'\'' and
+line '\''two'\''' | (acpmux new --host=b -m codex --prompt-file=/dev/stdin --tag 'a=$()' 'a prompt with '\''quotes'\'' and
 newlines')"#
         );
     }
@@ -629,7 +629,7 @@ newlines')"#
                     "xhigh",
                     "--policy",
                     "approve-all",
-                    "--prompt-file=-",
+                    "--prompt-file=/dev/stdin",
                     "--tag",
                     "a=b",
                     "--worktree",
