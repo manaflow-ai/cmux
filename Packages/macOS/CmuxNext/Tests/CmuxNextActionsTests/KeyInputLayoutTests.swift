@@ -33,6 +33,11 @@ import Testing
             let shifted: String
         }
 
+        /// Whether the layout types `character` on some key with no modifier.
+        func typesUnshifted(_ character: String) -> Bool {
+            keys.values.contains { $0.base == character }
+        }
+
         /// Whether the layout types ASCII on `keyCode` (else the ASCII-capable layout answers chords).
         func typesASCII(_ keyCode: UInt16) -> Bool {
             keys[keyCode].map { $0.base.allSatisfy(\.isASCII) } ?? true
@@ -162,9 +167,11 @@ import Testing
         let shift = modifiers.contains(.shift)
         let typed = modifiers.contains(.command) ? layout.command[keyCode] ?? base : base
         let fallback = !layout.asciiCapable && !layout.typesASCII(keyCode) ? us.keys[keyCode]?.base : nil
+        let positional = KeyInput.usPunctuation[keyCode].flatMap { layout.typesUnshifted($0) ? nil : $0 }
         return KeyInput(keyCode: keyCode, modifiers: modifiers, text: shift ? typed.shifted : typed.base,
                         ignoringModifiers: shift ? base.shifted : base.base, unshifted: base.base,
-                        commandUnshifted: modifiers.contains(.command) ? typed.base : nil, asciiFallback: fallback)
+                        commandUnshifted: modifiers.contains(.command) ? typed.base : nil, asciiFallback: fallback,
+                        positional: positional)
     }
 
     /// The physical key the person presses for `shortcut` on `layout`: the digit row for a digit
@@ -181,6 +188,10 @@ import Testing
             return code
         }
         if let code = candidates.first(where: { layout.keys[$0]?.base == character }) { return code }
+        // Punctuation the layout moved to an Option layer (or types nowhere): its US ANSI key.
+        if let code = KeyInput.usPunctuation.first(where: { $0.value == character })?.key, layout.keys[code] != nil {
+            return code
+        }
         guard !layout.asciiCapable else { return nil }
         return candidates.first { !layout.typesASCII($0) && us.keys[$0]?.base == character }
     }
@@ -385,6 +396,53 @@ import Testing
     @Test func lettersAreNeverMatchedByPosition() throws {
         let key = try #require(Self.key(UInt16(kVK_ANSI_Y), [.command], on: Self.german))
         #expect(Array(ActionRegistry.shortcuts(for: key)) == [Shortcut("z", modifiers: [.command])])
+    }
+
+    // MARK: Punctuation the layout moves (audit item 1)
+
+    /// The registry's step for a US key and for `key`, in `context`.
+    static func sameStepAsUS(_ key: KeyInput, usKeyCode: UInt16, _ modifiers: NSEvent.ModifierFlags, in context: ActionContext) throws
+        -> (got: String, expected: String) {
+        let registry = registry(context)
+        let usKey = try #require(Self.key(usKeyCode, modifiers, on: us))
+        return (step(key, after: [], in: registry), step(usKey, after: [], in: registry))
+    }
+
+    /// German Cmd-ü and Cmd-+ (the keys US has [ and ] on: German types [ ] only with Option) are
+    /// Cmd-[ and Cmd-]; with Shift, Cmd-Shift-[ and Cmd-Shift-] (previous and next tab).
+    @Test(arguments: [ActionContext(), .terminalFocused, .browserFocused])
+    func bracketsMovedToOptionAreReachedByPosition(context: ActionContext) throws {
+        for (code, modifiers) in [(UInt16(33), NSEvent.ModifierFlags.command), (30, [.command]), (33, [.command, .shift]), (30, [.command, .shift])] {
+            let key = try #require(Self.key(code, modifiers, on: Self.german))
+            let (got, expected) = try Self.sameStepAsUS(key, usKeyCode: code, modifiers, in: context)
+            #expect(expected != "none", "US key \(code) with \(modifiers.rawValue) runs nothing in \(context)")
+            #expect(got == expected, "German key \(code) with \(modifiers.rawValue): \(got), not \(expected)")
+        }
+    }
+
+    /// Ctrl-` (New Terminal Tab) on German and AZERTY: the key left of 1 (US `) types the dead key ^,
+    /// and ` is a dead key with Shift elsewhere: Ctrl and that key is Ctrl-`.
+    @Test(arguments: [german, french])
+    func graveMovedAwayIsReachedByPosition(layout: Layout) throws {
+        let key = KeyInput(keyCode: 50, modifiers: [.control], text: "^", ignoringModifiers: "^", unshifted: "^",
+                           positional: layout.typesUnshifted("`") ? nil : "`")
+        let (got, expected) = try Self.sameStepAsUS(key, usKeyCode: 50, [.control], in: [])
+        #expect(expected != "none")
+        #expect(got == expected, "\(layout.name) Ctrl and the key left of 1: \(got), not \(expected)")
+    }
+
+    /// Never steal a key the layout types: Dvorak types [ itself (on US's - key), so Cmd and the key
+    /// US has [ on (Dvorak's /) reads / and never [.
+    @Test func aLayoutThatTypesTheCharacterKeepsItsKey() throws {
+        let key = try #require(Self.key(33, [.command], on: Self.dvorak))
+        #expect(!ActionRegistry.shortcuts(for: key).contains(Shortcut("[", modifiers: [.command])))
+        #expect(key.positional == nil)
+    }
+
+    /// The position is the last reading: German Cmd-ü reads ü first, so a binding on Cmd-ü wins.
+    @Test func thePositionIsTheLastReading() throws {
+        let key = try #require(Self.key(33, [.command], on: Self.german))
+        #expect(Array(ActionRegistry.shortcuts(for: key)) == [Shortcut("ü", modifiers: [.command]), Shortcut("[", modifiers: [.command])])
     }
 
     // MARK: Plain and Option keys

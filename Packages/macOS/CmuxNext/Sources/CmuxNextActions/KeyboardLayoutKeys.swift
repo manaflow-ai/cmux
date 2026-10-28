@@ -13,17 +13,49 @@ import Foundation
 /// Each ``ActionRegistry`` owns one (``ActionRegistry/keyboardLayout``); the app makes one registry.
 public final class KeyboardLayoutKeys {
     private let read: () -> [UInt16: String]
+    private let readTyped: () -> Set<String>
     private var characters: [UInt16: String]?
+    private var typed: Set<String>?
     private var observer: KeyboardLayoutObserver?
 
-    /// The live reader: the current ASCII-capable layout.
+    /// The live reader: the current ASCII-capable layout, and what the selected layout types.
     public convenience init() {
-        self.init(read: Self.readASCIICapableLayout)
+        self.init(read: Self.readASCIICapableLayout, readTyped: Self.readSelectedLayoutCharacters)
     }
 
-    /// `read` builds the table (tests pass a fixture).
-    public init(read: @escaping () -> [UInt16: String]) {
+    /// `read` builds the ASCII-capable table, `readTyped` the selected layout's unshifted characters
+    /// (tests pass fixtures).
+    public init(read: @escaping () -> [UInt16: String], readTyped: @escaping () -> Set<String> = { [] }) {
         self.read = read
+        self.readTyped = readTyped
+    }
+
+    /// Whether the selected layout types `character` on some key with no modifier (Dvorak types `[`,
+    /// German does not: it is Option-5 there).
+    public func typesUnshifted(_ character: String) -> Bool {
+        if let typed { return typed.contains(character) }
+        let built = readTyped()
+        typed = built
+        observeLayoutChanges()
+        return built.contains(character)
+    }
+
+    private func observeLayoutChanges() {
+        guard observer == nil else { return }
+        // Later layouts are read when they are selected, not on the next key.
+        observer = KeyboardLayoutObserver { [weak self] in
+            guard let self else { return }
+            if characters != nil { characters = read() }
+            if typed != nil { typed = readTyped() }
+        }
+    }
+
+    /// The selected keyboard layout's unshifted characters (`TISCopyCurrentKeyboardLayoutInputSource`:
+    /// with an input method selected, the layout it types through).
+    nonisolated static func readSelectedLayoutCharacters() -> Set<String> {
+        // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
+        guard let source = unsafe TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return [] }
+        return Set(characters(of: source, asciiOnly: false, command: false).values)
     }
 
     /// The ASCII-capable layout's character on `keyCode`, or nil (a key that types none there).
@@ -31,13 +63,7 @@ public final class KeyboardLayoutKeys {
         if let characters { return characters[keyCode] }
         let built = read()
         characters = built
-        // Later layouts are read when they are selected, not on the next key.
-        if observer == nil {
-            observer = KeyboardLayoutObserver { [weak self] in
-                guard let self else { return }
-                characters = read()
-            }
-        }
+        observeLayoutChanges()
         return built[keyCode]
     }
 

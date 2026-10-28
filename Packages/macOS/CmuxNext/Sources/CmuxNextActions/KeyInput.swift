@@ -33,9 +33,15 @@ public nonisolated struct KeyInput: Equatable, Sendable {
     /// when ``unshifted`` is not ASCII; nil otherwise. Only chords and an armed chord's next key read
     /// it (``ActionRegistry/shortcuts(for:armed:)-(KeyInput,_)``).
     public var asciiFallback: String?
+    /// The punctuation character US ANSI has on this physical key (`[` on the key German types ü
+    /// on), when the selected layout types that character on no key without Option: the position
+    /// macOS's localized key equivalents and Chrome fall back to for a shortcut the layout moved to
+    /// an Option layer. Nil for letters (never by position), for digits (the digit row is read by
+    /// position anyway) and when the layout types the character itself (Dvorak types `[`).
+    public var positional: String?
 
     public init(keyCode: UInt16, modifiers: NSEvent.ModifierFlags, text: String?, ignoringModifiers: String? = nil,
-                unshifted: String? = nil, commandUnshifted: String? = nil, asciiFallback: String? = nil) {
+                unshifted: String? = nil, commandUnshifted: String? = nil, asciiFallback: String? = nil, positional: String? = nil) {
         self.keyCode = keyCode
         self.modifiers = modifiers.intersection(Shortcut.relevantModifiers)
         self.text = text
@@ -43,7 +49,13 @@ public nonisolated struct KeyInput: Equatable, Sendable {
         self.unshifted = unshifted
         self.commandUnshifted = commandUnshifted
         self.asciiFallback = asciiFallback
+        self.positional = positional
     }
+
+    /// The punctuation US ANSI has on each physical key (kVK_ANSI_Minus ... kVK_ANSI_Grave).
+    public static let usPunctuation: [UInt16: String] = [
+        27: "-", 24: "=", 33: "[", 30: "]", 42: "\\", 41: ";", 39: "'", 43: ",", 47: ".", 44: "/", 50: "`",
+    ]
 
     /// The key is a Command or Control chord: the only keys cmux may decide before the input
     /// methods (`interpretKeyEvents`) see them.
@@ -54,13 +66,13 @@ public nonisolated struct KeyInput: Equatable, Sendable {
     public static func == (lhs: KeyInput, rhs: KeyInput) -> Bool {
         lhs.keyCode == rhs.keyCode && lhs.modifiers.rawValue == rhs.modifiers.rawValue && lhs.text == rhs.text
             && lhs.ignoringModifiers == rhs.ignoringModifiers && lhs.unshifted == rhs.unshifted && lhs.commandUnshifted == rhs.commandUnshifted
-            && lhs.asciiFallback == rhs.asciiFallback
+            && lhs.asciiFallback == rhs.asciiFallback && lhs.positional == rhs.positional
     }
 }
 
 @MainActor extension KeyInput {
     /// The key-down `event` as cmux reads it. `layout` answers ``asciiFallback`` (a table lookup,
-    /// only for a key that types no ASCII); nil reads none.
+    /// only for a key that types no ASCII) and ``positional``; nil reads neither.
     public init(_ event: NSEvent, layout: KeyboardLayoutKeys?) {
         let flags = event.modifierFlags.intersection(Shortcut.relevantModifiers)
         let unshifted = event.characters(byApplyingModifiers: [])
@@ -69,8 +81,10 @@ public nonisolated struct KeyInput: Equatable, Sendable {
             fallback = layout?.asciiCharacter(forKeyCode: event.keyCode)
         }
         let commandUnshifted = flags.contains(.command) ? event.characters(byApplyingModifiers: [.command]) : nil
+        var positional: String?
+        if let us = Self.usPunctuation[event.keyCode], layout?.typesUnshifted(us) == false { positional = us }
         self.init(keyCode: event.keyCode, modifiers: flags, text: Self.text(of: event), ignoringModifiers: event.charactersIgnoringModifiers,
-                  unshifted: unshifted, commandUnshifted: commandUnshifted, asciiFallback: fallback)
+                  unshifted: unshifted, commandUnshifted: commandUnshifted, asciiFallback: fallback, positional: positional)
     }
 
     /// Ghostty's `ghosttyCharacters` (NSEvent+Extension.swift): the event's characters, a lone

@@ -114,9 +114,16 @@ import Testing
             let latin = translate(ascii.data, keyCode: keyCode, modifiers: [], deadKeyState: &none).lowercased()
             if latin.count == 1, latin.allSatisfy({ $0.isASCII && !$0.isWhitespace }) { fallback = latin }
         }
+        let positional = KeyInput.usPunctuation[keyCode].flatMap { typesUnshifted($0, on: layout) ? nil : $0 }
         return KeyInput(keyCode: keyCode, modifiers: modifiers, text: text, ignoringModifiers: ignoring.isEmpty ? nil : ignoring,
                         unshifted: unshifted.isEmpty ? nil : unshifted, commandUnshifted: command.flatMap { $0.isEmpty ? nil : $0 },
-                        asciiFallback: fallback)
+                        asciiFallback: fallback, positional: positional)
+    }
+
+    /// Whether `layout` types `character` on some main-block key with no modifier.
+    static func typesUnshifted(_ character: String, on layout: InstalledLayout) -> Bool {
+        var none: UInt32?
+        return keyCodes.contains { translate(layout.data, keyCode: $0, modifiers: [], deadKeyState: &none) == character }
     }
 
     /// The key the person presses for `shortcut` on `layout`: the digit row for a digit; with
@@ -130,6 +137,8 @@ import Testing
         }
         if shortcut.modifiers.contains(.command), let code = keyCodes.first(where: { types(layout.data, $0, [.command]) }) { return code }
         if let code = keyCodes.first(where: { types(layout.data, $0, []) }) { return code }
+        // Punctuation the layout types on no key without Option: its US ANSI key.
+        if let code = KeyInput.usPunctuation.first(where: { $0.value == shortcut.key })?.key { return code }
         guard !layout.asciiCapable, let ascii else { return nil }
         return keyCodes.first { types(ascii.data, $0, []) }
     }
