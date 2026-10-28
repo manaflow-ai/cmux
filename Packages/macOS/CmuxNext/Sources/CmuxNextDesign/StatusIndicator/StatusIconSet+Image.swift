@@ -15,8 +15,11 @@ extension StatusIconSet {
                       appearance: NSAppearance? = nil) -> NSImage? {
         var state = state
         if let kind, case .waiting = state { state = .waiting(kind: kind) }
-        let config = StatusIndicatorConfig(iconSet: self, workingLook: StatusWorkingLook.tunable.value)
-        let plan = StatusIndicatorPlan.make(state, style: config.settings.style, animates: false, set: self, working: config.workingLook)
+        // The system's "Differentiate without color" applies to banner images too (P4).
+        let config = StatusIndicatorConfig(iconSet: self, workingLook: StatusWorkingLook.tunable.value,
+                                           differentiateWithoutColor: DesignSettings.shared.signals.display.differentiateWithoutColor)
+        let plan = StatusIndicatorPlan.make(state, style: config.settings.style, animates: false, set: self, working: config.workingLook,
+                                            withoutColor: config.differentiateWithoutColor)
         let pixels = Int((pointSize * scale).rounded())
         guard plan.glyph != .none, pixels > 0,
               let mask = StatusGlyphArt.mask(plan, pixels: pixels, scale: scale, config: config) else { return nil }
