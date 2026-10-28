@@ -4,8 +4,9 @@
 - a packed cache unpacks to the same files and replaces the host's old cache whole;
 - a seed holding a link, a path outside the cache or `..` installs nothing;
 - a seed replaces a host's cache only when the host has none or the seed is newer;
-- a reader takes a record only from a trusted feat-cmux-next run with matching key fields, and
-  stops at the newest one that is not newer than the host's cache;
+- a reader takes a record only from a trusted feat-cmux-next run with matching key fields, picks
+  the seed of the newest commit whatever order the seeds were uploaded in, and installs nothing
+  when that seed is not newer than the host's cache;
 - bytes that do not match the record's digest are never installed, a download past the record's
   size is cut off, and a seed that unpacks past its declared size is refused as it streams;
 - without the store's URL and token nothing is fetched or published, and a pack without --out
@@ -174,14 +175,35 @@ class SeedTests(unittest.TestCase):
             with mock.patch.dict(self.env, {"GITHUB_WORKFLOW_REF": f"{REPO}/.github/workflows/nightly.yml@refs/heads/main"}):
                 self.find(api, {})
 
-    def test_the_newest_seed_not_being_newer_stops_the_search(self):
+    def test_the_newest_seed_not_being_newer_installs_nothing(self):
         host = self.root / "host"
         make_cas(host, "local")
         api = StubApi([artifact(4, created="2026-10-28T11:00:00Z"), artifact(3)],
                       {4: manifest(SHA_B, committed_at=200, run_id=4), 3: manifest(SHA_A, committed_at=100, run_id=3)})
         with self.assertRaisesRegex(seed.reuse.Miss, "as new as") as caught:
             self.find(api, {"sha": "c" * 40, "committed_at": 250}, host)
+        self.assertIn("run 4", str(caught.exception))
         self.assertNotIn("run 3", str(caught.exception))
+
+    def test_an_older_commit_uploaded_last_does_not_hide_a_newer_seed(self):
+        # Landing builds run concurrently: run 6 (commit time 100) publishes after run 5 (commit
+        # time 300), so the newest upload is the older cache.
+        uploads = [artifact(6, created="2026-10-28T12:00:00Z"), artifact(5, created="2026-10-28T11:00:00Z"),
+                   artifact(4, created="2026-10-28T10:00:00Z")]
+        manifests = {6: manifest(SHA_A, committed_at=100, run_id=6), 5: manifest(SHA_B, committed_at=300, run_id=5),
+                     4: manifest("d" * 40, committed_at=200, run_id=4)}
+        api = StubApi(uploads, manifests)
+        record, run_id = self.find(api, {}, self.root / "cold")
+        self.assertEqual((run_id, record["source_sha"]), (5, SHA_B), "a cold host took an older commit's seed")
+        warm = self.root / "warm"
+        make_cas(warm, "local")
+        record, run_id = self.find(api, {"sha": "c" * 40, "committed_at": 150}, warm)
+        self.assertEqual(run_id, 5, "a warm host skipped the newer seed behind an older upload")
+        with self.assertRaisesRegex(seed.reuse.Miss, "as new as"):
+            self.find(api, {"sha": "c" * 40, "committed_at": 300}, warm)
+        same_commit = StubApi(uploads[:2], {6: manifest(SHA_B, committed_at=300, run_id=6),
+                                            5: manifest(SHA_B, committed_at=300, run_id=5)})
+        self.assertEqual(self.find(same_commit, {}, self.root / "cold2")[1], 6, "seeds of one commit: the later run")
 
     def restore(self, blob_bytes: bytes, record: dict) -> str:
         host = self.root / "dd"

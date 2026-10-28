@@ -66,7 +66,9 @@ MAX_BLOB_BYTES = 8 * 1024**3
 EXTRACT_SLACK_BYTES = 64 * 1024**2
 MAX_MEMBERS = 2_000_000
 ZSTD_EXIT_SECONDS = 60
-CANDIDATES = 3
+# How many of the most recently uploaded trusted records a reader validates; it installs the one of
+# the newest commit among them, whatever order they were uploaded in.
+CANDIDATES = 5
 KEY_ENV = (
     "CMUX_NEXT_CONFIGURATION", "CMUX_NEXT_SWIFT_COMPILATION_MODE", "CMUX_NEXT_PRODUCT_NAME",
     "CMUX_NEXT_BUNDLE_ID", "CMUX_NEXT_CODE_SIGN_ENTITLEMENTS", "CMUX_NEXT_AUTH_CALLBACK_SCHEME",
@@ -84,7 +86,7 @@ class Miss(reuse.Miss):
 
 
 class NotNewer(Miss):
-    """The newest trusted seed is not newer than this host's cache (so no older one is either)."""
+    """The seed of the newest commit among the candidates is not newer than this host's cache."""
 
 
 def note(message: str) -> None:
@@ -406,7 +408,9 @@ def find_seed(api: reuse.Api, key: str, fields: dict[str, str], env: dict[str, s
                                     repository_id, LANE)
     if not records:
         raise Miss("no seed was recorded for this key yet")
-    reasons = []
+    # Landing builds run concurrently, so upload order is not commit order: an older commit can
+    # publish after a newer one. Validate every candidate in the window, then pick by commit time.
+    reasons, valid = [], []
     for item in records[:CANDIDATES]:
         try:
             run_id = int(item["workflow_run"]["id"])
@@ -417,15 +421,17 @@ def find_seed(api: reuse.Api, key: str, fields: dict[str, str], env: dict[str, s
             reuse.check_producer(jobs, run_id, LANE)
             manifest = reuse.read_record(api, item, scratch)
             check_record(manifest, key, fields, run_id)
-            why = newer(manifest, marker, derived_data)
-            if why:
-                raise NotNewer(why)
-            return manifest, run_id
+            valid.append((manifest, run_id))
         except (reuse.Miss, KeyError, TypeError, ValueError) as why:
             reasons.append(f"run {(item.get('workflow_run') or {}).get('id')}: {why}")
-            if isinstance(why, NotNewer):
-                break
-    raise Miss("; ".join(reasons))
+    if not valid:
+        raise Miss("; ".join(reasons))
+    # The newest commit wins; between seeds of one commit, the later run.
+    manifest, run_id = max(valid, key=lambda pair: (pair[0]["committed_at"], pair[1]))
+    why = newer(manifest, marker, derived_data)
+    if why:
+        raise NotNewer(f"run {run_id}: {why}")
+    return manifest, run_id
 
 
 # ---- commands

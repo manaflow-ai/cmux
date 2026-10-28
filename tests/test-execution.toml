@@ -1357,6 +1357,10 @@ lane = "linux-guard"
 serial = true
 
 [[test]]
+path = "tests/test_cmux_next_dev_cas_seed.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_dev_release_host_root.py"
 lane = "linux-guard"
 
