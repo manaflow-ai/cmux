@@ -10,7 +10,10 @@ import IOSurface
 /// stays painted over the fresh one until the fresh one presents a frame drawn after the replay
 /// was parsed: the snapshot first, then live. An evicted terminal shown again (a new session) shows
 /// its last frame (``TerminalLastFrame``) the same way from its first layout, until its first
-/// content is parsed and drawn.
+/// content is parsed and drawn, however long its attach takes: a relaunch whose daemon restores
+/// hundreds of terminals can answer an attach seconds late, and an empty surface with a cursor box
+/// is never better than the last content (Chrome keeps a tab's last frame up until the new content
+/// paints). A link that fails says so in the status banner over that frame.
 ///
 /// Every frame it compares is the one the renderer reports presented (``TerminalFrameSource``): the
 /// fresh surface's layer is only the container of the renderer's leaf, so its contents say nothing.
@@ -19,9 +22,6 @@ final class TerminalFrameHold {
     /// The longest the old frame stays once the content it waits for is queued: a surface that
     /// never draws shows as it is after this.
     static let limit: Duration = .milliseconds(500)
-    /// The longest a last frame waits for its session's first content (a failed or slow attach):
-    /// after it, the pane shows the surface as it is.
-    static let contentLimit: Duration = .seconds(3)
 
     private let view = HeldFrameView()
     private weak var surface: TerminalSurfaceView?
@@ -32,7 +32,7 @@ final class TerminalFrameHold {
     /// A last-frame hold whose surface has no content queued yet: it waits for ``contentQueued()``.
     private var awaitingContent = false
     private var generation = 0
-    /// The hold's limits (``limit``, ``contentLimit``): a pane shows the held frame until then, so a `visible` task.
+    /// The hold's limit once content is queued (``limit``): a pane shows the held frame until then, so a `visible` task.
     private let deadline: MainDeadline
     /// Where the parsed replay's refresh is posted.
     private let mainWork: MainWorkScheduler
@@ -68,16 +68,12 @@ final class TerminalFrameHold {
 
     /// Paints `frame` (an evicted terminal's last frame, an IOSurface; or its frame from the last
     /// quit, a CGImage) over `fresh`, a new session's first surface, until the first content
-    /// queued on its lane (``contentQueued()``) is parsed and drawn.
+    /// queued on its lane (``contentQueued()``) is parsed and drawn. No timer ends it before that:
+    /// the empty surface under it is never what the pane should show.
     func begin(lastFrame frame: Any, over fresh: TerminalSurfaceView, in host: NSView) {
         end()
         show(frame, over: fresh, like: fresh.layer, in: host)
         awaitingContent = true
-        let generation = generation
-        deadline.schedule(after: Self.contentLimit) { [weak self] in
-            guard let self, self.generation == generation, self.awaitingContent else { return }
-            self.end()
-        }
     }
 
     /// The session queued its first content on the surface's lane: a last-frame hold now waits
