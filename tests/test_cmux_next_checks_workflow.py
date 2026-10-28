@@ -602,7 +602,7 @@ class PathRoutingStructure(unittest.TestCase):
         """a925bd9 went red when PRs that skipped swift test landed a stale export."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
         runs = " ".join(step.get("run", "") for step in jobs["generated-files"]["steps"])
-        self.assertIn("check-action-surfaces.sh", runs)
+        self.assertIn("judge-action-exports.sh", runs)
         # The CI target graph is bot-only (#21946): no event checks it.
         self.assertNotIn("ci-target-graph.py --check", runs)
         self.assertNotIn("same-tree-cmux-tui", jobs["generated-files"]["needs"])
@@ -610,7 +610,7 @@ class PathRoutingStructure(unittest.TestCase):
         # build (generated_host, tests/test_cmux_next_generated_fold.py); a PR that skips swift
         # test still gets the generated-files job.
         for step in jobs["swift-test"]["steps"]:
-            if "check-action-surfaces.sh" in step.get("run", ""):
+            if "judge-action-exports.sh" in step.get("run", ""):
                 self.assertIn("env.CMUX_NEXT_FOLD_GENERATED == 'true'", step["if"])
         self.assertIn("needs.path_route.outputs.generated_host == 'generated-files'", jobs["generated-files"]["if"])
 
@@ -1529,7 +1529,7 @@ REUSE_GUARD = "steps.reuse.outputs.hit != 'true'"
 SAME_REPOSITORY = "(github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)"
 # Steps that build, test or regenerate: none may run before a job's reuse lookup.
 HEAVY_MARKERS = ("swift build", "swift-test-with-hang-sampler", "fast-tier.py", "check-release-compile.sh",
-                 "cargo test", "build-web-bundles.sh", "check-action-surfaces.sh", "defaults_guard.py",
+                 "cargo test", "build-web-bundles.sh", "check-action-surfaces.sh", "judge-action-exports.sh", "defaults_guard.py",
                  "regenerate-", "ensure-cef.sh", "build-cef-shim.sh")
 
 

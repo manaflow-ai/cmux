@@ -1685,6 +1685,7 @@ jobs:
             bash scripts/cmux-next/tests/base-autofix-action-exports.test.sh
             bash scripts/cmux-next/tests/base-autofix-changed.test.sh
             bash scripts/cmux-next/tests/base-autofix-settings-landed.test.sh
+            bash scripts/cmux-next/tests/judge-action-exports.test.sh
             bash scripts/cmux-next/tests/publish-bot-head-tree.test.sh
             bash scripts/cmux-next/tests/check-app-ffi-pin.test.sh
             bash scripts/cmux-next/tests/app-ffi-release-paths.test.sh
@@ -3232,7 +3233,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       - name: Check the settings exports
         id: settings
@@ -3727,7 +3728,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       - name: Check the settings exports
         id: settings
@@ -4142,7 +4143,7 @@ jobs:
         working-directory: Packages/macOS/CmuxNext
         env:
           CMUX_ACTION_SURFACES_SKIP_BUILD: "1"
-        run: ../../../scripts/cmux-next/check-action-surfaces.sh "$PWD"
+        run: ../../../scripts/cmux-next/judge-action-exports.sh "$PWD"
 
       # The CI target graph is bot-only (scripts/cmux-next/generated_outputs.py,
       # #21946): it is stale on every event between a merge that adds a target
