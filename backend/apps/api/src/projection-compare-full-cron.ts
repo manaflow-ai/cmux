@@ -173,7 +173,15 @@ export const compareFullFromEnv = async (env: Env, scheduledTime: number): Promi
   try {
     await pgc.connect()
     await pgc.query("SET default_transaction_read_only = on")
-    my = await connectMysql(env.PS_MYSQL_RO)
+    // connectMysql's own setup query has no timeout: a stalled connect ends the run instead of holding it (the
+    // invocation's end closes a socket that opens late).
+    let connectTimer: ReturnType<typeof setTimeout> | undefined
+    my = await Promise.race([
+      connectMysql(env.PS_MYSQL_RO),
+      new Promise<never>((_, reject) => {
+        connectTimer = setTimeout(() => reject(Object.assign(new Error("mysql connect timeout"), { code: "CONNECT_TIMEOUT" })), MYSQL_QUERY_TIMEOUT_MS)
+      })
+    ]).finally(() => clearTimeout(connectTimer))
     await runFullCompare({ postgres: pgc, mysql: withTimeout(my, MYSQL_QUERY_TIMEOUT_MS), pass: new Date(scheduledTime).toISOString() })
   } finally {
     await pgc.end().catch(() => undefined)
