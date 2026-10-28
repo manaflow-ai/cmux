@@ -139,19 +139,15 @@ pub(super) fn owner_policy_context(
     {
         return None;
     }
-    let Some(meta) = owner_policy_meta(params) else { return None };
+    let meta = owner_policy_meta(params)?;
     if meta.get(OWNER_POLICY_GRANT) != Some(&Value::Bool(true)) {
         return None;
     }
-    let Some(host) = meta.get(OWNER_POLICY_HOST).and_then(Value::as_str) else { return None };
-    let Some(proof) = meta.get(OWNER_POLICY_PROOF).and_then(Value::as_str) else {
-        return None;
-    };
-    let Some(nonce) = meta.get(OWNER_POLICY_NONCE).and_then(Value::as_str) else {
-        return None;
-    };
-    let Some(session) = params.get("sessionId").and_then(Value::as_str) else { return None };
-    let Some(policy) = params.get("policy").and_then(Value::as_str) else { return None };
+    let host = meta.get(OWNER_POLICY_HOST).and_then(Value::as_str)?;
+    let proof = meta.get(OWNER_POLICY_PROOF).and_then(Value::as_str)?;
+    let nonce = meta.get(OWNER_POLICY_NONCE).and_then(Value::as_str)?;
+    let session = params.get("sessionId").and_then(Value::as_str)?;
+    let policy = params.get("policy").and_then(Value::as_str)?;
     (valid_owner_host(host)
         && nonce.len() == 64
         && nonce.bytes().all(|b| b.is_ascii_hexdigit())
