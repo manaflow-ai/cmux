@@ -2146,9 +2146,20 @@ export function VirtualTranscript({
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
-    // A rail jump or a layout correction may move the live scroller after an event queued this
-    // frame. That event is stale; its state must not restore the old offset on the next commit.
-    if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) return;
+    // A wheel/default write or a rail jump may move the live scroller after an event queued this
+    // frame. The queued state is stale, but dropping it starves virtualization until motion stops.
+    // Commit the live offset and preserve the synchronous reader/jump intent instead.
+    if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) {
+      const node = ref.current;
+      const top = node.scrollTop;
+      const atLatest = jumpTarget.current !== undefined
+        ? true
+        : followingRef.current && top >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX;
+      scrollRef.current = { top, delta: top - scrollRef.current.top };
+      setScroll(scrollRef.current);
+      setFollowing(atLatest);
+      return;
+    }
     acpmuxPerf.timed("flush.scroll", () => {
       setScroll(scrollRef.current);
       setFollowing(frame.atLatest);
