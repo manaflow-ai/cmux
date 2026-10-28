@@ -54,7 +54,7 @@ export class WorkflowTranscript {
   loading = false;
   failed = false;
   get canLoadOlder() {
-    return !this.failed && !this.loading && (this.pages[0]?.start ?? 0) > 0;
+    return !this.failed && !this.loading && !this.truncated && (this.pages[0]?.start ?? 0) > 0;
   }
   get historyFrom() {
     return this.pages[0]?.start;
@@ -110,17 +110,23 @@ export class WorkflowTranscript {
   }
   private async pull(older: boolean) {
     const last = this.pages.at(-1);
-    const cursor = older ? { before: this.pages[0]!.start } : last ? { after: last.start } : {};
+    const cursor = older ? { before: this.pages[0]!.start } : last && !last.truncated ? { after: last.start } : {};
     let page = pageOf(await this.read({ ...this.request, ...cursor }));
     if (this.stopped) return;
-    if (older) {
+    if (older && page.truncated) {
+      // Relative cursors changed origin when the bounded file window moved. Without a
+      // daemon origin token, only a fresh tail is safe to show; never stitch the windows.
+      page = pageOf(await this.read(this.request));
+      if (this.stopped) return;
+      this.pages = [page];
+    } else if (older) {
       if (page.end !== this.pages[0]!.start || page.start >= page.end) throw new Error("Transcript cursor changed");
       page.offset = this.pages[0]!.offset - page.updates.length;
       this.pages = [page, ...this.pages];
     } else {
       // A truncated/replaced file changes cursor origin: discard old pages, never join two files.
-      const reset = last && (page.start !== last.start || page.lines < last.lines || page.truncated);
-      if (reset) page = pageOf(await this.read(this.request));
+      const reset = last && (last.truncated || page.start !== last.start || page.lines < last.lines || page.truncated);
+      if (reset && "after" in cursor) page = pageOf(await this.read(this.request));
       if (this.stopped) return;
       const next = reset || !last ? [] : this.pages.slice(0, -1);
       page.offset = reset || !last ? 0 : last.offset;

@@ -268,10 +268,14 @@ test("daemon omitted markers remain visible when the file itself was not truncat
 
 test("truncated windows never reuse relative cursors for older history", async () => {
   const calls: unknown[] = [];
-  const reader = new WorkflowTranscript(request, async (params) => {
-    calls.push(params);
-    return { ...page(312, 512, 512, [text(`tail ${calls.length}`)]), truncated: true };
-  }, () => {});
+  const reader = new WorkflowTranscript(
+    request,
+    async (params) => {
+      calls.push(params);
+      return { ...page(312, 512, 512, [text(`tail ${calls.length}`)]), truncated: true };
+    },
+    () => {},
+  );
   await reader.refresh();
   expect(reader.canLoadOlder).toBe(false);
   await reader.loadOlder();
@@ -287,7 +291,11 @@ test("truncation starting during an older read resets to the newest window", asy
     { ...page(0, 2, 4, [text("shifted older")]), truncated: true },
     { ...page(2, 4, 4, [text("fresh tail")]), truncated: true },
   ];
-  const reader = new WorkflowTranscript(request, async () => pages.shift(), () => {});
+  const reader = new WorkflowTranscript(
+    request,
+    async () => pages.shift(),
+    () => {},
+  );
   await reader.refresh();
   await reader.loadOlder();
   expect(reader.rows.map((row) => row.text)).toEqual(["fresh tail"]);
