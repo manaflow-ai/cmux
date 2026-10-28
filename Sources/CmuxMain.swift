@@ -79,9 +79,9 @@ enum CmuxMain {
         // leave escalation disabled there so that OS bug cannot terminate cmux.
         // `register(defaults:)` preserves an explicit user or test override.
         defaults.register(defaults: [
-            "NSApplicationCrashOnExceptions": MacOSExceptionPolicy.shouldEscalateUncaughtExceptions(
-                for: operatingSystemVersion
-            )
+            "NSApplicationCrashOnExceptions": MacOSExceptionPolicy(
+                operatingSystemVersion: operatingSystemVersion
+            ).shouldEscalateUncaughtExceptions
         ])
     }
 }

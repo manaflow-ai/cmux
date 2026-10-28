@@ -4,10 +4,10 @@ import Foundation
 
 /// Keeps AppKit's exception escalation policy aligned with the macOS versions
 /// where its SF Symbol renderer throws recoverable Objective-C exceptions.
-enum MacOSExceptionPolicy: Sendable {
-    static func shouldEscalateUncaughtExceptions(
-        for operatingSystemVersion: OperatingSystemVersion
-    ) -> Bool {
+struct MacOSExceptionPolicy: Sendable {
+    let operatingSystemVersion: OperatingSystemVersion
+
+    var shouldEscalateUncaughtExceptions: Bool {
         operatingSystemVersion.majorVersion < 27
     }
 }
@@ -60,9 +60,8 @@ struct MacSentryStartupPolicy: Sendable {
     static func shouldEnableUncaughtNSExceptionReporting(
         for operatingSystemVersion: OperatingSystemVersion
     ) -> Bool {
-        MacOSExceptionPolicy.shouldEscalateUncaughtExceptions(
-            for: operatingSystemVersion
-        )
+        MacOSExceptionPolicy(operatingSystemVersion: operatingSystemVersion)
+            .shouldEscalateUncaughtExceptions
     }
 
     static func isRunningUnderXCTest(environment: [String: String]) -> Bool {
