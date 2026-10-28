@@ -316,11 +316,11 @@ public final class ControlSocketServer: Sendable {
             state.withLock { $0.connections[id] = connection }
             if let pid = peer.pid {
                 peers.opened(id, pid: pid, ancestor: configuration.trustedAncestor,
-                                                     trusted: configuration.trustedExecutables)
+                             trusted: configuration.trustedExecutables)
             }
             connection.onClosed = { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
-                peers.closed(id)
+                self?.peers.closed(id)
                 // A request still waiting for this client (a confirmation sheet) ends now.
                 ControlConnectionClosures.shared.closed(id)
             }
