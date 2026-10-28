@@ -1,0 +1,118 @@
+import AppKit
+@testable import CmuxNextApp
+@testable import CmuxNextPalette
+@testable import CmuxNextSidebar
+import Testing
+
+/// Leo 2026-10-27, on a workspace's listed tabs in the sidebar: "we need to be able to middle-click and, you know,
+/// just deal with the stuff here. Like just closing tabs fundamentally." A middle-click closes exactly the tab under
+/// it wherever a tab is listed: a sidebar tab row (`.closeTab`, which the App runs as Close Tab), and a Search Tabs
+/// row (its Cmd-W close). The tab strip's own middle-click is unchanged. A workspace row keeps closing its workspace.
+@MainActor @Suite(.serialized)
+struct SidebarTabMiddleClickTests {
+    typealias Fixture = SidebarTabGroupControlsTests
+    typealias Gallery = SidebarTabMiddleClickGalleryTests
+
+    /// The sidebar fixture with every intent it sends recorded instead of applied.
+    static func recording() -> (SidebarListView, NSWindow, () -> [SidebarIntent]) {
+        let (model, sidebar, window) = Fixture.sidebar()
+        window.orderFrontRegardless()
+        var sent: [SidebarIntent] = []
+        model.onIntent = { sent.append($0) }
+        return (sidebar.list, window, { sent })
+    }
+
+    @Test func aMiddleClickOnATabRowClosesExactlyThatTab() throws {
+        let (list, window, sent) = Self.recording()
+        defer { window.close() }
+        try Gallery.middleClick(list, .tab(Fixture.shown, Fixture.second))
+        #expect(sent() == [.closeTab(workspace: Fixture.shown, tab: Fixture.second)])
+    }
+
+    /// A tab of a workspace that is not shown closes too, and the shown workspace stays as it is.
+    @Test func aTabOfAnotherWorkspaceClosesWithoutSwitching() throws {
+        let (list, window, sent) = Self.recording()
+        defer { window.close() }
+        let tab = CmuxNextSidebar.TabID("tg-tab-4")
+        try Gallery.middleClick(list, .tab(Fixture.other, tab))
+        #expect(sent() == [.closeTab(workspace: Fixture.other, tab: tab)])
+        #expect(list.model.activeWorkspaceID == Fixture.shown)
+    }
+
+    /// A press on one tab released on another closes nothing, as on the tab strip.
+    @Test func aReleaseOnAnotherRowClosesNothing() throws {
+        let (list, window, sent) = Self.recording()
+        defer { window.close() }
+        try Gallery.middleClick(list, .tab(Fixture.shown, Fixture.first), releasedOn: .tab(Fixture.shown, Fixture.second))
+        try Gallery.middleClick(list, .tab(Fixture.shown, Fixture.first), releasedOn: .workspace(Fixture.shown))
+        #expect(sent().isEmpty)
+    }
+
+    /// The workspace row keeps its own middle-click: its workspace closes (MIDDLE-CLICK-CLOSES-WORKSPACE).
+    @Test func aMiddleClickOnAWorkspaceRowStillClosesTheWorkspace() throws {
+        let (list, window, sent) = Self.recording()
+        defer { window.close() }
+        try Gallery.middleClick(list, .workspace(Fixture.other))
+        #expect(sent() == [.close([Fixture.other])])
+    }
+
+    // MARK: - Search Tabs rows
+
+    private final class ThreeRows: NSObject, NSTableViewDataSource {
+        func numberOfRows(in tableView: NSTableView) -> Int { 3 }
+    }
+
+    /// A palette row's middle press and release on the same row report it; across rows, or another button, nothing.
+    @Test func aPaletteRowReportsAMiddleClickOnTheSameRow() throws {
+        _ = NSApplication.shared
+        let rows = ThreeRows()
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 90), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let table = PaletteTableView(frame: NSRect(x: 0, y: 0, width: 200, height: 90))
+        table.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("row")))
+        table.rowHeight = 30
+        table.intercellSpacing = .zero
+        table.dataSource = rows
+        window.contentView = table
+        table.reloadData()
+        table.layoutSubtreeIfNeeded()
+        func event(_ type: NSEvent.EventType, row: Int, button: Int64 = 2) throws -> NSEvent {
+            let rect = table.rect(ofRow: row)
+            let base = table.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            let height = window.contentView?.bounds.height ?? window.frame.height
+            let made = try #require(DebugMouse.mouse(type, at: NSPoint(x: base.x, y: height - base.y), in: window, flags: [], clicks: 1))
+            guard button != 2, let cg = made.cgEvent?.copy() else { return made }
+            cg.setIntegerValueField(.mouseEventButtonNumber, value: button)
+            return try #require(DebugMouse.keepingWindowPoint(cg, made.locationInWindow))
+        }
+        var clicked: [Int] = []
+        table.onMiddleClick = { clicked.append($0) }
+        table.otherMouseDown(with: try event(.otherMouseDown, row: 1))
+        table.otherMouseUp(with: try event(.otherMouseUp, row: 1))
+        #expect(clicked == [1])
+        table.otherMouseDown(with: try event(.otherMouseDown, row: 0))
+        table.otherMouseUp(with: try event(.otherMouseUp, row: 2))
+        table.otherMouseDown(with: try event(.otherMouseDown, row: 2, button: 3))
+        table.otherMouseUp(with: try event(.otherMouseUp, row: 2, button: 3))
+        #expect(clicked == [1])
+    }
+
+    /// A middle-click on a Search Tabs row closes that row's tab, as Cmd-W on it does; the selection stays where it was.
+    @Test func aMiddleClickOnASearchTabsRowClosesItsTab() async throws {
+        let source = MockTabSearchSource()
+        let model = PaletteModel(usage: LocalPaletteUsageStore(persistence: nil))
+        model.push(.tabSearch(source: source))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while (model.searchTask != nil || model.rows.filter { $0.id.hasPrefix("tab:") && $0.item.isEnabled }.count < 2), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let open = model.rows.filter { $0.id.hasPrefix("tab:") && $0.item.isEnabled }
+        try #require(open.count >= 2, "Search Tabs listed \(model.rows.map(\.id))")
+        let selected = model.selectedRowID
+        let target = try #require(open.first { $0.id != selected })
+        model.closeRow(rowID: target.id)
+        #expect(source.closed == [String(target.id.dropFirst("tab:".count))])
+        #expect(model.selectedRowID == selected)
+    }
+}

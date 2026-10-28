@@ -99,6 +99,18 @@ extension PaletteModel {
         return true
     }
 
+    /// A middle-click on row `rowID`: closes it as Cmd-W does (Tab Search: the row's tab; Leo 2026-10-27: middle-click
+    /// closes a tab wherever one is shown). A row without a close command takes nothing; while a search is in flight
+    /// the click is dropped, its row may be gone. The selection moves only when the closed row held it.
+    public func closeRow(rowID: String) {
+        guard searchTask == nil, let item = rows.first(where: { $0.id == rowID })?.item, item.isEnabled,
+              let command = item.closeCommand, current != nil else { return }
+        actionsMenu = nil
+        if rowID == selectedRowID { return closeRow(item) }
+        guard performClose(command, rowID: rowID) else { return }
+        reload()
+    }
+
     func closeRow(_ item: PaletteItem) {
         guard item.isEnabled, let command = item.closeCommand, current != nil else { return }
         let placed = sections.flatMap { section in section.rows.map { (id: $0.id, section: section.section.id) } }
