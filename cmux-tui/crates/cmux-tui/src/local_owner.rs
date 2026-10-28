@@ -142,11 +142,14 @@ pub(crate) fn claim_inherited_fd(option: &str, value: &str) -> Result<i32, Strin
 
 /// Whether `arg` is a private owner startup option `claim_owner_arg` parses.
 pub(crate) fn is_owner_arg(arg: &str) -> bool {
-    arg == OWNER_READY_FD_ARG || arg == OWNER_INSTALL_KEY_FD_ARG || install_key::is_stdin_arg(arg)
+    arg == OWNER_READY_FD_ARG
+        || arg == OWNER_INSTALL_KEY_FD_ARG
+        || arg == EXIT_WITH_PID_ARG
+        || install_key::is_stdin_arg(arg)
 }
 
-/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG` (each once,
-/// taking its value from `values`) or, on Windows, the value-less
+/// Parses `OWNER_READY_FD_ARG`, `OWNER_INSTALL_KEY_FD_ARG`, `EXIT_WITH_PID_ARG`
+/// (each once, taking its value from `values`) or, on Windows, the value-less
 /// `OWNER_INSTALL_KEY_STDIN_ARG`.
 pub(crate) fn claim_owner_arg(
     arg: &str,
@@ -157,6 +160,13 @@ pub(crate) fn claim_owner_arg(
         return install_key::claim_install_key_stdin();
     }
     let value = values.next().ok_or_else(|| format!("{arg} needs a value"))?;
+    if arg == EXIT_WITH_PID_ARG {
+        let pid = parse_exit_with_pid(&value)?;
+        if args.exit_with_pid.replace(pid).is_some() {
+            return Err(format!("{arg} may be supplied only once"));
+        }
+        return Ok(());
+    }
     let fd = claim_inherited_fd(arg, &value)?;
     let slot = if arg == OWNER_READY_FD_ARG {
         &mut args.owner_ready_fd

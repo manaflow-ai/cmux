@@ -22,9 +22,7 @@ pub(super) enum ServerAction {
     /// running owner keeps the grace it was started with.
     Ensure {
         terminal_reap_grace: Option<Duration>,
-        /// Private test-harness contract: an owner this call spawns ends
-        /// its terminals and stops when this process exits
-        /// (`local_owner::exit_with`).
+        /// Test harnesses: the spawned owner ends with this pid (`local_owner::exit_with`).
         exit_with_pid: Option<u32>,
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
@@ -713,8 +711,8 @@ fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::Front
 /// nothing serves the socket. Reports `running` for an owner that already
 /// existed and `started` for one this call spawned. `socket` is the socket
 /// path and whether it was derived from the session name; the owner pair is
-/// `--terminal-reap-grace-seconds` and `--exit-with-pid`; the flag pair is
-/// `--restore-progress` and `--replace-unresponsive`.
+/// the reap grace and `--exit-with-pid`, the flag pair `--restore-progress`
+/// and `--replace-unresponsive`.
 fn run_ensure(
     expected_session: Option<String>,
     (terminal_reap_grace, exit_with_pid): (Option<Duration>, Option<u32>),

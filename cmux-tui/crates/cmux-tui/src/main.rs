@@ -577,7 +577,6 @@ struct Args {
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
     terminal_reap_grace: Option<std::time::Duration>,
-    /// `--exit-with-pid` (headless owners only, `local_owner::exit_with`).
     exit_with_pid: Option<u32>,
 }
 
@@ -937,13 +936,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     &mut out.owner_host_bg
                 };
                 if slot.replace(color).is_some() {
-                    return Err(format!("{arg} may be supplied only once"));
-                }
-            }
-            local_owner::EXIT_WITH_PID_ARG => {
-                let value = args.next().ok_or_else(|| format!("{arg} needs a value"))?;
-                let pid = local_owner::parse_exit_with_pid(&value)?;
-                if out.exit_with_pid.replace(pid).is_some() {
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
@@ -2680,7 +2672,6 @@ fn run_server(
         )
     });
     let result = if args.headless {
-        // A starter that already exited stops the owner at once.
         local_owner::exit_with(&mux, args.exit_with_pid);
         mux.mark_server_lifecycle_ready();
         if let Some(fd) = args.owner_ready_fd {
