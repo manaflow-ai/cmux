@@ -7,8 +7,9 @@ public import AppKit
 /// how long each waited (from the hold, ``KeyArrivalLedger/holdStart(of:)``, to its last replay), and it logs a late
 /// key in the ledger (`debug.input late_keys`). A key that its own replay holds again (the launch picture: undecided,
 /// then for a terminal still a picture) is one key: its later replay replaces its earlier record. Only the ``Sender``
-/// it hands out sends the event (to the application, a window or a view); the input guardrail allows a held key's
-/// `sendEvent` in this file only.
+/// it hands out sends the event (to the application, a window or a view): a held key goes on through it, never through
+/// its own `sendEvent` call. The app has one seam per ledger (`InputLatencyDispatch.heldKeys`): two seams on one
+/// ledger would take back each other's records.
 ///
 /// The input rule: a person's key goes at once to its destination by id (terminal, pane or page id), which queues it;
 /// a path may hold it only with a written reason, a limit of at most ``limitNanos`` and this stage. Its numbers are in
