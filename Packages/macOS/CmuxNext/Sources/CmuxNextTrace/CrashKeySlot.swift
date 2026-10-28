@@ -96,3 +96,11 @@ public nonisolated enum CrashKeySlot: UInt16, Sendable, CaseIterable {
     /// The words at the start of the page that hold its header, before the first slot.
     public static let headerWordCount = 8
 }
+
+extension CrashKeySlot {
+    /// ``unclosedAgentPaneMaker``'s word for a pane of maker `code` (`AgentPaneMaker`'s raw value) freed without its
+    /// `close()` at `uptimeNanos` (`CLOCK_UPTIME_RAW`).
+    public static func unclosedAgentPane(maker code: UInt8, uptimeNanos: UInt64) -> UInt64 {
+        UInt64(code)
+    }
+}
