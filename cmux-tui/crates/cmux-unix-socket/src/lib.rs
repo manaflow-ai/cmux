@@ -72,27 +72,47 @@ pub fn bind(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
 }
 
 /// Binds `path` so that the socket is never reachable with a wider mode than
-/// owner read and write (0600): the socket is bound in a new owner-only
-/// (0700) directory beside `path`, set to 0600 there, and then renamed onto
-/// `path` (which replaces a stale socket file there). A socket bound in place
-/// and then chmod-ed has the umask's mode until the chmod, and a peer can
-/// connect in that window. The caller checks that no live server owns `path`
-/// first.
+/// owner read and write (0600): the socket is bound as `s` in a new
+/// owner-only (0700) staging directory beside `path` (`.s<hex>`, no longer
+/// than `path` itself up to a few bytes, so a path that fits fits staged),
+/// set to 0600 there, and then renamed onto `path` (which replaces a stale
+/// socket file there). A socket bound in place and then chmod-ed has the
+/// umask's mode until the chmod, and a peer can connect in that window. The
+/// parent must be a directory of this user that no other user can write. The
+/// caller checks that no live server owns `path` first.
 #[cfg(unix)]
 pub fn bind_private(path: &Path) -> io::Result<std::os::unix::net::UnixListener> {
-    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
     check_path(path)?;
     let parent = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
-    let name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            format!("no socket file name in {}", path.display()),
-        )
-    })?;
-    // A short sibling name, so the staged path fits when `path` does.
-    let staging = parent.join(format!(".s{:x}", std::process::id() ^ unique()));
-    std::fs::DirBuilder::new().mode(0o700).create(&staging)?;
-    let staged = staging.join(name);
+    let mut staging = None;
+    for _ in 0..8 {
+        let candidate = parent.join(format!(".s{:x}", unique() & 0xffff));
+        match std::fs::DirBuilder::new().mode(0o700).create(&candidate) {
+            Ok(()) => {
+                staging = Some(candidate);
+                break;
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        }
+    }
+    let staging = staging
+        .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "no free staging name"))?;
+    // The parent belongs to this user (the staging directory it just made says
+    // which uid that is) and no one else can write it.
+    let owner = std::fs::symlink_metadata(&staging).map(|m| m.uid());
+    let parent_ok = std::fs::symlink_metadata(parent).is_ok_and(|m| {
+        m.is_dir() && owner.as_ref().is_ok_and(|uid| *uid == m.uid()) && m.mode() & 0o022 == 0
+    });
+    if !parent_ok {
+        let _ = std::fs::remove_dir(&staging);
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("{} is not a private directory of this user", parent.display()),
+        ));
+    }
+    let staged = staging.join("s");
     let result = (|| {
         check_path(&staged)?;
         let listener = std::os::unix::net::UnixListener::bind(&staged)?;
@@ -105,7 +125,7 @@ pub fn bind_private(path: &Path) -> io::Result<std::os::unix::net::UnixListener>
     result
 }
 
-/// A per-call number for staging names (time and a counter).
+/// A per-call number for staging names (time, process and a counter).
 #[cfg(unix)]
 fn unique() -> u32 {
     use std::sync::atomic::{AtomicU32, Ordering};
@@ -113,7 +133,7 @@ fn unique() -> u32 {
     let nanos = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.subsec_nanos());
-    nanos ^ NEXT.fetch_add(1, Ordering::Relaxed).rotate_left(16)
+    nanos ^ std::process::id().rotate_left(8) ^ NEXT.fetch_add(1, Ordering::Relaxed).rotate_left(16)
 }
 
 /// `UnixStream::connect` after [`check_path`].
