@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // Sits between a real agent CLI and `cmux mcp serve`: passes every JSON-RPC line through
 // unchanged and appends {dir, msg} to the log, so a CLI run is graded on what it called.
-// Usage: mcp-log.mjs <log.jsonl> <cmux> [serve args...]
+// Usage: mcp-log.mjs <log.jsonl> <command> [args...] (the full server command, such as
+// `cmux mcp serve` or `ssh host env ... cmux mcp serve`)
 import { spawn } from "node:child_process";
 import { appendFileSync } from "node:fs";
 
-const [log, cli, ...args] = process.argv.slice(2);
-const child = spawn(cli, ["mcp", "serve", ...args], { stdio: ["pipe", "pipe", "inherit"] });
+const [log, command, ...args] = process.argv.slice(2);
+const child = spawn(command, args, { stdio: ["pipe", "pipe", "inherit"] });
 const relay = (from, to, dir) => {
   let buf = "";
   from.on("data", (chunk) => {

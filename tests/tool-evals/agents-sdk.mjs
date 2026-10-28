@@ -10,7 +10,8 @@ import { join } from "node:path";
 import { agentProfile } from "./live-guard.mjs";
 
 const SDK_PATH = join(homedir(), ".bun/install/global/node_modules/@anthropic-ai/claude-agent-sdk/sdk.mjs");
-const CLAUDE_BIN = process.env.CLAUDE_BIN ?? execFileSync("which", ["claude"]).toString().trim();
+/** The installed Claude Code, found when a Claude run starts (a host without it runs other models). */
+const claudeBin = () => process.env.CLAUDE_BIN ?? execFileSync("which", ["claude"]).toString().trim();
 
 /**
  * On macOS each harness runs under `agentProfile` (live-guard.mjs): a model's `open <url>`

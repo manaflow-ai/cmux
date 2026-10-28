@@ -9,7 +9,7 @@ import { promisify } from "node:util";
 import { gunzipSync } from "node:zlib";
 import { capture, normalize } from "../agent-evals/snapshot.mjs";
 import { caseVerdict, cliTool, gradeCalls, gradeState, verdict } from "./grade.mjs";
-import { openSession } from "./session.mjs";
+import { evalAgentStub, openSession } from "./session.mjs";
 import { runClaudeSdk, runCodexAppServer } from "./agents-sdk.mjs";
 import { shellProfile } from "./live-guard.mjs";
 import { TASKS } from "../agent-evals/tasks.mjs";
@@ -171,10 +171,7 @@ function shellFixtures(sample) {
   // The stub helper agent of agent-evals' subagents-right: records the terminal it ran in.
   mkdirSync(join(dir, "markers"), { recursive: true });
   const stub = join(dir, "bin/cmux-eval-agent");
-  writeFileSync(
-    stub,
-    `#!/bin/bash\nrole=""\nwhile [ $# -gt 0 ]; do case "$1" in --role) role="$2"; shift 2;; --role=*) role="\${1#--role=}"; shift;; *) shift;; esac; done\n[ -z "$role" ] && { echo "usage: cmux-eval-agent --role NAME" >&2; exit 2; }\necho "\${CMUX_TUI_TERMINAL_ID:-unknown}" > ${JSON.stringify(join(dir, "markers"))}/$role\necho "agent $role ready"\nexec sleep 3600\n`,
-  );
+  writeFileSync(stub, evalAgentStub(dir));
   chmodSync(stub, 0o755);
   writeFileSync(join(dir, "sandbox.sb"), shellProfile({ sessionName: session.name, work: session.work, dir }));
   sample.shellEnv = { ...session.env, PATH: `${join(dir, "bin")}:${dirname(CLI)}:/usr/bin:/bin:/usr/sbin:/sbin:/opt/homebrew/bin`, HOME: session.work };
@@ -251,7 +248,10 @@ async function runCliAgent(sample, testCase, surface) {
   const mcpLog = join(dir, "mcp.jsonl");
   const mcp = {
     command: process.execPath,
-    args: [join(HERE, "mcp-log.mjs"), mcpLog, CLI, ...(surface === "all" ? ["--all-tools"] : [])],
+    args: (() => {
+      const server = session.mcpCommand(surface === "all" ? ["--all-tools"] : []);
+      return [join(HERE, "mcp-log.mjs"), mcpLog, server.command, ...server.args];
+    })(),
     env: {
       CMUX_TUI_SOCKET: session.socket,
       CMUX_TUI_TERMINAL_ID: session.origin.terminal_id,
@@ -405,14 +405,16 @@ function ptysInUse() {
   return readdirSync("/dev").filter((f) => /^ttys\d+$/.test(f)).length;
 }
 const PTY_LIMIT = Number(arg("pty-limit", "485"));
+/** `--remote-daemon host:/path/to/cmux`: each sample's daemon runs on that ssh host. */
+const REMOTE = arg("remote-daemon", null) ? { host: arg("remote-daemon").split(":")[0], cli: arg("remote-daemon").split(":").slice(1).join(":") } : null;
 
 async function runSample(testCase, surface, index) {
   // The person's own cmux shares the PTY cap: a sample starts only while enough stay free.
-  while (ptysInUse() > PTY_LIMIT) await new Promise((r) => setTimeout(r, 5000));
+  while (!REMOTE && ptysInUse() > PTY_LIMIT) await new Promise((r) => setTimeout(r, 5000));
   const dir = join(OUT, surface, testCase.id, `s${index}`);
   mkdirSync(dir, { recursive: true });
   const name = `te${process.pid}-${(jobSeq++).toString(36)}`;
-  const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all" ? true : surface === "hybrid" ? "hybrid" : false, setup: testCase.setup ?? [], noApp: !!testCase.noApp });
+  const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all" ? true : surface === "hybrid" ? "hybrid" : false, setup: testCase.setup ?? [], noApp: !!testCase.noApp, remote: REMOTE });
   const sample = { dir, session, ops: [], shell: [], scripts: [], cliCalls: [], docsCalls: 0, text: "", steps: 0, usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, firstInput: 0 };
   try {
     for (const [file, body] of Object.entries(testCase.files ?? {})) {
@@ -474,7 +476,7 @@ async function finishSample(sample, testCase, surface, index, before, name, tran
   const ctx = {
     before, after, origin: session.origin, aliases: session.aliases, answer: sample.text,
     calls: sample.cliCalls,
-    markers: Object.fromEntries(readdirSync(join(dir, "markers")).map((r) => [r, readFileSync(join(dir, "markers", r), "utf8").trim()])), session: { name, sockets: [session.socket] }, posts: [],
+    markers: (await session.markers()) ?? Object.fromEntries(readdirSync(join(dir, "markers")).map((r) => [r, readFileSync(join(dir, "markers", r), "utf8").trim()])), session: { name, sockets: [session.socket] }, posts: [],
   };
   const checks = [...gradeState(testCase.expect?.state, ctx), ...gradeCalls(testCase.expect ?? {}, sample)];
   const row = {

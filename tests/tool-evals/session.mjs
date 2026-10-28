@@ -23,9 +23,23 @@ export const CORE_TOOLS = [
   "workspace_group_create", "workspace_place", "workspace_status_set", "notification_create",
 ];
 
+/** The stub helper agent of agent-evals' subagents-right: records the terminal it ran in. */
+export const evalAgentStub = (dir) =>
+  `#!/bin/bash\nrole=""\nwhile [ $# -gt 0 ]; do case "$1" in --role) role="$2"; shift 2;; --role=*) role="\${1#--role=}"; shift;; *) shift;; esac; done\n[ -z "$role" ] && { echo "usage: cmux-eval-agent --role NAME" >&2; exit 2; }\necho "\${CMUX_TUI_TERMINAL_ID:-unknown}" > ${JSON.stringify(join(dir, "markers"))}/$role\necho "agent $role ready"\nexec sleep 3600\n`;
+
+/** ssh to the daemon's host. No ControlPersist: its background master keeps the first
+ * caller's output pipe open, so that call never returned. */
+const SSH_OPTS = ["-o", "BatchMode=yes", "-o", "ConnectTimeout=20", "-o", "ServerAliveInterval=15"];
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false }) {
+/**
+ * `remote` runs the session daemon on another host ({host, cli}: an ssh host and its cmux
+ * binary) and forwards its socket here, so its terminals use that host's PTYs (a Mac caps
+ * them at 511, and the person's own cmux holds most). Clients, the MCP server and the
+ * agent stay on this machine.
+ */
+export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false, remote = null }) {
   mkdirSync(dir, { recursive: true });
   const work = mkdtempSync(join(tmpdir(), "cmux-tool-eval-"));
   const env = {};
@@ -45,16 +59,55 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     const parsed = JSON.parse(stdout);
     return parsed && typeof parsed === "object" && "value" in parsed && "revision" in parsed ? parsed.value : parsed;
   };
-  const daemon = spawn(cli, ["daemon", "start", "--session", name, "--socket", socket, "--ephemeral", "--headless"], {
-    env, cwd: work, stdio: ["ignore", "ignore", "ignore"], detached: true,
-  });
+  let daemon;
+  let launcher = null;
+  const ssh = remote && ((args) => pexec("ssh", [...SSH_OPTS, remote.host, ...args], { maxBuffer: 16 << 20 }));
+  if (remote) {
+    // The same paths there: the daemon's cwd, the stub helpers and the markers they write.
+    const stub = Buffer.from(evalAgentStub(dir)).toString("base64");
+    const q = JSON.stringify;
+    const stubPath = join(dir, "bin", "cmux-eval-agent");
+    // Fire and forget: the remote shell outlives its backgrounded daemon over Tailscale ssh, so
+    // waiting on it never returned. The ready loop below waits for the daemon's socket.
+    launcher = spawn("ssh", [...SSH_OPTS, "-n", remote.host, `mkdir -p /tmp/cte ${q(work)} ${q(join(dir, "bin"))} ${q(join(dir, "markers"))} && echo ${stub} | base64 -d > ${q(stubPath)} && chmod +x ${q(stubPath)} && cd ${q(work)} && PATH=${q(join(dir, "bin"))}:$PATH setsid nohup ${remote.cli} daemon start --session ${name} --socket ${socket} --ephemeral --headless < /dev/null > /dev/null 2>&1 &`], { stdio: "ignore", detached: true });
+    launcher.unref();
+    rmSync(socket, { force: true });
+    daemon = spawn("ssh", [...SSH_OPTS, "-o", "StreamLocalBindUnlink=yes", "-N", "-L", `${socket}:${socket}`, remote.host], { stdio: "ignore", detached: true });
+  } else {
+    daemon = spawn(cli, ["daemon", "start", "--session", name, "--socket", socket, "--ephemeral", "--headless"], {
+      env, cwd: work, stdio: ["ignore", "ignore", "ignore"], detached: true,
+    });
+  }
   // Stops this sample's daemon and its terminals. A failed open stops it too: an open that
   // threw after the spawn left the daemon running (1,115 daemons after one overloaded panel).
   const stopDaemon = async () => {
     await pexec(cli, ["daemon", "stop", "--socket", socket, "--end-terminals", "--force"], { env }).catch(() => {});
     try { process.kill(-daemon.pid, "SIGTERM"); } catch {}
+    try { if (launcher) process.kill(-launcher.pid, "SIGTERM"); } catch {}
     for (const f of readdirSync("/tmp/cte")) if (f.startsWith(`${name}.sock`)) rmSync(join("/tmp/cte", f), { force: true });
     rmSync(work, { recursive: true, force: true });
+    if (remote) await ssh([`rm -rf /tmp/cte/${name}.sock* ${JSON.stringify(work)} ${JSON.stringify(dir)}`]).catch(() => {});
+  };
+  /**
+   * The `cmux mcp serve` command for this session: local, or on the daemon's host over ssh
+   * stdio with the stand-in app's socket forwarded back, so the MCP server is that host's
+   * build (a Linux build of any commit, no Mac build needed).
+   */
+  const mcpCommand = (serveArgs) => {
+    if (!remote) return { command: cli, args: ["mcp", "serve", ...serveArgs] };
+    const remoteEnv = [
+      `CMUX_TUI_SOCKET=${socket}`, `CMUX_TUI_TERMINAL_ID=${agentEnvRef.CMUX_TUI_TERMINAL_ID}`,
+      `CMUX_SOCKET_PATH=${env.CMUX_SOCKET_PATH}`, `CMUX_NEXT_CONFIG_FILE=${env.CMUX_NEXT_CONFIG_FILE}`,
+    ];
+    const forward = noApp ? [] : ["-o", "StreamLocalBindUnlink=yes", "-R", `${env.CMUX_SOCKET_PATH}:${env.CMUX_SOCKET_PATH}`];
+    return { command: "ssh", args: [...SSH_OPTS, ...forward, remote.host, "env", ...remoteEnv, remote.cli, "mcp", "serve", ...serveArgs] };
+  };
+  const agentEnvRef = {};
+  /** The markers the stub helpers wrote (on the daemon's host). */
+  const markers = async () => {
+    if (!remote) return null;
+    const { stdout } = await ssh([`cd ${JSON.stringify(join(dir, "markers"))} 2>/dev/null && for f in *; do [ -f "$f" ] && printf '%s\t%s\n' "$f" "$(cat "$f")"; done; true`]).catch(() => ({ stdout: "" }));
+    return Object.fromEntries(stdout.split("\n").filter(Boolean).map((l) => l.split("\t")));
   };
   let mcp = null;
   let directMcp = null;
@@ -77,8 +130,11 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     // A terminal reaches its session through CMUX_TUI_SOCKET, not --session (which turns
     // `current` into the focused object).
     const agentEnv = { ...env, CMUX_TUI_SOCKET: socket, CMUX_TUI_TERMINAL_ID: origin.terminal_id };
+    agentEnvRef.CMUX_TUI_TERMINAL_ID = origin.terminal_id;
+    if (remote) await ssh([`echo '{"mcp":{"enabled":true}}' > ${JSON.stringify(env.CMUX_NEXT_CONFIG_FILE)}`]);
     const start = async (args) => {
-      const client = new McpClient(cli, ["mcp", "serve", ...args], agentEnv, work);
+      const { command, args: argv } = mcpCommand(args);
+      const client = new McpClient(command, argv, agentEnv, work);
       const init = await client.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cmux-tool-evals", version: "1" } });
       client.notify("notifications/initialized");
       return { client, init, tools: (await client.request("tools/list", {})).tools };
@@ -113,7 +169,7 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
       app?.close();
       await stopDaemon();
     };
-    return { name, env: agentEnv, socket, cmux, mcp, route, tools, instructions: init.instructions ?? "", origin, aliases, shell, work, close };
+    return { name, env: agentEnv, socket, cmux, mcp, route, markers, mcpCommand, tools, instructions: init.instructions ?? "", origin, aliases, shell, work, close };
   } catch (error) {
     mcp?.close();
     directMcp?.close();
