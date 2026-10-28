@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// The pane's loading state fades its background out over the page in ``MotionFade/fadeIn`` (120 ms)
 /// when a chat's page first paints, which Leo asked for on 2026-10-14 for a chat the app had not
@@ -34,11 +35,11 @@ struct CachedChatPaintFadeTests {
     }
 
     @Test func theModelKeepsWhatTheFirstPaintSaidItDrew() async {
-        let cached = AgentPaneModel(host: NoHost())
+        let cached = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         _ = await cached.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]]))
         #expect(cached.hasPainted)
         #expect(cached.paintedFromKeptTail)
-        let cold = AgentPaneModel(host: NoHost())
+        let cold = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         _ = await cold.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
         #expect(cold.hasPainted)
         #expect(!cold.paintedFromKeptTail)

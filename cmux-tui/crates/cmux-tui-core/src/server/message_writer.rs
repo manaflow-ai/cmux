@@ -468,6 +468,24 @@ impl MessageWriter {
         result
     }
 
+    /// [`Self::send_stream`] of a value already encoded with
+    /// [`Self::encode`], off the thread that hands it over (a snapshot
+    /// viewer's bulk work encodes its READY and chunks on a utility worker).
+    pub(super) fn send_encoded_stream(
+        &self,
+        encoded: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = encoded.and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     /// A frame on `stream` whose payload is `text`: one longer than the
     /// connection's BULK_FRAME_MAX leaves in chunks, so replies and
     /// input-lane items pass it between chunks.

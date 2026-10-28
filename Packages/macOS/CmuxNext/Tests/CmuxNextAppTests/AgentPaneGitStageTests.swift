@@ -1,6 +1,7 @@
 @testable import CmuxNextAgentPane
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// The Changes view's Stage and Unstage (cx-tcwj): the page asks the App to run `git add` or
 /// `git restore --staged` on files of the chat's repository. Each needs a real click or key in the
@@ -21,7 +22,7 @@ struct AgentPaneGitStageTests {
         try git(repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "one")
         try "two\n".write(toFile: repo + "/a.txt", atomically: true, encoding: .utf8)
         try "new\n".write(toFile: repo + "/b.txt", atomically: true, encoding: .utf8)
-        let model = AgentPaneModel(host: NoHost())
+        let model = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost())
         model.workspaceRoots = { [repo] }
         model.gitWritesHere = { true }
         return (model, repo)
@@ -65,7 +66,7 @@ struct AgentPaneGitStageTests {
     /// already run there; Stage refused it as outside the chat's folders.
     @Test func aRestoredChatStagesInItsSessionFolder() async throws {
         let (_, repo) = try Self.rig()
-        let restored = AgentPaneModel(host: NoHost(), sessionId: "s")
+        let restored = AgentPaneModel(runner: BackgroundWork(label: "test.agent-pane"), host: NoHost(), sessionId: "s")
         restored.gitWritesHere = { true }
         restored.transport.sessions.add("s")
         restored.transport.sessions.observeFolder(["result": ["session": ["sessionId": "s", "cwd": repo]]], replyTo: "_acpmux/attach")

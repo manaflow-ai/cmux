@@ -43,6 +43,7 @@ constexpr Producer kProducers[] = {
     {kOpExtList, Key::kTab},
     {kOpExtCommands, Key::kTab},
     {kOpOmniboxKeywords, Key::kTab},
+    {kOpRendererClientIds, Key::kTab},
 };
 
 // Which tabs a refresh names. Every (mirror, event) not listed names the

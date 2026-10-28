@@ -61,14 +61,11 @@ impl HostAttachment {
                 reader.read_timeout().context("read terminal-host timeout before termination")?;
             let response = (|| -> anyhow::Result<()> {
                 loop {
-                    let remaining = deadline.saturating_duration_since(Instant::now());
                     anyhow::ensure!(
-                        !remaining.is_zero(),
+                        bound_next_read(reader, deadline)
+                            .context("set terminal-host termination timeout")?,
                         "terminal host did not acknowledge termination"
                     );
-                    reader
-                        .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                        .context("set terminal-host termination timeout")?;
                     let frame = read_frame(reader, MAX_FRAME_PAYLOAD)
                         .map_err(protocol_io_error)?
                         .ok_or_else(|| {
@@ -94,8 +91,7 @@ impl HostAttachment {
                     return Ok(());
                 }
             })();
-            let restored = reader
-                .set_read_timeout(previous_timeout)
+            let restored = restore_read_timeout(reader, previous_timeout)
                 .context("restore terminal-host timeout after termination");
             response.and(restored)
         })();
@@ -121,14 +117,11 @@ impl HostAttachment {
             reader.read_timeout().context("read terminal-host timeout before termination")?;
         let result = (|| -> anyhow::Result<TerminalHostExitRecord> {
             loop {
-                let remaining = deadline.saturating_duration_since(Instant::now());
                 anyhow::ensure!(
-                    !remaining.is_zero(),
+                    bound_next_read(reader, deadline)
+                        .context("set terminal-host termination timeout")?,
                     "terminal host did not exit before the termination deadline"
                 );
-                reader
-                    .set_read_timeout(Some(remaining.max(Duration::from_millis(1))))
-                    .context("set terminal-host termination timeout")?;
                 let frame = match read_frame(reader, MAX_FRAME_PAYLOAD) {
                     Ok(Some(frame)) => frame,
                     Ok(None) | Err(_) => {
@@ -156,8 +149,7 @@ impl HostAttachment {
                 return Ok(TerminalHostExitRecord::new(&identity, exit));
             }
         })();
-        let restored = reader
-            .set_read_timeout(previous_timeout)
+        let restored = restore_read_timeout(reader, previous_timeout)
             .context("restore terminal-host timeout after termination");
         match result {
             Ok(record) => {
