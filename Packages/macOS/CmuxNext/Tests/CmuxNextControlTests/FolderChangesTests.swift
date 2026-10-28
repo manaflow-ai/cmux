@@ -43,8 +43,10 @@ import Testing
 
     /// events() returns only after the kernel has registered the watches (review of #26320:
     /// resume() only schedules the registration, and dispatch_source(3) drops events before it
-    /// completes). The watches' queue is held suspended, so no registration handler can run:
-    /// events() must not return until the queue is let go, and a write the moment it returns is seen.
+    /// completes). The watches' queue is held suspended, so no registration handler can run, and
+    /// events() starts synchronously (Task.immediate) up to its first suspension: it must stop there
+    /// rather than return, and a write the moment it returns, once the queue is let go, is seen.
+    @available(macOS 26, *)
     @Test func eventsReturnsOnlyOnceTheWatchesAreRegistered() async throws {
         let folder = FileManager.default.temporaryDirectory.resolvingSymlinksInPath()
             .appendingPathComponent("folder-changes-\(UUID().uuidString)", isDirectory: true)
@@ -53,16 +55,15 @@ import Testing
         let queue = DispatchQueue(label: "folder-changes-registration")
         let steps = Steps()
         queue.suspend()
-        let pending = Task {
+        // Runs on this thread until it first suspends, so events() has made and resumed its watches
+        // (and returned, if it did not wait for their registration) before the next line.
+        let pending = Task.immediate {
             let stream = await FolderChanges(folders: [folder], ledger: WakeupLedger(), queue: queue).events()
             steps.append("returned")
             // Written before the watch loop can have run.
             try Data([0]).write(to: folder.appendingPathComponent("first.png"))
             return stream
         }
-        // Room for a regression to show (events() returning while registration is held); the fixed
-        // code cannot return before the queue is let go, however short or long this is.
-        try? await Task.sleep(for: .milliseconds(200))
         steps.append("released")
         queue.resume()
         var changes = try await pending.value.makeAsyncIterator()
