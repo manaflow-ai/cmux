@@ -176,7 +176,7 @@ struct SidebarTabMiddleClickTests {
         defer { window.close() }
         window.contentView = content
         window.orderFrontRegardless()
-        model.push(.tabSearch(source: source))
+        model.reset(to: .tabSearch(source: source)) // as the palette opens it (`PaletteController.show(page:)`)
         let table = try #require(AANestedGroupsGalleryTests.all(content).lazy.compactMap { $0 as? PaletteTableView }.first)
         // The rows as the list lays them out: each section's title row (if it has one), then its rows.
         func displayed() -> [String?] {
@@ -190,6 +190,7 @@ struct SidebarTabMiddleClickTests {
         }
         content.layoutSubtreeIfNeeded()
         let rows = displayed()
+        try #require(!rows.isEmpty, "Search Tabs listed nothing")
         try #require(table.numberOfRows == rows.count, "the list shows \(table.numberOfRows) rows of \(rows.count)")
         let selected = model.selectedRowID
         let enabled = Set(model.rows.filter { $0.item.isEnabled }.map(\.id))
