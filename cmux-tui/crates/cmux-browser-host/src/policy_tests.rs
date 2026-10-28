@@ -160,3 +160,19 @@ fn patterns_compare_host_names_as_urls_do() {
     assert!(wild.matches(&url("https://shop.xn--bcher-kva.example/"), false));
     assert!(!idn.matches(&url("https://bucher.example/"), false));
 }
+
+#[test]
+fn a_site_is_the_label_before_its_public_suffix() {
+    assert_eq!(site_of("www.example.com"), "example.com");
+    assert_eq!(site_of("a.b.example.com."), "example.com");
+    assert_eq!(site_of("example.com"), "example.com");
+    assert_eq!(site_of("shop.example.co.uk"), "example.co.uk");
+    assert_eq!(site_of("example.co.uk"), "example.co.uk");
+    // A bare public suffix is its own site.
+    assert_eq!(site_of("co.uk"), "co.uk");
+    assert_eq!(site_of(".Example.COM"), "example.com");
+    assert_eq!(site_of("localhost"), "localhost");
+    assert_eq!(site_of("10.0.0.1"), "10.0.0.1");
+    assert_eq!(site_of("[::1]"), "[::1]");
+    assert_eq!(site_of(""), "");
+}

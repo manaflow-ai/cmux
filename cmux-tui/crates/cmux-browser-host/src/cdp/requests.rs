@@ -6,6 +6,7 @@ use super::connection::{CdpConnection, CdpEvent};
 use super::cors::{Cors, RequestAction};
 use super::driver::{INTERNAL_TIMEOUT, Inner};
 use crate::driver::{RequestFilter, RequestInfo, RequestKind};
+use crate::panic_free::JsonFields;
 use crate::protocol::DriverError;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
@@ -155,8 +156,8 @@ impl Inner {
             session,
             request_id: text(&params["requestId"]),
             target,
-            url: text(&params["request"]["url"]),
-            method: text(&params["request"]["method"]),
+            url: text(params.field("request").field("url")),
+            method: text(params.field("request").field("method")),
             headers: params["request"].get("headers").cloned().unwrap_or(json!({})),
             network_id: text(&params["networkId"]),
             kind: match params["resourceType"].as_str() {

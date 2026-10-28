@@ -47,6 +47,7 @@ pub mod idle_exit;
 pub mod lease;
 pub mod locality;
 pub mod observe;
+mod panic_free;
 #[cfg(unix)]
 pub mod panic_log;
 pub mod policy;

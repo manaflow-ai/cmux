@@ -3,6 +3,7 @@
 //! must stay inside the root or the temporary directory. Results are
 //! `{"ok": value}` or `{"error": {"code", "message"}}`.
 
+use crate::panic_free::JsonFields;
 use serde_json::{Value, json};
 use std::path::{Component, Path, PathBuf};
 
@@ -186,7 +187,7 @@ impl FsSandbox {
     pub fn call(&self, op: &str, args: &Value) -> Value {
         match self.run(op, args) {
             Ok(value) => json!({"ok": value}),
-            Err(error) => node_message(op, &error["error"]),
+            Err(error) => node_message(op, error.field("error")),
         }
     }
 
@@ -317,15 +318,21 @@ fn file_type(t: &std::fs::FileType) -> &'static str {
 
 const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
+/// The base64 digit of the low six bits of `sextet`.
+#[allow(clippy::indexing_slicing, reason = "INVARIANT: masked to 0..64, ALPHABET has 64 digits")]
+fn base64_digit(sextet: u32) -> char {
+    char::from(ALPHABET[(sextet & 63) as usize])
+}
+
 pub fn base64_encode(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
-        let n = (u32::from(chunk[0]) << 16)
-            | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8)
-            | u32::from(*chunk.get(2).unwrap_or(&0));
+        // A short last chunk reads as zero bytes, which base64 pads.
+        let byte = |i: usize| u32::from(chunk.get(i).copied().unwrap_or(0));
+        let n = (byte(0) << 16) | (byte(1) << 8) | byte(2);
         for i in 0..4 {
             if i <= chunk.len() {
-                out.push(ALPHABET[((n >> (18 - 6 * i)) & 63) as usize] as char);
+                out.push(base64_digit(n >> (18 - 6 * i)));
             } else {
                 out.push('=');
             }
@@ -406,6 +413,13 @@ mod tests {
             assert_eq!(base64_decode(&base64_encode(sample)).unwrap(), sample);
         }
         assert_eq!(base64_encode(b"hi"), "aGk=");
+        // RFC 4648 section 10 vectors.
+        for (plain, encoded) in
+            [("f", "Zg=="), ("fo", "Zm8="), ("foo", "Zm9v"), ("foobar", "Zm9vYmFy")]
+        {
+            assert_eq!(base64_encode(plain.as_bytes()), encoded);
+        }
+        assert_eq!(base64_encode(&[0xfb, 0xff, 0xbf]), "+/+/");
         assert!(base64_decode("@@").is_none());
     }
 }

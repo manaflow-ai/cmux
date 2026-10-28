@@ -36,6 +36,7 @@
 //! The restore id an agent gets is `host:<32 hex>` (128 bits from the OS
 //! random source).
 
+use crate::panic_free::JsonFields;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{XChaCha20Poly1305, XNonce};
 use serde_json::{Value, json};
@@ -276,9 +277,9 @@ impl CookieBackups {
                 let record = self.load(&id).ok()?;
                 Some(json!({
                     "restoreId": id,
-                    "site": record["site"],
-                    "cookies": record["cookies"].as_array().map_or(0, Vec::len),
-                    "createdAt": record["createdAt"],
+                    "site": record.field("site"),
+                    "cookies": record.field("cookies").as_array().map_or(0, Vec::len),
+                    "createdAt": record.field("createdAt"),
                 }))
             })
             .collect()
@@ -290,7 +291,7 @@ impl CookieBackups {
         let mut removed = 0;
         for id in self.ids() {
             let Ok(record) = self.load(&id) else { continue };
-            let cookies = record["cookies"].as_array().cloned().unwrap_or_default();
+            let cookies = record.field("cookies").as_array().cloned().unwrap_or_default();
             if cookies.iter().all(|cookie| expired(cookie, now_secs)) && self.remove(&id).is_ok() {
                 removed += 1;
             }

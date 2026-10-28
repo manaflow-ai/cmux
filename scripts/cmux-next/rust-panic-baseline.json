@@ -144,16 +144,16 @@
   },
   "cmux-browser-host": {
    "unwrap_used": 0,
-   "expect_used": 1,
+   "expect_used": 0,
    "panic": 0,
    "unreachable": 0,
    "todo": 0,
    "unimplemented": 0,
-   "indexing_slicing": 209,
-   "string_slice": 14,
+   "indexing_slicing": 0,
+   "string_slice": 0,
    "panic_in_result_fn": 0,
-   "arithmetic_side_effects": 155,
-   "cast_possible_truncation": 38
+   "arithmetic_side_effects": 135,
+   "cast_possible_truncation": 37
   },
   "cmux-build-identity": {
    "unwrap_used": 0,

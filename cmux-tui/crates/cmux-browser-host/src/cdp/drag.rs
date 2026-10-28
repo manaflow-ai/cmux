@@ -8,6 +8,7 @@
 
 use super::driver::{INTERNAL_TIMEOUT, Inner, Session};
 use super::keys::{modifier_bits, mouse_button};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -62,7 +63,7 @@ impl Inner {
             let mut event = json!({"type": kind, "x": x, "y": y, "modifiers": modifiers,
                 "buttons": buttons, "button": if kind == "mouseMoved" && buttons == 0 { "none" } else { button }});
             if kind != "mouseMoved" {
-                event["clickCount"] = json!(1);
+                event.insert("clickCount", json!(1));
             }
             self.send_until(session, "Input.dispatchMouseEvent", event, deadline)
         };
@@ -75,12 +76,16 @@ impl Inner {
                 deadline,
             )
         };
-        let start = path[0];
+        let Some((&start, rest)) = path.split_first() else {
+            return Err(DriverError::invalid(
+                "path: expected [{ x, y }, ...] with one point or more",
+            ));
+        };
         mouse("mouseMoved", start, 0)?;
         mouse("mousePressed", start, bit)?;
         let mut data: Option<Value> = None;
         let mut last = start;
-        for &point in &path[1..] {
+        for &point in rest {
             last = point;
             if let Some(data) = &data {
                 self.set_mouse(&session.target_id, point, bit);

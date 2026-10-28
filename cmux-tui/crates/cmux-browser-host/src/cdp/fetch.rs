@@ -19,6 +19,7 @@
 //! (or `*`) it succeeded. `sandbox` is not used: it makes the origin opaque.
 
 use super::driver::{INTERNAL_TIMEOUT, Inner};
+use crate::panic_free::JsonFields;
 use crate::protocol::{DriverError, timeout_of};
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -200,7 +201,7 @@ impl Inner {
         };
         self.run_in(run_id, &target)?;
         let mut params = params.clone();
-        params["targetId"] = json!(target);
+        params.insert("targetId", json!(target));
         let result = self.net_fetch_in_tab(&params, run_id);
         drop(opened);
         result
@@ -381,8 +382,11 @@ impl Inner {
         }
         let mut value = result?;
         if !relaxed.is_empty() {
-            value["corsRelaxed"] = Value::Array(
-                relaxed.into_iter().map(|r| json!({"url": r.url, "what": r.what})).collect(),
+            value.insert(
+                "corsRelaxed",
+                Value::Array(
+                    relaxed.into_iter().map(|r| json!({"url": r.url, "what": r.what})).collect(),
+                ),
             );
         }
         Ok(value)
@@ -428,7 +432,7 @@ impl Inner {
             .map_err(|error| DriverError::new(error.code, format!("fetch: {}", error.message)))?;
         // `redirect: "manual"`: the host follows the redirect itself; its
         // status and Location were read at the response stage.
-        if head["type"] == "opaqueredirect" {
+        if head.field("type") == "opaqueredirect" {
             let (status, location) = self
                 .cors
                 .lock()
@@ -440,12 +444,12 @@ impl Inner {
                 "redirected": false, "headers": [], "bodyBase64": "",
                 "redirect": {"status": status, "location": location}});
             if let Some(ip) = self.response_address(session, &url, params) {
-                result["remoteIPAddress"] = json!(ip);
+                result.insert("remoteIPAddress", json!(ip));
             }
             return Ok(result);
         }
-        let id = head["id"].as_str().unwrap_or("").to_owned();
-        let size = head["size"].as_u64().unwrap_or(0);
+        let id = head.field("id").as_str().unwrap_or("").to_owned();
+        let size = head.field("size").as_u64().unwrap_or(0);
         let mut body = String::new();
         let mut pulled = Ok(());
         let mut start = 0;
@@ -465,18 +469,18 @@ impl Inner {
         }
         let _ = host(DROP, json!([id]));
         pulled?;
-        let url = head["url"].as_str().unwrap_or("").to_owned();
+        let url = head.field("url").as_str().unwrap_or("").to_owned();
         let remote_ip = self.response_address(session, &url, params);
         let mut result = json!({
             "url": url,
-            "status": head["status"],
-            "statusText": head["statusText"],
-            "redirected": head["redirected"],
-            "headers": head["headers"],
+            "status": head.field("status"),
+            "statusText": head.field("statusText"),
+            "redirected": head.field("redirected"),
+            "headers": head.field("headers"),
             "bodyBase64": body,
         });
         if let Some(ip) = remote_ip {
-            result["remoteIPAddress"] = json!(ip);
+            result.insert("remoteIPAddress", json!(ip));
         }
         Ok(result)
     }

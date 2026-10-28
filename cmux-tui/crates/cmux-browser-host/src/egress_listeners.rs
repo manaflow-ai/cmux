@@ -106,19 +106,19 @@ pub(crate) fn parse_pcblist64(data: &[u8]) -> Option<Vec<Listener>> {
         if u32_at(data, at)? as usize != XTCPCB64_SIZE || at + XTCPCB64_SIZE > trailer {
             return None;
         }
-        let record = &data[at..at + XTCPCB64_SIZE];
+        let record = data.get(at..at + XTCPCB64_SIZE)?;
         at += XTCPCB64_SIZE;
-        let vflag = record[XT_VFLAG];
+        let vflag = *record.get(XT_VFLAG)?;
         if u32_at(record, XT_STATE)? as i32 != TCPS_LISTEN {
             continue;
         }
-        let Some(addr) = local_addr(vflag, &record[XT_LADDR..XT_LADDR + 16]) else { continue };
+        let Some(addr) = local_addr(vflag, record.get(XT_LADDR..XT_LADDR + 16)?) else { continue };
         let flags = u32_at(record, XT_FLAGS)? as i32;
         let dual =
             vflag & INP_IPV6 != 0 && (vflag & INP_IPV4 != 0 || flags & IN6P_IPV6_V6ONLY == 0);
         out.push(Listener {
             addr,
-            port: u16::from_be_bytes([record[XT_LPORT], record[XT_LPORT + 1]]),
+            port: u16::from_be_bytes(record.get(XT_LPORT..XT_LPORT + 2)?.try_into().ok()?),
             uid: u32_at(record, XT_UID)?,
             v4_too: dual && addr.is_unspecified(),
         });
@@ -376,13 +376,13 @@ fn listening(pid: i32, fd: i32) -> Option<Option<Listener>> {
     {
         return Some(None);
     }
-    let vflag = info[SFI_VFLAG];
-    let Some(addr) = local_addr(vflag, &info[SFI_LADDR..SFI_LADDR + 16]) else {
+    let vflag = *info.get(SFI_VFLAG)?;
+    let Some(addr) = local_addr(vflag, info.get(SFI_LADDR..SFI_LADDR + 16)?) else {
         return Some(None);
     };
     Some(Some(Listener {
         addr,
-        port: u16::from_be_bytes([info[SFI_LPORT], info[SFI_LPORT + 1]]),
+        port: u16::from_be_bytes(info.get(SFI_LPORT..SFI_LPORT + 2)?.try_into().ok()?),
         uid: 0,
         // A dual-stack socket carries both vflags.
         v4_too: addr.is_unspecified() && vflag & INP_IPV6 != 0 && vflag & INP_IPV4 != 0,
