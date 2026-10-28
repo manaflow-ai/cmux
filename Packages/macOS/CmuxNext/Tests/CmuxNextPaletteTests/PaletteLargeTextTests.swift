@@ -110,12 +110,11 @@ struct PaletteLargeTextTests {
             let placeholder = try #require(field.placeholderAttributedString, "\(label)")
             let placeholderFont = try #require(placeholder.attribute(.font, at: 0, effectiveRange: nil) as? NSFont)
             #expect(placeholderFont.pointSize == Typography.search.pointSize, "\(label): the placeholder draws in the field's size")
-            // The case is real: the placeholder is wider than its field, so it must give way on one line.
-            #expect(placeholder.size().width > field.bounds.width || !label.contains("20 pt"),
-                    "\(label): placeholder \(placeholder.size().width) pt in a \(field.bounds.width) pt field")
             let style = placeholder.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
             #expect(style?.lineBreakMode == .byTruncatingTail, "\(label): a long placeholder truncates with an ellipsis, on one line")
         }
+
+        try checkLongPlaceholder(width: view.searchBar.bounds.width, label)
 
         var labels = 0
         for text in textFields(in: view) where text !== field && !text.isHiddenOrHasHiddenAncestor && !text.stringValue.isEmpty {
@@ -135,6 +134,25 @@ struct PaletteLargeTextTests {
         let image = NSImage(size: view.bounds.size)
         image.addRepresentation(rep)
         return image
+    }
+
+    /// The issue's placeholder, in a search bar the palette's width: wider than its field at 20 pt
+    /// (so the case is real), it must give way on one line inside the bar.
+    private static func checkLongPlaceholder(width: CGFloat, _ label: String) throws {
+        let bar = PaletteSearchBar(frame: NSRect(x: 0, y: 0, width: width, height: PaletteLayout.searchHeight))
+        bar.update(query: "", placeholder: PaletteStrings.searchEverythingPlaceholder, chips: [], rootTitle: "", style: .token,
+                   keywordHint: nil, isLoading: false)
+        bar.layoutSubtreeIfNeeded()
+        let field = bar.field
+        let placeholder = try #require(field.placeholderAttributedString, "\(label)")
+        if label.contains("20 pt") {
+            #expect(placeholder.size().width > field.bounds.width,
+                    "\(label): placeholder \(placeholder.size().width) pt in a \(field.bounds.width) pt field")
+        }
+        let style = placeholder.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+        #expect(style?.lineBreakMode == .byTruncatingTail, "\(label): the Search placeholder truncates with an ellipsis, on one line")
+        #expect(field.frame.minY >= -0.5 && field.frame.maxY <= bar.bounds.height + 0.5,
+                "\(label): the field spans \(field.frame.minY)...\(field.frame.maxY) in a \(bar.bounds.height) pt bar")
     }
 
     private static func textFields(in view: NSView) -> [NSTextField] {
