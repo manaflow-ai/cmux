@@ -141,6 +141,7 @@ extension ScreenContentView {
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
+        presentationPasses += 1
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
         let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
         var clips: [(host: PaneHostView, scrolls: Bool)] = []

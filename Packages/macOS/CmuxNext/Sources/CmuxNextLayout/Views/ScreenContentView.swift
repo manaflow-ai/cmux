@@ -91,9 +91,9 @@ final class ScreenContentView: NSView {
     var panPresentationPending = false
     /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
     var panTicksLeft = 0
-    /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
-    /// moved or whose covers changed, not every pane).
-    var stripClipsComputed = 0
+    /// Pane strip clips computed and presentation passes run, cumulative (PaneMotionWorkTests: per frame the clips
+    /// are the panes that moved or whose covers changed, not every pane; `LayoutWorkProbe` counts the passes).
+    var stripClipsComputed = 0, presentationPasses = 0
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
