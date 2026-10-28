@@ -12,6 +12,7 @@ import path from "node:path";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { installPaintedFrames } from "./support/paintedFrames";
+import { devHighlightWorker } from "./support/devHighlightWorker";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
@@ -36,6 +37,9 @@ await requireBrowserLane("code-block-highlight-height.test.ts", async () => {
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
       server: { port: 0, host: "127.0.0.1", strictPort: false },
       logLevel: "error",
+      // The dev server serves no built highlight worker, so its code cards stay plain (#25876) and
+      // never highlight: the page runs Pierre's own worker, as the app's does.
+      plugins: [devHighlightWorker()],
     });
     await vite.listen();
     browser = await chromium.launch({ headless: true });

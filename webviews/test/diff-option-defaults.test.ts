@@ -71,10 +71,14 @@ test("cmux NEXT's defaults are the diff settings' schema defaults", async () => 
   const { defaultDiffViewerOptions } = await import("../src/diff-viewer/state");
   const rows = (exported as unknown as { rows: { key: string; default: unknown }[] }).rows;
   const schemaDefault = (key: string) => rows.find((row) => row.key === `diff.${key}`)?.default;
+  const { sanitizeViewerPrefs } = await import("../src/viewer-prefs");
   const defaults = defaultDiffViewerOptions(nextPayload);
   expect(Object.keys(defaults).length).toBeGreaterThan(0);
   for (const [key, value] of Object.entries(defaults)) {
-    expect({ key, value: schemaDefault(key) }).toEqual({ key, value });
+    // Hide imports, rich preview and full files last for the tab (viewer-prefs-host-keys.test.ts):
+    // the page never persists them and the schema has no row for them.
+    const persisted = key in sanitizeViewerPrefs({ [key]: value });
+    expect({ key, value: schemaDefault(key) }).toEqual({ key, value: persisted ? value : undefined });
   }
   expect(schemaDefault("wordDiffs")).toBe(true);
 });
