@@ -20,21 +20,29 @@ pub(in crate::mux) fn structural_tab_move_plan(
     let previous_active = state.active_pane();
     let source_location = state.screen_of(source_pane).context("source pane has no screen")?;
     let target_location = state.screen_of(target_pane).context("target pane has no screen")?;
-    let source_screen_slot = state.workspaces[source_location.0].screens[source_location.1].id;
-    let source_screen_id =
-        state.workspaces[source_location.0].screens[source_location.1].public_id.clone();
-    let source_workspace_id = state.workspaces[source_location.0].public_id.clone();
-    let target_screen_id =
-        state.workspaces[target_location.0].screens[target_location.1].public_id.clone();
-    let target_workspace_id = state.workspaces[target_location.0].public_id.clone();
-    let source_pane_id = state.resource_indexes.pane_ids[&source_pane].clone();
-    let target_pane_id = state.resource_indexes.pane_ids[&target_pane].clone();
-    let mut source_layout =
-        state.workspaces[source_location.0].screens[source_location.1].layout_snapshot();
+    let source_workspace = state.workspace_at(source_location.0)?;
+    let source_screen = state.screen_at(source_location.0, source_location.1)?;
+    let source_screen_slot = source_screen.id;
+    let source_screen_id = source_screen.public_id.clone();
+    let source_screen_name = source_screen.name.clone();
+    let source_workspace_id = source_workspace.public_id.clone();
+    let source_active_screen = source_workspace.active_screen;
+    let source_screen_ids = source_workspace
+        .screens
+        .iter()
+        .map(|screen| (screen.id, screen.public_id.clone()))
+        .collect::<Vec<_>>();
+    let target_screen_id = state.screen_at(target_location.0, target_location.1)?.public_id.clone();
+    let target_workspace = state.workspace_at(target_location.0)?;
+    let target_workspace_id = target_workspace.public_id.clone();
+    let target_workspace_key = target_workspace.key.clone();
+    let source_pane_id = state.live_pane_public_id(source_pane)?.clone();
+    let target_pane_id = state.live_pane_public_id(target_pane)?.clone();
+    let mut source_layout = source_screen.layout_snapshot();
     let source_screen_remains = remove_pane_from_layout(&mut source_layout, source_pane);
     if source_screen_remains && source_layout.active_pane == source_pane {
         source_layout.active_pane =
-            if source_screen_slot == target_location_screen(state, target_location) {
+            if source_screen_slot == target_location_screen(state, target_location)? {
                 target_pane
             } else {
                 source_layout.root.first_visible_pane()
@@ -79,7 +87,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
         ResourceChange::TombstonePane { pane_id: source_pane_id.clone() },
     ];
 
-    let target_durable = if source_screen_slot == target_location_screen(state, target_location) {
+    let target_durable = if source_screen_slot == target_location_screen(state, target_location)? {
         source_layout.active_pane = target_pane;
         registry_screen_from_layout(
             state,
@@ -87,7 +95,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
             source_location.1,
             &source_layout,
             &after,
-            state.workspaces[source_location.0].screens[source_location.1].name.clone(),
+            source_screen_name.clone(),
         )?
     } else {
         let mut durable = topology_screen(&after, &target_screen_id)?.clone();
@@ -108,7 +116,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
             source_location.1,
             &source_layout,
             &after,
-            state.workspaces[source_location.0].screens[source_location.1].name.clone(),
+            source_screen_name,
         )?;
         if let Some(screen) =
             after.screens.iter_mut().find(|screen| screen.public_id == source_screen_id)
@@ -124,11 +132,10 @@ pub(in crate::mux) fn structural_tab_move_plan(
         changes.push(ResourceChange::TombstoneScreen { screen_id: source_screen_id.clone() });
         changes.push(ResourceChange::SetScreenOrder {
             workspace_id: source_workspace_id.clone(),
-            screen_ids: state.workspaces[source_location.0]
-                .screens
+            screen_ids: source_screen_ids
                 .iter()
-                .filter(|screen| screen.id != source_screen_slot)
-                .map(|screen| screen.public_id.clone())
+                .filter(|(id, _)| *id != source_screen_slot)
+                .map(|(_, public_id)| public_id.clone())
                 .collect(),
         });
     }
@@ -139,30 +146,26 @@ pub(in crate::mux) fn structural_tab_move_plan(
             state,
             target_workspace_index,
             registry.session_id().as_str(),
-        ),
+        )?,
         position: target_workspace_index,
         active_screen: Some(target_screen_id.clone()),
     });
     if source_workspace_id != target_workspace_id {
         let active_screen = if source_screen_remains {
-            state.workspaces[source_location.0]
-                .screens
-                .get(state.workspaces[source_location.0].active_screen)
-                .map(|screen| screen.public_id.clone())
+            source_screen_ids.get(source_active_screen).map(|(_, public_id)| public_id.clone())
         } else {
-            state.workspaces[source_location.0]
-                .screens
+            source_screen_ids
                 .iter()
-                .filter(|screen| screen.id != source_screen_slot)
-                .nth(
-                    state.workspaces[source_location.0]
-                        .active_screen
-                        .min(state.workspaces[source_location.0].screens.len().saturating_sub(2)),
-                )
-                .map(|screen| screen.public_id.clone())
+                .filter(|(id, _)| *id != source_screen_slot)
+                .nth(source_active_screen.min(source_screen_ids.len().saturating_sub(2)))
+                .map(|(_, public_id)| public_id.clone())
         };
         changes.push(ResourceChange::UpsertWorkspace {
-            workspace: registry_workspace(state, source_location.0, registry.session_id().as_str()),
+            workspace: registry_workspace(
+                state,
+                source_location.0,
+                registry.session_id().as_str(),
+            )?,
             position: source_location.0,
             active_screen,
         });
@@ -175,7 +178,7 @@ pub(in crate::mux) fn structural_tab_move_plan(
                 .into_iter()
                 .find(|terminal| terminal.terminal_id == host_id)
                 .context("terminal has no durable host placement")?;
-            terminal.workspace_key = state.workspaces[target_location.0].key.clone();
+            terminal.workspace_key = target_workspace_key;
             changes
                 .push(ResourceChange::UpsertTerminal { public_id: terminal_id.clone(), terminal });
         }
@@ -222,12 +225,14 @@ pub(in crate::mux) fn structural_tab_move_plan(
                             .position(|screen| screen.public_id == source_screen_public)
                             .map(|screen| (workspace, screen))
                     })
+                && let Ok(screen) = state.screen_at_mut(workspace, screen)
             {
-                overwrite_layout_snapshot(
-                    &mut state.workspaces[workspace].screens[screen],
-                    source_layout,
-                );
+                overwrite_layout_snapshot(screen, source_layout);
             }
+            #[allow(
+                clippy::expect_used,
+                reason = "INVARIANT: the plan was built from this state under the same lock, and moving one tab keeps the target screen"
+            )]
             let (target_workspace, target_screen) = state
                 .workspaces
                 .iter()
@@ -238,10 +243,14 @@ pub(in crate::mux) fn structural_tab_move_plan(
                         .position(|screen| screen.public_id == target_screen_public)
                         .map(|screen| (workspace, screen))
                 })
-                .expect("planned target screen remains live");
+                .expect("INVARIANT: planned target screen remains live");
             state.active_workspace = target_workspace;
-            state.workspaces[target_workspace].active_screen = target_screen;
-            state.workspaces[target_workspace].screens[target_screen].active_pane = target_pane;
+            if let Ok(workspace) = state.workspace_at_mut(target_workspace) {
+                workspace.active_screen = target_screen;
+                if let Some(screen) = workspace.screens.get_mut(target_screen) {
+                    screen.active_pane = target_pane;
+                }
+            }
             if previous_active != Some(target_pane) {
                 stamp_pane_focus(&mux, state, target_pane);
             } else if let Some(pane) = state.panes.get_mut(&target_pane) {

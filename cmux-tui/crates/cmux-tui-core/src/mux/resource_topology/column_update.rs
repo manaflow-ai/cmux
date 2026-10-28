@@ -87,7 +87,10 @@ fn reduce_column_update(
             .map_err(|error| invalid("dock", error.to_string()))?;
     }
     if update.pinned.is_some() || update.allow_tabs.is_some() {
-        let flag = next.layout_columns[index]
+        let flag = next
+            .layout_columns
+            .get_mut(index)
+            .ok_or(StaleTopology::LayoutColumn { index })?
             .dock
             .as_mut()
             .ok_or_else(|| invalid("pinned", "only a docked column can be pinned"))?;
@@ -102,13 +105,18 @@ fn reduce_column_update(
         }
     }
     if let Some(width) = update.width {
-        next.layout_columns[index].width = width;
+        next.layout_columns.get_mut(index).ok_or(StaleTopology::LayoutColumn { index })?.width =
+            width;
         // The same sync as `set-viewport-pane-width`: a lone column of rows
         // fills the width again (1.0).
         sync_layout_column_projection(&mut next);
     }
-    let width_changed =
-        (next.layout_columns[index].width - layout.layout_columns[index].width).abs() > 0.0;
+    let column_width =
+        |layout: &ScreenLayoutSnapshot| layout.layout_columns.get(index).map(|column| column.width);
+    let width_changed = match (column_width(&next), column_width(layout)) {
+        (Some(after), Some(before)) => (after - before).abs() > 0.0,
+        _ => return Err(StaleTopology::LayoutColumn { index }.into()),
+    };
     let flags_changed = next
         .layout_columns
         .iter()
@@ -146,7 +154,7 @@ impl Mux {
                 let screen = resolved.screen.context("screen selector has no live screen")?;
                 let (workspace, screen) =
                     find_screen(state, screen).context("resolved screen disappeared")?;
-                let current = &state.workspaces[workspace].screens[screen];
+                let current = state.screen_at(workspace, screen)?;
                 let index = state
                     .resource_indexes
                     .splits
@@ -190,7 +198,7 @@ impl Mux {
                         let Some(layout) = changed else {
                             return;
                         };
-                        let target = &mut state.workspaces[workspace].screens[screen];
+                        let target = state.planned_screen_mut(workspace, screen);
                         let before = target.layout_snapshot();
                         target.root = layout.root;
                         target.viewport_splits = layout.viewport_splits;
@@ -260,5 +268,34 @@ mod tests {
         .unwrap();
         assert!(update.dock.flatten().is_some());
         assert_eq!(update.width, Some(0.5));
+    }
+
+    /// A column index the layout no longer has is a typed error for the
+    /// request, not a panic of the daemon.
+    #[test]
+    fn column_update_on_a_missing_column_is_a_stale_topology_error() {
+        let layout = ScreenLayoutSnapshot {
+            root: Node::Leaf(1),
+            active_pane: 1,
+            zoomed_pane: None,
+            creation_order_auto_layout: None,
+            viewport_splits: Default::default(),
+            viewport_base_width: None,
+            layout_columns: Vec::new(),
+        };
+        for fields in [
+            serde_json::json!({"column": COLUMN, "width": 0.5}),
+            serde_json::json!({"column": COLUMN, "pinned": true}),
+        ] {
+            let update = parse(fields.clone()).unwrap();
+            let error = reduce_column_update(&layout, 0, &update)
+                .err()
+                .unwrap_or_else(|| panic!("{fields} reduced"));
+            assert_eq!(
+                error.downcast_ref::<StaleTopology>(),
+                Some(&StaleTopology::LayoutColumn { index: 0 }),
+                "{fields}"
+            );
+        }
     }
 }

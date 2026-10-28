@@ -4,6 +4,8 @@ use super::*;
 
 pub(super) type FocusIdentity = (WorkspaceId, ScreenId, PaneId);
 
+const SCREEN_OUTLIVES_PANE: &str = "INVARIANT: the screen was located under this &mut State and removing a pane never removes a screen";
+
 pub(super) fn current_focus_identity(state: &State) -> Option<FocusIdentity> {
     let workspace = state.workspaces.get(state.active_workspace)?;
     let screen = workspace.active_screen_ref()?;
@@ -14,14 +16,16 @@ pub(super) fn restore_focus_identity(state: &mut State, focus: Option<FocusIdent
     let Some((workspace_id, screen_id, pane_id)) = focus else { return };
     let Some(workspace_index) = state.workspace_index(workspace_id) else { return };
     state.active_workspace = workspace_index;
-    let Some(screen_index) =
-        state.workspaces[workspace_index].screens.iter().position(|screen| screen.id == screen_id)
+    let Ok(workspace) = state.workspace_at_mut(workspace_index) else { return };
+    let Some(screen_index) = workspace.screens.iter().position(|screen| screen.id == screen_id)
     else {
         return;
     };
-    state.workspaces[workspace_index].active_screen = screen_index;
-    if state.workspaces[workspace_index].screens[screen_index].root.contains(pane_id) {
-        state.workspaces[workspace_index].screens[screen_index].active_pane = pane_id;
+    workspace.active_screen = screen_index;
+    if let Some(screen) = workspace.screens.get_mut(screen_index)
+        && screen.root.contains(pane_id)
+    {
+        screen.active_pane = pane_id;
     }
 }
 
@@ -66,6 +70,10 @@ pub(super) fn clamp_split_ratio(ratio: f32) -> f32 {
     ratio.clamp(0.05, 0.95)
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the pane list holds at least the pane just pushed, and a non-empty list always lays out"
+)]
 pub(super) fn append_to_auto_layout(
     root: &mut Node,
     auto_layout: &mut Option<Vec<PaneId>>,
@@ -82,19 +90,21 @@ pub(super) fn append_to_auto_layout(
     panes.retain(|pane| current_panes.contains(pane));
     panes.push(pane);
     *root = crate::layout::zellij_default_pane_layout_with_ids(&panes, &mut next_id)
-        .expect("new pane layout always has at least one pane");
+        .expect("INVARIANT: new pane layout always has at least one pane");
     *auto_layout = Some(panes);
 }
 
 pub(super) fn remove_pane_from_screen_layout(mux: &Mux, screen: &mut Screen, pane: PaneId) -> bool {
     screen.invalidate_layout_undo();
     if screen.layout_columns_active() {
-        let Some(index) =
-            screen.layout_columns.iter().position(|column| column.root.contains(pane))
+        let Some((index, column)) = screen
+            .layout_columns
+            .iter_mut()
+            .enumerate()
+            .find(|(_, column)| column.root.contains(pane))
         else {
             return true;
         };
-        let column = &mut screen.layout_columns[index];
         let root = std::mem::replace(&mut column.root, Node::Leaf(0));
         let stack_expanded = root.stack_expanded_pane();
         match root.remove_leaf(pane) {
@@ -182,7 +192,7 @@ pub(super) fn active_tree_selection(state: &State) -> ActiveTreeSelection {
 pub(super) fn surface_screen_id(state: &State, surface: SurfaceId) -> Option<ScreenId> {
     let pane = state.pane_of(surface)?;
     let (wi, si) = state.screen_of(pane)?;
-    Some(state.workspaces[wi].screens[si].id)
+    Some(state.screen_at(wi, si).ok()?.id)
 }
 
 pub(super) fn resolve_workspace_index(
@@ -210,17 +220,21 @@ pub(super) fn resolve_workspace_index(
 pub(super) fn workspace_mutation_result(
     commit: &RegistryCommit,
 ) -> anyhow::Result<WorkspaceMutationResult> {
-    let workspace = commit.result["workspace"].as_u64();
-    let key = commit.result["key"]
-        .as_str()
+    let workspace = commit.result.get("workspace").and_then(Value::as_u64);
+    let key = commit
+        .result
+        .get("key")
+        .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("stored workspace mutation result is missing key"))?
         .to_string();
-    let index = commit.result["index"]
-        .as_u64()
+    let index = commit
+        .result
+        .get("index")
+        .and_then(Value::as_u64)
         .map(usize::try_from)
         .transpose()
         .context("stored workspace mutation index is invalid")?;
-    let changed = commit.result["changed"].as_bool().unwrap_or(true);
+    let changed = commit.result.get("changed").and_then(Value::as_bool).unwrap_or(true);
     Ok(WorkspaceMutationResult {
         workspace,
         key,
@@ -240,8 +254,8 @@ pub(super) fn close_surface_delta(
     let pane = state.panes.get(&pane_id)?;
     let tab_index = pane.tabs.iter().position(|candidate| *candidate == surface)?;
     let (wi, si) = state.screen_of(pane_id)?;
-    let workspace = &state.workspaces[wi];
-    let screen = &workspace.screens[si];
+    let workspace = state.workspace_at(wi).ok()?;
+    let screen = state.screen_at(wi, si).ok()?;
     if pane.tabs.len() > 1 {
         let entity = crate::server::tree_entity_json(
             state,
@@ -270,8 +284,8 @@ pub(super) fn close_pane_delta(
     pane: PaneId,
 ) -> Option<TreeDelta> {
     let (wi, si) = state.screen_of(pane)?;
-    let workspace = &state.workspaces[wi];
-    let screen = &workspace.screens[si];
+    let workspace = state.workspace_at(wi).ok()?;
+    let screen = state.screen_at(wi, si).ok()?;
     let mut panes = Vec::new();
     screen.root.pane_ids(&mut panes);
     if panes.len() > 1 {
@@ -297,10 +311,10 @@ pub(super) fn close_screen_delta(
     notifications: &TreeDecorations,
     screen: ScreenId,
 ) -> Option<TreeDelta> {
-    let (wi, si) = state.workspaces.iter().enumerate().find_map(|(wi, workspace)| {
-        workspace.screens.iter().position(|candidate| candidate.id == screen).map(|si| (wi, si))
+    let (workspace, si) = state.workspaces.iter().find_map(|workspace| {
+        let si = workspace.screens.iter().position(|candidate| candidate.id == screen)?;
+        Some((workspace, si))
     })?;
-    let workspace = &state.workspaces[wi];
     let entity =
         crate::server::tree_entity_json(state, notifications, TreeDeltaKind::ScreenClosed, screen)?;
     Some(TreeDelta {
@@ -416,7 +430,8 @@ pub(super) fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[P
     let screens = panes
         .iter()
         .filter_map(|pane| state.screen_of(*pane))
-        .map(|(workspace, screen)| state.workspaces[workspace].screens[screen].id)
+        .filter_map(|(workspace, screen)| state.screen_at(workspace, screen).ok())
+        .map(|screen| screen.id)
         .collect::<HashSet<_>>();
     for screen_id in screens {
         let Some(screen) = state
@@ -436,9 +451,10 @@ pub(super) fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[P
         }
         let revision = screen.layout_revision.saturating_add(1);
         screen.layout_revision = revision;
-        let entry = screen.layout_undo.back_mut().expect("validated undo entry remains present");
-        entry.after_revision = revision;
-        entry.coalesce = None;
+        if let Some(entry) = screen.layout_undo.back_mut() {
+            entry.after_revision = revision;
+            entry.coalesce = None;
+        }
     }
 }
 
@@ -446,6 +462,10 @@ pub(super) fn fence_layout_undo_for_tab_membership(state: &mut State, panes: &[P
 /// pane, and collapse emptied panes/screens. An emptied workspace stays
 /// here; the close plan closes it (`close_emptied_workspaces_locked`). Returns the removed surface and whether
 /// split ownership or positional indexes changed. Runs under the state lock.
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the screen was located under this &mut State and removing a pane never removes a screen"
+)]
 pub(super) fn remove_surface(
     mux: &Mux,
     state: &mut State,
@@ -487,8 +507,13 @@ pub(super) fn remove_surface(
     let Some(pane_id) = pane_id else {
         return (removed, false);
     };
-    let pane = state.panes.get_mut(&pane_id).expect("pane_of returned live id");
-    let idx = pane.tabs.iter().position(|id| *id == target).expect("tab in pane");
+    // A tab no pane holds leaves no pane or screen to collapse.
+    let Some(pane) = state.panes.get_mut(&pane_id) else {
+        return (removed, false);
+    };
+    let Some(idx) = pane.tabs.iter().position(|id| *id == target) else {
+        return (removed, false);
+    };
     pane.tabs.remove(idx);
     if !pane.tabs.is_empty() {
         if pane.active_tab >= idx && pane.active_tab > 0 {
@@ -504,7 +529,7 @@ pub(super) fn remove_surface(
         return (removed, false);
     };
     let (was_active, screen_remains) = {
-        let screen = &mut state.workspaces[wi].screens[si];
+        let screen = state.screen_at_mut(wi, si).expect(SCREEN_OUTLIVES_PANE);
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
@@ -515,20 +540,20 @@ pub(super) fn remove_surface(
     if screen_remains {
         let next_active = if was_active {
             let mut ids = Vec::new();
-            state.workspaces[wi].screens[si].root.pane_ids(&mut ids);
+            state.screen_at(wi, si).expect(SCREEN_OUTLIVES_PANE).root.pane_ids(&mut ids);
             most_recent_pane(state, &ids)
         } else {
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.screen_at_mut(wi, si).expect(SCREEN_OUTLIVES_PANE).active_pane = next;
         }
         stamp_changed_active_pane(mux, state, previous_active);
         return (removed, true);
     }
 
     // Screen emptied: drop it from the workspace.
-    let ws = &mut state.workspaces[wi];
+    let ws = state.workspace_at_mut(wi).expect(SCREEN_OUTLIVES_PANE);
     ws.screens.remove(si);
     ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
     if !ws.screens.is_empty() {
@@ -543,13 +568,17 @@ pub(super) fn remove_surface(
     (removed, true)
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the screen was located under this &mut State and removing a pane never removes a screen"
+)]
 pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId) {
     state.remove_pane(pane_id);
     let Some((wi, si)) = state.screen_of(pane_id) else {
         return;
     };
     let (was_active, screen_remains) = {
-        let screen = &mut state.workspaces[wi].screens[si];
+        let screen = state.screen_at_mut(wi, si).expect(SCREEN_OUTLIVES_PANE);
         let was_active = screen.active_pane == pane_id;
         if screen.zoomed_pane == Some(pane_id) {
             screen.zoomed_pane = None;
@@ -560,16 +589,16 @@ pub(super) fn collapse_empty_pane(mux: &Mux, state: &mut State, pane_id: PaneId)
     if screen_remains {
         let next_active = if was_active {
             let mut ids = Vec::new();
-            state.workspaces[wi].screens[si].root.pane_ids(&mut ids);
+            state.screen_at(wi, si).expect(SCREEN_OUTLIVES_PANE).root.pane_ids(&mut ids);
             most_recent_pane(state, &ids)
         } else {
             None
         };
         if let Some(next) = next_active {
-            state.workspaces[wi].screens[si].active_pane = next;
+            state.screen_at_mut(wi, si).expect(SCREEN_OUTLIVES_PANE).active_pane = next;
         }
     } else {
-        let ws = &mut state.workspaces[wi];
+        let ws = state.workspace_at_mut(wi).expect(SCREEN_OUTLIVES_PANE);
         ws.screens.remove(si);
         ws.active_screen = ws.active_screen.min(ws.screens.len().saturating_sub(1));
     }
@@ -633,11 +662,12 @@ pub(super) fn move_tab_in_state(
     state.resource_indexes.tab_pane.insert(surface, target_pane);
     let destination_path = if let Some((wi, si)) = state.screen_of(target_pane) {
         state.active_workspace = wi;
-        let ws = &mut state.workspaces[wi];
-        ws.active_screen = si;
-        let screen = &mut ws.screens[si];
-        screen.active_pane = target_pane;
-        Some((ws.id, screen.id))
+        state.workspace_at_mut(wi).ok().and_then(|ws| {
+            ws.active_screen = si;
+            let screen = ws.screens.get_mut(si)?;
+            screen.active_pane = target_pane;
+            Some((ws.id, screen.id))
+        })
     } else {
         None
     };

@@ -6,6 +6,7 @@ use super::client_ids::{
 };
 use super::*;
 use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -39,10 +40,9 @@ impl Mux {
         let resolved = self
             .resolve_resource_path_in_state(state, registry, target, selectors)
             .map_err(anyhow::Error::new)?;
-        let mut intent = json!({
-            "path":resolved.path,
-            "fields":fields,
-        });
+        let mut intent = Map::new();
+        intent.insert("path".to_string(), json!(resolved.path));
+        intent.insert("fields".to_string(), json!(fields));
         let creates = creation_identity_kind(operation, fields);
         if creates == Some(CreatedIdentityKind::Terminal) {
             let terminal_id = match fields.get(RESERVED_TERMINAL_ID_FIELD) {
@@ -59,19 +59,20 @@ impl Mux {
                 None => TerminalId::random()?.to_hex(),
             };
             let mutation = context.mutation.reservation();
-            intent["terminal_reservation"] = json!({
-                "terminal_id":terminal_id,
-                "mutation_id":mutation.id,
-                "mutation_origin":mutation.origin,
-                "mutation_actor":mutation.actor.wire(),
-            });
+            let mut reservation = Map::from_iter([
+                ("terminal_id".to_string(), json!(terminal_id)),
+                ("mutation_id".to_string(), json!(mutation.id)),
+                ("mutation_origin".to_string(), json!(mutation.origin)),
+                ("mutation_actor".to_string(), json!(mutation.actor.wire())),
+            ]);
             let tab_id = match requested_client_tab_id(fields, state, registry)? {
                 Some(tab_id) => Some(tab_id),
                 None => requested_reopen_tab_id(fields, state, registry)?,
             };
             if let Some(tab_id) = tab_id {
-                intent["terminal_reservation"]["tab_id"] = json!(tab_id);
+                reservation.insert("tab_id".to_string(), json!(tab_id));
             }
+            intent.insert("terminal_reservation".to_string(), Value::Object(reservation));
         }
         if matches!(operation, ResourceOperation::PaneSplit | ResourceOperation::PaneCreate) {
             // The new pane's public id is fixed here, so a creation resumed
@@ -80,7 +81,7 @@ impl Mux {
                 Some(pane_id) => pane_id,
                 None => PanePublicId::random()?,
             };
-            intent["pane_reservation"] = json!({ "pane_id": pane_id });
+            intent.insert("pane_reservation".to_string(), json!({ "pane_id": pane_id }));
         }
         if operation == ResourceOperation::PaneSplit {
             // The new split's public id is fixed here too: the caller's
@@ -91,7 +92,7 @@ impl Mux {
                 Some(split_id) => split_id,
                 None => SplitPublicId::random()?,
             };
-            intent["split_reservation"] = json!({ "split_id": split_id });
+            intent.insert("split_reservation".to_string(), json!({ "split_id": split_id }));
         }
         if topology_effect_may_create_workspace(operation) {
             let mutation = context.mutation.reservation();
@@ -101,13 +102,16 @@ impl Mux {
                 .map(str::to_string)
                 .map(Ok)
                 .unwrap_or_else(Self::new_workspace_key)?;
-            intent["workspace_reservation"] = json!({
-                "workspace_key":workspace_key,
-                "workspace_public_id":WorkspacePublicId::random()?,
-                "mutation_id":mutation.id,
-                "mutation_origin":mutation.origin,
-                "mutation_actor":mutation.actor.wire(),
-            });
+            intent.insert(
+                "workspace_reservation".to_string(),
+                json!({
+                    "workspace_key":workspace_key,
+                    "workspace_public_id":WorkspacePublicId::random()?,
+                    "mutation_id":mutation.id,
+                    "mutation_origin":mutation.origin,
+                    "mutation_actor":mutation.actor.wire(),
+                }),
+            );
         }
         if creates == Some(CreatedIdentityKind::Browser) {
             // A frontend-rendered browser registers its content id before
@@ -120,10 +124,13 @@ impl Mux {
                 Some(tab_id) => tab_id,
                 None => TabPublicId::random()?,
             };
-            intent["browser_reservation"] = json!({
-                "tab_id":tab_id,
-                "browser_id":browser_id,
-            });
+            intent.insert(
+                "browser_reservation".to_string(),
+                json!({
+                    "tab_id":tab_id,
+                    "browser_id":browser_id,
+                }),
+            );
         }
         if operation == ResourceOperation::WorkspaceLayoutApply {
             validate_layout_apply_intent(state, &resolved, &fields["layout"])?;
@@ -132,13 +139,10 @@ impl Mux {
             let screen = resolved.screen.context("screen selector has no live screen")?;
             let (workspace_index, screen_index) =
                 find_screen(state, screen).context("resolved screen disappeared")?;
-            let entry = state.workspaces[workspace_index].screens[screen_index]
-                .layout_undo
-                .back()
-                .cloned()
-                .ok_or(LayoutUndoError::Unavailable)?;
-            let current_revision =
-                state.workspaces[workspace_index].screens[screen_index].layout_revision;
+            let undo_screen = state.screen_at(workspace_index, screen_index)?;
+            let entry =
+                undo_screen.layout_undo.back().cloned().ok_or(LayoutUndoError::Unavailable)?;
+            let current_revision = undo_screen.layout_revision;
             if entry.after_revision != current_revision {
                 return Err(LayoutUndoError::Stale(
                     "layout changed since the last undoable action".to_string(),
@@ -178,10 +182,11 @@ impl Mux {
                     screen_index,
                 )?;
                 let confirmation_matches = context.expected_revision.is_some()
-                    && fields
-                        .get("confirmation_token")
-                        .and_then(Value::as_str)
-                        .is_some_and(|token| details["confirmation_token"].as_str() == Some(token));
+                    && fields.get("confirmation_token").and_then(Value::as_str).is_some_and(
+                        |token| {
+                            details.get("confirmation_token").and_then(Value::as_str) == Some(token)
+                        },
+                    );
                 if !confirmation_matches {
                     return Err(anyhow::Error::new(ResourceError::new(
                         "confirmation.required",
@@ -191,9 +196,9 @@ impl Mux {
                     )));
                 }
             }
-            intent["layout_revision"] = json!(entry.after_revision);
+            intent.insert("layout_revision".to_string(), json!(entry.after_revision));
         }
-        Ok(intent)
+        Ok(Value::Object(intent))
     }
 
     #[track_caller]
@@ -325,8 +330,8 @@ impl Mux {
             }
             ResourceOperation::PaneCreate => {
                 let slots = self.effect_slots(&path)?;
-                match slots.pane {
-                    Some(target) => self.effect_add_pane(
+                match (slots.pane, slots.workspace) {
+                    (Some(target), _) => self.effect_add_pane(
                         intent,
                         target,
                         PaneAddOptions {
@@ -340,9 +345,9 @@ impl Mux {
                             focus: true,
                         },
                     ),
-                    None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
+                    (None, Some(workspace)) => self.effect_create_terminal_in_workspace(
                         intent,
-                        slots.workspace.expect("checked"),
+                        workspace,
                         TerminalEffectOptions {
                             argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
@@ -352,7 +357,7 @@ impl Mux {
                             on_exit: None,
                         },
                     ),
-                    None => self.effect_create_workspace_terminal(
+                    (None, None) => self.effect_create_workspace_terminal(
                         intent,
                         None,
                         TerminalEffectOptions {
@@ -418,8 +423,8 @@ impl Mux {
             }
             ResourceOperation::TabCreateTerminal => {
                 let slots = self.effect_slots(&path)?;
-                match slots.pane {
-                    Some(pane) => self.effect_add_terminal_tab(
+                match (slots.pane, slots.workspace) {
+                    (Some(pane), _) => self.effect_add_terminal_tab(
                         intent,
                         pane,
                         optional_effect_command(fields)?,
@@ -429,9 +434,9 @@ impl Mux {
                         None,
                         tab_strip::tab_slot::effect_index(fields),
                     ),
-                    None if slots.workspace.is_some() => self.effect_create_terminal_in_workspace(
+                    (None, Some(workspace)) => self.effect_create_terminal_in_workspace(
                         intent,
-                        slots.workspace.expect("checked"),
+                        workspace,
                         TerminalEffectOptions {
                             argv: optional_effect_command(fields)?,
                             cwd: optional_owned_string(fields, "cwd")?,
@@ -441,7 +446,7 @@ impl Mux {
                             on_exit: None,
                         },
                     ),
-                    None => self.effect_create_workspace_terminal(
+                    (None, None) => self.effect_create_workspace_terminal(
                         intent,
                         None,
                         TerminalEffectOptions {
@@ -460,16 +465,18 @@ impl Mux {
                 let slots = self.effect_slots(&path)?;
                 let size = effect_browser_cell_size(self, fields)?;
                 let identity = self.effect_browser_reservation(intent)?;
-                let surface = match slots.pane {
-                    Some(pane) => self.new_browser_tab_for_effect(fields, pane, size, identity)?,
-                    None if slots.workspace.is_some() => self.create_browser_surface_in_workspace(
-                        slots.workspace.expect("checked"),
+                let surface = match (slots.pane, slots.workspace) {
+                    (Some(pane), _) => {
+                        self.new_browser_tab_for_effect(fields, pane, size, identity)?
+                    }
+                    (None, Some(workspace)) => self.create_browser_surface_in_workspace(
+                        workspace,
                         required_str(fields, "url")?.to_string(),
                         size,
                         Some(identity),
                         frontend_browser_transaction(fields),
                     )?,
-                    None => {
+                    (None, None) => {
                         let (workspace_key, workspace_public_id, workspace_mutation) =
                             self.effect_workspace_reservation(intent)?;
                         // `app-screens-v1`: the app workspace and its kind
@@ -563,9 +570,8 @@ impl Mux {
             .transpose()?
             .or_else(|| {
                 screen.and_then(|screen| {
-                    find_screen(state, screen).map(|(workspace, screen)| {
-                        state.workspaces[workspace].screens[screen].active_pane
-                    })
+                    let (workspace, screen) = find_screen(state, screen)?;
+                    state.screen_at(workspace, screen).ok().map(|screen| screen.active_pane)
                 })
             });
         let tab = path
@@ -598,8 +604,8 @@ impl Mux {
         let pane = state.pane_of(surface).context("created surface has no pane")?;
         let (workspace_index, screen_index) =
             state.screen_of(pane).context("created pane has no screen")?;
-        let workspace = &state.workspaces[workspace_index];
-        let screen = &workspace.screens[screen_index];
+        let workspace = state.workspace_at(workspace_index)?;
+        let screen = state.screen_at(workspace_index, screen_index)?;
         let pane_id = state
             .resource_indexes
             .pane_ids
@@ -661,10 +667,17 @@ impl Mux {
             self.effect_workspace_reservation(intent)?;
         // `workspace.create {ephemeral: true}` stages the flag with the
         // workspace row; the request's fields are part of its fingerprint.
-        let ephemeral = intent["fields"]["ephemeral"].as_bool().unwrap_or(false);
+        let fields = intent.get("fields");
+        let ephemeral = fields
+            .and_then(|fields| fields.get("ephemeral"))
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         // `workspace.create` from a caller: the resource router sends
         // `focus: false` unless it asked. Other creations focus.
-        let focus = intent["fields"][WORKSPACE_CREATE_FOCUS_FIELD].as_bool().unwrap_or(true);
+        let focus = fields
+            .and_then(|fields| fields.get(WORKSPACE_CREATE_FOCUS_FIELD))
+            .and_then(Value::as_bool)
+            .unwrap_or(true);
         crate::debug_spans::mark("effect.workspace_reserved");
         let placement = self.create_empty_workspace_for_resource_effect_focus(
             workspace_name,
@@ -768,7 +781,7 @@ impl Mux {
         let notifications = self.tree_decorations();
         let mut refused = None;
         let attached = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             if let Err(error) = ensure_pane_takes_tabs(operation, &state, target) {
                 refused = Some(error);
             }
@@ -784,16 +797,15 @@ impl Mux {
                     fence_layout_undo_for_tab_membership(&mut state, &[target]);
                     state.register_placed_tab_identity(surface.id);
                     let (workspace_index, screen_index) =
-                        state.screen_of(target).expect("live pane belongs to a screen");
-                    let workspace = state.workspaces[workspace_index].id;
-                    let screen = state.workspaces[workspace_index].screens[screen_index].id;
-                    let entity = crate::server::tree_entity_json(
+                        state.screen_of(target).context("live pane has no screen")?;
+                    let workspace = state.workspace_at(workspace_index)?.id;
+                    let screen = state.screen_at(workspace_index, screen_index)?.id;
+                    let entity = committed_tree_entity(
                         &state,
                         &notifications,
                         TreeDeltaKind::TabAdded,
                         surface.id,
-                    )
-                    .expect("new terminal tab is present in tree snapshot");
+                    );
                     Some(TreeDelta {
                         kind: TreeDeltaKind::TabAdded,
                         workspace,
@@ -841,10 +853,10 @@ impl Mux {
         surface: SurfaceId,
         name: String,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let pane = state.pane_of(surface).context("created screen surface has no pane")?;
         let (workspace, screen) = state.screen_of(pane).context("created pane has no screen")?;
-        state.workspaces[workspace].screens[screen].name = Some(name);
+        state.screen_at_mut(workspace, screen)?.name = Some(name);
         Ok(())
     }
 
@@ -880,7 +892,11 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let pane_public_id = match intent["pane_reservation"]["pane_id"].as_str() {
+        let pane_public_id = match intent
+            .get("pane_reservation")
+            .and_then(|reservation| reservation.get("pane_id"))
+            .and_then(Value::as_str)
+        {
             Some(reserved) => PanePublicId::parse(reserved.to_string())
                 .context("stored topology intent has an invalid pane id")?,
             // An intent stored before pane reservations existed.
@@ -895,7 +911,11 @@ impl Mux {
         {
             hook();
         }
-        let split_public_id = match intent["split_reservation"]["split_id"].as_str() {
+        let split_public_id = match intent
+            .get("split_reservation")
+            .and_then(|reservation| reservation.get("split_id"))
+            .and_then(Value::as_str)
+        {
             Some(reserved) => Some(
                 SplitPublicId::parse(reserved.to_string())
                     .context("stored topology intent has an invalid split id")?,
@@ -913,9 +933,10 @@ impl Mux {
         let notifications = self.tree_decorations();
         // A conversation tab's split (`conversation-tab-split-v1`): its one
         // `pane-added` carries the client transaction.
-        let transaction = intent["fields"].as_object().and_then(frontend_browser_transaction);
+        let transaction =
+            intent.get("fields").and_then(Value::as_object).and_then(frontend_browser_transaction);
         let attached = (|| -> anyhow::Result<(TreeDelta, ScreenId, CreatedTerminalEffect)> {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             // A reserved pane id that became taken since preparation is
             // refused before the layout changes (release builds too).
             anyhow::ensure!(
@@ -934,30 +955,34 @@ impl Mux {
             if viewport_width.is_none() {
                 ensure_pane_column_not_agent_chat(operation, &state, target)?;
             }
-            let workspace_id = state.workspaces[workspace].id;
-            let screen_id = state.workspaces[workspace].screens[screen_index].id;
-            let screen = &mut state.workspaces[workspace].screens[screen_index];
+            let workspace_id = state.workspace_at(workspace)?.id;
+            let screen = state.screen_at_mut(workspace, screen_index)?;
+            let screen_id = screen.id;
             let before = screen.layout_snapshot();
             if let Some(height) = row_height {
+                let base_column = base_column_id.context("new row reserved no base column id")?;
+                let base_row = base_row_id.context("new row reserved no base row id")?;
+                let row = split_id.context("new row reserved no row id")?;
                 anyhow::ensure!(
                     screen.insert_layout_row_below(
                         target,
-                        base_column_id.expect("new row reserved a base column id"),
-                        base_row_id.expect("new row reserved a base row id"),
-                        crate::model::LayoutRow::new(split_id.expect("row id"), height),
+                        base_column,
+                        base_row,
+                        crate::model::LayoutRow::new(row, height),
                         pane_id,
                     ),
                     "target pane disappeared from its layout"
                 );
             } else if let Some(width) = viewport_width {
-                let column = LayoutColumn::single(split_id.expect("column id"), width, pane_id);
-                let base = base_column_id.expect("viewport column reserved a base id");
+                let column_id = split_id.context("viewport column reserved no column id")?;
+                let column = LayoutColumn::single(column_id, width, pane_id);
+                let base = base_column_id.context("viewport column reserved no base id")?;
                 anyhow::ensure!(
                     screen.insert_layout_column_after(target, base, column),
                     "target pane disappeared from its layout"
                 );
             } else if let Some((dir, before_target)) = split_direction {
-                let split = split_id.expect("split direction reserves an id");
+                let split = split_id.context("split direction reserved no split id")?;
                 let in_viewport_column = screen.layout_columns_active();
                 let root = if in_viewport_column {
                     let column = screen
@@ -1029,19 +1054,15 @@ impl Mux {
                 stamp_pane_focus(self, &mut state, pane_id);
             }
             Self::rebuild_split_screen_index(&mut state);
-            let entity = crate::server::tree_entity_json(
-                &state,
-                &notifications,
-                TreeDeltaKind::PaneAdded,
-                pane_id,
-            )
-            .expect("new pane is present in tree snapshot");
-            let pane_index = state.workspaces[workspace].screens[screen_index]
+            let entity =
+                committed_tree_entity(&state, &notifications, TreeDeltaKind::PaneAdded, pane_id);
+            let pane_index = state
+                .screen_at(workspace, screen_index)?
                 .root
                 .pane_ids_vec()
                 .iter()
                 .position(|candidate| *candidate == pane_id)
-                .expect("new pane is present in its screen layout");
+                .context("new pane is absent from its screen layout")?;
             let path = self.created_resource_path_in_state(&state, surface.id)?;
             Ok((
                 TreeDelta {
@@ -1077,7 +1098,7 @@ impl Mux {
         path: &ResolvedResourcePath,
         document: &Value,
     ) -> anyhow::Result<()> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let slots = self.effect_slots_in_state(&state, path)?;
         apply_resource_layout_document(self, &mut state, slots, document)
     }

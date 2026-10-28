@@ -32,7 +32,7 @@ impl Mux {
                     .context("workspace selector resolved without a live workspace")?;
                 let index =
                     state.workspace_index(workspace).context("resolved workspace has no index")?;
-                let target = state.workspaces[index].public_id.clone();
+                let target = state.workspace_at(index)?.public_id.clone();
                 let topology = registry.resource_topology_snapshot()?;
                 let previous = topology.active_workspace.clone();
                 let mut after = topology.clone();
@@ -40,7 +40,7 @@ impl Mux {
                 let deltas =
                     focus_deltas(state, &topology, &after, previous, Some(target.clone()))?;
                 let active_pane =
-                    state.workspaces[index].active_screen_ref().map(|screen| screen.active_pane);
+                    state.workspace_at(index)?.active_screen_ref().map(|screen| screen.active_pane);
                 let result = json!({"workspace":target});
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
@@ -106,7 +106,7 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        state.workspaces[workspace_index].screens[screen_index].name = apply_name;
+                        state.planned_screen_mut(workspace_index, screen_index).name = apply_name;
                     },
                 ))
             },
@@ -151,8 +151,7 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        state.panes.get_mut(&pane).expect("planned pane remains live").name =
-                            apply_name;
+                        state.planned_pane_mut(pane).name = apply_name;
                     },
                 ))
             },
@@ -211,7 +210,7 @@ impl Mux {
                 ))
             },
         )?;
-        self.reload_kept_tab_name(commit.result["tab"].as_str())?;
+        self.reload_kept_tab_name(commit.result.get("tab").and_then(Value::as_str))?;
         Ok(commit)
     }
 
@@ -255,10 +254,9 @@ impl Mux {
                 let deltas =
                     focus_deltas(state, &topology, &after, previous, Some(workspace_id.clone()))?;
                 let workspace_record =
-                    registry_workspace(state, workspace_index, registry.session_id().as_str());
+                    registry_workspace(state, workspace_index, registry.session_id().as_str())?;
                 let result = json!({"screen":screen_id});
-                let active_pane =
-                    state.workspaces[workspace_index].screens[screen_index].active_pane;
+                let active_pane = state.screen_at(workspace_index, screen_index)?.active_pane;
                 Ok(ResourceMutationPlan::new(
                     ResourcePatch {
                         changes: vec![
@@ -274,8 +272,9 @@ impl Mux {
                     deltas,
                     move |state| {
                         state.active_workspace = workspace_index;
-                        state.workspaces[workspace_index].active_screen = screen_index;
-                        debug_assert_eq!(state.workspaces[workspace_index].id, workspace);
+                        let target = state.planned_workspace_mut(workspace_index);
+                        target.active_screen = screen_index;
+                        debug_assert_eq!(target.id, workspace);
                         stamp_pane_focus(&mux, state, active_pane);
                     },
                 ))
@@ -351,7 +350,7 @@ impl Mux {
                 let pane = if let Some(direction) = direction {
                     let (workspace, screen) =
                         state.screen_of(selected).context("resolved pane has no screen")?;
-                    let screen = &state.workspaces[workspace].screens[screen];
+                    let screen = state.screen_at(workspace, screen)?;
                     let (dx, dy) = direction.delta();
                     Self::pane_navigation_layout(screen, selected, direction)
                         .neighbor_by_recency(selected, dx, dy, |candidate| {
@@ -479,12 +478,13 @@ impl Mux {
                     )
                 };
                 let topology = registry.resource_topology_snapshot()?;
-                let pane_id = state.resource_indexes.pane_ids[&pane].clone();
+                let pane_id = state.live_pane_public_id(pane)?.clone();
                 let mut durable = topology_pane(&topology, &pane_id)?.clone();
                 let previous_active = durable.active_tab.clone();
                 durable.active_tab = Some(tab_id.clone());
                 plan.patch.changes.push(ResourceChange::UpsertPane(durable.clone()));
-                let index = state.panes[&pane]
+                let index = state
+                    .live_pane(pane)?
                     .tabs
                     .iter()
                     .position(|candidate| *candidate == surface)
@@ -523,11 +523,9 @@ impl Mux {
                     if focus_path {
                         apply_focus_path(&apply_mux, state, pane);
                     } else {
-                        state.panes.get_mut(&pane).expect("planned pane remains live").active_at =
-                            apply_mux.next_active_at();
+                        state.planned_pane_mut(pane).active_at = apply_mux.next_active_at();
                     }
-                    state.panes.get_mut(&pane).expect("planned pane remains live").active_tab =
-                        index;
+                    state.planned_pane_mut(pane).active_tab = index;
                 })
                 .with_metrics(metrics))
             },

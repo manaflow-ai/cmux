@@ -31,7 +31,7 @@ impl Mux {
                 let pane_id = resolved.path.pane.context("pane selector has no public id")?;
                 let (workspace, screen) =
                     state.screen_of(pane).context("resolved pane has no screen")?;
-                let current = &state.workspaces[workspace].screens[screen];
+                let current = state.screen_at(workspace, screen)?;
                 let mut layout = current.layout_snapshot();
                 layout.zoomed_pane = match enabled {
                     Some(true) => Some(pane),
@@ -76,7 +76,7 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        let screen = &mut state.workspaces[workspace].screens[screen];
+                        let screen = state.planned_screen_mut(workspace, screen);
                         let before = screen.layout_snapshot();
                         screen.zoomed_pane = layout.zoomed_pane;
                         if before.zoomed_pane != screen.zoomed_pane {
@@ -125,7 +125,7 @@ impl Mux {
                     .with_context(|| format!("unknown split {split_id}"))?;
                 let (workspace, screen) =
                     state.screen_of(pane).context("resolved pane has no screen")?;
-                let current = &state.workspaces[workspace].screens[screen];
+                let current = state.screen_at(workspace, screen)?;
                 anyhow::ensure!(
                     current.root.contains_split(split),
                     "split belongs to another screen"
@@ -164,7 +164,7 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        let target = &mut state.workspaces[workspace].screens[screen];
+                        let target = state.planned_screen_mut(workspace, screen);
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
                         target.creation_order_auto_layout = layout.creation_order_auto_layout;
@@ -221,18 +221,19 @@ impl Mux {
                 let pane_id = resolved.path.pane.context("pane selector has no public id")?;
                 let (workspace, screen) =
                     state.screen_of(pane).context("resolved pane has no screen")?;
-                let current = &state.workspaces[workspace].screens[screen];
+                let current = state.screen_at(workspace, screen)?;
                 anyhow::ensure!(current.layout_columns_active(), "pane is not in viewport layout");
                 let mut layout = current.layout_snapshot();
-                let column_index = layout
+                let column = layout
                     .layout_columns
-                    .iter()
-                    .position(|column| column.root.contains(pane))
+                    .iter_mut()
+                    .find(|column| column.root.contains(pane))
                     .context("pane has no viewport column")?;
                 let width = if let Some(width) = exact_width {
                     width
                 } else {
-                    let current_width = layout.layout_columns[column_index].width;
+                    let columns = columns.context("exactly one of columns or width is required")?;
+                    let current_width = column.width;
                     let rendered_columns = state
                         .panes
                         .get(&pane)
@@ -241,14 +242,14 @@ impl Mux {
                         .map(|surface| surface.size().0)
                         .context("pane has no measurable active surface")?;
                     let viewport_columns = f32::from(rendered_columns.max(1)) / current_width;
-                    f32::from(columns.expect("validated columns")) / viewport_columns
+                    f32::from(columns) / viewport_columns
                 };
                 anyhow::ensure!(
                     width.is_finite()
                         && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width),
                     "viewport width is outside the representable range"
                 );
-                layout.layout_columns[column_index].width = width;
+                column.width = width;
                 // A lone column of rows fills the width again (1.0).
                 sync_layout_column_projection(&mut layout);
                 let topology = registry.resource_topology_snapshot()?;
@@ -283,7 +284,7 @@ impl Mux {
                     result,
                     deltas,
                     move |state| {
-                        let target = &mut state.workspaces[workspace].screens[screen];
+                        let target = state.planned_screen_mut(workspace, screen);
                         let before = target.layout_snapshot_for_coalescing_change(coalesce);
                         target.root = layout.root;
                         target.viewport_splits = layout.viewport_splits;

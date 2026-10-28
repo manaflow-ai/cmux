@@ -251,8 +251,10 @@ impl Mux {
             }
             let end = TerminalEnd::from_receipt(terminal.exit.as_ref());
             let respawnable = matches!(end, TerminalEnd::HostLost(_))
-                && end.wire_json()["reason"]
-                    .as_str()
+                && end
+                    .wire_json()
+                    .get("reason")
+                    .and_then(Value::as_str)
                     .is_some_and(|reason| RESPAWN_REASONS.contains(&reason));
             if respawnable {
                 self.schedule_terminal_respawn(

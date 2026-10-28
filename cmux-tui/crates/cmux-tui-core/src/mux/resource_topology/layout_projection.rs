@@ -40,11 +40,11 @@ pub(super) fn remove_pane_from_layout(layout: &mut ScreenLayoutSnapshot, pane: P
         layout.root = root;
         return true;
     }
-    let Some(index) = layout.layout_columns.iter().position(|column| column.root.contains(pane))
+    let Some((index, column)) =
+        layout.layout_columns.iter_mut().enumerate().find(|(_, column)| column.root.contains(pane))
     else {
         return true;
     };
-    let column = &mut layout.layout_columns[index];
     column.creation_order_auto_layout = None;
     let root = std::mem::replace(&mut column.root, Node::Leaf(0));
     if let Some(root) = root.remove_leaf(pane) {

@@ -1,6 +1,7 @@
 //! Terminal host link: lifecycle transitions, pending host registration and callback matching, and host connection loss and reconnect.
 
 use super::*;
+use std::sync::PoisonError;
 
 // Holder terminals re-attach in the same startup pass (mux::holder_adoption).
 #[cfg(any(unix, windows))]
@@ -21,7 +22,7 @@ impl Mux {
             lifecycle != TerminalLifecycle::Exited,
             "terminal exits must use the durable public exit latch"
         );
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let result = commit_terminal_lifecycle(
             &mut registry,
             event_kind,
@@ -42,7 +43,7 @@ impl Mux {
         surface_id: SurfaceId,
         identity: TerminalHostIdentity,
     ) -> anyhow::Result<PendingTerminalHostBinding> {
-        let registry = self.workspace_registry.lock().unwrap();
+        let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let terminal = registry
             .terminal_record(&identity.terminal_id)?
             .ok_or_else(|| anyhow::anyhow!("pending terminal host is not registered"))?;
@@ -59,7 +60,8 @@ impl Mux {
         }
         drop(registry);
 
-        let mut pending = self.pending_terminal_hosts.lock().unwrap();
+        let mut pending =
+            self.pending_terminal_hosts.lock().unwrap_or_else(PoisonError::into_inner);
         anyhow::ensure!(
             !pending.contains_key(&surface_id),
             "surface already has a pending terminal host"
@@ -80,7 +82,12 @@ impl Mux {
         terminal: &RegistryTerminal,
         identity: &TerminalHostIdentity,
     ) -> bool {
-        let expected = self.pending_terminal_hosts.lock().unwrap().get(&surface_id).cloned();
+        let expected = self
+            .pending_terminal_hosts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&surface_id)
+            .cloned();
         let Some(expected) = expected else { return false };
         !surface_registered
             && expected == *identity
@@ -117,11 +124,11 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let surface =
             state.surfaces.get(&surface_id).or_else(|| state.terminal_runtime_by_id(surface_id));
         let identity_matches = surface
@@ -185,11 +192,11 @@ impl Mux {
         if self.shutting_down.load(Ordering::Acquire) {
             return false;
         }
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let Ok(Some(terminal)) = registry.terminal_record(&identity.terminal_id) else {
             return false;
         };
-        let state = self.lock_state_pinned(&registry).unwrap();
+        let state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let surface = state
             .surfaces
             .get(&surface_id)
@@ -287,7 +294,7 @@ impl Mux {
     }
 
     pub(crate) fn lock_client_sizing_lifecycle(&self) -> MutexGuard<'_, ()> {
-        self.client_sizing_lifecycle.lock().unwrap()
+        self.client_sizing_lifecycle.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     #[cfg(debug_assertions)]

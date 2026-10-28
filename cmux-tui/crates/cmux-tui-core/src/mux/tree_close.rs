@@ -1,6 +1,7 @@
 //! Closing tree targets: surface, pane, screen and workspace closes, including provider-managed and resource-effect paths.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     #[track_caller]
@@ -15,7 +16,7 @@ impl Mux {
     pub(super) fn remove_surface_after_registry(&self, target: SurfaceId) -> bool {
         let notifications = self.tree_decorations();
         let remove = || {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let selection_before = active_tree_selection(&state);
             let changed_screen = surface_screen_id(&state, target);
             let delta = close_surface_delta(&state, &notifications, target);
@@ -41,7 +42,7 @@ impl Mux {
                 break remove();
             };
             let lifecycle = self.workspace_lifecycle(workspace);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let workspace_lifecycle = lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
             if self.surface_workspace(target) != Some(workspace) {
                 drop(workspace_lifecycle);
                 continue;
@@ -83,7 +84,7 @@ impl Mux {
                 return Ok(false);
             };
             let lifecycle = self.workspace_lifecycle(workspace);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let workspace_lifecycle = lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
             if self.with_state(|state| Self::workspace_for_tree_target_in_state(state, target))
                 != Some(workspace)
             {
@@ -91,7 +92,7 @@ impl Mux {
                 continue;
             }
             let result = (|| -> anyhow::Result<Option<_>> {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 let selection_before = active_tree_selection(&state);
                 let (tabs, delta) = match target {
                     TreeCloseTarget::Pane(target) => {
@@ -99,7 +100,7 @@ impl Mux {
                         (
                             pane.tabs.clone(),
                             close_pane_delta(&state, &notifications, target)
-                                .expect("live pane has a close delta"),
+                                .context("live pane has no close delta")?,
                         )
                     }
                     TreeCloseTarget::Screen(target) => {
@@ -114,7 +115,7 @@ impl Mux {
                         (
                             screen_tabs(&state, screen),
                             close_screen_delta(&state, &notifications, target)
-                                .expect("live screen has a close delta"),
+                                .context("live screen has no close delta")?,
                         )
                     }
                 };
@@ -286,8 +287,10 @@ impl Mux {
         mutation: &WorkspaceMutation,
         if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
-        let _creation_handoff = self.resource_creation_handoff.lock().unwrap();
-        let _creation_fence = self.resource_creation_execution.lock().unwrap();
+        let _creation_handoff =
+            self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner);
+        let _creation_fence =
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         let authority = self.authorize_workspace_lifecycle_mutation(
             WorkspaceMutationAuthority::Ordinary,
             "close",
@@ -354,13 +357,14 @@ impl Mux {
         authorization: WorkspaceMutationAuthority<'_>,
         project_resource: bool,
     ) -> anyhow::Result<Option<(WorkspaceId, String, u64)>> {
-        let _creation_handoff =
-            project_resource.then(|| self.resource_creation_handoff.lock().unwrap());
-        let _creation_fence =
-            project_resource.then(|| self.resource_creation_execution.lock().unwrap());
+        let _creation_handoff = project_resource
+            .then(|| self.resource_creation_handoff.lock().unwrap_or_else(PoisonError::into_inner));
+        let _creation_fence = project_resource.then(|| {
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner)
+        });
         let authority = self.authorize_workspace_lifecycle_mutation(authorization, "close")?;
         let resolved = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             Self::require_workspace_revision(&state, expected_revision)?;
             Self::resolve_workspace_selector(&state, id, key)?
         };
@@ -400,7 +404,7 @@ impl Mux {
             "key": requested_key,
         });
         {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             if let Some(commit) = registry.replay(mutation, &fingerprint)? {
                 let result = workspace_mutation_result(&commit)?;
                 return Ok(result);
@@ -408,10 +412,10 @@ impl Mux {
         }
         loop {
             let resolved_target = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 Self::require_workspace_revision(&state, expected_revision)?;
                 let index = resolve_workspace_index(&state, target, requested_key)?;
-                state.workspaces[index].id
+                state.workspace_at(index)?.id
             };
             #[cfg(test)]
             if let Some(hook) =
@@ -420,12 +424,12 @@ impl Mux {
                 hook();
             }
             let lifecycle = self.workspace_lifecycle(resolved_target);
-            let workspace_lifecycle = lifecycle.lock().unwrap();
+            let workspace_lifecycle = lifecycle.lock().unwrap_or_else(PoisonError::into_inner);
             let current_target = {
-                let state = self.state.lock().unwrap();
+                let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 Self::require_workspace_revision(&state, expected_revision)?;
                 let index = resolve_workspace_index(&state, target, requested_key)?;
-                state.workspaces[index].id
+                state.workspace_at(index)?.id
             };
             if current_target != resolved_target {
                 drop(workspace_lifecycle);
@@ -462,22 +466,23 @@ impl Mux {
         if_empty: bool,
     ) -> anyhow::Result<WorkspaceMutationResult> {
         let notifications = self.tree_decorations();
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(commit) = registry.replay(mutation, fingerprint)? {
             let result = workspace_mutation_result(&commit)?;
             return Ok(result);
         }
         let (removed, delta, empty_revision, selection_resync, result) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             Self::require_workspace_revision(&state, expected_revision)?;
             let index = resolve_workspace_index(&state, target, requested_key)?;
-            let workspace_id = state.workspaces[index].id;
+            let workspace_id = state.workspace_at(index)?.id;
             if workspace_id != resolved_target {
                 anyhow::bail!("workspace selector changed while closing");
             }
             Self::require_empty_workspace_for_close(&state, index, if_empty)?;
             let previous_active = state.active_pane();
-            let key = state.workspaces[index].key.clone();
+            let key = state.workspace_at(index)?.key.clone();
             registry.read_state(|db| crate::state::home_store::refuse_close_key(db, &key))?;
             let mut desired = self.registry_projection(&state);
             desired.remove(index);
@@ -492,6 +497,9 @@ impl Mux {
                 "index": index,
                 "changed": true,
             });
+            // Built before the commit, from the state the commit removes.
+            let mut delta = close_workspace_delta(&state, &notifications, workspace_id)
+                .context("live workspace has no close delta")?;
             let commit = if project_resource {
                 registry.commit_with_active_workspace(
                     mutation,
@@ -520,8 +528,6 @@ impl Mux {
             let resource_revision = project_resource
                 .then(|| registry.snapshot().map(|snapshot| snapshot.resource_revision))
                 .transpose()?;
-            let mut delta = close_workspace_delta(&state, &notifications, workspace_id)
-                .expect("live workspace has a close delta");
             let was_active = state.active_workspace == index;
             let active_id =
                 state.workspaces.get(state.active_workspace).map(|workspace| workspace.id);

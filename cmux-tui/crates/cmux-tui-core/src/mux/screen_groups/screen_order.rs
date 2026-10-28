@@ -12,11 +12,14 @@ pub(crate) fn normalize_screen_order(workspace: &mut Workspace, screens: &Screen
         old.into_iter().partition(|screen| screens.is_pinned(screen.public_id.as_str()));
     let mut rest = rest.into_iter().map(Some).collect::<Vec<_>>();
     for index in 0..rest.len() {
-        let Some(screen) = rest[index].take() else { continue };
+        let Some((current, later)) = rest.get_mut(index..).and_then(<[_]>::split_first_mut) else {
+            break;
+        };
+        let Some(screen) = current.take() else { continue };
         let group = group_of(&screen);
         ordered.push(screen);
         if let Some(group) = group {
-            for later in rest.iter_mut().skip(index + 1) {
+            for later in later.iter_mut() {
                 if later
                     .as_ref()
                     .is_some_and(|candidate| group_of(candidate).as_ref() == Some(&group))

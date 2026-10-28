@@ -3,6 +3,7 @@
 //! checks used by mutations.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     pub(super) fn next_id(&self) -> u64 {
@@ -22,11 +23,15 @@ impl Mux {
     /// Layout undo is in-memory state, so this namespace intentionally follows
     /// the mux lifecycle rather than durable workspace identity.
     pub fn allocate_in_process_resize_owner(&self) -> u64 {
-        self.next_in_process_resize_owner
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |owner| {
-                Some(owner.wrapping_add(1).max(1))
-            })
-            .expect("in-process resize owner allocation cannot fail")
+        // The closure always returns `Some`, so `fetch_update` is `Ok`; both
+        // arms carry the previous owner.
+        match self.next_in_process_resize_owner.fetch_update(
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+            |owner| Some(owner.wrapping_add(1).max(1)),
+        ) {
+            Ok(previous) | Err(previous) => previous,
+        }
     }
 
     pub(super) fn new_workspace_key() -> anyhow::Result<String> {
@@ -80,7 +85,8 @@ impl Mux {
     }
 
     pub(super) fn workspace_lifecycle(&self, workspace: WorkspaceId) -> Arc<Mutex<()>> {
-        let mut lifecycles = self.workspace_lifecycles.lock().unwrap();
+        let mut lifecycles =
+            self.workspace_lifecycles.lock().unwrap_or_else(PoisonError::into_inner);
         lifecycles.retain(|_, lifecycle| lifecycle.strong_count() > 0);
         if let Some(lifecycle) = lifecycles.get(&workspace).and_then(Weak::upgrade) {
             return lifecycle;
@@ -94,16 +100,16 @@ impl Mux {
     /// provider for this mux generation. The transition is intentionally
     /// one-way so a stale frontend cannot reopen ordinary mutation paths.
     pub fn mark_workspaces_provider_managed_internal(&self) {
-        self.provider_workspace.lock().unwrap().managed = true;
+        self.provider_workspace.lock().unwrap_or_else(PoisonError::into_inner).managed = true;
         self.provider_managed.store(true, Ordering::Release);
     }
 
     pub fn workspaces_are_provider_managed(&self) -> bool {
-        self.provider_workspace.lock().unwrap().managed
+        self.provider_workspace.lock().unwrap_or_else(PoisonError::into_inner).managed
     }
 
     pub fn provider_workspace_authority_status(&self) -> ProviderWorkspaceAuthorityStatus {
-        self.provider_workspace.lock().unwrap().status()
+        self.provider_workspace.lock().unwrap_or_else(PoisonError::into_inner).status()
     }
 
     pub fn install_or_rotate_provider_workspace_authority(
@@ -113,7 +119,7 @@ impl Mux {
         authority_generation: u64,
         authority: ProviderWorkspaceAuthority,
     ) -> Result<ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError> {
-        let mut state = self.provider_workspace.lock().unwrap();
+        let mut state = self.provider_workspace.lock().unwrap_or_else(PoisonError::into_inner);
         if !state.managed || state.mux_generation.is_none() {
             return Err(ProviderWorkspaceAuthorityUpdateError::Unmanaged);
         }
@@ -156,7 +162,7 @@ impl Mux {
         let authorized = self
             .provider_workspace
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .authority
             .as_ref()
             .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.expose()));
@@ -171,7 +177,7 @@ impl Mux {
         authorization: WorkspaceMutationAuthority<'_>,
         operation: &str,
     ) -> anyhow::Result<MutexGuard<'_, ProviderWorkspaceState>> {
-        let authority = self.provider_workspace.lock().unwrap();
+        let authority = self.provider_workspace.lock().unwrap_or_else(PoisonError::into_inner);
         if authority.managed && matches!(authorization, WorkspaceMutationAuthority::Ordinary) {
             anyhow::bail!(
                 "cannot {operation} a provider-managed workspace directly; use the managed workspace lifecycle controls"
@@ -207,7 +213,7 @@ impl Mux {
     ) -> Option<WorkspaceId> {
         let pane = state.pane_of(surface)?;
         let (workspace, _) = state.screen_of(pane)?;
-        Some(state.workspaces[workspace].id)
+        Some(state.workspace_at(workspace).ok()?.id)
     }
 
     pub(super) fn workspace_for_tree_target_in_state(
@@ -217,7 +223,7 @@ impl Mux {
         match target {
             TreeCloseTarget::Pane(pane) => {
                 let (workspace, _) = state.screen_of(pane)?;
-                Some(state.workspaces[workspace].id)
+                Some(state.workspace_at(workspace).ok()?.id)
             }
             TreeCloseTarget::Screen(screen) => state
                 .workspaces
@@ -228,10 +234,15 @@ impl Mux {
     }
 
     pub(crate) fn surface_workspace(&self, surface: SurfaceId) -> Option<WorkspaceId> {
-        self.pending_workspace_surfaces.lock().unwrap().get(&surface).copied().or_else(|| {
-            let state = self.state.lock().unwrap();
-            Self::workspace_for_surface_in_state(&state, surface)
-        })
+        self.pending_workspace_surfaces
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .get(&surface)
+            .copied()
+            .or_else(|| {
+                let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+                Self::workspace_for_surface_in_state(&state, surface)
+            })
     }
 
     /// The key of the workspace `surface` is in, when it is a canonical

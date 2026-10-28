@@ -10,8 +10,8 @@ pub(super) fn registry_screen_from_layout(
     topology: &ResourceTopologySnapshot,
     name: Option<String>,
 ) -> anyhow::Result<RegistryScreen> {
-    let workspace = &state.workspaces[workspace_index];
-    let screen = &workspace.screens[screen_index];
+    let workspace = state.workspace_at(workspace_index)?;
+    let screen = state.screen_at(workspace_index, screen_index)?;
     let public_pane = |pane: PaneId| {
         state
             .resource_indexes
@@ -140,14 +140,15 @@ pub(super) fn set_layout_split_ratio(
         .filter(|index| *index > 0)
     {
         let width_before =
-            layout.layout_columns[..index].iter().map(|column| column.width).sum::<f32>();
+            layout.layout_columns.iter().take(index).map(|column| column.width).sum::<f32>();
         let width = width_before * (1.0 - ratio) / ratio;
         anyhow::ensure!(
             width.is_finite()
                 && (MIN_VIEWPORT_PANE_WIDTH..=MAX_VIEWPORT_PANE_WIDTH).contains(&width),
             "split ratio implies an invalid viewport width"
         );
-        layout.layout_columns[index].width = width;
+        layout.layout_columns.get_mut(index).ok_or(StaleTopology::LayoutColumn { index })?.width =
+            width;
         sync_layout_column_widths(layout);
         return Ok(());
     }

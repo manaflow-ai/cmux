@@ -102,10 +102,14 @@ pub(crate) fn workspace_screen_groups(
             .get(screen.public_id.as_str())
             .and_then(|group| screens.groups.get(group))
             .filter(|group| group.workspace_key == workspace.key);
+        if let Some(group) = group
+            && let Some(run) = open.and_then(|run| runs.get_mut(run))
+            && run.group.id == group.id
+        {
+            run.members.push(screen.id);
+            continue;
+        }
         match group {
-            Some(group) if open.is_some_and(|run| runs[run].group.id == group.id) => {
-                runs[open.expect("checked open run")].members.push(screen.id);
-            }
             Some(group) if !runs.iter().any(|run| run.group.id == group.id) => {
                 runs.push(WorkspaceScreenGroup {
                     group: group.clone(),
@@ -129,7 +133,7 @@ pub(super) fn locate_screen(state: &State, screen: ScreenId) -> Option<(usize, u
 pub(crate) fn screen_public_id(state: &State, screen: ScreenId) -> anyhow::Result<String> {
     let (wi, si) =
         locate_screen(state, screen).with_context(|| format!("unknown screen {screen}"))?;
-    Ok(state.workspaces[wi].screens[si].public_id.as_str().to_string())
+    Ok(state.screen_at(wi, si)?.public_id.as_str().to_string())
 }
 
 /// Member screens of `group` in order, wherever they are.
@@ -186,24 +190,24 @@ fn place_screens(
     to: usize,
     index: Option<usize>,
 ) -> anyhow::Result<()> {
-    let active_from =
-        state.workspaces[from].screens.get(state.workspaces[from].active_screen).map(|s| s.id);
+    let source = state.workspace_at_mut(from)?;
+    let active_from = source.screens.get(source.active_screen).map(|s| s.id);
     let mut moving = Vec::with_capacity(block.len());
     for id in block {
-        let position = state.workspaces[from]
+        let position = source
             .screens
             .iter()
             .position(|screen| screen.id == *id)
             .with_context(|| format!("screen {id} left its workspace"))?;
-        moving.push(state.workspaces[from].screens.remove(position));
+        moving.push(source.screens.remove(position));
     }
     if from != to {
         anyhow::ensure!(
-            !state.workspaces[from].screens.is_empty(),
+            !source.screens.is_empty(),
             "bad request: a workspace's last screen cannot be moved out of it"
         );
     }
-    let target = &mut state.workspaces[to];
+    let target = state.workspace_at_mut(to)?;
     let active_to = target.screens.get(target.active_screen).map(|s| s.id);
     let index = index.unwrap_or(target.screens.len()).min(target.screens.len());
     target.screens.splice(index..index, moving);
@@ -212,7 +216,7 @@ fn place_screens(
         .and_then(|id| target.screens.iter().position(|screen| screen.id == id))
         .unwrap_or(index);
     if from != to {
-        let source = &mut state.workspaces[from];
+        let source = state.workspace_at_mut(from)?;
         let last = source.screens.len().saturating_sub(1);
         source.active_screen = active_from
             .and_then(|id| source.screens.iter().position(|screen| screen.id == id))
@@ -344,10 +348,11 @@ impl Mux {
         self.with_state(|state| {
             let (wi, si) =
                 locate_screen(state, screen).with_context(|| format!("unknown screen {screen}"))?;
+            let workspace = state.workspace_at(wi)?;
             Ok(ScreenMoveOutcome {
                 screen,
-                workspace: state.workspaces[wi].id,
-                key: state.workspaces[wi].key.clone(),
+                workspace: workspace.id,
+                key: workspace.key.clone(),
                 index: si,
             })
         })
@@ -380,14 +385,16 @@ impl Mux {
         destination: ScreenDestination,
         screen_result: bool,
     ) -> anyhow::Result<ResourcePatchCommit> {
-        anyhow::ensure!(!block.is_empty(), "bad request: nothing to move");
+        let Some(&first) = block.first() else {
+            anyhow::bail!("bad request: nothing to move");
+        };
         let workspace_id = self.next_id();
         let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
             if screen_result {
-                edit.result = ScreenResult::Screen(screen_public_id(state, block[0])?);
+                edit.result = ScreenResult::Screen(screen_public_id(state, first)?);
             }
-            let (from, _) = locate_screen(state, block[0])
-                .with_context(|| format!("unknown screen {}", block[0]))?;
+            let (from, _) =
+                locate_screen(state, first).with_context(|| format!("unknown screen {first}"))?;
             for screen in block {
                 anyhow::ensure!(
                     locate_screen(state, *screen).is_some_and(|(wi, _)| wi == from),
@@ -478,10 +485,9 @@ impl Mux {
         color: Option<String>,
         id: String,
     ) -> anyhow::Result<(String, ResourcePatchCommit)> {
-        anyhow::ensure!(
-            !members.is_empty(),
-            "bad request: a screen group needs at least one screen"
-        );
+        let Some(&first) = members.first() else {
+            anyhow::bail!("bad request: a screen group needs at least one screen");
+        };
         let name = name.unwrap_or_default();
         let color = color.unwrap_or_else(|| "grey".to_string());
         validate_tab_group_name(&name)?;
@@ -489,9 +495,9 @@ impl Mux {
         let (_, commit) = self.commit_screen_request(request, |_, state, edit| {
             edit.result = ScreenResult::Group(id.clone());
             let screens = &mut edit.screens;
-            let (wi, _) = locate_screen(state, members[0])
-                .with_context(|| format!("unknown screen {}", members[0]))?;
-            let key = state.workspaces[wi].key.clone();
+            let (wi, _) =
+                locate_screen(state, first).with_context(|| format!("unknown screen {first}"))?;
+            let key = state.workspace_at(wi)?.key.clone();
             for screen in members {
                 anyhow::ensure!(
                     locate_screen(state, *screen).is_some_and(|(candidate, _)| candidate == wi),
@@ -665,12 +671,13 @@ impl Mux {
             let anchor = run.first().copied();
             let mut block = run;
             block.splice(offset..offset, added.iter().copied());
+            let workspace_screens = &state.workspace_at(wi)?.screens;
             let start = anchor
-                .and_then(|anchor| state.workspaces[wi].screens.iter().position(|s| s.id == anchor))
-                .unwrap_or(state.workspaces[wi].screens.len());
-            let before = state.workspaces[wi].screens
-                [..start.min(state.workspaces[wi].screens.len())]
+                .and_then(|anchor| workspace_screens.iter().position(|s| s.id == anchor))
+                .unwrap_or(workspace_screens.len());
+            let before = workspace_screens
                 .iter()
+                .take(start)
                 .filter(|screen| block.contains(&screen.id))
                 .count();
             place_screens(state, &block, wi, wi, Some(start - before))?;
@@ -713,15 +720,11 @@ impl Mux {
                 let Some(group) = screens.members.remove(&public) else { continue };
                 let (wi, _) = locate_screen(state, *screen).context("screen disappeared")?;
                 let rest = group_members(state, screens, &group);
+                let workspace_screens = &state.workspace_at(wi)?.screens;
                 if let Some(last) = rest.last()
-                    && let Some(position) =
-                        state.workspaces[wi].screens.iter().position(|s| s.id == *last)
+                    && let Some(position) = workspace_screens.iter().position(|s| s.id == *last)
                 {
-                    let own = state.workspaces[wi]
-                        .screens
-                        .iter()
-                        .position(|s| s.id == *screen)
-                        .unwrap_or(0);
+                    let own = workspace_screens.iter().position(|s| s.id == *screen).unwrap_or(0);
                     let insertion = if own <= position { position } else { position + 1 };
                     place_screens(state, &[*screen], wi, wi, Some(insertion))?;
                 }
@@ -751,7 +754,8 @@ impl Mux {
         anyhow::ensure!(!members.is_empty(), "unknown screen group {group}");
         let workspace_id = self.next_id();
         self.commit_screen_change(actor, "screen.group.move", |_, state, screens| {
-            let (from, _) = locate_screen(state, members[0]).context("screen group disappeared")?;
+            let first = members.first().context("screen group disappeared")?;
+            let (from, _) = locate_screen(state, *first).context("screen group disappeared")?;
             let (to, index) = match destination {
                 ScreenDestination::Workspace { workspace, index } => match workspace {
                     Some(id) => (
@@ -784,7 +788,7 @@ impl Mux {
                 }
             };
             place_screens(state, &members, from, to, index)?;
-            let key = state.workspaces[to].key.clone();
+            let key = state.workspace_at(to)?.key.clone();
             if let Some(record) = screens.groups.get_mut(group) {
                 record.workspace_key = key;
             }
@@ -861,7 +865,8 @@ impl Mux {
         let members = self.screen_group_outcome(group).members;
         anyhow::ensure!(!members.is_empty(), "unknown screen group {group}");
         let workspace_screens = self.with_state(|state| {
-            locate_screen(state, members[0]).map(|(wi, _)| state.workspaces[wi].screens.len())
+            let (wi, _) = locate_screen(state, *members.first()?)?;
+            Some(state.workspace_at(wi).ok()?.screens.len())
         });
         anyhow::ensure!(
             workspace_screens.is_some_and(|count| count > members.len()),
@@ -925,7 +930,7 @@ impl Mux {
                             .get(group)
                             .with_context(|| format!("unknown screen group {group}"))?;
                         anyhow::ensure!(
-                            record.workspace_key == state.workspaces[wi].key,
+                            record.workspace_key == state.workspace_at(wi)?.key,
                             "bad request: a screen can join only a group of its own workspace"
                         );
                         screens.members.insert(public, group.clone());

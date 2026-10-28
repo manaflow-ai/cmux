@@ -39,10 +39,10 @@ pub(super) fn parse_resource_layout_document(
     let (workspace_index, screen_index) =
         find_screen(state, screen_slot).context("layout screen is not live")?;
     anyhow::ensure!(
-        resolved_workspace == Some(state.workspaces[workspace_index].id),
+        resolved_workspace == Some(state.workspace_at(workspace_index)?.id),
         "layout screen belongs to another workspace"
     );
-    let current = &state.workspaces[workspace_index].screens[screen_index];
+    let current = state.screen_at(workspace_index, screen_index)?;
     let active_pane = parse_layout_pane(state, screen_slot, &object["active_pane_id"])?;
     let zoomed_pane = match object.get("zoomed_pane_id") {
         Some(Value::Null) | None => None,
@@ -441,7 +441,7 @@ pub(super) fn parse_layout_split(
         .with_context(|| format!("layout references unknown split {id}"))?;
     let (workspace_index, screen_index) =
         find_screen(state, screen).context("layout screen is not live")?;
-    let live = &state.workspaces[workspace_index].screens[screen_index];
+    let live = state.screen_at(workspace_index, screen_index)?;
     anyhow::ensure!(
         live.root.contains_split(split)
             || live.layout_columns.iter().any(|column| column.id == split),
@@ -471,7 +471,7 @@ pub(super) fn apply_resource_layout_document(
         }
     }
     apply_layout_snapshot(
-        &mut state.workspaces[parsed.workspace_index].screens[parsed.screen_index],
+        state.screen_at_mut(parsed.workspace_index, parsed.screen_index)?,
         parsed.snapshot,
     );
     Mux::rebuild_split_screen_index(state);

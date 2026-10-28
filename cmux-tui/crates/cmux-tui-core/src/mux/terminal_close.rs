@@ -1,6 +1,7 @@
 //! Terminal resolution and close: resolve by public id or host id, guarded terminal close, failed hosted attachments, and discovered host termination.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     /// Resolve a terminal identity to its durable record and one live view
@@ -21,7 +22,7 @@ impl Mux {
         terminal_id: &str,
     ) -> anyhow::Result<Option<TerminalResolution>> {
         let (terminal, terminal_revision) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             let Some(host_id) = Self::resolve_terminal_host_id(&registry, terminal_id)? else {
                 return Ok(None);
             };
@@ -30,7 +31,7 @@ impl Mux {
         let Some(terminal) = terminal else {
             return Ok(None);
         };
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         let surface = self
             .catalog_terminal_by_host(&state, &terminal.terminal_id)?
             .and_then(|runtime| terminal_placement_for_runtime(&state, &runtime));
@@ -128,10 +129,12 @@ impl Mux {
             return Ok(result);
         }
         let (commit, terminal_incarnation, public_id, notify_public_id) = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             if guard == TerminalCloseGuard::UnplacedAndNotKept {
                 let placed = {
-                    let state = self.lock_state_pinned(&registry).unwrap();
+                    let state =
+                        self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
                     state.surfaces.values().any(|surface| {
                         self.resource_terminal_host_identity(surface)
                             .is_some_and(|identity| identity.terminal_id == terminal_id)
@@ -149,8 +152,8 @@ impl Mux {
                 terminal_id,
                 terminal_incarnation,
             )?;
-            let newly_closed =
-                !commit.replayed && !commit.result["already_closed"].as_bool().unwrap_or(false);
+            let newly_closed = !commit.replayed
+                && !commit.result.get("already_closed").and_then(Value::as_bool).unwrap_or(false);
             if newly_closed {
                 self.emit_terminal_registry_changed(&registry, commit.revision);
             }
@@ -160,7 +163,7 @@ impl Mux {
         };
         self.notify_terminal_exit_waiters(notify_public_id);
         let (target, removed, runtime, changed_screens, empty_revision) = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let catalog_public_id = public_id.or_else(|| {
                 state.terminal_catalog.iter().find_map(|(public_id, surface)| {
                     self.resource_terminal_host_identity(surface)
@@ -233,7 +236,11 @@ impl Mux {
             surface: target,
             terminal_id: terminal_id.to_string(),
             terminal_incarnation,
-            already_closed: commit.result["already_closed"].as_bool().unwrap_or(commit.replayed),
+            already_closed: commit
+                .result
+                .get("already_closed")
+                .and_then(Value::as_bool)
+                .unwrap_or(commit.replayed),
             terminal_revision: commit.revision,
         })
     }
@@ -250,7 +257,7 @@ impl Mux {
     ) -> anyhow::Result<()> {
         let Some(identity) = self.resource_terminal_host_identity(surface) else {
             let removed = {
-                let mut state = self.state.lock().unwrap();
+                let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
                 remove_terminal_runtime_from_state(self, &mut state, surface).0
             };
             for placement in removed {
@@ -268,7 +275,7 @@ impl Mux {
             &TerminalEnd::launch_failed(reason),
         )?;
         let removed = {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             remove_terminal_runtime_from_state(self, &mut state, surface).0
         };
         for placement in removed {
@@ -289,7 +296,12 @@ impl Mux {
         #[cfg(any(unix, windows))]
         {
             self.clear_pending_terminal(terminal_id);
-            let root = self.surface_options.lock().unwrap().terminal_host_root.clone();
+            let root = self
+                .surface_options
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .terminal_host_root
+                .clone();
             let Some(root) = root else { return };
             let panic_log = self.host_panic_log();
             terminate_discovered_terminal_host_in(

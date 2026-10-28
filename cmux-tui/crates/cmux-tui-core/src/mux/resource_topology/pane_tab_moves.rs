@@ -56,10 +56,11 @@ impl Mux {
                 let second_screen =
                     state.screen_of(second_pane).context("second pane has no screen")?;
                 let mut first_layout =
-                    state.workspaces[first_screen.0].screens[first_screen.1].layout_snapshot();
-                let mut second_layout = (first_screen != second_screen).then(|| {
-                    state.workspaces[second_screen.0].screens[second_screen.1].layout_snapshot()
-                });
+                    state.screen_at(first_screen.0, first_screen.1)?.layout_snapshot();
+                let mut second_layout = (first_screen != second_screen)
+                    .then(|| state.screen_at(second_screen.0, second_screen.1))
+                    .transpose()?
+                    .map(Screen::layout_snapshot);
                 swap_layout_panes(
                     &mut first_layout,
                     first_pane,
@@ -72,11 +73,9 @@ impl Mux {
                 let mut topology = registry.resource_topology_snapshot()?;
                 if first_screen != second_screen {
                     let first_screen_id =
-                        state.workspaces[first_screen.0].screens[first_screen.1].public_id.clone();
-                    let second_screen_id = state.workspaces[second_screen.0].screens
-                        [second_screen.1]
-                        .public_id
-                        .clone();
+                        state.screen_at(first_screen.0, first_screen.1)?.public_id.clone();
+                    let second_screen_id =
+                        state.screen_at(second_screen.0, second_screen.1)?.public_id.clone();
                     topology_pane_mut(&mut topology, &first_id)?.screen_id = second_screen_id;
                     topology_pane_mut(&mut topology, &second_id)?.screen_id = first_screen_id;
                 }
@@ -86,7 +85,7 @@ impl Mux {
                     first_screen.1,
                     &first_layout,
                     &topology,
-                    state.workspaces[first_screen.0].screens[first_screen.1].name.clone(),
+                    state.screen_at(first_screen.0, first_screen.1)?.name.clone(),
                 )?;
                 let second_durable = second_layout
                     .as_ref()
@@ -97,7 +96,7 @@ impl Mux {
                             second_screen.1,
                             layout,
                             &topology,
-                            state.workspaces[second_screen.0].screens[second_screen.1].name.clone(),
+                            state.screen_at(second_screen.0, second_screen.1)?.name.clone(),
                         )
                     })
                     .transpose()?;
@@ -161,20 +160,20 @@ impl Mux {
                     deltas,
                     move |state| {
                         apply_layout_snapshot(
-                            &mut state.workspaces[first_screen.0].screens[first_screen.1],
+                            state.planned_screen_mut(first_screen.0, first_screen.1),
                             first_layout,
                         );
                         if let Some(layout) = second_layout {
                             apply_layout_snapshot(
-                                &mut state.workspaces[second_screen.0].screens[second_screen.1],
+                                state.planned_screen_mut(second_screen.0, second_screen.1),
                                 layout,
                             );
                         }
                         if first_screen != second_screen {
                             let first_screen_slot =
-                                state.workspaces[first_screen.0].screens[first_screen.1].id;
+                                state.planned_screen_mut(first_screen.0, first_screen.1).id;
                             let second_screen_slot =
-                                state.workspaces[second_screen.0].screens[second_screen.1].id;
+                                state.planned_screen_mut(second_screen.0, second_screen.1).id;
                             state
                                 .resource_indexes
                                 .pane_screen
@@ -254,7 +253,7 @@ impl Mux {
                 let source_pane = state.pane_of(surface).context("resolved tab has no pane")?;
                 let target_pane =
                     destination.pane.context("destination pane selector has no live pane")?;
-                let source_tabs = state.panes[&source_pane].tabs.clone();
+                let source_tabs = state.live_pane(source_pane)?.tabs.clone();
                 let old_index = source_tabs
                     .iter()
                     .position(|candidate| *candidate == surface)
@@ -274,8 +273,8 @@ impl Mux {
                     );
                 }
                 let topology = registry.resource_topology_snapshot()?;
-                let source_pane_id = state.resource_indexes.pane_ids[&source_pane].clone();
-                let target_pane_id = state.resource_indexes.pane_ids[&target_pane].clone();
+                let source_pane_id = state.live_pane_public_id(source_pane)?.clone();
+                let target_pane_id = state.live_pane_public_id(target_pane)?.clone();
                 let mut moved_tab = topology_tab(&topology, &tab_id)?.clone();
                 let mut source_order = topology
                     .tabs
@@ -315,7 +314,8 @@ impl Mux {
                 } else {
                     source_record.active_tab = source_order
                         .get(
-                            state.panes[&source_pane]
+                            state
+                                .live_pane(source_pane)?
                                 .active_tab
                                 .min(source_order.len().saturating_sub(1)),
                         )
@@ -347,7 +347,8 @@ impl Mux {
                     let mut terminal = registry
                         .terminal_record(host)?
                         .context("terminal has no durable host placement")?;
-                    terminal.workspace_key = state.workspaces[target_workspace_index].key.clone();
+                    terminal.workspace_key =
+                        state.workspace_at(target_workspace_index)?.key.clone();
                     changes.push(ResourceChange::UpsertTerminal {
                         public_id: public_id.clone(),
                         terminal,
@@ -370,7 +371,7 @@ impl Mux {
                             state,
                             target_workspace_index,
                             registry.session_id().as_str(),
-                        ),
+                        )?,
                         position: target_workspace_index,
                         active_screen: Some(target_screen_id.clone()),
                     });

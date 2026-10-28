@@ -1,6 +1,7 @@
 //! Resource creation settlement: correlated creation operations, live selector selection, settlement and rollback of interrupted creations, and creation evidence.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     /// A correlated creation (a terminal tab, pane or workspace). Its
@@ -19,7 +20,8 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         debug_assert!(is_created_path_operation(operation));
         crate::debug_spans::mark("creation.start");
-        let _execution = self.resource_creation_execution.lock().unwrap();
+        let _execution =
+            self.resource_creation_execution.lock().unwrap_or_else(PoisonError::into_inner);
         crate::debug_spans::mark("creation.execution_locked");
         let operation_name = operation_name(operation);
         let correlation_key =
@@ -28,7 +30,8 @@ impl Mux {
         crate::debug_spans::mark("creation.reconciled");
         let effect_fields = semantic_creation_fields(&fields);
         let preparation = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
             crate::debug_spans::mark("creation.registry_locked");
             match registry.lookup_resource_creation(
                 correlation_key,
@@ -51,7 +54,8 @@ impl Mux {
                 Some(preparation) => preparation,
                 None => {
                     crate::debug_spans::mark("creation.looked_up");
-                    let mut state = self.lock_state_pinned(&registry).unwrap();
+                    let mut state =
+                        self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
                     crate::debug_spans::mark("creation.state_locked");
                     let selectors = self.select_live_creation_selectors(
                         operation,
@@ -100,7 +104,7 @@ impl Mux {
                 let recovery = self
                     .workspace_registry
                     .lock()
-                    .unwrap()
+                    .unwrap_or_else(PoisonError::into_inner)
                     .resource_creation_recovery(correlation_key)?
                     .context("executing resource creation omitted its recovery record")?;
                 crate::debug_spans::mark("creation.executing_marked");
@@ -158,8 +162,14 @@ impl Mux {
             return Ok(());
         };
         let tab_id = TabPublicId::parse(tab_id.to_string()).map_err(anyhow::Error::new)?;
-        let Some(surface_id) =
-            self.state.lock().unwrap().resource_indexes.tabs.get(&tab_id).copied()
+        let Some(surface_id) = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resource_indexes
+            .tabs
+            .get(&tab_id)
+            .copied()
         else {
             // A replay can outlive its detached terminal view. There is no
             // launch barrier to release in that case.
@@ -187,9 +197,12 @@ impl Mux {
                 Err(error) => return Err(anyhow::Error::new(error)),
             }
         }
-        Err(anyhow::Error::new(
-            last_missing.expect("non-empty candidates either resolve or report missing"),
-        ))
+        match last_missing {
+            Some(error) => Err(anyhow::Error::new(error)),
+            None => {
+                anyhow::bail!("bad request: {} has no selector candidates", operation.wire_name())
+            }
+        }
     }
 
     #[track_caller]
@@ -293,7 +306,7 @@ impl Mux {
         if self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .resource_topology_snapshot()?
             .active_screens
             .iter()
@@ -301,8 +314,14 @@ impl Mux {
         {
             return Ok(());
         }
-        let workspace =
-            self.state.lock().unwrap().resource_indexes.workspaces.get(&public_id).copied();
+        let workspace = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resource_indexes
+            .workspaces
+            .get(&public_id)
+            .copied();
         if let Some(workspace) = workspace {
             anyhow::ensure!(
                 self.close_workspace_at_revision_for_resource_effect(&Actor::Daemon, workspace)?
@@ -318,13 +337,17 @@ impl Mux {
         &self,
         recovery: &ResourceCreationRecovery,
     ) -> anyhow::Result<Option<ResourceCreationSettlement>> {
-        let preparation = self.workspace_registry.lock().unwrap().lookup_resource_creation(
-            &recovery.correlation_key,
-            &recovery.idempotency_key,
-            &recovery.operation,
-            &recovery.fingerprint,
-            true,
-        )?;
+        let preparation = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .lookup_resource_creation(
+                &recovery.correlation_key,
+                &recovery.idempotency_key,
+                &recovery.operation,
+                &recovery.fingerprint,
+                true,
+            )?;
         Ok(match preparation {
             Some(ResourceCreationPreparation::Created { created_path, revision, .. }) => {
                 Some(ResourceCreationSettlement::Created(ResourcePatchCommit {
@@ -348,7 +371,8 @@ impl Mux {
         let operation: ResourceOperation =
             serde_json::from_value(Value::String(recovery.operation.clone()))
                 .context("stored resource creation has an invalid operation")?;
-        let fields = recovery.intent["fields"].as_object().cloned().unwrap_or_default();
+        let fields =
+            recovery.intent.get("fields").and_then(Value::as_object).cloned().unwrap_or_default();
         match creation_identity_kind(operation, &fields) {
             Some(CreatedIdentityKind::Browser) => {
                 self.browser_creation_evidence(&recovery.intent, recovery.interrupted)
@@ -367,7 +391,7 @@ impl Mux {
     ) -> anyhow::Result<ResourceCreationEvidence> {
         let expected = self.effect_browser_reservation(intent)?;
         let surface = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
             let mut matches = state
                 .surfaces
                 .values()
@@ -405,8 +429,10 @@ impl Mux {
         intent: &Value,
         interrupted: bool,
     ) -> anyhow::Result<ResourceCreationEvidence> {
-        let terminal_id = intent["terminal_reservation"]["terminal_id"]
-            .as_str()
+        let terminal_id = intent
+            .get("terminal_reservation")
+            .and_then(|value| value.get("terminal_id"))
+            .and_then(Value::as_str)
             .context("stored topology intent omitted its terminal reservation")?;
         let resolution = self.resolve_terminal(terminal_id)?;
         let Some(resolution) = resolution else {
@@ -449,6 +475,12 @@ impl Mux {
         let key = reservation["workspace_key"]
             .as_str()
             .context("stored workspace reservation omitted its key")?;
-        Ok(self.state.lock().unwrap().workspaces.iter().any(|workspace| workspace.key == key))
+        Ok(self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .workspaces
+            .iter()
+            .any(|workspace| workspace.key == key))
     }
 }

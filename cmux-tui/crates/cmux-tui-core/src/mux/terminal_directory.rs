@@ -13,8 +13,8 @@ impl Mux {
         directory: Option<String>,
     ) -> anyhow::Result<bool> {
         let Some(id) = source.terminal_public_id() else { return Ok(true) };
-        let mut registry = self.workspace_registry.lock().unwrap();
-        let mut state = self.lock_state_pinned(&registry).unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut state = self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
         let Some(current) = state.terminal_catalog.get(id).cloned() else { return Ok(false) };
         if current.terminal_runtime_id() != source.terminal_runtime_id() {
             return Ok(true);
@@ -150,8 +150,14 @@ impl Mux {
 
     /// Close the startup race where the first prompt preceded runtime registration.
     pub(crate) fn publish_pending_terminal_directories(&self) {
-        let terminals =
-            self.state.lock().unwrap().terminal_catalog.values().cloned().collect::<Vec<_>>();
+        let terminals = self
+            .state
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .terminal_catalog
+            .values()
+            .cloned()
+            .collect::<Vec<_>>();
         for surface in terminals {
             surface.publish_pending_directory();
         }

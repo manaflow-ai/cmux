@@ -1,6 +1,7 @@
 //! Empty workspace creation through the registry, ordinary and resource-effect paths.
 
 use super::*;
+use std::sync::PoisonError;
 
 impl Mux {
     /// Add an ordered workspace-registry entry without creating a PTY,
@@ -122,25 +123,31 @@ impl Mux {
         // creation's delta must show it (`app-screens-v1`).
         let reloads_presentation =
             matches!(mark, crate::state::home_store::EmptyWorkspaceMark::App(_));
-        let mut registry = self.workspace_registry.lock().unwrap();
+        let mut registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let mut fingerprint = serde_json::json!({
             "op": "create-workspace",
             "name": requested_name,
             "requested_key": requested_key,
         });
         if let Some((field, value)) = mark.fingerprint_field() {
-            fingerprint[field] = value;
+            set_field(&mut fingerprint, field, value)?;
         }
         if let Some(commit) = registry.replay(mutation, &fingerprint)? {
-            let workspace = commit.result["workspace"]
-                .as_u64()
+            let workspace = commit
+                .result
+                .get("workspace")
+                .and_then(Value::as_u64)
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
-            let key = commit.result["key"]
-                .as_str()
+            let key = commit
+                .result
+                .get("key")
+                .and_then(Value::as_str)
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing key"))?
                 .to_string();
-            let index = commit.result["index"]
-                .as_u64()
+            let index = commit
+                .result
+                .get("index")
+                .and_then(Value::as_u64)
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing index"))?;
             return Ok(WorkspacePlacement {
@@ -154,7 +161,8 @@ impl Mux {
         let workspace_public_id =
             requested_public_id.map(Ok).unwrap_or_else(WorkspacePublicId::random)?;
         let (placement, delta, selection_resync) = {
-            let mut state = self.lock_state_pinned(&registry).unwrap();
+            let mut state =
+                self.lock_state_pinned(&registry).unwrap_or_else(PoisonError::into_inner);
             if state.workspaces.len() >= WORKSPACE_REGISTRY_LIMIT {
                 anyhow::bail!("workspace limit reached ({WORKSPACE_REGISTRY_LIMIT})");
             }
@@ -224,15 +232,21 @@ impl Mux {
                     ),
                 )?
             };
-            let committed_workspace = commit.result["workspace"]
-                .as_u64()
+            let committed_workspace = commit
+                .result
+                .get("workspace")
+                .and_then(Value::as_u64)
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing workspace"))?;
-            let committed_key = commit.result["key"]
-                .as_str()
+            let committed_key = commit
+                .result
+                .get("key")
+                .and_then(Value::as_str)
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing key"))?
                 .to_string();
-            let committed_index = commit.result["index"]
-                .as_u64()
+            let committed_index = commit
+                .result
+                .get("index")
+                .and_then(Value::as_u64)
                 .and_then(|value| usize::try_from(value).ok())
                 .ok_or_else(|| anyhow::anyhow!("stored create result is missing index"))?;
             if commit.replayed {
@@ -271,13 +285,8 @@ impl Mux {
                 state.resource_revision = resource_revision;
             }
             let revision = commit.revision;
-            let entity = crate::server::tree_entity_json(
-                &state,
-                &notifications,
-                TreeDeltaKind::WorkspaceAdded,
-                ws_id,
-            )
-            .expect("new empty workspace is present in tree snapshot");
+            let entity =
+                committed_tree_entity(&state, &notifications, TreeDeltaKind::WorkspaceAdded, ws_id);
             (
                 WorkspacePlacement { workspace: ws_id, key, index, revision, replayed: false },
                 TreeDelta {
