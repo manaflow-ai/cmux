@@ -19,13 +19,14 @@
 //! Stop: one byte written to `<id>.ctl`. A writer's open fails (ENXIO) unless this runner holds
 //! the FIFO open, so a stop never reaches anything but this runner; nothing signals its pid. Before
 //! the task starts, SIGTERM or SIGINT ends the runner; after, it stops the task like a stop byte
-//! does: SIGTERM to the task's own group, then SIGKILL after [`GRACE`] if its leader still runs.
-//! Only the runner signals that group, and only before it reaps the leader, so the group id is
-//! still the task's. SIGHUP is ignored. The runner learns the leader's exit with
-//! `waitid(WNOWAIT)` and reaps it only once the pipe ends, so output a child it left writes later
-//! is kept and a stop still reaches that child; a stop whose SIGKILL leaves the pipe open (a
-//! process that left the group holds it) ends the wait after its grace. Then the runner writes
-//! the exit and exits.
+//! does: SIGTERM to the task's own group, then SIGKILL to the group after [`GRACE`]. Only the
+//! runner signals that group, and only before it reaps the leader, so the group id is still the
+//! task's. SIGHUP is ignored. The runner learns the leader's exit with `waitid(WNOWAIT)` and reaps
+//! it only once the pipe ends, so output a child it left writes later is kept and a stop still
+//! reaches that child. Once a stop began, the reap also waits for its SIGKILL: a member that
+//! ignores SIGTERM and holds no pipe (its output sent elsewhere) is killed too, never left once
+//! the pipe ends. A stop whose SIGKILL leaves the pipe open (a process that left the group holds
+//! it) ends the wait after one more grace. Then the runner writes the exit and exits.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -261,8 +262,12 @@ pub fn main() -> anyhow::Result<()> {
     }));
     // What a stop that SIGKILLed the group sends when the pipe still has not ended.
     let give_up: Arc<Mutex<Option<std::sync::mpsc::Sender<()>>>> = Arc::new(Mutex::new(None));
+    // Set once a stop sent its SIGKILL: the reap waits for it, so the group id stays the task's
+    // until then.
+    let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
     let stop = {
-        let (task, dir, give_up) = (task.clone(), dir.clone(), give_up.clone());
+        let (task, dir, give_up, killed) =
+            (task.clone(), dir.clone(), give_up.clone(), killed.clone());
         move || {
             let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
             let Some(pid) = held.pid else { std::process::exit(1) };
@@ -272,17 +277,21 @@ pub fn main() -> anyhow::Result<()> {
             held.record.stopped = true;
             let _ = write_record(&dir, &held.record);
             drop(held);
-            let (task, give_up) = (task.clone(), give_up.clone());
+            let (task, give_up, killed) = (task.clone(), give_up.clone(), killed.clone());
             std::thread::spawn(move || {
                 for signal in [libc::SIGTERM, libc::SIGKILL] {
                     let held = task.lock().unwrap_or_else(|e| e.into_inner());
                     if held.reaped {
                         return;
                     }
-                    // SAFETY: the leader is unreaped (checked under the lock), so the group is
-                    // the task's.
+                    // SAFETY: the leader is unreaped (checked under the lock, and the reap waits
+                    // for the SIGKILL below), so the group is the task's.
                     unsafe { libc::killpg(pid as i32, signal) };
                     drop(held);
+                    if signal == libc::SIGKILL {
+                        *killed.0.lock().unwrap_or_else(|e| e.into_inner()) = true;
+                        killed.1.notify_all();
+                    }
                     std::thread::sleep(GRACE);
                 }
                 // Killed and still not done: a process outside the group holds the pipe.
@@ -417,6 +426,16 @@ pub fn main() -> anyhow::Result<()> {
     let _ = done_rx.recv();
     {
         let mut held = task.lock().unwrap_or_else(|e| e.into_inner());
+        // A stop that began finishes first: its SIGKILL reaches what ignored SIGTERM.
+        if held.stopping {
+            drop(held);
+            let mut sent = killed.0.lock().unwrap_or_else(|e| e.into_inner());
+            while !*sent {
+                sent = killed.1.wait(sent).unwrap_or_else(|e| e.into_inner());
+            }
+            drop(sent);
+            held = task.lock().unwrap_or_else(|e| e.into_inner());
+        }
         held.reaped = true;
         let status = child.wait().ok();
         held.record.ended_at = Some(crate::store::now_ms());
