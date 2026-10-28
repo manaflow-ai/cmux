@@ -72,6 +72,17 @@ export function measureComposerAlignment(): ComposerAlignment {
   const foot = q(".acpmux-composer-foot");
   const mode = q(".acpmux-composer-foot .acpmux-access-trigger");
   const model = q(".acpmux-composer-foot .acpmux-model .acpmux-picker-button");
+  /** The first of a chip's labels the reader sees (visible, drawn), or null. */
+  const visibleOf = (chip: Element | null | undefined, selectors: string[]): Element | null => {
+    if (!chip) return null;
+    for (const selector of selectors)
+      for (const element of chip.querySelectorAll(selector)) {
+        if (getComputedStyle(element).visibility !== "visible") continue;
+        if (element.getBoundingClientRect().width === 0) continue;
+        return element;
+      }
+    return null;
+  };
   const ring = q(".acpmux-composer-foot .acpmux-context-ring");
   const css = (element: Element | null | undefined, prop: string): string => {
     if (!element) return "none";
@@ -153,15 +164,12 @@ export function measureComposerAlignment(): ComposerAlignment {
     send: boxOf(send),
     foot: boxOf(foot),
     mode: boxOf(mode),
-    // A label's own box (its line), not its glyph range: the picker centers the label's box, and the
-    // glyph range sits on the font's ascent and descent, not the visual middle.
-    modeText: boxOf(mode?.querySelector(".acpmux-mode-text") ?? mode?.querySelector(":scope > span:not(.acpmux-icon)")),
+    // A label's own box (its line). The fit steps (composerLocation.css) hide a label that does not fit
+    // with visibility hidden and keep its layout, so only a label the reader sees counts.
+    modeText: boxOf(visibleOf(mode, [".acpmux-mode-text"])),
     modeGlyph: boxOf(mode?.querySelector("svg") ?? null),
     model: boxOf(model),
-    modelText: boxOf(
-      q(".acpmux-composer-foot .acpmux-model .acpmux-model-detail") ??
-        q(".acpmux-composer-foot .acpmux-model .acpmux-model-name"),
-    ),
+    modelText: boxOf(visibleOf(model, [".acpmux-model-detail", ".acpmux-model-name", ".acpmux-model-short"])),
     ring: boxOf(ring),
     ringGlyph: boxOf(ring?.querySelector("svg") ?? null),
   };

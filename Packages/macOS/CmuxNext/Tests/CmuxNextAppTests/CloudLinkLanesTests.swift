@@ -35,6 +35,6 @@ struct CloudLinkLanesTests {
             inviteFile: nil, trustedCarrier: true, hubSocket: "/tmp/hub.sock", vmKind: ["--vm-kind", "owner"]
         )
         #expect(value(of: "--vm-kind", in: arguments) == "owner")
-        #expect(Array(arguments.suffix(2)) == ["--wireguard-hub", "/tmp/hub.sock"])
+        #expect(Array(arguments.suffix(3)) == ["--wireguard-hub", "/tmp/hub.sock", "--wireguard-hub-token-stdin"])
     }
 }

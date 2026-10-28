@@ -137,6 +137,8 @@ packages:
     path: CmuxMobileKit
   CmuxChiefVoiceCore:
     path: ../Packages/Shared/CmuxChiefVoiceCore
+  CmuxConversation:
+    path: ../Packages/iOS/CmuxConversation
 targets:
   CmuxMobileApp:
     type: application
@@ -289,6 +291,9 @@ targets:
     dependencies:
       - package: CmuxMobileKit
         product: CmuxMobileNotifications
+      # The Messages bubble outline the app's chats draw (CoreGraphics only).
+      - package: CmuxConversation
+        product: CmuxConversationGeometry
       # iOS finds the extension's context class in UserNotificationsUI: without the
       # framework loaded the extension traps at launch (scripts/check-notification-extension.sh).
       - sdk: UserNotificationsUI.framework

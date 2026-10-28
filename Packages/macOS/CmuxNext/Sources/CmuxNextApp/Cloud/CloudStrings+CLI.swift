@@ -195,3 +195,34 @@ extension CloudStrings {
         String(format: String(localized: "cloud.cli.idlePauseMustBeOneOf", defaultValue: "Minutes must be one of: %@.", table: "Cloud", bundle: .module), list)
     }
 }
+
+/// The cmux Pro offer when a create is refused because the plan has no Cloud
+/// machine. Keys live in Resources/Cloud.xcstrings with every app locale.
+extension CloudStrings {
+    static var proRequiredTitle: String {
+        String(localized: "cloud.pro.required.title", defaultValue: "Cloud machines need cmux Pro", table: "Cloud", bundle: .module)
+    }
+
+    nonisolated static var proRequiredBody: String {
+        String(localized: "cloud.pro.required.body",
+               defaultValue: "Your plan doesn't include Cloud machines. Upgrade to cmux Pro to create them, for you and for Chief.",
+               table: "Cloud", bundle: .module)
+    }
+
+    static var proRequiredUpgrade: String {
+        String(localized: "cloud.pro.required.upgrade", defaultValue: "Upgrade to cmux Pro", table: "Cloud", bundle: .module)
+    }
+}
+
+/// Open Desktop (``CloudDesktop``). Keys live in Resources/Cloud.xcstrings with every app locale.
+extension CloudStrings {
+    /// The desktop workspace's name: the machine's title, then "Desktop".
+    static func desktopWorkspaceName(_ machine: String) -> String {
+        String(format: String(localized: "cloud.desktop.workspaceName", defaultValue: "%@ Desktop", table: "Cloud", bundle: .module), machine)
+    }
+
+    /// A machine made shell-only, or one with no address on its Cloud network yet.
+    static func desktopUnavailable(_ machine: String) -> String {
+        String(format: String(localized: "cloud.desktop.unavailable", defaultValue: "%@ has no desktop to open.", table: "Cloud", bundle: .module), machine)
+    }
+}

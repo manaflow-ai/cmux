@@ -96,6 +96,15 @@ await requireBrowserLane("composer-alignment-centers.test.ts", async () => {
       if (off(leading, trailing))
         out.push(`+ glyph sits ${f(leading)} px from the box's left, the mic glyph ${f(trailing)} px from its right`);
     }
+    // The quiet row's columns: the mode's shield under the + glyph, the context ring's glyph under the mic's.
+    if (m.foot && m.modeGlyph && plusGlyph && m.box && off(m.modeGlyph.cx - m.box.left, plusGlyph.cx - m.box.left))
+      out.push(
+        `quiet row: mode shield center ${f(m.modeGlyph.cx - m.box.left)} px from the box's left, + glyph ${f(plusGlyph.cx - m.box.left)} px`,
+      );
+    if (m.foot && m.ringGlyph && micGlyph && m.box && off(m.box.right - m.ringGlyph.cx, m.box.right - micGlyph.cx))
+      out.push(
+        `quiet row: context ring glyph center ${f(m.box.right - m.ringGlyph.cx)} px from the box's right, mic glyph ${f(m.box.right - micGlyph.cx)} px`,
+      );
     if (plus && placeholder && off(placeholder.left - plus.right, TEXT_GAP))
       out.push(`placeholder starts ${f(placeholder.left - plus.right)} px after the + button, not ${TEXT_GAP} px`);
     if (m.foot && m.mode && m.model) {

@@ -29,6 +29,9 @@ import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
 import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
+export { HandoffDO } from "./handoffs/handoff-do.ts"
+export { HandoffIndexDO } from "./handoffs/index-do.ts"
+import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
@@ -237,6 +240,9 @@ export default {
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
+    // Cloud work mode's hand-offs (handoffs/routes.ts): the owner's sessions on cloud machines, and their machines' reports.
+    const handoff = url.pathname.match(HANDOFFS_PATH)
+    if (handoff) return handleHandoffs(request, env, handoff)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
