@@ -38,6 +38,7 @@ final class HomeHostView: NSView {
     private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var memoryOfferWatch: Task<Void, Never>?
+    private var chiefIntroWatch: Task<Void, Never>?
     /// UserDefaults: the first-run memory offer was clicked (it shows once).
     static let memoryOfferUsedKey = "home.firstRun.memoryOfferUsed"
     private var shortcutsWatch: Task<Void, Never>?
@@ -281,6 +282,21 @@ final class HomeHostView: NSView {
                 self?.transcript.setFirstRunStarters(state.1)
             }
         }
+        // Onboarding: the Chief's first-open message, once per install (ChiefIntroStore). It shows on the
+        // Chief's front page (no messages yet) and is marked shown the moment it does, so it never returns.
+        chiefIntroWatch = Task { [weak self] in
+            let intro = ChiefIntroStore(defaults: .standard)
+            guard intro.shouldShow else { return }
+            for await front in ObservationStream({ () -> Bool in
+                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary else { return false }
+                return summary.lastSeq == 0 && summary.participants.contains(where: { $0.agentClass == .chief })
+            }) where front {
+                guard let self, intro.shouldShow else { return }
+                intro.markShown()
+                self.transcript.showFirstRunIntro()
+                return
+            }
+        }
         // The first-run rows' shortcuts and the Switching card follow rebinds
         // (Settings, cmux.json, keybindings.json) while the view lives.
         let switchKeys = services.homeSwitchKeys
@@ -357,7 +373,7 @@ final class HomeHostView: NSView {
     // the app's claim registry and cancels its wake on the app's timer (both outlive this view). A guard that
     // returned off main skipped all of it.
     nonisolated deinit {
-        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch] {
+        for task in [availability, engineWatch, avatarsWatch, hostWatch, agentsWatch, shortcutsWatch, spellCheckingWatch, headerPanelsWatch, firstPage, memoryOfferWatch, chiefIntroWatch] {
             task?.cancel()
         }
         let settings = settings, transcript = transcript

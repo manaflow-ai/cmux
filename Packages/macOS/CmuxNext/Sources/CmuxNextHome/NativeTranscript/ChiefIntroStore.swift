@@ -16,8 +16,10 @@ public struct ChiefIntroStore: Sendable {
     }
 
     /// True until ``markShown()`` has run on this install.
-    public var shouldShow: Bool { false }
+    public var shouldShow: Bool { !defaults.bool(forKey: Self.shownKey) }
 
     /// Records that the intro was shown, so it never shows again.
-    public func markShown() {}
+    public func markShown() {
+        defaults.set(true, forKey: Self.shownKey)
+    }
 }
