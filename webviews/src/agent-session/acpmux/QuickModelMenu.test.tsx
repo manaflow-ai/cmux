@@ -316,6 +316,61 @@ test("inline effort picks a different model and its level together; model names 
   expect(labels(list())).toContain("Effort");
 });
 
+test("current-model inline effort pick preserves a searched Fast request", async () => {
+  const container = installDom();
+  await loadQuickModelMenu();
+  const effortPicks: string[] = [];
+  const fastPicks: boolean[] = [];
+  function InlineFastHarness() {
+    const trigger = useRef<HTMLButtonElement | null>(null);
+    const [open, setOpen] = useState(false);
+    return (
+      <QuickModelMenu
+        open={open}
+        onOpenChange={setOpen}
+        trigger={trigger}
+        chip={{ "data-menu": "model", label: "Model", title: "Model" }}
+        onMore={() => {}}
+        menu={{
+          inlineEffort: true,
+          models: [],
+          current: "a",
+          onModel() {},
+          effort: {
+            levels: [{ id: "low", name: "Low" }, { id: "high", name: "High" }],
+            current: "high",
+            onPick: (value) => effortPicks.push(value),
+          },
+          fast: { checked: false, onChange: (value) => fastPicks.push(value) },
+          families: {
+            current: "claude",
+            onPick() {},
+            list: [
+              {
+                id: "claude",
+                name: "Claude",
+                more: [],
+                models: [{ id: "a", name: "Model A", family: "claude", efforts: ["low", "high"], fast: true }],
+              },
+            ],
+          },
+        }}
+      >
+        Model
+      </QuickModelMenu>
+    );
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<InlineFastHarness />);
+  });
+  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await settle();
+  await act(async () => (document.querySelector('[aria-label="Model A · Low"]') as HTMLElement).click());
+  expect(effortPicks).toEqual(["low"]);
+  expect(fastPicks).toEqual([true]);
+});
+
 test("provider submenu and expanded rows keep the current model's Effort fallback", async () => {
   const model = {
     id: "a",

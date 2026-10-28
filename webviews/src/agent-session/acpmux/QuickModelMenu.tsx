@@ -337,6 +337,9 @@ export function QuickModelMenu({
       if (running && effort?.onPick) {
         onOpenChange(false);
         effort.onPick(value);
+        // A searched combo can request Fast on the already-running model. Preserve that
+        // request when the effort segment takes the current-model shortcut instead of families.onPick.
+        if (model.fast && fast && !fast.checked) fast.onChange(true);
         return;
       }
       pickRow({ ...model, effort: value });
