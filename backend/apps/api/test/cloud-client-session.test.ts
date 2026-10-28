@@ -146,6 +146,16 @@ describe("retired identities", () => {
       expect(dropped.sort()).toEqual(["fsid-a", "fsid-c"])
       expect(store.retired(10)).toEqual([])
       expect(store.get("vm_live", "cmux")).toEqual({ identity: "fsid-b", vmId: "fsvm-2" })
+
+      // A departed member's identities go now, even behind a full queue of older retired ones.
+      for (let i = 0; i < 12; i++) store.retire(`fsid-old-${i}`, 10 + i)
+      store.put("vm_live", "user_gone", "fsid-gone", "fsvm-2", 30)
+      dropped.length = 0
+      const theirs = store.forgetUser("user_gone", 31)
+      expect(theirs).toEqual(["fsid-gone"])
+      expect(await sweepClientIdentities(store, machine, driver, 32, 10, theirs)).toBe(true)
+      expect(dropped).toContain("fsid-gone")
+      expect(store.retired(20)).not.toContain("fsid-gone")
     })
   })
 

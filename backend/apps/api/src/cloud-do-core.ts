@@ -75,7 +75,7 @@ export abstract class CloudCore extends OwnerDO<CloudState> {
   }
 
   /** Client session identities waiting for their provider delete (CloudDO, cloud-client-session.ts); a no-op here. */
-  protected async sweepClientIdentities(_now: number): Promise<void> {}
+  protected async sweepClientIdentities(_now: number, _first?: ReadonlyArray<string>): Promise<void> {}
 
   /** The idle rules (cloud-do-idle.ts CloudIdle): idle pause from reports, the 24 h cost backstop and its backoff. */
   protected abstract considerIdlePause(entity: string, machine: string, report: unknown, now: number): Promise<void>

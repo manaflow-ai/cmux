@@ -108,10 +108,12 @@ export class ClientIdentityStore {
   }
 
   /** Retires every identity `user` holds (they left the team) and forgets them. */
-  forgetUser(user: string, at: number): void {
-    this.sql.transaction(() => {
-      for (const r of this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity WHERE user = ?`, user)) this.retire(r.identity, at)
+  forgetUser(user: string, at: number): Array<string> {
+    return this.sql.transaction(() => {
+      const ids = this.sql.exec<{ identity: string }>(`SELECT identity FROM cloud_client_identity WHERE user = ?`, user).map((r) => r.identity)
+      for (const id of ids) this.retire(id, at)
       this.sql.exec(`DELETE FROM cloud_client_identity WHERE user = ?`, user)
+      return ids
     })
   }
 
@@ -138,12 +140,13 @@ export class ClientIdentityStore {
  * Retires the identities of gone machines, then deletes up to `limit` retired identities at the
  * provider; only a confirmed delete (or 404) removes one. True when some are still waiting.
  */
-export const sweepClientIdentities = async (store: ClientIdentityStore, machine: (id: string) => MachineRow | undefined, driver: GuardedCloudDriver, now: number, limit = 10): Promise<boolean> => {
+export const sweepClientIdentities = async (store: ClientIdentityStore, machine: (id: string) => MachineRow | undefined, driver: GuardedCloudDriver, now: number, limit = 10, first: ReadonlyArray<string> = []): Promise<boolean> => {
   store.retireGone((id) => {
     const st = machine(id)?.status
     return st === undefined || st === "deleting" || st === "failed"
   }, now)
-  for (const identity of store.retired(limit)) if (await driver.dropClientIdentity(identity).then(() => true, () => false)) store.dropped(identity)
+  // `first` (a departed member's identities) all go now, outside the limit.
+  for (const identity of [...new Set([...first, ...store.retired(limit)])]) if (await driver.dropClientIdentity(identity).then(() => true, () => false)) store.dropped(identity)
   return store.pending()
 }
 

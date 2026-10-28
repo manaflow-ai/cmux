@@ -83,8 +83,8 @@ export class CloudDO extends CloudIdle {
       if (this.isBound(entity)) this.closeSockets((p) => p.user === user, "left the team")
       // Their client sessions end now too: the identities (and every token on them) are deleted at the provider.
       if (this.hasClientIdentities()) {
-        this.clientIdentityStore().forgetUser(user, Date.now())
-        await this.sweepClientIdentities(Date.now()).catch(() => this.retryClientIdentities())
+        const theirs = this.clientIdentityStore().forgetUser(user, Date.now())
+        await this.sweepClientIdentities(Date.now(), theirs).catch(() => this.retryClientIdentities())
       }
     }
     const answers = items.filter((i) => i.op === "integration.approval.answered")
@@ -302,7 +302,7 @@ export class CloudDO extends CloudIdle {
     return this.clientIdentities !== null || this.sqlStore.exec<{ n: number }>(`SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'cloud_client_identity'`)[0]?.n === 1
   }
 
-  protected override async sweepClientIdentities(now: number): Promise<void> {
+  protected override async sweepClientIdentities(now: number, first: ReadonlyArray<string> = []): Promise<void> {
     if (!this.hasClientIdentities()) return
     const entity = this.boundEntity()
     if (!entity || !this.isBound(entity)) return
@@ -313,7 +313,7 @@ export class CloudDO extends CloudIdle {
       if (this.clientIdentityStore().pending()) this.retryClientIdentities()
       return
     }
-    if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now)) this.retryClientIdentities()
+    if (await sweepClientIdentities(this.clientIdentityStore(), (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row, driver, now, 10, first)) this.retryClientIdentities()
   }
 
   private readonly acpmuxStarting = new Set<string>()
