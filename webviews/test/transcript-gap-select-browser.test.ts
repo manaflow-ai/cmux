@@ -292,23 +292,27 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           return mount;
         }, kind);
         const selector = `#shadow-surface-${kind}`;
+        const textSelector = `#shadow-text-${kind}`;
         await page.waitForFunction((surface) => {
-          const host = document.querySelector<HTMLElement>(surface)?.querySelector("diffs-container");
+          const host = document.querySelector<HTMLElement>(surface);
           return Boolean(host?.shadowRoot?.querySelector("[data-line]"));
-        }, selector);
+        }, textSelector);
         await paint(page);
         const point = await page.evaluate((surface) => {
-          const host = document.querySelector<HTMLElement>(surface)?.querySelector("diffs-container");
+          const host = document.querySelector<HTMLElement>(surface);
           const line = host?.shadowRoot?.querySelector<HTMLElement>("[data-line]");
           if (!line) throw new Error(`No shadow text for ${surface}`);
           const range = document.createRange();
           range.selectNodeContents(line);
           const rect = Array.from(range.getClientRects()).find((candidate) => candidate.width > 0);
           if (!rect) throw new Error(`No painted shadow text for ${surface}`);
-          return { x: rect.left + Math.min(24, rect.width / 2), y: rect.top + rect.height / 2 };
-        }, selector);
-        const after = (await geometry(page)).after;
-        await drag(page, point, after);
+          const end = Array.from(range.getClientRects()).at(-1)!;
+          return {
+            from: { x: rect.left + Math.min(4, rect.width / 2), y: rect.top + rect.height / 2 },
+            to: { x: Math.max(end.left + 1, end.right - 2), y: end.top + end.height / 2 },
+          };
+        }, textSelector);
+        await drag(page, point.from, point.to);
         const details = await page.evaluate(() => {
           const selection = getSelection()!;
           const surface = document.querySelector<HTMLElement>("[id^='shadow-surface-']");

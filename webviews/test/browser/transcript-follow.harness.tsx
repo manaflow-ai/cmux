@@ -78,8 +78,8 @@ const draw = () =>
 };
 
 // Focused browser regressions mount the same Pierre-backed transcript surfaces the app uses. They
-// live outside the row renderer only for the test's lifetime, so the fixture can press their open
-// shadow text and verify that the transcript-level gap handler leaves native selection in charge.
+// live outside the row renderer only for the test's lifetime, so the fixture can press an open shadow
+// text host and verify that the transcript-level handler leaves native selection in charge.
 (
   window as unknown as {
     __mountShadowSurface(rowId: string, kind: "highlighted-code" | "edit-diff-hunks"): Promise<void>;
@@ -128,23 +128,20 @@ const draw = () =>
     root.render(<EditDiffHunks file={file} patches={[editPatch(file, file.edits[0]!)]} wrap={false} />);
   }
   // A worker can be unavailable in the browser lane even though the production component mounted.
-  // Keep the real component's host and seed one visible line only when its worker has not painted;
-  // this preserves a deterministic open shadow text surface for the pointer-ownership assertion.
   await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-  let host = mount.querySelector<HTMLElement>("diffs-container");
-  if (!host) {
-    host = document.createElement("diffs-container");
-    mount.append(host);
-  }
-  host.style.userSelect = "text";
-  const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-  if (!shadow.querySelector("[data-line]")) {
-    const line = document.createElement("span");
-    line.setAttribute("data-line", "");
-    line.textContent = 'const keeper = "shadow code"; return keeper;';
-    line.style.userSelect = "text";
-    shadow.append(line);
-  }
+  // Keep the deterministic line in a separate host: a real component may replace its own Pierre
+  // shadow contents when its worker responds, while this host remains the same painted text surface
+  // for the pointer path under test.
+  const host = document.createElement("diffs-container");
+  host.id = `shadow-text-${kind}`;
+  host.style.cssText = "display:block;width:100%;height:24px;pointer-events:auto;user-select:text";
+  mount.append(host);
+  const shadow = host.attachShadow({ mode: "open" });
+  const line = document.createElement("span");
+  line.setAttribute("data-line", "");
+  line.textContent = 'const keeper = "shadow code"; return keeper;';
+  line.style.cssText = "display:block;white-space:pre;user-select:text;pointer-events:auto";
+  shadow.append(line);
 };
 (window as unknown as { __showRawRows: (rows: AcpmuxRow[]) => void }).__showRawRows = (rows) => {
   rawRows = true;
