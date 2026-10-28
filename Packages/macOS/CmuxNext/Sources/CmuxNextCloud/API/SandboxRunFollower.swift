@@ -45,7 +45,7 @@ public final class SandboxRunFollower {
     }
 
     /// Where the Runs in flight are kept between launches.
-    public static let defaultsKey = "cmux.next.sandboxRuns.following"
+    public nonisolated static let defaultsKey = "cmux.next.sandboxRuns.following"
     /// How long an ended Run's card is kept for its banner (its banner is withdrawn with it).
     public static let keptEnded: TimeInterval = 7 * 86_400
     /// The cancels this app sent that are kept for Runs still in flight.

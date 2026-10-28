@@ -16,11 +16,20 @@ extension CloudOwnerAPIClient {
                              timeout: .milliseconds(held) + .seconds(15))
     }
 
-    /// `GET /v1/handoffs?limit=`: the person's newest hand-offs (the first page).
-    public func handoffs(limit: Int = 100) async throws -> [CloudHandoff] {
-        struct Page: Decodable { var handoffs: [CloudHandoff] }
-        let data = try await get("/v1/handoffs", query: [("limit", max(1, min(limit, 100)))], timeout: .seconds(30))
-        do { return try JSONDecoder().decode(Page.self, from: data).handoffs } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
+    /// `GET /v1/handoffs?limit=&cursor=`: the person's hand-offs, newest first, page after page
+    /// (at most `pages` of 100).
+    public func handoffs(pages: Int = 20) async throws -> [CloudHandoff] {
+        struct Page: Decodable { var handoffs: [CloudHandoff]; var nextCursor: String? }
+        var all: [CloudHandoff] = [], cursor: String?
+        for _ in 0..<max(1, pages) {
+            let data = try await get("/v1/handoffs", query: [("limit", 100)], cursor: cursor, timeout: .seconds(30))
+            let page: Page
+            do { page = try JSONDecoder().decode(Page.self, from: data) } catch { throw CloudAPIError.decoding("/v1/handoffs: \(error)") }
+            all += page.handoffs
+            guard let next = page.nextCursor, !next.isEmpty else { break }
+            cursor = next
+        }
+        return all
     }
 
     /// The store's ids (`ho_` and 20 hex digits), the only path part that varies.

@@ -116,19 +116,23 @@ public struct CloudOwnerAPIClient: Sendable {
         }
     }
 
-    /// `GET path?name=value…` with integer query values only (a hand-off read): answers the 2xx
+    /// `GET path?name=value…` with integer query values and a list cursor (base64url) only: answers the 2xx
     /// body as sent. Any other answer throws ``CloudAPIError/http(status:code:message:action:traceId:)``
     /// with the route's `{error: {code, message}}`.
-    func get(_ path: String, query: [(String, Int)], timeout: Duration) async throws -> Data {
+    func get(_ path: String, query: [(String, Int)], cursor: String? = nil, timeout: Duration) async throws -> Data {
+        if let cursor, cursor.range(of: #"^[A-Za-z0-9_-]{1,512}$"#, options: .regularExpression) == nil {
+            throw CloudAPIError.transport("not a list cursor")
+        }
         let access: String
         do { access = try await accessToken() } catch { throw CloudAPIError.notSignedIn }
-        let pairs = query.map { "\($0.0)=\($0.1)" }.joined(separator: "&")
+        let pairs = (query.map { "\($0.0)=\($0.1)" } + (cursor.map { ["cursor=\($0)"] } ?? [])).joined(separator: "&")
         let base = baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard let url = URL(string: base + path + (pairs.isEmpty ? "" : "?" + pairs)) else { throw CloudAPIError.transport("bad path \(path)") }
         var request = URLRequest(url: url, timeoutInterval: TimeInterval(timeout.components.seconds))
         request.httpMethod = "GET"
         // RULE (cx-kvmz, hq-84), as in post(_:_:body:timeout:as:): Authorization and x-cmux-team
-        // only; the path's one varying part is a checked id and the query holds integers alone.
+        // only; the path's one varying part is a checked id and the query holds integers and the
+        // store's own list cursor alone.
         request.setValue("Bearer \(access)", forHTTPHeaderField: "Authorization")
         if let team = await teamID() { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         let data: Data
