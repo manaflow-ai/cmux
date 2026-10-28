@@ -1,5 +1,5 @@
 import type { Principal } from "@cmux/ownership"
-import { GitHubTokenRequest, GitHubTokenRevokeRequest, TeamId } from "@cmux/protocol"
+import { GitHubMachineTokenRequest, GitHubTokenRequest, GitHubTokenRevokeRequest, TeamId } from "@cmux/protocol"
 import { Exit, Schema } from "effect"
 import { authenticate } from "../auth.ts"
 import { roleHas } from "../domains/team-roles.ts"
@@ -76,6 +76,9 @@ const teamAdmin = async (env: Env, p: Principal, team: string): Promise<boolean 
 }
 
 export const handleGithubToken = async (request: Request, env: Env, sub: string): Promise<Response> => {
+  // Repository enumeration and the machine-only seam are development surfaces until the hosted
+  // connector rollout. Existing token/status/revoke routes retain their normal environments.
+  if ((sub === "repos" || sub === "machine-token") && env.ENVIRONMENT !== "development") return new Response("not found", { status: 404 })
   if (sub === "repos") {
     if (request.method !== "GET") return failed(no(405, "request.invalid", "GET"))
     const url = new URL(request.url)
@@ -99,18 +102,23 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   if (request.method !== "POST") return failed(no(405, "request.invalid", "POST"))
   const json = (await request.json().catch(() => undefined)) as unknown
   if (sub === "token" || sub === "machine-token") {
-    const body = decode(GitHubTokenRequest as unknown as Schema.Codec<typeof GitHubTokenRequest.Type, unknown>, json)
+    const body = sub === "machine-token"
+      ? decode(GitHubMachineTokenRequest as unknown as Schema.Codec<typeof GitHubMachineTokenRequest.Type, unknown>, json)
+      : decode(GitHubTokenRequest as unknown as Schema.Codec<typeof GitHubTokenRequest.Type, unknown>, json)
     if (isFail(body)) return failed(body)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
-    if (sub === "machine-token" && (who.p.kind !== "install" || !TOKEN_INSTALL_KINDS.has(who.p.install_kind ?? ""))) {
-      return failed(no(403, "auth.forbidden", "a machine install is required"))
-    }
+    if (sub === "machine-token" && (who.p.kind !== "install" || who.p.install_kind !== "vm" || !who.machine)) return failed(no(403, "auth.forbidden", "a machine install is required"))
     if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
       return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
     }
-    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(body.ttlSec === undefined ? {} : { ttlSec: body.ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
+    const writes = Object.values(body.permissions).some((access) => access === "write")
+    if (writes && who.p.kind === "install" && !who.p.grant_classes?.includes("mutate-own")) {
+      return failed(no(403, "auth.forbidden", "this install's grant does not cover write access"))
+    }
+    const ttlSec = sub === "machine-token" ? (body as typeof GitHubMachineTokenRequest.Type).ttlSec : undefined
+    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(ttlSec === undefined ? {} : { ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
     return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
   }

@@ -55,12 +55,19 @@ export const principalKey = (p: Principal) => (p.kind === "install" && p.install
 export const createGithubTokenTable = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS github_tokens (
     token_id TEXT PRIMARY KEY, cache_key TEXT NOT NULL, principal TEXT NOT NULL, install TEXT, team TEXT NOT NULL, repo TEXT NOT NULL,
-    permissions TEXT NOT NULL, expires_at INTEGER NOT NULL, sealed TEXT NOT NULL, revoking INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0)`)
+    permissions TEXT NOT NULL, expires_at INTEGER NOT NULL, provider_expires_at INTEGER NOT NULL DEFAULT 0, sealed TEXT NOT NULL,
+    revoking INTEGER NOT NULL DEFAULT 0, retry_at INTEGER NOT NULL DEFAULT 0, attempts INTEGER NOT NULL DEFAULT 0)`)
+  try {
+    sql.exec(`ALTER TABLE github_tokens ADD COLUMN provider_expires_at INTEGER NOT NULL DEFAULT 0`)
+  } catch {
+    // The column already exists on current deployments.
+  }
+  sql.exec(`UPDATE github_tokens SET provider_expires_at = expires_at WHERE provider_expires_at = 0`)
   sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_cache ON github_tokens (cache_key)`)
   sql.exec(`CREATE INDEX IF NOT EXISTS github_tokens_principal ON github_tokens (principal)`)
 }
 
-type Row = { token_id: string; principal: string; install: string | null; team: string; repo: string; permissions: string; expires_at: number; sealed: string }
+type Row = { token_id: string; principal: string; install: string | null; team: string; repo: string; permissions: string; expires_at: number; provider_expires_at: number; sealed: string }
 const aad = (r: Omit<Row, "sealed">) => enc.encode(`cmux-ghtok-v1|${canonicalJson([r.team, r.principal, r.install, r.repo, r.permissions, r.token_id, Number(r.expires_at)])}`)
 const openRow = (env: Env, r: Row) => open(env.INTEGRATIONS_KEK!, JSON.parse(r.sealed) as SealedSecret, aad(r))
 
@@ -107,7 +114,8 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
   if ("ok" in picked) return Promise.resolve(picked)
   const pk = principalKey(p)
   const permissions = Object.fromEntries(Object.entries(ask.permissions).sort(([a], [b]) => a.localeCompare(b)))
-  const cacheKey = sha256hex(canonicalJson([pk, picked.installation, ask.repo.toLowerCase(), permissions]))
+  // TTL is part of the cache identity: a short machine request must never reuse a longer-lived token.
+  const cacheKey = sha256hex(canonicalJson([pk, picked.installation, ask.repo.toLowerCase(), permissions, ask.ttlSec ?? null]))
   // One mint at a time per cache key: concurrent asks share it (and the token).
   const running = h.inflight.get(cacheKey)
   if (running) return running
@@ -116,58 +124,81 @@ export const githubToken = (h: LedgerHost, p: Principal, ask: TokenAsk, now: num
   return work
 }
 
-/** Lists repositories visible to every active GitHub installation this principal may use. */
+type RepoCursor = { readonly installation: number; readonly page: number }
+const encodeRepoCursor = (cursor: RepoCursor) => {
+  const raw = btoa(JSON.stringify(cursor))
+  return raw.replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+}
+const decodeRepoCursor = (value: string): RepoCursor | TokenFail => {
+  try {
+    const padded = value.replaceAll("-", "+").replaceAll("_", "/") + "===".slice((value.length + 3) % 4)
+    const parsed = JSON.parse(atob(padded)) as { installation?: unknown; page?: unknown }
+    if (!Number.isSafeInteger(parsed.installation) || parsed.installation < 0 || !Number.isSafeInteger(parsed.page) || parsed.page < 1)
+      return fail(400, "request.invalid", "cursor is invalid")
+    return { installation: parsed.installation, page: parsed.page }
+  } catch {
+    return fail(400, "request.invalid", "cursor is invalid")
+  }
+}
+
+/** Lists one bounded upstream page at a time; the cursor carries installation and page. */
 export const githubRepos = async (
   h: { readonly env: Env; readonly http: Http; readonly state: () => ConnectionsState },
   p: Principal,
   query: { readonly query?: string; readonly cursor?: string },
 ): Promise<RepoListReply> => {
-  if (query.cursor !== undefined && !/^(?:0|[1-9][0-9]*)$/.test(query.cursor)) return fail(400, "request.invalid", "cursor is invalid")
+  if (p.kind === "install" && p.install_kind !== "vm" && !p.grant_classes?.includes("read")) return fail(403, "auth.forbidden", "this install's grant does not cover read")
   if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment")
   const state = h.state()
   if (!providerAllowed(policyOf(state), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
   const connections = Object.values(state.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
   if (connections.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
-  const seen = new Map<string, { full_name: string; private: boolean; connection: string }>()
-  for (const connection of connections) {
+  const cursor = query.cursor === undefined ? { installation: 0, page: 1 } : decodeRepoCursor(query.cursor)
+  if ("ok" in cursor) return cursor
+  if (cursor.installation >= connections.length) return fail(400, "request.invalid", "cursor is invalid")
+  const connection = connections[cursor.installation]
+  if (!connection) return fail(400, "request.invalid", "cursor is invalid")
+  {
     const installation = Number(/^github:installation:(\d+)$/.exec(connection.account?.key ?? "")?.[1])
-    if (!Number.isSafeInteger(installation)) continue
+    if (!Number.isSafeInteger(installation)) return fail(503, "integration.unavailable", "the GitHub connection has no installation")
     let token: string
     try {
       token = await installationToken(h.env, h.http, installation)
     } catch {
       return fail(503, "integration.unavailable", "GitHub did not answer; retry")
     }
-    for (let page = 1; ; page++) {
-      const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
-      if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
-      if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
-      const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
-      if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
-      const batch = body.repositories as Array<{ full_name?: unknown; private?: unknown }>
-      for (const repo of batch) {
-        const fullName = typeof repo.full_name === "string" ? repo.full_name : ""
-        if (!fullName || !githubRepoAllowed(connection, policyOf(state), fullName)) continue
-        seen.set(fullName.toLowerCase(), { full_name: fullName, private: repo.private === true, connection: connection.id })
-      }
-      if (batch.length < 100 || (typeof body.total_count === "number" && page * 100 >= body.total_count)) break
-    }
-  }
-  const current = h.state()
-  if (!providerAllowed(policyOf(current), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
-  const currentConnections = Object.values(current.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
-  const allowed = new Map(currentConnections.map((c) => [c.id, c]))
-  const needle = query.query?.trim().toLowerCase()
-  const all = [...seen.values()]
-    .filter((repo) => {
-      const connection = allowed.get(repo.connection)
-      return connection !== undefined && githubRepoAllowed(connection, policyOf(current), repo.full_name) && (!needle || repo.full_name.toLowerCase().includes(needle))
+    const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${cursor.page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
+    if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
+    if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
+    const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
+    if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
+    const repos = body.repositories.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return []
+      const repo = entry as { full_name?: unknown; private?: unknown }
+      const fullName = typeof repo.full_name === "string" ? repo.full_name : ""
+      return fullName && githubRepoAllowed(connection, policyOf(state), fullName) && (!query.query || fullName.toLowerCase().includes(query.query.trim().toLowerCase()))
+        ? [{ full_name: fullName, private: repo.private === true }]
+        : []
     })
-    .sort((a, b) => a.full_name.localeCompare(b.full_name))
-  const start = query.cursor === undefined ? 0 : Number(query.cursor)
-  if (!Number.isSafeInteger(start) || start < 0) return fail(400, "request.invalid", "cursor is invalid")
-  const repos = all.slice(start, start + 100)
-  return { ok: true, value: { repos: repos.map(({ connection: _connection, ...repo }) => repo), cursor: start + repos.length < all.length ? String(start + repos.length) : null } }
+    const hasNext = body.repositories.length >= 100 && (typeof body.total_count !== "number" || cursor.page * 100 < body.total_count)
+    const next = hasNext
+      ? { installation: cursor.installation, page: cursor.page + 1 }
+      : cursor.installation + 1 < connections.length
+        ? { installation: cursor.installation + 1, page: 1 }
+        : null
+    const current = h.state()
+    if (!providerAllowed(policyOf(current), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
+    const stillAllowed = Object.values(current.connections).some(
+      (candidate) =>
+        candidate.id === connection.id &&
+        candidate.provider === "github" &&
+        candidate.status === "active" &&
+        mayUse(candidate, p) &&
+        repos.every((repo) => githubRepoAllowed(candidate, policyOf(current), repo.full_name)),
+    )
+    if (repos.length > 0 && !stillAllowed) return fail(403, "policy.denied", "the team's GitHub connection changed; retry")
+    return { ok: true, value: { repos, cursor: next ? encodeRepoCursor(next) : null } }
+  }
 }
 
 /** A row is served only while it is live and nobody revoked it (checked after each await, with no await before the answer). */
@@ -205,9 +236,19 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   }
   const minted = await mintedToken(res)
   if (!minted.token) return fail(503, "integration.unavailable", "GitHub returned no token")
+  if (!Number.isFinite(minted.expires_at) || minted.expires_at <= now) return fail(503, "integration.unavailable", "GitHub returned an expired token")
   const tokenId = sha256hex(minted.token).slice(0, 16)
   const requestedExpiry = ask.ttlSec === undefined ? minted.expires_at : Math.min(minted.expires_at, now + ask.ttlSec * 1000)
-  const row = { token_id: tokenId, principal: pk, install: p.kind === "install" ? (p.install ?? null) : null, team: h.team, repo: ask.repo, permissions: JSON.stringify(minted.permissions), expires_at: requestedExpiry }
+  const row = {
+    token_id: tokenId,
+    principal: pk,
+    install: p.kind === "install" ? (p.install ?? null) : null,
+    team: h.team,
+    repo: ask.repo,
+    permissions: JSON.stringify(minted.permissions),
+    expires_at: requestedExpiry,
+    provider_expires_at: minted.expires_at,
+  }
   const sealed = JSON.stringify(await seal(h.env.INTEGRATIONS_KEK!, minted.token, aad(row)))
   // From here every minted token has a durable row: one we refuse is revoked at GitHub (retried from the alarm until it expires).
   const refuse = async (f: TokenFail) => {
@@ -216,8 +257,8 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
     return f
   }
   h.sql.exec(
-    `INSERT OR REPLACE INTO github_tokens (token_id, cache_key, principal, install, team, repo, permissions, expires_at, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.permissions, row.expires_at, sealed
+    `INSERT OR REPLACE INTO github_tokens (token_id, cache_key, principal, install, team, repo, permissions, expires_at, provider_expires_at, sealed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    row.token_id, cacheKey, row.principal, row.install, row.team, row.repo, row.permissions, row.expires_at, row.provider_expires_at, sealed
   )
   // Refuse rather than hand out less than was asked (GitHub never widens; it must not narrow either), or what the state no longer allows.
   const short = Object.entries(ask.permissions).find(([k, v]) => !(minted.permissions[k] === "write" || minted.permissions[k] === v))
@@ -267,6 +308,12 @@ export const drainTokenRevocations = async (h: Pick<LedgerHost, "sql" | "env" | 
   const due = h.sql.exec<Row & { attempts: number }>(`SELECT * FROM github_tokens WHERE revoking = 1 AND retry_at <= ? LIMIT 100`, now).toArray()
   await Promise.all(
     due.map(async (r) => {
+      // Once GitHub's native expiry has passed, the provider token is unusable even if DELETE
+      // remains unavailable. Drop the sealed row so a KEK or provider outage cannot retain it forever.
+      if (r.provider_expires_at > 0 && r.provider_expires_at <= now) {
+        h.sql.exec(`DELETE FROM github_tokens WHERE token_id = ?`, r.token_id)
+        return
+      }
       const token = await openRow(h.env, r).catch(() => null)
       // A row that does not open (a KEK misconfigured or rotated) stays for the next try and goes only at its expiry.
       if (token === null) console.error(JSON.stringify({ msg: "github token revoke: the ledger row does not open", token_id: r.token_id }))

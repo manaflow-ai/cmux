@@ -358,7 +358,13 @@ export const GitHubTokenRequest = Schema.Struct({
   repo: GitHubRepoName,
   permissions: GitHubTokenPermissions,
   label: Schema.optionalKey(Label),
-  /** Effective lifetime for connector callers; the ledger revokes before GitHub's one-hour maximum. */
+})
+/** POST /v1/integrations/github/machine-token: the machine-only connector path may set a short TTL. */
+export const GitHubMachineTokenRequest = Schema.Struct({
+  team: Schema.optionalKey(TeamId),
+  repo: GitHubRepoName,
+  permissions: GitHubTokenPermissions,
+  label: Schema.optionalKey(Label),
   ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
 })
 /** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
