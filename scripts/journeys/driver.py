@@ -74,6 +74,9 @@ RELAUNCH_SECONDS = 90
 # at most its holdLimit of 2 s) are replayed through NSApp.sendEvent, which only reaches the key window, so in a
 # slot they are lost (a person's window is key). Steps that make a terminal wait this long before the next key.
 CREATION_HOLD_SECONDS = 2.5
+# The app's New Terminal Tab key (newSurface, TabActionCatalog's default Ctrl-`): what a person presses for a
+# new terminal. On Home it opens a workspace with a terminal; in a workspace, a terminal tab in the focused pane.
+NEW_TERMINAL_KEY = {"key": "`", "modifiers": ["control"]}
 # Launch variables a relaunch passes on (restore-journey.py's rule): what a capture slot sets.
 LAUNCH_ENV = re.compile(r"^(CMUX_[A-Z0-9_]*|HOME|TMPDIR)$")
 
@@ -412,6 +415,15 @@ class Journey:
     # -- steps --
 
     def step_new_terminal(self, step):
+        """`via`: `key` (the person's New Terminal Tab key, NEW_TERMINAL_KEY, through debug.key: an action of
+        origin user that claims the window's keyboard) or `socket` (default: a script's `action.run newTab`
+        with focus, which since cp/fix-chief-composer-focus shows the workspace only when no text input has
+        the person's keyboard). A journey that plays what a person does says `via: key`."""
+        via = step.get("via", "socket")
+        if via == "key":
+            return self.new_terminal_by_key(step)
+        if via != "socket":
+            raise StepError(f"new_terminal: via is key or socket, not {via!r}")
         before = {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
         # A second new_terminal in one journey (a second window) finds its own terminal, not the first's.
         self.term = self.pane = self.host_pid = None
@@ -440,6 +452,52 @@ class Journey:
                     raise StepError(f"terminal {self.term}: the daemon's screen never showed a prompt: {last[-400:]}")
             time.sleep(0.2)
         raise StepError(f"newTab showed no new focused terminal pane within {step.get('timeout', 20)} s: {json.dumps(reply)[:200]}")
+
+    def new_terminal_by_key(self, step):
+        """The person's new terminal: presses NEW_TERMINAL_KEY (the app's own binding, never changed here) and
+        adopts the new focused terminal as `focused_terminal` does. Right after launch the window may not exist
+        yet (debug.key answers "no window"); the key is pressed again until it does, as a person presses it once
+        they see the window. Checks the key router ran newSurface for it (debug.key `last`)."""
+        held = self.before_keys()
+        end = now() + float(step.get("timeout", 20))
+        press = {"key": step.get("key", NEW_TERMINAL_KEY["key"]), "modifiers": step.get("modifiers", NEW_TERMINAL_KEY["modifiers"])}
+        tries = 0
+        while True:
+            tries += 1
+            self.known_views |= {p.get("terminal_id") for p in self.app.panes() if p.get("terminal_id")}
+            before = self.app.rpc("debug.key", {"last": True}) or {}
+            reply = self.key(press["key"], press["modifiers"])
+            if not (isinstance(reply, dict) and reply.get("error") == "no window") or now() > end:
+                break
+            time.sleep(0.1)
+        if isinstance(reply, dict) and reply.get("error"):
+            raise StepError(f"the new terminal key {press} was refused: {reply['error']}")
+        last = self.app.rpc("debug.key", {"last": True}) or {}
+        adopted = self.step_focused_terminal({"timeout": max(1.0, end - now())})
+        return dict(adopted, via="key", key=press, presses=tries, waited_out_hold_s=held,
+                    handled_by=reply.get("handled_by") if isinstance(reply, dict) else None,
+                    router_last={"action": last.get("action"), "ran": last.get("ran"),
+                                 "new": last.get("count") != before.get("count")})
+
+    def step_script_new_terminal(self, step):
+        """Automation on purpose: a script's `action.run newTab` (`name`, `focus`, default true) through the
+        socket, as `cmux workspace new --focus` sends it. Does not wait for the workspace to show (a script's
+        new workspace shows only when no text input has the person's keyboard): waits for the topology to list
+        a workspace named `name` with a terminal, makes that terminal current (no pane: the app may not show
+        it) and waits for its shell's first prompt in the daemon's screen."""
+        name = self.sub(step.get("name", self.id))
+        reply = self.app.rpc("action.run", {"action": "newTab", "args": {"name": name, "focus": bool(step.get("focus", True))}})
+        end = now() + float(step.get("timeout", 20))
+        last = "no reply"
+        while now() < end:
+            try:
+                self.term, self.pane, self.host_pid = self.daemon_terminal(name, None), None, None
+                if self.app.screen(self.term)["text"].strip():
+                    return {"terminal": self.term, "workspace": name, "action_reply": reply}
+            except StepError as error:
+                last = str(error)
+            time.sleep(0.2)
+        raise StepError(f"the script's newTab {name!r} listed no terminal with a prompt within {step.get('timeout', 20)} s: {last[-300:]}")
 
     def daemon_terminal(self, workspace_name, pane_key):
         """The daemon terminal id of the selected tab in `pane_key` of the workspace named `workspace_name`."""
