@@ -96,7 +96,7 @@ pub mod agent_update;
 mod ask_first;
 mod askable;
 mod landed;
-mod state_file;
+pub(super) mod state_file;
 
 pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 /// `vm_kind` on `agent-transfer-receive` and `agent-transfer-finish`: the

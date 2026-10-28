@@ -102,12 +102,13 @@ class NightlyPruneRateLimitTests(unittest.TestCase):
             stderr="HTTP 429: API rate limit exceeded",
         )
         parsed = args(best_effort=True)
-        parsed.keep_builds = 1
-        parsed.max_assets = 1
+        parsed.keep_builds = 2
+        parsed.max_assets = 2
         release = {
             "assets": [
                 {"id": 1, "name": "cmux-nightly-macos-1.dmg"},
                 {"id": 2, "name": "cmux-nightly-macos-2.dmg"},
+                {"id": 3, "name": "cmux-nightly-macos-3.dmg"},
             ]
         }
         with mock.patch.object(MODULE, "parse_args", return_value=parsed), \
@@ -201,6 +202,22 @@ class SourceArchiveRetentionTests(unittest.TestCase):
         self.assertIn("cmux-next-source-1.tar.gz", str(raised.exception))
         whole = [asset for asset in assets if asset.build == 1]
         MODULE.check_source_archive_retention(assets, whole)
+
+    def test_the_asset_cap_never_takes_the_two_newest_builds(self) -> None:
+        # The newest build and the one a feed rollback serves stay, whatever the cap says.
+        raw = next_release([10, 11, 12, 13])
+        per_build = len(raw) // 4
+        to_delete = self.plan(raw, keep_builds=100, max_assets=2 * per_build)
+        self.assertEqual({asset.build for asset in to_delete}, {10, 11})
+        with self.assertRaises(RuntimeError) as raised:
+            self.plan(raw, keep_builds=100, max_assets=2 * per_build - 1)
+        self.assertIn("newest 2 immutable builds", str(raised.exception))
+
+    def test_keep_builds_below_the_rollback_floor_is_refused(self) -> None:
+        parsed = args(best_effort=False)
+        parsed.keep_builds = 1
+        with mock.patch.object(MODULE, "parse_args", return_value=parsed):
+            self.assertEqual(MODULE.main(), 2)
 
     def test_only_the_count_and_cap_rules_delete(self) -> None:
         # No age rule: with room to spare nothing goes, however old.

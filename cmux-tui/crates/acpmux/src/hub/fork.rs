@@ -157,6 +157,9 @@ impl Hub {
             note = Some(fresh_note(&parent_meta.harness));
             Made::Fresh
         } else {
+            // The idle pass never ends the parent's harness under its session/fork (`idle.rs`).
+            self.touch(session);
+            let _using = session.harness_use.read().await;
             let child = self.child_for(session).await?;
             // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
             // with a bare internal error: refuse with the reason instead.
@@ -226,6 +229,14 @@ impl Hub {
             preset: parent_meta.preset.clone(),
             model_request: parent_meta.model_request.clone(),
             cwd,
+            // A fork is a new chat. Its parent transcript is authorized through parent_id; it
+            // must not inherit the parent's historical native session ids as its own.
+            previous_agent_session_ids: Vec::new(),
+            // The id was produced by this fork's actual harness, not by the parent's creation
+            // family (which can be stale after a profile switch).
+            agent_session_family: new_sid
+                .as_ref()
+                .map(|_| if is_claude { "claude".to_owned() } else { "non-claude".to_owned() }),
             agent_session_id: new_sid,
             status: SessionStatus::Idle,
             created_at: now,
@@ -233,6 +244,7 @@ impl Hub {
             last_seq: 0,
             parent_id: Some(session.id.clone()),
             fork_seq: Some(fork_seq),
+            fork_parent_verified: Some(true),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
             steering: parent_meta.steering,
@@ -276,6 +288,7 @@ impl Hub {
             tags: Default::default(),
             unread: false,
             claude_unstored: false,
+            hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
             // A fork of a remote-origin session stays remote-origin.
