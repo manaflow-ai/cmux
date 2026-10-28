@@ -108,6 +108,40 @@ func start(_ pipe: Pipe, log: @escaping @Sendable (String) -> Void) {
     }
 }
 """
+# A read inside a string interpolation is code.
+INTERPOLATED = """import Foundation
+
+func start(_ pipe: Pipe, log: @escaping @Sendable (String) -> Void) {
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+        log("bytes: \\(handle.availableData.count)")
+    }
+}
+"""
+# A `}` in a block comment doesn't end the handler before its read.
+BLOCK_COMMENT = """import Foundation
+
+func start(_ pipe: Pipe, yield: @escaping @Sendable (Data) -> Void) {
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+        /* the payload ends with } */
+        yield(handle.availableData)
+    }
+}
+"""
+# The name in a multiline literal, a raw literal or a block comment is text.
+LITERAL_TEXT = """import Foundation
+
+func start(_ pipe: Pipe, log: @escaping @Sendable (String) -> Void) {
+    pipe.fileHandleForReading.readabilityHandler = { handle in
+        log(\"\"\"
+            availableData } is text here
+            \"\"\")
+        log(#"availableData "quoted" too"#)
+        /* availableData
+           still a comment } */
+        _ = handle.readReady()
+    }
+}
+"""
 ALLOWED = """import Foundation
 
 func start(_ pipe: Pipe, yield: @escaping @Sendable (Data) -> Void) {
@@ -169,6 +203,16 @@ class PipeReadRule(unittest.TestCase):
 
     def test_the_name_in_a_string_or_a_trailing_comment_is_green(self):
         result = run({"FixtureCore/Reader.swift": TEXT})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_read_in_a_string_interpolation_is_red(self):
+        self.assert_red(run({"FixtureCore/Reader.swift": INTERPOLATED}), 5)
+
+    def test_a_brace_in_a_block_comment_does_not_close_the_handler(self):
+        self.assert_red(run({"FixtureCore/Reader.swift": BLOCK_COMMENT}), 6)
+
+    def test_the_name_in_multiline_and_raw_literals_and_block_comments_is_green(self):
+        result = run({"FixtureCore/Reader.swift": LITERAL_TEXT})
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_a_reviewed_escape_is_green(self):

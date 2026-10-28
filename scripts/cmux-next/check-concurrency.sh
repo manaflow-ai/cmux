@@ -212,19 +212,103 @@ READABILITY_HANDLER = re.compile(r"\breadabilityHandler\s*=\s*\{")
 READABILITY_HANDLER_PENDING = re.compile(r"\breadabilityHandler\s*=\s*$")
 AVAILABLE_DATA = re.compile(r"\bavailableData\b")
 PIPE_READ_ALLOW = re.compile(r"//\s*pipe-read-allow:\s*\S")
-STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
+
+
+def swift_code_mask(text):
+    """`text` with comment and string-literal characters turned to spaces (newlines kept), so only
+    code is left: `//` and nested `/* */` comments, "..." and multiline literals, raw `#"..."#`
+    literals, and an interpolation `\\(...)` inside a literal stays code."""
+    out = list(text)
+    n = len(text)
+    i = 0
+    # The open contexts, innermost last: ("block", depth), ("string", quotes, hashes) or
+    # ("interp", paren depth) for an interpolation, which is code inside a string.
+    stack = []
+
+    def blank(a, b):
+        for k in range(a, min(b, n)):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        top = stack[-1] if stack else None
+        if top is None or top[0] == "interp":
+            if text.startswith("//", i):
+                j = text.find("\n", i)
+                j = n if j < 0 else j
+                blank(i, j)
+                i = j
+            elif text.startswith("/*", i):
+                stack.append(["block", 1])
+                blank(i, i + 2)
+                i += 2
+            elif text[i] == '"' or (text[i] == "#" and re.match(r'#+"', text[i:])):
+                hashes = len(re.match(r"#*", text[i:]).group(0))
+                quotes = 3 if text.startswith('"""', i + hashes) else 1
+                stack.append(["string", quotes, hashes])
+                blank(i, i + hashes + quotes)
+                i += hashes + quotes
+            else:
+                if top is not None:
+                    if text[i] == "(":
+                        top[1] += 1
+                    elif text[i] == ")":
+                        top[1] -= 1
+                        if top[1] == 0:
+                            stack.pop()
+                            blank(i, i + 1)
+                i += 1
+        elif top[0] == "block":
+            if text.startswith("/*", i):
+                top[1] += 1
+                blank(i, i + 2)
+                i += 2
+            elif text.startswith("*/", i):
+                top[1] -= 1
+                blank(i, i + 2)
+                i += 2
+                if top[1] == 0:
+                    stack.pop()
+            else:
+                blank(i, i + 1)
+                i += 1
+        else:
+            _, quotes, hashes = top
+            escape = "\\" + "#" * hashes
+            close = '"' * quotes + "#" * hashes
+            if text.startswith(escape + "(", i):
+                stack.append(["interp", 1])
+                blank(i, i + len(escape) + 1)
+                i += len(escape) + 1
+            elif text.startswith(escape, i):
+                blank(i, i + len(escape) + 1)
+                i += len(escape) + 1
+            elif text.startswith(close, i):
+                stack.pop()
+                blank(i, i + len(close))
+                i += len(close)
+            elif quotes == 1 and text[i] == "\n":
+                stack.pop()  # an unterminated literal ends at the line
+                i += 1
+            else:
+                blank(i, i + 1)
+                i += 1
+    return "".join(out)
 
 
 def readability_handler_code(lines):
     """For each line inside a `readabilityHandler = { ... }` closure (the line that opens one counts),
-    its code with string literals emptied and `//` comments cut, so a match is code, not text; None
-    for a line outside one. The closure's extent is found by brace depth over that same code."""
+    its code with comments and string literals blanked (swift_code_mask), so a match is code, not
+    text; None for a line outside one. The closure's extent is found by brace depth over that code."""
     inside = [None] * len(lines)
+    text = "\n".join(lines)
+    if "readabilityHandler" not in text:
+        return inside  # most files: skip the character scan
+    masked = swift_code_mask(text).split("\n")
     depth = 0
     open_handlers = []  # the depth of each enclosing handler's opening brace
     pending = False  # the previous code line ended `readabilityHandler =`
-    for index, line in enumerate(lines):
-        code = STRING_LITERAL.sub('""', line).split("//", 1)[0]
+    for index, code in enumerate(masked):
         opening = {match.end() - 1 for match in READABILITY_HANDLER.finditer(code)}
         stripped = code.lstrip()
         if pending and stripped:
