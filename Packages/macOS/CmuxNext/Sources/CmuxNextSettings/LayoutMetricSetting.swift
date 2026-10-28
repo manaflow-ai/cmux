@@ -3,9 +3,9 @@ import CoreGraphics
 
 /// The `appearance.metrics.<name>` keys the schema lists besides the interface size (which has its
 /// own `InterfaceSizeSetting`): sizes in points whose default is the density's. cmux-next and
-/// cmux-browser both read them. Each `range` equals `DesignSettings.allowedRange` and each default
-/// equals its `MetricTunables` preset (a test keeps them equal; this module reads no main-actor
-/// state).
+/// cmux-browser both read them. Each `range` must equal `DesignSettings.allowedRange` and each
+/// default its `MetricTunables` preset, or for `tabFontSize` the density's body size (kept by hand:
+/// this module reads no main-actor state).
 public nonisolated struct LayoutMetricSetting: Sendable, Hashable {
     /// The `MetricKey` raw value.
     public let name: String
