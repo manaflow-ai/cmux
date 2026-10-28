@@ -21,23 +21,27 @@ extension CloudAuth: CodeRouterAccountSource {
 
 extension CodeRouterClient {
     /// Pins the operation's account and team before local credential acquisition starts.
-    /// Token refresh may suspend: validate the scope both before and after it. The
-    /// later request header reads the pinned team, never another account's selection.
+    /// Token refresh may suspend: validate before and after it and once more
+    /// before transport. Submitted requests keep the pinned credentials and team;
+    /// switching accounts cannot reroute a request that has already been sent.
     @MainActor public init(baseURL: URL, account: any CodeRouterAccountSource, labeler: @escaping Labeler,
                            session: URLSession = .shared, timeout: Duration = .seconds(15)) {
         let userID = account.codeRouterAccountID
         let teamID = account.teamID
         let scopeVersion = account.codeRouterScopeVersion
-        let tokens: Tokens = { @MainActor in
-            @MainActor func checkScope() throws {
-                try Task.checkCancellation()
-                guard userID != nil else { throw CodeRouterError.notSignedIn }
-                guard account.codeRouterAccountID == userID,
-                      account.teamID == teamID,
-                      account.codeRouterScopeVersion == scopeVersion else {
-                    throw CodeRouterError.scopeChanged
-                }
+        @MainActor func checkScope() throws {
+            try Task.checkCancellation()
+            guard userID != nil else { throw CodeRouterError.notSignedIn }
+            guard account.codeRouterAccountID == userID,
+                  account.teamID == teamID,
+                  account.codeRouterScopeVersion == scopeVersion else {
+                throw CodeRouterError.scopeChanged
             }
+        }
+        let validateScope: ScopeValidator = { @MainActor in
+            try checkScope()
+        }
+        let tokens: Tokens = { @MainActor in
             try checkScope()
             let pair: (access: String, refresh: String)
             do {
@@ -55,6 +59,7 @@ extension CodeRouterClient {
             return pair
         }
         self.init(baseURL: baseURL, tokens: tokens, teamID: { teamID },
-                  labeler: labeler, session: session, timeout: timeout)
+                  labeler: labeler, session: session, timeout: timeout,
+                  scopeValidator: validateScope)
     }
 }

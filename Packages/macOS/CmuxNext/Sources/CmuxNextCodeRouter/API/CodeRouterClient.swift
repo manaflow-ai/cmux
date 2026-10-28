@@ -36,20 +36,24 @@ public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible
 public struct CodeRouterClient: Sendable {
     public typealias Tokens = @Sendable () async throws -> (access: String, refresh: String)
     public typealias TeamID = @Sendable () async -> String?
+    public typealias ScopeValidator = @Sendable () async throws -> Void
     public typealias Labeler = @Sendable () async -> AccountLabeler
 
     public let baseURL: URL
     let tokens: Tokens
     let teamID: TeamID
+    let scopeValidator: ScopeValidator?
     let labeler: Labeler
     let session: URLSession
     let timeout: Duration
 
     public init(baseURL: URL, tokens: @escaping Tokens, teamID: @escaping TeamID, labeler: @escaping Labeler,
-                session: URLSession = .shared, timeout: Duration = .seconds(15)) {
+                session: URLSession = .shared, timeout: Duration = .seconds(15),
+                scopeValidator: ScopeValidator? = nil) {
         self.baseURL = baseURL
         self.tokens = tokens
         self.teamID = teamID
+        self.scopeValidator = scopeValidator
         self.labeler = labeler
         self.session = session
         self.timeout = timeout
@@ -119,6 +123,7 @@ public struct CodeRouterClient: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
+        try await scopeValidator?()
         let session = session, prepared = request
         let data: Data, response: URLResponse
         do {

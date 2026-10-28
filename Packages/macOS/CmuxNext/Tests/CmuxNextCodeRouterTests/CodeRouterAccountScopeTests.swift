@@ -182,6 +182,24 @@ struct CodeRouterAccountScopeTests {
         #expect(Transport.requests.withLock { $0.count } == 0)
     }
 
+    @Test func finalScopeRejectionUploadsNothing() async throws {
+        Transport.requests.withLock { $0.removeAll() }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [Transport.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let client = CodeRouterClient(
+            baseURL: try #require(URL(string: "https://scope.invalid")),
+            tokens: { (access: "fixture-access", refresh: "fixture-refresh") },
+            teamID: { "first-team" },
+            labeler: { AccountLabeler(salt: Data(repeating: 1, count: 32)) },
+            session: session,
+            scopeValidator: { throw CodeRouterError.scopeChanged }
+        )
+        #expect(await !upload(client))
+        #expect(Transport.requests.withLock { $0.count } == 0)
+    }
+
     @Test(arguments: [false, true])
     func unchangedScopeUploadsToTheSelectedTeam(personal: Bool) async throws {
         let account = Account()

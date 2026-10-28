@@ -1,4 +1,4 @@
 title: Account connections stay with the account you chose
 category: fixed
 
-Settings > Accounts now stops a provider connection if you switch your cmux account or team while it is connecting. Refresh the list and try again in the account you want to use.
+Settings > Accounts keeps a provider connection with the cmux account and team you selected when you began. Switching before the connection is submitted asks you to refresh and try again; a connection already submitted stays with its original account.
