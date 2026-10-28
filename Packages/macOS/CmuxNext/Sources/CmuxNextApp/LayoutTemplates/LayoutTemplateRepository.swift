@@ -5,7 +5,10 @@ import Foundation
 /// (`layout-templates.json` beside the sidebar snapshot); the file is the source of truth and
 /// every change rewrites it atomically. A nil `fileURL` keeps them in memory only (tests and
 /// processes that are not the app). Names are unique ignoring case: saving an existing name
-/// replaces that template's layout and keeps its id.
+/// replaces that template's layout and keeps its id. A file this build cannot read (a newer
+/// build's version or tab kind, or a damaged file) is never written over: the first read moves it
+/// aside whole (`layout-templates.unreadable-<time>-<id>.json`, beside it), so a downgrade keeps
+/// the newer build's templates on disk; if it cannot be moved, every change refuses.
 actor LayoutTemplateRepository {
     /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.layout-templates`): its file reads and writes block a thread of
     /// its own, never a cooperative pool thread (the HomeCache pattern).
@@ -16,18 +19,24 @@ actor LayoutTemplateRepository {
     nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
 
     nonisolated private struct Document: Codable {
-        var version = 1
+        /// The file version this build reads and writes.
+        static let currentVersion = 1
+        var version = Document.currentVersion
         var templates: [LayoutTemplate]
     }
 
-    /// A rename or delete names no template, or a rename takes another template's name.
+    /// A rename or delete names no template, or a rename takes another template's name; or the file
+    /// could not be read and could not be moved aside, so no change may write over it.
     nonisolated enum Failure: Error, Equatable {
         case notFound
         case nameTaken
+        case unreadableFile
     }
 
     private let fileURL: URL?
     private var templates: [LayoutTemplate]?
+    /// The file did not read and could not be moved aside: writes refuse (``Failure/unreadableFile``).
+    private var keepsUnreadableFile = false
 
     init(fileURL: URL?) {
         self.fileURL = fileURL
@@ -75,18 +84,47 @@ actor LayoutTemplateRepository {
         a.caseInsensitiveCompare(b) == .orderedSame
     }
 
-    /// The file's templates, read once; an unreadable or missing file reads as none.
+    /// The file's templates, read once; a missing file reads as none, and so does one this build
+    /// cannot read, after it is moved aside (``setAside(_:)``).
     private func loaded() -> [LayoutTemplate] {
         if let templates { return templates }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let read = fileURL.flatMap { try? Data(contentsOf: $0) }
-            .flatMap { try? decoder.blockingDecode(Document.self, from: $0) }?.templates ?? []
+        var read: [LayoutTemplate] = []
+        if let fileURL {
+            do {
+                let data = try Data(contentsOf: fileURL)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                if let document = try? decoder.blockingDecode(Document.self, from: data),
+                   document.version <= Document.currentVersion {
+                    read = document.templates
+                } else {
+                    setAside(fileURL)
+                }
+            } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+                // No templates saved yet.
+            } catch {
+                setAside(fileURL)
+            }
+        }
         templates = read
         return read
     }
 
+    /// Moves the unreadable file at `fileURL` to a new name beside it (a move never replaces an
+    /// existing file), so the next write starts a new file and the old one stays whole.
+    private func setAside(_ fileURL: URL) {
+        let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .gmt, formatOptions: [.withYear, .withMonth, .withDay, .withTime])
+        let aside = fileURL.deletingLastPathComponent().appendingPathComponent(
+            "layout-templates.unreadable-\(stamp)-\(UUID().uuidString.prefix(8).lowercased()).json")
+        do {
+            try FileManager.checked.moveItem(at: fileURL, to: aside)
+        } catch {
+            keepsUnreadableFile = true
+        }
+    }
+
     private func write(_ list: [LayoutTemplate]) throws {
+        if keepsUnreadableFile { throw Failure.unreadableFile }
         if let fileURL {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
