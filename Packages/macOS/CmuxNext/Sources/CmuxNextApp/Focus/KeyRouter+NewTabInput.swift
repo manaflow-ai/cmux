@@ -296,6 +296,7 @@ final class NewTabInputCoordinator {
     /// cold: its view is not made, or it has not drawn and its field has no focus. The field takes the keyboard in this
     /// turn and the hold ends: its keys go to the field in order. False when the page's own field takes the keys.
     private func showStandInIfCold(_ entry: Entry, pane: PaneController?, key: String?) -> Bool {
+        if Bool(true) { return false }  // scratch red: no stand-in, as before the change
         guard let pane, let key, let window = pane.view.window, pane.view.isShownForInput, let tabs = router?.services?.agentTabs,
               tabs.isNewTabPage(key), standIns[entry.buffer.token] == nil else { return false }
         if let view = tabs.existingView(key), view.pageHasPainted || view.inputReadiness.isEditableFocused { return false }
