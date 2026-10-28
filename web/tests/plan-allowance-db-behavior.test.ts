@@ -84,7 +84,7 @@ async function machine(input: {
 }
 
 describe("Go hours for App Store subscribers", () => {
-  dbTest("an App Store Go subscription starts a Go machine and meters it on its own period", async () => {
+  dbTest("an App Store Go subscription shares 80 hours across two machines on its own period", async () => {
     const now = new Date();
     const userId = newUser("apple-go");
     const purchased = new Date(now.getTime() - 3 * DAY);
@@ -95,14 +95,23 @@ describe("Go hours for App Store subscribers", () => {
     expect(fresh?.remainingSeconds).toBe(GO_INCLUDED_VM_SECONDS);
 
     // The capacity guard accepts the start (it refused every App Store Go
-    // subscriber before), and the meter counts the run.
+    // subscriber before), and both machines contribute to the shared meter.
+    await machine({
+      userId, planId: "go", status: "paused",
+      reservation: { vcpus: 2, memoryMb: 4096, diskMb: 16384 },
+      startedAt: new Date(now.getTime() - 41 * HOUR), endedAt: new Date(now.getTime() - HOUR),
+    });
+    const halfway = await getGoVmUsage(userId, now);
+    expect(halfway?.usedSeconds).toBe(40 * 3600);
+    expect(halfway?.remainingSeconds).toBe(40 * 3600);
+
     await machine({
       userId, planId: "go", status: "paused",
       reservation: { vcpus: 2, memoryMb: 4096, diskMb: 16384 },
       startedAt: new Date(now.getTime() - 41 * HOUR), endedAt: new Date(now.getTime() - HOUR),
     });
     const used = await getGoVmUsage(userId, now);
-    expect(used?.usedSeconds).toBe(40 * 3600);
+    expect(used?.usedSeconds).toBe(80 * 3600);
     expect(used?.remainingSeconds).toBe(0);
   });
 });
