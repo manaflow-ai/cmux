@@ -29,3 +29,23 @@ test("leaves the New Tab after a refused chat.new so the composer can recover", 
   await expect(pending).rejects.toThrow("start refused");
   expect(left).toBe(true);
 });
+
+test("does not block a prompt queued beside a deferred start", async () => {
+  let resolve!: (value: string) => void;
+  const order: string[] = [];
+  const started = startNewTabTransition(
+    () =>
+      new Promise<string>((done) => {
+        resolve = (value) => {
+          order.push("start-resolved");
+          done(value);
+        };
+      }),
+    () => order.push("leave"),
+  );
+  order.push("send");
+  expect(order).toEqual(["send"]);
+  resolve("session-1");
+  await expect(started).resolves.toBe("session-1");
+  expect(order).toEqual(["send", "start-resolved", "leave"]);
+});

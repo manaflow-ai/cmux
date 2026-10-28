@@ -8567,17 +8567,17 @@ function AcpmuxPane() {
           // As on the New Tab screen (screenActions.ts), the prompt goes in the same turn as the
           // switch, which queues it: sent after `chat.new` settled, a folder trust refusal left the
           // switch with nothing queued.
-          try {
-            const started = await startNewTabTransition(
-              () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
-              () => setNewTab(undefined),
-            );
-            if (started && remembers) rememberStartedProject(folder, callNative);
-          } catch {
-            // A refused deferred start leaves the page in place until this point; the composer
-            // needs to take the prompt back after the host has answered.
-          }
+          const started = startNewTabTransition(
+            () => callNative("chat.new", { ...chat, ...(folder ? { cwd: folder } : {}) }),
+            () => setNewTab(undefined),
+          ).then((session) => {
+            if (session && remembers) rememberStartedProject(folder, callNative);
+            return session;
+          });
+          // Queue the prompt in the same turn as the deferred switch. Waiting for chat.new here
+          // deadlocks HarnessSwitch: it waits for a visible prompt before resolving its start.
           if (asks) await callNative("chat.send", message);
+          await started.catch(() => undefined);
           return;
         }
         // No agent named (acpmux listed none yet): a bare start in the folder, then the prompt into
