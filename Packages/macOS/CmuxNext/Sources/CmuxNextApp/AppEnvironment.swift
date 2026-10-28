@@ -206,11 +206,16 @@ struct AppEnvironment: Sendable {
         return {
             let probed = await probe?.finished()
             var keys = overrides.merging(probed?.terminalEnvironment ?? [:]) { _, found in found }
-            keys["TERM"] = await terminfo.term(for: await term().requested)
+            let chosenTerm = await terminfo.term(for: await term().requested)
+            keys["TERM"] = chosenTerm
             let shared = TerminalEnvironment.instance.shared(
                 overrides: keys, login: login,
                 integration: { Self.shellIntegration(await settings(), resources: probed?.resources, binary: probed?.binary) }, cli: cli)
-            return await shared()
+            var env = await shared()
+            // The chosen TERM goes with the spawn under its own key, so the daemon records it and a restored,
+            // reopened or respawned terminal keeps it (a bare recorded TERM is not replayed). Never one inherited.
+            env[TerminalTermChoice.recordKey] = chosenTerm == TerminalTermChoice.standard ? nil : chosenTerm
+            return env
         }
     }
 

@@ -14,6 +14,9 @@ import os
 public nonisolated struct TerminalTermChoice: Sendable, Equatable {
     /// The `TERM` every tool and every ssh host knows.
     public static let standard = "xterm-256color"
+    /// The env key a spawn carries the chosen `TERM` in when it is not ``standard``: the daemon records it, and a
+    /// restored, reopened or respawned terminal gets it back as its `TERM` (cmux-tui `relaunch_store::chosen_term`).
+    public static let recordKey = "CMUX_TERM_CHOICE"
 
     /// `terminal.term` in cmux.json; nil when unset.
     public var setting: String?

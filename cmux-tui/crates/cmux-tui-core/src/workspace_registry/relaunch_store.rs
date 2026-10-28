@@ -54,9 +54,12 @@ pub(crate) use agent_launch::{
 /// - `TERMINFO`, `COLORTERM`, `TERM_PROGRAM`, `TERM_PROGRAM_VERSION`: the
 ///   terminal identity the app gave the shell, so programs see the same
 ///   terminal after reopen (`TERMINFO` only while its directory exists).
-///   `TERM` is not kept: a reopened terminal gets the TERM new terminals get
-///   now (`xterm-256color` unless the person chose another), never one an
-///   older build recorded (xterm-ghostty broke ssh; Lawrence 2026-10-28).
+///   `TERM` itself is not kept: an older build recorded xterm-ghostty for
+///   everyone with Ghostty's terminfo, which broke ssh (Lawrence 2026-10-28).
+/// - `CMUX_TERM_CHOICE`: the TERM the person chose (cmux.json's
+///   `terminal.term`), which the app sends with TERM at each spawn when it is
+///   not xterm-256color. A reopened or respawned terminal gets it back as its
+///   TERM ([`chosen_term`]); without it the terminal gets xterm-256color.
 /// - `CMUX_SOCKET_PATH`, `CMUX_BUNDLE_ID`, `CMUX_TAG`: which app owns the
 ///   terminal, so the `cmux` CLI in the reopened shell talks to that app.
 ///
@@ -65,6 +68,7 @@ pub(crate) use agent_launch::{
 /// new ids and its creator sets them again; a stale id would point the CLI at
 /// the wrong surface.
 pub(crate) const ENV_KEYS: &[&str] = &[
+    TERM_CHOICE_ENV,
     "TERMINFO",
     "COLORTERM",
     "TERM_PROGRAM",
@@ -95,6 +99,30 @@ const SHELLS: &[&str] = &["bash", "zsh", "fish", "nu", "elvish", "sh", "dash", "
 pub(crate) fn names_secret(key: &str) -> bool {
     let key = key.to_ascii_uppercase();
     SECRET_WORDS.iter().any(|word| key.contains(word))
+}
+
+/// The env key the app sends the person's chosen TERM in (`terminal.term`).
+pub(crate) const TERM_CHOICE_ENV: &str = "CMUX_TERM_CHOICE";
+
+/// The TERM a reopened or respawned terminal gets from its recorded `env`:
+/// the person's recorded choice ([`TERM_CHOICE_ENV`]) when it is a terminfo
+/// name, else none (the terminal then gets xterm-256color). A bare recorded
+/// TERM never counts: older builds recorded xterm-ghostty for everyone.
+pub(crate) fn chosen_term<'a>(mut env: impl Iterator<Item = (&'a str, &'a str)>) -> Option<String> {
+    env.find(|(key, _)| *key == TERM_CHOICE_ENV)
+        .map(|(_, value)| value)
+        .filter(|value| is_terminfo_name(value))
+        .map(str::to_string)
+}
+
+/// A terminfo name: 1 to 64 ASCII letters, digits, `.`, `_`, `+` or `-`, not
+/// starting with `.` or `-` (the app's `TerminalTermChoice.isValidName`).
+fn is_terminfo_name(name: &str) -> bool {
+    (1..=64).contains(&name.len())
+        && !name.starts_with(['.', '-'])
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'+' | b'-'))
 }
 
 fn keeps_env_key(key: &str) -> bool {
@@ -591,12 +619,15 @@ pub(crate) fn replay(tab: &Value) -> (Option<String>, Vec<(String, String)>) {
     let env = tab.pointer("/relaunch/env").and_then(Value::as_object).cloned().unwrap_or_default();
     let terminfo_usable =
         env.get("TERMINFO").and_then(Value::as_str).is_none_or(|path| Path::new(path).is_dir());
-    let env = env
+    let mut env: Vec<(String, String)> = env
         .into_iter()
         .filter(|(key, _)| keeps_env_key(key))
         .filter(|(key, _)| key != "TERMINFO" || terminfo_usable)
         .filter_map(|(key, value)| value.as_str().map(|value| (key, value.to_string())))
         .collect();
+    if let Some(term) = chosen_term(env.iter().map(|(key, value)| (key.as_str(), value.as_str()))) {
+        env.push(("TERM".to_string(), term));
+    }
     (cwd, env)
 }
 

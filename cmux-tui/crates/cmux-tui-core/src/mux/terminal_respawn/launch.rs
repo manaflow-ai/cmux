@@ -18,7 +18,7 @@
 use std::path::Path;
 
 use super::*;
-use crate::workspace_registry::relaunch_store::{RelaunchKind, StoredRelaunch};
+use crate::workspace_registry::relaunch_store::{RelaunchKind, StoredRelaunch, chosen_term};
 use crate::workspace_registry::terminal_respawn_store::TerminalReplay;
 
 /// Leave the alternate screen, reset attributes, show the cursor, and turn
@@ -141,19 +141,26 @@ pub(in crate::mux) fn respawn_shell(record: Option<&StoredRelaunch>) -> String {
         .unwrap_or_else(crate::platform::default_shell)
 }
 
-/// The record's environment without `TERM`, and without `TERMINFO` when the
-/// recorded terminfo directory is gone. A respawned shell gets the TERM new
-/// terminals get now, never one an older build recorded (xterm-ghostty broke
-/// ssh to hosts without that entry; Lawrence 2026-10-28).
+/// The record's environment without its `TERM`, and without `TERMINFO` when
+/// the recorded terminfo directory is gone, plus `TERM` set to the person's
+/// recorded choice (`terminal.term`, [`chosen_term`]) when there is one. A
+/// bare recorded TERM is never replayed: older builds recorded xterm-ghostty
+/// for everyone, which broke ssh to hosts without that entry (Lawrence
+/// 2026-10-28); without a choice the shell gets xterm-256color.
 fn usable_env(env: &[(String, String)]) -> Vec<(String, String)> {
     let terminfo_usable = env
         .iter()
         .find(|(key, _)| key == "TERMINFO")
         .is_none_or(|(_, path)| Path::new(path).is_dir());
-    env.iter()
+    let mut usable: Vec<(String, String)> = env
+        .iter()
         .filter(|(key, _)| key != "TERM" && (terminfo_usable || key != "TERMINFO"))
         .cloned()
-        .collect()
+        .collect();
+    if let Some(term) = chosen_term(env.iter().map(|(key, value)| (key.as_str(), value.as_str()))) {
+        usable.push(("TERM".to_string(), term));
+    }
+    usable
 }
 
 /// The previous screen (dropped whole when it would not fit), the mode reset

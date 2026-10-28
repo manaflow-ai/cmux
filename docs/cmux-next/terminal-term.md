@@ -32,7 +32,9 @@ Terminal > Compatibility > Terminal Type (TERM):
   applies, with the same check. Ghostty's own default (`xterm-ghostty`) does
   not.
 - The change applies to new terminals. Terminals that are open keep their
-  `TERM`. A terminal that cmux restores or reopens gets `xterm-256color`.
+  `TERM`. A terminal that cmux restores, reopens or restarts keeps the `TERM`
+  it was created with, so a terminal made with `xterm-ghostty` comes back with
+  it. Terminals that older builds made come back with `xterm-256color`.
 - Agents cannot change this setting; only you can.
 
 With `xterm-ghostty`, an ssh host without that entry shows "unknown terminal

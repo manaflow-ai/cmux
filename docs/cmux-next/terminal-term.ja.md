@@ -31,7 +31,9 @@ Mac に Ghostty.app やその terminfo がインストールされていても�
 - `terminal.term` を設定していない場合は、Ghostty の設定にある `term = ...` の行が
   同じ確認のうえで使われます。Ghostty 自身の既定値 (`xterm-ghostty`) は使われません。
 - 変更は新しい端末に適用されます。開いている端末は `TERM` をそのまま保ちます。
-  cmux が復元する端末や再び開く端末は `xterm-256color` になります。
+  cmux が復元、再オープン、再起動する端末は、作成時の `TERM` を保ちます。
+  `xterm-ghostty` で作った端末は `xterm-ghostty` のまま戻ります。以前のビルドで
+  作った端末は `xterm-256color` で戻ります。
 - この設定はエージェントには変更できません。変更できるのはあなただけです。
 
 `xterm-ghostty` を使うと、そのエントリがない ssh ホストでは "unknown terminal
