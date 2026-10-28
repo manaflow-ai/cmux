@@ -61,6 +61,7 @@ run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config bench
 [[ "$(swift_flags)" == *-DCMUX_BENCH_HOOKS* ]] || fail "--config bench lost -DCMUX_BENCH_HOOKS: $(swift_flags)"
 [[ "$(swift_flags)" != *-DCMUX_BLOCKING_CHECKS* ]] || fail "--config bench still compiles the blocking detector: $(swift_flags)"
 [[ "$(swift_flags)" != *-DDEBUG* ]] || fail "--config bench defines DEBUG: $(swift_flags)"
+grep -qx 'CMUX_BENCH_HOOKS_RELOAD=1' "$ARGS" || fail "--config bench does not tell the embed phases it is a bench build"
 echo "PASS: bench is Release + CMUX_BENCH_HOOKS without CMUX_BLOCKING_CHECKS"
 
 run_reload --tag "$TAG" --build-only --derived-data "$TMP_DIR/dd" --config=bench-checks
@@ -75,6 +76,7 @@ for config in release debug; do
   [[ -f "$ARGS" ]] || fail "--config $config never reached xcodebuild: $OUTPUT"
   [[ "$(swift_flags)" != *-DCMUX_BENCH_HOOKS* && "$(swift_flags)" != *-DCMUX_BLOCKING_CHECKS* ]] \
     || fail "--config $config compiles bench flags: $(swift_flags)"
+  ! grep -q 'CMUX_BENCH_HOOKS_RELOAD' "$ARGS" || fail "--config $config marks itself a bench build"
 done
 echo "PASS: release and debug carry neither bench flag"
 

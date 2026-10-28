@@ -1739,6 +1739,9 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
   # (check-no-bench-hooks.sh).
   SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS"
+  # The embed phases' staging pin check (ensure-cef.sh, ensure-remote-browser-host.sh) accepts a staging pin in
+  # Release only with this setting and the flag; check-no-bench-hooks.sh --expect below proves the marker is in.
+  XCODEBUILD_ARGS+=(CMUX_BENCH_HOOKS_RELOAD=1)
   if [[ "$BLOCKING_CHECKS" -eq 1 ]]; then
     # bench-checks only: the main-thread blocking detector records (never traps) each blocking call
     # (`debug.blocking`, plans/cmux-next/threading-model.md). Its bookkeeping costs time on every checked
