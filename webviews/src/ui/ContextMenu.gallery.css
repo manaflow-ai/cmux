@@ -11,10 +11,10 @@
     var(--cmux-window-background, Canvas)
   );
   color: var(--cmux-text, CanvasText);
-  font-family:
-    -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  font-family: var(--font-ui);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .context-menu-gallery-stage--edge {

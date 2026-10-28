@@ -123,7 +123,7 @@ fn one_line(text: &str, max: usize) -> String {
 /// A strict RFC 3339 time in ms since the epoch: `YYYY-MM-DDTHH:MM:SS`, an
 /// optional fraction, then `Z` or `+HH:MM`/`-HH:MM`; a real calendar date at
 /// or after 1970. Anything else is `None`.
-fn rfc3339_ms(text: &str) -> Option<u64> {
+pub(crate) fn rfc3339_ms(text: &str) -> Option<u64> {
     let b = text.as_bytes();
     let num = |r: std::ops::Range<usize>| -> Option<i64> {
         let d = b.get(r)?;

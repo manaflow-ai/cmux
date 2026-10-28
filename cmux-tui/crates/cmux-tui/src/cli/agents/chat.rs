@@ -10,15 +10,20 @@
 //! The prompt text says the same thing to the receiving agent
 //! (`agent_message_prompt::render`).
 //!
-//! Both verbs reach only chats of this cmux session: a chat whose acpmux
+//! Every chat verb reaches only chats of this cmux session (in the caller's
+//! acpmux, or the app's own when that is another one, `scoped_chat`): a chat whose acpmux
 //! session runs in one of the session's workspaces (`sessionEnv.
 //! CMUX_WORKSPACE_ID`, as the daemon's agent message policy reads it). A
 //! send never goes to the caller's own chat.
 //!
 //! Waiting for a reply is `agents_wait` (`until: idle`, the chat as
 //! target, `agents/wait.rs`); then read on from the last `next_after`.
+//!
+//! `new`, `state`, `interrupt` and `continue` (#23026) live in
+//! `chat_control.rs`.
 
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 
 use serde_json::{Map, Value, json};
 
@@ -40,14 +45,45 @@ const MAX_EVENT_PAGES: usize = 20;
 /// One `cmux agents chat` verb.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::cli) enum ChatCommand {
-    Send { target: String, text: String },
-    Read { target: String, after: u64, limit: usize },
+    Send {
+        target: String,
+        text: String,
+    },
+    Read {
+        target: String,
+        after: u64,
+        limit: usize,
+    },
+    /// Start a GUI agent chat (chat_control.rs).
+    New(super::chat_control::NewChat),
+    /// What a chat is doing.
+    State {
+        target: String,
+    },
+    /// Cancel a chat's running turn.
+    Interrupt {
+        target: String,
+    },
 }
 
-/// `chat send <chat> [--] <text>` and `chat read <chat> [--after N]
-/// [--limit N]` (the words after `agents`).
+/// `chat send <chat> [--] <text>`, `chat read <chat> [--after N]
+/// [--limit N]`, `chat new ...`, `chat state <chat>`, `chat interrupt
+/// <chat>` and `chat continue <chat> [[--] <text>]` (the words after `chat`).
 pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
     match words {
+        ["new", rest @ ..] => super::chat_control::parse_new(rest).map(ChatCommand::New),
+        ["state", target] => Ok(ChatCommand::State { target: chat_word(target)? }),
+        ["interrupt", target] => Ok(ChatCommand::Interrupt { target: chat_word(target)? }),
+        // A nudge: a send whose text defaults to "Continue.".
+        ["continue", target] => Ok(ChatCommand::Send {
+            target: chat_word(target)?,
+            text: super::chat_control::CONTINUE_TEXT.to_owned(),
+        }),
+        ["continue", target, rest @ ..] => {
+            let mut words = vec!["send", *target];
+            words.extend_from_slice(rest);
+            parse(&words)
+        }
         ["send", target, rest @ ..] => {
             let target = chat_word(target)?;
             // One argument: cmux reads its own flags (`--session`, `--json`)
@@ -118,7 +154,9 @@ pub(in crate::cli) fn parse(words: &[&str]) -> Result<ChatCommand, UsageError> {
             Ok(ChatCommand::Read { target, after, limit })
         }
         _ => Err(UsageError::new(
-            "agents chat: use `chat send <chat> <text>` or `chat read <chat> [--after N] [--limit N]`",
+            "agents chat: use `chat new [flags] [<prompt>]`, `chat send <chat> <text>`, \
+             `chat read <chat> [--after N] [--limit N]`, `chat state <chat>`, \
+             `chat interrupt <chat>` or `chat continue <chat> [<text>]`",
         )),
     }
 }
@@ -141,6 +179,9 @@ pub(in crate::cli) fn run(
     match command {
         ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
         ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
+        ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
+        ChatCommand::State { target } => super::chat_control::state(global, target),
+        ChatCommand::Interrupt { target } => super::chat_control::interrupt(global, target, origin),
     }
 }
 
@@ -153,16 +194,41 @@ fn not_run(code: &str, message: impl Into<String>, details: Value) -> CallFailur
     }
 }
 
-/// The chat `target` names (an id, a name or a unique prefix), when it is a
-/// chat of this cmux session.
-fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<String, CallFailure> {
-    let (chat, info) = acp::lookup(target).map_err(|error| {
+/// A chat a verb reaches: its acpmux session id, and the app's acpmux socket when the chat runs
+/// there and not in the caller's own acpmux (read, state and interrupt reach it there; a send
+/// goes through the daemon, whose acpmux it is).
+pub(in crate::cli) struct Chat {
+    pub id: String,
+    pub app: Option<PathBuf>,
+}
+
+impl Chat {
+    /// The acpmux to reach this chat at: the app's, else the caller's own.
+    pub(in crate::cli) fn socket(&self) -> Option<&Path> {
+        self.app.as_deref()
+    }
+}
+
+/// The chat `target` names (an id, a name or a unique prefix), when it is a chat of this cmux
+/// session: its acpmux session runs in one of the session's workspaces (`sessionEnv.
+/// CMUX_WORKSPACE_ID`). It is looked up in the caller's own acpmux, then in the cmux app's own
+/// (`agent.acpmux`) when that is another one, as a Chief turn's is (its home's; its `cmux`
+/// calls reach the app's daemon session, #23026). Either way the same scope check applies.
+pub(super) fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<Chat, CallFailure> {
+    let not_found = |error: String| {
         not_run(
             "selector.not_found",
             format!("no agent chat matches {target:?}: {error}"),
             json!({"scope": "chat", "selector": target}),
         )
-    })?;
+    };
+    let ((chat, info), app) = match acp::lookup(target, None) {
+        Ok(found) => (found, None),
+        Err(error) => {
+            let Some(app) = app_acpmux(global) else { return Err(not_found(error)) };
+            (acp::lookup(target, Some(&app)).map_err(not_found)?, Some(app))
+        }
+    };
     let workspace =
         info.pointer("/sessionEnv/CMUX_WORKSPACE_ID").and_then(Value::as_str).map(workspace_key);
     let keys = session_workspace_keys(global)?;
@@ -173,13 +239,25 @@ fn scoped_chat(global: &GlobalArgs, target: &str) -> Result<String, CallFailure>
             json!({"scope": "chat", "selector": target, "chat": chat}),
         ));
     }
-    Ok(chat)
+    Ok(Chat { id: chat, app })
+}
+
+/// The socket of the acpmux the cmux app's own chats use (`agent.acpmux`), when the app
+/// answers and it is not the one `cmux acp` reaches from here; None otherwise.
+pub(in crate::cli) fn app_acpmux(global: &GlobalArgs) -> Option<PathBuf> {
+    let answer =
+        mcp::agent_app(global, "agent.acpmux", json!({}), super::super::app::READ_TIMEOUT, None)
+            .ok()?;
+    let app = PathBuf::from(answer["socket_path"].as_str().filter(|path| !path.is_empty())?);
+    // One daemon can be named two ways (`/tmp` and `/private/tmp`, a relative path).
+    let same = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    (same(&acp::own_socket()) != same(&app)).then_some(app)
 }
 
 /// A workspace key in one comparable form: lowercase, without dashes (the
 /// app hands sessions the key's uppercase UUID form). As the daemon's
 /// `agent_message_policy::workspace_key`.
-fn workspace_key(value: &str) -> String {
+pub(super) fn workspace_key(value: &str) -> String {
     value.chars().filter(|ch| *ch != '-').flat_map(char::to_lowercase).collect()
 }
 
@@ -204,6 +282,21 @@ fn own_chat() -> Option<String> {
         .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
 }
 
+/// Refuses `chat` when it is the caller's own: a chat never prompts or
+/// interrupts itself.
+pub(super) fn refuse_own_chat(chat: &str, target: &str) -> Result<(), CallFailure> {
+    if let Some(own) = own_chat()
+        && (own == chat || acp::lookup(&own, None).is_ok_and(|(id, _)| id == chat))
+    {
+        return Err(not_run(
+            "chat.own_chat",
+            "a chat cannot prompt or interrupt itself; name another chat",
+            json!({"scope": "chat", "selector": target, "chat": chat}),
+        ));
+    }
+    Ok(())
+}
+
 fn send(
     global: &GlobalArgs,
     target: &str,
@@ -211,22 +304,17 @@ fn send(
     idempotency_key: Option<&str>,
     origin: &str,
 ) -> Result<Value, CallFailure> {
-    let chat = scoped_chat(global, target)?;
-    if let Some(own) = own_chat()
-        && (own == chat || acp::lookup(&own).is_ok_and(|(id, _)| id == chat))
-    {
-        return Err(not_run(
-            "chat.own_chat",
-            "a chat cannot prompt itself; name another chat",
-            json!({"scope": "chat", "selector": target, "chat": chat}),
-        ));
-    }
+    let found = scoped_chat(global, target)?;
+    refuse_own_chat(&found.id, target)?;
+    let chat = found.id;
     let key = match idempotency_key {
         Some(key) => key.to_owned(),
         None => wire::random_idempotency_key()
             .map_err(|error| not_run("usage.invalid", error.0, json!({})))?,
     };
     let recipient = format!("acp:{chat}");
+    // The daemon stores the message under its policy and its pump hands it to the chat in the
+    // daemon's acpmux, the app's own for a chat found there (`Chat::app`).
     let plan = MessagePlan {
         target: Some(recipient.clone()),
         body: Body::Text(text.to_owned()),
@@ -234,6 +322,7 @@ fn send(
         thread: None,
         reply_to: None,
         idempotency_key: Some(key.clone()),
+        target_resolved: true,
     };
     let sent =
         agent_message::send_and_deliver(global, &plan, text.to_owned()).map_err(|failure| {
@@ -289,16 +378,19 @@ fn send(
 /// Whether a `chat.send` receipt reports a message that was stored but
 /// could not be handed to its chat.
 pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
-    receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed"
+    (receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed")
+        || (receipt["action"] == "chat.new" && receipt["result"]["prompt"]["state"] == "failed")
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
-    let chat = scoped_chat(global, target)?;
+    let found = scoped_chat(global, target)?;
+    let chat = &found.id;
     let (transcript, more, cursor) =
-        load(after, limit, |cursor| acp::events(&chat, cursor, EVENT_PAGE)).map_err(|error| {
-            not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
-        })?;
-    Ok(transcript.page(&chat, after, limit, more, cursor))
+        load(after, limit, |cursor| acp::events(chat, cursor, EVENT_PAGE, found.socket()))
+            .map_err(|error| {
+                not_run("chat.unavailable", format!("cannot read chat {chat}: {error}"), json!({}))
+            })?;
+    Ok(transcript.page(chat, after, limit, more, cursor))
 }
 
 /// The transcript of the events after `after`, read a page at a time from
@@ -586,9 +678,13 @@ impl Transcript {
 }
 
 #[cfg(unix)]
-mod acp {
-    //! The acpmux linked into this binary, at the home `cmux acp` uses
-    //! (`ACPMUX_SOCKET` first). A chat verb never starts the acpmux daemon.
+pub(super) mod acp {
+    //! The acpmux linked into this binary: the one at `socket` (the app's own, `agent.acpmux`),
+    //! else the one at the home `cmux acp` uses (`ACPMUX_SOCKET` first). A chat verb never starts
+    //! the acpmux daemon.
+
+    use std::path::Path;
+    use std::sync::Arc;
 
     use serde_json::{Value, json};
 
@@ -602,10 +698,26 @@ mod acp {
             .map_err(|error| format!("{error:#}"))
     }
 
+    /// The socket `cmux acp` reaches from here (`ACPMUX_SOCKET`, else its home's).
+    pub(super) fn own_socket() -> std::path::PathBuf {
+        crate::acp::configure_home();
+        acpmux::config::socket_path()
+    }
+
+    async fn client(socket: Option<&Path>) -> anyhow::Result<Arc<acpmux::client::Client>> {
+        match socket {
+            Some(path) => acpmux::client::Client::connect(path).await,
+            None => acpmux::deliver::connect().await,
+        }
+    }
+
     /// The id and `_acpmux/info` of the session `key` names.
-    pub(super) fn lookup(key: &str) -> Result<(String, Value), String> {
+    pub(in crate::cli) fn lookup(
+        key: &str,
+        socket: Option<&Path>,
+    ) -> Result<(String, Value), String> {
         block_on(async {
-            let client = acpmux::deliver::connect().await?;
+            let client = client(socket).await?;
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
             let info =
                 client.request(acpmux::rpc::method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -613,11 +725,76 @@ mod acp {
         })
     }
 
-    /// One page of the session's events after `after_seq`.
-    pub(super) fn events(session: &str, after_seq: u64, limit: u64) -> Result<Value, String> {
+    /// Starts a chat in `cwd` with `meta` as its `_meta.acpmux`; the
+    /// `session/new` reply.
+    pub(in crate::cli) fn new_session(
+        cwd: &str,
+        meta: Value,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
         block_on(async {
-            let client = acpmux::deliver::connect().await?;
-            client
+            client(socket)
+                .await?
+                .request(
+                    acpmux::rpc::method::SESSION_NEW,
+                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
+                )
+                .await
+        })
+    }
+
+    /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or
+    /// queued behind a running turn), as `acpmux send --no-wait` does. With no `provenance` it
+    /// is the chat's own prompt, as a person types it; with one, another agent's message
+    /// (`prompt_provenance.rs`). `id` is the prompt id: a resend with it runs once.
+    pub(in crate::cli) fn prompt(
+        session: &str,
+        text: &str,
+        id: &str,
+        provenance: Option<&Value>,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        block_on(async {
+            let client = client(socket).await?;
+            acpmux::deliver::deliver(client, session, text, id, false, provenance).await
+        })
+    }
+
+    /// Ends the session and deletes its record (`_acpmux/kill` with purge).
+    pub(in crate::cli) fn kill(session: &str, socket: Option<&Path>) -> Result<(), String> {
+        block_on(async {
+            client(socket)
+                .await?
+                .request(
+                    acpmux::rpc::method::MUX_KILL,
+                    json!({"sessionId": session, "purge": true}),
+                )
+                .await?;
+            Ok(())
+        })
+    }
+
+    /// Cancels the session's running turn (`session/cancel`).
+    pub(in crate::cli) fn cancel(session: &str, socket: Option<&Path>) -> Result<(), String> {
+        block_on(async {
+            client(socket)
+                .await?
+                .request(acpmux::rpc::method::SESSION_CANCEL, json!({"sessionId": session}))
+                .await?;
+            Ok(())
+        })
+    }
+
+    /// One page of the session's events after `after_seq`.
+    pub(super) fn events(
+        session: &str,
+        after_seq: u64,
+        limit: u64,
+        socket: Option<&Path>,
+    ) -> Result<Value, String> {
+        block_on(async {
+            client(socket)
+                .await?
                 .request(
                     acpmux::rpc::method::MUX_EVENTS,
                     json!({"sessionId": session, "afterSeq": after_seq, "limit": limit,

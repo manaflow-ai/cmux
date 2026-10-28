@@ -97,6 +97,12 @@ pub(super) fn judge_daemon(
         };
         return (Verdict::Done(result), port);
     }
+    // Linux reports a running executable that was replaced in place as
+    // `PATH (deleted)`.  The installed binary probe has the real path, so
+    // compare normalized paths before deciding whether a safe restart can
+    // use the current-target binary.
+    let used_path =
+        used.as_ref().map(|u| u.path.strip_suffix(" (deleted)").unwrap_or(&u.path).to_owned());
     let verdict = match listening {
         // A daemon bound on another port than the peer's (run with
         // `--listen` and `--token`, its config lacking one): refused before
@@ -111,16 +117,38 @@ pub(super) fn judge_daemon(
         Ok(l) if l != port => Verdict::Done(port_mismatch(host, name, "the daemon", l, port)),
         Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
             None => Verdict::Repair("the daemon is not running".into()),
-            Some((_, Some(b))) if b != build => Verdict::OtherBuild(
-                StepResult::new(
-                    Step::Daemon,
-                    StepState::Warn,
-                    format!("the daemon runs build {b}, this is {build}"),
-                )
-                .with_fix(format!("Run `acpmux host update {name}`."))
-                .with_reason("peer_version_skew")
-                .with_try(format!("acpmux host update {name}")),
-            ),
+            Some((_, Some(b))) if b != build => {
+                // The daemon's `exe` is already resolved; a probed path may
+                // be a link (a custom `--remote-binary` install behind
+                // `~/.local/bin/acpmux`), so compare what each resolves to.
+                let used_real = used_path.as_deref().map(|u| probe.resolved(u));
+                let current_binary = probe.bins.iter().any(|(path, build)| {
+                    build.as_deref() == Some(crate::hub::BUILD)
+                        && (Some(path.as_str()) == used_path.as_deref()
+                            || Some(probe.resolved(path)) == used_real)
+                });
+                let result = match platform_skew(Step::Daemon, host, name, &probe.uname, false) {
+                    Some(_) if current_binary => StepResult::new(
+                        Step::Daemon,
+                        StepState::Warn,
+                        format!("the daemon runs build {b}, this is {build}"),
+                    )
+                    .with_fix(format!(
+                        "Run `acpmux host doctor {name} --fix` to restart the daemon on {host}."
+                    ))
+                    .with_reason("peer_version_skew"),
+                    Some(result) => result,
+                    None => StepResult::new(
+                        Step::Daemon,
+                        StepState::Warn,
+                        format!("the daemon runs build {b}, this is {build}"),
+                    )
+                    .with_fix(format!("Run `acpmux host update {name}`."))
+                    .with_reason("peer_version_skew")
+                    .with_try(format!("acpmux host update {name}")),
+                };
+                Verdict::OtherBuild(result)
+            }
             Some((pid, _)) => Verdict::Done(StepResult::new(
                 Step::Daemon,
                 StepState::Ok,
@@ -149,8 +177,19 @@ pub(super) fn daemon(
     let (verdict, port) = judge(r);
     let why = match verdict {
         Verdict::Done(result) => return (result, port),
-        Verdict::OtherBuild(result) if !fix => return (result, port),
-        Verdict::OtherBuild(result) => result.detail,
+        Verdict::OtherBuild(result) => {
+            if result.fix.as_deref().is_some_and(|fix| {
+                fix.starts_with("Rebuild acpmux on ") || fix.contains("--binary-dir DIR")
+            }) {
+                let result =
+                    if fix { StepResult { state: StepState::Fail, ..result } } else { result };
+                return (result, port);
+            }
+            if !fix {
+                return (result, port);
+            }
+            result.detail
+        }
         Verdict::Repair(why) => why,
     };
     let look = format!("Run `{DAEMON_BIN} daemon start` on {host} to see why it does not start.");

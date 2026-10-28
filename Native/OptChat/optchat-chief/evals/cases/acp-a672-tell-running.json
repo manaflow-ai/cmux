@@ -23,7 +23,7 @@
   "turns": [
     {
       "text": "tell it to also run the Linux variant",
-      "tail": "Subagents at work now: a901.",
+      "tail": "Subagents at work now: a901. Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.",
       "checks": [
         {
           "type": "called",

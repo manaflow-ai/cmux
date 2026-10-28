@@ -74,6 +74,9 @@ final class HostView: NSView {
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
+    /// cmux: the Chief chat's zoom (MessagesLabHomeView.zoom): this view is laid out at its pane's size over the
+    /// zoom and drawn magnified by it; its bitmaps render at the window's scale times it (PaneHost+Scale.swift).
+    var contentZoom: CGFloat = 1
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
     /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
     /// (PaneHost+WindowPlace.swift).
@@ -303,6 +306,9 @@ extension FieldChrome {
     func applyTheme(light: Bool, symbol: NSColor, edge: NSColor? = nil) {
         field.wantsLayer = true
         if let layer = field.layer {
+            // NSGlassEffectView rounds its glass internally, independently of its backing
+            // layer. Keep the added hairline on the same curve instead of boxing the glass.
+            if layer.cornerRadius != field.cornerRadius { layer.cornerRadius = field.cornerRadius }
             let width: CGFloat = light && edge != nil ? 1 : 0
             if layer.borderWidth != width { layer.borderWidth = width }
             if let edge, light { layer.borderColor = edge.cgColor }
@@ -883,4 +889,17 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func windowDidResize() { host.needsLayout = true }
 
     // The display change (colour space and scale): PaneHost+Scale.swift (followDisplay).
+}
+
+extension NSView {
+    /// cmux: the Chief chat's zoom (HostView.contentZoom) of the host this view is in, 1 outside one. A view's length
+    /// in its window also carries a canvas camera's scale, so a bitmap's scale reads the zoom here, not from `convert`.
+    var enclosingContentZoom: CGFloat {
+        var view = superview
+        while let v = view {
+            if let host = v as? HostView { return host.contentZoom }
+            view = v.superview
+        }
+        return 1
+    }
 }

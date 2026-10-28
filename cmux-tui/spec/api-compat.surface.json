@@ -16493,6 +16493,10 @@
         "ty": "string",
         "nullable": true
       },
+      "/data/build_time": {
+        "ty": "uint64",
+        "nullable": true
+      },
       "/data/capabilities": {
         "ty": "array"
       },

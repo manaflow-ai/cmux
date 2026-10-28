@@ -1085,6 +1085,16 @@ test "$daemon_pid" = fixture
     }
   }, 120_000);
 
+  test("the bake keeps caller model env through both owner checks, then verifies the team default", () => {
+    const bake = readScript("build-devbox-freestyle.ts");
+    const steps = [...bake.matchAll(/await step\(\s*"([^"]+)"/g)].map((match) => match[1]);
+    const ordered = ["vm-kind-bake-owner", "agent-config", "agent-hooks", "vm-kind-default", "model-plane-env", "settle-before-snapshot"];
+    for (const name of ordered) expect(steps.filter((step) => step === name)).toHaveLength(1);
+    for (let i = 1; i < ordered.length; i++) {
+      expect(steps.indexOf(ordered[i - 1])).toBeLessThan(steps.indexOf(ordered[i]));
+    }
+  });
+
   test("agent config generator adds the codex provider around hook trust state another writer left first", async () => {
     // The bake runs `cmux-tui agent hook install codex` before any shell has
     // seen a boot env, so ~/.codex/config.toml already exists with only the

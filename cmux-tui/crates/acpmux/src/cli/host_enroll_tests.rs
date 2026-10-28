@@ -99,6 +99,95 @@ fn states(results: &[StepResult]) -> Vec<(Step, StepState)> {
     results.iter().map(|r| (r.step, r.state)).collect()
 }
 
+/// The machine's steps without `update`, which host_enroll_update_tests.rs
+/// covers; [`the_update_step_runs_between_the_daemon_and_the_harness`] runs it.
+fn machine_steps(
+    r: &dyn Remote,
+    plan: &Plan,
+    local: &Local,
+    fix: bool,
+    emit: &mut dyn FnMut(&StepResult),
+) -> (Vec<StepResult>, u16) {
+    super::machine_steps(r, plan, local, fix, None, emit)
+}
+
+#[test]
+fn the_update_step_runs_between_the_daemon_and_the_harness() {
+    let local = local_with("order", "pi", "command = \"/Users/leo/bin/pi\"\n");
+    let owners = std::cell::RefCell::new(Vec::new());
+    let update = |_: &dyn Remote, _: bool, own: Option<&str>| {
+        owners.borrow_mut().push(own.map(str::to_owned));
+        StepResult::new(Step::Update, StepState::Ok, "timer")
+    };
+    let old: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
+    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, crate::hub::BUILD);
+    let mut lines = Vec::new();
+    let results = super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |r| {
+        lines.push(r.step)
+    })
+    .0;
+    let order = [Step::Reach, Step::Install, Step::Daemon, Step::Update, Step::Harness];
+    assert_eq!(results.iter().map(|r| r.step).collect::<Vec<_>>(), order);
+    assert_eq!(lines, order, "emitted in the order they ran");
+    assert_eq!(results[3].state, StepState::Ok);
+    // No daemon, no update: it is skipped like the harness.
+    let current: &[(&str, &str)] = &[(LOCAL_BIN, crate::hub::BUILD)];
+    let fake = host_with(current, None, LOCAL_BIN, crate::hub::BUILD);
+    let results =
+        super::machine_steps(&fake, &plan(&[]), &local, false, Some(&update), &mut |_| {}).0;
+    assert_eq!(results[2].state, StepState::Fail, "{results:?}");
+    assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Skip));
+    // A standalone acpmux has no owner; the app's daemon names its path
+    // (update_step's tests: the timer is then left alone).
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
+    let fake = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    super::machine_steps(&fake, &plan(&[]), &local, true, Some(&update), &mut |_| {});
+    assert_eq!(*owners.borrow(), [None, Some(APP_EXE.to_owned())]);
+    assert_read_only(&fake);
+}
+
+/// The daemon step found the app's daemon, then the update step's own probe
+/// fails (the connection dropped, with nothing or with a whole-looking
+/// answer): it says so and writes nothing, rather than taking the daemon for
+/// acpmux's own and adding the timer.
+#[test]
+fn an_update_step_that_cannot_tell_whose_daemon_runs_writes_nothing() {
+    let local = local_with("blind", "pi", "command = \"/Users/leo/bin/pi\"\n");
+    let ran = std::cell::Cell::new(false);
+    let update = |_: &dyn Remote, _: bool, _: Option<&str>| {
+        ran.set(true);
+        StepResult::new(Step::Update, StepState::Fixed, "installed")
+    };
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, crate::hub::BUILD)];
+    let app = host_with(both, Some((crate::hub::BUILD, true)), APP_EXE, crate::hub::BUILD);
+    // Nothing; a standalone daemon's, so a guess would install; and a whole
+    // answer in which no daemon says what it is.
+    let standalone =
+        probe_out_with(&[(LOCAL_BIN, "old")], Some(("old", false)), LOCAL_BIN, Some(false));
+    let silent = probe_out_with(both, None, "", None);
+    for (ok, answer) in [(false, String::new()), (false, standalone), (true, silent)] {
+        let dropped = std::cell::Cell::new(false);
+        let fake = Fake::new(|script, stdin| {
+            if dropped.get() && script == probe_script().as_str() {
+                RemoteOut { ok, stdout: answer.clone(), stderr: "Connection reset".into() }
+            } else {
+                (app.answer)(script, stdin)
+            }
+        });
+        let results =
+            super::machine_steps(&fake, &plan(&[]), &local, true, Some(&update), &mut |r| {
+                dropped.set(dropped.get() || r.step == Step::Daemon)
+            })
+            .0;
+        assert!(results[2].detail.starts_with("cmux's own daemon runs"), "{results:?}");
+        assert_eq!((results[3].step, results[3].state), (Step::Update, StepState::Warn));
+        let detail = &results[3].detail;
+        assert!(detail.starts_with("could not tell which acpmux runs the daemon"), "{detail}");
+        assert!(!ran.get(), "the update step never ran on a guess");
+        assert_read_only(&fake);
+    }
+}
+
 #[test]
 fn ssh_stderr_is_classified() {
     let cases = [
@@ -256,7 +345,11 @@ fn probe_out_with(
     exe: &str,
     acp: Option<bool>,
 ) -> String {
-    let mut out = String::new();
+    let mut out = format!(
+        "uname\t{} {}\n",
+        if cfg!(target_os = "linux") { "Linux" } else { "Darwin" },
+        std::env::consts::ARCH
+    );
     for (i, (path, build)) in bins.iter().enumerate() {
         out.push_str(&format!("bin\t{path}\tacpmux 0.1.0 ({build})\n"));
         let status = match daemon.filter(|_| i == 0) {
@@ -578,9 +671,15 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
     )
     .0;
     assert_eq!(results[1].state, StepState::Fail);
-    assert_eq!(results[1].reason, Some(REASON_WRONG_PLATFORM), "the app installs the right build");
-    assert_eq!(serde_json::to_value(&results[1]).unwrap()["reason"], "wrong-platform");
-    assert!(results[1].fix.as_deref().unwrap().contains("cmux remote install"));
+    assert_eq!(results[1].reason, Some("peer_version_skew"), "rebuild the peer on its platform");
+    assert_eq!(serde_json::to_value(&results[1]).unwrap()["reason"], "peer_version_skew");
+    assert!(
+        results[1]
+            .fix
+            .as_deref()
+            .unwrap()
+            .contains("Rebuild acpmux on leo@box.tail for its OS and architecture")
+    );
     assert!(fake.pushes.borrow().is_empty());
     assert_eq!(results[2].detail, "needs install");
 
@@ -601,6 +700,55 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
     assert!(results[0].detail.starts_with("the ssh key was rejected"));
     assert!(results[1..].iter().all(|r| r.state == StepState::Skip));
     assert_eq!(fake.calls.borrow().len(), 1);
+}
+
+#[test]
+fn daemon_skew_on_another_platform_has_no_host_update_try() {
+    let other_os = if std::env::consts::OS == "linux" { "Darwin" } else { "Linux" };
+    let p = parse_probe(&format!(
+        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 (old)\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\"}}\0{CONFIG}",
+        std::env::consts::ARCH
+    ));
+    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
+        Verdict::OtherBuild(result) => result,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(result.reason, Some("peer_version_skew"));
+    assert!(result.data.is_none(), "{result:?}");
+    let fix = result.fix.unwrap();
+    assert!(fix.contains("acpmux host update box --binary-dir DIR"), "{fix}");
+    assert!(fix.contains("DIR/acpmux-"), "{fix}");
+    assert!(fix.contains("or rebuild acpmux on leo@box.tail for its OS and architecture"), "{fix}");
+
+    // A matching binary is already installed on the remote: restarting its
+    // stale daemon is safe even though this invoking machine is another OS.
+    let p = parse_probe(&format!(
+        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/home/leo/.local/bin/acpmux (deleted)\"}}\0{CONFIG}",
+        std::env::consts::ARCH,
+        crate::hub::BUILD
+    ));
+    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
+        Verdict::OtherBuild(result) => result,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(result.reason, Some("peer_version_skew"));
+    assert!(result.data.is_none(), "{result:?}");
+    assert!(result.fix.unwrap().contains("host doctor box --fix"));
+
+    // A custom `--remote-binary` install: ~/.local/bin/acpmux links to a file
+    // outside the probed folders, and the daemon names that resolved file as
+    // its `exe`. The probe resolves the link, so the restart is still offered.
+    let p = parse_probe(&format!(
+        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nreal\t/home/leo/.local/bin/acpmux\t/opt/acpmux/acpmux\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/opt/acpmux/acpmux (deleted)\"}}\0{CONFIG}",
+        std::env::consts::ARCH,
+        crate::hub::BUILD
+    ));
+    assert_eq!(p.resolved("/home/leo/.local/bin/acpmux"), "/opt/acpmux/acpmux");
+    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
+        Verdict::OtherBuild(result) => result,
+        other => panic!("{other:?}"),
+    };
+    assert!(result.fix.unwrap().contains("host doctor box --fix"), "a resolved link is current");
 }
 
 /// Runs the scripts in a local `sh` with `HOME` at a temp folder, so the
@@ -756,7 +904,7 @@ fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
     assert_eq!(r.state, StepState::Fixed, "{r:?}");
     assert_eq!(r.detail, format!("{DAEMON_BIN} is missing; linked {DAEMON_BIN} to {TUI_BIN}"));
     assert!(fake.pushes.borrow().is_empty());
-    assert!(!fake.calls.borrow().iter().any(|(s, _)| s.contains("uname")));
+    assert!(!fake.calls.borrow().iter().any(|(s, _)| s.contains("uname") && s != &probe_script()));
 
     assert!(
         fake.fenced.borrow().iter().any(|s| s.contains(&format!("ln -s {TUI_BIN} {DAEMON_BIN}"))),
@@ -1015,7 +1163,9 @@ fn two_daemon_host_with(
                 "listen": port.map(|p| format!("127.0.0.1:{p}")),
             });
             out(format!(
-                "bin\t{LOCAL_BIN}\tacpmux 0.1.0 ({build})\nstatus\t{LOCAL_BIN}\t{status}\n\0{}",
+                "uname\t{} {}\nbin\t{LOCAL_BIN}\tacpmux 0.1.0 ({build})\nstatus\t{LOCAL_BIN}\t{status}\n\0{}",
+                if cfg!(target_os = "linux") { "Linux" } else { "Darwin" },
+                std::env::consts::ARCH,
                 config(port)
             ))
         } else if script.starts_with("printf 'bin=") {
