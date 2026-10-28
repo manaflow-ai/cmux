@@ -80,6 +80,10 @@ pub struct HostState {
     /// a reply posts, the owner stops its turn, or the failure note posts.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub awaiting: Vec<Awaiting>,
+    /// The outcome ledger (brain/outcome_ledger.rs): finished subagents whose
+    /// outcome no Chief post has told the person yet.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub untold: Vec<Untold>,
     /// E22: ids a posted reply named in `answers_pending`: the turn that
     /// ends their work answers them even when it says nothing (a done
     /// marker), so a waiting `cmux chief -p` ends.
@@ -1160,6 +1164,23 @@ mod security_tests {
         assert!(resume_again.requires_approval);
         assert!(spawn_again.requires_approval);
     }
+}
+
+/// A finished subagent whose outcome the person has not been told yet
+/// (brain/outcome_ledger.rs).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Untold {
+    /// The subagent's id (`a12`).
+    pub id: String,
+    /// When its report was delivered (ms since the epoch).
+    pub since_ms: u64,
+    /// Retry turns started for it so far.
+    #[serde(default)]
+    pub tries: u32,
+    /// When the next check is due (ms since the epoch); None until a turn
+    /// that saw its report has ended.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub due_ms: Option<u64>,
 }
 
 /// A person message of the Chief conversation that waits for a reply
