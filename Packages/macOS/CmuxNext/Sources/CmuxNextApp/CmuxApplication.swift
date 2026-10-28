@@ -365,3 +365,12 @@ nonisolated struct AssistiveClientRequests: Equatable {
         Self.attributes.contains(attribute) ? values[attribute] ?? false : nil
     }
 }
+
+#if DEBUG || CMUX_BENCH_HOOKS
+extension CmuxApplication {
+    /// DEBUG automation's key for a window that is not key (`debug.key` in a background app): every stage of
+    /// ``sendEvent(_:)``, then the event to `window` (AppKit sends a key only to the key window). Not yet wired: the
+    /// next commit routes it.
+    func sendEvent(_ event: NSEvent, deliveringTo window: NSWindow) {}
+}
+#endif
