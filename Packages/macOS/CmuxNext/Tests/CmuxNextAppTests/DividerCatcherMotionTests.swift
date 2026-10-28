@@ -112,7 +112,8 @@ import Testing
             #expect(moves.modelWrites == 0, "\(name): \(moves.modelWrites) model writes over \(steps) moves")
             #expect(moves.presentations <= steps, "\(name): \(moves.presentations) presentation passes over \(steps) moves")
             #expect(moves.catcherChanges == 0, "\(name): the catcher areas moved on \(moves.catcherChanges) of \(steps) moves")
-            #expect(moves.ticks == 0, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring")
+            // A column edge may spring the camera to its anchor; a split divider's drag moves nothing on a spring.
+            if case .split = kind { #expect(moves.ticks == 0, "\(name): \(moves.ticks) frame ticks for \(steps) moves with nothing on a spring") }
             #expect(probe.window.overlayLayer.catcherAreas == probe.window.overlayLayer.dividerAreas,
                     "\(name): at rest the catchers cover the dividers")
         }

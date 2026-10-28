@@ -59,11 +59,12 @@ final class LayoutWorkProbe {
     private var pagePosts = 0
     private var hoverQueries = 0
     private var observer: (any NSObjectProtocol)?
+    /// A still pointer over the layout (window coordinates), as if the window were key and on top there: divider
+    /// hover asks the window server whether it is (`hoverQueries`). Nil: no pointer.
+    var hoverAt: CGPoint?
 
-    /// `layout` on one screen in a `size` window. `hoverAt` (window coordinates) is a still pointer over the
-    /// layout, as if the window were key, and the window on top there: divider hover asks the window server
-    /// whether it is (`hoverQueries`).
-    init(_ layout: ScreenLayout, size: CGSize = CGSize(width: 1600, height: 1000), focused: PaneID, hoverAt: CGPoint? = nil) {
+    /// `layout` on one screen in a `size` window.
+    init(_ layout: ScreenLayout, size: CGSize = CGSize(width: 1600, height: 1000), focused: PaneID) {
         _ = NSApplication.shared
         model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
         model.followsDesignMetrics = false
@@ -74,12 +75,10 @@ final class LayoutWorkProbe {
         window.contentView = root
         root.layoutSubtreeIfNeeded()
         root.driver.isManual = true
-        if let hoverAt {
-            root.context.hoverPointer = { _ in hoverAt }
-            root.context.hoverReachesWindow = { [weak self] _ in
-                self?.hoverQueries += 1
-                return true
-            }
+        root.context.hoverPointer = { [weak self] _ in self?.hoverAt }
+        root.context.hoverReachesWindow = { [weak self] _ in
+            self?.hoverQueries += 1
+            return true
         }
         // global-notice-allow: CEFHostView observes its window's page update request on the default center (the production path)
         observer = NotificationCenter.default.addObserver(forName: Notification.Name.browserChildWindowPagesNeedUpdate, object: window,

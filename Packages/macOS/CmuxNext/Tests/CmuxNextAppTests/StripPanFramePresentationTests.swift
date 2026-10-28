@@ -55,9 +55,12 @@ struct StripPanFramePresentationTests {
     @Test func aStripPanFrameOverADockMovesNothingTwice() async throws {
         let columns = (0..<8).map { PaneMotionBench.column($0, rows: 3, width: 0.4) }
             + [LayoutColumn(id: "dock", width: 0.25, root: .leaf("chat"), dock: DockColumn(edge: .right, mode: .docked))]
-        let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"), hoverAt: CGPoint(x: 400, y: 500))
+        let probe = LayoutWorkProbe(.columns(columns), focused: PaneID("p0-0"))
         defer { probe.close() }
         let screen = probe.screen
+        // The pointer rests on the first column's upper row divider, which runs under it for most of the pan.
+        let row = try #require(screen.dividerViews[.split(SplitID("s0-0"))], "no row divider")
+        probe.hoverAt = screen.convert(CGPoint(x: row.frame.minX + 380, y: row.frame.midY), to: nil)
         #expect(screen.acceptsHorizontalScroll, "the strip does not overflow")
         screen.beginUserScroll()
         var frames = LayoutWorkProbe.Counts()
