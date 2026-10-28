@@ -719,14 +719,17 @@ const liveLineClear = async (ctx: PlayContext) => {
     const loops = line
       .getAnimations({ subtree: true })
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
-      .map((animation) => ({
-        name: (animation as CSSAnimation).animationName,
-        target: animation.effect?.target instanceof Element ? animation.effect.target : null,
-        playState: animation.playState,
-        playbackRate: animation.playbackRate,
-        currentTime: animation.currentTime,
-        duration: Number(animation.effect?.getTiming().duration),
-      }));
+      .map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+        };
+      });
     const check = checkRunningLineLoops(loops);
     if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
       throw new Error("the live line's words do not shimmer as one loop per text layer");
@@ -751,14 +754,17 @@ const runningLineStill =
       .getAnimations({ subtree: true })
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
     const check = checkRunningLineLoops(
-      loops.map((animation) => ({
-        name: (animation as CSSAnimation).animationName,
-        target: animation.effect?.target instanceof Element ? animation.effect.target : null,
-        playState: animation.playState,
-        playbackRate: animation.playbackRate,
-        currentTime: animation.currentTime,
-        duration: Number(animation.effect?.getTiming().duration),
-      })),
+      loops.map((animation) => {
+        const effect = animation.effect as KeyframeEffect | null;
+        return {
+          name: (animation as CSSAnimation).animationName,
+          target: effect?.target instanceof Element ? effect.target : null,
+          playState: animation.playState,
+          playbackRate: animation.playbackRate,
+          currentTime: animation.currentTime,
+          duration: Number(effect?.getTiming().duration),
+        };
+      }),
     );
     if (check.unapproved.length || check.duplicateTargets.length)
       throw new Error(
