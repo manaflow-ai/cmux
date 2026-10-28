@@ -127,7 +127,7 @@ store_url="http://127.0.0.1:$(cat "$TMP/port")"
 ensure() { # <cache dir> <env and args...>: ensure-cef.sh on the staged manifest; status in $status, stderr in $err
   local cache="$1"; shift
   status=0
-  got=$(env -u GH_TOKEN -u GITHUB_TOKEN -u CONFIGURATION CMUX_CEF_MANIFEST="$m" CMUX_CEF_CACHE_DIR="$cache" \
+  got=$(env -u GH_TOKEN -u GITHUB_TOKEN -u CONFIGURATION -u OTHER_SWIFT_FLAGS -u CMUX_BENCH_HOOKS_RELOAD CMUX_CEF_MANIFEST="$m" CMUX_CEF_CACHE_DIR="$cache" \
     CMUX_CEF_STORE_URL="$store_url" CMUX_CEF_TODAY=2026-10-27 "$@" 2>"$TMP/ensure.err") || status=$?
   err=$(cat "$TMP/ensure.err")
 }
@@ -147,6 +147,20 @@ ensure_refused "an expired staging pin, cached" "expired on 2026-11-09" \
   "$TMP/cache" CMUX_CEF_TODAY=2026-11-09 bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
 ensure_refused "a staging pin in a Release build" "a Release build embeds only a released pin" \
   "$TMP/cache" CONFIGURATION=Release bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
+ensure_refused "a staging pin in a Release build with other Swift flags" "a Release build embeds only a released pin" \
+  "$TMP/cache" CONFIGURATION=Release OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKSX' \
+  bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
+# The flag text without reload.sh's setting (a shipped pipeline's flags, or -Xcc -D, which Swift never compiles): refused.
+ensure_refused "a staging pin in a Release build with the flag but no reload bench setting" "a Release build embeds only a released pin" \
+  "$TMP/cache" CONFIGURATION=Release OTHER_SWIFT_FLAGS='$(inherited) -Xcc -DCMUX_BENCH_HOOKS' \
+  bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
+ensure_refused "a staging pin in a Release build with the reload bench setting but no flag" "a Release build embeds only a released pin" \
+  "$TMP/cache" CONFIGURATION=Release CMUX_BENCH_HOOKS_RELOAD=1 bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional
+# reload.sh's bench build (Release + -DCMUX_BENCH_HOOKS + CMUX_BENCH_HOOKS_RELOAD=1) never ships, so it embeds the
+# staging pin (first-seconds-lag.md step 4).
+ensure "$TMP/cache" CONFIGURATION=Release CMUX_BENCH_HOOKS_RELOAD=1 OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS' \
+  bash "$ROOT/scripts/cmux-next/ensure-cef.sh"
+[[ "$status" == 0 && -n "$got" ]] || fail "a bench Release build refused the staging pin: $err"
 ensure_refused "a staging pin off the tailnet" "served only by the fleet controller store" \
   "$TMP/cold" CMUX_CEF_NO_STORE=1 bash "$ROOT/scripts/cmux-next/ensure-cef.sh" --optional --arch x86_64
 ensure "$TMP/cache" CMUX_CEF_TODAY=2026-11-07 bash "$ROOT/scripts/cmux-next/ensure-cef.sh"
@@ -164,6 +178,12 @@ ensure_refused "an expired staging host pin, cached" "expired on 2026-11-09" \
   "$TMP/cache" "${host_env[@]}" CMUX_CEF_TODAY=2026-11-10 bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh" --optional
 ensure_refused "a staging host pin in a Release build" "a Release build embeds only a published host" \
   "$TMP/cache" "${host_env[@]}" CONFIGURATION=Release bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh" --optional
+ensure_refused "a staging host pin in a Release build with the flag but no reload bench setting" "a Release build embeds only a published host" \
+  "$TMP/cache" "${host_env[@]}" CONFIGURATION=Release OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS' \
+  bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh" --optional
+ensure "$TMP/cache" "${host_env[@]}" CONFIGURATION=Release CMUX_BENCH_HOOKS_RELOAD=1 OTHER_SWIFT_FLAGS='$(inherited) -DCMUX_BENCH_HOOKS' \
+  bash "$ROOT/scripts/cmux-next/ensure-remote-browser-host.sh"
+[[ "$status" == 0 && -f "$got" ]] || fail "a bench Release build refused the staging host pin: $err"
 
 # Refusals leave the manifest as it was.
 cp "$m" "$TMP/manifest.before"
