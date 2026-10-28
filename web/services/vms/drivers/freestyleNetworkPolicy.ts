@@ -9,8 +9,11 @@ import { canonicalCidr, type NetworkRulePlan } from "../networkPolicy";
  * - A VM with no egress rule reaches nothing, DNS included: the guest's
  *   resolvers are public addresses.
  * - Firewall and TLS rule changes apply to a running VM within ~0.1 s.
- * - A TLS rule with a `public` destination steers its exact name through the
- *   guest's /etc/hosts to the edge and needs no firewall grant.
+ * - A TLS rule with a `public` destination steers its exact name to the edge
+ *   and needs no firewall grant. Steering was through the guest's /etc/hosts
+ *   at the spike; by 2026-10-28 the platform instead points resolv.conf at a
+ *   forwarding resolver on the edge address that answers steered names with
+ *   the edge (see the devbox README, "DNS fallback").
  * - A TLS rule with a `host` destination (the CodeRouter and reflection
  *   aliases) does NOT carry that grant: the guest needs a firewall path to the
  *   edge address on 443. {@link freestyleEdgeAddresses} supplies it.

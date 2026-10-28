@@ -1620,17 +1620,19 @@ export const DEVBOX_DNS_UNITS: Readonly<Record<string, string>> = {
   ].join("\n") + "\n",
 };
 
-/** Enables and starts the fallback once its files are in place, then proves it answers. */
+/** Enables and starts the fallback once its files are in place, then waits until the stub answers. */
 export const devboxDnsInstallCommand = [
   `python3 -m py_compile ${DEVBOX_DNS_PATH}`,
   "systemctl daemon-reload",
   "systemctl enable --now cmux-dns.service cmux-dns-guard.path",
   "systemctl enable cmux-dns-guard.service",
   "systemctl start cmux-dns-guard.service",
-  "for i in $(seq 1 20); do getent ahosts github.com >/dev/null && break; sleep 0.5; done",
+  // The stub itself must answer: libc would hide a dead one behind the
+  // platform resolvers listed after it.
+  `{ for i in $(seq 1 20); do /usr/bin/python3 ${DEVBOX_DNS_PATH} probe && break; sleep 0.5; done; /usr/bin/python3 ${DEVBOX_DNS_PATH} probe; }`,
 ].join(" && ");
 
-/** The fallback is installed, serving, and resolv.conf points at it first. */
+/** The fallback is installed, answers on its own, and resolv.conf points at it first. */
 export const devboxDnsCheckCommand = [
   `test -x ${DEVBOX_DNS_PATH}`,
   `python3 -m py_compile ${DEVBOX_DNS_PATH}`,
@@ -1638,6 +1640,7 @@ export const devboxDnsCheckCommand = [
   "systemctl is-active cmux-dns-guard.path >/dev/null",
   "head -1 /etc/resolv.conf | grep -qx '# cmux-dns'",
   "[ \"$(awk '$1 == \"nameserver\" { print $2; exit }' /etc/resolv.conf)\" = 127.0.0.2 ]",
+  `/usr/bin/python3 ${DEVBOX_DNS_PATH} probe github.com`,
   "getent ahostsv4 github.com >/dev/null",
   "echo dns-fallback-ok",
 ].join(" && ");

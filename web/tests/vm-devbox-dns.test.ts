@@ -85,7 +85,7 @@ print(dns.rcode(nodata.resolve(q("github.com", qtype=28))))
     expect(await python(String.raw`
 r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(query, 2), doh_exchange=lambda h, p, query, t: reply(query, 3))
 out = r.resolve(q("coderouter.cmux.internal"))
-print(dns.rcode(out), out[3] & 0x80 != 0, dns.question_key(out) == dns.question_key(q("coderouter.cmux.internal")))
+print(dns.rcode(out), out[3] & 0x80 != 0, out[12:] == q("coderouter.cmux.internal")[12:])
 dead = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: None, doh_exchange=lambda *a: None)
 print(dns.rcode(dead.resolve(q("github.com"))))
 `)).toEqual(["2 True True", "2"]);
@@ -149,6 +149,85 @@ udp.shutdown(); tcp.shutdown()
   });
 });
 
+describe("cmux-dns resolver edge cases", () => {
+  test("names that differ only in label boundaries never share a cache entry", async () => {
+    // "github.com" as one label and github + com are different questions.
+    expect(await python(String.raw`
+one_label = struct.pack("!HHHHHH", 1, 0x0100, 1, 0, 0, 0) + b"\x0agithub.com\x00\x00\x01\x00\x01"
+print(dns.question_key(one_label) == dns.question_key(q("github.com")), dns.question_key(q("GitHub.COM")) == dns.question_key(q("github.com")))
+state = {"down": False}
+def exchange(server, query, timeout, tcp):
+    return None if state["down"] else reply(query, 3)
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=exchange, doh_exchange=lambda h, p, query, t: reply(query, 0, 1))
+r.resolve(one_label)
+state["down"] = True
+print(dns.rcode(r.resolve(q("github.com"))))
+`)).toEqual(["False True", "0"]);
+  });
+
+  test("a stale answer is served at most a day, and never across a platform rewrite", async () => {
+    // A TLS rule or a resume rewrites resolv.conf with the same resolver
+    // (10.32.0.28), yet a steered name may now answer differently.
+    expect(await python(String.raw`
+now = [0.0]
+stamp = [1]
+state = {"down": False}
+def exchange(server, query, timeout, tcp):
+    return None if state["down"] else reply(query, 0, 1)
+r = dns.Resolver(source=lambda: (stamp[0], ["10.32.0.28"]), clock=lambda: now[0], exchange=exchange, doh_exchange=lambda *a: None)
+r.resolve(q("api.openai.com"))
+state["down"] = True
+print("same write", dns.rcode(r.resolve(q("api.openai.com"))))
+now[0] += dns.STALE_MAX_AGE + 1
+print("a day later", dns.rcode(r.resolve(q("api.openai.com"))))
+state["down"] = False; now[0] = 0.0; r.resolve(q("api.openai.com")); state["down"] = True
+stamp[0] = 2
+print("after rewrite", dns.rcode(r.resolve(q("api.openai.com"))))
+`)).toEqual(["same write 0", "a day later 2", "after rewrite 2"]);
+  });
+
+  test("a hung exchange cannot hold a query past its budget", async () => {
+    expect(await python(String.raw`
+import time
+def hang(*args):
+    time.sleep(30)
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=hang, doh_exchange=hang)
+start = time.monotonic()
+out = r.resolve(q("github.com"))
+print(dns.rcode(out), time.monotonic() - start < dns.QUERY_BUDGET + 0.5, flush=True)
+import os; os._exit(0)  # the hung workers would hold interpreter exit for 30 s
+`)).toEqual(["2 True"]);
+  });
+
+  test("a reply for another question is discarded", async () => {
+    expect(await python(String.raw`
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda s, query, t, tcp: reply(q("evil.example", ident=0x1234), 0, 1), doh_exchange=lambda *a: None)
+print(dns.rcode(r.resolve(q("github.com"))))
+`)).toEqual(["2"]);
+  });
+
+  test("UDP replies respect the client's size: 512 without EDNS, its EDNS size up to 1232", async () => {
+    expect(await python(String.raw`
+plain = q("github.com")
+edns = plain[:10] + b"\x00\x01" + plain[12:] + b"\x00\x00\x29\x10\x00\x00\x00\x00\x00\x00\x00"
+small = edns[:-11] + b"\x00\x00\x29\x02\x00\x00\x00\x00\x00\x00\x00"
+print(dns.udp_limit(plain), dns.udp_limit(edns), dns.udp_limit(small))
+big = reply(plain, 0, 40)
+cut = dns.truncated(big, plain)
+print(len(big) > 512, dns.rcode(cut), cut[2] & 0x02 != 0, cut[12:] == plain[12:], len(cut) < 512)
+`)).toEqual(["512 1232 512", "True 0 True True True"]);
+  });
+
+  test("a response or a query without exactly one question gets no answer", async () => {
+    expect(await python(String.raw`
+r = dns.Resolver(upstreams=lambda: ["10.32.0.28"], exchange=lambda *a: calls.append("platform"), doh_exchange=lambda *a: None)
+none = struct.pack("!HHHHHH", 5, 0x0100, 0, 0, 0, 1) + b"\x00\x00\x29\x10\x00\x00\x00\x00\x00\x00\x00"
+response = reply(q("github.com"), 0, 1)
+print(r.resolve(none), r.resolve(response), calls)
+`)).toEqual(["None None []"]);
+  });
+});
+
 describe("cmux-dns guard", () => {
   test("points the platform's resolv.conf at the stub and keeps its resolvers after it", async () => {
     const directory = fixture();
@@ -163,25 +242,27 @@ print(dns.upstreams_from(open(sys.argv[2]).read()))
       "# cmux-dns upstream 10.32.0.28",
       "nameserver 127.0.0.2",
       "nameserver 10.32.0.28",
-      "options timeout:4 attempts:2",
+      "options timeout:4 attempts:1",
       "",
     ]);
   });
 
-  test("records every base resolver though libc reads only three nameservers", async () => {
+  test("records every base resolver, keeps libc's IPv4 fallback, and keeps other options", async () => {
+    // libc reads three nameservers; with the stub first, the two left must be
+    // ones every machine can route.
     const directory = fixture();
     const conf = path.join(directory, "resolv.conf");
-    writeFileSync(conf, "search corp.example\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\nnameserver 8.8.8.8\nnameserver 8.8.4.4\n");
+    writeFileSync(conf, "search corp.example\noptions timeout:1 attempts:2 edns0 trust-ad\nnameserver 2606:4700:4700::1111\nnameserver 2001:4860:4860::8888\nnameserver 8.8.8.8\nnameserver 8.8.4.4\n");
     expect(await python(String.raw`
 dns.guard(sys.argv[2])
 text = open(sys.argv[2]).read()
 print(dns.upstreams_from(text))
 print(dns.nameservers(text))
-print([line for line in text.splitlines() if line.startswith("search")])
+print([line for line in text.splitlines() if line.startswith(("search", "options"))])
 `, conf)).toEqual([
       "['2606:4700:4700::1111', '2001:4860:4860::8888', '8.8.8.8', '8.8.4.4']",
-      "['127.0.0.2', '2606:4700:4700::1111', '2001:4860:4860::8888']",
-      "['search corp.example']",
+      "['127.0.0.2', '8.8.8.8', '8.8.4.4']",
+      "['search corp.example', 'options timeout:4 attempts:1 edns0 trust-ad']",
     ]);
   });
 

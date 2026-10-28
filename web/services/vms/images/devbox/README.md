@@ -341,29 +341,38 @@ rule change and on resume anyway.
 `CAP_NET_BIND_SERVICE`) listens on `127.0.0.2:53`, UDP and TCP, and per
 query:
 
-1. asks the platform's resolvers (a lone resolver twice, 1 s each), so
-   steered names keep resolving to the edge and NXDOMAIN stays the
-   platform's;
+1. asks the platform's resolvers (two tries of 1 s: the first two resolvers,
+   or a lone one twice), so steered names keep resolving to the edge and
+   NXDOMAIN stays the platform's;
 2. on SERVFAIL, REFUSED or silence, answers with the platform's last good
-   answer for that question (dropped when the resolver set changes, so a
-   snapshot's cache never outlives a new TLS rule);
+   answer for that exact question, at most a day old. The cache starts over
+   whenever resolv.conf is written (a TLS rule, a resume, a clone's first
+   boot), so a stale answer never outlives a steering change;
 3. otherwise asks DNS-over-HTTPS at `1.1.1.1` then `8.8.8.8`, addressed by IP
    on 443, which the interception does not touch, and accepts only NOERROR:
    a public NXDOMAIN for a name only the platform knows comes back as
-   SERVFAIL, never as a missing name.
+   SERVFAIL, never as a missing name. A machine whose network policy blocks
+   those addresses gets SERVFAIL from this step, as it would without the stub.
 
-The whole chain fits in 3.5 s, under resolv.conf's 4 s per-server timeout.
+Each exchange runs under a wall-clock deadline and the whole chain fits in
+3.5 s, under the stub's 4 s libc timeout. Replies for another question are
+dropped; UDP replies over the client's size (512, or its EDNS size up to
+1232) go out truncated so the client retries over TCP.
+
 `cmux-dns guard` (`cmux-dns-guard.path` on `PathChanged=/etc/resolv.conf`,
 plus once at boot) rewrites a resolv.conf the platform wrote to
-`nameserver 127.0.0.2` followed by the platform's first two resolvers, and
-records all of them on a `# cmux-dns upstream` line the stub reads. A stopped
-stub therefore costs one refused packet before libc asks the platform
-directly. Between a platform rewrite and the guard (under a second) the
-machine resolves the old way. The bake installs it after the prompt sync, so
-every later bake step resolves through it, and `verify-devbox-image.ts`
-checks the contract. The container recipe has none: Docker owns its
-resolv.conf. Machines baked before it keep resolving straight through the
-platform.
+`nameserver 127.0.0.2` followed by two of the platform's resolvers (IPv4
+first), keeps its `search` line and options other than `timeout`/`attempts`
+(set to `timeout:4 attempts:1`; the stub retries itself), and records every
+resolver on a `# cmux-dns upstream` line the stub reads. A stopped stub
+therefore costs one refused packet before libc asks the platform directly.
+Between a platform rewrite and the guard (under a second) the machine
+resolves the old way. The bake installs it after the prompt sync and waits
+until the stub itself answers (`cmux-dns probe`; a libc lookup would pass
+through the fallback resolvers), every later bake step resolves through it,
+and `verify-devbox-image.ts` checks the same contract. The container recipe
+has none: Docker owns its resolv.conf. Machines baked before it keep
+resolving straight through the platform.
 
 ## Terminal capabilities (`cmux-terminfo.src`)
 

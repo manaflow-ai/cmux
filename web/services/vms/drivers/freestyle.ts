@@ -154,7 +154,8 @@ export type { FreestylePreconnectOptions } from "./freestyleWarmup";
 // The coderouter model plane is edge-injected: the create carries an inline
 // `tls` rule for the coderouter host whose transform overwrites the signed
 // `x-cmux-authorization` plus compatibility bearer/VM headers on every request
-// the guest makes there. The platform steers the host to its edge (/etc/hosts) and
+// the guest makes there. The platform steers the host to its edge (its forwarding
+// resolver answers it with the edge address; see the devbox README) and
 // installs its CA at boot; rules added after boot never reach a running
 // guest, so the rule must be inline. The baked env file holds only base
 // URLs and placeholder keys: no token is ever written into the guest, and
