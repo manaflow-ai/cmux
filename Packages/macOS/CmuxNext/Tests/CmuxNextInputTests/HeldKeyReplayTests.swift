@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextInput
+import CmuxNextInputCore
 import Testing
 
 /// The one seam that sends a held key again (``HeldKeyReplay``): every replay records its path's hold (held_by and
@@ -101,5 +102,37 @@ struct HeldKeyReplayTests {
         // A key with no OS time and no ledger entry counts a zero hold, never a wrapped one.
         #expect(replay.stage(.launchPicture).maxNanos == 0)
         #expect(replay.stage(.launchPicture).count == 1)
+    }
+}
+
+/// A key a path held and sent again straight to a window or a view (the New Tab field's, the launch picture's) is
+/// measured as one key from its OS time to its replay and on to its frame: its first pass's slot goes, and the replay
+/// opens its own (first-5s bench: New Tab keys had no slot that saw their hold).
+@MainActor
+struct HeldKeyReplaySlotTests {
+    private final class KeyView: NSView {
+        override func keyDown(with event: NSEvent) {}
+    }
+
+    @Test func aKeyReplayedToAViewHasOneSlotThatCountsItsHold() throws {
+        let harness = InputLatencyTrackerTests.Harness()
+        let dispatch = InputLatencyDispatch(tracker: harness.tracker, classifier: InputTargetClassifier(rules: []),
+                                            frameInterval: { _ in 0.01 }, windowChanged: { _ in false })
+        let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [],
+                                                  timestamp: TimeInterval(harness.now - 1_000_000) / 1e9, windowNumber: 0,
+                                                  context: nil, characters: "a", charactersIgnoringModifiers: "a",
+                                                  isARepeat: false, keyCode: 0))
+        let first = try #require(dispatch.willDispatch(event, synthetic: false, keyWindow: nil))
+        dispatch.held(event, by: .newTab)  // the New Tab hold took it
+        dispatch.didDispatch(first, layoutTookScroll: false)
+        harness.commit()
+        harness.advance(600_000_000)
+        let view = KeyView()
+        dispatch.heldKeys.replay(event, heldBy: .newTab, keyWindow: nil) { send in send.view(view, event) }
+        harness.settle()
+        let keys = harness.emitted.filter { $0.kind == .keyPress }
+        #expect(keys.count == 1, "the held key has \(keys.count) slots")
+        let slot = try #require(keys.first)
+        #expect(slot.dispatchStart - slot.generated >= 600_000_000, "the key's slot does not see its hold")
     }
 }
