@@ -46,7 +46,10 @@ pub async fn serve(
     let listener = tokio::select! {
         biased;
         _ = stopped(&mut stop) => return Ok(()),
-        result = tokio::time::timeout(HANDSHAKE_BOUND, opening) => result???,
+        result = tokio::time::timeout(HANDSHAKE_BOUND, opening) => {
+            let joined = result?;
+            joined?
+        },
     };
     let mut listener = tokio::io::unix::AsyncFd::new(listener)?;
     let slots = Arc::new(Semaphore::new(MAX_CONNECTIONS));
