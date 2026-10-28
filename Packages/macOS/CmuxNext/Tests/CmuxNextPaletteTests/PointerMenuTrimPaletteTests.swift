@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 @testable import CmuxNextPalette
 import Foundation
@@ -6,13 +7,34 @@ import Testing
 /// Menu trimming preserves the canonical command's vocabulary and search result.
 @MainActor @Suite(.paletteRanker)
 struct PointerMenuTrimPaletteTests {
+    @Test func everyTrimmedPaneActionResolvesFromTheLivePalette() async throws {
+        _ = NSApplication.shared
+        let registry = ActionRegistry.standard()
+        registry.context = ActionContext(rawValue: .max)
+        let palette = PaletteController(registry: registry, sources: PaletteSources(), frecencyPersistence: nil)
+        defer { palette.hide() }
+        palette.show(.commands)
+        await palette.model.settle()
+
+        for id: ActionID in [
+            "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout", "palette.newSimulatorPane",
+            "remote.openTerminalHere", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
+            "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.dock", "column.undock", "column.float",
+            "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
+        ] {
+            let descriptor = try #require(registry.descriptor(for: id))
+            palette.model.send(.setQuery(descriptor.title))
+            await palette.model.settle()
+            #expect(palette.model.rows.contains { $0.item.actionID == id }, "palette search lost \(id) / \(descriptor.title)")
+        }
+    }
+
     @Test func everyTrimmedCommandResolvesFromItsPaletteTitle() throws {
         let ids: [ActionID] = [
             "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
             "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute", "tab.showResources",
             "hibernateTab", "wakeTab", "neverHibernateSite", "cloudMove", "cloudBringBack",
-            // Send Message… is a context-only alias of the existing Send Message To… command.
-            "home.messageTo", "palette.copyIdentifiers", "browser.resetPinnedTab", "tab.screenshot",
+            "palette.copyIdentifiers", "browser.resetPinnedTab", "tab.screenshot",
             "newPaneAutoLayout", "triggerFlash", "palette.swapWithSession", "toggleCanvasLayout", "palette.newSimulatorPane",
             "remote.openTerminalHere", "column.moveLeft", "column.moveRight", "column.center", "column.widthOneThird",
             "column.widthHalf", "column.widthTwoThirds", "column.widthFull", "column.dock", "column.undock", "column.float",

@@ -7,7 +7,7 @@ struct PointerMenuTrimTests {
     private static let tabTrimmed: Set<ActionID> = [
         "terminal.keep", "terminal.setTheme", "terminal.clearTheme", "palette.toggleTabUnread",
         "palette.toggleFullWidthTab", "tab.muteOtherAudio", "agentChat.toggleNotificationMute", "tab.showResources",
-        "hibernateTab", "wakeTab", "neverHibernateSite", "cloudMove", "cloudBringBack", "home.messageAbout",
+        "hibernateTab", "wakeTab", "neverHibernateSite", "cloudMove", "cloudBringBack",
         "palette.copyIdentifiers", "browser.resetPinnedTab", "tab.screenshot",
     ]
 
@@ -18,12 +18,12 @@ struct PointerMenuTrimTests {
         "column.dockLeft", "column.dockRight", "column.dockTop", "column.dockBottom",
     ]
 
-    @Test func theTabMenuDropsSeventeenLongTailRows() throws {
+    @Test func theTabMenuDropsSixteenLongTailRows() throws {
         let catalog = ContextMenuCatalog.shared
         let shown = Set(catalog.referencedIDs(catalog.entries(for: .tab)))
         #expect(shown.isDisjoint(with: Self.tabTrimmed))
         // Context-dependent rows remain declared for targets that support them.
-        for id: ActionID in ["tab.pictureInPicture", "agentChat.copyIdentifier", "disconnectRemoteTab"] {
+        for id: ActionID in ["tab.pictureInPicture", "agentChat.copyIdentifier", "disconnectRemoteTab", "home.messageAbout"] {
             #expect(shown.contains(id), "conditional tab action \(id)")
         }
         for id in Self.tabTrimmed {
