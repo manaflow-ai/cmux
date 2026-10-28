@@ -41,8 +41,10 @@ nonisolated struct ComputerUseFrameCorners {
     /// The window's corner radius in pixels, read from the black runs on the four corners'
     /// diagonals. Nil when fewer than two corners are black, as in a screen capture, or when every
     /// black run is longer than a window corner can be, as in an app whose own edge is black.
+    /// Nil for a frame too small to walk a diagonal `limit` pixels long.
     func radius() -> CGFloat? {
         let limit = max(2, min(width, height) / 8)
+        guard min(width, height) > limit else { return nil }
         let corners = [(0, 0, 1, 1), (width - 1, 0, -1, 1), (0, height - 1, 1, -1), (width - 1, height - 1, -1, -1)]
         let runs = corners.map { x, y, dx, dy in blackRun(x: x, y: y, dx: dx, dy: dy, limit: limit) }
             .filter { $0 >= 2 && $0 < limit }
