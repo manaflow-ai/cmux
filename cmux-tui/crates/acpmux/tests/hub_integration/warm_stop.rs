@@ -35,7 +35,23 @@ async fn warm_stop_drains_a_pending_load_and_allows_a_later_warm() {
     })
     .await
     .expect("warm load never started");
-    client.request(method::MUX_WARM_STOP, json!({"sessionId": id})).await.unwrap();
+    // warm_stop increments the stop generation before waiting on the in-flight spawn lock.
+    // Observe that fence, then release the fake load so the stale start can drain.
+    let before_stop = session.stops.load(Ordering::SeqCst);
+    let mut stopper = connection(&hub, Origin::Local);
+    stopper.request(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+    let stopping = tokio::spawn(async move {
+        stopper.request(method::MUX_WARM_STOP, json!({"sessionId": id})).await
+    });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while session.stops.load(Ordering::SeqCst) == before_stop {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("warm_stop never installed its stop fence");
+    std::fs::write(&gate, b"ready").unwrap();
+    stopping.await.unwrap().unwrap();
     let (warmed, failed) = warmer.await.unwrap();
     assert!(warmed.is_empty(), "a start from before Stop succeeded");
     assert_eq!(failed.len(), 1);
