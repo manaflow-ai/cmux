@@ -66,7 +66,9 @@ fn redact(error: &str) -> String {
     static CREDENTIALS: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(
         || {
             regex::Regex::new(
-            r#"(?i)[a-z][a-z0-9+.-]*://[^\s<>"']+|\b(?:bearer|basic)\s+[^\s,"']+|\b(?:[a-z_]*(?:token|secret|password|api[_-]?key))["']?\s*[:=]\s*["']?[^\s,"']+"#,
+            // A labelled value is masked whole: a quoted one to its closing quote (escapes
+            // included, or to the end when truncated), else up to whitespace or a comma.
+            r#"(?i)[a-z][a-z0-9+.-]*://[^\s<>"']+|\b(?:bearer|basic)\s+[^\s,"']+|\b(?:[a-z_]*(?:token|secret|password|api[_-]?key))["']?\s*[:=]\s*(?:"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[^\s,"']+)"#,
         ).ok()
         },
     );
@@ -144,5 +146,15 @@ mod tests {
         let error = failures.stuck().unwrap().2;
         assert!(!error.contains("password"), "{error}");
         assert!(!error.contains("secret-token"), "{error}");
+        for (error, secret) in [
+            (r#"HTTP 503 password="correct horse, battery staple" retry"#, "horse"),
+            (r#"HTTP 503 {"api_key": "a b\"c, d"} retry"#, "c, d"),
+            ("HTTP 503 secret='one two, three'", "two"),
+            (r#"HTTP 503 token="cut off before the quote"#, "before"),
+        ] {
+            let redacted = redact(error);
+            assert!(!redacted.contains(secret), "{redacted}");
+            assert!(redacted.contains("HTTP 503"), "{redacted}");
+        }
     }
 }
