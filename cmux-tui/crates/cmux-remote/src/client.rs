@@ -191,14 +191,17 @@ fn permute_request_id_payload(value: u128, key: &[u8; 32], decrypt: bool) -> u12
 }
 
 fn request_id_round(key: &[u8; 32], round: u8, input: u128) -> u128 {
-    let mut mac = RequestIdMac::new_from_slice(key).expect("a 32-byte HMAC key is always valid");
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: HMAC takes a key of any length, so new_from_slice never fails"
+    )]
+    let mut mac = RequestIdMac::new_from_slice(key).expect("an HMAC key of any length is valid");
     mac.update(b"cmux-workspace-request-id-v1");
     mac.update(&[round]);
     mac.update(&input.to_be_bytes());
-    let digest = mac.finalize().into_bytes();
-    let mut bytes = [0_u8; 8];
-    bytes.copy_from_slice(&digest[..8]);
-    u128::from(u64::from_be_bytes(bytes)) & REQUEST_ID_FEISTEL_HALF_MASK
+    let digest: [u8; 32] = mac.finalize().into_bytes().into();
+    let [b0, b1, b2, b3, b4, b5, b6, b7, ..] = digest;
+    u128::from(u64::from_be_bytes([b0, b1, b2, b3, b4, b5, b6, b7])) & REQUEST_ID_FEISTEL_HALF_MASK
 }
 
 struct DroppedWorkspaceRequest {
@@ -318,7 +321,7 @@ impl WorkspaceClient {
         };
         let mut pending = PendingWorkspaceRequest {
             id,
-            receiver: Some(receiver),
+            receiver,
             deadline,
             requests: channel.requests.clone(),
             cancellable,
@@ -423,7 +426,7 @@ impl WorkspaceClient {
 
 pub struct PendingWorkspaceRequest {
     id: RequestId,
-    receiver: Option<oneshot::Receiver<PendingResponse>>,
+    receiver: oneshot::Receiver<PendingResponse>,
     deadline: Option<tokio::time::Instant>,
     requests: RequestRegistry,
     cancellable: bool,
@@ -438,7 +441,7 @@ impl PendingWorkspaceRequest {
     }
 
     pub async fn receive(mut self) -> Result<WorkspaceResponse, RpcError> {
-        let receiver = self.receiver.take().expect("pending workspace request has a receiver");
+        let receiver = &mut self.receiver;
         let response = match self.deadline {
             Some(deadline) => match tokio::time::timeout_at(deadline, receiver).await {
                 Ok(response) => response,

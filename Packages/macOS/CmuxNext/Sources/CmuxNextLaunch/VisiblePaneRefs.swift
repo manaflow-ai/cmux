@@ -111,6 +111,8 @@ public final class VisiblePaneRefs {
     private let hold: @MainActor (StaticString) -> Release
     private let phase: StartupPhase?
     private let mainWork: MainWorkScheduler
+    /// Runs once, when the last pane ref ends because its pane loaded (``whenShown(_:)``).
+    private var shown: (@MainActor () -> Void)?
     private let bound: DemandTimer
     private let changes = Changes()
     private var restore: Release?
@@ -149,6 +151,15 @@ public final class VisiblePaneRefs {
             let ref = startup.hold(name)
             return { ref.release($0) }
         }, mainWork: mainWork, phase: phase, bound: bound)
+    }
+
+    /// Runs `work` once, just before the releases, when the restore ended and the last visible pane's ref ends because
+    /// that pane loaded: every pane on screen was handed its content (a terminal its first content, not yet drawn). It
+    /// never runs when the bound, the daemon or a launch with no pane on screen ended the refs. Set before the restore
+    /// ends; a later call replaces it.
+    public func whenShown(_ work: @escaping @MainActor () -> Void) {
+        guard isHolding else { return }
+        shown = work
     }
 
     /// True while the restore ref or a pane ref is held.
@@ -215,6 +226,7 @@ public final class VisiblePaneRefs {
         let released = [restore].compactMap { $0 } + pending.map(\.release)
         restore = nil
         pending = []
+        shown = nil
         end(released, .daemonUnavailable)
     }
 
@@ -243,6 +255,11 @@ public final class VisiblePaneRefs {
             return true
         }
         markPhaseIfDone()
+        // The last ref ended with its pane loaded (a pane leaving in the same read loaded nothing).
+        if restore == nil, pending.isEmpty, !loaded.isEmpty, let shown {
+            self.shown = nil
+            shown()
+        }
         for release in left { release(.noVisiblePane) }
         for release in loaded { release(.visiblePaneLoadedIdle) }
         finishIfDone()
@@ -252,6 +269,7 @@ public final class VisiblePaneRefs {
     private func releasePanes(_ reason: StartupInProgressRef.Reason) {
         let released = pending.map(\.release)
         pending = []
+        shown = nil
         end(released, reason)
     }
 

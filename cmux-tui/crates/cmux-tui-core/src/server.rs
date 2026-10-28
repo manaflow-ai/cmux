@@ -2415,11 +2415,11 @@ use connection_scheduler::{
 mod bounded_outbound;
 pub(crate) use bounded_outbound::bulk_frame_max_from_env;
 #[cfg(not(unix))]
-use bounded_outbound::write_counted_batch;
+use bounded_outbound::write_counted_turn;
 #[cfg(unix)]
 use bounded_outbound::{BatchPoll, count_sent, write_batch_nonblocking};
 use bounded_outbound::{
-    BoundedOutbound, ConnectionPermit, OutboundItem, QueuedSink, SinkControl,
+    BoundedOutbound, ConnectionPermit, InlineSocket, OutboundItem, QueuedSink, SinkControl,
     SynchronizedTcpStream, claim_connection,
 };
 #[cfg(test)]

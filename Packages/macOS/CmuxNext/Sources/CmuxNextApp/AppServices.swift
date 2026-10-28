@@ -590,8 +590,9 @@ final class AppServices {
     let chiefMascotPicks = ChiefMascotPicks(defaults: .standard, defaultChief: HomeChiefAvatars.defaultChief)
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
-    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget`.
-    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget)
+    let inputLatencyFeed = InputLatencySlotFeed()  // each closed input slot: the latency tracker publishes (p04-input-005), the HUD reads
+    /// Debug menu > Toggle Action Latency HUD (DEV and NIGHTLY): the newest runs of `actionBudget` and inputs.
+    private(set) lazy var actionLatencyHUD = ActionLatencyHUD(monitor: actionBudget, inputs: inputLatencyFeed)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
     /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.

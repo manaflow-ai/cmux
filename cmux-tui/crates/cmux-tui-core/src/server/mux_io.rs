@@ -23,6 +23,11 @@
 //!   doorbell when it queues an item. The loop takes ready items in write
 //!   order and writes them with one `writev` per batch, as the writer thread
 //!   did; a full socket leaves the rest for its next writable readiness.
+//!   While the loop holds nothing to write, a producer on an idle
+//!   connection writes its item inline instead, with a send that never
+//!   waits (p05-ipc-140, server/inline_write.rs), as Mojo's
+//!   `ChannelPosix::Write` does; the loop gets only the tail the socket did
+//!   not take, ahead of every queued item.
 //! - **Write timeout.** A write that makes no progress for the queue's write
 //!   timeout (2 s, the socket's `SO_SNDTIMEO` before) closes the connection
 //!   as the writer thread's timed-out write did; the loop's wait has a
@@ -372,6 +377,7 @@ impl MuxIo {
             writer,
             write_signal,
             batch: Vec::new(),
+            rest: None,
             written: 0,
             blocked_since: None,
             stalled: false,
@@ -522,8 +528,11 @@ struct Connection {
     writer: MessageWriter,
     /// Set by the doorbell, cleared before the queue is read.
     write_signal: Arc<AtomicBool>,
-    /// The batch being written, and how many of its bytes went.
+    /// The turn being written: the tail an inline write left (p05-ipc-140,
+    /// server/inline_write.rs), then the batch, and how many of their bytes
+    /// went.
     batch: Vec<OutboundItem>,
+    rest: Option<Vec<u8>>,
     written: usize,
     /// Since when a write has been waiting for room with no progress.
     blocked_since: Option<Instant>,
@@ -621,11 +630,11 @@ impl Connection {
             if self.write_done {
                 return;
             }
-            if self.batch.is_empty() {
+            if self.batch.is_empty() && self.rest.is_none() {
                 // Cleared before the queue is read: an item queued from
                 // here on rings again.
                 self.write_signal.store(false, Ordering::Release);
-                match self.outbound.try_recv_batch(&mut self.batch) {
+                match self.outbound.try_recv_turn(&mut self.batch, &mut self.rest) {
                     BatchPoll::Taken => {
                         count_sent(&self.ipc, &self.batch);
                         self.written = 0;
@@ -641,12 +650,14 @@ impl Connection {
             let before = self.written;
             let result = write_batch_nonblocking(
                 &mut self.ipc.counted(&mut *self.stream),
+                self.rest.as_deref(),
                 &self.batch,
                 &mut self.written,
             );
             match result {
                 Ok(true) => {
                     self.batch.clear();
+                    self.rest = None;
                     self.blocked_since = None;
                     self.stalled = false;
                 }
@@ -683,6 +694,7 @@ impl Connection {
     /// A write failed or timed out: the queue closes unwritten.
     fn fail_write(&mut self) {
         self.batch.clear();
+        self.rest = None;
         self.outbound.close();
         self.finish_write();
     }
@@ -846,6 +858,16 @@ impl Loop {
     }
 
     fn on_ready(&mut self, event: Ready, now: Instant) {
+        // Classed the person's since its last turn: it moves before it
+        // reads, so its lines are routed on the person's loop. Its reply
+        // may have left inline (p05-ipc-140), with no write turn here to
+        // move it; the socket stays readable for that loop.
+        if self.moves(event.token) {
+            self.move_to_person(event.token);
+            if !self.connections.contains_key(&event.token) {
+                return;
+            }
+        }
         self.update(event.token, |connection| {
             if event.readable {
                 connection.read();
@@ -908,11 +930,19 @@ impl Loop {
             }
             return;
         }
-        let moves =
-            self.kind == LoopKind::Shared && !connection.stays && connection.inbound.is_person();
-        if moves {
+        if self.moves(token) {
             self.move_to_person(token);
         }
+    }
+
+    /// Connection `token` is on the shared loop, now the person's, and the
+    /// person's loop has not refused it.
+    fn moves(&self, token: u64) -> bool {
+        self.kind == LoopKind::Shared
+            && self
+                .connections
+                .get(&token)
+                .is_some_and(|connection| !connection.stays && connection.inbound.is_person())
     }
 
     /// Moves connection `token`, now the person's, to the person's loop:

@@ -9,9 +9,8 @@
 //! snapshot leaves waits for at most one chunk of it, as with single pops
 //! (p05-ipc-072).
 
-use super::{BoundedOutbound, OutboundItem};
+use super::{BoundedOutbound, BoundedOutboundState, OutboundItem};
 use crate::diagnostics::IpcStats;
-use crate::panic_free::RecoverPoison;
 use cmux_ipc::HEADER_LEN;
 use std::io::{ErrorKind, IoSlice, Write};
 
@@ -27,10 +26,12 @@ pub(super) const WRITE_BATCH_BYTES: usize = 256 * 1024;
 /// `IOV_MAX` (1024 on Linux and macOS), so the kernel takes it in one call.
 pub(super) const WRITE_BATCH_ITEMS: usize = 512;
 
-/// What [`BoundedOutbound::try_recv_batch`] found.
+/// What [`BoundedOutbound::try_recv_turn`] found.
+#[cfg(unix)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::server) enum BatchPoll {
-    /// The batch holds the next items.
+    /// The turn holds the next bytes: a rest an inline write left, the
+    /// next items, or both.
     Taken,
     /// Nothing is queued now: the queue's ready hook runs at the next item.
     Empty,
@@ -39,60 +40,34 @@ pub(in crate::server) enum BatchPoll {
 }
 
 impl BoundedOutbound {
-    /// Waits for the next item, then takes it and every item ready behind
-    /// it in write order into `batch`, until the batch holds
-    /// [`WRITE_BATCH_BYTES`] or [`WRITE_BATCH_ITEMS`]. A flush or a chunk
-    /// ends a batch. `false` once the queue is closed and empty. The wait is
-    /// an idle wait, so a writer that disallows blocking may take it.
-    #[cfg(any(test, not(unix)))]
+    /// One writer turn's batch ([`BoundedOutbound::recv_turn`]) of a queue
+    /// with no inline socket, so no rest: `false` once the queue is closed
+    /// and empty.
+    #[cfg(test)]
     pub(in crate::server) fn recv_batch(&self, batch: &mut Vec<OutboundItem>) -> bool {
-        let mut state = self.state.lock().recover_poison();
-        loop {
-            match self.take_batch(state, batch) {
-                Ok(poll) => return poll == BatchPoll::Taken,
-                // The writer's idle wait for its own queue (p02-threads 308).
-                Err(empty) => state = self.changed.idle().wait(empty).recover_poison(),
-            }
-        }
+        self.recv_turn(batch)
+            .map(|turn| assert!(turn.rest.is_none(), "a test batch dropped a rest"))
+            .is_some()
     }
+}
 
-    /// [`Self::recv_batch`] for a writer that never waits (the mux-io loop):
-    /// what is ready now, if anything.
-    pub(in crate::server) fn try_recv_batch(&self, batch: &mut Vec<OutboundItem>) -> BatchPoll {
-        let state = self.state.lock().recover_poison();
-        self.take_batch(state, batch).unwrap_or(BatchPoll::Empty)
-    }
-
-    /// Takes the ready items into `batch` and releases the lock: `Err` with
-    /// the lock still held when the queue is open and empty.
-    fn take_batch<'a>(
-        &self,
-        mut state: std::sync::MutexGuard<'a, super::BoundedOutboundState>,
-        batch: &mut Vec<OutboundItem>,
-    ) -> Result<BatchPoll, std::sync::MutexGuard<'a, super::BoundedOutboundState>> {
-        batch.clear();
-        let Some(first) = state.pop() else {
-            if state.closed {
-                return Ok(BatchPoll::Closed);
-            }
-            return Err(state);
-        };
+impl BoundedOutboundState {
+    /// Takes the next item and every item ready behind it in write order
+    /// into `batch`, until the batch holds [`WRITE_BATCH_BYTES`] or
+    /// [`WRITE_BATCH_ITEMS`]; a flush or a chunk ends it. False when nothing
+    /// was ready.
+    pub(super) fn take_batch(&mut self, batch: &mut Vec<OutboundItem>) -> bool {
+        let Some(first) = self.pop() else { return false };
         let mut bytes = first.wire_len();
         let mut ends = first.ends_batch();
         batch.push(first);
         while !ends && bytes < WRITE_BATCH_BYTES && batch.len() < WRITE_BATCH_ITEMS {
-            let Some(item) = state.pop() else { break };
+            let Some(item) = self.pop() else { break };
             bytes += item.wire_len();
             ends = item.ends_batch();
             batch.push(item);
         }
-        // Producers that got room (a stream's space hook, an ordered
-        // terminal's room waker) run once the lock is released.
-        let woken = state.take_space_woken();
-        drop(state);
-        self.changed.notify_all();
-        woken.wake();
-        Ok(BatchPoll::Taken)
+        true
     }
 }
 
@@ -130,7 +105,7 @@ pub(in crate::server) fn write_line_outbound_item<W: Write + ?Sized>(
     write_line_outbound_batch(writer, std::slice::from_ref(&item))
 }
 
-/// Writes one batch of [`BoundedOutbound::recv_batch`], counting each of its
+/// Writes one batch of [`BoundedOutbound::recv_turn`], counting each of its
 /// messages and each write call in `ipc` (`server-stats` `ipc`).
 #[cfg(any(test, not(unix)))]
 pub(in crate::server) fn write_counted_batch<W: Write + ?Sized>(
@@ -153,6 +128,22 @@ pub(in crate::server) fn count_sent(ipc: &IpcStats, items: &[OutboundItem]) {
             OutboundItem::Flush(_) => {}
         }
     }
+}
+
+/// Writes one writer turn ([`BoundedOutbound::recv_turn`]): the rest an
+/// inline write left, its message counted when that write began it, then
+/// the batch ([`write_counted_batch`]).
+#[cfg(any(test, not(unix)))]
+pub(in crate::server) fn write_counted_turn<W: Write + ?Sized>(
+    writer: &mut W,
+    ipc: &IpcStats,
+    rest: Option<&[u8]>,
+    items: &[OutboundItem],
+) -> std::io::Result<()> {
+    if let Some(rest) = rest {
+        ipc.counted(&mut *writer).write_all(rest)?;
+    }
+    write_counted_batch(writer, ipc, items)
 }
 
 /// Writes `items` in order: the items between flushes as one gathered write
@@ -197,17 +188,23 @@ fn write_gathered<W: Write + ?Sized>(
     Ok(())
 }
 
-/// Writes what is left of the batch `items` past its first `*written`
-/// bytes to a socket that does not block (the mux-io loop's): `Ok(true)`
-/// once all of it is written and its flush (a batch's last item) answered,
-/// `Ok(false)` when the socket is full, with `*written` counting what went.
+/// Writes what is left of a turn past its first `*written` bytes to a
+/// socket that does not block (the mux-io loop's): `rest`, the tail of a
+/// message an inline write began (p05-ipc-140), then the batch `items`.
+/// `Ok(true)` once all of it is written and its flush (a batch's last item)
+/// answered, `Ok(false)` when the socket is full, with `*written` counting
+/// what went.
 pub(in crate::server) fn write_batch_nonblocking<W: Write + ?Sized>(
     writer: &mut W,
+    rest: Option<&[u8]>,
     items: &[OutboundItem],
     written: &mut usize,
 ) -> std::io::Result<bool> {
     let headers = encode_headers(items);
     let mut slices = gathered(items, &headers)?;
+    if let Some(rest) = rest {
+        slices.insert(0, IoSlice::new(rest));
+    }
     let mut slices = &mut slices[..];
     IoSlice::advance_slices(&mut slices, *written);
     while !slices.is_empty() {

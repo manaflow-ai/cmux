@@ -585,14 +585,20 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         sender: sender.clone(),
         live: live.clone(),
     };
-    let thread = supervised::spawn("chief-brains", Fatal, ShutdownBehavior::Continue, move || {
-        // Before any brain starts: its lock probe cannot race a start.
-        remove_old_acpmux_homes(
-            &supervisor.config.home,
-            supervisor.config.app.acpmux_bin.as_deref(),
-        );
-        supervisor.run(&inbox);
-    })
+    let thread = supervised::spawn_at(
+        "chief-brains",
+        cmux_threads::ThreadQos::Utility,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            // Before any brain starts: its lock probe cannot race a start.
+            remove_old_acpmux_homes(
+                &supervisor.config.home,
+                supervisor.config.app.acpmux_bin.as_deref(),
+            );
+            supervisor.run(&inbox);
+        },
+    )
     .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux), live })
 }
@@ -1131,8 +1137,9 @@ impl Supervisor {
         };
         match spawned {
             Ok(mut child) => {
-                let _ = supervised::spawn(
+                let _ = supervised::spawn_at(
                     "chief-sessions-end",
+                    cmux_threads::ThreadQos::Utility,
                     Fatal,
                     ShutdownBehavior::Continue,
                     move || {

@@ -362,7 +362,13 @@ pub(super) fn start_line_connection(start: LineStart) {
         zeroize_bytes(&mut prefix);
         return completion.fail();
     };
-    let outbound = Arc::new(BoundedOutbound::with_chunk_bytes(mux.bulk_frame_max()));
+    // Producers write inline to their own handle of the socket while nothing
+    // waits for its writer, the mux-io loop or the writer thread
+    // (p05-ipc-140); none when it cannot be cloned.
+    let inline = stream.try_clone_box().ok().and_then(|socket| {
+        InlineSocket::new(socket, mux.bulk_frame_max(), mux.ipc_stats().clone())
+    });
+    let outbound = Arc::new(BoundedOutbound::with_inline(mux.bulk_frame_max(), inline));
     let writer = MessageWriter::new_with_render_service(
         QueuedSink { outbound: outbound.clone(), control: Some(SinkControl::Unix(control)) },
         render_service,
@@ -520,8 +526,11 @@ mod reading {
         let wrote = crate::echo_thread::spawn("mux-line-out", move || {
             let mut batch = Vec::new();
             // mq14-allow: the writer thread waits for its own queue (a checked wait).
-            while outbound.recv_batch(&mut batch) {
-                let written = write_counted_batch(&mut *write_half, &writer_ipc, &batch);
+            while let Some(mut turn) = outbound.recv_turn(&mut batch) {
+                // What an inline write left goes first (p05-ipc-140).
+                let rest = turn.rest.take();
+                let written =
+                    write_counted_turn(&mut *write_half, &writer_ipc, rest.as_deref(), &batch);
                 batch.clear();
                 if written.is_err() {
                     outbound.close();

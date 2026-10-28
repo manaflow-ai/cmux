@@ -37,8 +37,9 @@ impl Timers {
         if !state.started {
             state.started = true;
             let shared = self.shared.clone();
-            let _ = supervised::spawn(
+            let _ = supervised::spawn_at(
                 "cmux-apps-timers",
+                cmux_threads::ThreadQos::Utility,
                 Fatal,
                 ShutdownBehavior::Continue,
                 move || run(&shared),
