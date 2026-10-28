@@ -87,6 +87,12 @@ final class ListStressRig: NSObject {
             try? await Task.sleep(for: .seconds(2))
             if settings.streams { DemoDirector.shared.post(.chatSend("stream")) }
             try? await Task.sleep(for: .seconds(1))
+            if settings.streams {
+                // The prompt is typed into t-g0's composer, then sent: say whether its turn runs.
+                try? await Task.sleep(for: .seconds(1))
+                let chat = AgentSessionDirectory.shared.existingStore(id: "t-g0", macID: ws.macID)
+                log.notice("FRAMELOG list-stress tabs stream running=\(chat?.isRunning ?? false, privacy: .public) turns=\(chat?.turns.count ?? -1, privacy: .public)")
+            }
             FrameIntervalLog.shared.begin("tabs-open-grid")
             WorkspaceDemoDirector.shared.post(.showGrid(true))
             try? await Task.sleep(for: .seconds(2))
@@ -235,6 +241,9 @@ final class ListStressRig: NSObject {
         func walk(_ view: UIView) {
             if let scroll = view as? UIScrollView, scroll.bounds.height > 200, visible(scroll) {
                 let frame = scroll.convert(scroll.bounds, to: window)
+                // The tab grid fills the screen; the active chat drawn live on its card
+                // (scaled down) has a longer transcript and is not the list measured.
+                if settings.screen == "tabs", frame.height < window.bounds.height * 0.8 { view.subviews.forEach(walk); return }
                 let overflow = horizontal ? scroll.contentSize.width - scroll.bounds.width : scroll.contentSize.height - scroll.bounds.height
                 if frame.intersects(window.bounds), overflow > 100, overflow > (best?.overflow ?? 0) { best = (scroll, overflow) }
             }

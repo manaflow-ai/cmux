@@ -42,6 +42,9 @@ public struct ListStressSettings: Equatable, Sendable {
     public var wraps: Bool
     public var splits: Bool
     public var holdX: Double?
+    /// `CMUX_MOBILE_LIST_PLAIN_CARDS=agent,terminal,browser`: those tab kinds' grid cards
+    /// draw a plain fill (the tabs case's per-kind card cost).
+    public var plainCards: Set<String>
 
     public init(environment: [String: String] = ProcessInfo.processInfo.environment) {
         screen = environment["CMUX_MOBILE_LIST_SCREEN"]
@@ -59,6 +62,7 @@ public struct ListStressSettings: Equatable, Sendable {
         wraps = environment["CMUX_MOBILE_LIST_WRAP"] == "1"
         splits = environment["CMUX_MOBILE_LIST_SPLIT"] == "1"
         holdX = environment["CMUX_MOBILE_LIST_HOLD_X"].flatMap(Double.init)
+        plainCards = Set((environment["CMUX_MOBILE_LIST_PLAIN_CARDS"] ?? "").split(separator: ",").map(String.init))
     }
 
     /// Turns the mock agent replays as history: the chat and diff screens' load.

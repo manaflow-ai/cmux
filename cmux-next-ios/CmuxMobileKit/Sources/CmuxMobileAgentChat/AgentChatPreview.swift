@@ -7,12 +7,17 @@ import SwiftUI
 /// view, no bindings, no demo commands.
 public struct AgentChatPreview: View {
     let store: AgentChatStore
+    /// The turns to draw (the last ones); nil reads the store's own. A grid
+    /// card passes a copy it updates only while the grid shows and is not
+    /// scrolling, so a streaming chat does not re-render its card per token.
+    var turns: [AgentTurn]?
     var topInset: CGFloat
     var bottomInset: CGFloat
     @State private var model = AgentChatPreviewModel()
 
-    public init(store: AgentChatStore, topInset: CGFloat, bottomInset: CGFloat) {
+    public init(store: AgentChatStore, turns: [AgentTurn]? = nil, topInset: CGFloat, bottomInset: CGFloat) {
         self.store = store
+        self.turns = turns
         self.topInset = topInset
         self.bottomInset = bottomInset
     }
@@ -36,7 +41,7 @@ public struct AgentChatPreview: View {
     }
 
     @ViewBuilder private var content: some View {
-        if !store.hasTurns {
+        if turns.map(\.isEmpty) ?? !store.hasTurns {
             VStack(spacing: 12) {
                 Image(systemName: "sparkle")
                     .font(.system(size: 22))
@@ -47,7 +52,7 @@ public struct AgentChatPreview: View {
             .frame(maxWidth: .infinity)
             .padding(.bottom, 240)
         } else {
-            let rows = model.tail(of: store)
+            let rows = model.tail(of: store, turns: turns)
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(rows) { row in
                     ChatRowView(row: row, context: model.context(store))
@@ -77,10 +82,11 @@ final class AgentChatPreviewModel {
         return context
     }
 
-    func tail(of store: AgentChatStore) -> [ChatRow] {
+    /// `frozen`: the turns a grid card holds (it updates them only while the grid rests); nil reads the store's.
+    func tail(of store: AgentChatStore, turns frozen: [AgentTurn]? = nil) -> [ChatRow] {
         if builder?.diffs !== store.diffs { builder = ChatTranscriptBuilder(diffs: store.diffs) }
         guard let builder else { return [] }
-        let turns = store.turns
+        let turns = frozen ?? store.turns
         // The newest two turns, as the card showed before.
         let shown = Array(turns.suffix(2))
         let built = builder.build(turns: shown, pendingPermission: store.pendingPermission,
