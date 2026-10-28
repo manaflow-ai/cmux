@@ -66,7 +66,9 @@ public final class AccountsModel {
             if let active = services.activeTeam { Task { await active.refresh() } }
             let found = await detecting.value, accounts = await loading.value
             guard let self, current == self.generation, !Task.isCancelled else { return }
-            for detection in found { self.apply(.detected(detection), to: detection.provider) }
+            for detection in found where !self.openingReauth.contains(detection.provider) {
+                self.apply(.detected(detection), to: detection.provider)
+            }
             self.hasDetected = true
             switch accounts {
             case .success(let list): self.apply(.linkedLoaded(list))
@@ -107,9 +109,10 @@ public final class AccountsModel {
     /// in a cmux terminal tab never makes the app inactive): re-detect if a
     /// login or logout ran in a tab meanwhile.
     public func appDidBecomeActive() {
-        guard !pendingReauth.isEmpty else { return }
-        for provider in pendingReauth { apply(.reauthEnded, to: provider) }
-        pendingReauth.removeAll()
+        let ended = pendingReauth.subtracting(openingReauth)
+        guard !ended.isEmpty else { return }
+        for provider in ended { apply(.reauthEnded, to: provider) }
+        pendingReauth.subtract(ended)
         refresh()
     }
 

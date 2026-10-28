@@ -124,6 +124,9 @@ import Testing
         }
         for await _ in started.stream { break }
         #expect(!completed, "the action answered before the workspace opened")
+        model.refresh()
+        await model.settle()
+        #expect(model.row(.codex).phase == .reauthenticating, "refresh cleared the in-flight login")
         #expect(await model.reauthenticate(.codex) != nil, "a second click started another pending workspace")
         answer?.resume(returning: opened)
         let failure = await action.value
