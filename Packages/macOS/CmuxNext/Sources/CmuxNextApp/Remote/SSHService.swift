@@ -216,6 +216,10 @@ final class SSHService {
 
     func reconnect(_ session: SSHMachineSession) {
         guard !policyDisabled else { return }
+        // A retry gets a fresh error from the new attempt. Do not let the
+        // recovery sheet copy the previous attempt while the link is working.
+        session.lastError = nil
+        session.daemonFailure = nil
         switch session.linkStatus {
         case .offline, .unreachable, .failed:
             // These failures leave the gate open for automatic backoff, so a user

@@ -26,7 +26,7 @@ enum RemoteHandlers {
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive)
-                showWhenConnected(session, context)
+                if interactive { showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue {
                 return try connect(text)
