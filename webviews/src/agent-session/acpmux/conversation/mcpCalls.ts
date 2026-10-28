@@ -122,6 +122,11 @@ const MCP_MUTATING_WORDS = new Set([
   "remove",
   "archive",
   "close",
+  "replace",
+  "upload",
+  "copy",
+  "save",
+  "put",
 ]);
 
 export function mcpIsObservational(call: McpCall): boolean {
@@ -129,7 +134,8 @@ export function mcpIsObservational(call: McpCall): boolean {
   const action = mcpAction(call);
   return (
     (action === "read" || action === "list" || action === "search") &&
-    !tokens.slice(1).some((token) => MCP_MUTATING_WORDS.has(token))
+    !tokens.slice(1).some((token) => MCP_MUTATING_WORDS.has(token) || VERBS[token] === "message") &&
+    !tokens.slice(1).some((token) => VERBS[token] !== undefined && !["read", "list", "search"].includes(VERBS[token]!))
   );
 }
 

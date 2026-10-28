@@ -258,6 +258,8 @@ describe("acpmuxSend", () => {
     for (const command of [
       `bash -c 'acpmux send first hi'; acpmux send second hi`,
       `bash -c 'acpmux send first hi; acpmux send second hi'`,
+      `bash -c 'echo "$(acpmux send hidden hi)"'; acpmux send second hi`,
+      "bash -c 'cat <<EOF\n$(acpmux send hidden hi)\nEOF'; acpmux send second hi",
       `bash -c 'acpmux send "$FIRST" hi'; acpmux send second hi`,
       `reach box 'acpmux send "$FIRST" hi'; acpmux send second hi`,
       `bash -c "$SCRIPT"; acpmux send lane hi`,

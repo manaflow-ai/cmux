@@ -881,7 +881,13 @@ function readAcpmuxSend(
     const runs = command.runs ?? [];
     if (runs.includes(UNCLOSED)) return undefined;
     const busy = runs.filter((script) => !onlyReads(script, depth));
-    if (busy.some((script) => /\bacp/.test(script))) return undefined;
+    if (busy.some((script) => /\bacp/.test(script))) {
+      // A substitution or unquoted here-document can run a nested send. The command's
+      // descriptor is no longer safe to resolve; propagate that ambiguity to the outer scan so
+      // a later direct send cannot be mistaken for the only message.
+      sendScan.opaque = true;
+      return undefined;
+    }
     const words = unwrapped(command.words);
     const name = program(words[0]);
     if (name === "exit" && index < at) return undefined;
