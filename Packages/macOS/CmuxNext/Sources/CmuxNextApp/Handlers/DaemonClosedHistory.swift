@@ -163,12 +163,19 @@ enum DaemonClosedHistory {
         }
         let closing = pendingCloses(in: services)
         let target: Entry?
+        // Nothing left to take while reopens are on their way: a quiet no-op, not the registry's last
+        // closed window (it may be the window group a press is reopening now).
+        let nothingLeft = { () -> Bool in
+            guard undo.reopenClaims.hasReopening else { return false }
+            services.registry.refuse(RefusalStrings.closedItemReopening, quiet: true)
+            return true
+        }
         if closing.isEmpty, undo.reopensWaiting == 0 {
-            guard let entry = take(for: window, in: services, undo) else { return false }
+            guard let entry = take(for: window, in: services, undo) else { return nothingLeft() }
             target = entry
         } else {
             let left = owned(by: window, in: services).count { !undo.reopenClaims.contains($0.item.id) }
-            guard left + closing.map(\.transactions.count).reduce(0, +) > undo.reopensWaiting else { return false }
+            guard left + closing.map(\.transactions.count).reduce(0, +) > undo.reopensWaiting else { return nothingLeft() }
             undo.reopensWaiting += 1
             target = nil
         }

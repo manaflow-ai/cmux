@@ -25,6 +25,9 @@ public struct ClosedReopenClaims<Send> {
 
     public func contains(_ id: String) -> Bool { reopening.contains(id) || reopened.contains(id) }
 
+    /// Whether some reopen is on its way (claimed, not replied).
+    public var hasReopening: Bool { !reopening.isEmpty }
+
     /// Takes item `id` for a reopen on its way.
     public mutating func claim(_ id: String) { reopening.insert(id) }
 

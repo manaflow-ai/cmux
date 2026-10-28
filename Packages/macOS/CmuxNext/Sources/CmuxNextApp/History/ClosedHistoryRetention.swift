@@ -202,6 +202,9 @@ extension DaemonClosedHistory {
         let item = entry.item
         if let reason = undo.reopenClaims.refusal(for: item) { return services.registry.refuse(reason) }
         let presses = undo.reopensWaiting > 0 ? undo.reopenTail : nil
+        // Behind waiting presses, also behind the by-id reopens made before it: several (a toast's
+        // Undo of a multi-item close) still send in the order they were asked for.
+        let earlier = presses == nil ? [] : Array(undo.reopenClaims.sends.values)
         if presses == nil { undo.reopenClaims.claim(item.id) }
         let ticket = undo.reopenClaims.nextTicket()
         // task-owner: CloseUndoToasts.reopenClaims.sends, removed at its reply; later presses wait for it
@@ -210,6 +213,7 @@ extension DaemonClosedHistory {
             defer { undo?.reopenClaims.removeSend(ticket) }
             if let presses {
                 _ = await presses.value
+                for reopen in earlier { _ = await reopen.value }
                 guard let undo else { return nil }
                 if let reason = undo.reopenClaims.refusal(for: item) {
                     services.registry.refuse(reason)
