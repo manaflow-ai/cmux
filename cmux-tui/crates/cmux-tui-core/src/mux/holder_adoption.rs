@@ -12,7 +12,7 @@ use super::*;
 impl Mux {
     /// Re-attach `terminal` from the holder: whether it did (a failure is
     /// logged). A terminal it does not run ends, after the first answer
-    /// (`adopt_from_holder_or_end_later`, reason `missing-host-record`).
+    /// (`end_missing_hosts_later`, reason `missing-host-record`).
     #[track_caller]
     pub(in crate::mux) fn adopt_from_holder_or_none(
         self: &Arc<Self>,
