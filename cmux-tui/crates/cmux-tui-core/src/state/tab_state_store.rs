@@ -111,6 +111,17 @@ pub(crate) fn add_tab_attention_column(transaction: &Transaction<'_>) -> anyhow:
             at_ms INTEGER NOT NULL
         );",
     )?;
+    // Preserve identities already stored by the tab-attention-v1 daemon. Only
+    // signed SQLite integers are usable by the revision ledger; malformed or
+    // out-of-range legacy values are replaced by the next mark below.
+    transaction.execute_batch(
+        "INSERT OR IGNORE INTO tab_attention_revisions(tab_id, at_ms)
+         SELECT tab_id, CAST(json_extract(attention_json, '$.at_ms') AS INTEGER)
+         FROM tab_state
+         WHERE attention_json IS NOT NULL
+           AND json_type(attention_json, '$.at_ms') = 'integer'
+           AND json_extract(attention_json, '$.at_ms') BETWEEN 0 AND 9223372036854775807;",
+    )?;
     Ok(())
 }
 
@@ -285,7 +296,13 @@ pub(crate) fn update_tab_state(
             let now_ms = crate::mux::now_ms();
             let previous_at_ms: Option<i64> = transaction
                 .query_row(
-                    "SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = ?1",
+                    "SELECT CASE
+                                WHEN json_type(attention_json, '$.at_ms') = 'integer'
+                                 AND json_extract(attention_json, '$.at_ms') BETWEEN 0 AND 9223372036854775807
+                                THEN CAST(json_extract(attention_json, '$.at_ms') AS INTEGER)
+                                ELSE NULL
+                            END
+                       FROM tab_state WHERE tab_id = ?1",
                     [tab_id],
                     |row| row.get::<_, Option<i64>>(0),
                 )
@@ -305,6 +322,7 @@ pub(crate) fn update_tab_state(
                 .filter_map(|value| u64::try_from(value).ok())
                 .max();
             let at_ms = previous.map_or(now_ms, |previous| now_ms.max(previous.saturating_add(1)));
+            anyhow::ensure!(at_ms <= i64::MAX as u64, "attention timestamp exceeds SQLite integer range");
             let stored = attention.as_deref().map(|reason| {
                 attention_value(
                     reason.trim(),
