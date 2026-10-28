@@ -187,11 +187,12 @@ fn running(name: &str) -> bool {
     cmux_threads::snapshot().into_iter().any(|row| row.name == name)
 }
 
-/// An attach's writers (`mux-attach-out`, `mux-render-attach-out`, echo
-/// threads with blocking disallowed) start before the attach commits and
-/// wait for its go. That wait is the thread being idle before its first
-/// item, not a blocking call: in panic mode both writers panicked at once,
-/// so an attached client got its reply and then no frames.
+/// An attach's view (byte and render) serves in panic mode. The views were
+/// echo threads (`mux-attach-out`, `mux-render-attach-out`) that waited for
+/// the commit's go, and in panic mode both panicked at once, so an attached
+/// client got its reply and then no frames. Since p01-process-125 every
+/// view is a drain on the sequenced pool's input workers, which never wait:
+/// the views start, the connection keeps answering, and no view thread runs.
 #[test]
 fn an_attachs_writers_wait_for_the_commit_without_a_violation() {
     let served = Served::new("attach");
@@ -207,7 +208,11 @@ fn an_attachs_writers_wait_for_the_commit_without_a_violation() {
         assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!(id), json!(true)), "{reply}");
     }
     std::thread::sleep(Duration::from_millis(200));
+    socket.write_all(&ping(3)).unwrap();
+    let reply = next_reply(&mut replies).unwrap().expect("the attached connection still answers");
+    assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!(3), json!(true)), "{reply}");
+    assert!(running("mux-seq-input"), "the views drain on the pool's input workers");
     for name in ["mux-attach-out", "mux-render-attach-out"] {
-        assert!(running(name), "{name} is still serving its attach");
+        assert!(!running(name), "{name} is a thread per view");
     }
 }

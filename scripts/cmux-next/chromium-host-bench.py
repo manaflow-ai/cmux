@@ -169,7 +169,13 @@ and the app's child processes show no window, then the chooser rows (chromium_ho
 p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
 and document picture-in-picture, with feature chromiumHostChoosers on, then the fullscreen and lock rows
 (chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
-(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
+(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on. The page rows share one probe
+tab; each row gets a `host_windows` block from the host's lines in the app log written while it ran
+(chromium_host_windows.py, p01-process-068): the Chromium widgets the fork blocked (BLOCKED_WIDGET, by Views class and
+by the cmux UI whose kind of request it was) and the host windows its backstop took off screen (UNEXPECTED_WINDOW). A
+row fails with any unexpected window, or a blocked widget with no logged dismissal (refused or close-failed: it still
+shows, whatever its owner); `host_windows` in the report is the same count over the whole run.
+--list-failing then prints one `FAILING native_ui.<row>: <reason>` line per failing row (`FAILING none` when none).
 
 --renderer-hang runs instead the renderer hang row (chromium_host_renderer_hang.py, p01-process-072) with feature
 chromiumHangFollowsVisibility on: a `while(true){}` page's Page unresponsive prompt shows in that tab only, after
@@ -231,6 +237,7 @@ import chromium_host_native_ui_locks  # noqa: E402
 import chromium_host_profiles  # noqa: E402
 import chromium_host_renderer_hang  # noqa: E402
 import chromium_host_restore  # noqa: E402
+import chromium_host_windows  # noqa: E402
 
 # Every --native-ui row, in the order they run.
 NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
@@ -256,6 +263,8 @@ def parse(argv=None):
     parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
                         help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
                              f"({', '.join(NATIVE_UI_ROWS)})")
+    parser.add_argument("--list-failing", action="store_true",
+                        help="with --native-ui: print one FAILING line per failing row at the end")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--renderer-hang", action="store_true",
                         help="only the renderer hang row (chromium_host_renderer_hang.py, about 90 s)")
@@ -282,6 +291,8 @@ def parse(argv=None):
         parser.error("--native-ui, --find, --kill-host, --renderer-hang and --hang each run instead of the modes: pick one")
     if args.hang is not None and args.hang < chromium_host_hang.BUSY_AFTER_MS + chromium_host_hang.TOLERANCE_MS:
         parser.error(f"--hang must hold the host past the banner's {chromium_host_hang.BUSY_AFTER_MS} ms")
+    if args.list_failing and args.native_ui is None:
+        parser.error("--list-failing lists the --native-ui rows: pass --native-ui")
     if args.restore and not args.kill_host:
         parser.error("--restore is a --kill-host row: add --kill-host")
     host_tab_modes = [mode for mode in HOST_TAB_MODES if mode in args.modes.split(",")]
@@ -904,34 +915,10 @@ def main():
         modes = ([] if opts.native_ui or opts.find or opts.kill_host or opts.renderer_hang or opts.hang is not None
                  else opts.modes.split(","))
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
-                rpc, wait, lambda script: page_eval(rpc, script, None), url,
-                rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
-                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc),
+            RESULT["modes"]["native_ui"], ok = native_ui_rows(
+                rpc, url, pathlib.Path(chooser_page).as_uri(), app.process.pid if app.process else None,
                 permission_url=permission_url,
-                host_windows=(lambda: child_windows_on_screen(app.process.pid)) if app.process else None)
-            dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
-            if dialog_rows:
-                dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
-                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid,
-                    on_screen_windows, rows_to_run=dialog_rows)
-                RESULT["modes"]["native_ui"].update(dialogs)
-                ok = ok and dialogs_ok
-            chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
-            if chooser_rows:
-                chosen, choosers_ok = chromium_host_native_ui_choosers.run(
-                    rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(chooser_page).as_uri(),
-                    chromium_host_pid, front_pid, on_screen_windows, rows_to_run=chooser_rows)
-                RESULT["modes"]["native_ui"].update(chosen)
-                ok = ok and choosers_ok
-            lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
-            if lock_rows:
-                locks, locks_ok = chromium_host_native_ui_locks.run(
-                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out,
-                    lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows),
-                    rows_to_run=lock_rows)
-                RESULT["modes"]["native_ui"].update(locks)
-                ok = ok and locks_ok
+                child_windows=(lambda: child_windows_on_screen(app.process.pid)) if app.process else None)
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         if opts.renderer_hang:
@@ -1029,9 +1016,78 @@ def main():
                     with open(path, "w") as out:
                         json.dump(RESULT, out, indent=2)
                 print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
+                if opts.list_failing:
+                    print_failing(RESULT)
             finally:
                 app.stop()
     return 0 if ok else 1
+
+
+def native_ui_rows(rpc, url, chooser_url, app_pid, permission_url=None, child_windows=None):
+    """The --native-ui rows (task p01-process-068): the page rows in one probe tab, then the dialog rows, then the
+    chooser rows on their probe page at `chooser_url`, then the lock rows; `permission_url` and `child_windows` are
+    chromium_host_native_ui.run's `permission_url` and `host_windows`; each row gets
+    chromium_host_windows' block of the app log lines written while it ran (a log cursor taken right after it), and
+    RESULT["host_windows"] is the block of the whole run (lines a row's last dismissal wrote after it ended are counted
+    there). Each block also holds the host's visible windows the window server lists at its end (host_on_screen): a
+    host window its backstop never saw fails the row all the same. Returns (rows, ok)."""
+    every_line = []
+    cursor = chromium_host_windows.LogCursor(APP_LOG.get("path"))
+    evaluate = lambda script: page_eval(rpc, script, None)  # noqa: E731
+
+    def on_row(_name, row):
+        lines = cursor.take()
+        every_line.extend(lines)
+        return chromium_host_windows.checked(row, lines, host_on_screen())
+
+    rows = {}
+    page_rows = [row for row in opts.native_ui if row in chromium_host_native_ui.ROWS]
+    if page_rows:
+        rows.update(chromium_host_native_ui.run(rpc, wait, evaluate, url, rows_to_run=page_rows, front=front_pid,
+                                                app_pid=app_pid, right_click=page_right_click(rpc),
+                                                permission_url=permission_url, host_windows=child_windows,
+                                                on_row=on_row)[0])
+    dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
+    if dialog_rows:
+        rows.update(chromium_host_native_ui_dialogs.run(rpc, wait, evaluate, opts.out, chromium_host_pid, front_pid,
+                                                        on_screen_windows, rows_to_run=dialog_rows, on_row=on_row)[0])
+    chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
+    if chooser_rows:
+        rows.update(chromium_host_native_ui_choosers.run(rpc, wait, evaluate, chooser_url, chromium_host_pid, front_pid,
+                                                         on_screen_windows, rows_to_run=chooser_rows,
+                                                         on_row=on_row)[0])
+    lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
+    if lock_rows:
+        clear = lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows)  # noqa: E731
+        rows.update(chromium_host_native_ui_locks.run(rpc, wait, evaluate, opts.out, clear, rows_to_run=lock_rows,
+                                                      on_row=on_row)[0])
+    every_line += cursor.take()
+    RESULT["host_windows"] = chromium_host_windows.count(every_line, host_on_screen())
+    # A skipped row (another task's, chromium_host_native_ui_choosers.skipped) counts neither way.
+    ok = bool(rows) and RESULT["host_windows"]["ok"] and all(row.get("ok") for row in rows.values()
+                                                             if "skipped" not in row)
+    return rows, ok
+
+
+def host_on_screen():
+    """The running Chromium Host's on-screen windows with alpha above 0 (none when no host runs), or None when the
+    window list cannot be read."""
+    pid = chromium_host_pid()
+    return [] if pid is None else chromium_host_windows.visible(on_screen_windows(pid))
+
+
+def print_failing(result):
+    """--list-failing: one line per failing --native-ui row, and the whole run's host window check."""
+    failing = chromium_host_windows.failing(result["modes"].get("native_ui") or {})
+    whole = result.get("host_windows") or {}
+    if whole and not whole.get("ok"):
+        failing.append(("host_windows", chromium_host_windows.summary(whole)))
+    if result.get("error"):
+        failing.append(("launch", result["error"]))
+    for name, reason in failing:
+        print(f"FAILING native_ui.{name}: {reason}", flush=True)
+    if not failing:
+        print("FAILING none", flush=True)
 
 
 def probe_stats(title):
