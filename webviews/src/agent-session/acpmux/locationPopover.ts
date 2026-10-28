@@ -3,13 +3,11 @@ import type { UiVirtualAnchor } from "../../ui/Popover";
 import { useOpenSide } from "../../ui/openSide";
 import { registerPicker } from "./pickerOpeners";
 
-/// The location menus open next to their control: below it, away from the chat, like the other
-/// composer dropdowns,
-/// above its chip (Lawrence 2026-10-08: "popover is not next to the button"; this replaces
-/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). Every
-/// location menu decides its side once, when it opens, by the shared rule (`useOpenSide`): above
-/// unless the menu's full height does not fit there and below has more room. It keeps that side
-/// while open (a filter shrinking the folder list never moves it, cx-ncc.53) and fits the room.
+/// The location menus open next to their control, below it and away from the chat like the other
+/// composer dropdowns. Every menu decides its side once when it opens by the shared rule
+/// (`useOpenSide`): below when the full menu fits, flipping above only when below has less room.
+/// It keeps that side while open (a filter shrinking the folder list never moves it, cx-ncc.53)
+/// and fits the room.
 export function useLocationPopover() {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(

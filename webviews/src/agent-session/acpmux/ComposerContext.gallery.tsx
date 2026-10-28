@@ -297,6 +297,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "folder-menu": {
       note: "Project actions stay directly below search, above the recent projects (paths on hover).",
+      height: 560,
       props: baseProps,
       play: openFolder,
     },
@@ -423,6 +424,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
     },
     "environment-picker": {
       note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…, Connect Phone…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
+      height: 560,
       props: {
         ...baseProps,
         environments: true,
