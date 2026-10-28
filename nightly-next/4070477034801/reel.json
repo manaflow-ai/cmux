@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4070477034801",
+  "notes": "notes/4070477034801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 26860,
+      "title": "acpmux: a peer daemon's connection hears and lists none of this host's peers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26870,
+      "title": "ci: a package-test-lane suite whose tests did not run is no result, never green",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26858,
+      "title": "backend home.search: highlight matches found through accent folding",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26863,
+      "title": "cmux-host: relay acpmux hand-off reports to the Cloud API as the VM install",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26127,
+      "title": "acpmux: an idle chat hibernates after 2 min, the one on screen too; typing wakes it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26873,
+      "title": "fix(cmux-next): declare CmuxNextDictation dependency for CmuxNextApp",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26865,
+      "title": "ci(cmux-tui): publish-tree reads through R2 and survives an edge reset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 26700,
+      "title": "feat(acpmux): session/auth reads the route probe and answers a target",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
