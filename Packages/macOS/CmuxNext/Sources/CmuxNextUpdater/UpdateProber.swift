@@ -62,7 +62,10 @@ nonisolated public struct UpdateProber: Sendable {
         let feed = identity.feed(architecture: architecture)
         guard let url = URL(string: feed.url) else { throw AppcastParseError(message: "invalid feed URL \(feed.url)") }
         let allowed = allowedChannels ?? feed.channel.allowedSparkleChannels
-        let items = try AppcastParser.parse(try await fetcher.fetch(url)).filter { $0.isOffered(allowing: allowed) }
+        let rollout = rollout
+        let items = try AppcastParser.parse(try await fetcher.fetch(url)).filter {
+            $0.isOffered(allowing: allowed) && rollout?.offers(version: $0.version, rawPercent: $0.rolloutPercent) != false
+        }
         return UpdateProbeResult(
             track: identity.track,
             feedURL: feed.url,

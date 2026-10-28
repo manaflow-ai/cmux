@@ -191,7 +191,7 @@ public final class UpdaterService {
     /// timeout then leaves the state alone so the sheet keeps its details.
     @ObservationIgnored public var isSheetPresented: () -> Bool = { false }
     @ObservationIgnored let policy: ManagedUpdatePolicy
-    @ObservationIgnored let prober: UpdateProber
+    @ObservationIgnored var prober: UpdateProber
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored let switcher: AppChannelSwitcher
     /// The feed read and the channel switch in flight (UpdaterService+Probe.swift).
@@ -240,6 +240,8 @@ public final class UpdaterService {
         self.identity = identity
         self.policy = policy
         self.prober = prober
+        // The same seed as Sparkle's scheduled check (UpdateController), so every read of the feed agrees.
+        self.prober.rollout = StagedRollout(defaults: defaults)
         self.defaults = defaults
         self.switcher = switcher
         let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
