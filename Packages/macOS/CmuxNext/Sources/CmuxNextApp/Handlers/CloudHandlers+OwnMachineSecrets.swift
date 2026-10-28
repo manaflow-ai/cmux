@@ -7,7 +7,7 @@ import CmuxNextWakeups
 import Foundation
 
 /// `cloud deliver-secrets --target machine:<own machine> --names NAME[,NAME…] [--repo OWNER/NAME]`: the
-/// same delivery as a Cloud machine's (one receiver, one Keychain store, one ledger), to an SSH machine
+/// same delivery as a Cloud machine's (one receiver, one Keychain store), to an SSH machine
 /// or an acpmux peer this Mac reaches over ssh (SSHMachineSecrets). An own machine has no machine config
 /// that declares names, so the person names the set; the file it gets holds exactly those.
 ///
@@ -62,7 +62,7 @@ extension CloudHandlers {
         guard let names else { throw ActionFailure(message: CloudStrings.secretNamesRequired) }
         let cloud = context.services.cloud, work = context.services.work
         let ssh = sshMachine(id, context)
-        // The ledger's key: an SSH machine by its id, a peer by its acpmux name.
+        // One delivery at a time per name: an SSH machine by its id, a peer by its acpmux name.
         let key = ssh.map { "ssh:\($0.machineID)" } ?? "peer:\(id.lowercased())"
         guard cloud.deliveringSecrets.insert(key).inserted else { throw ActionFailure(message: CloudStrings.secretsDeliveryRunning) }
         let check = "cmux cloud deliver-secrets --target machine:\(id) --names \(names.joined(separator: ","))"
@@ -83,10 +83,7 @@ extension CloudHandlers {
             }
             let home = FileManager.default.homeDirectoryForCurrentUser
             let indexURL = home.appendingPathComponent(".config/cmux/cloud-secrets.json")
-            let ledgerURL = cloud.paths.root.appendingPathComponent("secret-ledger.json")
-            let (index, ledgerFile) = try await work.run(.userBlocking, mayBlock: .files) {
-                (CloudMachineSecrets.read(indexURL.path), CloudMachineSecrets.read(ledgerURL.path))
-            }
+            let index = try await work.run(.userBlocking, mayBlock: .files) { CloudMachineSecrets.read(indexURL.path) }
             guard let stored = CloudMachineSecrets.index(from: index) else {
                 throw ActionFailure(message: CloudStrings.secretIndexUnreadable(indexURL.path))
             }
@@ -97,10 +94,8 @@ extension CloudHandlers {
                                                        "missing": .array(missing.map(ActionResultValue.string)),
                                                        "file": .string(SSHMachineSecrets.envFile),
                                                        "source_line": .string(SSHMachineSecrets.sourceLine)]
-            guard !CloudMachineSecrets.Ledger(file: ledgerFile).isCurrent(items, on: key) else {
-                answer["status"] = .string("unchanged")
-                return answer
-            }
+            // Always sent: an own machine is one file reachable under several names (an SSH machine,
+            // a peer, another alias), so no record here can say what it holds now.
             let values = try await keychainValues(items)
             let link = SSHMachineSecrets.link(to: destination, environment: await SSHService.environment())
             let count: Int
@@ -115,7 +110,6 @@ extension CloudHandlers {
                 // Only the kind of failure: no error text near the values reaches a log or the caller.
                 throw ActionFailure(message: CloudStrings.secretsNotDelivered(String(describing: type(of: error))))
             }
-            try? await work.run(.userBlocking, mayBlock: .files) { try CloudMachineSecrets.Ledger.record(items, on: key, at: ledgerURL) }
             answer["status"] = .string("delivered")
             answer["delivered"] = .array(items.map { .string($0.name) })
             answer["written"] = .int(count)

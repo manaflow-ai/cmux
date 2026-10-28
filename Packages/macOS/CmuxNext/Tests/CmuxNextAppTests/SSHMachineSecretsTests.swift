@@ -85,22 +85,53 @@ struct SSHMachineSecretsTests {
     /// An ssh that stops reading (a stalled link, a receiver gone after READY) ends the typing at its
     /// deadline instead of holding the delivery.
     @Test func aStalledSSHEndsTheTypingAtItsDeadline() async throws {
-        let home = try Self.scratchHome()
-        defer { try? FileManager.default.removeItem(at: home) }
-        let ssh = home.appendingPathComponent("ssh")
-        try "#!/bin/sh\necho ready\nexec sleep 30\n".write(to: ssh, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ssh.path)
-        let run = try SSHPTYRun([ssh.path], environment: ["PATH": "/usr/bin:/bin"])
-        defer { run.stop() }
-        _ = try await run.waitFor("ready", seconds: 10)
+        let run = try Self.standIn("echo ready\nexec sleep 30\n")
+        defer { run.run.stop(); try? FileManager.default.removeItem(at: run.home) }
+        _ = try await run.run.waitFor("ready", seconds: 10)
         let started = ContinuousClock.now
         await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) {
-            try await run.type(Data(repeating: 0x41, count: 1 << 20), seconds: 1)
+            try await run.run.type(Data(repeating: 0x41, count: 1 << 20), seconds: 1)
         }
         #expect(ContinuousClock.now - started < .seconds(10))
     }
 
+    /// One deadline for the whole payload: an ssh that keeps taking a little (1 KiB every 0.2 s) does
+    /// not keep the typing past it.
+    @Test func aTricklingSSHEndsTheTypingAtTheOneDeadline() async throws {
+        let run = try Self.standIn("echo ready\nwhile :; do dd bs=1024 count=1 2>/dev/null >/dev/null || exit 0; sleep 0.2; done\n")
+        defer { run.run.stop(); try? FileManager.default.removeItem(at: run.home) }
+        _ = try await run.run.waitFor("ready", seconds: 10)
+        let started = ContinuousClock.now
+        await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) {
+            try await run.run.type(Data(repeating: 0x41, count: 4 << 20), seconds: 2)
+        }
+        #expect(ContinuousClock.now - started < .seconds(8))
+    }
+
+    /// A cancelled delivery stops typing within about a second, even into a full pipe.
+    @Test func aCancelledTypingStopsSoon() async throws {
+        let run = try Self.standIn("echo ready\nexec sleep 30\n")
+        defer { run.run.stop(); try? FileManager.default.removeItem(at: run.home) }
+        _ = try await run.run.waitFor("ready", seconds: 10)
+        let pty = run.run
+        let typing = Task { try await pty.type(Data(repeating: 0x41, count: 1 << 20), seconds: 30) }
+        try await Task.sleep(for: .milliseconds(300))
+        let started = ContinuousClock.now
+        typing.cancel()
+        await #expect(throws: CloudMachineSecrets.DeliveryFailed(reason: "eof")) { try await typing.value }
+        #expect(ContinuousClock.now - started < .seconds(5))
+    }
+
     // MARK: Helpers
+
+    /// An ssh stand-in running `body` (stdin is the typing), started as the delivery starts one.
+    static func standIn(_ body: String) throws -> (run: SSHPTYRun, home: URL) {
+        let home = try scratchHome()
+        let ssh = home.appendingPathComponent("ssh")
+        try ("#!/bin/sh\n" + body).write(to: ssh, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: ssh.path)
+        return (try SSHPTYRun([ssh.path], environment: ["PATH": "/usr/bin:/bin"]), home)
+    }
 
     static func scratchHome() throws -> URL {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("cn-ssh-secrets-\(UUID().uuidString.prefix(8))")

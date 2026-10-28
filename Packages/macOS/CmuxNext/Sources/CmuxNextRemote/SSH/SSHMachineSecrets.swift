@@ -186,27 +186,28 @@ final class SSHPTYRun: Sendable {
         }
     }
 
-    /// Writes `bytes` to ssh's stdin, all of them, off the caller's thread. Throws when ssh ended, the
-    /// run was stopped, or ssh took no bytes for `seconds` (the pipe stays full: a stalled link).
+    /// Writes `bytes` to ssh's stdin, all of them, off the caller's thread, within `seconds` in all
+    /// (one deadline, however the bytes trickle out). Throws when ssh ended, the run was stopped, the
+    /// task was cancelled, or the deadline passed; the caller's close then stops ssh.
     @concurrent func type(_ bytes: Data, seconds: Int = 60) async throws {
-        let fd = input
+        let fd = input, deadline = ContinuousClock.now + .seconds(seconds)
         let wroteAll: Bool = bytes.withUnsafeBytes { raw in
             guard let base = raw.baseAddress else { return true }
-            var offset = 0, waited = 0
+            var offset = 0
             while offset < raw.count {
-                guard !self.running.withLock({ $0.stopped }) else { return false }
+                guard !Task.isCancelled, !self.running.withLock({ $0.stopped }) else { return false }
                 let wrote = Darwin.write(fd, base + offset, raw.count - offset)
-                if wrote > 0 { offset += wrote; waited = 0; continue }
+                if wrote > 0 { offset += wrote; continue }
                 guard wrote < 0, errno == EINTR || errno == EAGAIN else { return false }
                 if errno == EINTR { continue }
-                // Full: wait for room in slices of at most a second, so a stop is seen soon.
-                guard waited < seconds * 1000 else { return false }
+                // Full: wait for room in slices of at most a second, so a stop or a cancel is seen soon.
+                let left = deadline - ContinuousClock.now
+                guard left > .zero else { return false }
+                let slice = Int32(min(1000, max(1, left.components.seconds * 1000 + left.components.attoseconds / 1_000_000_000_000_000)))
                 var ready = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-                let slice = Int32(min(1000, seconds * 1000 - waited))
                 let polled = poll(&ready, 1, slice)
                 if polled < 0, errno != EINTR { return false }
                 if polled > 0, ready.revents & Int16(POLLERR | POLLHUP | POLLNVAL) != 0 { return false }
-                if polled == 0 { waited += Int(slice) }
             }
             return true
         }
