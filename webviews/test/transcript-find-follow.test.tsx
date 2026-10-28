@@ -3,10 +3,11 @@
 // browser reports it, a frame later. chat-find's fold case lost its match that way on loaded runners
 // (react-apps-check, 2026-10-13). jsdom reports no scroll for a scrollTop write, so the race is
 // deterministic here.
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, expect, jest, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import type { ChatFind } from "../src/agent-session/acpmux/conversation/chatFind";
+import type { ScrollAnchor } from "../src/agent-session/acpmux/App";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
@@ -48,7 +49,8 @@ Object.assign(scope, replacements);
 // jsdom has no layout: a 600 px viewport over a long conversation, and a scroll offset that only
 // moves when written, with no scroll event.
 const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+let viewport = VIEWPORT;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
 const offsets = new WeakMap<object, number>();
 Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
@@ -63,7 +65,7 @@ Object.defineProperty(dom.window.HTMLElement.prototype, "scrollTop", {
 
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
-const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { VirtualTranscript, SCROLL_ANCHOR_SETTLE_MS } = await import("../src/agent-session/acpmux/App");
 
 afterAll(() => {
   dom.window.close();
@@ -154,5 +156,88 @@ test("Find keeps an already visible match parked when a reply streams below it",
     expect(scroller().scrollTop).toBe(atMatch);
   } finally {
     await act(async () => root.unmount());
+  }
+});
+
+test("an already visible Find match survives an immediate hide, stream and wake", async () => {
+  const rows = turnView(turns, new Set());
+  const more = turnView([...turns, ...turn(30)], new Set());
+  let root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  const target = rows.findIndex((shown) => shown.id === "t29-user");
+  const find: ChatFind = {
+    open: true,
+    query: "Question 29",
+    matches: [{ rowIndex: target, rowId: "t29-user", occurrence: 0 }],
+    active: 0,
+    show: noop,
+    hide: noop,
+    setQuery: noop,
+    next: noop,
+    previous: noop,
+    focusRequest: 1,
+  };
+  const anchorNow: { current: (() => ScrollAnchor | null | undefined) | undefined } = { current: undefined };
+  const reported: (ScrollAnchor | null)[] = [];
+  let hideOnFind = false;
+  const render = (shown: AcpmuxRow[], withFind?: ChatFind) =>
+    root.render(
+      <VirtualTranscript
+        rows={shown}
+        sessionId="find-wake"
+        onToggleActivity={noop}
+        expanded={new Set()}
+        find={withFind}
+        anchorNow={anchorNow}
+        // The report sink can appear after mount, as a pane's chat becomes known.
+        onAnchor={withFind ? (anchor) => reported.push(anchor) : undefined}
+        onFollowingChange={(following) => {
+          // Hide in Find's own turn, before a subsequent visible placement or scroll event can
+          // refresh the wake anchor. A hidden pane must keep the place Find just chose.
+          if (!following && hideOnFind) viewport = 0;
+        }}
+      />,
+    );
+  try {
+    await act(async () => render(rows));
+    const atMatch = scroller().scrollTop;
+    expect(anchorNow.current?.()).toBeNull();
+
+    jest.useFakeTimers();
+    hideOnFind = true;
+    await act(async () => render(rows, find));
+    expect(viewport).toBe(0);
+    const parked = anchorNow.current?.();
+    expect(parked).toBeTruthy();
+    expect(scroller().scrollTop).toBe(atMatch);
+    await act(async () => void jest.advanceTimersByTime(SCROLL_ANCHOR_SETTLE_MS - 1));
+    expect(reported).toEqual([]);
+    await act(async () => void jest.advanceTimersByTime(1));
+    expect(reported).toEqual([parked!]);
+
+    // Stream while hidden, then read the same anchorNow hook pane.wakeState uses. A null value
+    // would become atLatest:true and lose the Find position when the page is recreated.
+    await act(async () => render(more, find));
+    const wake = anchorNow.current?.();
+    expect(wake).toEqual(parked);
+    await act(async () => root.unmount());
+    viewport = VIEWPORT;
+    root = createRoot(dom.window.document.getElementById("root")!);
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={more}
+          sessionId="find-wake"
+          openAt={wake!}
+          onToggleActivity={noop}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    expect(scroller().scrollTop).toBe(atMatch);
+  } finally {
+    viewport = VIEWPORT;
+    await act(async () => root.unmount());
+    jest.useRealTimers();
   }
 });
