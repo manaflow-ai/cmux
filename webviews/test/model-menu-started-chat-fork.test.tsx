@@ -262,6 +262,21 @@ test("launch configurations are named rail entries and never a Profile submenu",
   expect(forked[0]).toMatch(/^claude-/);
 });
 
+test("a started chat exposes launch profiles as fork-only tabs", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    { id: "claude-work", name: "Claude (work)", family: "claude-work", models: [{ id: "opus", name: "Opus" }] },
+  ] as Snapshot["catalog"];
+  const { forked } = await mount(1, { ready: true }, "claude", catalog);
+  await open();
+  await showTab("Claude (work)");
+  expect(menu()!.querySelectorAll('.acpmux-quick-item[role="menuitemradio"]')).toHaveLength(0);
+  expect(itemsOf(menu()!).map(labelOf)).toContain("Fork to Claude (work)");
+  await act(async () => itemsOf(menu()!).find((item) => labelOf(item) === "Fork to Claude (work)")!.click());
+  await settle();
+  expect(forked).toEqual(["claude-work"]);
+});
+
 test("while the chat can't fork (a turn running), Fork to is disabled and does nothing", async () => {
   const { forked } = await mount(1, { ready: false });
   await open();
@@ -357,6 +372,19 @@ for (const [first, second, firstLabel, secondLabel] of [
     await showTab(secondLabel!);
     expect(switched).toEqual([second]);
   });
+
+test("a configured suffix collision keeps every launch profile readable", async () => {
+  const catalog = [
+    { id: "claude", name: "Claude Code", family: "claude", models: [{ id: "opus", name: "Opus" }] },
+    { id: "work", name: "Work", family: "claude", models: [] },
+    { id: "personal", name: "Work", family: "claude", models: [] },
+    { id: "travel", name: "Work (work)", family: "claude", models: [] },
+  ] as Snapshot["catalog"];
+  await mount(0, undefined, "claude", catalog);
+  await open();
+  const labels = railTabs().map((tab) => tab.getAttribute("aria-label"));
+  expect(labels).toEqual(expect.arrayContaining(["Work", "Work (personal)", "Work (work) (travel)"]));
+});
 
 test("familyProfiles lists every global profile of the running profile's family", async () => {
   const { familyProfiles } = await import("../src/agent-session/acpmux/pickerProfiles");

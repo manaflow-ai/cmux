@@ -274,7 +274,9 @@ function railByHarness(
     const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
     // Resolve branded suffixes first: `claude-work` becomes Work (work), leaving a profile
     // whose ID is just `work` free to keep Work. Raw IDs distinguish any names still repeated.
-    const names = distinguishLaunchNames(distinguishLaunchNames(named, launchSuffix), readableLaunchId);
+    const names = ensureDistinctLaunchNames(
+      distinguishLaunchNames(distinguishLaunchNames(named, launchSuffix), readableLaunchId),
+    );
     const currentName =
       names.find((profile) => profile.id === family.id)?.name ?? launchName(family.name, family.name, family.id);
     const alternate = launchSuffix(family.id) && family.id !== running;
@@ -307,6 +309,24 @@ function distinguishLaunchNames(
     return suffix && profiles.some((other) => other.id !== profile.id && other.name === profile.name)
       ? { ...profile, name: `${profile.name} (${suffix})` }
       : profile;
+  });
+}
+
+/// Keep every readable launch entry when a configured name already contains another entry's suffix.
+/// The first entry keeps its readable name; later collisions receive their own readable id.
+function ensureDistinctLaunchNames(profiles: readonly PickerProfile[]): PickerProfile[] {
+  const used = new Set<string>();
+  return profiles.map((profile) => {
+    if (!used.has(profile.name)) {
+      used.add(profile.name);
+      return profile;
+    }
+    const suffix = readableLaunchId(profile.id) ?? profile.id;
+    let name = `${profile.name} (${suffix})`;
+    let index = 2;
+    while (used.has(name)) name = `${profile.name} (${suffix} ${index++})`;
+    used.add(name);
+    return { ...profile, name };
   });
 }
 
@@ -802,7 +822,8 @@ export function ModelPicker(props: ModelPickerProps) {
         const models = family.models.filter((model) => model.family === current?.id);
         return models.length ? [{ ...family, models }] : [];
       }
-      if (family.id === current?.id || family.note || family.launch) return [own];
+      if (family.id === current?.id || family.note) return [own];
+      if (family.launch) return [{ ...own, models: [], more: [], fork: true }];
       return [{ ...own, models: [], more: [], fork: true }];
     });
   }, [
