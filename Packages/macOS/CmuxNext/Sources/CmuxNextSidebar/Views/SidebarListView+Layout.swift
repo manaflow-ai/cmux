@@ -175,6 +175,14 @@ extension SidebarListViewComponents {
         // Without motion the rows that leave park first (as they would after the loop), so the rows that
         // come take their views: a space switch reuses the old space's views, it makes none (space-switch-fast).
         if !animate, !adopting {
+            // An animated apply removes a leaving row from `rowViews` but keeps it in the list until its
+            // close finishes. A no-motion reload can arrive before that completion and otherwise leave the
+            // old, still-visible row's spring running beside a newly realized row for the same key.
+            let active = Set(rowViews.values.map { ObjectIdentifier($0) })
+            for view in subviews.compactMap({ $0 as? SidebarRowView })
+                where !view.isHidden && !active.contains(ObjectIdentifier(view)) {
+                recycle(view)
+            }
             for (key, view) in rowViews where layout.row(for: key) == nil {
                 rowViews[key] = nil
                 recycle(view)
