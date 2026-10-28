@@ -77,8 +77,9 @@ name is not a claim: write it as "not measured".
    code it gates; cmux-ad's decision for switches that are not perf claims, the lead's addition for perf claims),
    7 days after it landed (for switches that landed before 2026-10-28:
    on 2026-11-04), goes off on every channel and is removed: the JSON file, the generated handle and the new code
-   path, which only ran when the switch was on. An owner keeps a switch past the date only with a passing bench
-   (or, for a switch that is not a perf claim, a passing behavior test) in the branch that keeps it. A switch that
+   path, which only ran when the switch was on. An owner keeps a perf claim past the date only with a passing bench
+   and a passing behavior test, and a switch that is not a perf claim only with a passing behavior test, in the
+   branch that keeps it. A switch that
    loses its owner after the date goes 7 days after the lead writes "no owner" in the table. `benchOnly`
    switches follow this rule too. A perf claim that is already on in every channel and has no passing bench on
    its date goes off on every channel and its new path is removed like the others, unless the lead writes in the
