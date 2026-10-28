@@ -1043,4 +1043,166 @@ mod tests {
             ask_agent(Path::new("/nonexistent/agent.sock"), &gh_ask("o/r", false)).unwrap_err();
         assert_eq!(missing.code, "vm.agent_unreachable");
     }
+
+    fn cx<'a>(token_env: bool, own_login: bool, gh_repo: Option<&'a str>) -> GhContext<'a> {
+        GhContext { token_env, own_login, gh_repo }
+    }
+
+    fn in_checkout() -> Option<String> {
+        Some("git@github.com:o/r.git".to_owned())
+    }
+
+    fn nowhere() -> Option<String> {
+        None
+    }
+
+    fn asked(route: &GhRoute) -> Vec<String> {
+        let GhRoute::Token { asks, .. } = route else { panic!("not a token route: {route:?}") };
+        asks.iter().map(|a| a.permissions["contents"].as_str().unwrap().to_owned()).collect()
+    }
+
+    #[test]
+    fn auto_leaves_the_persons_own_auth_alone() {
+        let args = strings(&["pr", "list"]);
+        assert_eq!(gh_auto_route(&args, &cx(true, false, None), &in_checkout), GhRoute::Direct);
+        assert_eq!(gh_auto_route(&args, &cx(false, true, None), &in_checkout), GhRoute::Direct);
+    }
+
+    #[test]
+    fn auto_passes_verbs_that_need_no_repo_token_straight_through() {
+        for args in [
+            &[][..],
+            &["auth", "status"][..],
+            &["auth", "login", "--web"][..],
+            &["--version"][..],
+            &["version"][..],
+            &["--help"][..],
+            &["help", "pr"][..],
+            &["config", "get", "editor"][..],
+            &["extension", "list"][..],
+            &["completion", "-s", "bash"][..],
+            &["alias", "list"][..],
+        ] {
+            assert_eq!(
+                gh_auto_route(&strings(args), &cx(false, false, None), &in_checkout),
+                GhRoute::Direct,
+                "{args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_without_a_repo_runs_gh_without_a_token_and_says_why() {
+        let route = gh_auto_route(&strings(&["pr", "list"]), &cx(false, false, None), &nowhere);
+        let GhRoute::Untokened { note } = route else { panic!("{route:?}") };
+        assert!(note.contains("-R owner/name"), "{note}");
+        // A URL to another host never gets this machine's token.
+        let route = gh_auto_route(
+            &strings(&["api", "https://evil.example/x"]),
+            &cx(false, false, None),
+            &in_checkout,
+        );
+        assert!(matches!(route, GhRoute::Untokened { .. }), "{route:?}");
+    }
+
+    #[test]
+    fn auto_reads_ask_for_read_only() {
+        for args in [
+            &["pr", "list"][..],
+            &["pr", "view", "12"][..],
+            &["pr", "checks"][..],
+            &["pr", "diff", "3"][..],
+            &["run", "watch", "9"][..],
+            &["run", "download", "9"][..],
+            &["repo", "view"][..],
+            &["issue", "list", "--json", "number"][..],
+            &["status"][..],
+            &["search", "prs", "x"][..],
+            &["api", "repos/{owner}/{repo}/pulls"][..],
+            &["api", "--method", "GET", "x"][..],
+            &["api", "-XGET", "x"][..],
+        ] {
+            let route = gh_auto_route(&strings(args), &cx(false, false, None), &in_checkout);
+            assert_eq!(asked(&route), ["read"], "{args:?}");
+        }
+    }
+
+    #[test]
+    fn auto_writes_ask_for_write_then_read() {
+        for args in [
+            &["pr", "create", "--fill"][..],
+            &["pr", "merge", "1"][..],
+            &["issue", "comment", "1", "-b", "hi"][..],
+            &["release", "create", "v1"][..],
+            &["api", "-X", "POST", "x"][..],
+            &["api", "--method=PATCH", "x"][..],
+            &["api", "x", "-f", "title=t"][..],
+            &["api", "x", "-Fdraft=true"][..],
+            &["api", "x", "--input", "body.json"][..],
+            &["workflow", "run", "ci.yml"][..],
+        ] {
+            let route = gh_auto_route(&strings(args), &cx(false, false, None), &in_checkout);
+            assert_eq!(asked(&route), ["write", "read"], "{args:?}");
+        }
+    }
+
+    #[test]
+    fn auto_takes_the_repo_from_r_then_gh_repo_then_origin_and_keeps_args() {
+        let args = strings(&["-R", "a/b", "issue", "view", "5"]);
+        let route = gh_auto_route(&args, &cx(false, false, Some("c/d")), &in_checkout);
+        let GhRoute::Token { repo, args: kept, asks } = &route else { panic!("{route:?}") };
+        assert_eq!(repo, "a/b");
+        assert_eq!(kept, &args);
+        assert_eq!(asked(&route), ["read"]);
+        assert!(asks.iter().all(|a| a.repo == "a/b" && a.label.as_deref() == Some("gh")));
+        let route =
+            gh_auto_route(&strings(&["pr", "list"]), &cx(false, false, Some("c/d")), &in_checkout);
+        assert!(matches!(&route, GhRoute::Token { repo, .. } if repo == "c/d"), "{route:?}");
+        let route = gh_auto_route(&strings(&["pr", "list"]), &cx(false, false, None), &in_checkout);
+        assert!(matches!(&route, GhRoute::Token { repo, .. } if repo == "o/r"), "{route:?}");
+    }
+
+    #[test]
+    fn first_token_falls_back_on_policy_only() {
+        let asks = vec![gh_ask("o/r", true), gh_ask("o/r", false)];
+        let mut seen = Vec::new();
+        let got = first_token(&asks, &mut |a| {
+            seen.push(a.permissions["contents"].as_str().unwrap().to_owned());
+            if a.permissions["contents"] == "write" {
+                Err(refused("policy.denied", "no write"))
+            } else {
+                Ok(minted())
+            }
+        });
+        assert_eq!(got.unwrap().token, SECRET);
+        assert_eq!(seen, ["write", "read"]);
+        let mut calls = 0;
+        let err = first_token(&asks, &mut |_| {
+            calls += 1;
+            Err(refused("integration.not_found", "no GitHub connection"))
+        })
+        .unwrap_err();
+        assert_eq!((err.code.as_str(), calls), ("integration.not_found", 1));
+    }
+
+    #[test]
+    fn own_gh_login_is_a_github_com_entry_in_hosts_yml() {
+        assert!(hosts_has_github("github.com:\n    oauth_token: gho_x\n    user: me\n"));
+        assert!(hosts_has_github("ghe.example.com:\n  user: a\ngithub.com:\n  user: b\n"));
+        assert!(!hosts_has_github(""));
+        assert!(!hosts_has_github("ghe.example.com:\n  user: a\n"));
+        assert!(!hosts_has_github("x:\n  github.com: 1\n"));
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path();
+        assert_eq!(gh_hosts_path(None, None, Some(home)), Some(home.join(".config/gh/hosts.yml")));
+        assert_eq!(
+            gh_hosts_path(None, Some(Path::new("/x")), Some(home)),
+            Some(PathBuf::from("/x/gh/hosts.yml"))
+        );
+        assert_eq!(
+            gh_hosts_path(Some(Path::new("/g")), Some(Path::new("/x")), Some(home)),
+            Some(PathBuf::from("/g/hosts.yml"))
+        );
+        assert_eq!(gh_hosts_path(None, None, None), None);
+    }
 }
