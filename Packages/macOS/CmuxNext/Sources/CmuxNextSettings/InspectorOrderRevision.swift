@@ -57,14 +57,19 @@ extension CmuxConfigFile {
         guard current != inspectorOrderPublished,
               managedGuard.managedKeys[path.joined(separator: ".")] == nil else { return source }
         if let current, SettingsSchema.descriptor(for: path)?.accepts(current) != true { return source }
-        if let incoming = stamp(current), let published = stamp(inspectorOrderPublished) {
-            if incoming.time < published.time || (incoming.time == published.time && incoming.writer < published.writer) {
+        if let incoming = InspectorOrderRevision.stamp(current),
+           let published = InspectorOrderRevision.stamp(inspectorOrderPublished) {
+            let isOlder = incoming.time < published.time
+                || (incoming.time == published.time && incoming.writer < published.writer)
+            if isOlder {
                 // A delayed RPC or another pane's stale publish must not replace the
                 // version already held by this actor. Restore the held value instead.
                 try set(inspectorOrderPublished!, at: path)
                 return try self.source()
             }
-            if incoming.time > published.time || incoming.writer > published.writer {
+            let isNewer = incoming.time > published.time
+                || (incoming.time == published.time && incoming.writer > published.writer)
+            if isNewer {
                 // A different pane already published a newer version. Accept it as
                 // the host's source of truth without restamping (which would make
                 // two watchers continually rewrite one another).
