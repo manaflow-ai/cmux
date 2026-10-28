@@ -1,0 +1,152 @@
+{
+  "schema": "nx-transcript-chevron-audit-contract.v1",
+  "repository": "manaflow-ai/cmux",
+  "base_sha": "59d518f10148e40e5e9355d48b5b360dea9961b5",
+  "head_sha": "d63816d5eb3d9ae0e010543bdfd2075c860b00e2",
+  "fixture": {
+    "gallery_id": "agent-pane.transcript-chevron-column",
+    "entry_path": "src/agent-session/acpmux/conversation/ChevronColumn.gallery.tsx",
+    "root_selector": "[data-chevron-column]",
+    "row_selector": "[data-chevron-column] .chevron-column-gallery__row",
+    "row_label_selector": "[data-chevron-column] .chevron-column-gallery__row[data-label]",
+    "chevron_selector": "[data-chevron-column] .cv-tool__chevron",
+    "floating_copy_row_selector": "[data-chevron-column] [data-floating-copy=\"true\"]",
+    "copy_selector": "[data-chevron-column] .acpmux-row__copy",
+    "action_slot_selectors": [
+      ".cv-command__meta",
+      ".cv-tool__meta",
+      ".acpmux-row__copy"
+    ],
+    "covered_rows": [
+      "ToolRun",
+      "ToolGroupRow",
+      "ThoughtRow"
+    ],
+    "out_of_scope_shared_surfaces": [
+      ".cv-received-actions",
+      ".cv-turn-actions"
+    ],
+    "chevron_count": 4
+  },
+  "cases": [
+    {
+      "viewport_width": 760,
+      "row_right": 758,
+      "chevron_right_before_hover": [
+        758,
+        758,
+        758,
+        758
+      ],
+      "chevron_right_after_hover": [
+        758,
+        758,
+        758,
+        758
+      ],
+      "invariant": "all chevron right edges equal row right; hover copy does not move them",
+      "action_rect": {
+        "copy": {
+          "x": 708,
+          "y": 62,
+          "width": 28,
+          "height": 28,
+          "top": 62,
+          "right": 736,
+          "bottom": 90,
+          "left": 708
+        },
+        "chevron": {
+          "x": 744,
+          "y": 66,
+          "width": 14,
+          "height": 14,
+          "top": 66,
+          "right": 758,
+          "bottom": 80,
+          "left": 744
+        }
+      },
+      "baseline_chevron_right": [
+        758,
+        750,
+        758,
+        114.3
+      ]
+    },
+    {
+      "viewport_width": 420,
+      "row_right": 418,
+      "chevron_right_before_hover": [
+        418,
+        418,
+        418,
+        418
+      ],
+      "chevron_right_after_hover": [
+        418,
+        418,
+        418,
+        418
+      ],
+      "invariant": "all chevron right edges equal row right; hover copy does not move them",
+      "action_rect": {
+        "copy": {
+          "x": 368,
+          "y": 62,
+          "width": 28,
+          "height": 28,
+          "top": 62,
+          "right": 396,
+          "bottom": 90,
+          "left": 368
+        },
+        "chevron": {
+          "x": 404,
+          "y": 66,
+          "width": 14,
+          "height": 14,
+          "top": 66,
+          "right": 418,
+          "bottom": 80,
+          "left": 404
+        }
+      },
+      "baseline_chevron_right": [
+        418,
+        410,
+        418,
+        114.3
+      ]
+    }
+  ],
+  "checks": {
+    "browser_test": "CMUX_BROWSER_TESTS=1 bun test test/agent-pane-transcript-chevron-column.test.ts test/agent-pane-tool-group-alignment.test.ts test/agent-pane-step-rows.test.ts",
+    "browser_result": "Exact final d63816d5eb3d9ae0e010543bdfd2075c860b00e2: 6 pass, 0 fail, 24 assertions",
+    "typecheck": "bun run typecheck",
+    "typecheck_result": "pass: Found no type errors in 2893 files",
+    "lint": "bun run lint",
+    "lint_result": "pass",
+    "browser_lane_guard": "bun run check:browser-lanes && bun run check:fixed-waits",
+    "browser_lane_guard_result": "pass",
+    "gallery_build": "bun run gallery:build",
+    "gallery_build_result": "built",
+    "web_lint": "scripts/web-lint.sh --base 59d518f10148e40e5e9355d48b5b360dea9961b5 --head HEAD",
+    "web_lint_result": "Exact final d63816d5eb3d9ae0e010543bdfd2075c860b00e2: pass"
+  },
+  "artifacts": {
+    "before": [
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/before-760.png",
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/before-420.png"
+    ],
+    "after": [
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/chevrons-760.png",
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/chevrons-420.png"
+    ],
+    "rects": [
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/rects-760.json",
+      "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/26646/rects-420.json"
+    ],
+    "note": "After captures and rects are from head d63816d5eb3d9ae0e010543bdfd2075c860b00e2. Before captures use the same fixture against baseline CSS from 59d518f10148e40e5e9355d48b5b360dea9961b5."
+  }
+}
