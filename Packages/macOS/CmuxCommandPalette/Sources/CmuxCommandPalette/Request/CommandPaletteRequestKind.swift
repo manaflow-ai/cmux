@@ -11,6 +11,8 @@ public enum CommandPaletteRequestKind: String, Sendable, CaseIterable {
     case commands
     /// Opens the agent inbox quick view.
     case agentInbox
+    /// Opens find-window, which searches every mirrored tmux pane.
+    case findTmuxWindow
     /// Opens the workspace switcher palette.
     case switcher
     /// Opens the rename-tab prompt.
@@ -34,6 +36,8 @@ public enum CommandPaletteRequestKind: String, Sendable, CaseIterable {
             return "cmux.commandPaletteRequested"
         case .agentInbox:
             return "cmux.agentInboxRequested"
+        case .findTmuxWindow:
+            return "cmux.findTmuxWindowRequested"
         case .switcher:
             return "cmux.commandPaletteSwitcherRequested"
         case .renameTab:
@@ -54,7 +58,7 @@ public enum CommandPaletteRequestKind: String, Sendable, CaseIterable {
     /// change rather than a call-site edit.
     public var marksPending: Bool {
         switch self {
-        case .commands, .agentInbox, .switcher, .renameTab, .renameWorkspace, .editWorkspaceDescription, .rename:
+        case .commands, .agentInbox, .findTmuxWindow, .switcher, .renameTab, .renameWorkspace, .editWorkspaceDescription, .rename:
             return true
         }
     }
