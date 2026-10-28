@@ -80,6 +80,28 @@ test("live child replies stay unsettled and keep the producer revision stable", 
   expect(sessionSummary(resumed, "acme/app").sources.map((source) => source.label)).toContain("acme/app#7");
 });
 
+test("the first nonempty child thought settles reply Sources without rescanning later chunks", () => {
+  const fold = new SubagentFold();
+  feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null }] });
+  feed(fold, say("See https://example.com/guide and acme/app#7"), { subagent: "a" });
+  const live = sessionSummary(fold.views().a!, "acme/app");
+  expect(live.sources).toEqual([]);
+  const think = (text: string) =>
+    feed(fold, { sessionUpdate: "agent_thought_chunk", content: { type: "text", text } }, { subagent: "a" });
+  think("");
+  expect(sessionSummary(fold.views().a!, "acme/app")).toBe(live);
+  think("Checking the next step");
+  const settled = sessionSummary(fold.views().a!, "acme/app");
+  expect(settled.sources.map((source) => source.url)).toEqual([
+    "https://github.com/acme/app/issues/7",
+    "https://example.com/guide",
+  ]);
+  for (let index = 0; index < 50; index++) {
+    think(" more");
+    expect(sessionSummary(fold.views().a!, "acme/app")).toBe(settled);
+  }
+});
+
 test("nested renaming and completion invalidate the parent summary revision", () => {
   const fold = new SubagentFold();
   feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Parent" }] });
