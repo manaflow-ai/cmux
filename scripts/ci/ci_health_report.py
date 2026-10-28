@@ -250,6 +250,10 @@ class JobRow:
     # The repository the head branch lives in ("" when the run does not say): with the branch, it names
     # one pull request's head, so a fork's `main` is never this repository's.
     head_repo: str = ""
+    # The head its pull request has now, from the run's own `pull_requests` link ("" when the run lists none:
+    # a fork's run, a pull_request_target run, a closed pull request). GitHub fills it at read time, so an old
+    # run of a pull request pushed since names the newer head, whatever its branch is called now.
+    pr_head: str = ""
 
 
 def never_got_a_runner(job: Mapping[str, Any]) -> bool:
@@ -260,6 +264,18 @@ def never_got_a_runner(job: Mapping[str, Any]) -> bool:
     `runner_id: null` instead and no start time, so it is not matched here.
     """
     return job.get("runner_id") == 0 and not job.get("runner_name") and not job.get("steps")
+
+
+def pr_head_of(run: Mapping[str, Any], repo: str) -> str:
+    """The current head of the run's pull request into this repository, from `pull_requests`, or ""."""
+    for pull in run.get("pull_requests") or ():
+        base = ((pull.get("base") or {}).get("repo") or {}).get("name") or ""
+        if base and base.lower() != repo.rsplit("/", 1)[-1].lower():
+            continue
+        sha = str(((pull.get("head") or {}).get("sha")) or "")
+        if sha:
+            return sha
+    return ""
 
 
 def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: str) -> list[JobRow]:
@@ -303,6 +319,7 @@ def job_rows(run: Mapping[str, Any], jobs: Iterable[Mapping[str, Any]], repo: st
                 event=str(run.get("event") or ""),
                 fork=fork,
                 head_repo=str(((run.get("head_repository") or {}).get("full_name")) or ""),
+                pr_head=pr_head_of(run, repo),
             )
         )
     return rows
@@ -496,9 +513,17 @@ def superseded(row: JobRow, heads: Mapping[tuple[str, str], str]) -> bool:
     Push and schedule runs are never superseded here: a base branch failing on
     commit after commit is the main-broken signal itself. Neither is a job whose
     head repository is unknown: two such runs on one branch name need not be one
-    pull request, so neither can supersede the other.
+    pull request, so neither can supersede the other. A run whose `pull_requests`
+    link names its pull request's head is judged by that, so a renamed branch
+    cannot hide an old head; the (repository, branch) heads cover the runs with
+    no link (pull_request_target runs, forks).
     """
-    if row.event not in PULL_REQUEST_EVENTS or not row.head_repo:
+    if row.event not in PULL_REQUEST_EVENTS:
+        return False
+    if row.pr_head:
+        # The pull request itself says where its head is now: no branch name involved.
+        return row.pr_head != row.head_sha
+    if not row.head_repo:
         return False
     head = heads.get((row.head_repo.lower(), row.branch))
     return head is not None and head != row.head_sha

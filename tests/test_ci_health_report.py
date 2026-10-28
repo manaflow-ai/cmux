@@ -302,6 +302,28 @@ class WastePatternTests(unittest.TestCase):
         self.assertEqual(report.pull_request_heads(runs), {})
         self.assertEqual(report.repeated_job_failures(rows, runs=runs)[0].heads, 6)
 
+    def test_a_renamed_branch_cannot_hide_a_superseded_head(self):
+        # The pull request's own link names its head now; the old run's branch name no longer matches the
+        # newer run's, so the branch key alone would keep the old failures.
+        base = self.fixture["runs"][2]
+        runs, rows = [], []
+        job = {"name": "lint", "labels": [LINUX], "status": "completed", "conclusion": "failure",
+               "created_at": "2026-09-22T10:00:00Z", "started_at": "2026-09-22T10:00:10Z",
+               "completed_at": "2026-09-22T10:01:00Z"}
+        for n in range(3):
+            link = [{"number": 100 + n, "head": {"sha": f"renamed{n}"}, "base": {"repo": {"name": "cmux"}}}]
+            old = dict(base, id=9000 + n, head_branch=f"old-name-{n}", head_sha=f"before{n}", pull_requests=link,
+                       created_at="2026-09-22T10:00:00Z", conclusion="failure")
+            new = dict(old, id=9100 + n, head_branch=f"new-name-{n}", head_sha=f"renamed{n}",
+                       created_at="2026-09-22T11:00:00Z", conclusion="success")
+            runs += [old, new]
+            rows += report.job_rows(old, [job], REPO) + report.job_rows(new, [dict(job, conclusion="success")], REPO)
+        self.assertEqual(report.repeated_job_failures(rows, runs=runs), [])
+        # A failure at the head its link names still counts.
+        at_head = [r for run in runs if run["id"] >= 9100
+                   for r in report.job_rows(dict(run, conclusion="failure"), [job], REPO)]
+        self.assertEqual(report.repeated_job_failures(at_head, runs=runs)[0].heads, 3)
+
     def test_base_branch_failures_across_commits_still_count(self):
         base = self.fixture["runs"][5]
         runs = [dict(base, id=7000 + n, head_sha=f"main{n}", created_at=f"2026-09-22T1{n}:00:00Z",

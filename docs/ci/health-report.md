@@ -73,7 +73,8 @@ them wait. When p90 climbs while minutes-per-job stay flat, no build regressed
   makes this a main signal rather than one author's problem. One PR failing the
   same job ten times is not here; the same job failing on heads that share
   nothing is. A pull request's failure counts only at its current head (the
-  newest head its pull request runs in the window show): a red at a commit the
+  head the run's own pull request link names, else the newest head that
+  repository and branch's pull request runs in the window show): a red at a commit the
   pull request has since replaced, such as a stale CLA policy guard event, says
   nothing about it.
 - **Workflows ≥90% skipped** (with at least 20 runs in the window). A shim that
