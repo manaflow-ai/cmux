@@ -69,7 +69,9 @@ export function relevantModelSections<T extends Model>(
   const current = currentModel
     ? models.find((model) => model.id === currentModel || (model.offers ?? []).some((offer) => offer.id === currentModel))
     : undefined;
-  const currentFamily = current?.family ? familyKey(current) : undefined;
+  // Reports may omit `family`; use the same data-derived fallback as the grouping pass so the
+  // running family still leads the curated/newest list.
+  const currentFamily = current ? familyKey(current) : undefined;
   const shown = [...chosen].sort((a, b) => {
     const aCurrent = currentFamily !== undefined && familyKey(a) === currentFamily;
     const bCurrent = currentFamily !== undefined && familyKey(b) === currentFamily;

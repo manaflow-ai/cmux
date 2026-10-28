@@ -25,3 +25,15 @@ test("uses an offer's family when the active provider row is grouped", () => {
   ];
   expect(relevantModelSections(models, undefined, "anthropic/claude-sonnet").shown[0]?.id).toBe("claude-sonnet");
 });
+
+test("infers the active family when reports omit family metadata", () => {
+  const models = [
+    { id: "opus-5-5", name: "Opus 5.5" },
+    { id: "sonnet-5-5", name: "Sonnet 5.5" },
+    { id: "opus-4-1", name: "Opus 4.1" },
+  ];
+  expect(relevantModelSections(models, undefined, "sonnet-5-5").shown.map((model) => model.id)).toEqual([
+    "sonnet-5-5",
+    "opus-5-5",
+  ]);
+});
