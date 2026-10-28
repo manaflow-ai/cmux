@@ -45,6 +45,16 @@ import Testing
     }
 
     @Test func aChiefOpenedFromTheListForTheFirstTimeOpensAtItsNewestMessage() async throws {
+        try await open(stepsBeforeFirstPage: false)
+    }
+
+    /// The same steps while the first page is still on its way (the transcript is empty): the
+    /// layout passes they cause must not leave the chat unpinned for the page to land at the top.
+    @Test func stepsBeforeTheFirstPageStillOpenAtTheNewestMessage() async throws {
+        try await open(stepsBeforeFirstPage: true)
+    }
+
+    private func open(stepsBeforeFirstPage early: Bool) async throws {
         _ = NSApplication.shared
         TunableStore.shared.activate(file: nil)
         TunableStore.shared.register(HomeTunables.all)
@@ -76,6 +86,14 @@ import Testing
         await until { source.waiting > 0 }
         #expect(source.waiting == 1, "the first page read waits")
         pass(window, view)
+
+        if early {
+            view.takeKeyboardOnOpen()
+            view.setHeaderPanels([HomeHeaderPanelItem(id: "memory", symbol: "brain", label: "Memory Inspector", isOn: false)])
+            window.setContentSize(NSSize(width: 760, height: 700))
+            await settle()
+            pass(window, view)
+        }
 
         source.release()
         await until { !store.transcript(for: Self.conversation).isEmpty }

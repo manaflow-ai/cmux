@@ -78,16 +78,16 @@ import Testing
 
     /// Opens the chat while its first page read is held, then lets the page in: the view is on
     /// screen first, as a Chief from the list that no other view holds open.
-    /// `whileHeld` runs while the read waits (the owner commits messages then).
+    /// `whileHeld` runs while the read waits (the owner commits messages then, or a layout moves the clip).
     private func openCold(_ store: HomeStore, _ source: GatedHomeSource, in window: NSWindow,
-                          whileHeld: () async -> Void = {}) async throws -> MessagesLabHomeView {
+                          whileHeld: (MessagesLabHomeView) async throws -> Void = { _ in }) async throws -> MessagesLabHomeView {
         source.hold()
         let view = try view(store, in: window)
         for _ in 0..<20_000 where source.waiting == 0 { await Task.yield() }
         #expect(source.waiting == 1, "the first page read waits")
         frame(view)
         #expect(view.controller.demo?.store.state.conversation.messages.isEmpty == true, "installed before its first page")
-        await whileHeld()
+        try await whileHeld(view)
         source.release()
         for _ in 0..<20_000 where store.transcript(for: Self.conversation).isEmpty { await Task.yield() }
         await settle()
@@ -137,12 +137,28 @@ import Testing
         let chief = await mock.chief.id
         let tall = Array(repeating: "a long line of a Chief's answer that wraps in the bubble", count: 40).joined(separator: "\n")
         let window = window()
-        let view = try await openCold(store, source, in: window) {
+        let view = try await openCold(store, source, in: window) { _ in
             for i in 0..<2 { _ = await mock.post(tall, from: chief, in: Self.conversation, key: IdempotencyKey("tall-\(i)")) }
         }
         defer { close(view, store); store.stop(); window.close() }
         #expect(view.projection.shown.count <= HomeDiff.bulk, "a page small enough to arrive as receives")
         try expectAtNewest(view, "cold open of a few tall messages")
+    }
+
+    /// The clip moves while the chat is still empty, not by the person: a layout pass (the column
+    /// settling, the header's panel toggles, the message box taking the keyboard) reports it as a
+    /// scroll. An empty transcript is at its newest message wherever the clip is, so the first page
+    /// still opens at the bottom, not at the top (the rebuild of an unpinned window lands there).
+    @Test func aClipMoveBeforeTheFirstPageStillOpensAtTheNewestMessage() async throws {
+        let (store, source, _) = try await store()
+        let window = window()
+        let view = try await openCold(store, source, in: window) { view in
+            let demo = try #require(view.controller.demo)
+            demo.collection.contentOffset = CGPoint(x: demo.collection.contentOffset.x, y: demo.pinnedOffset - 40)
+            demo.userScrolled()
+        }
+        defer { close(view, store); store.stop(); window.close() }
+        try expectAtNewest(view, "cold open after a clip move while empty")
     }
 
     /// A chat shown before: its kept transcript draws at once and the owner's read lays over it.
