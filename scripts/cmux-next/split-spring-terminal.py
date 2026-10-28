@@ -125,6 +125,10 @@ if "--suite=cef-pin-staging" in sys.argv:
     with open(os.path.join(named.get("--out", "."), "report.json"), "w") as report:
         json.dump({"suite": "cef-pin-staging", "parts": parts, "exit": code}, report)
     sys.exit(code)
+# SCRATCH (measure refs only, never lands): Cmd-N / Cmd-W held, base and head in one step.
+if "--suite=sidebar-burst-ab" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sidebar-burst-ab.py")
+    os.execv(sys.executable, [sys.executable, suite] + sys.argv[1:])
 if "--suite=pane-perf" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pane-perf-terminal.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=pane-perf"])
