@@ -15,6 +15,9 @@ enum LayoutTemplateStrings {
     static func nameTaken(_ name: String) -> String {
         String(format: t("handlers.layoutTemplate.nameTaken", "Another layout template is named “%@”"), name)
     }
+    static var unreadableFile: String {
+        t("handlers.layoutTemplate.unreadableFile", "The layout templates file can’t be read by this version of cmux and couldn’t be set aside, so nothing was saved")
+    }
     static var manageTitle: String { t("handlers.layoutTemplate.manageTitle", "Layout Templates") }
     static var managePlaceholder: String { t("handlers.layoutTemplate.managePlaceholder", "Search layout templates") }
     static var newWorkspace: String { t("handlers.layoutTemplate.newWorkspace", "New Workspace from Template") }

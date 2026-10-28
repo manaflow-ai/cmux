@@ -41,7 +41,8 @@ enum LayoutTemplateHandlers {
             let failure: (any Error)?
             do { try await library.save(name: name, blueprint: blueprint); failure = nil } catch { failure = error }
             return await mainWork.apply(.userBlocking, owner: "saveLayoutTemplate") {
-                failure.map { ActionWorkFailure("save layout template", $0) }
+                failure.map { ($0 as? LayoutTemplateRepository.Failure) == .unreadableFile
+                    ? ActionWorkFailure(LayoutTemplateStrings.unreadableFile) : ActionWorkFailure("save layout template", $0) }
             }
         })
     }
@@ -73,7 +74,11 @@ enum LayoutTemplateHandlers {
 
     /// Why a rename to `name` failed, in words.
     private static func renameRefusal(_ error: any Error, name: String) -> String {
-        (error as? LayoutTemplateRepository.Failure) == .nameTaken ? LayoutTemplateStrings.nameTaken(name) : String(describing: error)
+        switch error as? LayoutTemplateRepository.Failure {
+        case .nameTaken?: LayoutTemplateStrings.nameTaken(name)
+        case .unreadableFile?: LayoutTemplateStrings.unreadableFile
+        default: String(describing: error)
+        }
     }
 
     /// Manage Layout Templates: one row per template; Return builds a workspace from it, the

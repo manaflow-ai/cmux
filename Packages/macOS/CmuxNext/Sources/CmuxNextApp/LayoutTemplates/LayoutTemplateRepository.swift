@@ -6,9 +6,11 @@ import Foundation
 /// every change rewrites it atomically. A nil `fileURL` keeps them in memory only (tests and
 /// processes that are not the app). Names are unique ignoring case: saving an existing name
 /// replaces that template's layout and keeps its id. A file this build cannot read (a newer
-/// build's version or tab kind, or a damaged file) is never written over: the first read moves it
-/// aside whole (`layout-templates.unreadable-<time>-<id>.json`, beside it), so a downgrade keeps
-/// the newer build's templates on disk; if it cannot be moved, every change refuses.
+/// build's version or tab kind, or a damaged file) reads as no templates and is never written
+/// over: it stays where it is until this build's first change, which moves it aside whole
+/// (`layout-templates.unreadable-<time>-<id>.json`, beside it) and starts a new file. So a
+/// downgrade that only looks leaves the newer build's file in place, and one that saves keeps it
+/// beside; if it cannot be moved, the change refuses.
 actor LayoutTemplateRepository {
     /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.layout-templates`): its file reads and writes block a thread of
     /// its own, never a cooperative pool thread (the HomeCache pattern).
@@ -35,8 +37,8 @@ actor LayoutTemplateRepository {
 
     private let fileURL: URL?
     private var templates: [LayoutTemplate]?
-    /// The file did not read and could not be moved aside: writes refuse (``Failure/unreadableFile``).
-    private var keepsUnreadableFile = false
+    /// The file on disk did not read: the next write moves it aside first (``setAside(_:)``).
+    private var unreadableOnDisk = false
 
     init(fileURL: URL?) {
         self.fileURL = fileURL
@@ -85,7 +87,7 @@ actor LayoutTemplateRepository {
     }
 
     /// The file's templates, read once; a missing file reads as none, and so does one this build
-    /// cannot read, after it is moved aside (``setAside(_:)``).
+    /// cannot read (left in place; ``write(_:)`` moves it aside before its first change).
     private func loaded() -> [LayoutTemplate] {
         if let templates { return templates }
         var read: [LayoutTemplate] = []
@@ -98,12 +100,12 @@ actor LayoutTemplateRepository {
                    document.version <= Document.currentVersion {
                     read = document.templates
                 } else {
-                    setAside(fileURL)
+                    unreadableOnDisk = true
                 }
             } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
                 // No templates saved yet.
             } catch {
-                setAside(fileURL)
+                unreadableOnDisk = true
             }
         }
         templates = read
@@ -111,20 +113,26 @@ actor LayoutTemplateRepository {
     }
 
     /// Moves the unreadable file at `fileURL` to a new name beside it (a move never replaces an
-    /// existing file), so the next write starts a new file and the old one stays whole.
-    private func setAside(_ fileURL: URL) {
+    /// existing file), so the write after it starts a new file and the old one stays whole. A file
+    /// already gone has nothing to keep; any other failure refuses the write.
+    private func setAside(_ fileURL: URL) throws {
         let stamp = ISO8601DateFormatter.string(from: Date(), timeZone: .gmt, formatOptions: [.withYear, .withMonth, .withDay, .withTime])
         let aside = fileURL.deletingLastPathComponent().appendingPathComponent(
             "layout-templates.unreadable-\(stamp)-\(UUID().uuidString.prefix(8).lowercased()).json")
         do {
             try FileManager.checked.moveItem(at: fileURL, to: aside)
+        } catch let error as CocoaError where error.code == .fileNoSuchFile {
+            // Gone since the read: nothing to keep.
         } catch {
-            keepsUnreadableFile = true
+            throw Failure.unreadableFile
         }
     }
 
     private func write(_ list: [LayoutTemplate]) throws {
-        if keepsUnreadableFile { throw Failure.unreadableFile }
+        if let fileURL, unreadableOnDisk {
+            try setAside(fileURL)
+            unreadableOnDisk = false
+        }
         if let fileURL {
             let encoder = JSONEncoder()
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]

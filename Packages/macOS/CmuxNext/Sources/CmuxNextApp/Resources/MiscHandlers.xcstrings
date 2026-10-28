@@ -4717,6 +4717,137 @@
         }
       }
     },
+    "handlers.layoutTemplate.unreadableFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع هذا الإصدار من cmux قراءة ملف قوالب التخطيط ولم يتمكن من نقله جانبًا، لذا لم يُحفظ شيء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova verzija cmux-a ne može pročitati datoteku predložaka rasporeda niti je skloniti, pa ništa nije sačuvano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne version af cmux kan ikke læse filen med layoutskabeloner og kunne ikke flytte den til side, så intet blev gemt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese cmux-Version kann die Datei mit den Layoutvorlagen nicht lesen und sie nicht beiseitelegen, daher wurde nichts gespeichert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The layout templates file can’t be read by this version of cmux and couldn’t be set aside, so nothing was saved"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versión de cmux no puede leer el archivo de plantillas de diseño ni apartarlo, así que no se guardó nada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette version de cmux ne peut pas lire le fichier des modèles de disposition ni le mettre de côté, donc rien n’a été enregistré"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa versione di cmux non può leggere il file dei modelli di layout né metterlo da parte, quindi non è stato salvato nulla"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このバージョンの cmux ではレイアウトテンプレートのファイルを読み込めず、退避もできなかったため、何も保存されませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំណែ cmux នេះមិនអាចអានឯកសារគំរូប្លង់ ហើយមិនអាចដាក់វាមួយឡែកបានទេ ដូច្នេះគ្មានអ្វីត្រូវបានរក្សាទុកទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 버전의 cmux는 레이아웃 템플릿 파일을 읽을 수 없고 따로 옮겨 둘 수도 없어 아무것도 저장하지 않았습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne versjonen av cmux kan ikke lese filen med layoutmaler og kunne ikke flytte den til side, så ingenting ble lagret"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta wersja cmux nie może odczytać pliku szablonów układu ani go odłożyć, więc nic nie zapisano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta versão do cmux não consegue ler o arquivo de modelos de layout nem colocá-lo de lado, então nada foi salvo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта версия cmux не может прочитать файл шаблонов раскладки и не смогла отложить его, поэтому ничего не сохранено"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux เวอร์ชันนี้อ่านไฟล์เทมเพลตเลย์เอาต์ไม่ได้และย้ายไปเก็บไว้ไม่ได้ จึงไม่ได้บันทึกอะไร"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux’un bu sürümü düzen şablonları dosyasını okuyamıyor ve kenara taşıyamadı, bu yüzden hiçbir şey kaydedilmedi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця версія cmux не може прочитати файл шаблонів розкладки й не змогла відкласти його, тому нічого не збережено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phiên bản cmux này không đọc được tệp mẫu bố cục và không thể để riêng tệp đó, nên chưa lưu gì"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 无法读取布局模板文件，也无法将其移到一旁，因此未保存任何内容"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此版本的 cmux 無法讀取版面配置範本檔案，也無法將其移到一旁，因此未儲存任何內容"
+          }
+        }
+      }
+    },
     "handlers.misc.agentBrowserProfile.name": {
       "extractionState": "manual",
       "localizations": {

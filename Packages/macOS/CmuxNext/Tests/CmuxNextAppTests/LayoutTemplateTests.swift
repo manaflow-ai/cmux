@@ -131,6 +131,7 @@ struct LayoutTemplateTests {
 
         let repository = LayoutTemplateRepository(fileURL: file)
         #expect(await repository.all().isEmpty, "an unreadable file shows as no templates")
+        #expect(try Data(contentsOf: file) == newer, "a read alone leaves the newer build's file where it is")
         _ = try await repository.put(name: "Solo", blueprint: Self.blueprint)
 
         let aside = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
@@ -139,6 +140,27 @@ struct LayoutTemplateTests {
         #expect(try aside.first.map { try Data(contentsOf: $0) } == newer, "moved aside byte for byte")
         let relaunched = LayoutTemplateRepository(fileURL: file)
         #expect(await relaunched.all().map(\.name) == ["Solo"])
+    }
+
+    /// A file of a newer version that this build could decode is kept too: its next save would drop what
+    /// the newer build added.
+    @Test func aTemplatesFileOfANewerVersionIsMovedAsideOnTheFirstChange() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("cn-layouts-\(UUID().uuidString.prefix(8))")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("layout-templates.json")
+        let older = LayoutTemplateRepository(fileURL: file)
+        _ = try await older.put(name: "Two up", blueprint: Self.blueprint)
+        let current = try Data(contentsOf: file)
+        let newer = try #require(String(data: current, encoding: .utf8)?.replacingOccurrences(of: "\"version\" : 1", with: "\"version\" : 2"))
+        #expect(newer.contains("\"version\" : 2"), "the fixture bumps the version")
+        try Data(newer.utf8).write(to: file)
+
+        let repository = LayoutTemplateRepository(fileURL: file)
+        #expect(await repository.all().isEmpty, "a newer version shows as no templates")
+        _ = try await repository.put(name: "Solo", blueprint: Self.blueprint)
+        let aside = try FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)
+            .filter { $0.lastPathComponent != file.lastPathComponent }
+        #expect(try aside.map { try Data(contentsOf: $0) } == [Data(newer.utf8)])
     }
 
     /// Manage Layout Templates lists one row per template (Return builds a workspace from it,
