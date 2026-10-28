@@ -56,6 +56,28 @@ class DerivationTest(unittest.TestCase):
                   "}\n")
         self.assertEqual(display_suites.suites_in(source), {"Animated"})
 
+    def test_a_trait_split_across_lines_counts(self):
+        source = ("@MainActor\n@Suite(\n    .serialized,\n    .enabled(\n        if: !NSScreen.screens.isEmpty,\n"
+                  '        "the drag tests need a display"\n    )\n)\nstruct SplitSuite {}\n'
+                  "struct SplitTest {\n"
+                  "    @Test(\n        .enabled(\n"
+                  '            "needs an awake display and animations on, "\n'
+                  '            + "or every insert snaps anyway"\n'
+                  "        ) { await Self.animatesHere() }\n    )\n"
+                  "    func insert() async {}\n"
+                  "    class func helper() {}\n"
+                  "}\n")
+        self.assertEqual(display_suites.suites_in(source), {"SplitSuite", "SplitTest"})
+
+    def test_braces_and_words_in_strings_and_comments_count_for_nothing(self):
+        source = ("struct Outer {\n"
+                  '    let art = """\n    } struct Fake { .enabled(if: x, "needs a display")\n    """\n'
+                  "    /* } nested /* { */ .disabled(\"no screen\") */\n"
+                  '    @Test(.enabled(if: hasScreen, "needs a display")) func a() {}\n'
+                  "}\n"
+                  "struct After {\n    @Test func b() {}\n}\n")
+        self.assertEqual(display_suites.suites_in(source), {"Outer"})
+
     def test_other_skips_and_comments_are_no_display(self):
         source = ('@Suite(.enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))\n'
                   "struct Daemon {\n"

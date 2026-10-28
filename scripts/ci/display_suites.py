@@ -27,70 +27,98 @@ HEADER = ("# The suites that need a display (PACKAGE TARGET.SUITE): cmux-ci send
 # A skip comment that asks for a display: the words the suites' traits use.
 DISPLAY = re.compile(r"\b(?:display|screen|GUI)\b", re.I)
 TRAIT = re.compile(r"\.(?:enabled|disabled)\(")
-DECL = re.compile(r"\b(?:struct|class|enum|actor|extension)\s+([A-Za-z_][A-Za-z0-9_]*)")
-STRING = re.compile(r'"(?:[^"\\]|\\.)*"')
+# A type declaration; `class func` / `class var` (a class member) is no type.
+DECL = re.compile(r"\b(?:struct|class|enum|actor|extension)\s+(?!(?:func|var|let|subscript|init)\b)([A-Za-z_][A-Za-z0-9_]*)")
+SUITE_ATTRIBUTE = re.compile(r"@Suite\s*\(")
 
 
-def _strip_comment(line: str) -> str:
-    """The line without a trailing // comment (outside a string literal)."""
-    out, quoted, i = [], False, 0
-    while i < len(line):
-        ch = line[i]
-        if ch == "\\" and quoted:
-            out.append(line[i:i + 2])
-            i += 2
-            continue
-        if ch == '"':
-            quoted = not quoted
-        elif not quoted and line.startswith("//", i):
-            break
-        out.append(ch)
-        i += 1
-    return "".join(out)
+def lex(source: str) -> tuple[str, list[tuple[int, int, str]]]:
+    """source with every comment and string literal blanked (same length, newlines kept), and the literals as
+    (start, end, text). Knows // and nested /* */ comments, "...", multi-line \"\"\"...\"\"\" and #"..."# raw strings;
+    an interpolation's code stays inside its literal, which is enough to find traits and braces."""
+    out, literals, i, n = list(source), [], 0, len(source)
+
+    def blank(a: int, b: int) -> None:
+        for k in range(a, b):
+            if out[k] != "\n":
+                out[k] = " "
+
+    while i < n:
+        if source.startswith("//", i):
+            j = source.find("\n", i)
+            j = n if j < 0 else j
+            blank(i, j)
+            i = j
+        elif source.startswith("/*", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                if source.startswith("/*", j):
+                    depth, j = depth + 1, j + 2
+                elif source.startswith("*/", j):
+                    depth, j = depth - 1, j + 2
+                else:
+                    j += 1
+            blank(i, j)
+            i = j
+        elif source[i] == '"' or (source[i] == "#" and re.match(r'#+"', source[i:])):
+            hashes = len(source[i:]) - len(source[i:].lstrip("#"))
+            start = i + hashes
+            multi = source.startswith('"""', start)
+            quote = '"""' if multi else '"'
+            close = quote + "#" * hashes
+            j = start + len(quote)
+            while j < n:
+                if source.startswith(close, j):
+                    break
+                if source[j] == "\\" and not hashes:
+                    j += 2
+                    continue
+                if source[j] == "\n" and not multi:
+                    break
+                j += 1
+            j = min(n, j + len(close))
+            literals.append((i, j, source[start + len(quote):max(start + len(quote), j - len(close))]))
+            blank(i, j)
+            i = j
+        else:
+            i += 1
+    return "".join(out), literals
 
 
-def _trait_texts(text: str) -> list[str]:
-    """The string literals inside each `.enabled(` / `.disabled(` call of one line."""
-    texts = []
-    for match in TRAIT.finditer(text):
-        depth, end = 1, match.end()
-        while end < len(text) and depth:
-            depth += {"(": 1, ")": -1}.get(text[end], 0)
-            end += 1
-        texts.extend(STRING.findall(text[match.end():end]))
-    return texts
+def _close(code: str, at: int, open_ch: str = "(", close_ch: str = ")") -> int:
+    """The index after the bracket that closes the one opened just before at (len(code) when unclosed)."""
+    depth, j = 1, at
+    while j < len(code) and depth:
+        depth += {open_ch: 1, close_ch: -1}.get(code[j], 0)
+        j += 1
+    return j
 
 
 def suites_in(source: str) -> set[str]:
     """The type names in one Swift file whose own trait, or a trait of a test inside them, asks for a display.
-    A trait on a `@Suite` line belongs to the declaration that follows; any other (a `@Test` line's) to the
-    innermost type around it."""
+    A trait inside a `@Suite(...)` attribute belongs to the declaration after it; any other (a `@Test(...)`'s,
+    however many lines it spans) to the innermost type whose body holds it."""
+    code, literals = lex(source)
+    bodies: list[tuple[int, int, str]] = []
+    for decl in DECL.finditer(code):
+        brace = code.find("{", decl.end())
+        if brace >= 0:
+            bodies.append((brace, _close(code, brace + 1, "{", "}"), decl.group(1)))
+    suites = [(m.end(), _close(code, m.end())) for m in SUITE_ATTRIBUTE.finditer(code)]
     found: set[str] = set()
-    stack: list[tuple[str, int]] = []
-    depth, pending, suite_trait = 0, None, False
-    for raw in source.splitlines():
-        line = _strip_comment(raw)
-        bare = STRING.sub('""', line)
-        needs = any(DISPLAY.search(text) for text in _trait_texts(line))
-        if needs and bare.lstrip().startswith("@") and "@Suite" in bare:
-            suite_trait = True
-        elif needs and stack:
-            found.add(stack[-1][0])
-        if decl := DECL.search(bare):
-            pending = decl.group(1)
-            if suite_trait:
-                found.add(pending)
-                suite_trait = False
-        for ch in bare:
-            if ch == "{":
-                depth += 1
-                if pending:
-                    stack.append((pending, depth))
-                    pending = None
-            elif ch == "}":
-                if stack and stack[-1][1] == depth:
-                    stack.pop()
-                depth -= 1
+    for trait in TRAIT.finditer(code):
+        end = _close(code, trait.end())
+        if not any(a >= trait.end() and b <= end and DISPLAY.search(text) for a, b, text in literals):
+            continue
+        attribute = next(((a, b) for a, b in suites if a <= trait.start() < b), None)
+        if attribute:
+            after = DECL.search(code, attribute[1])
+            if after:
+                found.add(after.group(1))
+            continue
+        around = [body for body in bodies if body[0] < trait.start() < body[1]]
+        if around:
+            found.add(max(around, key=lambda body: body[0])[2])
     return found
 
 
