@@ -118,7 +118,7 @@ export type QuickFamilies = {
   /// The chat's harness: its tab opens first, and only it shows Effort and Account.
   current?: string;
   onPick(model: QuickModel): void;
-  /// Add harness…, the last row of More models.
+  /// Add harness…, the last item in the harness strip.
   onAddHarness?(): void;
   onLaunch?(id: string): void;
   onFork?(id: string): void;
@@ -659,13 +659,7 @@ export function QuickModelMenu({
                   </MenuRadioItem>
                 ))}
               </MenuRadioGroup>
-              {families.onAddHarness && <MenuSeparator />}
             </>
-          )}
-          {families.onAddHarness && (
-            <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
-              <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
-            </MenuItem>
           )}
         </Submenu>
       )}
@@ -782,6 +776,23 @@ export function QuickModelMenu({
                   <span className="acpmux-quick-harness-name">{family.name}</span>
                 </button>
               ))}
+              {families.onAddHarness && (
+                <button
+                  type="button"
+                  className="acpmux-quick-rail-tab acpmux-quick-rail-add"
+                  aria-label={t("modelPicker.addHarness")}
+                  title={t("modelPicker.addHarness")}
+                  onClick={() => {
+                    onOpenChange(false);
+                    families.onAddHarness?.();
+                  }}
+                >
+                  <span aria-hidden="true" className="acpmux-quick-rail-add-icon">
+                    +
+                  </span>
+                  <span className="sr-only">{t("modelPicker.addHarness")}</span>
+                </button>
+              )}
             </fieldset>
             <div
               className="acpmux-quick-body"

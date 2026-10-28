@@ -345,6 +345,17 @@
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
+.acpmux-quick-rail-add { justify-content: center; color: var(--agent-muted); }
+.acpmux-quick-rail-add-icon {
+  display: grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 14px;
+}
 .acpmux-quick-placement-top .acpmux-quick-layout { flex-direction: column; }
 .acpmux-quick-placement-top .acpmux-quick-rail {
   flex: none;

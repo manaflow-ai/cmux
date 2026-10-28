@@ -468,20 +468,19 @@ test("the current machine profile keeps its compact model list without a rail", 
   expect(modelNames(menu()!)).toContain("Machine model");
 });
 
-test("More models is a submenu: the harness's other models, then Add harness…", async () => {
+test("Add harness… is the last item in the harness strip, outside More models", async () => {
   const { added } = await mount({ routes: [] });
   await open();
   const top = modelNames(menu()!);
   const more = await openSub("More models");
   const rows = itemsOf(more);
-  expect(rows.at(-1)).toBe("Add harness…");
-  expect(rows.length).toBeGreaterThan(1);
+  expect(rows).not.toContain("Add harness…");
+  expect(rows.length).toBeGreaterThan(0);
   // Only models the top list does not already show.
-  expect(rows.slice(0, -1).some((row) => top.includes(row ?? ""))).toBe(false);
+  expect(rows.some((row) => top.includes(row ?? ""))).toBe(false);
   expect(doc().querySelector(".acpmux-mp")).toBeNull();
-  const add = [...more.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-    (item) => item.textContent?.trim() === "Add harness…",
-  )!;
+  const add = menu()!.querySelector<HTMLButtonElement>(".acpmux-quick-rail-add")!;
+  expect(add.getAttribute("aria-label")).toBe("Add harness…");
   await act(async () => add.click());
   await settle();
   expect(added).toEqual(["add"]);
