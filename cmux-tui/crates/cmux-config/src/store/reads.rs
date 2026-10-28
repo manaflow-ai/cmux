@@ -30,6 +30,10 @@ pub struct Snapshot {
 
 impl Snapshot {
     /// `{revision, schema_hash, effective, file, managed, policy, diagnostics, domains}`.
+    /// A secret policy value appears as `"<set>"`, as it does in the
+    /// cold-start cache: `crate::managed::SECRET_POLICY_KEYS` never leaves
+    /// the owner, and this reply goes to every client that may read the
+    /// settings. A caller inside the owner reads the value from `policy`.
     pub fn to_json(&self) -> Value {
         json!({
             "revision": self.revision,
@@ -37,7 +41,7 @@ impl Snapshot {
             "effective": self.effective,
             "file": self.file,
             "managed": managed_json(&self.managed),
-            "policy": self.policy.to_json(false),
+            "policy": self.policy.to_json(true),
             "diagnostics": self.diagnostics,
             "domains": serde_json::to_value(&self.domains).unwrap_or(Value::Null),
         })
