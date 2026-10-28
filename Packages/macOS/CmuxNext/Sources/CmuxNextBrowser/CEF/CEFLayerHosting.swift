@@ -22,7 +22,8 @@ import AppKit
 /// ``CEFResizeSyncDeadline``: the `browserResize.syncDeadline` tunable capped at
 /// half the shortest frame of all displays. During the window's live resize
 /// every page over the view, hosted or not, gets `browserResize.liveResizeDeadline`
-/// under the same cap. A change (a tunable edit, a display added or changed)
+/// under the same cap, and a person's drag of the view's pane with `browserResize.dragResize` at `resizeSync`
+/// gives it `browserResize.dragResizeDeadline` (``paneResizeDrag(active:)``). A change (a tunable edit, a display added or changed)
 /// reaches the fork at the next show or display change, only when the deadline
 /// changed, and counts as applied only when the fork took it.
 ///
@@ -92,12 +93,15 @@ final class CEFLayerHosting {
     private let makePage: (CGRect) -> CEFHostedPageView
     private let resizeDeadlineMs: () -> Int32
     private let liveResizeDeadlineMs: () -> Int32
+    private let dragResizeDeadlineMs: () -> Int32
     private let refreshIntervals: () -> [Double]
     /// The resize deadline the fork has for this page window: 0, the fork's default, until
     /// ``syncDeadline()`` gives another.
     private var appliedDeadlineMs: Int32 = 0
     /// The window is in a live resize (``windowLiveResize(active:)``).
     private var inLiveResize = false
+    /// A person drags the view's pane in resize sync (``paneResizeDrag(active:)``).
+    private(set) var inPaneDrag = false
 
     /// Runs a block later on the main actor.
     typealias Scheduler = (_ block: @escaping @MainActor @Sendable () -> Void) -> Void
@@ -114,10 +118,12 @@ final class CEFLayerHosting {
          makePage: @escaping (CGRect) -> CEFHostedPageView = { CEFHostedPageView(frame: $0) },
          resizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.syncDeadline.value * 1_000).rounded()) },
          liveResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.liveResizeDeadline.value * 1_000).rounded()) },
+         dragResizeDeadlineMs: @escaping () -> Int32 = { Int32((BrowserResizeTunables.dragResizeDeadline.value * 1_000).rounded()) },
          refreshIntervals: @escaping () -> [Double] = { NSScreen.screens.map(\.minimumRefreshInterval) }) {
         self.isEnabled = isEnabled
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
+        self.dragResizeDeadlineMs = dragResizeDeadlineMs
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
@@ -203,6 +209,19 @@ final class CEFLayerHosting {
         syncDeadline()
     }
 
+    /// A person's divider or edge drag of the view's pane began (`true`) or its release landed (`false`), with
+    /// `browserResize.dragResize` at `resizeSync` (`CEFTabContentView.paneResizeGestureDidChange`). Every frame of the
+    /// drag and of its release's spring resizes the page window, so for that time every page over the view, hosted or
+    /// not, waits up to `dragResizeDeadlineMs` (capped at half the shortest display frame, ``CEFResizeSyncDeadline``,
+    /// so the app's frame still commits by its display link's target time) for its frame at the pane's new size, and
+    /// shows it in the same frame as its pane. After it a hosted page goes back to its pane deadline and a page
+    /// window to none. Below fork API 27 nothing reaches the fork: the page lays out live.
+    func paneResizeDrag(active: Bool) {
+        guard active != inPaneDrag else { return }
+        inPaneDrag = active
+        syncDeadline()
+    }
+
     /// The fork's tracker read the host view (`-cmuxClipPath`): it is attached
     /// to the page window now, so a refused request may succeed.
     func trackerDidRead() { // perf-hot: 1us cef-geometry (each tracker read)
@@ -258,11 +277,14 @@ final class CEFLayerHosting {
 
     /// Gives the fork this page window's resize deadline when it changed
     /// (``CEFResizeSyncDeadline``): during the window's live resize every page's,
-    /// else a hosted page's pane deadline, else 0 (a page in its own window never
-    /// holds the commit outside a live resize).
+    /// else during a resize-sync pane drag every page's, else a hosted page's pane
+    /// deadline, else 0 (a page in its own window never holds the commit outside
+    /// a live resize or a drag).
     private func syncDeadline() {
         guard let browser, let setResizeSync = fork?.setResizeSync else { return }
-        let tunable = inLiveResize ? liveResizeDeadlineMs() : (page != nil ? resizeDeadlineMs() : 0)
+        let tunable = inLiveResize ? liveResizeDeadlineMs()
+            : inPaneDrag ? dragResizeDeadlineMs()
+            : (page != nil ? resizeDeadlineMs() : 0)
         let deadline = CEFResizeSyncDeadline(tunableMilliseconds: tunable, refreshIntervals: refreshIntervals()).milliseconds
         guard deadline != appliedDeadlineMs else { return }
         // Recorded only when the fork took it, so a refused value is tried again at the next sync.
