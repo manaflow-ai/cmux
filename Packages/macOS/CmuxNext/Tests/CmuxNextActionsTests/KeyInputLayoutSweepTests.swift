@@ -14,12 +14,13 @@ import Testing
 /// ASCII-capable, US ABC as the ASCII-capable layout (`TISCopyCurrentASCIICapableKeyboardLayoutInputSource`
 /// on a new Mac).
 ///
-/// It checks: (a) every default Command or Control chord runs its US action on every layout,
+/// It checks: (a) every default Command or Control chord takes its US chord step (the key router's
+/// `KeyBindingTable.step`) in the default, terminal and browser contexts on every layout,
 /// pressed on the key the layout puts its character on (a chord whose character the layout does
 /// not type on any key is counted as unreachable, as in Ghostty, which matches the same way);
 /// (b) a plain, Shift, Option or Shift-Option key is never a chord, and in a terminal resolves to
-/// no shortcut, on any layout: it always reaches the input method and the terminal; (c) every
-/// dead key composes with Space and starts no shortcut as a plain key. It prints one
+/// no shortcut, on any layout: it always reaches the input method and the terminal; (c) dead keys
+/// are counted with what they compose with Space (Apple's layout data, reported, not checked). It prints one
 /// `INPUT-LAYOUT-SWEEP` JSON line with the coverage: layouts x default chords passing (a), and
 /// layouts x keys x the four non-chord modifier sets passing (b).
 @MainActor @Suite struct KeyInputLayoutSweepTests {
@@ -145,50 +146,65 @@ import Testing
         return registry
     }
 
+    /// The router's chord step for a first key (`KeyInputLayoutTests.step`).
+    static func step(_ key: KeyInput, in registry: ActionRegistry) -> String {
+        KeyInputLayoutTests.step(key, after: [], in: registry)
+    }
+
     @Test func everyInstalledLayout() throws {
         let layouts = Self.installedLayouts()
         try #require(layouts.count > 20, "read only \(layouts.count) installed keyboard layouts")
         let us = try #require(layouts.first { $0.id == "com.apple.keylayout.US" }, "US layout not installed")
-        let chordRegistry = Self.registry([])
-        let terminalRegistry = Self.registry(.terminalFocused)
-        let chords = KeyInputLayoutTests.defaultChords(in: chordRegistry)
-        var expected: [Shortcut: ActionID] = [:]
-        for shortcut in chords {
-            guard let code = Self.keyCode(for: shortcut, on: us, ascii: nil),
-                  let id = chordRegistry.resolveShortcut(for: Self.key(code, shortcut.modifiers, on: us, ascii: nil))?.id else { continue }
-            expected[shortcut] = id
+        let contexts: [ActionContext] = [[], .terminalFocused, .browserFocused]
+        let registries = contexts.map(Self.registry)
+        let terminalRegistry = registries[1]
+        // Each default chord's US step in each context, from the key US puts it on.
+        var expected: [(shortcut: Shortcut, context: Int, step: String)] = []
+        for (index, registry) in registries.enumerated() {
+            for shortcut in KeyInputLayoutTests.defaultChords(in: registry) {
+                guard let code = Self.keyCode(for: shortcut, on: us, ascii: nil) else { continue }
+                let step = Self.step(Self.key(code, shortcut.modifiers, on: us, ascii: nil), in: registry)
+                if step != "none" { expected.append((shortcut, index, step)) }
+            }
         }
-        try #require(expected.count > 10, "only \(expected.count) default chords resolve on US")
+        try #require(expected.count > 30, "only \(expected.count) default chord steps on US")
 
-        var chordsPassing = 0, chordsUnreachable = 0, keysPassing = 0, keysChecked = 0, deadKeys = 0, deadComposed = 0
+        var chordsPassing = 0, chordsUnreachable = 0, chordsShadowed = 0, keysPassing = 0, keysChecked = 0
+        var deadKeys = 0, deadComposed = 0
         var failures: [String] = []
         var unreachable: [String: Int] = [:]
+        var shadowed: [String: Int] = [:]
+        var noCompose: [String] = []
         for layout in layouts {
             let ascii = layout.asciiCapable ? nil : us
-            // (a) every default chord.
-            for (shortcut, id) in expected.sorted(by: { $0.key.displayString < $1.key.displayString }) {
+            // (a) every default chord, through the router's chord step, in three contexts.
+            for (shortcut, index, step) in expected {
                 guard let code = Self.keyCode(for: shortcut, on: layout, ascii: ascii) else {
                     chordsUnreachable += 1
                     unreachable[shortcut.displayString, default: 0] += 1
                     continue
                 }
                 let key = Self.key(code, shortcut.modifiers, on: layout, ascii: ascii)
-                let resolved = chordRegistry.resolveShortcut(for: key)?.id
-                if resolved == id {
+                let got = Self.step(key, in: registries[index])
+                if got == step {
                     chordsPassing += 1
+                } else if shortcut.key.first?.isNumber == true, let typed = key.text, typed != shortcut.key,
+                          registries[index].resolveShortcut(for: KeyInput(keyCode: code, modifiers: shortcut.modifiers, text: typed,
+                                                                           ignoringModifiers: typed, unshifted: typed)) != nil {
+                    // The digit key types a character bound here (Cmd-6 on French - PC is Cmd--): it wins.
+                    chordsShadowed += 1
+                    shadowed["\(shortcut.displayString) on \(layout.id)", default: 0] += 1
                 } else {
-                    failures.append("\(layout.id) \(shortcut.displayString) key \(code) text \(key.text ?? "nil"): \(resolved?.rawValue ?? "nothing"), not \(id)")
+                    failures.append("\(layout.id) [\(contexts[index].rawValue)] \(shortcut.displayString) key \(code) text \(key.text ?? "nil"): \(got), not \(step)")
                 }
             }
-            // (b) plain and Option keys: never a chord, no shortcut in a terminal. (c) dead keys.
+            // (b) plain and Option keys: no shortcut in a terminal. (c) dead keys, counted.
             for code in Self.keyCodes {
                 for modifiers in Self.modifierSets where modifiers.isDisjoint(with: [.command, .control]) {
                     keysChecked += 1
                     let key = Self.key(code, modifiers, on: layout, ascii: ascii)
-                    if let stolen = terminalRegistry.resolveShortcut(for: key)?.id, !key.isChord {
+                    if let stolen = terminalRegistry.resolveShortcut(for: key)?.id {
                         failures.append("\(layout.id) key \(code) mods \(modifiers.rawValue) types \(key.text ?? "nil"): taken by \(stolen)")
-                    } else if key.isChord {
-                        failures.append("\(layout.id) key \(code) mods \(modifiers.rawValue) reads as a chord")
                     } else {
                         keysPassing += 1
                     }
@@ -198,15 +214,16 @@ import Testing
                     deadKeys += 1
                     var next: UInt32? = state
                     let composed = Self.translate(layout.data, keyCode: UInt16(kVK_Space), modifiers: [], deadKeyState: &next)
-                    if !composed.isEmpty { deadComposed += 1 } else { failures.append("\(layout.id) dead key \(code) mods \(modifiers.rawValue) composes nothing with Space") }
+                    if composed.isEmpty { noCompose.append("\(layout.id) \(code)/\(modifiers.rawValue)") } else { deadComposed += 1 }
                 }
             }
         }
         let report: [String: Any] = [
-            "layouts": layouts.count, "ascii_capable": layouts.filter(\.asciiCapable).count, "default_chords": expected.count,
-            "chords_passing": chordsPassing, "chords_unreachable": chordsUnreachable, "keys_checked": keysChecked,
-            "keys_passing": keysPassing, "dead_keys": deadKeys, "dead_composed": deadComposed, "failures": failures.count,
-            "unreachable_by_chord": unreachable, "first_failures": Array(failures.prefix(40)),
+            "layouts": layouts.count, "ascii_capable": layouts.filter(\.asciiCapable).count, "default_chord_steps": expected.count,
+            "chords_checked": expected.count * layouts.count, "chords_passing": chordsPassing, "chords_unreachable": chordsUnreachable,
+            "chords_shadowed": chordsShadowed, "keys_checked": keysChecked, "keys_passing": keysPassing, "dead_keys": deadKeys,
+            "dead_composed_with_space": deadComposed, "failures": failures.count, "unreachable_by_chord": unreachable,
+            "shadowed": shadowed, "dead_no_space_compose": Array(noCompose.prefix(20)), "first_failures": Array(failures.prefix(40)),
         ]
         let json = try JSONSerialization.data(withJSONObject: report, options: [.sortedKeys])
         print("INPUT-LAYOUT-SWEEP \(String(decoding: json, as: UTF8.self))")

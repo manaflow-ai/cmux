@@ -138,7 +138,18 @@ import Testing
     /// com.apple.keylayout.DVORAK-QWERTYCMD: Dvorak typing, QWERTY with Command (the layout's purpose).
     nonisolated static let dvorakQwertyCommand = Layout(name: "Dvorak - QWERTY Command", keys: letters(dvorakLetters), command: pairs(usRows))
 
-    nonisolated static let layouts: [Layout] = [us, russian, greek, hebrew, german, french, dvorak, dvorakQwertyCommand]
+    /// com.apple.keylayout.French-PC (AZERTY, PC): the 6 key types `-` (Ctrl-- is Go Back, not tab 6).
+    nonisolated static let frenchPC: Layout = {
+        var keys = french.keys
+        keys[22] = Layout.Pair(base: "-", shifted: "6")
+        keys[27] = Layout.Pair(base: ")", shifted: "°")
+        keys[24] = Layout.Pair(base: "=", shifted: "+")
+        keys[44] = Layout.Pair(base: "!", shifted: "§")
+        keys[28] = Layout.Pair(base: "_", shifted: "8")
+        return Layout(name: "French - PC", keys: keys, command: [:])
+    }()
+
+    nonisolated static let layouts: [Layout] = [us, russian, greek, hebrew, german, french, frenchPC, dvorak, dvorakQwertyCommand]
 
     // MARK: Building keys
 
@@ -172,6 +183,15 @@ import Testing
         if let code = candidates.first(where: { layout.keys[$0]?.base == character }) { return code }
         guard !layout.asciiCapable else { return nil }
         return candidates.first { !layout.typesASCII($0) && us.keys[$0]?.base == character }
+    }
+
+    /// A digit chord whose digit-row key types another character that is itself bound here
+    /// (Cmd-6 on French - PC, whose 6 key types -, where Cmd-- zooms out): the typed character
+    /// wins, as in every Mac app, so the digit is shadowed on that layout. Counted, not checked.
+    static func isShadowedDigit(_ shortcut: Shortcut, code: UInt16, on layout: Layout, in registry: ActionRegistry) -> Bool {
+        guard shortcut.key.first?.isNumber == true, let typed = layout.keys[code]?.base, typed != shortcut.key else { return false }
+        return registry.resolveShortcut(for: KeyInput(keyCode: code, modifiers: shortcut.modifiers, text: typed, ignoringModifiers: typed,
+                                                      unshifted: typed)) != nil
     }
 
     static func registry(_ context: ActionContext = []) -> ActionRegistry {
@@ -208,7 +228,8 @@ import Testing
                   let usKey = Self.key(usCode, shortcut.modifiers, on: Self.us),
                   let expected = registry.resolveShortcut(for: usKey)?.id,
                   let code = Self.keyCode(for: shortcut, on: layout),
-                  let key = Self.key(code, shortcut.modifiers, on: layout) else { continue }
+                  let key = Self.key(code, shortcut.modifiers, on: layout),
+                  !Self.isShadowedDigit(shortcut, code: code, on: layout, in: registry) else { continue }
             checked += 1
             let resolved = registry.resolveShortcut(for: key)?.id
             if resolved != expected {
@@ -243,7 +264,8 @@ import Testing
         var wrong: [String] = []
         for shortcut in Self.defaultChords(in: registry) {
             guard let usCode = Self.keyCode(for: shortcut, on: Self.us), let usKey = Self.key(usCode, shortcut.modifiers, on: Self.us),
-                  let code = Self.keyCode(for: shortcut, on: layout), let key = Self.key(code, shortcut.modifiers, on: layout) else { continue }
+                  let code = Self.keyCode(for: shortcut, on: layout), let key = Self.key(code, shortcut.modifiers, on: layout),
+                  !Self.isShadowedDigit(shortcut, code: code, on: layout, in: registry) else { continue }
             checked += 1
             let expected = Self.step(usKey, after: [], in: registry), got = Self.step(key, after: [], in: registry)
             if got != expected { wrong.append("\(shortcut.displayString) (key \(code)): \(got), not \(expected)") }
@@ -319,10 +341,36 @@ import Testing
         #expect(readings.first == Shortcut("и", modifiers: [.control]))
     }
 
-    /// AZERTY Cmd-&: the digit row is physical first ("digit_1"), the typed & after it.
-    @Test func digitRowIsPhysicalFirst() throws {
+    /// AZERTY Cmd-&: the typed & first (Ghostty's unicode trigger), then the digit row's 1
+    /// (`digit_1`): & has no binding, so Cmd-& is Cmd-1.
+    @Test func digitRowFollowsTheTypedCharacter() throws {
         let key = try #require(Self.key(UInt16(kVK_ANSI_1), [.command], on: Self.french))
-        #expect(Array(ActionRegistry.shortcuts(for: key)) == [Shortcut("1", modifiers: [.command]), Shortcut("&", modifiers: [.command])])
+        #expect(Array(ActionRegistry.shortcuts(for: key)).prefix(2) == [Shortcut("&", modifiers: [.command]), Shortcut("1", modifiers: [.command])])
+    }
+
+    /// French - PC Ctrl--: the 6 key types -, which is Go Back; the digit 6 never wins over it.
+    @Test func aTypedCharacterWinsOverTheDigitRow() throws {
+        let registry = Self.registry()
+        let key = try #require(Self.key(22, [.control], on: Self.frenchPC))
+        let usKey = try #require(Self.key(UInt16(kVK_ANSI_Minus), [.control], on: Self.us))
+        #expect(registry.resolveShortcut(for: key)?.id == registry.resolveShortcut(for: usKey)?.id)
+        #expect(ActionRegistry.shortcuts(for: key).first == Shortcut("-", modifiers: [.control]))
+    }
+
+    /// A layout with a Command key map (Dvorak - QWERTY ⌘, Russian): with Command held, a key never
+    /// reads the character it types without Command. Every key, not only the default chords:
+    /// QWERTY Cmd-X is the Dvorak Q key and must not read q (Quit).
+    @Test(arguments: [dvorakQwertyCommand, russian, greek, hebrew])
+    func commandKeysReadOnlyTheCommandMap(layout: Layout) throws {
+        for code in layout.keys.keys.sorted() {
+            for modifiers: NSEvent.ModifierFlags in [[.command], [.command, .shift]] {
+                guard let key = Self.key(code, modifiers, on: layout), let base = layout.keys[code],
+                      let command = layout.command[code], command.base != base.base else { continue }
+                let plain = Set([base.base, base.shifted].map { Shortcut($0, modifiers: modifiers) })
+                let read = ActionRegistry.shortcuts(for: key).filter(plain.contains)
+                #expect(read.isEmpty, "\(layout.name) key \(code) with Command reads \(read.map(\.key)), its plain characters")
+            }
+        }
     }
 
     /// German QWERTZ: letters are never physical. The key at US Y types z and is Cmd-Z, not Cmd-Y.
