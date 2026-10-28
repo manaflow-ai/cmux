@@ -1,15 +1,18 @@
-import CmuxHomeCore
+public import CmuxHomeCore
 import CmuxNextDaemon
+import Foundation
 
 nonisolated extension DaemonHomeSource {
-    public func agentRuns(of conversation: ConversationID, turns: [IdempotencyKey]) async -> [HomeAgentRun] {
+    public func agentRuns(of conversation: ConversationID, window: HomeAgentRunWindow) async -> [HomeAgentRun] {
         guard let connection = try? requireConnection(),
               await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return [] }
-        let all = try? await ConversationClient(connection).runs(conversation.rawValue)
-        let replies = turns.isEmpty ? [] : (try? await ConversationClient(connection).runs(
-            conversation.rawValue, turns: Array(turns.suffix(200)).map(\.rawValue))) ?? []
-        let runs = Dictionary((all ?? []).map { ($0.id, $0) } + replies.map { ($0.id, $0) },
-                              uniquingKeysWith: { _, latest in latest })
+        guard let oldest = window.oldestMessageAt else { return [] }
+        let all = (try? await ConversationClient(connection).runs(conversation.rawValue,
+            oldestStartedAt: oldest.timeIntervalSince1970 * 1000, turns: window.turns.map(\.rawValue))) ?? []
+        let selected = all.filter { window.contains(turn: $0.turn, answers: $0.answers ?? []) }
+        let runs = Dictionary(selected.map { ("\($0.author)\u{0}\($0.id)", $0) }, uniquingKeysWith: { held, next in
+            (next.rev ?? next.lastStepSeq ?? 0) > (held.rev ?? held.lastStepSeq ?? 0) ? next : held
+        })
         var messages: [HomeAgentRun] = []
         for run in runs.values {
             guard !Task.isCancelled else { break }

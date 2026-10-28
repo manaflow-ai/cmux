@@ -92,8 +92,7 @@ public struct ConversationLive: Decodable, Sendable, Hashable {
 }
 
 /// `conversation-run-changed` (local) and `cloud-conversation-run-changed`
-/// (Cloud): a run after an append. Home reads only the run's status and its
-/// reply key (`turn`); the steps are not decoded.
+/// (Cloud): a run after an append, including persisted agent messages and their placement.
 public struct ConversationRunChanged: Decodable, Sendable, Hashable {
     public struct Run: Decodable, Sendable, Hashable {
         public var id: String
@@ -103,11 +102,21 @@ public struct ConversationRunChanged: Decodable, Sendable, Hashable {
         public var answers: [String]?
         public var threadRoot: String?
         public var startedAt: Double?
+        public var rev: UInt64?
+        public var lastStepSeq: UInt64?
+
+        private enum CodingKeys: String, CodingKey {
+            case id, author, turn, status, answers, rev
+            case threadRoot = "thread_root"
+            case startedAt = "started_at"
+            case lastStepSeq = "last_step_seq"
+        }
 
         public init(id: String, author: String, turn: String?, status: String, answers: [String]? = nil,
-                    threadRoot: String? = nil, startedAt: Double? = nil) {
+                    threadRoot: String? = nil, startedAt: Double? = nil, rev: UInt64? = nil, lastStepSeq: UInt64? = nil) {
             self.id = id; self.author = author; self.turn = turn; self.status = status
             self.answers = answers; self.threadRoot = threadRoot; self.startedAt = startedAt
+            self.rev = rev; self.lastStepSeq = lastStepSeq
         }
     }
 
@@ -118,6 +127,7 @@ public struct ConversationRunChanged: Decodable, Sendable, Hashable {
 
     public var summary: ConversationRunSummary {
         ConversationRunSummary(id: run.id, author: run.author, turn: run.turn, status: run.status,
-                               answers: run.answers, threadRoot: run.threadRoot, startedAt: run.startedAt)
+                               answers: run.answers, threadRoot: run.threadRoot, startedAt: run.startedAt,
+                               rev: run.rev, lastStepSeq: run.lastStepSeq)
     }
 }

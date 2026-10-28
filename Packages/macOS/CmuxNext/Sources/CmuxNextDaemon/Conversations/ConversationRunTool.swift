@@ -1,27 +1,31 @@
 import Foundation
 
-/// The portion of a tool step needed to show a Chief's message without truncating its input.
+/// Only the fields needed for Chief messages. Other tools accept arbitrary JSON inputs;
+/// unfamiliar shapes must not prevent the rest of a run (including reports) from decoding.
 public struct ConversationRunTool: Decodable, Sendable, Hashable {
     public struct Input: Decodable, Sendable, Hashable {
         public var id: String?
         public var message: String?
+        public var isTellEnvelope = false
 
-        private enum CodingKeys: String, CodingKey { case id, message, arguments }
+        private enum CodingKeys: String, CodingKey { case id, message, arguments, server, tool }
 
         public init(from decoder: any Decoder) throws {
-            let fields = try decoder.container(keyedBy: CodingKeys.self)
-            let directID = try fields.decodeIfPresent(String.self, forKey: .id)
-            let directMessage = try fields.decodeIfPresent(String.self, forKey: .message)
-            if directID == nil && directMessage == nil, let arguments = try fields.decodeIfPresent(Input.self, forKey: .arguments) {
-                id = arguments.id
-                message = arguments.message
+            guard let fields = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+            if fields.contains(.arguments) {
+                guard let arguments = try? fields.nestedContainer(keyedBy: CodingKeys.self, forKey: .arguments) else { return }
+                id = try? arguments.decode(String.self, forKey: .id)
+                message = try? arguments.decode(String.self, forKey: .message)
+                let server = try? fields.decode(String.self, forKey: .server)
+                let tool = try? fields.decode(String.self, forKey: .tool)
+                isTellEnvelope = server == "optchat" && tool == "tell"
             } else {
-                id = directID
-                message = directMessage
+                id = try? fields.decode(String.self, forKey: .id)
+                message = try? fields.decode(String.self, forKey: .message)
             }
         }
     }
-    public var name: String
+    public var name = ""
     public var input: Input?
     public var status: String?
     public var output: String?
@@ -30,15 +34,15 @@ public struct ConversationRunTool: Decodable, Sendable, Hashable {
     private enum CodingKeys: String, CodingKey { case name, tool, input, arguments, status, output, startedAt = "started_at" }
 
     public init(from decoder: any Decoder) throws {
-        let fields = try decoder.container(keyedBy: CodingKeys.self)
-        let directName = try fields.decodeIfPresent(String.self, forKey: .name)
-        let toolName = try fields.decodeIfPresent(String.self, forKey: .tool)
+        guard let fields = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        let directName = try? fields.decode(String.self, forKey: .name)
+        let toolName = try? fields.decode(String.self, forKey: .tool)
         name = directName ?? toolName ?? ""
-        let directInput = try fields.decodeIfPresent(Input.self, forKey: .input)
-        let argumentInput = try fields.decodeIfPresent(Input.self, forKey: .arguments)
+        let directInput = try? fields.decode(Input.self, forKey: .input)
+        let argumentInput = try? fields.decode(Input.self, forKey: .arguments)
         input = directInput ?? argumentInput
-        status = try fields.decodeIfPresent(String.self, forKey: .status)
-        output = try fields.decodeIfPresent(String.self, forKey: .output)
-        startedAt = try fields.decodeIfPresent(Double.self, forKey: .startedAt)
+        status = try? fields.decode(String.self, forKey: .status)
+        output = try? fields.decode(String.self, forKey: .output)
+        startedAt = try? fields.decode(Double.self, forKey: .startedAt)
     }
 }

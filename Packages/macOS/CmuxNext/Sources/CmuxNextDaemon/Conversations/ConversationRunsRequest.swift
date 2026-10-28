@@ -27,18 +27,26 @@ public struct ConversationRunsRequest: DaemonRequest {
 }
 
 extension ConversationClient {
-    public func runs(_ conversation: String, turns: [String]? = nil) async throws -> [ConversationRunSummary] {
+    /// Summary pages stop at the visible transcript's oldest message. Reply-key lookups
+    /// additionally find runs that began before their already-loaded replies.
+    public func runs(_ conversation: String, oldestStartedAt: Double, turns: [String]) async throws -> [ConversationRunSummary] {
         guard await connection.identity?.supports(DaemonCapability.conversationRuns.rawValue) == true else { return [] }
-        if let turns, !turns.isEmpty {
-            return try await connection.request(ConversationRunsRequest(conversation: conversation, turns: turns)).runs
-        }
         var result: [ConversationRunSummary] = []
+        for offset in stride(from: 0, to: turns.count, by: 200) {
+            try Task.checkCancellation()
+            let keys = Array(turns.dropFirst(offset).prefix(200))
+            result += try await connection.request(ConversationRunsRequest(conversation: conversation, turns: keys)).runs
+        }
         var before: UInt64?
-        for _ in 0..<8 {
+        // wakeup-allow: every iteration awaits an owner request; EOF, a nonadvancing cursor, or cancellation ends pagination.
+        while !Task.isCancelled {
             let page = try await connection.request(ConversationRunsRequest(conversation: conversation, beforeStartedAt: before))
             result += page.runs
-            guard page.hasMore == true, let oldest = page.runs.compactMap({ $0.startedAt }).min(), oldest > 0 else { break }
-            before = UInt64(oldest)
+            guard page.hasMore == true, let oldest = page.runs.compactMap(\.startedAt).min(),
+                  oldest.isFinite, oldest > max(0, oldestStartedAt), oldest < Double(UInt64.max) else { break }
+            guard let next = UInt64(exactly: oldest) else { break }
+            guard before.map({ next < $0 }) ?? true else { break }
+            before = next
         }
         return result
     }

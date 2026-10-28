@@ -6,18 +6,29 @@ struct HomeAgentMessages {
 
     mutating func apply(_ update: HomeAgentRun) -> Bool {
         let key = "\(update.author.rawValue)\u{0}\(update.id)"
-        var next = update
-        if let held = runs[key] {
-            var messages = Dictionary(uniqueKeysWithValues: held.messages.map { ($0.id, $0) })
-            for message in update.messages where message.revision >= (messages[message.id]?.revision ?? 0) {
-                messages[message.id] = message
-            }
-            next.messages = Array(messages.values)
+        let held = runs[key]
+        // Run metadata and individual steps have separate revision clocks. An older snapshot
+        // can fill a missing step, but cannot move an already observed run to an older anchor.
+        var next = held.map { update.revision > $0.revision ? update : $0 } ?? update
+        var messages: [String: HomeAgentRun.Message] = [:]
+        for message in (held?.messages ?? []) + update.messages {
+            if let old = messages[message.id], old.revision >= message.revision { continue }
+            messages[message.id] = message
         }
+        next.messages = Array(messages.values)
         next.messages.sort { ($0.sequence, $0.id) < ($1.sequence, $1.id) }
-        guard runs[key] != next else { return false }
+        guard held != next else { return false }
         runs[key] = next
-        return true
+        // Talk/tool progress advances run revisions too. Only message content or placement
+        // invalidates the transcript; a revision-only event must not walk every visible row.
+        guard let held else { return !next.messages.isEmpty }
+        guard !next.messages.isEmpty else { return false }
+        return held.turn != next.turn || held.answers != next.answers || held.threadRoot != next.threadRoot
+            || held.messages.count != next.messages.count
+            || !zip(held.messages, next.messages).allSatisfy { old, new in
+                old.id == new.id && old.sequence == new.sequence && old.peer == new.peer
+                    && old.outgoing == new.outgoing && old.text == new.text && old.date == new.date
+            }
     }
 
     /// Insert by the owner's reply/answer keys, never by sorting committed messages on a clock.
@@ -35,7 +46,7 @@ struct HomeAgentMessages {
                 items[index].author == run.author ? index : nil
             }
             let answer = run.answers.compactMap { byMessageID[$0] }.max()
-            guard let anchor = reply ?? answer else { continue }
+            guard let anchor = answer ?? reply else { continue }
             let chief = summary?.participants.first { $0.id == run.author }?.displayName ?? run.author.rawValue
             for message in run.messages {
                 let from = message.outgoing ? chief : message.peer
@@ -48,6 +59,11 @@ struct HomeAgentMessages {
                 after[anchor, default: []].append(item)
             }
         }
-        return items.enumerated().flatMap { index, item in [item] + (after[index] ?? []) }
+        return items.enumerated().flatMap { index, item in
+            let messages = (after[index] ?? []).sorted {
+                ($0.createdAt, $0.key.rawValue) < ($1.createdAt, $1.key.rawValue)
+            }
+            return [item] + messages
+        }
     }
 }

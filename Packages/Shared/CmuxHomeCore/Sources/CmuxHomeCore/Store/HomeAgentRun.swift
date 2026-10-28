@@ -23,6 +23,7 @@ public struct HomeAgentRun: Hashable, Sendable {
         }
     }
 
+    public var revision: UInt64
     public var conversation: ConversationID
     public var id: String
     public var author: ParticipantID
@@ -32,7 +33,8 @@ public struct HomeAgentRun: Hashable, Sendable {
     public var messages: [Message]
 
     public init(conversation: ConversationID, id: String, author: ParticipantID, turn: IdempotencyKey?,
-                answers: [MessageID], threadRoot: MessageID? = nil, messages: [Message]) {
+                answers: [MessageID], threadRoot: MessageID? = nil, revision: UInt64 = 0, messages: [Message]) {
+        self.revision = revision
         self.conversation = conversation
         self.id = id
         self.author = author

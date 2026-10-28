@@ -12,17 +12,20 @@ extension HomeStore {
     func requestAgentMessages(_ conversation: ConversationID) {
         guard agentMessageReads[conversation] == nil, pager.isShown(conversation) else { return }
         let epoch = pager.epoch(conversation)
-        let turns = (mirror.windows[conversation]?.messages ?? []).map(\.clientMessageID)
+        let window = HomeAgentRunWindow(messages: mirror.windows[conversation]?.messages ?? [])
         let owner = source
         // task-owner: one run snapshot; cancelled on close or stop, ends when the owner answers
         agentMessageReads[conversation] = Task { [weak self] in
-            let runs = await owner.agentRuns(of: conversation, turns: turns)
+            let runs = await owner.agentRuns(of: conversation, window: window)
             guard let self else { return }
-            defer {
-                if self.pager.epoch(conversation) == epoch { self.agentMessageReads[conversation] = nil }
-            }
-            guard !Task.isCancelled, !self.stopped, self.pager.isShown(conversation), self.pager.epoch(conversation) == epoch else { return }
+            guard self.pager.epoch(conversation) == epoch else { return }
+            self.agentMessageReads[conversation] = nil
+            guard !Task.isCancelled, !self.stopped, self.pager.isShown(conversation) else { return }
             for run in runs { self.applyAgentRun(run) }
+            // A history page may arrive while this request is in flight. Follow the newly
+            // loaded window once the previous read ends instead of dropping that request.
+            let current = HomeAgentRunWindow(messages: self.mirror.windows[conversation]?.messages ?? [])
+            if current != window { self.requestAgentMessages(conversation) }
         }
     }
 }

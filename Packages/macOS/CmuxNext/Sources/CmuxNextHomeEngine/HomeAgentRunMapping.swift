@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextDesign
 import Foundation
 
 /// Decode only authenticated tell tools and the Chief producer's report-note namespace.
@@ -8,15 +9,19 @@ nonisolated enum HomeAgentRunMapping {
                     author: (String) -> ParticipantID) -> HomeAgentRun {
         HomeAgentRun(conversation: ConversationID(conversation), id: run.id, author: author(run.author),
                      turn: run.turn.map { IdempotencyKey($0) }, answers: (run.answers ?? []).map { MessageID($0) },
-                     threadRoot: run.threadRoot.map { MessageID($0) }, messages: steps.compactMap { step in
+                     threadRoot: run.threadRoot.map { MessageID($0) }, revision: run.rev ?? run.lastStepSeq ?? 0, messages: steps.compactMap { step in
             let peer: String, text: String, outgoing: Bool
             if step.kind == "tool", let tool = step.tool,
-               ["tell", "optchat.tell", "mcp__optchat__tell"].contains(tool.name),
+               (["tell", "optchat.tell", "mcp__optchat__tell"].contains(tool.name) || tool.input?.isTellEnvelope == true),
                let id = tool.input?.id, !id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                let message = tool.input?.message {
                 var body = message
-                if (step.status == "failed" || tool.status == "failed"), let reason = tool.output?.trimmingCharacters(in: .whitespacesAndNewlines), !reason.isEmpty {
-                    body += "\n[failed: \(reason)]"
+                let reason = tool.output?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                // A successful tool invocation can refuse delivery (cancelled agent, deleted VM).
+                let refused = reason == "outcome: refused" || reason.hasPrefix("outcome: refused.")
+                if (step.status == "failed" || tool.status == "failed" || refused),
+                   let failureLabel = StatusIndicatorState.error.shortLabel {
+                    body += reason.isEmpty ? "\n[\(failureLabel)]" : "\n[\(failureLabel): \(reason)]"
                 }
                 (peer, text, outgoing) = (id, body, true)
             } else if step.kind == "note", step.id.hasPrefix("report:"), let body = step.text,
@@ -29,7 +34,7 @@ nonisolated enum HomeAgentRunMapping {
             }
             return HomeAgentRun.Message(id: step.id, sequence: step.seq ?? 0, revision: step.rev ?? step.seq ?? 0,
                                         peer: peer, outgoing: outgoing, text: text,
-                                        date: Date(timeIntervalSince1970: (step.tool?.startedAt ?? run.startedAt ?? 0) / 1000))
+                                        date: Date(timeIntervalSince1970: (step.at ?? step.tool?.startedAt ?? run.startedAt ?? 0) / 1000))
         })
     }
 }

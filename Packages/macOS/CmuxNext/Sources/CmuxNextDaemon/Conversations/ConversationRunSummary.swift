@@ -9,10 +9,13 @@ public struct ConversationRunSummary: Decodable, Sendable, Hashable {
     public var answers: [String]?
     public var threadRoot: String?
     public var startedAt: Double?
+    public var rev: UInt64?
+    public var lastStepSeq: UInt64?
 
     private enum CodingKeys: String, CodingKey {
-        case id, author, turn, status, answers
+        case id, author, turn, status, answers, rev
         case threadRoot = "thread_root"
         case startedAt = "started_at"
+        case lastStepSeq = "last_step_seq"
     }
 }
