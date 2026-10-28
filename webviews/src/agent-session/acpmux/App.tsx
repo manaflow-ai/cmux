@@ -97,6 +97,7 @@ import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
+import { draftTextActions } from "./draftTextActions";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -7585,20 +7586,7 @@ function AcpmuxPane() {
           "chat.findNext": async () => findRef.current?.next(),
           "chat.findPrevious": async () => findRef.current?.previous(),
           "chat.hideFind": async () => findRef.current?.hide(),
-          // Composer drafts belong to the daemon session so every host can restore them.
-          "chat.readDraft": async ({ sessionId }) => {
-            const id = String(sessionId);
-            const durable = await client.readDraft(id).catch(() => undefined);
-            if (typeof durable === "string" && durable.length) return durable;
-            const mirrored = await callNative<unknown>("chat.draftText.get", { sessionId: id }).catch(() => undefined);
-            return typeof mirrored === "string" && mirrored.length ? mirrored : durable;
-          },
-          "chat.writeDraft": async ({ sessionId, text }) => {
-            const id = String(sessionId);
-            const value = String(text ?? "");
-            await callNative("chat.draftText.set", { sessionId: id, text: value }).catch(() => undefined);
-            return client.writeDraft(id, value);
-          },
+          ...draftTextActions(client, callNative),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>

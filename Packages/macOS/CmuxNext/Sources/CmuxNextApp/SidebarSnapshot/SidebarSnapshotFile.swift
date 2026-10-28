@@ -35,8 +35,8 @@ nonisolated struct SidebarSnapshotFile: Sendable {
     }
 
     /// Prior per-build roots for this logical app. They are read-only migration sources.
-    static func legacyDraftDirectories(launch: LaunchIdentity) -> [URL] {
-        let cmux = applicationSupportDirectory()
+    static func legacyDraftDirectories(launch: LaunchIdentity, appSupport: URL? = nil) -> [URL] {
+        let cmux = appSupport ?? applicationSupportDirectory()
         var roots: [URL] = [buildDirectory(launch: launch)]
         if let state = launch.build.daemonStateDirectory(appSupport: cmux) {
             roots.append(state.deletingLastPathComponent())
