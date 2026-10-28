@@ -76,7 +76,7 @@ import Testing
     /// the page window, its context and its count go along with no fork call.
     @Test func aHostedDevToolsKeepsItsContextAcrossADockMove() throws {
         let fake = CEFLayerHostingTests.FakeFork()
-        let hostView = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(),
+        let hostView = CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300),
                                    layerHosting: Self.hosting(schedule: { $0() }))
         hostView.layerHosting.widget = .devTools
         let paneWindow = Self.window()
@@ -281,7 +281,7 @@ import Testing
         let hosting = CEFLayerHosting(isEnabled: { true }, schedule: { turn.add($0) },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
                                       afterCommit: { _ in })
-        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), pageUpdateCenter: NotificationCenter(), layerHosting: hosting)
+        return CEFHostView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), layerHosting: hosting)
     }
 
     private static func window() -> NSWindow {

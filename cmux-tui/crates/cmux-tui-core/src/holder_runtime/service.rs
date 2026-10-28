@@ -17,6 +17,7 @@ use cmux_holder::{Listed, SpawnRequest};
 use cmux_trace::crash_keys::{self, HolderLink as CrashKeyLink};
 
 use super::{HolderSink, HolderTerminal};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 mod trace;
 use crate::panic_free::RecoverPoison;
@@ -549,8 +550,11 @@ impl HolderService {
                 }
                 // The holder died: start a new one and hand it every master.
                 service.note_link_down(CrashKeyLink::Lost);
-                let _ =
-                    std::thread::Builder::new().name("holder-restart".into()).spawn(move || {
+                let _ = supervised::spawn(
+                    "holder-restart",
+                    Fatal,
+                    ShutdownBehavior::Continue,
+                    move || {
                         if let Err(error) = service.link() {
                             // No holder streams their output any more: their
                             // terminals end as lost (the shells may still run).
@@ -558,7 +562,8 @@ impl HolderService {
                             service.note_link_down(CrashKeyLink::Failed);
                             service.lose_all();
                         }
-                    });
+                    },
+                );
             }),
             SPAWN_TIMEOUT,
             HOLDER_FRAME_WATCH,
@@ -664,9 +669,11 @@ impl HolderService {
         };
         if let Some(error) = unwatched {
             eprintln!("cmux-tui: the terminal holder's exit has its own wait thread ({error})");
-            let _ = cmux_threads::spawn(
+            let _ = supervised::spawn_at(
                 "holder-reaper",
                 cmux_threads::qos::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
                 move || {
                     let _ = child.wait();
                 },
@@ -719,7 +726,7 @@ pub(crate) fn prepare_in_background() {
     if !super::enabled() {
         return;
     }
-    let _ = std::thread::Builder::new().name("cmux-holder-exe".into()).spawn(|| {
+    let _ = supervised::spawn("cmux-holder-exe", Fatal, ShutdownBehavior::Continue, || {
         let _ = standalone_holder();
     });
 }

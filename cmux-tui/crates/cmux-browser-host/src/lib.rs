@@ -45,6 +45,8 @@ pub mod lease;
 pub mod locality;
 pub mod observe;
 mod panic_free;
+#[cfg(unix)]
+pub mod panic_log;
 pub mod policy;
 pub mod policy_proxy;
 pub mod private_data_log;

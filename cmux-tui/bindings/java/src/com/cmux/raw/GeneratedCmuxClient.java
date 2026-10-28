@@ -1592,6 +1592,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final SetStreamPriorityResult setStreamPriority(SetStreamPriorityRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_STREAM_PRIORITY, request.toWire());
+        return SetStreamPriorityResult.fromWire(result);
+    }
+
     public final Object setTabPinned(SetTabPinnedRequest request) throws CmuxException {
         Object result = execute(Commands.SET_TAB_PINNED, request.toWire());
         return Wire.immutableJson(result);

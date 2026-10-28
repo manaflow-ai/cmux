@@ -122,7 +122,7 @@ impl AppsSlot {
                         sources: catalog::Sources::from_env(state_dir.as_deref()),
                         state_dir,
                         host_binary: host::resolve_binary(),
-                        host_args: Vec::new(),
+                        host_args: host::panic_log_args(),
                         server_dir: host::resolve_server_dir(),
                         idle_stop: std::time::Duration::from_secs(idle),
                         provider_deadline: std::time::Duration::from_secs(30),
