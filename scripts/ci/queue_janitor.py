@@ -165,8 +165,10 @@ Superseded delivery runs are one more pass (skip_superseded_delivery): "When
 nightly runs for older commits are stuck waiting (queued for a runner or a
 gate), skip them and build from the tip: cancel the stale runs" (Leo,
 2026-10-26). A nightly, DEV or promote run is cancelled only when
-delivery_workflows.superseded_unstarted() says so: its build has not started
-and a newer head of its branch has its own run of the same workflow. The
+delivery_workflows.superseded_unstarted() says it is stale: every job but the
+light control and decide ones is still queued for a runner, it has waited at
+least 20 min, and a newer head of its branch has its own run of the same
+workflow that is already building. The
 agents' cancel guard reads that same function, so the two never disagree. A
 run's jobs are read again right before its cancel, and a run whose build
 started in between is kept. Its own cap; no force-cancel.
@@ -2367,7 +2369,7 @@ def skip_superseded_delivery(
     for run in candidates:
         run_id = run["id"]
         ok, why = superseded_unstarted(run, complete_jobs(jobs_by_run.get(run_id)), runs, jobs_of)
-        if not ok and (why.startswith("no newer head") or why.startswith("no newer run")):
+        if not ok and why.startswith("condition 3 fails: no newer"):
             key = (run.get("workflow_id") or run.get("path"), str(run.get("head_branch") or ""))
             if key not in listed and len(listed) < SUPERSEDED_BRANCH_LISTINGS:
                 try:
@@ -2451,8 +2453,9 @@ def skip_superseded_delivery(
 
 def render_superseded_summary(decisions: Sequence[SupersededDecision]) -> str:
     lines = ["", "### Superseded nightly, DEV and promote runs", "",
-             "A delivery run whose build never started, at a head a newer run of its workflow on the same branch "
-             "has superseded with the same build jobs, is skipped so the tip builds (delivery_workflows.superseded_unstarted()).", ""]
+             "A stale delivery run (every job but the light control and decide ones still queued for 20 min or more, "
+             "with a newer run of its workflow on the same branch already building) is skipped so the tip builds "
+             "(delivery_workflows.superseded_unstarted()).", ""]
     if not decisions:
         lines.append("None waiting.")
         return "\n".join(lines) + "\n"
