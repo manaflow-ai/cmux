@@ -21,11 +21,6 @@ state. Each start, login, logout and shutdown runs on its own task, so a caller
 that goes away mid-request never leaves the controller half-changed. Daemon
 shutdown closes the node but leaves its saved login for the next explicit start,
 and no start is accepted after it begins.
-An explicit start records an opt-in marker; daemon startup resumes only that
-marker, while an untouched installation creates no state or node. Logout clears
-the marker before remote cleanup, so a failed sign-out cannot silently reconnect
-on the next launch. The listener service drains connections before replacing a
-node or DNS name, and a listener failure waits for an explicit retry.
 Builds with the `tailnet` feature list the four methods in `initialize`'s
 `extensions`; other builds answer them with `not_built`.
 

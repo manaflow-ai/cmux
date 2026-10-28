@@ -6,12 +6,15 @@
 //! acpmux pairing store.
 
 use std::path::{Path, PathBuf};
+#[cfg(test)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_tailnet::{BackendState, Node, NodeConfig, Notify};
 use serde_json::{Value, json};
-use tokio::sync::{Notify as TokioNotify, broadcast};
+#[cfg(test)]
+use tokio::sync::Notify as TokioNotify;
+use tokio::sync::broadcast;
 
 /// A snapshot reported by the embedded node's IPN bus.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -143,6 +146,14 @@ fn state_name(state: BackendState) -> &'static str {
     }
 }
 
+// Production stays on the existing controller until the final stack slice.
+#[cfg(not(test))]
+#[path = "embedded_legacy.rs"]
+mod legacy;
+#[cfg(not(test))]
+pub use legacy::Controller;
+
+#[cfg(test)]
 struct Inner {
     snapshot: Snapshot,
     node: Option<Arc<Node>>,
@@ -155,6 +166,7 @@ struct Inner {
 
 /// Owns one embedded node per daemon install. The controller is cheap to
 /// clone; all state and node handles remain shared and serialized.
+#[cfg(test)]
 pub struct Controller {
     state_dir: PathBuf,
     hostname: String,
@@ -173,6 +185,7 @@ pub struct Controller {
     stopping: Arc<AtomicBool>,
 }
 
+#[cfg(test)]
 impl Controller {
     pub fn new(state_dir: impl Into<PathBuf>, hostname: impl Into<String>) -> Arc<Self> {
         let (changes, _) = broadcast::channel(32);
@@ -407,7 +420,7 @@ impl Controller {
             inner.starting = false;
             inner.node = Some(node.clone());
         }
-        let this = Arc::clone(&self);
+        let this = Arc::clone(self);
         let watch_node = node.clone();
         if let Err(error) = std::thread::Builder::new()
             .name("acpmux-tailnet-watch".into())
@@ -648,6 +661,7 @@ fn release_on_background<T: Send + 'static>(value: T) {
         .spawn(move || drop(value));
 }
 
+#[cfg(test)]
 fn spawn_after_retirement<F, Fut>(
     retirement_gate: Arc<tokio::sync::Mutex<()>>,
     lifecycle: Arc<tokio::sync::Mutex<()>>,
@@ -672,6 +686,7 @@ pub fn state_dir(home: &Path) -> PathBuf {
     home.join("tailnet")
 }
 
+#[cfg(test)]
 fn saved_opt_in(path: &Path) -> Result<bool, String> {
     match std::fs::read(path) {
         Ok(value) => Ok(value == b"1\n"),
@@ -680,6 +695,7 @@ fn saved_opt_in(path: &Path) -> Result<bool, String> {
     }
 }
 
+#[cfg(test)]
 fn clear_opt_in(path: &Path) -> Result<(), String> {
     match std::fs::remove_file(path) {
         Ok(()) => Ok(()),
