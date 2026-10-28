@@ -321,14 +321,15 @@ public final class DaemonService {
                 return
             }
             await marks?.attach(connection)
-            if let marks { self.noteLaunchAttach(startedDaemon: marks.startedDaemon) }
-            await self.attachConnection(connection, identity: identity)
+            await self.attachConnection(connection, identity: identity, launchStartedDaemon: marks?.startedDaemon)
             await store.run(connection: connection, scheduler: drainScheduler)
         }
     }
 
-    /// The first connection's handshake: it becomes the connection this service runs.
-    private func attachConnection(_ connection: DaemonConnection, identity: DaemonIdentity) {
+    /// The first connection's handshake: it becomes the connection this service runs. `launchStartedDaemon` is the
+    /// launch marks' answer (nil without marks): noted on main before the connection attaches.
+    private func attachConnection(_ connection: DaemonConnection, identity: DaemonIdentity, launchStartedDaemon: Bool?) {
+        if let launchStartedDaemon { noteLaunchAttach(startedDaemon: launchStartedDaemon) }
         didConnect(connection, identity: identity)
         windowState = WindowStateStore(connection: connection)
         logger.info("cmux-tui \(identity.version, privacy: .public) session \(identity.session, privacy: .public)")
