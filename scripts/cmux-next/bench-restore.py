@@ -396,6 +396,15 @@ def sample_new_app(app, old_pid, path, seconds=3):
         time.sleep(0.002)
 
 
+# Front to back: one line per on-screen window at layer 0 (owner, pid, x, y, w, h).
+WINDOW_ORDER_JXA = """
+ObjC.import('CoreGraphics');
+const list = ObjC.deepUnwrap(ObjC.castRefToObject($.CGWindowListCopyWindowInfo($.kCGWindowListOptionOnScreenOnly, 0)));
+list.filter(w => w.kCGWindowLayer === 0).map(w => [w.kCGWindowOwnerName, w.kCGWindowOwnerPID, w.kCGWindowBounds.X,
+  w.kCGWindowBounds.Y, w.kCGWindowBounds.Width, w.kCGWindowBounds.Height].join(' ')).join('\\n');
+"""
+
+
 def saved_frames(app):
     """The terminal frames the last quit saved (`terminal-launch-frames` beside the build's sidebar snapshot), by name and size."""
     home = app.env.get("HOME", os.environ["HOME"])
@@ -523,6 +532,10 @@ def measure(app, mode, workspaces, run):
             break
         time.sleep(0.02)
     if opts.snapshots:
+        # The window server's on-screen windows, front to back: whether another app's window covers ours.
+        order = subprocess.run(["/usr/bin/osascript", "-l", "JavaScript", "-e", WINDOW_ORDER_JXA], capture_output=True, text=True, timeout=60)
+        with open(os.path.join(opts.out, f"order-{mode}-n{workspaces}-{run}.txt"), "w") as f:
+            f.write(order.stdout + order.stderr)
         for i in range(3):
             path = os.path.join(opts.out, f"window-{mode}-n{workspaces}-{run}-{i}.png")
             rpc("debug.window_snapshot", {"path": path}, timeout=20)
