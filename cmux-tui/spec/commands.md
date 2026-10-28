@@ -598,9 +598,10 @@ new terminals whose holder start failed (such a create fails; no host is
 started instead). `host_adopted` counts terminals whose shell an earlier
 daemon's host started (it stays adopted after a replacement host).
 `host_launched` counts hosts this daemon started: all hosts under the
-`hosts` model; under the `holder` model only an automatic respawn of a
-hosted terminal or a `restart-tab` of any dead terminal, a holder one too
-(`respawn_hosted`), as no standby host runs then.
+`hosts` model; under the `holder` model only a `respawn_hosted` (an
+automatic respawn after a respawnable end, a holder terminal that a session
+shutdown ended too, or a `restart-tab` of any dead terminal), as no standby
+host runs then.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and

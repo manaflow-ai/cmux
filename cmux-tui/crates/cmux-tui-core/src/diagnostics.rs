@@ -850,8 +850,9 @@ pub struct TerminalModelsSnapshot {
     pub daemon: u64,
     /// Hosted terminals whose host this daemon started: every host under
     /// the hosts model (including standby hosts); under the holder model
-    /// only an automatic respawn of a hosted terminal or a `restart-tab` of
-    /// any dead terminal, a holder one too (`respawn_hosted`).
+    /// only a `respawn_hosted`: an automatic respawn after a respawnable end
+    /// (a holder terminal that a session shutdown ended, too) or a
+    /// `restart-tab` of any dead terminal.
     pub host_launched: u64,
     /// Hosted terminals whose shell an earlier daemon's host started,
     /// adopted at start (still counted here after a replacement host takes

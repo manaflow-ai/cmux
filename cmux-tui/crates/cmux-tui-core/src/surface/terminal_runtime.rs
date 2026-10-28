@@ -397,9 +397,9 @@ pub(crate) enum HostOrigin {
     /// Not a terminal host's terminal (a holder, a daemon PTY, a backend).
     NotHosted,
     /// This daemon started the host: a new terminal or a standby host under
-    /// the hosts model; under either model, an automatic respawn of a hosted
-    /// terminal, or a `restart-tab` of any dead terminal, a holder one too
-    /// (`respawn_hosted`).
+    /// the hosts model; under either model, a `respawn_hosted`: an automatic
+    /// respawn after a respawnable end (a holder terminal that a session
+    /// shutdown ended, too) or a `restart-tab` of any dead terminal.
     Launched,
     /// This daemon adopted a host an earlier daemon started.
     Adopted,
