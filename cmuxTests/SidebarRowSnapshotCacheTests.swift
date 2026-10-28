@@ -26,7 +26,8 @@ struct SidebarRowSnapshotCacheTests {
         }
         let currentWork = SidebarStatusEntry(key: "current_work", value: "Needs input")
         workspaceA.statusEntries[currentWork.key] = currentWork
-        let workspaces = [insertedWorkspace, workspaceA, workspaceB]
+        var workspaces = [workspaceA, workspaceB]
+        workspaces.insert(insertedWorkspace, at: 0)
         let expectedSnapshots = Dictionary(uniqueKeysWithValues: workspaces.map { workspace in
             (workspace.id, SidebarWorkspaceSnapshotFactory(
                 workspace: workspace,
@@ -61,7 +62,6 @@ struct SidebarRowSnapshotCacheTests {
         #expect(cache.value(for: workspaceA.id)?.metadataEntries == [currentWork])
         #expect(cache.value(for: workspaceB.id)?.metadataEntries.isEmpty == true)
         #expect(rebuiltWorkspaceIds == [insertedWorkspace.id])
-
     }
 
     @Test func replacingMembershipAtTheSameCountReleasesRetiredSnapshot() {
