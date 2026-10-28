@@ -119,8 +119,9 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
         expired: Vec::new(),
     };
     let now = now_ms();
+    let finished = Arc::new(inventory::FinishedMemo::load(store.finished_path()));
     for common in repositories {
-        let repo = match inventory::scan(&common, &[]) {
+        let repo = match inventory::scan_with_memo(&common, &[], Arc::clone(&finished)) {
             Ok(repo) => repo,
             Err(error) => {
                 report.errors.push(format!("{}: {error}", common.display()));

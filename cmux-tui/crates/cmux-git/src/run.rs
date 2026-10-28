@@ -79,7 +79,7 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_stdout, deadline, None, &[])
+    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None)
 }
 
 /// [`run_git_within`] whose new objects go to `scratch`, an empty folder the
@@ -98,12 +98,29 @@ pub fn run_git_scratch_objects_within(
     objects: &Path,
     scratch: &Path,
 ) -> Result<GitOutput, GitFailure> {
+    run_git_scratch_objects_within_limited(
+        directory, overrides, arguments, max_stdout, deadline, objects, scratch, None,
+    )
+}
+
+/// [`run_git_scratch_objects_within`] with an optional address-space limit for
+/// the child. A limit is best effort on platforms without `RLIMIT_AS`.
+pub fn run_git_scratch_objects_within_limited(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    max_stdout: usize,
+    deadline: Duration,
+    objects: &Path,
+    scratch: &Path,
+    address_space_limit: Option<u64>,
+) -> Result<GitOutput, GitFailure> {
     let alternate = alternate_entry(objects);
     let env = [
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
         ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
-    run(directory, overrides, arguments, max_stdout, deadline, None, &env)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &env, address_space_limit)
 }
 
 /// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
@@ -147,7 +164,7 @@ pub fn run_git_records_within(
     deadline: Duration,
     keep: fn(&[u8]) -> bool,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[])
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None)
 }
 
 thread_local! {
@@ -219,6 +236,7 @@ fn run(
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
     env: &[(&str, &OsStr)],
+    address_space_limit: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
@@ -244,6 +262,23 @@ fn run(
     {
         use std::os::unix::process::CommandExt;
         command.process_group(0);
+        if let Some(limit) = address_space_limit {
+            // SAFETY: this closure only changes the resource limit in the
+            // child, between fork and exec; it touches no shared state.
+            unsafe {
+                command.pre_exec(move || {
+                    let limit = libc::rlim_t::try_from(limit).map_err(|_| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "memory limit")
+                    })?;
+                    let resource = libc::rlimit { rlim_cur: limit, rlim_max: limit };
+                    if libc::setrlimit(libc::RLIMIT_AS, &resource) == 0 {
+                        Ok(())
+                    } else {
+                        Err(std::io::Error::last_os_error())
+                    }
+                });
+            }
+        }
     }
     let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
     lower_if_background(child.id());
