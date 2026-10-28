@@ -176,7 +176,7 @@ fn a_holder_loop_report_is_one_row_written_on_the_watchdog_thread() {
 #[cfg(unix)]
 #[test]
 fn reports_past_the_queue_bound_are_dropped_and_counted() {
-    fn no_thread(_: Box<dyn FnOnce() + Send>) -> std::io::Result<Thread> {
+    fn no_thread(_: Box<dyn FnOnce() + Send>) -> std::io::Result<supervised::Unparker> {
         Err(std::io::Error::other("no watchdog thread"))
     }
     let written = Arc::new(AtomicU64::new(0));

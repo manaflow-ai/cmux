@@ -15,10 +15,10 @@
 //! never make it early.
 
 use std::sync::mpsc::RecvTimeoutError;
-use std::thread::JoinHandle;
 
 use super::*;
 use crate::state::kept_tab_store::{KeptTab, kept_title};
+use crate::supervised::{self, Fatal, ShutdownBehavior, SupervisedThread};
 use std::sync::PoisonError;
 
 /// Default reap grace period for a terminal with no placement.
@@ -743,14 +743,14 @@ pub struct TerminalReaper {
     /// The receiver the thread currently waits on; it changes when an
     /// overflowed subscription is replaced.
     events: Arc<Mutex<MuxEventReceiver>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<SupervisedThread<()>>,
 }
 
 impl TerminalReaper {
     pub fn stop(mut self) {
         self.signal_stop();
         if let Some(thread) = self.thread.take() {
-            let _ = cmux_threads::checked::sync::join(thread);
+            let _ = thread.join();
         }
     }
 
@@ -776,10 +776,11 @@ pub fn start_terminal_reaper(mux: &Arc<Mux>) -> std::io::Result<TerminalReaper> 
     let thread_stop = stop.clone();
     let shared_events = events.clone();
     let mut thread_events = events.lock().unwrap_or_else(PoisonError::into_inner).clone();
-    let thread = crate::thread_qos::spawn_raisable(
+    let thread = supervised::spawn_raisable(
         "mux-terminal-reap",
         crate::thread_qos::ThreadType::Utility.qos(),
-        None,
+        Fatal,
+        ShutdownBehavior::Continue,
         move || {
             let mut schedule = ReapSchedule::default();
             loop {

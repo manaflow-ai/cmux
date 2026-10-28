@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Bytes that must not outlive their use: an imported password or the key
@@ -12,17 +13,35 @@ public import Foundation
 /// by accident. Hand them on only through `withUnsafeBytes`, or check them in
 /// place with `isValidUTF8`, `starts(with:)` and `matches(_:)`.
 ///
-/// Memory safety: `buffer` is the one allocation `init` made, whole pages and
-/// page aligned. It stays allocated until `wipe` zeroes, frees and empties it;
-/// `wipe` runs only from deinit or from a failed fill (which then throws, so no
-/// method runs after it). `count` is at most the capacity `init` was asked
-/// for, which is at most `buffer.count`. Every pointer use below relies on that.
+/// The count and the reads in progress are one ``State`` behind a `Mutex`: `zero()` empties the
+/// bytes at once for new reads, and zeroes the memory when no `withUnsafeBytes` is reading it (the
+/// last read to end does it), so a read never sees half-zeroed bytes. The lock is held only to
+/// count, never while a read runs, so a read may ask for `count` or read another secret.
+///
+/// Memory safety: `address` and `size` name the one allocation `init` made, whole pages and page
+/// aligned, fixed from init to deinit; deinit (or a failed fill, which then throws, so no method runs
+/// after it) zeroes, unlocks and frees it once. `count` is at most the capacity `init` was asked for,
+/// which is at most `size`. Every pointer use below relies on that.
 @safe
-public final class SecretBytes: @unchecked Sendable {
-    private var buffer: UnsafeMutableRawBufferPointer
+public final class SecretBytes: Sendable {
+    private struct State {
+        /// The bytes in use (at most the capacity); 0 once zeroed.
+        var count: Int
+        /// `withUnsafeBytes` calls running now.
+        var readers = 0
+        /// `zero()` ran while reads were running: the last one to end zeroes the memory.
+        var zeroWhenReadsEnd = false
+    }
+
+    /// The allocation's address as a bit pattern (a Sendable value) and its size in whole pages; both
+    /// fixed from init to deinit.
+    private let address: UInt
+    private let size: Int
     private let locked: Bool
+    private let state: Mutex<State>
+
     /// The bytes in use (at most the capacity).
-    public private(set) var count: Int
+    public var count: Int { state.withLock { $0.count } }
 
     /// A zeroed buffer of `capacity` bytes; `fill` writes into it and returns how many it used.
     @safe public init(capacity: Int, fill: (UnsafeMutableRawBufferPointer) throws -> Int) rethrows {
@@ -34,11 +53,9 @@ public final class SecretBytes: @unchecked Sendable {
         let allocation = unsafe UnsafeMutableRawBufferPointer.allocate(byteCount: size, alignment: page)
         // SAFETY: writes zeros over exactly the `size` bytes just allocated.
         unsafe allocation.initializeMemory(as: UInt8.self, repeating: 0)
-        // SAFETY: stores the owned allocation; wipe frees it.
-        unsafe buffer = allocation
         // SAFETY: locks the allocation's `size` bytes; they stay allocated until wipe unlocks them.
-        locked = unsafe mlock(allocation.baseAddress, size) == 0
-        count = 0
+        let locked = unsafe mlock(allocation.baseAddress, size) == 0
+        let count: Int
         do {
             // `fill` sees exactly the capacity asked for, and its answer is clamped into it.
             // SAFETY: the view is the allocation's first `usable` bytes (usable <= size), valid for the
@@ -46,9 +63,14 @@ public final class SecretBytes: @unchecked Sendable {
             let used = try unsafe fill(UnsafeMutableRawBufferPointer(rebasing: allocation.prefix(usable)))
             count = min(max(used, 0), usable)
         } catch {
-            wipe()
+            // SAFETY: the allocation made above, freed once here; init throws, so nothing reads it after.
+            unsafe SecretBytes.wipe(allocation, locked: locked)
             throw error
         }
+        address = UInt(bitPattern: unsafe allocation.baseAddress)
+        self.size = size
+        self.locked = locked
+        state = Mutex(State(count: count))
     }
 
     /// A copy of `bytes` (test fixtures and the Keychain reply, which arrives as `Data`).
@@ -60,44 +82,39 @@ public final class SecretBytes: @unchecked Sendable {
         }
     }
 
-    deinit { wipe() }
+    // SAFETY: the last holder is gone, so no read runs; the allocation is freed once here.
+    deinit { unsafe Self.wipe(allocation, locked: locked) }
 
-    /// Zeroes the bytes now (once they have been handed on); the allocation goes at deinit.
+    /// Zeroes the bytes (once they have been handed on): empty at once for every new read, and the
+    /// memory zeroed now, or when the reads running now end. The allocation goes at deinit.
     public func zero() {
-        // SAFETY: the allocation is live (see the type) or already emptied, which has no base address.
-        guard let base = unsafe buffer.baseAddress else { return }
-        let size = unsafe buffer.count
-        // SAFETY: zeroes exactly the live allocation's `size` bytes.
-        _ = unsafe memset_s(base, size, 0, size)
-        count = 0
-    }
-
-    /// Zeroes, unlocks and frees the bytes once; later calls (deinit after a failed fill) do nothing.
-    private func wipe() {
-        // SAFETY: the allocation is live (see the type) or already emptied, which has no base address.
-        guard let base = unsafe buffer.baseAddress else { return }
-        let size = unsafe buffer.count
-        // SAFETY: zeroes and unlocks exactly the live allocation's `size` bytes.
-        _ = unsafe memset_s(base, size, 0, size)
-        if locked { _ = unsafe munlock(base, size) }
-        // SAFETY: frees the allocation once and empties `buffer`, so a second wipe returns above and no
-        // later read finds the freed address.
-        unsafe buffer.deallocate()
-        unsafe buffer = UnsafeMutableRawBufferPointer(start: nil, count: 0)
-        count = 0
+        state.withLock { state in
+            state.count = 0
+            if state.readers == 0 {
+                // SAFETY: no read is running (readers is 0 under the lock); the allocation is live (see the type).
+                unsafe Self.clear(allocation)
+            } else {
+                state.zeroWhenReadsEnd = true
+            }
+        }
     }
 
     @safe public func withUnsafeBytes<R, E: Error>(_ body: (UnsafeRawBufferPointer) throws(E) -> R) throws(E) -> R {
-        // SAFETY: the view is the live allocation's first `count` bytes (count <= buffer.count), valid
-        // for the call; `body` is not escaping, so it cannot keep the view.
-        try unsafe body(UnsafeRawBufferPointer(rebasing: buffer.prefix(count)))
+        let count = state.withLock { state -> Int in
+            state.readers += 1
+            return state.count
+        }
+        defer { endRead() }
+        // SAFETY: the view is the live allocation's first `count` bytes (count <= size), valid for the call and
+        // not zeroed while it runs (zero() waits for the last read); `body` is not escaping, so it cannot keep it.
+        return try unsafe body(UnsafeRawBufferPointer(rebasing: allocation.prefix(count)))
     }
 
     /// The bytes' address for handing many secrets to one C call. Valid only
-    /// while this object is alive: keep it alive with `withExtendedLifetime`
-    /// until the call returns, and never store the pointer.
+    /// while this object is alive and not zeroed: keep it alive with `withExtendedLifetime`
+    /// until the call returns, zero it only after, and never store the pointer.
     @unsafe public var unsafeBytesWhileAlive: UnsafeRawBufferPointer {
-        unsafe UnsafeRawBufferPointer(rebasing: buffer.prefix(count))
+        unsafe UnsafeRawBufferPointer(rebasing: allocation.prefix(count))
     }
 
     /// Whether the bytes are UTF-8, checked in place: they never become a `String`.
@@ -107,8 +124,8 @@ public final class SecretBytes: @unchecked Sendable {
             // SAFETY: the iterator reads `bytes` (the live first `count` bytes) one at a time and stops at
             // its end; it does not leave this closure.
             var iterator = unsafe bytes.makeIterator()
-            // Each step reads at least one byte, so this ends within `count` steps.
-            for _ in 0...count {
+            // Each step reads at least one byte, so this ends within `bytes.count` steps.
+            for _ in 0...bytes.count {
                 switch unsafe decoder.decode(&iterator) {
                 case .scalarValue: continue
                 case .emptyInput: return true
@@ -129,11 +146,11 @@ public final class SecretBytes: @unchecked Sendable {
 
     /// Compares in time that depends only on the lengths.
     public func matches(_ other: SecretBytes) -> Bool {
-        guard count == other.count else { return false }
-        return withUnsafeBytes { mine in
+        withUnsafeBytes { mine in
             other.withUnsafeBytes { theirs in
+                guard mine.count == theirs.count else { return false }
                 // Every byte pair is read (no early exit), so the time depends only on the count.
-                // SAFETY: both views hold exactly `count` bytes (checked equal above) and are valid while these
+                // SAFETY: both views hold exactly the same count of bytes (checked above) and are valid while these
                 // closures run; zip reads them front to back, never past either end.
                 let difference = unsafe zip(mine, theirs).reduce(UInt8.zero) { $0 | ($1.0 ^ $1.1) }
                 return difference == 0
@@ -142,6 +159,40 @@ public final class SecretBytes: @unchecked Sendable {
     }
 
     public var isEmpty: Bool { count == 0 }
+
+    /// The whole allocation, rebuilt from its address.
+    @unsafe private var allocation: UnsafeMutableRawBufferPointer {
+        unsafe UnsafeMutableRawBufferPointer(start: UnsafeMutableRawPointer(bitPattern: address), count: size)
+    }
+
+    /// One read ended: the last one zeroes the memory when `zero()` ran during the reads.
+    private func endRead() {
+        state.withLock { state in
+            state.readers -= 1
+            guard state.readers == 0, state.zeroWhenReadsEnd else { return }
+            state.zeroWhenReadsEnd = false
+            // SAFETY: the last read just ended (readers is 0 under the lock); the allocation is live (see the type).
+            unsafe Self.clear(allocation)
+        }
+    }
+
+    /// Zeroes all of `buffer`, the live allocation.
+    @unsafe private static func clear(_ buffer: UnsafeMutableRawBufferPointer) {
+        guard let base = unsafe buffer.baseAddress else { return }
+        let size = unsafe buffer.count
+        // SAFETY: zeroes exactly the live allocation's `size` bytes.
+        _ = unsafe memset_s(base, size, 0, size)
+    }
+
+    /// Zeroes, unlocks and frees the allocation; called once, from deinit or a failed fill.
+    @unsafe private static func wipe(_ buffer: UnsafeMutableRawBufferPointer, locked: Bool) {
+        guard let base = unsafe buffer.baseAddress else { return }
+        let size = unsafe buffer.count
+        unsafe clear(buffer)
+        if locked { _ = unsafe munlock(base, size) }
+        // SAFETY: frees the allocation once (the callers above run once per allocation).
+        unsafe buffer.deallocate()
+    }
 }
 
 extension SecretBytes: CustomStringConvertible, CustomDebugStringConvertible, CustomReflectable {

@@ -191,14 +191,14 @@ public final class WebUIHost {
     }
     #endif
 
-    /// A configuration in the process pool and data store of the grouped WebKit pages
-    /// (``processGroups``), for a page-less WebKit warm-up view: WebKit's first-use setup and the
-    /// pool's one-time font listing (R81) then run before the first grouped page opens, and that
-    /// page can use the warm-up's web content process. Without groups the store is the warm-up's own.
+    /// A configuration in the process pool and the agent group's data store (``processGroups``,
+    /// ``WebProcessGroups/dataStore(for:)``), for a page-less WebKit warm-up view: WebKit's first-use
+    /// setup and the pool's one-time font listing (R81) then run before the first agent page opens,
+    /// and that page can use the warm-up's web content process. Without groups the store is the warm-up's own.
     public func groupedWebKitConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.processPool = PageProcessPool.forNewView
-        configuration.websiteDataStore = processGroups?.dataStore ?? .nonPersistent()
+        configuration.websiteDataStore = processGroups?.dataStore(for: .group(.agent)) ?? .nonPersistent()
         return configuration
     }
 

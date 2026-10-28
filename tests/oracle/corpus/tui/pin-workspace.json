@@ -1,0 +1,80 @@
+{
+ "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+ "corpusVersion": 1,
+ "id": "pin-workspace",
+ "suite": "tui",
+ "title": "p in the focused workspace rail pins the workspace; Escape returns to the pane",
+ "surface": "cmux-tui",
+ "source": {
+  "repo": "manaflow-ai/cmux",
+  "ref": "$RUN",
+  "artifact": "$RUN"
+ },
+ "environment": {},
+ "fixture": {
+  "seed": "tui-pin-workspace",
+  "network": "offline",
+  "clock": "fixed"
+ },
+ "preconditions": [
+  "cmux-tui attach on a PTY owned by driver_tui.py"
+ ],
+ "requires": [
+  "tui"
+ ],
+ "platforms": [
+  "linux"
+ ],
+ "steps": [
+  {
+   "id": "pin",
+   "op": "tui.key",
+   "target": {
+    "session": "current"
+   },
+   "args": {
+    "keys": [
+     "ctrl+b",
+     "shift+s",
+     "p"
+    ]
+   },
+   "expect": {
+    "outcome": "ok",
+    "noReceiptReason": "a key press has no receipt: its effect is the settled daemon facet and screen"
+   },
+   "checkpoint": [
+    "settled"
+   ],
+   "waitFor": {
+    "pointer": "/daemon/session/extra/state/sidebar",
+    "predicate": "changed",
+    "maxMs": 10000
+   }
+  },
+  {
+   "id": "close",
+   "op": "tui.key",
+   "target": {
+    "session": "current"
+   },
+   "args": {
+    "keys": [
+     "escape"
+    ]
+   },
+   "expect": {
+    "outcome": "ok",
+    "noReceiptReason": "a key press has no receipt: its effect is the settled daemon facet and screen"
+   },
+   "checkpoint": [
+    "settled"
+   ]
+  }
+ ],
+ "invariants": [],
+ "teardown": [
+  "hang up the TUI's terminal",
+  "stop the case daemon"
+ ]
+}

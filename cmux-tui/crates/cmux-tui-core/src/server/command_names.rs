@@ -482,6 +482,7 @@ command_table! {
     TerminalHistory => "terminal-history", TerminalIo;
     TerminalReadRange => "terminal-read-range", TerminalIo;
     ScrollSurface => "scroll-surface", TerminalIo;
+    MemoryReport => "memory-report", Query;
 }
 
 #[cfg(test)]
