@@ -40,6 +40,7 @@ mod idle;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
+pub(crate) mod list_guard;
 mod live_models;
 mod locate;
 pub mod media_handles;
@@ -372,7 +373,10 @@ pub struct Hub {
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
-    pub(super) events: broadcast::Sender<HubEvent>,
+    /// Every change watchers hear of, counted for the session list guard (`list_guard.rs`).
+    pub(super) events: list_guard::Events,
+    /// The shared, paced full session list (`list_guard.rs`).
+    pub(crate) list_guard: list_guard::ListGuard,
     /// `_acpmux/models` replies now asking peers for theirs
     /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
     /// daemon's own catalog, so mutual peers cannot ping-pong.
@@ -566,7 +570,7 @@ impl Hub {
     }
 
     fn build(config: Config, store: Box<dyn Store>, mailbox: Mailbox, deferred: bool) -> Arc<Self> {
-        let (events, _) = broadcast::channel(8192);
+        let events = list_guard::Events::new(8192);
         let (peer_notices, peer_notices_rx) = mpsc::channel(4096);
         let peers_cfg = config.peers.clone();
         let handoffs = handoff::Handoffs::open(store.handoff_dir());
@@ -586,6 +590,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            list_guard: Default::default(),
             models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
