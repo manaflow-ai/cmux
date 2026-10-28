@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextFocus
 import CmuxNextDaemon
@@ -49,7 +50,7 @@ enum TabCloseGuard {
         // question, in the person's own turn.
         guard !terminals.isEmpty else { return answer(tabs, ids: ids, asked: [:], window: window, services: services, close: close) }
         // Every asked terminal's state is pushed: the close, or the question, in the person's own turn.
-        if let pushed = pushedPrograms(terminals) {
+        if let pushed = PushedShellState.programs(terminals) {
             guard pushed.values.contains(where: { $0 != nil }) else {
                 return answer(tabs, ids: ids, asked: pushed, window: window, services: services, close: close)
             }
@@ -110,42 +111,8 @@ enum TabCloseGuard {
         }
     }
 
-    /// A terminal's shell state as the daemon pushes it (OSC 133 marks of its shell integration).
-    enum PushedState: Equatable {
-        /// At its prompt: nothing runs in the foreground.
-        case idle
-        /// A command runs.
-        case busy
-        /// No state reported (a shell without integration, a program spawned directly, a terminal just made).
-        case unknown
-    }
-
-    /// `tab`'s pushed shell state (``TabModel/commandSinceMs``, ``TabModel/commandInUse``, ``TabModel/promptSinceMs``).
-    ///
-    /// Limits (the read-after-close of the undo toast still names what ran): a nested shell with its own OSC 133 marks
-    /// (ssh or `docker exec` into an integrated shell) reports its prompt, so the tab reads idle while ssh runs; it then
-    /// closes without the question (its terminal survives the reap grace, and the toast's Undo brings it back). A
-    /// command typed a moment before the press may not be pushed yet. A shell replaced without integration (`exec
-    /// bash`) can leave a stale running command, which asks once. A daemon check of the PTY's foreground leader against
-    /// the shell would close these (cmux-tui follow-up).
-    static func pushedState(_ tab: TabModel) -> PushedState {
-        if tab.commandSinceMs != nil || tab.commandInUse { return .busy }
-        return tab.promptSinceMs != nil ? .idle : .unknown
-    }
-
-    /// What `terminals` run, from their pushed states alone: nil for an idle one, an empty name for a running
-    /// command (its name comes from a read), or nil overall when one reports no state.
-    static func pushedPrograms(_ terminals: [TabModel]) -> RunningPrograms? {
-        var programs: RunningPrograms = [:]
-        for tab in terminals {
-            switch pushedState(tab) {
-            case .idle: programs[tab.surface] = .some(nil)
-            case .busy: programs[tab.surface] = .some(RunningPrograms.unnamed)
-            case .unknown: return nil
-            }
-        }
-        return programs
-    }
+    /// `tab`'s pushed shell state (``PushedShellState``).
+    static func pushedState(_ tab: TabModel) -> PushedShellState { PushedShellState(tab) }
 
     /// A running command asks in the person's own turn (`pushed`); the read names the programs and updates the
     /// question in place. The person's answer closes with the newest names known.
@@ -163,7 +130,7 @@ enum TabCloseGuard {
         }
         guard let dialog else { return }
         // Only the names are read, off main; the question is already up.
-        let busy = terminals.filter { pushedState($0) == .busy }
+        let busy = terminals.filter { PushedShellState($0) == .busy }
         let end = services.registry.completion(on: services.mainWork)
         end.start {
             let read = await DestructiveConfirmation.runningPrograms(bySurface: busy, on: daemon)

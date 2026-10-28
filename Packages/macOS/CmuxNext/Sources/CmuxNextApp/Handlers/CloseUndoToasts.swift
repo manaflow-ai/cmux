@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
@@ -230,7 +231,7 @@ final class CloseUndoToasts {
 
     /// `CloseToastRule`'s answer for `tabs`; `run` closes them in the caller's turn, always (Lawrence 2026-10-28:
     /// N quick Cmd-W presses close N tabs, each from the strip as the press before left it). `asked` holds terminals
-    /// the close's question already asked; the daemon's pushed shell state (``TabCloseGuard/pushedPrograms(_:)``)
+    /// the close's question already asked; the daemon's pushed shell state (``PushedShellState/programs(_:)``)
     /// answers for the rest. Only a terminal that reports no state is read: its process-info request goes out
     /// before the close (a closed terminal is detached and reaped after the daemon's grace, cx-lb4al), `run` gets
     /// nil (deciding) and the toast waits for the read (``decided(_:costly:)``).
@@ -242,7 +243,7 @@ final class CloseUndoToasts {
         case .askTerminals(let terminals) where asked.covers(terminals):
             run(terminals.contains { asked[$0.surface].flatMap { $0 } != nil })
         case .askTerminals(let terminals):
-            if let pushed = TabCloseGuard.pushedPrograms(terminals.filter { !asked.covers([$0]) }) {
+            if let pushed = PushedShellState.programs(terminals.filter { !asked.covers([$0]) }) {
                 return run(terminals.contains { (asked[$0.surface] ?? pushed[$0.surface]).flatMap { $0 } != nil })
             }
             // The close does not wait for the read: the tabs leave the strip in this turn. The read is queued in this turn
