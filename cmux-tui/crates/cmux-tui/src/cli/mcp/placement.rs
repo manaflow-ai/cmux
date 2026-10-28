@@ -157,10 +157,16 @@ impl<B: Backend> Server<B> {
                     Some(caller)
                 }
                 Ok(None) => None,
-                Err(failure) => {
-                    let message = failure.error["message"].as_str().unwrap_or("no answer");
-                    return Err(caller_scope::unresolved(message));
-                }
+                // No app (a cmux TUI or Cloud session): the daemon knows the
+                // caller's terminal, as it does for the CLI (resolve.rs
+                // `caller_path_of`).
+                Err(failure) => match self.daemon_caller() {
+                    Some(caller) => Some(caller),
+                    None => {
+                        let message = failure.error["message"].as_str().unwrap_or("no answer");
+                        return Err(caller_scope::unresolved(message));
+                    }
+                },
             }
         } else {
             None
@@ -172,5 +178,34 @@ impl<B: Backend> Server<B> {
             .flatten();
         caller_scope::apply(params, caller.as_ref(), focus.as_ref());
         Ok(())
+    }
+
+    /// The caller's place from the session daemon alone: the terminal in
+    /// `CMUX_TUI_TERMINAL_ID` and the tab, pane, screen and workspace that
+    /// hold it. `None` without that terminal or when the daemon does not
+    /// place it. Without this, every `current` over MCP failed in a session
+    /// no app owns, while the same CLI call worked (tests/tool-evals
+    /// `no-app-current`, 2026-10-27).
+    fn daemon_caller(&self) -> Option<Value> {
+        let terminal = std::env::var("CMUX_TUI_TERMINAL_ID").ok().filter(|id| !id.is_empty())?;
+        let mut caller = Map::new();
+        caller.insert("terminal_id".into(), json!(terminal));
+        let mut id = terminal;
+        for (tool, selector, parent, level) in [
+            ("terminal_get", "terminal", "tab_id", "tab"),
+            ("tab_get", "tab", "pane_id", "pane"),
+            ("pane_get", "pane", "screen_id", "screen"),
+            ("screen_get", "screen", "workspace_id", "workspace"),
+        ] {
+            let tool = v2_tools::find(tool)?;
+            let mut arguments = Map::new();
+            arguments.insert(selector.into(), json!(id));
+            let call = tool.plan(&arguments).ok()?;
+            let answer = self.backend.resource(None, call.plan, &call.prefixes).ok()?;
+            let record = answer.get("value").unwrap_or(&answer);
+            id = record.get(parent)?.as_str()?.to_owned();
+            caller.insert(level.into(), json!(id));
+        }
+        Some(Value::Object(caller))
     }
 }
