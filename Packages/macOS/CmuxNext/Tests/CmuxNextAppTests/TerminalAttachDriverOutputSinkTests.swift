@@ -79,7 +79,7 @@ nonisolated private final class SinkLink: TerminalAttachLink {
 
     var sink: TerminalEchoSink? { held.withLock { $0 } }
 
-    func sendInput(_ data: Data) {}
+    func sendInput(_ data: Data, keyFlow: UInt64) {}
     func sendClaim(reporting size: CellSize) {}
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) {}
     func sendHidden(_ hidden: Bool) {}

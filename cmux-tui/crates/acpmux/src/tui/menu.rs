@@ -136,8 +136,8 @@ impl App {
         // Sidebar rows: drafts and sessions.
         if let Some((_, idx)) = self.sidebar_rows.iter().find(|(r, _)| hit(*r)).cloned() {
             self.select(idx);
-            if idx < self.drafts.len() {
-                let id = self.drafts[idx].id;
+            if let Some(draft) = self.drafts.get(idx) {
+                let id = draft.id;
                 self.overlay = Overlay::Menu(Menu::new(
                     "new session",
                     (x, y),

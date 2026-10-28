@@ -31,8 +31,8 @@ pub fn resolve(option: &Value, requested: &str) -> Result<String, String> {
         .iter()
         .filter(|(id, _)| {
             let Ok(parts) = serde_json::from_str::<Vec<String>>(id) else { return false };
-            parts.len() == 2
-                && (parts[1] == requested || format!("{}/{}", parts[0], parts[1]) == requested)
+            let [provider, model] = parts.as_slice() else { return false };
+            model == requested || format!("{provider}/{model}") == requested
         })
         .collect();
     match matches.as_slice() {

@@ -1009,8 +1009,8 @@ impl Config {
                     return Ok(p.clone());
                 }
             }
-            if members.len() == 1 {
-                return Ok(members[0].clone());
+            if let [only] = members.as_slice() {
+                return Ok(only.clone());
             }
             if members.iter().any(|m| m == head) {
                 return Ok(head.to_owned());

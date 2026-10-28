@@ -841,6 +841,7 @@ final class AppServices {
         browserStores.loadRememberedSignIns(on: work)
         vncSignIns.loadRememberedVNCSignIns(on: work)
         machines = MachineRegistry(local: daemon)
+        if self.features.isEnabled(.frontendVisibilityScope) { daemon.reportFrontendVisibility(on: mainWork) }  // before the cache's first tab node
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
@@ -853,6 +854,10 @@ final class AppServices {
         pages.sharesChromiumWindows = self.features.isEnabled(.pageTabsShareChromiumWindow)
         DebugTimings.markLaunch("services.cache")
         let runtime = GhosttyRuntime.shared
+        // Terminal keys' echo and daemon stages go to the input latency slots, from the first terminal (p04-input-094).
+        let terminalKeys = TerminalKeyLatency(tracker: inputLatency.tracker)
+        runtime.echoStages.install(terminalKeys)
+        cache.terminalKeyStamps = terminalKeys
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
             previousConfigChange?()

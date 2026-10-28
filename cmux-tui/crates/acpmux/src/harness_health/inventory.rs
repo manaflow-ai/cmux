@@ -109,6 +109,10 @@ pub(super) fn cli_family(row: &HarnessHealth) -> Option<&'static str> {
 /// A saved cache may predate version parsing. Only a complete version
 /// token crosses this boundary; never an error line containing one.
 pub(super) fn safe_version(value: Option<&str>) -> Option<&str> {
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+    )]
     static VERSION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
         regex::Regex::new(r"^v?[0-9]+\.[0-9]+(?:\.[0-9]+)?(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$")
             .expect("inventory version pattern") // crash-allow: constant pattern
@@ -119,6 +123,13 @@ pub(super) fn safe_version(value: Option<&str>) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The version pattern is a constant behind an INVARIANT expect: building it
+    /// here keeps a broken pattern a test failure, never a daemon panic.
+    #[test]
+    fn the_constant_patterns_compile() {
+        assert_eq!(safe_version(Some("1.2.3")), Some("1.2.3"));
+    }
 
     #[test]
     fn cmux_next_harness_inventory_preserves_release_version_tokens() {
