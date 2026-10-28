@@ -211,8 +211,8 @@ public struct MobileSyncFrameCodec {
               let payloadLength = UInt32(exactly: payload.count) else {
             throw MobileSyncFrameCodecError.frameTooLarge(payload.count)
         }
-        var length = payloadLength.bigEndian
-        var frame = Data(bytes: &length, count: headerByteCount)
+        var frame = Data(capacity: headerByteCount + payload.count)
+        frame.appendBigEndian(payloadLength)
         frame.append(payload)
         return frame
     }
