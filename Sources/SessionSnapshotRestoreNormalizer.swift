@@ -15,6 +15,7 @@ struct SessionSnapshotRestoreNormalizer {
             maximumNodes: SessionPersistencePolicy.maxLayoutNodes,
             maximumDepth: SessionPersistencePolicy.maxLayoutDepth
         )
+        var admittedPanelIDs = Set<UUID>()
         var windows: [SessionWindowSnapshot] = []
         let admittedWindows = snapshot.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot)
         report.droppedWindowCount += snapshot.windows.count - admittedWindows.count
@@ -44,13 +45,24 @@ struct SessionSnapshotRestoreNormalizer {
                 if workspace.panels.isEmpty {
                     panelBudget -= 1
                 } else {
-                    workspace.panels = admittedPanels(workspace.panels, budget: &panelBudget, report: &report)
+                    workspace.panels = admittedPanels(
+                        workspace.panels,
+                        budget: &panelBudget,
+                        admittedPanelIDs: &admittedPanelIDs,
+                        report: &report
+                    )
                 }
                 let normalized = layouts.normalize(workspace.layout, panelIDs: workspace.panels.map(\.id))
                 workspace.layout = normalized.layout
                 report.droppedPanelCount += normalized.droppedPanelCount
                 if let dock = workspace.dock {
-                    workspace.dock = normalizedDock(dock, budget: &panelBudget, layouts: &layouts, report: &report)
+                    workspace.dock = normalizedDock(
+                        dock,
+                        budget: &panelBudget,
+                        admittedPanelIDs: &admittedPanelIDs,
+                        layouts: &layouts,
+                        report: &report
+                    )
                 }
                 workspaces.append(workspace)
             }
@@ -67,7 +79,13 @@ struct SessionSnapshotRestoreNormalizer {
             window.tabManager.workspaces = workspaces
             if workspaces.isEmpty { panelBudget -= 1 }
             if let dock = window.dock {
-                window.dock = normalizedDock(dock, budget: &panelBudget, layouts: &layouts, report: &report)
+                window.dock = normalizedDock(
+                    dock,
+                    budget: &panelBudget,
+                    admittedPanelIDs: &admittedPanelIDs,
+                    layouts: &layouts,
+                    report: &report
+                )
             }
             windows.append(window)
         }
@@ -78,22 +96,41 @@ struct SessionSnapshotRestoreNormalizer {
     private func admittedPanels(
         _ panels: [SessionPanelSnapshot],
         budget: inout Int,
+        admittedPanelIDs: inout Set<UUID>,
         report: inout SessionSnapshotImportTrustReport
     ) -> [SessionPanelSnapshot] {
-        let count = min(panels.count, SessionPersistencePolicy.maxPanelsPerWorkspace, budget)
-        budget -= count
-        report.droppedPanelCount += panels.count - count
-        return Array(panels.prefix(count))
+        let maximum = min(SessionPersistencePolicy.maxPanelsPerWorkspace, budget)
+        var result: [SessionPanelSnapshot] = []
+        result.reserveCapacity(min(panels.count, maximum))
+        for panel in panels {
+            guard result.count < maximum else {
+                report.droppedPanelCount += 1
+                continue
+            }
+            guard admittedPanelIDs.insert(panel.id).inserted else {
+                report.droppedPanelCount += 1
+                continue
+            }
+            result.append(panel)
+        }
+        budget -= result.count
+        return result
     }
 
     private func normalizedDock(
         _ dock: SessionSplitContainerSnapshot,
         budget: inout Int,
+        admittedPanelIDs: inout Set<UUID>,
         layouts: inout SessionLayoutRestoreNormalizer,
         report: inout SessionSnapshotImportTrustReport
     ) -> SessionSplitContainerSnapshot {
         var result = dock
-        result.panels = admittedPanels(dock.panels, budget: &budget, report: &report)
+        result.panels = admittedPanels(
+            dock.panels,
+            budget: &budget,
+            admittedPanelIDs: &admittedPanelIDs,
+            report: &report
+        )
         let normalized = layouts.normalize(dock.layout, panelIDs: result.panels.map(\.id))
         result.layout = normalized.layout
         report.droppedPanelCount += normalized.droppedPanelCount

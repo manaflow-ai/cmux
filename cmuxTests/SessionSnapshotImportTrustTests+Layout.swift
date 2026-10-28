@@ -124,6 +124,31 @@ extension SessionSnapshotImportTrustTests {
         #expect(Self.layoutPanelIDs(layout) == [panel.id])
     }
 
+    @Test("trusted restore drops duplicate panel records before runtime admission")
+    func trustedRestoreDropsDuplicatePanelRecords() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var duplicate = panel
+        duplicate.title = "duplicate record"
+        var workspace = Self.workspace(
+            panels: [panel, duplicate],
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [panel.id, duplicate.id],
+                selectedPanelId: duplicate.id
+            ))
+        )
+        let original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.channelImport
+        )
+
+        let panels = try #require(restored.windows.first?.tabManager.workspaces.first?.panels)
+        #expect(panels.map(\.id) == [panel.id])
+        #expect(panels.first?.title == panel.title)
+        #expect(report.droppedPanelCount == 1)
+    }
+
     @Test("trusted restore bounds a skewed deep layout without overflowing the stack")
     func trustedRestoreBoundsSkewedDeepLayout() throws {
         let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
