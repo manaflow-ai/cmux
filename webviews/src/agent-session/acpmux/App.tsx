@@ -5431,6 +5431,10 @@ function AcpmuxPane() {
     (server: string) => directClient.current?.reconnectMcp(server) ?? Promise.reject(new Error()),
     [],
   );
+  const reconnectPeer = useCallback(
+    (peer: string) => directClient.current?.reconnectPeer(peer) ?? Promise.reject(new Error()),
+    [],
+  );
   // An opened background task note reads the end of the task's output from the same registry
   // (conversation/backgroundTaskOutput.ts), once, when it opens.
   const backgroundTaskOutput = useMemo<BackgroundTaskOutputReader | undefined>(
@@ -10164,7 +10168,12 @@ function AcpmuxPane() {
                   />
                 )}
                 {snapshot.peerCopy?.offline && (
-                  <PeerCopyBanner copy={snapshot.peerCopy} machine={peerMachine.state} onResume={peerMachine.resume} />
+                  <PeerCopyBanner
+                    copy={snapshot.peerCopy}
+                    machine={peerMachine.state}
+                    onResume={peerMachine.resume}
+                    onReconnect={reconnectPeer}
+                  />
                 )}
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner

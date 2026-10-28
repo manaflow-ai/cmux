@@ -2758,6 +2758,13 @@ export class AcpmuxDirectClient {
     return this.request(MCP_RECONNECT_METHOD, { sessionId, server }, 35_000);
   }
 
+  /// Asks the local daemon to retry the configured peer and wait for its doctor result.
+  /// The daemon returns the refreshed peer list on success and a `peer_unreachable` doctor error
+  /// when the peer remains refused.
+  reconnectPeer(peer: string): Promise<unknown> {
+    return this.request("_acpmux/peer_reconnect", { name: peer, wait: true }, 20_000);
+  }
+
   /// Stops one of the selected session's running subagents (a Claude agent or workflow); acpmux
   /// sends Claude's stop_task and answers with Claude's answer, and the subagent ends as cancelled
   /// when Claude stops it. A Claude that never answers fails it after 10 s.

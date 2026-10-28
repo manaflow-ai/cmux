@@ -70,7 +70,7 @@ enum Strings {
         case .failed: statusFailed
         case .paused: statusPaused
         case .pausedIdle: statusPausedIdle
-        case .connected, .connecting, .offline, .updateAvailable, .installing: nil
+        case .connected, .offline, .updateAvailable, .installing: nil
         }
     }
     static func unreadCount(_ value: Int) -> String { String(localized: "sidebar.a11y.unread", defaultValue: "\(value) unread", bundle: .module) }
