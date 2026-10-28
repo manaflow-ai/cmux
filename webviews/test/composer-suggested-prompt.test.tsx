@@ -482,19 +482,19 @@ test("the + menu scrolls keyboard-selected skills into view before Enter picks o
     await act(async () => plus.click());
     const search = host.querySelector<HTMLInputElement>('input[role="combobox"]')!;
     expect(search).toBeTruthy();
-    await act(async () => search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
+    const list = host.querySelector<HTMLElement>('[role="listbox"]')!;
+    await act(async () => list.focus());
+    await act(async () => list.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "End", bubbles: true })));
     const last = search.getAttribute("aria-activedescendant")!;
     expect(scrolled).toContain(last);
     for (let index = 0; index < 2; index++)
       await act(async () =>
-        search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
+        list.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
       );
     const skill = search.getAttribute("aria-activedescendant")!;
     expect(host.ownerDocument.getElementById(skill)?.getAttribute("data-value")).toBe("add.skill.skill23");
     expect(scrolled).toContain(skill);
-    await act(async () =>
-      search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })),
-    );
+    await act(async () => list.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
     expect(field().textContent).toContain("/skill23 ");
   } finally {
     dom.window.HTMLElement.prototype.scrollIntoView = original;
