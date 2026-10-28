@@ -68,6 +68,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// build measure an engine Release never runs, so it is dropped.
     static let benchSwitchNames: Set<String> = [
         "host-resolver-rules", "ignore-certificate-errors-spki-list",
+        // The component updater's first check (``componentUpdaterDelaySwitch``): a bench of an optimized build sets
+        // Chromium's own 60 s back for the "before" row; it comes after the default, and the later value wins.
+        "component-updater",
         CEFSharedRendererMemoryCaps.mainFrameSwitch, CEFSharedRendererMemoryCaps.subframeSwitch,
     ]
 

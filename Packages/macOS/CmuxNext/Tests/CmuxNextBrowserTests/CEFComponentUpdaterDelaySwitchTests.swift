@@ -30,6 +30,18 @@ import Testing
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
+    /// A bench of a development bundle (optimized bench builds too) puts Chromium's own delay back with
+    /// `CMUX_NEXT_BENCH_CEF_SWITCHES`: its entry comes after the default, so Chromium reads it (the before row).
+    @Test func aBenchSwitchPutsChromiumsDelayBackForTheBeforeRow() {
+        let arguments = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI, bundleIdentifier: "com.cmuxterm.app.debug.tag",
+                                            environment: ["CMUX_NEXT_BENCH_CEF_SWITCHES": "component-updater=initial-delay=60"]).arguments
+        let entries = arguments.filter { $0.hasPrefix(Self.prefix) }
+        #expect(entries == ["component-updater=initial-delay=300", "component-updater=initial-delay=60"], "\(entries)")
+        let release = CEFSwitches.current(forkAPIVersion: CEFSwitches.resizeSyncForkAPI, bundleIdentifier: "com.cmuxterm.app.next",
+                                          environment: ["CMUX_NEXT_BENCH_CEF_SWITCHES": "component-updater=initial-delay=60"]).arguments
+        #expect(release.filter { $0.hasPrefix(Self.prefix) } == ["component-updater=initial-delay=300"], "a release bundle reads no bench switch")
+    }
+
     /// The Chromium Host starts Chromium with the same switch set.
     @Test func theChromiumHostGetsTheSameDelay() {
         let root = URL(filePath: "/nonexistent/cmux-component-delay")
