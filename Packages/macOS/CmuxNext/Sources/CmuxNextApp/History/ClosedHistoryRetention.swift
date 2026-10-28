@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -110,5 +111,75 @@ final class ClosedHistoryRetention {
         let timer = deadlines[machine] ?? MainDeadline(owner: "ClosedHistoryRetention.recheck", workClass: .background, scheduler: scheduler)
         deadlines[machine] = timer
         timer.schedule(after: delay) { [weak self] in self?.check([machine]) }
+    }
+}
+
+// Deleting closed history for good (History's Remove, Clear History), beside its retention.
+extension DaemonClosedHistory {
+    /// A deleted `window` item of this app: its closed window lets its
+    /// workspaces go (nothing could reopen them otherwise).
+    fileprivate static func releaseWindow(of item: ClosedItem, daemon: DaemonService, services: AppServices) {
+        guard item.kind == .window, daemon.isLocal, let recorded = item.window,
+              let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return }
+        services.windows.releaseClosedWindow(id: String(recorded.dropFirst(install.count + 1)))
+    }
+
+    /// Sends the agent-home folders of deleted closed workspaces (the
+    /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
+    /// the main thread. At launch and after each delete or clear.
+    static func emptyAgentHomeTrash() { AgentHome.emptyStandardTrashPendingInBackground() }
+
+    /// Deletes `entry` for good on its daemon (History's Remove, Search
+    /// Tabs' forget): it cannot be reopened any more.
+    static func delete(_ entry: Entry, services: AppServices) {
+        let daemon = entry.daemon, id = entry.item.id, isLocal = daemon.isLocal
+        releaseWindow(of: entry.item, daemon: daemon, services: services)
+        // The daemon's send path: the command runs on the connection and reports to a capturing caller.
+        daemon.send("closed.delete") { connection in
+            do {
+                try await connection.state.deleteClosed(id)
+            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+                // Already gone (a second Remove, or a reopen that ran first): the goal holds.
+                return
+            }
+            if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
+        }
+    }
+
+    /// ``delete(_:services:)`` that answers once the daemon deleted `entry`:
+    /// nil, or why not (`debug.closed_forget` waits for it).
+    static func deleteNow(_ entry: Entry, services: AppServices) async -> String? {
+        let daemon = entry.daemon, id = entry.item.id
+        releaseWindow(of: entry.item, daemon: daemon, services: services)
+        guard let connection = daemon.connection else { return MiscHandlerStrings.daemonOffline }
+        do {
+            try await connection.state.deleteClosed(id)
+            if daemon.isLocal { emptyAgentHomeTrash() }
+            return nil
+        } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+            // Already gone (a second Remove, or a reopen that ran first): the goal holds.
+            return nil
+        } catch {
+            daemon.logger.error("closed.delete failed: \(String(describing: error), privacy: .public)")
+            return "closed.delete: \(error)"
+        }
+    }
+
+    /// Clears every connected daemon's closed history: the groups closed at
+    /// or after `since`, every group for nil (Clear History). `since` is this
+    /// Mac's clock; a remote daemon with a skewed clock clears a range off by
+    /// that skew.
+    static func clear(since: Date?, services: AppServices) {
+        let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
+        for entry in entries([.window], in: services) where sinceMs.map({ entry.item.closedAtMs >= $0 }) ?? true {
+            releaseWindow(of: entry.item, daemon: entry.daemon, services: services)
+        }
+        for daemon in services.machines.daemons where daemon.store.servesStateResources {
+            let isLocal = daemon.isLocal
+            daemon.send("closed.delete all") { connection in
+                try await connection.state.deleteAllClosed(sinceMs: sinceMs)
+                if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
+            }
+        }
     }
 }

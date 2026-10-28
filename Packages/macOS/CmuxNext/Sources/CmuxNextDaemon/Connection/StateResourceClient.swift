@@ -78,12 +78,15 @@ extension StateResourceClient {
         public var tabIDs: [ResourceID]
         /// For a reopened `window` group: the window record (`install/window`) to show again.
         public var window: String?
+        /// The group reopened (`closed_…`); nil from a daemon that does not say.
+        public var closedID: String?
 
         enum CodingKeys: String, CodingKey {
             case workspaceID = "workspace_id"
             case screenIDs = "screen_ids"
             case tabIDs = "tab_ids"
             case window
+            case closedID = "closed_id"
         }
     }
 
@@ -92,6 +95,15 @@ extension StateResourceClient {
     @discardableResult
     public func reopenClosed(_ id: String) async throws -> ReopenedItem {
         try await stateMutation(V2ClosedReopenRequest(closed: id), as: ReopenedItem.self)
+    }
+
+    /// Reopens the newest closed group of window record `window` (`install/window`), else the newest
+    /// one no live window owns; nil `window`: the newest group that is not a window. The daemon picks
+    /// at the time it applies the request (Cmd-Shift-T after closes whose records are not mirrored yet).
+    /// - Throws: `DaemonError.command` with code `resource.not_found` when no group is in scope.
+    @discardableResult
+    public func reopenNewestClosed(window: String?) async throws -> ReopenedItem {
+        try await stateMutation(V2ClosedReopenRequest(window: window), as: ReopenedItem.self)
     }
 
     /// Reopens closed tab `tab` (`tab_…`) by its id, under that same id

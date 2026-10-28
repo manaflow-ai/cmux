@@ -85,6 +85,42 @@ struct SpamReopenClosedTests {
         }
     }
 
+    /// Review of the fix: two Cmd-W then two Cmd-Shift-T in one turn, an older closed tab in
+    /// history. Both presses wait for closes whose records are not in the store yet: the two tabs
+    /// just closed come back at their places, and the older one stays closed.
+    @Test func twoCmdWThenTwoCmdShiftTInOneTurnReopenBothTabsJustClosed() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let tag = UUID().uuidString.prefix(6).lowercased()
+            let urls = ["older", "first", "second"].map { "https://example.com/\($0)-\(tag)" }
+            var surfaces: [SurfaceID] = []
+            for url in urls {
+                surfaces.append(try await connection.newFrontendBrowserTab(url: url, engine: .webkit, in: paneModel.handle, activate: false).surface)
+            }
+            try await PinnedPageTests.until({ surfaces.allSatisfy { store.tab(surface: $0) != nil } })
+            let seen = Set(store.closedItems.map(\.id))
+            try await connection.closeTab(surfaces[0])
+            try await PinnedPageTests.until({ Self.fresh(store, seen).count == 1 }, report: { "the older close was not recorded" })
+            let olderItem = try #require(Self.fresh(store, seen).first?.id)
+            let before = paneModel.tabs.map { $0.url ?? $0.id }
+
+            let pane = try #require(services.paneController(for: paneModel))
+            let lastID = try #require(store.tab(surface: surfaces[2])).id
+            try await PinnedPageTests.until({ pane.orderedIDs.map(\.rawValue).contains(lastID) })
+            pane.select(TabID(lastID))
+            try #require(pane.stripModel.selectedID?.rawValue == lastID)
+
+            let failures = await Self.perform(services, ["closeTab", "closeTab", "reopenClosedBrowserPanel", "reopenClosedBrowserPanel"])
+            #expect(failures.isEmpty, "two Cmd-W then two Cmd-Shift-T: \(failures)")
+            try await PinnedPageTests.until({ urls.dropFirst().allSatisfy { url in paneModel.tabs.contains { $0.url == url } } },
+                                            report: { "open: \(paneModel.tabs.map { $0.url ?? $0.id })" })
+            #expect(!paneModel.tabs.contains { $0.url == urls[0] }, "a Cmd-Shift-T reopened the older tab")
+            #expect(paneModel.tabs.map { $0.url ?? $0.id } == before, "the tabs came back out of reverse close order")
+            #expect(store.closedItems.contains { $0.id == olderItem }, "the older close left the history")
+        }
+    }
+
     /// The closed items stored since `seen`, newest first.
     private static func fresh(_ store: DaemonStore, _ seen: Set<String>) -> [ClosedItem] {
         store.closedItems.filter { !seen.contains($0.id) }

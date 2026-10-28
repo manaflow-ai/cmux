@@ -4,6 +4,7 @@ import CmuxNextBridge
 import CmuxNextBrowserHistory
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// Recently closed tabs, screens, and workspaces as the daemon records them
@@ -147,8 +148,10 @@ enum DaemonClosedHistory {
 
     /// Cmd-Shift-T (input-principles.md 1-3, audit A1): the newest item of `window` no earlier press
     /// took (``CloseUndoToasts/reopenClaims``: the store drops an item only on the daemon's event),
-    /// so N presses reopen N items newest first, none twice. A close on its way (a close intent) is
-    /// newer than every record: a press made then picks once that close is recorded, so Cmd-W then
+    /// so N presses reopen N items newest first, none twice. With no close or press on its way, a
+    /// press picks in its own turn. A close on its way (a close intent) is newer than every record,
+    /// and its record reaches the store on its own stream: a press made then (or behind such a press)
+    /// waits for the closes to apply and lets the daemon pick its newest item, so Cmd-W then
     /// Cmd-Shift-T reopens the tab just closed. Each press sends after the one before replied: each
     /// item goes back to its old place, right only newest first. False: nothing to reopen.
     static func reopenNewest(for window: String?, in services: AppServices) -> Bool {
@@ -160,7 +163,6 @@ enum DaemonClosedHistory {
         let closing = pendingCloses(in: services)
         let target: Entry?
         if closing.isEmpty, undo.reopensWaiting == 0 {
-            // No earlier press or close is still to be resolved: this press picks in its own turn.
             guard let entry = take(for: window, in: services, undo) else { return false }
             target = entry
         } else {
@@ -171,31 +173,67 @@ enum DaemonClosedHistory {
         }
         let previous = undo.reopenTail
         // task-owner: CloseUndoToasts.reopenTail, the next press's wait; it ends with its reply
-        // main-hop-allow: the person's reopen, in press order: it resumes on main only after the press before it replied and after the closes pending at the press left the intent log, then reads the store and sends
+        // main-hop-allow: the person's reopen, in press order: it resumes on main only after the press before it replied and after the closes pending at the press applied (5 s at most), then sends
         let sent = Task { @MainActor [weak undo] () -> Sent? in
             _ = await previous?.value
-            var entry = target
-            if entry == nil {
-                for close in closing { _ = await close.store.waitIntentsIdle(of: close.transactions) }
-                guard let undo else { return nil }
-                undo.reopensWaiting -= 1
-                entry = take(for: window, in: services, undo)
+            let result: Sent? = if let target { (entry: target, reply: await send(target, services: services)) } else {
+                await sendNewest(for: window, after: closing, services: services, undo)
             }
-            guard let entry else { return nil }
-            return (entry, await send(entry, services: services))
+            // Not reopened: the next press may take it again (released before that press picks).
+            if let result, case .failure = result.reply { undo?.reopenClaims.remove(result.entry.item.id) }
+            return result
         }
         undo.reopenTail = sent
         // main-hop-allow: the rest of the person's reopen (userBlocking, p06 rule 2), tracked for a capturing caller: it shows what came back on main
-        services.registry.track(Task { @MainActor [weak undo] in
+        services.registry.track(Task { @MainActor in
             guard let sent = await sent.value else {
+                // Nothing left in the history: the app's registry reopens the last closed window, as the press would have.
+                if services.windows.reopenClosedWindow() { return nil }
                 services.registry.refuse(RefusalStrings.noRecentlyClosedTab, quiet: true)
                 return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedTab)
             }
-            // Not reopened: a later press may take it again.
-            if case .failure = sent.reply { undo?.reopenClaims.remove(sent.entry.item.id) }
             return await finish(sent.entry, sent.reply, services: services)
         })
         return true
+    }
+
+    /// A press made while closes or earlier presses were on their way, after the presses before it
+    /// replied. Behind closes, once they applied (5 s at most) the daemon picks its newest group of
+    /// `window` (it holds their records; the store may not yet); else the store's newest untaken one.
+    private static func sendNewest(for window: String?, after closing: [PendingCloses], services: AppServices,
+                                   _ undo: CloseUndoToasts?) async -> Sent? {
+        defer { undo?.reopensWaiting -= 1 }
+        for close in closing {
+            let store = close.daemon.store, transactions = close.transactions
+            _ = await Deadline(.seconds(5)).value("reopen.pending-closes") { await store.waitIntentsIdle(of: transactions) }
+        }
+        guard let daemon = (closing.first { $0.daemon.isLocal } ?? closing.first)?.daemon else {
+            guard let undo, let entry = take(for: window, in: services, undo) else { return nil }
+            return (entry, await send(entry, services: services))
+        }
+        guard let connection = daemon.connection else { return nil }
+        let record = window.flatMap { recordID(window: $0, in: services) }
+        let reply: Result<StateResourceClient.ReopenedItem, any Error>
+        do {
+            reply = .success(try await connection.state.reopenNewestClosed(window: record))
+        } catch {
+            reply = .failure(error)
+        }
+        switch reply {
+        case .success(let reopened):
+            guard let id = reopened.closedID else { return nil }
+            undo?.reopenClaims.insert(id)
+            // Its record, or what the reply says when the store has none yet.
+            let kind: ClosedItem.Kind = reopened.window != nil ? .window : reopened.screenIDs.isEmpty ? .tab : .workspace
+            let recorded = entry(id, in: services)
+            // Its browser tabs' pages restore the history they closed with (cx-d0d.59), when the store has the record.
+            if let recorded, daemon.isLocal { services.cache.pageRequests.closedHistories.expect(recorded.item) }
+            return (recorded ?? Entry(item: ClosedItem(id: id, kind: kind), daemon: daemon), .success((connection, reopened)))
+        case .failure(DaemonError.command(_, _, "resource.not_found", _, _)):
+            return nil
+        case .failure(let error):
+            return (Entry(item: ClosedItem(id: "newest", kind: .tab), daemon: daemon), .failure(error))
+        }
     }
 
     /// The newest item of `window` no earlier press took, taken now (until it left the history).
@@ -217,13 +255,15 @@ enum DaemonClosedHistory {
         entries([.workspace], in: services).first { $0.item.group?.id == id }
     }
 
-    /// Each store's pending close intents (Cmd-W, close buttons): closes whose record may not be in the history yet.
-    private static func pendingCloses(in services: AppServices) -> [(store: DaemonStore, transactions: Set<ClientTransactionID>)] {
+    /// One daemon's pending close intents (Cmd-W, close buttons): closes whose record may not be in the store yet.
+    typealias PendingCloses = (daemon: DaemonService, transactions: Set<ClientTransactionID>)
+
+    private static func pendingCloses(in services: AppServices) -> [PendingCloses] {
         services.machines.daemons.compactMap { daemon in
             let closes = Set(daemon.store.pendingIntents.compactMap { pending -> ClientTransactionID? in
                 if case .closeTabs = pending.intent { pending.transaction } else { nil }
             })
-            return closes.isEmpty ? nil : (daemon.store, closes)
+            return closes.isEmpty ? nil : (daemon, closes)
         }
     }
 
@@ -308,73 +348,6 @@ enum DaemonClosedHistory {
         }
         show(reopened, kind: item.kind, daemon: daemon, services: services)
         return nil
-    }
-
-    /// A deleted `window` item of this app: its closed window lets its
-    /// workspaces go (nothing could reopen them otherwise).
-    private static func releaseWindow(of item: ClosedItem, daemon: DaemonService, services: AppServices) {
-        guard item.kind == .window, daemon.isLocal, let recorded = item.window,
-              let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return }
-        services.windows.releaseClosedWindow(id: String(recorded.dropFirst(install.count + 1)))
-    }
-
-    /// Sends the agent-home folders of deleted closed workspaces (the
-    /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
-    /// the main thread. At launch and after each delete or clear.
-    static func emptyAgentHomeTrash() { AgentHome.emptyStandardTrashPendingInBackground() }
-
-    /// Deletes `entry` for good on its daemon (History's Remove, Search
-    /// Tabs' forget): it cannot be reopened any more.
-    static func delete(_ entry: Entry, services: AppServices) {
-        let daemon = entry.daemon, id = entry.item.id, isLocal = daemon.isLocal
-        releaseWindow(of: entry.item, daemon: daemon, services: services)
-        // The daemon's send path: the command runs on the connection and reports to a capturing caller.
-        daemon.send("closed.delete") { connection in
-            do {
-                try await connection.state.deleteClosed(id)
-            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
-                // Already gone (a second Remove, or a reopen that ran first): the goal holds.
-                return
-            }
-            if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
-        }
-    }
-
-    /// ``delete(_:services:)`` that answers once the daemon deleted `entry`:
-    /// nil, or why not (`debug.closed_forget` waits for it).
-    static func deleteNow(_ entry: Entry, services: AppServices) async -> String? {
-        let daemon = entry.daemon, id = entry.item.id
-        releaseWindow(of: entry.item, daemon: daemon, services: services)
-        guard let connection = daemon.connection else { return MiscHandlerStrings.daemonOffline }
-        do {
-            try await connection.state.deleteClosed(id)
-            if daemon.isLocal { emptyAgentHomeTrash() }
-            return nil
-        } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
-            // Already gone (a second Remove, or a reopen that ran first): the goal holds.
-            return nil
-        } catch {
-            daemon.logger.error("closed.delete failed: \(String(describing: error), privacy: .public)")
-            return "closed.delete: \(error)"
-        }
-    }
-
-    /// Clears every connected daemon's closed history: the groups closed at
-    /// or after `since`, every group for nil (Clear History). `since` is this
-    /// Mac's clock; a remote daemon with a skewed clock clears a range off by
-    /// that skew.
-    static func clear(since: Date?, services: AppServices) {
-        let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
-        for entry in entries([.window], in: services) where sinceMs.map({ entry.item.closedAtMs >= $0 }) ?? true {
-            releaseWindow(of: entry.item, daemon: entry.daemon, services: services)
-        }
-        for daemon in services.machines.daemons where daemon.store.servesStateResources {
-            let isLocal = daemon.isLocal
-            daemon.send("closed.delete all") { connection in
-                try await connection.state.deleteAllClosed(sinceMs: sinceMs)
-                if isLocal { AgentHome.emptyStandardTrashPendingInBackground() }
-            }
-        }
     }
 
     /// Shows a reopened item once the store has it.
