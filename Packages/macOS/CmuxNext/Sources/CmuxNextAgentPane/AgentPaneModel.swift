@@ -32,6 +32,8 @@ public final class AgentPaneModel {
     /// harness on the tab (cx-w4bbw). Only for the session the pane shows.
     @ObservationIgnored public var onSessionHarness: ((_ session: String) -> Void)?
     @ObservationIgnored public var onUnsentDraft: ((String, [AgentPaneWakeState.Attachment]) -> Void)? // a new chat's text and attachments
+    /// Text-only updates preserve the stored attachment list.
+    @ObservationIgnored public var onUnsentDraftTextOnly: ((String) -> Void)?
     /// Reports each settled scroll and returns the native display settings to the page.
     @ObservationIgnored public var onFramePacing: (([Double]) -> [String: Any])?
     /// Applies the page's adaptive rendering decision.
@@ -298,7 +300,11 @@ public final class AgentPaneModel {
         case .missingChat(let session, let reason):
             missingChatLog.record(session: session, reason: reason, tabSession: sessionId, remote: remoteChat)
             return AgentPaneReply.success()
-        case .unsentDraft(let text, let attachments): if sessionId == nil { onUnsentDraft?(text, attachments) }; return AgentPaneReply.success()
+        case .unsentDraft(let text, let attachments, let attachmentsProvided):
+            if sessionId == nil {
+                if attachmentsProvided { onUnsentDraft?(text, attachments) } else { onUnsentDraftTextOnly?(text) }
+            }
+            return AgentPaneReply.success()
         case .checkpointAvailability(let available):
             setCheckpointAvailable(available)
             return AgentPaneReply.success()

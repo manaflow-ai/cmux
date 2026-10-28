@@ -100,7 +100,7 @@ extension AgentPaneRequest {
                 }
                 attachments = decoded
             }
-            self = .unsentDraft(text, attachments: attachments)
+            self = .unsentDraft(text, attachments: attachments, attachmentsProvided: params?["attachments"] != nil)
         case "pane.checkpointAvailability":
             if let available = params?["available"] as? Bool {
                 self = .checkpointAvailability(available)

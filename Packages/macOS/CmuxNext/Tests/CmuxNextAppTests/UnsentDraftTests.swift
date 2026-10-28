@@ -42,6 +42,16 @@ struct UnsentDraftTests {
         #expect(relaunched.seed(for: "tab-1", session: "s-1") == nil, "a chat with a session keeps its draft in acpmux")
         #expect(relaunched.seed(for: "tab-2", session: nil) == nil)
 
+        // Text-only writes must preserve attachment metadata from the earlier attachment-aware write.
+        // A text-only page update goes through the real request decoder/handler and preserves chips.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", [
+            "text": "edited text only",
+            "attachments": [["id": attachment.id, "kind": attachment.kind, "name": attachment.name, "mimeType": attachment.mimeType, "size": attachment.size, "data": attachment.data ?? ""]],
+        ]))
+        _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "edited text only"]))
+        let preserved = AgentUnsentDrafts(file: file)
+        #expect(await preserved.seed(for: "tab-1", session: nil)?.take()?.draftAttachments == [attachment])
+
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
         #expect(AgentUnsentDrafts(file: file).seed(for: "tab-1", session: nil) == nil)

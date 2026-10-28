@@ -60,7 +60,7 @@ import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
-import { restoredDraftAttachments } from "./newtab/draftRestore";
+import { restoredDraftAttachments, wakeDraftAttachments } from "./newtab/draftRestore";
 import { HistoryScreen } from "./newtab/HistoryScreen";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
@@ -7128,11 +7128,19 @@ function AcpmuxPane() {
           if (composerHandle.current) composerHandle.current.wake(wake.composer);
           else pendingWake.current = wake.composer;
         }
-        // A restored unsent New Tab is a new chat until its first prompt. Its chips go to that composer.
+        // A restored unsent New Tab is a new chat until its first prompt. A live wake state is
+        // newer than the seed, including an explicit empty list after the person removed a chip.
         if (!reconnect && !host.newTab && Array.isArray(host.draftAttachments) && host.draftAttachments.length) {
-          const kept = { ...pendingWake.current, attachments: host.draftAttachments };
-          if (composerHandle.current) composerHandle.current.wake(kept);
-          else pendingWake.current = kept;
+          const wakeAttachments = wakeDraftAttachments(
+            wake?.composer.attachments,
+            wake?.composer.attachments !== undefined || pendingWake.current?.attachments !== undefined,
+            host.draftAttachments,
+          );
+          if (wakeAttachments !== undefined) {
+            const kept = { ...pendingWake.current, attachments: wakeAttachments };
+            if (composerHandle.current) composerHandle.current.wake(kept);
+            else pendingWake.current = kept;
+          }
         }
         if (!reconnect && host.sessionId) {
           // The released page's place is newer than the kept one: a scroll that settled while
