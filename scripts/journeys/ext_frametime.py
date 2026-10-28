@@ -98,12 +98,17 @@ def cond_shown_draws_within(j, want, cache):
     if shown == first:
         # Never seen paused after the mark: the window was not covered at the uncover (no measurement).
         return False, dict(detail, error="the pane was not paused at the mark; nothing to measure")
-    base = samples[shown - 1]["frames"]
+    # The last paused sample that read the surface (a failed read has no pause and no counter).
+    last_paused = next((i for i in range(shown - 1, first - 1, -1)
+                        if samples[i]["paused"] is not None and samples[i]["frames"] is not None), None)
+    if last_paused is None:
+        return False, dict(detail, error="no readable paused sample after the mark; nothing to measure")
+    base = samples[last_paused]["frames"]
     drew = next((i for i in range(shown, len(samples))
-                 if samples[i]["frames"] is not None and base is not None and samples[i]["frames"] > base), None)
+                 if samples[i]["frames"] is not None and samples[i]["frames"] > base), None)
     if drew is None:
         return False, dict(detail, waiting="no new frame since the unpause", frames=base)
-    unpause_lo, unpause_hi = samples[shown - 1]["t0"], samples[shown]["t1"]
+    unpause_lo, unpause_hi = samples[last_paused]["t0"], samples[shown]["t1"]
     draw_lo, draw_hi = samples[drew - 1]["t0"], samples[drew]["t1"]
     show_to_draw_hi = _ms(draw_hi, unpause_lo)
     detail.update({
