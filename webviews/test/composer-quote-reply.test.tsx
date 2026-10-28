@@ -32,7 +32,10 @@ let host: HTMLElement;
 const handle = createRef<MarkdownFieldHandle>();
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -215,8 +218,8 @@ for (const selected of [
     await act(async () => handle.current!.quoteReply(markdown));
     const quote = content().querySelector("blockquote")!;
     expect(quote.innerHTML).not.toBe("");
-    const visibleLines = handle.current!
-      .plainText()
+    const visibleLines = handle
+      .current!.plainText()
       .split(/\n+/)
       .map((line) => line.trim())
       .filter(Boolean);
