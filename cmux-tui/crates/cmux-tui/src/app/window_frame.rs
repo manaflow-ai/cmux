@@ -125,17 +125,10 @@ pub(crate) fn place_frame(
     docks: &[WindowDock],
     orientation: DockOrientation,
 ) -> FramePlacement {
-    let mut shown: [Option<&WindowDock>; 4] = [None; 4];
-    for dock in docks.iter().filter(|dock| !dock.hidden) {
-        let slot = &mut shown[edge_index(dock.edge)];
-        if slot.is_none() {
-            *slot = Some(dock);
-        }
-    }
-    let both_sides =
-        shown[edge_index(DockEdge::Left)].is_some() && shown[edge_index(DockEdge::Right)].is_some();
-    let both_bands =
-        shown[edge_index(DockEdge::Top)].is_some() && shown[edge_index(DockEdge::Bottom)].is_some();
+    // The first shown dock of each edge (W1).
+    let shown = |edge: DockEdge| docks.iter().find(|dock| !dock.hidden && dock.edge == edge);
+    let both_sides = shown(DockEdge::Left).is_some() && shown(DockEdge::Right).is_some();
+    let both_bands = shown(DockEdge::Top).is_some() && shown(DockEdge::Bottom).is_some();
     let order = match orientation {
         DockOrientation::ColumnMajor => DockEdge::ALL,
         DockOrientation::RowMajor => {
@@ -144,7 +137,7 @@ pub(crate) fn place_frame(
     };
     let sized = |mode: DockMode| {
         order.into_iter().filter_map(move |edge| {
-            let dock = shown[edge_index(edge)].filter(|dock| dock.mode == mode)?;
+            let dock = shown(edge).filter(|dock| dock.mode == mode)?;
             let (total, share, minimum) = if edge.is_side() {
                 (area.width, if both_sides { (2, 5) } else { (1, 2) }, MIN_DOCK_COLS)
             } else {
@@ -180,23 +173,15 @@ pub(crate) fn place_frame(
     FramePlacement { stage, docks: placed }
 }
 
-const fn edge_index(edge: DockEdge) -> usize {
-    match edge {
-        DockEdge::Left => 0,
-        DockEdge::Right => 1,
-        DockEdge::Top => 2,
-        DockEdge::Bottom => 3,
-    }
-}
-
 /// A dock's size in cells along its axis: `extent_permille` of `total`,
 /// rounded, clamped to `share` of `total` and to `minimum`. None when the
 /// share cannot hold `minimum`.
 fn dock_extent(total: u16, extent_permille: u16, share: (u32, u32), minimum: u16) -> Option<u16> {
     let total = u32::from(total);
     let permille = u32::from(extent_permille.clamp(MIN_EXTENT_PERMILLE, MAX_EXTENT_PERMILLE));
-    let wanted = (total * permille + 500) / 1000;
-    let most = total * share.0 / share.1;
+    // u16 totals times at most 900 cannot overflow u32; the divisors are nonzero.
+    let wanted = total.saturating_mul(permille).saturating_add(500).checked_div(1000)?;
+    let most = total.saturating_mul(share.0).checked_div(share.1)?;
     let minimum = u32::from(minimum);
     if most < minimum {
         return None;
