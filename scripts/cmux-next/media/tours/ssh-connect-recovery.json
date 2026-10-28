@@ -4,8 +4,10 @@
     {
       "title": "Connect to an unreachable host",
       "cmux": [
-        "remote",
-        "connect",
+        "action",
+        "run",
+        "remote.connect",
+        "--destination",
         "nohost.invalid"
       ],
       "wait": 8
