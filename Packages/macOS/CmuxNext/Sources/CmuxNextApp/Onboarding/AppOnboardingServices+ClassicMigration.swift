@@ -64,7 +64,7 @@ extension AppOnboardingServices {
             let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
                                                    confirmation: confirmClassicImport)
             guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
-            ClassicImportStrings.toast(notice, in: services.windows.active?.window)
+            ClassicImportStrings.toast(notice, in: services.windows.presentingWindow)
         } catch {
             services.daemon.logger.error("classic migration failed: \(String(describing: error), privacy: .public)")
         }

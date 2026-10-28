@@ -16,12 +16,12 @@ enum CLIInstallHandlers {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.installCLI", run: { invocation in
-            let window = context.activeWindow?.window
+            let window = context.services.windows.presentingWindow
             let name: CLIPathInstaller.Name = invocation["cmux_next"]?.boolValue == true ? .cmuxNext : .cmux
             install(name, replacing: invocation["replace"]?.boolValue == true, in: window, services: context.services)
         })
         registry.bind("palette.uninstallCLI", run: { _ in
-            let window = context.activeWindow?.window, mainWork = context.services.mainWork
+            let window = context.services.windows.presentingWindow, mainWork = context.services.mainWork
             // task-owner: one uninstall off the main actor, ended by its toast
             context.services.work.task(.userBlocking) {
                 let outcome = await uninstall()
@@ -97,11 +97,11 @@ enum CLIInstallHandlers {
         }
     }
 
-    /// A toast on the window (else the key or main window); a long one with
+    /// A toast on the run's window (read at its entrypoint); a long one with
     /// an action stays 12 s.
     private static func show(_ message: String, action: CmuxToast.Action? = nil, in window: NSWindow?,
                              run: (@MainActor () -> Void)? = nil) {
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else {
+        guard let window else {  // the run's window, read at its entrypoint
             Logger(subsystem: "com.cmuxterm.app.next", category: "cli.install").info("cli install result with no window: \(message, privacy: .public)")
             return
         }

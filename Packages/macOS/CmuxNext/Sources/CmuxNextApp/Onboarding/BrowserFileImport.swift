@@ -50,7 +50,7 @@ struct BrowserFileImport {
 
     /// A toast on the app window (after the picker the key window is the palette's panel).
     static func toast(_ services: AppServices, id: String, _ message: String) {
-        guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
+        guard let window = services.windows.presentingWindow else { return }
         _ = CmuxToastCenter.shared.show(CmuxToast(id: id, message: message, duration: .seconds(12)), in: window)
     }
 

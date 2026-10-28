@@ -52,7 +52,7 @@ enum NowPlayingCardHandlers {
 
     /// Says where the card comes back from, with Undo, on the active window.
     private static func toastDisabled(_ services: AppServices, registry: ActionRegistry) {
-        guard let window = services.windows.active?.window ?? NSApp.mainWindow else { return }
+        guard let window = services.windows.presentingWindow else { return }
         let toast = CmuxToast(id: "now-playing-card-off", message: NowPlayingCardStrings.disabledToast,
                               action: .undo(), duration: .seconds(8))
         let handle = CmuxToastCenter.shared.show(toast, in: window)

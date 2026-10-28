@@ -88,7 +88,7 @@ enum BookmarkHandlers {
         })
         registry.bind("bookmark.importFromBrowser", run: { invocation in
             let profile = resolver.profile(invocation)
-            let window = context.activeWindow?.window
+            let window = context.services.windows.presentingWindow
             guard let browser = invocation["browser"]?.stringValue, !browser.isEmpty else {
                 return BookmarkBrowserImport(services: services).choose(profile: profile, window: window)
             }

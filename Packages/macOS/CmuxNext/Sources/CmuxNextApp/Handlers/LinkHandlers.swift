@@ -40,7 +40,7 @@ enum LinkHandlers {
             if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
-                services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(notice, in: services.windows.presentingWindow)
             }
         })
         registry.bind("palette.copyWorkspaceLink", run: { invocation in

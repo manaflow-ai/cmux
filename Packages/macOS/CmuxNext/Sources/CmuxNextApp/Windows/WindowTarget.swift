@@ -117,6 +117,10 @@ extension WindowManager {
         return registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window != nil } ?? controllers.last
     }
 
+    /// The window a sheet, toast, HUD or panel of the current run or input shows on: the run's window
+    /// (``active``), else, with no cmux window open, the key window (Settings, a standalone panel).
+    var presentingWindow: NSWindow? { active?.window ?? services.keyWindowSource() }
+
     /// The current action run's window: the window its own code brought forward since it started
     /// (`runDidBringForward`), else the window resolved at its entrypoint. Nil outside a run.
     private func runWindow() -> String? {

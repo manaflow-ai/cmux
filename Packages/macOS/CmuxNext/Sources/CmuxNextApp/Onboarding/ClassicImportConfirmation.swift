@@ -11,8 +11,7 @@ struct ClassicImportConfirmation {
     let services: AppServices
 
     func ask() async -> Bool {
-        let window = services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow
-            ?? NSApp.windows.first(where: \.isVisible)
+        let window = services.windows.presentingWindow
         guard let window else { return false }
         let answer = await CmuxDialogCenter.shared.present(spec(), in: .window(window))
         return answer.button == Self.importButton

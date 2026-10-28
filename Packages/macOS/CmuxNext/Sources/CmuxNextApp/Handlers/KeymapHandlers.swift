@@ -18,7 +18,7 @@ enum KeymapHandlers {
             guard let preset = invocation["keymap"]?.stringValue.flatMap(ShortcutKeymapPreset.init(rawValue:)) else {
                 throw ActionFailure(message: KeymapStrings.keymapRequired)
             }
-            let window = context.activeWindow?.window
+            let window = context.services.windows.presentingWindow
             let user = invocation.origin == .user
             let mainWork = context.services.mainWork, end = registry.completion(on: mainWork)
             // One write off main, then the watcher applies it; the toast (a person's run) or the refusal is the run's
@@ -58,7 +58,7 @@ enum KeymapHandlers {
     /// "Base Keymap: tmux" with Undo; an empty plan says nothing changed.
     @MainActor private static func toast(_ plan: ShortcutKeymapPlan, registry: ActionRegistry, in window: NSWindow?,
                                          undo: @escaping @MainActor () -> Void) {
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window else { return }  // the run's window, read at its entrypoint
         var parts = [KeymapStrings.title(presetName(plan.preset, registry))]
         if plan.isEmpty { parts.append(KeymapStrings.noChanges) }
         if plan.preset == .iTerm2, plan.changes.contains(where: { $0.actionID == "selectSurfaceByNumber" }) {

@@ -44,7 +44,7 @@ struct IconHistory {
     /// toast: an icon change is not destructive; Edit > Undo and Cmd-Z undo it.
     static func inActiveWindow(_ ctx: AppActionContext, apply: @escaping @MainActor (String, FieldUpdate<String>) throws -> Bool) -> Self {
         IconHistory(apply: apply, offerUndo: { message, undo in
-            guard let window = ctx.services.windows.active?.window ?? NSApp.mainWindow else { return }
+            guard let window = ctx.services.windows.presentingWindow else { return }
             registerUndo(message, in: window, undo)
         })
     }

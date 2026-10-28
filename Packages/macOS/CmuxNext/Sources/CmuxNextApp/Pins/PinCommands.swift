@@ -46,7 +46,7 @@ struct PinCommands {
     /// answered yet (`ToastUndoStep.pending`, cx-kpicb); the reply fills the step it returns.
     @discardableResult func registerUndo(title: String, filling: PinUndoStep? = nil, _ inverse: (@MainActor (PinCommands) -> Void)?) -> PinUndoStep? {
         let windows = context.services.windows
-        guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return nil }
+        guard let window = windows.presentingWindow else { return nil }
         guard let inverse else { return ToastUndoStep.pending(title: title, undoManager: window.undoManager, handle: nil) }
         return ToastUndoStep.attach(title: title, filling: filling, undoManager: window.undoManager, handle: nil) { inverse(self) }
     }

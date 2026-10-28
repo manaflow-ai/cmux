@@ -55,7 +55,7 @@ enum OnboardingHandlers {
                 let id = BookmarkResolver(services: services).profile(invocation)
                 return (id, services.browserProfiles.record(id)?.name ?? id)
             },
-            window: { services.windows.active?.window ?? NSApp.mainWindow ?? NSApp.windows.first(where: \.isVisible) },
+            window: { services.windows.presentingWindow },
             reveal: { tab in _ = registry.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab), origin: .user)) },
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
@@ -66,7 +66,7 @@ enum OnboardingHandlers {
         // person's answer before any browser, SSH host or agent is restored.
         // The preview and the person's answer are awaited off main; the run's result is one task on main.
         registry.bind("workspace.importClassic", run: { _ in
-            let window = NSApp.keyWindow ?? NSApp.mainWindow
+            let window = services.windows.presentingWindow
             registry.trackWork(owner: "OnboardingHandlers.importClassic", on: services.mainWork) {
                 _ = try await importClassic(services, in: window)
             } then: { result in
@@ -205,7 +205,7 @@ enum ClassicImportStrings {
     }
 
     @MainActor static func toast(_ message: String, in window: NSWindow?) {
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window else { return }  // the run's window, read at its entrypoint
         _ = CmuxToastCenter.shared.show(CmuxToast(id: "classicImport", message: message), in: window)
     }
 }

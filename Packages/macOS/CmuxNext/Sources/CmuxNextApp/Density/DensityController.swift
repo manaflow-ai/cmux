@@ -79,7 +79,7 @@ final class DensityController {
     }
 
     private static func toast(_ message: String, context: AppActionContext) {
-        guard let window = context.services.windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window = context.services.windows.presentingWindow else { return }
         _ = CmuxToastCenter.shared.show(CmuxToast(id: "density", message: message, duration: .seconds(3)), in: window)
     }
 }

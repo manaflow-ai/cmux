@@ -60,7 +60,7 @@ struct PasswordCSVFiles {
             let report = try await run(PasswordCSVImporter(destination: destination))
             // The app window, not the key window: after the cmux picker that is the palette's panel.
             let windows = services.windows
-            Self.trash(url, report: report, hold: hold) { windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow }
+            Self.trash(url, report: report, hold: hold) { windows.presentingWindow }
             return nil
         } catch PasswordCSVImporter.Failure.cancelled {
             hold?.release()

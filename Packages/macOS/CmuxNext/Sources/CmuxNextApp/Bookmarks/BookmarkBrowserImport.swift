@@ -79,7 +79,7 @@ struct BookmarkBrowserImport {
         let services = services
         services.work.run(.userBlocking, mayBlock: .files) { Self.sources(environment: Self.liveEnvironment()) }
             .reply(on: services.mainWork, class: .userBlocking, owner: "BookmarkBrowserImport.picker") { sources in
-                guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+                guard let window else { return }  // the run's window, read at its entrypoint
                 Self(services: services).present(sources, target: target, in: window, services: services)
             }
     }
@@ -185,7 +185,7 @@ struct BookmarkBrowserImport {
 
     /// The summary toast; its Undo puts every imported folder back.
     func announce(_ outcome: Outcome, in window: NSWindow?) {
-        guard let window = window ?? NSApp.keyWindow ?? NSApp.mainWindow else { return }
+        guard let window else { return }  // the run's window, read at its entrypoint
         var parts: [String] = []
         if !outcome.sources.isEmpty {
             parts.append(BookmarkAppStrings.importSummary(added: outcome.added, duplicates: outcome.duplicates,

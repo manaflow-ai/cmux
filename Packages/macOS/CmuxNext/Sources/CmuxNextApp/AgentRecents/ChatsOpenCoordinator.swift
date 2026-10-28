@@ -133,7 +133,7 @@ final class ChatsOpenCoordinator {
                 break
             case .failure(let error):
                 guard let services = self?.services else { return nil }
-                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+                services.refusalHUD.show(error.localizedDescription, in: services.windows.presentingWindow)
                 return ActionWorkFailure("open chat", error)
             }
             return nil

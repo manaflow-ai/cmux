@@ -76,7 +76,7 @@ enum TabIconHandlers {
             return true
         }, offerUndo: { message, undo in
             let windows = ctx.services.windows
-            guard let window = shownIn.window ?? windows.active?.window ?? NSApp.mainWindow else { return }
+            guard let window = shownIn.window ?? windows.presentingWindow else { return }
             IconHistory.registerUndo(message, in: window, undo)
         })
     }
