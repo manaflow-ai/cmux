@@ -28,6 +28,91 @@ fn user_messages(hub: &Hub, session: &str, prompt_id: &str) -> Vec<Value> {
     events.iter().filter(mine).map(|e| e.msg.clone()).collect()
 }
 
+/// Queue insertion must enforce the cap itself: several callers can all have observed room
+/// before any inserts. Exercise that commit point directly, with its count reservation, rather
+/// than depending on an unlikely scheduler interleaving between two RPC preflight checks.
+#[tokio::test]
+async fn concurrent_enqueues_reserve_only_one_last_held_slot() {
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "defaultHarness": "fake"
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let (tx, rx) = mpsc::channel(8);
+    let (out_tx, mut out) = mpsc::channel(4096);
+    tokio::spawn(crate::server::serve_connection_with(
+        hub.clone(), rx, out_tx, crate::server::Origin::Local,
+    ));
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
+    tx.send(Message::request(1, method::SESSION_NEW, new).to_line()).await.unwrap();
+    let created = until(&mut out, |v| v["id"] == 1).await;
+    let session = hub.resolve(created["result"]["sessionId"].as_str().unwrap()).unwrap();
+    let guest = json!({"kind": "person_message", "from": "guest:cap", "fromName": "Cy",
+        "approval": "owner"});
+    for i in 0..MAX_HELD_PER_AUTHOR - 1 {
+        insert(&hub, &session, &format!("g-{i}"), Some(&guest));
+    }
+    let contenders = 8;
+    let start = Arc::new(std::sync::Barrier::new(contenders));
+    let mut tasks = Vec::new();
+    for i in 0..contenders {
+        let (hub, session, guest, start) =
+            (hub.clone(), session.clone(), guest.clone(), start.clone());
+        tasks.push(tokio::task::spawn_blocking(move || {
+            start.wait();
+            insert(&hub, &session, &format!("race-{i}"), Some(&guest));
+        }));
+    }
+    for task in tasks {
+        task.await.unwrap();
+    }
+    let queued = session.queue();
+    assert_eq!(queued.len(), MAX_HELD_PER_AUTHOR, "only one contender fits");
+    assert_eq!(session.queued.load(Ordering::SeqCst), MAX_HELD_PER_AUTHOR as u64);
+    let logged = hub.events(&session.id, 0, 10_000).unwrap();
+    assert_eq!(logged.iter().filter(|e| e.kind == "queued").count(), MAX_HELD_PER_AUTHOR);
+    assert_eq!(queued.iter().filter(|q| q.prompt_id.starts_with("race-")).count(), 1);
+
+    // Approval frees an author's held slot, while another author and the owner have their own
+    // admission. None of these direct enqueues has a task that could drain the queue meanwhile.
+    hub.approve_queued(&session, &queued[0].prompt_id, 0).unwrap();
+    insert(&hub, &session, "after-approval", Some(&guest));
+    let mut other = guest.clone();
+    other["from"] = json!("guest:other");
+    insert(&hub, &session, "other-author", Some(&other));
+    insert(&hub, &session, "owner", None);
+    assert_eq!(session.queue().len(), MAX_HELD_PER_AUTHOR + 3);
+    assert_eq!(session.queued.load(Ordering::SeqCst), (MAX_HELD_PER_AUTHOR + 3) as u64);
+    hub.shutdown_all().await;
+}
+
+fn insert(hub: &Hub, session: &Arc<Session>, id: &str, provenance: Option<&Value>) {
+    let blocks = [json!({"type": "text", "text": "waiting"})];
+    let replaced = std::sync::OnceLock::new();
+    let slot = Slot {
+        text: "waiting",
+        blocks: &blocks,
+        display_parts: None,
+        client: "cap-test",
+        prompt_id: id,
+        control: Control::Local,
+        trust_gate: false,
+        interrupt: false,
+        interrupt_turn: None,
+        provenance,
+        agent: None,
+        supersede: None,
+        full_access_device: None,
+        replaced: &replaced,
+        no_queue: false,
+    };
+    let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
+    let _ = hub.enqueue(session, &slot, position, id);
+}
+
 #[tokio::test]
 async fn a_held_prompt_with_a_steer_flag_never_reaches_the_agent() {
     let mut cfg: Config = serde_json::from_value(json!({

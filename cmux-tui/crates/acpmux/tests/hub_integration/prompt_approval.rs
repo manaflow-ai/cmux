@@ -149,6 +149,9 @@ async fn the_guest_edits_or_removes_it_and_nothing_else() {
     }
     let over = c.reply("session/prompt", held(&session, "g-cap-16", "one more")).await;
     assert_eq!(reason(&over), "queue.too_many_held", "{over}");
+    assert_eq!(hub.session_summary(&hub.resolve(&session).unwrap())["queued"], 16);
+    let recorded = c.records(&session, "queued").await;
+    assert!(!recorded.iter().any(|m| m["promptId"] == "g-cap-16"), "the refused prompt was recorded");
     c.cancel(&session).await;
 }
 
