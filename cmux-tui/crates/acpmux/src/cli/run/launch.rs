@@ -472,6 +472,22 @@ mod tests {
     }
 
     #[test]
+    fn a_group_open_failure_keeps_the_session_name_and_retry_command() {
+        let error = show_in_group(
+            "session-id",
+            "lane-name",
+            None,
+            "remote-audit",
+            Some(Path::new("/definitely/missing/cmux")),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("session lane-name was created"), "{error}");
+        assert!(error.contains("/definitely/missing/cmux agent open session-id"), "{error}");
+        assert!(error.contains("--group remote-audit"), "{error}");
+    }
+
+    #[test]
     fn an_empty_or_missing_prompt_file_fails() {
         let dir = std::env::temp_dir().join(format!("acpmux-launch-{}", uuid::Uuid::now_v7()));
         std::fs::create_dir_all(&dir).unwrap();
