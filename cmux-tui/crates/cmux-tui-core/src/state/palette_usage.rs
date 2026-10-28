@@ -104,9 +104,13 @@ pub(crate) fn normalized_query(query: &str) -> String {
 /// [`MAX_PICK_PREFIX_CHARS`] characters of the normalized query.
 pub(crate) fn pick_prefixes(query: &str) -> Vec<String> {
     let normalized = normalized_query(query);
-    let chars: Vec<char> = normalized.chars().collect();
-    (1..=chars.len().min(MAX_PICK_PREFIX_CHARS))
-        .map(|length| chars[..length].iter().collect::<String>().trim_end().to_string())
+    normalized
+        .chars()
+        .take(MAX_PICK_PREFIX_CHARS)
+        .scan(String::new(), |prefix, character| {
+            prefix.push(character);
+            Some(prefix.trim_end().to_string())
+        })
         .filter(|prefix| !prefix.is_empty())
         .collect::<std::collections::BTreeSet<_>>()
         .into_iter()
@@ -299,6 +303,14 @@ mod tests {
     use super::*;
 
     const T0: u64 = 1_800_000_000_000;
+
+    #[test]
+    fn pick_prefixes_are_the_trimmed_leading_characters_up_to_the_cap() {
+        assert_eq!(pick_prefixes("Ab c"), vec!["a", "ab", "ab c"]);
+        assert_eq!(pick_prefixes("été"), vec!["é", "ét", "été"]);
+        assert_eq!(pick_prefixes("abcdefghijk").last().map(String::as_str), Some("abcdefgh"));
+        assert!(pick_prefixes("   ").is_empty());
+    }
 
     #[test]
     fn a_use_adds_one_and_decays_by_the_half_life() {

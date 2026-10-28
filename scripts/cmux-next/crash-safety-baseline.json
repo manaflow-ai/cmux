@@ -17,7 +17,7 @@
    "cmux-mux2": 42,
    "cmux-remote": 44,
    "cmux-tui": 76,
-   "cmux-tui-core": 190,
+   "cmux-tui-core": 172,
    "cmux-tui-hooks": 11,
    "cmux-tui-platform": 1,
    "cmux-tui-remote-access": 1,
@@ -28,13 +28,13 @@
    "acpmux": 2,
    "cmux-remote": 11,
    "cmux-tui": 33,
-   "cmux-tui-core": 26
+   "cmux-tui-core": 23
   },
   "unwrap": {
    "acpmux": 139,
    "cmux-remote": 4,
    "cmux-tui": 429,
-   "cmux-tui-core": 1132,
+   "cmux-tui-core": 950,
    "cmux-tui-image-paste": 22,
    "cmux-tui-platform": 17,
    "cmux-tui-remote-access": 5,

@@ -17,6 +17,7 @@
 //! changes nothing commits nothing.
 
 use crate::Actor;
+use crate::panic_free::{JsonFields, RecoverPoison};
 use serde_json::Map;
 
 use crate::Surface;
@@ -129,7 +130,7 @@ impl Mux {
             });
             let write =
                 |tx: &rusqlite::Transaction<'_>| write_conversation_tab(tx, &id, &record, key);
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry = self.workspace_registry.lock().recover_poison();
             registry.put_frontend_browser(browser_id.as_str(), &frontend, Some(&write))?;
             self.reload_presentation(&registry)?;
         }
@@ -181,7 +182,7 @@ impl Mux {
             Err(error) => {
                 // A keyed creation keeps its record, so a retry resumes it.
                 if key.is_none() {
-                    let mut registry = self.workspace_registry.lock().unwrap();
+                    let mut registry = self.workspace_registry.lock().recover_poison();
                     if registry.delete_frontend_browser(browser_id.as_str()).is_ok() {
                         let _ = self.reload_presentation(&registry);
                     }
@@ -225,7 +226,7 @@ impl Mux {
                 let mut ids =
                     serde_json::json!({"pane": id.as_str(), "split": direction, "pane_id": pane_id});
                 if let Some(split_id) = split_id {
-                    ids["split_id"] = Value::String(split_id.clone());
+                    ids.insert("split_id", Value::String(split_id.clone()));
                 }
                 Ok(ids)
             }
