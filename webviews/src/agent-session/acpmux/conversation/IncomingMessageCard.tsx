@@ -59,6 +59,9 @@ import { cancelResize, playResize } from "./fold";
 import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import { wholeLineCut } from "./lineCut";
+import { Face } from "../multiplayer/Faces";
+import { FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
+import { isGuest, type Participant } from "../multiplayer/participants";
 
 /// A family sender's label, its relation before its name ("Parent · coordinator").
 const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
@@ -76,6 +79,9 @@ export function IncomingMessageLine({
   id,
   message,
   messageAt,
+  person,
+  whole = false,
+  files,
   images,
   onOpen,
   onReply,
@@ -87,6 +93,14 @@ export function IncomingMessageLine({
   message: IncomingMessage;
   /// The containing transcript row's epoch timestamp, used to date bare UTC times.
   messageAt?: number;
+  /// A person's message (a guest's held prompt, QueuedMessageCard.tsx): their face in the icon
+  /// column and their name, "<name> (guest)" for a link guest, in place of an agent's.
+  person?: Participant;
+  /// Drawn whole and open, its text as sent (no cut, no Minimal Mode fold, no signature or
+  /// reference rewriting): a guest's held message, which the owner approves as it is.
+  whole?: boolean;
+  /// The files the message sent (a recorded prompt's `inlineParts`), drawn as a sent prompt's.
+  files?: readonly FileAttachmentInfo[];
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   /// Opens the sender's chat by its acpmux id (App.tsx `openSenderChat`, `chat.offer.open` with `sender`).
@@ -103,7 +117,8 @@ export function IncomingMessageLine({
   const key = `${session ?? ""}\u0000${id}`;
   // Whether the person opened it lasts while the page does (incomingOpened.ts), and the row
   // estimator reads it.
-  const [open, setOpen] = useState(() => messageOpened(session, id));
+  const [opened, setOpen] = useState(() => messageOpened(session, id));
+  const open = whole || opened;
   const show = (next: boolean) => {
     setMessageOpened(session, id, next);
     setOpen(next);
@@ -143,17 +158,18 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
+  // A person is never a chat: their name never finds one (a guest names themselves).
+  const sender = useSenderChat(person ? "" : message.name, person ? undefined : message.sessionId);
   const sessionId = sender.sessionId;
   const place = useSenderPlace(sessionId);
   const avatar = useAgentAvatar(sessionId);
   // The sender's words without a signature that only repeats its name (incomingMessage.ts reads
   // it on every path; a record from before that, or a queued one, may still have it).
-  const text = unsigned(message.text, message.name);
+  const text = whole ? message.text : unsigned(message.text, message.name);
   // The machine the sender's files are on, when it is another (a peer's relayed message names none).
   const host = message.remote ? (place?.host ?? "") : place?.host;
   const repository = githubRepository ?? mentionedRepository(text);
-  const body = useMemo(() => dedupeReferences(text, repository), [text, repository]);
+  const body = useMemo(() => (whole ? text : dedupeReferences(text, repository)), [whole, text, repository]);
   const scope = useMemo<MessageScope>(() => (host === undefined ? {} : { host }), [host]);
   // Measure the eight-line limit and the safe cut above any crossing glyph, chip or code card.
   const textBox = useRef<HTMLDivElement>(null);
@@ -227,7 +243,13 @@ export function IncomingMessageLine({
     ? t("subagents.openOnHost", { name: message.name, host: sender.host })
     : t("subagents.open", { name: message.name });
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = person
+    ? isGuest(person)
+      ? t("multiplayer.guestName", { name: person.name })
+      : person.name
+    : message.relation
+      ? t(RELATION_LABEL[message.relation], { name: message.name })
+      : message.name;
   const label = folded
     ? t("message.collapsedLabel", { from, preview: preview || t("message.noText") })
     : t("message.label", { from, to: t("message.self") });
@@ -368,7 +390,9 @@ export function IncomingMessageLine({
     <div className="cv-received" data-open={open || undefined} data-minimal={minimal || undefined}>
       <div className="cv-received__line">
         <span className="cv-received__icon">
-          {avatar ? (
+          {person ? (
+            <Face person={person} />
+          ) : avatar ? (
             <img className="cv-agent-avatar" src={avatar} alt="" width={16} height={16} />
           ) : (
             <AgentMark agent={sender.harness} size={14} fallback={<Bot size={16} />} />
@@ -453,6 +477,13 @@ export function IncomingMessageLine({
         <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>
       )}
       {!folded && images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
+      {!folded && files && files.length > 0 && (
+        <div className="cv-user__files cv-message__files">
+          {files.map((file, index) => (
+            <FileAttachment key={index} file={file} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

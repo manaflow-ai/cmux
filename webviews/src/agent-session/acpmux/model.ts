@@ -241,7 +241,20 @@ export type AcpmuxRow = {
   /// Another agent's message still waiting in the queue (conversation/queuedMessages.ts): the
   /// queue entry's promptId, which its ⋯ menu steers, edits or deletes, and whether it was sent
   /// now already (acpmux marks it `next`; it runs right after the turn).
-  queuedMessage?: { promptId: string; next?: boolean };
+  /// A person's (a guest's) waiting prompt names them (`person`): `held` while it waits for the
+  /// owner's Approve, `declined` once the owner declined it (one quiet line, never removed silently).
+  /// `revision` is the held prompt's as this row draws it, which Approve names (a guest's edit since
+  /// makes acpmux answer `queue.stale`).
+  queuedMessage?: {
+    promptId: string;
+    next?: boolean;
+    person?: Participant;
+    held?: boolean;
+    declined?: boolean;
+    revision?: number;
+    /// A newer revision is on its way: the card says so and offers no Approve until it shows.
+    updating?: boolean;
+  };
   /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
   /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
   untyped?: boolean;

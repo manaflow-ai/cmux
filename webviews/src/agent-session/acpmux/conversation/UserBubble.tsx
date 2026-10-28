@@ -27,6 +27,23 @@ import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../File
 import { ForkButton, forkWithFeedback, MessageCopy, MessageTime, PromptRetry, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
+/// The files a recorded prompt sent (its `inlineParts`: documents, audio, resource links), drawn
+/// as a sent prompt draws them; a file that is an image's companion, a video, or an image's
+/// original path is drawn by that image instead.
+export function recordedFiles(
+  parts: AcpmuxRow["inlineParts"],
+  originals: ReadonlySet<string> = new Set(),
+): FileAttachmentInfo[] | undefined {
+  return parts?.flatMap((part): FileAttachmentInfo[] =>
+    part.kind === "file" &&
+    part.companionOf === undefined &&
+    !part.mimeType?.startsWith("video/") &&
+    !originals.has(attachmentPath(part.uri) ?? "")
+      ? [{ ...part, path: attachmentPath(part.uri) }]
+      : [],
+  );
+}
+
 /// A waiting steer replaces the hover actions with queue controls until delivery is accepted.
 export function UserBubble({
   row,
@@ -51,14 +68,7 @@ export function UserBubble({
   const originals = new Set(
     row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
   );
-  const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" &&
-    part.companionOf === undefined &&
-    !part.mimeType?.startsWith("video/") &&
-    !originals.has(attachmentPath(part.uri) ?? "")
-      ? [{ ...part, path: attachmentPath(part.uri) }]
-      : [],
-  );
+  const recorded = recordedFiles(row.inlineParts, originals);
   const files = recorded?.length
     ? recorded
     : row.retryAttachments?.flatMap((file): FileAttachmentInfo[] =>
