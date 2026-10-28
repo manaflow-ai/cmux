@@ -919,6 +919,174 @@ class SyncLayoutRuleTests(Fixture):
         self.assertIn("escape: // sync-layout: <why this turn needs the layout now>", listing)
 
 
+class ImplicitWindowRuleTests(Fixture):
+    """implicit-window (multi-window P0): an added implicit window lookup in Sources is refused outside the
+    WindowTarget resolver; `// window-allow:` escapes it in the standard window; implicit-window-record keeps
+    scripts/cmux-next/implicit-window-baseline.tsv's per-file counts going down only."""
+
+    APP_FILE = f"{APP}/Handlers/HomeHandlers.swift"
+    RECORD = "scripts/cmux-next/implicit-window-baseline.tsv"
+
+    def refused_lines(self, *args):
+        return [(rule, lines) for rule, lines in self.refused(*args) if rule.startswith("implicit-window")]
+
+    def record(self, rows):
+        return guardrails.IMPLICIT_WINDOW_HEADER + "".join(f"{path}\t{count}\n" for path, count in rows.items())
+
+    def add(self, text, path=None, message="adds a lookup"):
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(path or self.APP_FILE, text)
+        self.commit(message)
+        return self.refused_lines()
+
+    def test_every_implicit_lookup_is_refused(self):
+        # Before this rule, an added `NSApp.keyWindow` passed every guardrail (the red half of this test).
+        for code in ("let window = NSApp.keyWindow", "let window = NSApp?.mainWindow", "let top = NSApp.orderedWindows.first",
+                     "let window = NSApplication.shared.keyWindow", "let window = NSApplication.shared.mainWindow",
+                     "let all = NSApplication.shared.orderedWindows", "let c = services.windows.controllers.first",
+                     "let id = controllers.first?.state.id", "let w = windows.first", "windows.first?.makeKeyAndOrderFront(nil)",
+                     "let c = services.windows.active ?? services.windows.controllers.first(where: lists)",
+                     "let id = windows.active?.state.profileID ?? .defaultProfile",
+                     "let c = controllers.first { $0.window?.isKeyWindow == true }",
+                     "let c = controllers.first(where: { windowID == nil || $0.state.id == windowID })",
+                     "let w = NSApp.windows.first(where: { $0.isVisible && $0.canBecomeMain })",
+                     "let target = windows.targetWindow(preferring: windows.active?.state.id)",
+                     "let target = windows.targetWindow(preferring: context.activeWindow?.state.id)",
+                     "let target = windows.targetWindow(preferring: nil)"):
+            with self.subTest(code=code):
+                self.assertEqual(self.add(f"func run() {{\n    {code}\n}}\n"),
+                                 [("implicit-window", [f"HomeHandlers.swift: {code}"])])
+
+    def test_explicit_lookups_pass(self):
+        for code in ("let c = controllers.first(where: { $0.window === window })",
+                     "let c = services.windows.controllers.first { $0.state.id == id }",
+                     "let target = windows.targetWindow(preferring: target.id)",
+                     "let target = windows.targetWindow(preferring: windows.registry.value.owner(of: workspace.id))",
+                     "let i = windows.firstIndex(where: { $0.id == id })", "let w = target.window",
+                     "let w = event.window", "let first = rows.first", "// NSApp.keyWindow is the wrong window here",
+                     "let note = \"NSApp.keyWindow\""):
+            with self.subTest(code=code):
+                self.assertEqual(self.add(f"func run() {{\n    {code}\n}}\n"), [])
+
+    def test_an_if_let_first_opens_its_body_and_is_refused(self):
+        self.assertEqual(self.add("func run() {\n    if let c = controllers.first { c.show() }\n}\n"),
+                         [("implicit-window", ["HomeHandlers.swift: if let c = controllers.first { c.show() }"])])
+
+    def test_debug_and_bench_handlers_count_and_tests_do_not(self):
+        self.assertEqual(self.add("func f() {\n    let w = NSApp.keyWindow\n}\n", f"{APP}/Control/DebugBench.swift"),
+                         [("implicit-window", ["DebugBench.swift: let w = NSApp.keyWindow"])])
+        self.assertEqual(self.add("func test() {\n    let w = NSApp.keyWindow\n}\n",
+                                  f"{PKG}/Tests/CmuxNextAppTests/WindowTests.swift"), [])
+
+    def test_the_escape_in_the_standard_window(self):
+        reason = "// window-allow: the event's own window, read in its dispatch"
+        for how, text in (("above", f"func f() {{\n    {reason}\n    let w = NSApp.keyWindow\n}}\n"),
+                          ("trailing", f"func f() {{\n    let w = NSApp.keyWindow {reason}\n}}\n"),
+                          ("top of a comment block", f"func f() {{\n    {reason}\n    // and more\n    let w = NSApp.keyWindow\n}}\n")):
+            with self.subTest(how=how):
+                self.assertEqual(self.add(text), [])
+        for how, text in (("no reason", "func f() {\n    // window-allow:\n    let w = NSApp.keyWindow\n}\n"),
+                          ("two code lines above", f"func f() {{\n    {reason}\n    let a = 1\n    let w = NSApp.keyWindow\n}}\n"),
+                          ("another tag", "func f() {\n    // crash-allow: the key window\n    let w = NSApp.keyWindow\n}\n")):
+            with self.subTest(how=how):
+                self.assertEqual(self.add(text), [("implicit-window", ["HomeHandlers.swift: let w = NSApp.keyWindow"])])
+
+    def test_only_the_resolver_file_may_look_the_window_up(self):
+        resolver = f"{APP}/Windows/WindowTarget+Resolve.swift"
+        text = "func resolve() -> String? {\n    NSApp.keyWindow?.identifier?.rawValue\n}\n"
+        self.assertEqual(self.add(text, resolver), [("implicit-window", ["WindowTarget+Resolve.swift: "
+                                                                         "NSApp.keyWindow?.identifier?.rawValue"])])
+        with mock.patch.object(guardrails, "IMPLICIT_WINDOW_RESOLVERS", (resolver,)):
+            self.assertEqual(self.refused_lines(), [])
+            self.assertEqual(self.add(text, f"{APP}/Windows/Other.swift"),
+                             [("implicit-window", ["Other.swift: NSApp.keyWindow?.identifier?.rawValue"])])
+
+    def test_base_debt_is_not_new_and_an_edit_of_it_adds_none(self):
+        old = "func f() {\n    let w = NSApp.keyWindow\n}\n"
+        self.rebase_on({self.APP_FILE: old, self.RECORD: self.record({self.APP_FILE: 1})}, "base lookup")
+        self.write(self.APP_FILE, old.replace("let w", "let window") + "func g() {}\n")
+        self.commit("edits the old lookup")
+        self.assertEqual(self.refused_lines(), [])
+        self.write(self.APP_FILE, old + "func g() {\n    let c = controllers.first\n}\n")
+        self.commit("adds a second lookup")
+        self.assertEqual(self.refused_lines(), [("implicit-window", ["HomeHandlers.swift: let c = controllers.first"])])
+
+    def two_files(self):
+        other = f"{APP}/Handlers/OtherHandlers.swift"
+        self.rebase_on({self.APP_FILE: "func f() {\n    let w = NSApp.keyWindow\n    let c = controllers.first\n}\n",
+                        other: "func g() {}\n", self.RECORD: self.record({self.APP_FILE: 2})}, "two base lookups")
+        return other
+
+    def test_lowering_passes_and_a_stale_row_warns(self):
+        self.two_files()
+        self.write(self.APP_FILE, "func f(_ target: WindowTarget) {\n    let w = target.window\n    let c = controllers.first\n}\n")
+        self.commit("converts one lookup")
+        refusals, warnings = self.check()
+        self.assertEqual([r.id for r, _ in refusals], [])
+        self.assertEqual([kind for kind, text in warnings if "implicit window lookups 2 -> 1" in text],
+                         ["implicit-window-record"])
+        self.write(self.RECORD, self.record({self.APP_FILE: 1}))
+        self.commit("lowers the row")
+        refusals, warnings = self.check()
+        self.assertEqual([r.id for r, _ in refusals], [])
+        self.assertEqual([kind for kind, _ in warnings if kind.startswith("implicit-window")], [])
+
+    def test_the_update_lowers_rows_and_carries_a_move_without_raising_the_total(self):
+        other = self.two_files()
+        self.write(self.APP_FILE, "func f() {\n    let w = NSApp.keyWindow\n}\n")
+        self.write(other, "func g() {\n    let c = controllers.first\n}\n")
+        self.commit("moves a lookup")
+        self.assertEqual(self.refused_lines(), [("implicit-window-record", [
+            "OtherHandlers.swift: 1 implicit window lookups, its row in scripts/cmux-next/implicit-window-baseline.tsv "
+            "allows 0: a lookup moved in from another file carries its row (lower the old file's row by as much)"])])
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(guardrails.main(["--repo", str(self.repo), "--implicit-window-update"]), 0)
+        self.assertEqual(guardrails.implicit_window_rows((self.repo / self.RECORD).read_text()),
+                         {self.APP_FILE: (1, 2), other: (1, 3)})
+        self.commit("records the move")
+        self.assertEqual(self.refused_lines(), [])
+
+    def test_the_record_never_rises(self):
+        other = self.two_files()
+        self.write(self.RECORD, self.record({self.APP_FILE: 3}))
+        self.commit("raises a row by hand")
+        self.assertEqual([rule for rule, _ in self.refused_lines()], ["implicit-window-record"])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.write(other, "func g() {\n    let c = controllers.first // window-allow: wrong, fixture\n}\n")
+        self.write(self.RECORD, self.record({self.APP_FILE: 2, other: 1}))
+        self.commit("raises a row for an escaped line")
+        self.assertEqual([rule for rule, _ in self.refused_lines()], ["implicit-window-record"])
+        self.git("reset", "--quiet", "--hard", self.base)
+        self.git("rm", "--quiet", self.RECORD)
+        self.commit("deletes the record")
+        self.assertEqual(self.refused_lines(), [("implicit-window-record", [
+            "implicit-window-baseline.tsv: the push deletes the implicit-window record"])])
+
+    def test_the_update_refuses_a_rise_no_drop_pays_for(self):
+        other = self.two_files()
+        self.write(other, "func g() {\n    let c = controllers.first\n}\n")
+        self.commit("adds a lookup")
+        with contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertEqual(guardrails.main(["--repo", str(self.repo), "--implicit-window-update"]), 1)
+        self.assertIn(f"over its row, not recorded: {other}: 0 -> 1", out.getvalue())
+        self.assertEqual(guardrails.implicit_window_rows((self.repo / self.RECORD).read_text()), {self.APP_FILE: (2, 2)})
+
+    def test_the_checked_in_record_matches_the_tree(self):
+        record = SOURCE / self.RECORD
+        rows = {path: count for path, (count, _) in guardrails.implicit_window_rows(record.read_text()).items()}
+        tree = guardrails.implicit_window_tree(SOURCE, "HEAD")
+        self.assertEqual({p: n for p, n in tree.items() if n > rows.get(p, 0)}, {}, "a file over its row")
+
+    def test_listed_with_its_escape(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(guardrails.main(["--list"]), 0)
+        listing = "\n" + out.getvalue()
+        self.assertIn("\nimplicit-window: ", listing)
+        self.assertIn("\nimplicit-window-record: ", listing)
+        self.assertIn("escape: // window-allow: <why the window is explicit here>", listing)
+
+
 class AppSizeTests(Fixture):
     """`app-size`: a push grows CmuxNextApp's root only by its wiring budget and adds App files only as moves
     (refusals); App growth is a warning (guardrails.py "app-size"), in source lines."""
