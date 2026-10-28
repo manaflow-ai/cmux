@@ -97,8 +97,7 @@ public final class InputLatencyDispatch {
                         arrivedMain: arrived)
         if let arrived {
             let start = slot.flatMap { tracker.table.time($0.token, .dispatchStart) } ?? InputLatencyTracker.uptimeNanos()
-            arrivals.logIfLate(event, arrived: arrived, dispatchStart: start, target: slot.map { String(describing: $0.target) },
-                               keyWindow: window)
+            arrivals.logIfLate(event, arrived: arrived, dispatchStart: start, target: slot?.target, keyWindow: window)
         }
         return slot
     }
@@ -154,6 +153,16 @@ public final class InputLatencyDispatch {
         }
         guard let token else { return nil }
         return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window)
+    }
+
+    /// A cmux path (`path`) took key-down `event` to run it again later: the ledger records the hold, and the slot this
+    /// dispatch opened for it is dropped, so the key keeps one slot, the one of the dispatch that runs it, whose
+    /// `arrivedMain` is this first arrival (``KeyArrivalLedger``).
+    public func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) {
+        arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos())
+        guard let token = tracker.dispatchingKey, event.timestamp > 0,
+              tracker.table.time(token, .generated) == InputLatencyTracker.eventNanos(event.timestamp) else { return }
+        tracker.discard(token)
     }
 
     /// Finishes `slot` after its event's dispatch returned.

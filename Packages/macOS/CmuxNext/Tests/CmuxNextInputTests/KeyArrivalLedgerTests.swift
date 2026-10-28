@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextInput
+import CmuxNextInputCore
 import Testing
 
 /// A key-down's first arrival on the main thread survives a cmux path's hold and second `sendEvent`
@@ -45,7 +46,7 @@ struct KeyArrivalLedgerTests {
         _ = ledger.arrived(event, at: 10_002_000_000)
         ledger.held(event, by: .creation, at: 10_002_000_000)
         let first = ledger.arrived(event, at: 10_800_000_000)
-        ledger.logIfLate(event, arrived: first, dispatchStart: 10_800_000_000, target: "terminal", keyWindow: nil)
+        ledger.logIfLate(event, arrived: first, dispatchStart: 10_800_000_000, target: .terminal, keyWindow: nil)
         let late = try #require(ledger.lateKeys().last)
         #expect(late.heldBy == .creation)
         #expect(late.arrivedMainNanos - late.generatedNanos == 2_000_000)
