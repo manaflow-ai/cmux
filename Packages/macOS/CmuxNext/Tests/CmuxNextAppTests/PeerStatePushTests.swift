@@ -52,6 +52,46 @@ struct PeerStatePushTests {
         #expect(up[1].connected)
     }
 
+    /// Each `_acpmux/peers` read waits here until the test answers it.
+    actor PeerReads {
+        private var waiting: [CheckedContinuation<[AcpmuxPeerList.Peer]?, Never>] = []
+        private(set) var count = 0
+        func read() async -> [AcpmuxPeerList.Peer]? {
+            count += 1
+            return await withCheckedContinuation { waiting.append($0) }
+        }
+        func answer(_ peers: [AcpmuxPeerList.Peer]?) -> Bool {
+            guard !waiting.isEmpty else { return false }
+            waiting.removeFirst().resume(returning: peers)
+            return true
+        }
+    }
+
+    /// Yields until `done` holds, at most a bounded number of times.
+    static func settle(_ done: () async -> Bool) async -> Bool {
+        for _ in 0..<2_000 {
+            if await done() { return true }
+            await Task.yield()
+        }
+        return await done()
+    }
+
+    @Test func aPushDuringAReadIsFollowedByOneMoreRead() async {
+        let reads = PeerReads()
+        let sidebar = RemoteMachinesSidebar(lanes: AgentLaneStore())
+        sidebar.bind(host: .init(peers: { await reads.read() }, older: { _, _ in nil }, displayName: { _ in nil }, open: { _ in }))
+        #expect(await Self.settle { await reads.count == 1 }, "bind reads the list")
+        // A push arrives while that read is in flight: its answer may be from before the push.
+        sidebar.peerStateChanged(peer: "huge-blue", state: "connected")
+        #expect(await reads.answer([AcpmuxPeerList.Peer(name: "huge-blue", connected: false)]))
+        #expect(await Self.settle { await reads.count == 2 }, "the overtaken answer is followed by one more read")
+        #expect(await reads.answer([AcpmuxPeerList.Peer(name: "huge-blue", connected: true)]))
+        sidebar.stop()
+        sidebar.peerStateChanged(peer: "huge-blue", state: "offline")
+        for _ in 0..<50 { await Task.yield() }
+        #expect(await reads.count == 2, "nothing reads after stop()")
+    }
+
     @Test func anUnknownOrRemovedPeerOrAReopenedWatchReadsTheListAgain() {
         let peers = [AcpmuxPeerList.Peer(name: "big-red", connected: false)]
         #expect(RemoteMachinesSidebar.push(peer: "cmux16", state: "connected", onto: peers) == .read)
