@@ -55,28 +55,33 @@ After (`SplitArrival.fade`, the default; Debug Settings `motion.split.arrival` =
 - The new pane's host layer and its chrome layer (border, ring, dim) fade in on the render server, opacity only, from
   0 to 1 (`MotionFade.fadeIn`, 120 ms at the default speed, ease-out; 180 ms at "normal"). The model opacity stays 1,
   so focus, keys and clicks reach the new pane in the key's turn (focus already moved in that turn; unchanged).
-- The fade waits for the pane's content to draw its first frame (`LayoutPaneContentProvider.whenPaneContentDrawn`: a
-  terminal's first presented surface, a page's first paint, native content at its commit), held at 0 on the render
-  server, at most `MotionScale.quick` (80 ms). One Core Animation keyframe animation per layer does the hold and the
-  fade, so a slow first frame costs no timer and no main-thread frame (`MotionGate.fadeIn(_:layers:in:waitingUpTo:)`).
+- No wait for the content. The pane comes in on its own background from the key's turn: a terminal host paints its
+  theme background in that turn (over a see-through window the window's sheet shows through it), so the fade starts
+  at once. Its content fades in when it first draws (`LayoutPaneContentProvider.paneArrived`,
+  `PaneController.contentArrives`): a terminal's surface (text and cursor) is held at 0 on the render server until
+  its first frame after the shell's first output, then fades in; a page from its first paint. The hold has a 1 s
+  ceiling (a shell slow to print), done by one Core Animation keyframe animation, no timer.
+- Why not "first frame within one frame of the split": the text is the new shell's output. The daemon creates the PTY
+  and the shell only after the split request (about 80 to 110 ms reply), and a shell such as oh-my-zsh then takes
+  30 to 260 ms more to print (first-seconds-lag-result.md). No app-side change makes that text exist in one frame;
+  a prewarmed shell in the daemon would, and is a separate daemon item (none exists today).
 - `Motion.panes` gates it: master switch, panes category, speed off: no animation, the split shows in one frame.
   Reduce Motion and `ui.paneAnimations` off: the split shows in one frame, as before.
 - A content handoff (a split of a browser tab, the New Tab page or a chat that moves the old content to the new pane)
   fades the pane with the new content in place instead of sliding it in from the screen edge. A new dock column still
   grows from its edge (rare, spatial).
 
-Known limits (from the review): a new pane on a daemon with client keys has no content until the daemon replies
-(about 100 ms), so the first-frame wait usually ends at its 80 ms ceiling and the fade can still show the pane's
-background for a few frames before its text; a page drawn in a Chromium child window ignores its host layer's
-opacity and shows at once while its border and ring fade; the focus flash on the new pane is under the hold.
+Known limits: a page drawn in a Chromium child window ignores its host layer's opacity and shows at once while its
+border and ring fade.
 
 Visible changes to judge in the clips: no growth from the edge; the panes beside the split take their new size in one
 frame; the new pane and its ring appear with a short fade. Content in a Chromium child window (a page tab in the new
 pane) shows at once: a child window does not take its host layer's opacity.
 
 Tests: `SplitFadeMotionTests` (red on the base: the plan sets the split at rest, the key's turn lays it out at rest and
-no frame moves a pane), `MotionFadeInWaitTests` (opacity only, model at rest, the first frame starts the fade, a still
-gate animates nothing), `SplitFadeWindowTests` (pane bench, a real window: opacity on the new pane's layers only).
+no frame moves a pane; the key's turn tells the provider which pane arrived), `MotionFadeInWaitTests` (the content
+hold: opacity only, model at rest, the first drawn content starts the fade, a still gate animates nothing),
+`SplitFadeWindowTests` (pane bench, a real window: opacity on the new pane's layers only, no hold on the pane).
 
 Results: see "Part 1 results" at the end.
 

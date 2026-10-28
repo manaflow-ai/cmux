@@ -3,8 +3,8 @@ public import QuartzCore
 public import CmuxNextDesignTokens
 import CmuxNextCompat
 
-/// A fade-in that waits for its content: new content (a split's new pane) is laid out at rest at once and its
-/// layers stay at opacity 0 until the content drew its first frame (``FadeInWait/contentDrawn()``), then fade in
+/// A fade-in that waits for its content: new content (a split's new terminal, before its shell's first output) is
+/// laid out at rest at once and its layers stay at opacity 0 until the content drew its first frame (``FadeInWait/contentDrawn()``), then fade in
 /// (``MotionGate/fadeIn(_:layers:in:completion:)``). The wait has a ceiling: one Core Animation keyframe animation
 /// per layer holds it at 0 for at most `wait` seconds and then runs the same fade by itself, so content that is slow
 /// to draw still comes in, and no timer or frame callback runs on the main thread for it. Both phases are on the
@@ -60,7 +60,8 @@ public final class FadeInWait {
         let total = holdSeconds + fadeSeconds
         let now = CACurrentMediaTime()
         holdEnds = now + holdSeconds
-        MotionActivity.began(seconds: total)
+        // Only the fade is motion (`MotionActivity`, the late-commit telemetry); the hold shows nothing moving.
+        MotionActivity.began(seconds: fadeSeconds)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Runs when every hold ended or was removed (the content's fade replaced it): the layers are at rest then

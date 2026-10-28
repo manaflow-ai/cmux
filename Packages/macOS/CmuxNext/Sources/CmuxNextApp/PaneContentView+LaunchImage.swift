@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextWakeups
@@ -156,17 +157,47 @@ extension PaneController: LaunchWindowPane {
         services.presentation.setNeedsShowSelected(self)
     }
 
-    /// The first frame of the content this pane shows, or of the first content it will show: a terminal's first
-    /// presented surface, a page's first paint (each content's `createTabFirstFrame`), native content at its commit. A
-    /// split's new pane fades in from it (`SplitArrival.fade`). Returns what cancels the wait.
-    func whenFirstContentDrawn(_ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
-        if let content = currentContent { return content.createTabFirstFrame.wait { _ in drawn() } }
-        var cancelFrame: (@MainActor () -> Void)?
-        contentShownWait = { content in cancelFrame = content.createTabFirstFrame.wait { _ in drawn() } }
-        return { [weak self] in
-            self?.contentShownWait = nil
-            cancelFrame?()
+    /// The longest a split's new content waits at opacity 0 for its first drawn content (a shell that is slow to
+    /// print its prompt) before it fades in as it is.
+    static let firstContentWait: TimeInterval = 1
+
+    /// A split's new pane arrived (`LayoutPaneContentProvider.paneArrived`): the pane fades in on its own background,
+    /// and the content it shows, or the first content it will show, fades in when it first draws (a terminal's first
+    /// frame after its shell's first output, a page's first paint; `TabContent.arrival`), so its text never pops in
+    /// after the pane. Content that drew already shows as it is.
+    func contentArrives() {
+        cancelContentArrival()
+        guard let content = currentContent else {
+            contentShownWait = { [weak self] content in self?.fadeContentIn(content) }
+            return
         }
+        fadeContentIn(content)
+    }
+
+    /// Holds `content`'s layer at 0 until it first draws, at most ``firstContentWait``, then fades it in.
+    private func fadeContentIn(_ content: TabContent) {
+        guard let arrival = content.arrival,
+              let wait = Motion.panes.fadeIn(.fadeIn, layers: [arrival.layer], in: arrival.view, waitingUpTo: Self.firstContentWait,
+                                             ended: { [weak self] wait in self?.contentArrivalEnded(wait) }) else { return }
+        contentArrival = (wait, nil)
+        let cancelFrame = arrival.whenDrawn { [weak wait] in wait?.contentDrawn() }
+        if contentArrival?.wait === wait { contentArrival?.cancelFrame = cancelFrame } else { cancelFrame?() }
+    }
+
+    /// The hold of `wait` is over: its frame wait stops.
+    private func contentArrivalEnded(_ wait: FadeInWait) {
+        guard let arrival = contentArrival, arrival.wait === wait else { return }
+        contentArrival = nil
+        arrival.cancelFrame?()
+    }
+
+    /// Shows the content at rest now and stops waiting (another tab shows, the pane goes away, a newer arrival).
+    func cancelContentArrival() {
+        contentShownWait = nil
+        guard let arrival = contentArrival else { return }
+        contentArrival = nil
+        arrival.cancelFrame?()
+        arrival.wait.cancel()
     }
 
     /// A terminal's first frame after its first content is applied; a page's first contentful paint, an agent's or

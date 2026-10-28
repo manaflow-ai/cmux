@@ -57,8 +57,10 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private(set) var isSuspended = false
     /// Its slice of the launch window's build behind the picture showed it, or the build ended (p08-startup-060).
     var launchReleased = false
-    /// A split's fade waits for this pane's first content (`whenFirstContentDrawn`): it starts that content's frame wait.
+    /// A split's new pane waits for its first content to show (`contentArrives`): it fades that content in.
     var contentShownWait: (@MainActor (TabContent) -> Void)?
+    /// The content of a split's new pane held at opacity 0 until it first draws, and what cancels its frame wait.
+    var contentArrival: (wait: FadeInWait, cancelFrame: (@MainActor () -> Void)?)?
     var waitsForLaunchEnd = false // the launch held its content; its afterStartup post is on order (PaneSelectionPresenter)
     /// This pane in the visibility tree (p06-scheduler.md B), under its workspace's node: hidden while
     /// suspended. Not ``isVisible``, which is the layout's viewport presence.
@@ -123,6 +125,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
     }
 
     func teardown() {
+        cancelContentArrival()
         observation?.cancel()
         tabItems.cancelAll()
         services.presentation.cancel(self)
@@ -487,6 +490,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "reveal")
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
+        if contentArrival != nil, key != previous { cancelContentArrival() } // another tab shows: the held one shows at rest
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         if let content, let waiting = contentShownWait {
             contentShownWait = nil

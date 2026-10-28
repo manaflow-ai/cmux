@@ -99,6 +99,24 @@ enum TabContent {
         }
     }
 
+    /// Where this content draws and how it reports its first drawn content, for a split's content fade
+    /// (`PaneController.contentArrives`); nil when it drew already. A terminal fades its surface (text and cursor)
+    /// over its host's theme background from its first frame after its shell's first output; other content fades its
+    /// view from its first paint.
+    @MainActor var arrival: (layer: CALayer, view: NSView,
+                             whenDrawn: (@escaping @MainActor () -> Void) -> (@MainActor () -> Void)?)? {
+        switch self {
+        case .terminal(let entry):
+            let session = entry.session, surface = session.surfaceView
+            guard !session.hasContent, let layer = surface.layer else { return nil }
+            return (layer, surface, { drawn in session.whenContentFrameDrawn(drawn) })
+        default:
+            guard let layer = view.layer else { return nil }
+            let first = createTabFirstFrame
+            return (layer, view, { drawn in first.wait { _ in drawn() } })
+        }
+    }
+
     /// A Ghostty terminal (it is ready on its first frame, not when shown).
     var isTerminal: Bool {
         if case .terminal = self { true } else { false }

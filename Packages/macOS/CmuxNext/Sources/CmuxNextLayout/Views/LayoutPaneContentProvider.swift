@@ -19,20 +19,16 @@ public protocol LayoutPaneContentProvider: AnyObject {
     /// The pane scrolled on screen, into the keep-alive band, or away (other
     /// screen, far scroll). Panes start `.hidden`.
     func panePresenceDidChange(_ pane: PaneID, presence: PanePresence)
-    /// Runs `drawn` once the content `makeContentView(for:)` made for `pane` drew its first frame (a terminal's
-    /// first presented surface, a page's first paint), or at once when it has drawn already or never draws. A
-    /// split's new pane fades in only then (``SplitArrival/fade``), so the fade never shows an empty pane that
-    /// fills in later. Returns what cancels the wait (the pane went away first), if anything.
-    func whenPaneContentDrawn(_ pane: PaneID, _ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)?
+    /// A split's new pane was laid out at its rest and fades in on its own background from this turn
+    /// (``SplitArrival/fade``). Content that has not drawn yet (a terminal whose shell has not printed, a page
+    /// that has not painted) fades in on its own when it first draws, so neither the pane nor its text pops in.
+    func paneArrived(_ pane: PaneID)
 }
 
 extension LayoutPaneContentProvider {
     public func releaseContentView(_ view: NSView, for pane: PaneID) {}
     public func panePresenceDidChange(_ pane: PaneID, presence: PanePresence) {}
-    public func whenPaneContentDrawn(_ pane: PaneID, _ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
-        drawn()
-        return nil
-    }
+    public func paneArrived(_ pane: PaneID) {}
 }
 
 /// Pasteboard type for tab drags the layout accepts through AppKit drag and
