@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxNextPages
 public import WebKit
 
 /// `debug.agent_pane click` and `hover` (DEBUG builds), on whichever host shows the chat: the
@@ -56,6 +57,17 @@ extension AgentPaneView {
 
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page?.showsChromium == true }
+
+    /// Whether the chat is to show in Chromium but Chromium has not attached yet: the page shows
+    /// nothing until it does, or until it falls back to WebKit.
+    public var debugChromiumStarting: Bool { pageDrawsOverCovers && !debugShowsChromium }
+
+    /// Whether the chat's Chromium page is one a window snapshot draws: in this window, not parked,
+    /// hidden or under a clear (alpha 0) ancestor, and with a size.
+    public var debugChromiumPageShown: Bool {
+        guard let page, let window = page.window else { return false }
+        return PageRegistry.shownChromiumPages(in: window).contains { $0.page === page }
+    }
 
     /// The zoom the chat shows at: view points per page CSS pixel.
     public var debugPageZoom: Double {

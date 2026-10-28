@@ -76,15 +76,15 @@ final class CaptureSceneRegistry {
                     && self.services.windows.registry.members(of: targetWindowID).count >= 3
                     && self.services.windows.controller(for: targetWindowID)?.sidebar.model.sections.flatMap(\.workspaces).contains { !$0.rowState.isPending } == true
                     && self.services.showcase.agentTabs.values.contains {
-                    guard let view = self.services.agentTabs.existingView($0) else { return false }
-                    return Self.agentPageCanSettle(attached: view.webView.window != nil,
-                                                   loading: view.webView.isLoading,
-                                                   chromium: view.debugShowsChromium)
+                    self.agentPageState(self.services.agentTabs.existingView($0)).ready
                 }
             },
             start: start,
             window: 100,
-            deadline: 5_000,
+            // A cold launch starts Chromium for the agent page; that start may take up to the page's
+            // Chromium deadline (8 s) before WebKit takes over and loads. The route's own 30 s
+            // deadline still leaves room for seeding, readiness and the snapshot after this.
+            deadline: 20_000,
         )
         let frameStats = frames.stop()
         guard settled != nil else {
@@ -96,6 +96,9 @@ final class CaptureSceneRegistry {
                 "daemon_workspaces": .number(Double(services.daemon.store.workspaces.count)),
                 "window_workspaces": .number(Double(services.windows.registry.members(of: targetWindowID).count)),
                 "agent_tabs": .number(Double(services.showcase.agentTabs.count)),
+                "agent_pages": .array(services.showcase.agentTabs.values.map {
+                    .string(agentPageState(services.agentTabs.existingView($0)).diagnostic)
+                }),
             ])
         }
 
@@ -207,11 +210,31 @@ final class CaptureSceneRegistry {
         (snapshot["webviews_composited"]?.intValue ?? 0) + (snapshot["chromium_pages_composited"]?.intValue ?? 0) > 0
     }
 
-    /// A Chromium agent can have a live, ready DOM while its backing WKWebView still reports loading
-    /// an asynchronous resource. WebKit still needs to finish navigation before seed_rows runs;
-    /// the readiness probe below then checks body, transcript and composer for either engine.
-    static func agentPageCanSettle(attached: Bool, loading: Bool, chromium: Bool) -> Bool {
-        attached && (chromium || !loading)
+    /// Whether the agent page shows what a capture would draw: in the window, past its first paint,
+    /// and on its final engine. While Chromium starts (`chromiumStarting`) the page has no Chromium
+    /// session yet and its backing WKWebView is hidden but already loaded, so judging that view let
+    /// the first render after launch go ahead with no page on screen (#26468: "agent page was not
+    /// composited", 0 web views and 0 Chromium pages). A Chromium page must be one the snapshot
+    /// draws (`chromiumShown`); its backing WKWebView may still report loading an asynchronous
+    /// resource. A WebKit page must finish navigation before seed_rows runs. The readiness probe
+    /// then checks body, transcript and composer for either engine.
+    static func agentPageCanSettle(attached: Bool, loading: Bool, chromium: Bool, chromiumStarting: Bool,
+                                   chromiumShown: Bool, painted: Bool) -> Bool {
+        guard attached, painted, !chromiumStarting else { return false }
+        return chromium ? chromiumShown : !loading
+    }
+
+    private func agentPageState(_ view: AgentPaneView?) -> (ready: Bool, diagnostic: String) {
+        guard let view else { return (false, "no view") }
+        let attached = view.webView.window != nil
+        let loading = view.webView.isLoading
+        let chromium = view.debugShowsChromium
+        let starting = view.debugChromiumStarting
+        let shown = view.debugChromiumPageShown
+        let painted = view.model.hasPainted
+        let ready = Self.agentPageCanSettle(attached: attached, loading: loading, chromium: chromium,
+                                            chromiumStarting: starting, chromiumShown: shown, painted: painted)
+        return (ready, "inWindow=\(attached),loading=\(loading),chromium=\(chromium),starting=\(starting),shown=\(shown),painted=\(painted)")
     }
 
     private func readinessIsComplete(_ readiness: CmuxNextSettings.JSONValue) -> Bool {
@@ -455,17 +478,14 @@ extension CaptureSceneRegistry {
         let generatedOK = actualGenerated == expectedGeneratedTitle
         let actualGeneratedPreview = actualGenerated.map { String($0.prefix(32)) } ?? "-"
         let view = services.agentTabs.existingView(tabID)
-        let painted = view?.model.hasPainted == true
-        let inWindow = view?.webView.window != nil
-        let loading = view?.webView.isLoading == true
-        let pageReady = Self.agentPageCanSettle(attached: inWindow, loading: loading, chromium: view?.debugShowsChromium == true)
+        let (pageReady, page) = agentPageState(view)
         let sidebarRow = services.windows.controller(for: windowID)?.sidebar.model.sections.flatMap(\.workspaces)
             .first(where: { $0.id.rawValue == workspace.id })
         let sidebarRowMatches = sidebarRow?.title == expected
         let pending = sidebarRow?.rowState.isPending == true
         let ready = workspace.name == expected && workspace.nameSource == expectedSource
-            && tabFound && sessionOK && hostKnown && generatedOK && painted && pageReady && sidebarRowMatches && !pending
-        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),painted=\(painted),inWindow=\(inWindow),loading=\(loading),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
+            && tabFound && sessionOK && hostKnown && generatedOK && pageReady && sidebarRowMatches && !pending
+        let diagnostic = "name=\(workspace.name),source=\(workspace.nameSource.rawValue),expected=\(expected),tabFound=\(tabFound),sessionOK=\(sessionOK),hostKnown=\(hostKnown),generatedOK=\(generatedOK),actualGenerated=\(actualGeneratedPreview),\(page),sidebarRow=\(sidebarRowMatches),pending=\(pending)"
         return (ready, String(diagnostic.prefix(330)))
     }
 }
