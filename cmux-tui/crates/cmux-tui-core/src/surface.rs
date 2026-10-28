@@ -360,6 +360,7 @@ mod attach_tap;
 pub use attach_tap::AttachFrameReceiver;
 pub(crate) use attach_tap::AttachLifecycle;
 pub(crate) use attach_tap::AttachResize;
+pub(crate) use attach_tap::ByteViewEvent;
 pub(crate) use attach_tap::TapVisibility;
 pub(crate) use attach_tap::ViewerEvent;
 #[cfg(test)]

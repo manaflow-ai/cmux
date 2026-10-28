@@ -26,8 +26,9 @@ use crate::server::attach_lifecycle::attach_pump::{
 use crate::server::attach_lifecycle::{AttachCommit, commit_client_attach_and_start_pump};
 use crate::server::browser_state_message;
 use crate::server::render_messages::browser_frame_json;
+use crate::server::sequenced_pool::{Sequence, SequencePriority};
 use crate::server::stream_priority::follow_visibility;
-use crate::surface::AttachStream;
+use crate::surface::{AttachStream, ByteViewEvent};
 
 /// Where a view's drain runs and what it starts with.
 pub(crate) struct StreamView<'a> {
@@ -75,18 +76,22 @@ impl StreamView<'_> {
         )
     }
 
-    /// A replay byte view: the terminal's output is the echo path.
+    /// A replay byte view: the terminal's output is the echo path. The
+    /// replay a geometry change asks for is built on a utility sequence of
+    /// the view's own, as a snapshot viewer's READY encode is, so the build
+    /// never holds a worker the echo path shares.
     pub(crate) fn start_bytes(
         self,
         attach: AttachStream,
         shape: AttachWireShape,
     ) -> anyhow::Result<()> {
+        let replays = self.mux.sequenced_pool.sequence(SequencePriority::Utility);
         self.start(
             true,
             |source: &BytesSource, hook| {
                 source.attach.stream.on_ready(hook);
             },
-            BytesSource { attach, shape },
+            BytesSource { attach, shape, replays },
         )
     }
 
@@ -118,18 +123,30 @@ impl StreamView<'_> {
 struct BytesSource {
     attach: AttachStream,
     shape: AttachWireShape,
+    /// Where this view's replays are built.
+    replays: Sequence,
 }
 
 impl ViewSource for BytesSource {
     const WATCH: WatchKind = WatchKind::AttachOut;
 
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
-        match self.attach.stream.try_recv() {
-            Ok(frame) => {
+        match self.attach.stream.try_byte_view_event() {
+            Ok(ByteViewEvent::Frame(frame)) => {
                 let sent =
                     out.writer.send_attach_frame(out.surface, &frame, self.shape, &out.stream);
                 if out.sent(sent) { Step::Sent } else { Step::End }
             }
+            // The replay lands in the view's queue and wakes this drain;
+            // until then the view has nothing to send.
+            Ok(ByteViewEvent::ReplayDue(replay)) => match self.replays.post(move || replay.build())
+            {
+                Ok(()) => Step::Empty,
+                Err(error) => {
+                    eprintln!("cmux-tui: surface {} byte view ends: {error}", out.surface);
+                    Step::End
+                }
+            },
             Err(TryRecvError::Empty) => Step::Empty,
             Err(TryRecvError::Disconnected) => {
                 self.attach.lifecycle.cancel();

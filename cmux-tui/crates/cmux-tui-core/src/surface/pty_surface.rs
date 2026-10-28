@@ -159,14 +159,6 @@ impl PtySurface {
         });
     }
 
-    /// Send `frame` to replay viewers only; snapshot viewers are untouched.
-    pub(super) fn broadcast_attach_frame_to_replay_taps(&self, frame: AttachFrame) {
-        self.taps
-            .lock()
-            .recover_poison()
-            .retain(|tap| tap.is_snapshot() || tap.try_send(frame.clone()));
-    }
-
     /// Disconnect replay viewers (they reattach from fresh state); snapshot
     /// viewers stay and resync by snapshot.
     pub(super) fn cancel_replay_taps(&self) {
@@ -204,43 +196,20 @@ impl PtySurface {
 
     /// Replace every byte-stream mirror after a sidecar-only state change.
     /// Limit eviction has no PTY bytes, so continuing the old stream without
-    /// this replay would leave mirrors on a different Kitty scene.
+    /// a replay would leave mirrors on a different Kitty scene: each replay
+    /// viewer waits for one replay, as after a resize, and every snapshot
+    /// viewer resyncs.
     pub(super) fn resynchronize_attach_taps_locked(&self, term: &mut Terminal) {
-        {
+        let has_replay_taps = {
             let mut taps = self.taps.lock().recover_poison();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
-            if !taps.iter().any(|tap| !tap.is_snapshot()) {
-                drop(taps);
-                self.resync_snapshot_taps();
-                return;
-            }
-        }
-        let replay = match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
-            Ok(replay) => replay,
-            Err(_) => {
-                self.cancel_replay_taps();
-                self.resync_snapshot_taps();
-                return;
-            }
+            taps.iter().any(|tap| !tap.is_snapshot())
         };
-        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-        let colors = Box::new(self.terminal_colors_locked(term, defaults));
-        self.attach_colors_pending.store(false, Ordering::Release);
-        self.attach_colors_force_pending.store(false, Ordering::Release);
-        *self.last_attach_colors.lock().recover_poison() =
-            Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
-        if !replay.pending_sequence.is_empty() {
-            self.cancel_taps_without_pending_support();
+        if has_replay_taps {
+            self.reset_attach_colors_locked(term);
+            self.request_attach_replays();
         }
-        self.broadcast_attach_frame(AttachFrame::ResizedWithColors {
-            cols: term.cols(),
-            rows: term.rows(),
-            replay: replay.bytes.into(),
-            kitty_image_aliases: replay.kitty_image_aliases,
-            kitty_state: replay.kitty_state,
-            colors,
-            pending_sequence: replay.pending_sequence.into(),
-        });
+        self.resync_snapshot_taps();
     }
 
     /// Emit at most one latest effective palette snapshot per frame cadence.
@@ -585,6 +554,9 @@ impl PtySurface {
         };
         // Replay viewers need a replay of the new grid; snapshot viewers get
         // a snapshot from their worker and never block or cancel a resize.
+        // The replay is not built here: each replay viewer waits for one,
+        // taken when it has the frames before this change (see
+        // `deliver_pending_replays_locked`), so a burst of steps costs one.
         let mut has_attach_taps = {
             let mut taps = self.taps.lock().recover_poison();
             taps.retain(|tap| !tap.lifecycle.is_canceled());
@@ -650,23 +622,6 @@ impl PtySurface {
                 )),
             };
         }
-        let replay = if has_attach_taps {
-            #[cfg(test)]
-            self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
-            match term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES) {
-                Ok(replay) => Some(replay),
-                Err(_) => {
-                    // Budget failure was already ruled out under this same
-                    // terminal lock. A formatter/backend failure must not be
-                    // answered with a destructive inverse resize. Disconnect
-                    // byte mirrors so they reattach from fresh state.
-                    self.cancel_replay_taps();
-                    None
-                }
-            }
-        } else {
-            None
-        };
         drop(runtime);
         *geometry = next;
         self.journal_geometry(next);
@@ -694,42 +649,117 @@ impl PtySurface {
         {
             output.queue_scroll_changed(generation, position);
         }
-        if let Some(replay) = replay {
-            let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
-            let colors = Box::new(self.terminal_colors_locked(&term, defaults));
+        if has_attach_taps {
             if refresh_attach_colors {
-                let live_colors = TerminalColors::from_pty_output(&term, defaults);
-                self.attach_colors_pending.store(false, Ordering::Release);
-                self.attach_colors_force_pending.store(false, Ordering::Release);
-                *self.last_attach_colors.lock().recover_poison() = Some(Box::new(live_colors));
+                self.reset_attach_colors_locked(&term);
             }
-            if !replay.pending_sequence.is_empty() {
+            // A viewer that cannot resume a replay ending inside a sequence
+            // reconnects now, as when the replay was cut here; the build
+            // checks again at its own cut.
+            if !term.vt_stream_is_ground() {
                 self.cancel_taps_without_pending_support();
             }
-            let frame = AttachFrame::ResizedWithColors {
-                cols: next.cols,
-                rows: next.rows,
-                replay: replay.bytes.into(),
-                kitty_image_aliases: replay.kitty_image_aliases,
-                kitty_state: replay.kitty_state,
-                colors,
-                pending_sequence: replay.pending_sequence.into(),
-            };
-            if grid_changed {
-                self.publish_resize_locked(&term, Some(frame));
-            } else {
-                // A cell-pixel-only change reflows nothing: snapshot viewers
-                // keep their grid and generation.
-                self.broadcast_attach_frame_to_replay_taps(frame);
-            }
-        } else if grid_changed {
-            self.publish_resize_locked(&term, None);
+            // A cell-pixel-only change reflows nothing: snapshot viewers keep
+            // their grid and generation, and only replay viewers wait.
+            self.request_attach_replays();
+        }
+        if grid_changed {
+            self.publish_resize_locked(&term);
         }
         // Geometry changes are terminal-stream transitions too. Publish the
         // revision before releasing the parser lock so screen snapshots have
         // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
         Ok(GeometryCommit { changed: true, scroll })
+    }
+}
+
+impl PtyTerminalRuntime {
+    /// Every viewer gets complete colors with its new grid (replay viewers
+    /// in their replay, snapshot viewers in their READY): no colors change
+    /// is pending for them. The caller holds the terminal lock.
+    fn reset_attach_colors_locked(&self, term: &Terminal) {
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        self.attach_colors_pending.store(false, Ordering::Release);
+        self.attach_colors_force_pending.store(false, Ordering::Release);
+        *self.last_attach_colors.lock().recover_poison() =
+            Some(Box::new(TerminalColors::from_pty_output(term, defaults)));
+    }
+
+    /// A geometry change for every replay viewer: each waits for one replay
+    /// of the terminal at a later cut ([`AttachTap::request_replay`]). The
+    /// caller holds the terminal lock.
+    fn request_attach_replays(&self) {
+        self.taps.lock().recover_poison().retain(AttachTap::request_replay);
+    }
+
+    /// Build the replay the waiting replay viewers need, once for all of
+    /// them, and queue it for each. A viewer's receiver calls this when it
+    /// has taken every frame queued before the geometry change; a view's
+    /// drain runs it on a utility sequence of its own, so the build never
+    /// holds a worker the echo path shares.
+    pub(super) fn deliver_pending_replays(&self) {
+        let mut term = self.term.lock().recover_poison();
+        self.deliver_pending_replays_locked(&mut term);
+    }
+
+    /// The replay of `term` at this cut for every viewer waiting for one.
+    /// Every waiting viewer either gets it or is disconnected (it reattaches
+    /// from fresh state), so none waits after this returns. The replay is
+    /// queued after every byte published before this cut and before every
+    /// byte after it (both under the terminal lock), so a mirror rebuilt from
+    /// it resumes the stream with no gap and no duplicate.
+    fn deliver_pending_replays_locked(&self, term: &mut Terminal) {
+        {
+            let mut taps = self.taps.lock().recover_poison();
+            taps.retain(|tap| !tap.lifecycle.is_canceled());
+            if !taps.iter().any(AttachTap::needs_replay) {
+                return;
+            }
+        }
+        let replay = if term.vt_replay_resumes_stream() {
+            #[cfg(test)]
+            self.vt_replay_builds.fetch_add(1, Ordering::AcqRel);
+            // A resize preflighted the replay budget before it changed the
+            // grid. A replay that fails now (an in-flight upload grown past
+            // it, a formatter failure) or a control string past the
+            // pending-sequence budget disconnects the waiting viewers: they
+            // reattach from fresh state.
+            term.vt_replay_bounded_theme_portable_with_aliases(VT_REPLAY_MAX_BYTES).ok()
+        } else {
+            None
+        };
+        let Some(replay) = replay else {
+            self.taps.lock().recover_poison().retain(|tap| {
+                let waiting = tap.needs_replay();
+                if waiting {
+                    tap.lifecycle.cancel();
+                }
+                !waiting
+            });
+            return;
+        };
+        let defaults = self.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
+        let ends_mid_sequence = !replay.pending_sequence.is_empty();
+        let frame = AttachFrame::ResizedWithColors {
+            cols: term.cols(),
+            rows: term.rows(),
+            replay: replay.bytes.into(),
+            kitty_image_aliases: replay.kitty_image_aliases,
+            kitty_state: replay.kitty_state,
+            colors: Box::new(TerminalColors::from_terminal(term, defaults)),
+            pending_sequence: replay.pending_sequence.into(),
+        };
+        self.taps.lock().recover_poison().retain(|tap| {
+            if !tap.needs_replay() {
+                return true;
+            }
+            if ends_mid_sequence && !tap.lifecycle.resumes_pending_sequence() {
+                tap.lifecycle.cancel();
+                return false;
+            }
+            tap.finish_replay(frame.clone())
+        });
     }
 }
 

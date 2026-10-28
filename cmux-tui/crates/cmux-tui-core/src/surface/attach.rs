@@ -26,8 +26,12 @@ impl Surface {
         if dead && !exited {
             return Err(ghostty_vt::Error::NoValue);
         }
-        let (tap, stream) =
-            AttachTap::pair(lifecycle.clone(), ATTACH_STREAM_CAPACITY, ATTACH_STREAM_MAX_BYTES);
+        let (tap, stream) = AttachTap::replay_pair(
+            lifecycle.clone(),
+            ATTACH_STREAM_CAPACITY,
+            ATTACH_STREAM_MAX_BYTES,
+            Arc::downgrade(&pty.terminal),
+        );
         // Snapshot and tap registration under the same terminal lock:
         // the reader thread cannot apply bytes between the two.
         #[cfg(test)]

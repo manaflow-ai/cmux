@@ -411,17 +411,6 @@ fn local_ready(generation: u64, offset: u64, cols: u16) -> Arc<LocalReadySnapsho
     })
 }
 
-fn resized(cols: u16) -> AttachFrame {
-    AttachFrame::Resized {
-        cols,
-        rows: 20,
-        replay: Arc::from(&b"replay"[..]),
-        kitty_image_aliases: Vec::new(),
-        kitty_state: KittyReplayState::default(),
-        pending_sequence: Arc::from([]),
-    }
-}
-
 fn local_viewer(backlog: usize) -> (AttachTap, AttachFrameReceiver) {
     let (tap, receiver) = AttachTap::snapshot_pair(AttachLifecycle::default(), 64, backlog);
     receiver.set_local_history(true);
@@ -459,20 +448,6 @@ fn a_resize_queues_a_local_ready_after_the_pending_frames() {
     assert_eq!(receiver.resyncs(), 0);
 }
 
-/// With replay viewers attached the resize carries a replay frame; a
-/// local-history viewer still gets the local READY in order, not a resync.
-#[test]
-fn a_resize_frame_reaches_a_local_history_viewer_as_its_local_ready() {
-    let (tap, receiver) = local_viewer(1 << 20);
-    receiver.finish_snapshot_locked();
-    assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"before"))));
-    let ready = local_ready(1, 6, 60);
-    assert!(tap.try_send_resize(resized(60), Some(&ready)));
-    expect_output(next_event(&receiver), b"before");
-    assert!(Arc::ptr_eq(&expect_local(next_event(&receiver)), &ready));
-    assert_eq!(receiver.resyncs(), 0);
-}
-
 /// A burst of resizes queues one local READY per resize, in order.
 #[test]
 fn a_burst_of_resizes_queues_one_local_ready_each() {
@@ -506,7 +481,7 @@ fn a_behind_local_history_viewer_resyncs_by_snapshot() {
     let (tap, receiver) = local_viewer(1 << 20);
     receiver.defer_snapshot();
     assert!(!tap.wants_local_ready());
-    assert!(tap.try_send_resize(resized(60), Some(&ready)));
+    tap.resync_snapshot_at_cut(Some(&ready));
     assert!(is_snapshot(&next_event(&receiver)));
 }
 
@@ -531,7 +506,7 @@ fn a_viewer_without_local_history_ignores_local_readies() {
     assert!(!tap.wants_local_ready());
     let ready = local_ready(1, 0, 60);
     assert!(tap.try_send(AttachFrame::Output(Bytes::from_static(b"dropped"))));
-    assert!(tap.try_send_resize(resized(60), Some(&ready)));
+    tap.resync_snapshot_at_cut(Some(&ready));
     assert_eq!(receiver.resyncs(), 1);
     assert!(is_snapshot(&next_event(&receiver)));
 }

@@ -392,21 +392,17 @@ impl Surface {
 }
 
 impl PtySurface {
-    /// Publish a grid change of a resize to the attach viewers. The caller
-    /// holds the terminal lock and has just resized `term`. `frame` is the
-    /// replay for replay viewers, or `None` when only snapshot viewers are
-    /// attached.
+    /// Publish a grid change of a resize to the snapshot viewers. The caller
+    /// holds the terminal lock and has just resized `term`; replay viewers
+    /// wait for their replay (`AttachTap::request_replay`).
     ///
     /// The grid change starts a new generation. A snapshot viewer that
     /// reflows its own history and is not behind gets one READY of the new
     /// grid queued after every frame before the resize, at the resize's
     /// generation and offset; every other snapshot viewer gets a READY with
     /// history at a later cut, as before.
-    pub(super) fn publish_resize_locked(&self, term: &Terminal, frame: Option<AttachFrame>) {
-        match &frame {
-            Some(frame) => self.snapshot_position.observe_frame(frame),
-            None => self.snapshot_position.bump_generation(),
-        }
+    pub(super) fn publish_resize_locked(&self, term: &Terminal) {
+        self.snapshot_position.bump_generation();
         // Only the terminal lock (held) moves a viewer from behind to caught
         // up, so a viewer that is behind now stays behind until the sends
         // below: the encode is skipped when no viewer can use it.
@@ -417,14 +413,8 @@ impl PtySurface {
             .iter()
             .any(AttachTap::wants_local_ready);
         let local = if wanted { self.encode_local_ready_locked(term) } else { None };
-        let mut taps = self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        match frame {
-            Some(frame) => taps.retain(|tap| tap.try_send_resize(frame.clone(), local.as_ref())),
-            None => {
-                for tap in taps.iter() {
-                    tap.resync_snapshot_at_cut(local.as_ref());
-                }
-            }
+        for tap in self.taps.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter() {
+            tap.resync_snapshot_at_cut(local.as_ref());
         }
     }
 

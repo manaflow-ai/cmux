@@ -230,6 +230,15 @@ fn geometry_updates_skip_vt_replay_without_byte_attach_subscribers() {
     let byte_attach = surface.attach_stream().unwrap();
     pty.vt_replay_builds.store(0, Ordering::Release);
     surface.resize(101, 31).unwrap();
+    assert_eq!(
+        pty.vt_replay_builds.load(Ordering::Acquire),
+        0,
+        "the resize commit must leave the byte-attach replay to the viewer"
+    );
+    assert!(matches!(
+        byte_attach.stream.try_recv(),
+        Ok(AttachFrame::ResizedWithColors { cols: 101, rows: 31, .. })
+    ));
     assert_eq!(pty.vt_replay_builds.load(Ordering::Acquire), 1);
 
     drop(byte_attach);
