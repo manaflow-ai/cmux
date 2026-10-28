@@ -58,7 +58,7 @@ test("a running workflow shows its counts, tokens, description, phases, the open
   expect(shown).toContain("Demo: 3 agents brainstorm names");
   expect(shown).toContain("Brainstorm 3 done");
   // The phase with a running agent is open: its model once, its agents with how long or Queued.
-  expect(shown).toContain("Critique 1 running · 2 queued Model: Opus 5.5 punchy");
+  expect(shown).toContain("Critique 1 running · 2 queued punchy Model: Opus 5.5");
   expect(shown).toContain("playful Queued descriptive Queued");
   // Judge has no agent yet: not a phase row, but Up next.
   expect(html.match(/class="acpmux-workflow-phase"/g)?.length).toBe(2);
@@ -148,7 +148,7 @@ test("a finished workflow reads as finished with its size, and a phase opens int
   expect(container.querySelector("[aria-label='Stop demo-name-tournament']")).toBeNull();
   const judge = [...container.querySelectorAll("button")].find((button) => button.textContent?.startsWith("Judge"))!;
   await act(async () => judge.click());
-  expect(shown()).toContain("Judge 1/1 Model: Opus 5.5 judge 41s");
+  expect(shown()).toContain("Judge 1/1 judge Model: Opus 5.5 Completed 41s");
 });
 
 test("a running workflow keeps its elapsed clock live before agent records arrive", async () => {

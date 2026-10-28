@@ -309,7 +309,8 @@ export function WorkflowAgentRow({
 function agentStateWord(t: Translate, state: WorkflowAgent["state"]): string {
   if (state === "running") return t("subagents.state.running");
   if (state === "completed") return t("subagents.state.completed");
-  if (state === "failed" || state === "cancelled") return t("subagents.state.failed");
+  if (state === "failed") return t("subagents.state.failed");
+  if (state === "cancelled") return t("subagents.state.cancelled");
   if (state === "waiting" || state === "pending") return t("workflow.agentQueued");
   if (state === "paused") return t("goal.paused");
   return t("inspector.unknown");
