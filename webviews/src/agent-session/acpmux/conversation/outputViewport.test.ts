@@ -5,17 +5,26 @@ import { watchOutputViewport } from "./outputViewport";
 test("the bottom fade exists only while more output lies below the scroll position", () => {
   const { window } = new JSDOM("<pre></pre>");
   const node = window.document.querySelector("pre")!;
+  let reads = 0;
   Object.defineProperties(node, {
-    scrollHeight: { get: () => 600 },
+    scrollHeight: {
+      get: () => {
+        reads++;
+        return 600;
+      },
+    },
     clientHeight: { get: () => 160 },
   });
   const overflows: boolean[] = [];
   const stop = watchOutputViewport(node, (value) => overflows.push(value));
   try {
     expect(overflows).toEqual([true]);
+    expect(reads).toBe(2);
     expect(node.hasAttribute("data-more-below")).toBe(true);
+    reads = 0;
     node.scrollTop = 440;
     node.dispatchEvent(new window.Event("scroll"));
+    expect(reads).toBe(1);
     expect(node.hasAttribute("data-more-below")).toBe(false);
     node.scrollTop = 100;
     node.dispatchEvent(new window.Event("scroll"));
