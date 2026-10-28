@@ -1564,3 +1564,80 @@ export const DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS = 10;
 export function devboxSettleBeforeSnapshotCommand(): string {
   return `sync && sleep ${DEVBOX_PRE_SNAPSHOT_SETTLE_SECONDS} && sync && echo "settled $(cut -d' ' -f1-3 /proc/loadavg)"`;
 }
+
+/**
+ * The DNS fallback (Freestyle only; services/vms/images/devbox/cmux-dns): a
+ * stub on 127.0.0.2:53 that asks the platform's resolver first and falls back
+ * to its last good answer, then DNS-over-HTTPS, when the platform resolver
+ * answers SERVFAIL or nothing (cmux issue 26640). Freestyle rewrites
+ * /etc/resolv.conf on every TLS rule change, so a path unit re-points it at
+ * the stub each time. The container recipe has none: its runtime owns
+ * resolv.conf.
+ */
+export const DEVBOX_DNS_PATH = "/usr/local/bin/cmux-dns";
+export const DEVBOX_DNS_UNITS: Readonly<Record<string, string>> = {
+  "/etc/systemd/system/cmux-dns.service": [
+    "[Unit]",
+    "Description=cmux DNS fallback stub (127.0.0.2:53)",
+    "Before=nss-lookup.target",
+    "Wants=nss-lookup.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    // The distribution interpreter, not whichever python3 is first on PATH.
+    `ExecStart=/usr/bin/python3 ${DEVBOX_DNS_PATH} serve`,
+    "Restart=always",
+    "RestartSec=1",
+    "DynamicUser=yes",
+    "AmbientCapabilities=CAP_NET_BIND_SERVICE",
+    "CapabilityBoundingSet=CAP_NET_BIND_SERVICE",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n") + "\n",
+  "/etc/systemd/system/cmux-dns-guard.service": [
+    "[Unit]",
+    "Description=Point resolv.conf at the cmux DNS fallback",
+    "After=cmux-dns.service",
+    "",
+    "[Service]",
+    "Type=oneshot",
+    `ExecStart=/usr/bin/python3 ${DEVBOX_DNS_PATH} guard`,
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n") + "\n",
+  "/etc/systemd/system/cmux-dns-guard.path": [
+    "[Unit]",
+    "Description=Re-point resolv.conf at the cmux DNS fallback whenever the platform rewrites it",
+    "",
+    "[Path]",
+    "PathChanged=/etc/resolv.conf",
+    "Unit=cmux-dns-guard.service",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n") + "\n",
+};
+
+/** Enables and starts the fallback once its files are in place, then proves it answers. */
+export const devboxDnsInstallCommand = [
+  `python3 -m py_compile ${DEVBOX_DNS_PATH}`,
+  "systemctl daemon-reload",
+  "systemctl enable --now cmux-dns.service cmux-dns-guard.path",
+  "systemctl enable cmux-dns-guard.service",
+  "systemctl start cmux-dns-guard.service",
+  "for i in $(seq 1 20); do getent ahosts github.com >/dev/null && break; sleep 0.5; done",
+].join(" && ");
+
+/** The fallback is installed, serving, and resolv.conf points at it first. */
+export const devboxDnsCheckCommand = [
+  `test -x ${DEVBOX_DNS_PATH}`,
+  `python3 -m py_compile ${DEVBOX_DNS_PATH}`,
+  "systemctl is-active cmux-dns.service >/dev/null",
+  "systemctl is-active cmux-dns-guard.path >/dev/null",
+  "head -1 /etc/resolv.conf | grep -qx '# cmux-dns'",
+  "[ \"$(awk '$1 == \"nameserver\" { print $2; exit }' /etc/resolv.conf)\" = 127.0.0.2 ]",
+  "getent ahostsv4 github.com >/dev/null",
+  "echo dns-fallback-ok",
+].join(" && ");

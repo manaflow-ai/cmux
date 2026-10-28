@@ -320,6 +320,51 @@ alone. The container recipe has no identity step: `docker build` mounts
 `/etc/hostname` and `/etc/hosts` from the daemon and the runtime names each
 container, so the hostname there is the runtime's.
 
+## DNS fallback (`cmux-dns`)
+
+Freestyle only. A machine with any TLS rule (every cmux machine: the
+model-plane and CodeRouter edge rules) resolves through the platform's
+forwarding resolver, `10.32.0.28`: the guest agent writes
+`/etc/resolv.conf` (`nameserver 10.32.0.28`) and
+`/etc/systemd/resolved.conf.d/61-freestyle-tls.conf`, and the platform
+answers every port-53 packet the guest sends, whatever address it names
+(a query to `8.8.8.8` comes back from the same forwarder). The forwarder
+answers the names TLS rules steer with the edge address and forwards the
+rest. It intermittently answers SERVFAIL (about 300 ms, then cached for a
+second or two) or nothing at all, for every name, on every machine at the
+same moment ([#26640](https://github.com/manaflow-ai/cmux/issues/26640));
+measured 2026-10-28, roughly 2% of queries over a few minutes. Pointing
+resolv.conf elsewhere does not help, and the agent rewrites it on every TLS
+rule change and on resume anyway.
+
+`cmux-dns serve` (`cmux-dns.service`, a `DynamicUser` with only
+`CAP_NET_BIND_SERVICE`) listens on `127.0.0.2:53`, UDP and TCP, and per
+query:
+
+1. asks the platform's resolvers (a lone resolver twice, 1 s each), so
+   steered names keep resolving to the edge and NXDOMAIN stays the
+   platform's;
+2. on SERVFAIL, REFUSED or silence, answers with the platform's last good
+   answer for that question (dropped when the resolver set changes, so a
+   snapshot's cache never outlives a new TLS rule);
+3. otherwise asks DNS-over-HTTPS at `1.1.1.1` then `8.8.8.8`, addressed by IP
+   on 443, which the interception does not touch, and accepts only NOERROR:
+   a public NXDOMAIN for a name only the platform knows comes back as
+   SERVFAIL, never as a missing name.
+
+The whole chain fits in 3.5 s, under resolv.conf's 4 s per-server timeout.
+`cmux-dns guard` (`cmux-dns-guard.path` on `PathChanged=/etc/resolv.conf`,
+plus once at boot) rewrites a resolv.conf the platform wrote to
+`nameserver 127.0.0.2` followed by the platform's first two resolvers, and
+records all of them on a `# cmux-dns upstream` line the stub reads. A stopped
+stub therefore costs one refused packet before libc asks the platform
+directly. Between a platform rewrite and the guard (under a second) the
+machine resolves the old way. The bake installs it after the prompt sync, so
+every later bake step resolves through it, and `verify-devbox-image.ts`
+checks the contract. The container recipe has none: Docker owns its
+resolv.conf. Machines baked before it keep resolving straight through the
+platform.
+
 ## Terminal capabilities (`cmux-terminfo.src`)
 
 Daemon-spawned shells get the TERM the Mac exports (`xterm-256color`, or

@@ -103,6 +103,10 @@ import {
   CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
   CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
+  DEVBOX_DNS_PATH,
+  DEVBOX_DNS_UNITS,
+  devboxDnsCheckCommand,
+  devboxDnsInstallCommand,
   devboxTerminfoInstallCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
   bakeMetadata,
@@ -625,6 +629,13 @@ try {
     "cmux-prompt-sync-unit",
     "python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl daemon-reload && systemctl enable cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync",
   );
+  // The DNS fallback (devbox-image-common.ts, DEVBOX_DNS_UNITS): from here on
+  // the builder itself resolves through it, so the rest of the bake proves it.
+  await put("cmux-dns", DEVBOX_DNS_PATH, 0o755);
+  for (const [target, unit] of Object.entries(DEVBOX_DNS_UNITS)) {
+    await vm.fs.writeFile(target, unit, { mode: 0o644 });
+  }
+  await step("dns-fallback", `${devboxDnsInstallCommand} && ${devboxDnsCheckCommand}`);
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
   await step(
