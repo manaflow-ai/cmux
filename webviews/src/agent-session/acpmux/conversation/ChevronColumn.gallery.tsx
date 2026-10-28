@@ -6,6 +6,7 @@ import { ToolGroupRow } from "./ToolGroupRow";
 import { ToolRun } from "./ToolRun";
 import { ThoughtRow } from "./ThoughtRow";
 import { CommandRow } from "./CommandRow";
+import { CopyButton } from "./CopyButton";
 import type { AcpmuxActivity } from "../model";
 import { useEffect, type ReactNode } from "react";
 
@@ -16,9 +17,12 @@ const commandItems: AcpmuxActivity[] = [
 
 function CopySlot() {
   return (
-    <button type="button" className="acpmux-row__copy cv-iconbtn" aria-label="Copy">
-      ▢
-    </button>
+    <CopyButton
+      text="Sample command run"
+      label="Copy"
+      className="acpmux-row__copy cv-iconbtn"
+      copy={async () => true}
+    />
   );
 }
 

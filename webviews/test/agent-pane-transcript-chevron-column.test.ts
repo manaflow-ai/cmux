@@ -2,6 +2,7 @@
 // revealed. The narrow viewport catches action text stealing the chevron's space.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, type Browser } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
@@ -44,12 +45,29 @@ await requireBrowserLane("agent-pane-transcript-chevron-column.test.ts", async (
       const before = await page
         .locator("[data-chevron-column] .cv-tool__chevron")
         .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
+      expect(before).toHaveLength(4);
       await page.locator('[data-label="copy"]').hover();
+      await page.locator('[data-label="copy"] .acpmux-row__copy').focus();
       const after = await page
         .locator("[data-chevron-column] .cv-tool__chevron")
         .evaluateAll((nodes) => nodes.map((node) => Math.round(node.getBoundingClientRect().right * 10) / 10));
       expect(new Set(before).size).toBe(1);
       expect(after).toEqual(before);
+      const action = await page.locator('[data-label="copy"]').evaluate((row) => {
+        const copy = row.querySelector(".acpmux-row__copy")!.getBoundingClientRect();
+        const chevron = row.querySelector(".cv-tool__chevron")!.getBoundingClientRect();
+        return { copy: copy.toJSON(), chevron: chevron.toJSON() };
+      });
+      expect(action.copy.right).toBeLessThan(action.chevron.left);
+      if (process.env.CMUX_CHEVRON_ARTIFACT_DIR) {
+        const directory = process.env.CMUX_CHEVRON_ARTIFACT_DIR;
+        await mkdir(directory, { recursive: true });
+        await writeFile(
+          path.join(directory, `rects-${width}.json`),
+          JSON.stringify({ width, before, after, action }, null, 2),
+        );
+        await page.screenshot({ path: path.join(directory, `chevrons-${width}.png`), fullPage: true });
+      }
       await page.close();
     });
   }

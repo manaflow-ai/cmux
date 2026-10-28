@@ -1768,15 +1768,16 @@ pre.cv-math-source {
   /* Keep one action track between the row's metadata and its chevron. The copy button is an
      absolute sibling, so end padding shifts only rows that expose it and makes their chevrons
      disagree with the rest of the transcript. */
-  grid-template-columns: auto minmax(0, 1fr) minmax(var(--cv-meta-row, 24px), auto) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto 28px auto;
   padding-right: 0;
 }
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool > .cv-tool__chevron,
 .acpmux-row[data-floating-copy="true"] > .cv-tools > .cv-tool-run > .cv-tool > .cv-tool__chevron {
+  grid-column: 5;
   margin-inline-start: 0;
 }
 .acpmux-row[data-floating-copy="true"] > .acpmux-row__copy {
-  right: 24px;
+  right: 22px;
 }
 /* A thought in full (while it streams, or with a Debug choice that folds only long ones): a muted
    "Thinking" (or "Thought for 12s" once done) on its own line, then its text under the opened
@@ -1790,6 +1791,8 @@ pre.cv-math-source {
 }
 /* The folded label uses the same row height as tools; full thought text keeps its padding. */
 .cv-thought.is-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   padding-block: 0;
 }
