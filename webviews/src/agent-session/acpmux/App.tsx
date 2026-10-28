@@ -3386,6 +3386,14 @@ export function VirtualTranscript({
       scrollPacer.current?.cancel();
       const top = node.scrollTop;
       const { layout: placed, rows: shown } = latestLayout.current;
+      // A selected Find match is an explicit opening place, even when the initial transcript fit
+      // the viewport. Complete that handoff now so the first later overflow preserves this place
+      // instead of running the unopened-chat path to the latest row.
+      if (!didOpenAtLatest.current) {
+        didOpenAtLatest.current = true;
+        endSeek();
+        setSeeking(false);
+      }
       scrolledTo.current = { top, atLatest: false };
       seenAnchor.current = restingAnchor(top, false, placed, shown);
       scrollRef.current = { top, delta: top - scrollRef.current.top };
