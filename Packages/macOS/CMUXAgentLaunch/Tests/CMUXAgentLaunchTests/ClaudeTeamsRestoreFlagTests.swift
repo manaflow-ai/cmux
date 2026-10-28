@@ -460,4 +460,36 @@ struct ClaudeTeamsRestoreFlagTests {
             ]
         )
     }
+
+    /// https://github.com/manaflow-ai/cmux/issues/26318: a value-taking option cmux did not know kept its flag but
+    /// lost its value and every argument after it, so restore failed with "argument missing".
+    @Test("Preserves values of value-taking Claude options across the prompt boundary", arguments: [
+        ["--autocompact", "1000000"],
+        ["--autocompact", "auto"],
+        ["--permission-prompts", "host"],
+        ["--system-prompt-snapshot", "off"],
+    ])
+    func preservesValueTakingOptionValues(option: [String]) {
+        let launch = [
+            "/Applications/cmux.app/Contents/Resources/bin/cmux",
+            "claude-teams",
+            "--teammate-mode",
+            "auto",
+            "--model",
+            "opus",
+            "--dangerously-skip-permissions",
+        ] + option + [
+            "--dangerously-load-development-channels",
+            "server:feedback-channel",
+        ]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(launch, launcher: "claudeTeams", fallbackKind: "claude")
+                == launch
+        )
+        let direct = ["/usr/local/bin/claude", "--model", "opus"] + option + ["--effort", "high"]
+        #expect(
+            AgentLaunchSanitizer.sanitizedLaunchArguments(direct, launcher: "claude", fallbackKind: "claude")
+                == direct
+        )
+    }
 }
