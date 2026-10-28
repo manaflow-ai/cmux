@@ -496,9 +496,7 @@ test("mutated PR URLs with fragments stay out of Sources", () => {
 });
 
 test("a PR mutation target with a comment fragment is marked changed", () => {
-  const rows = [
-    activity([shell("gh pr comment https://github.com/acme/app/pull/41#issuecomment-123 --body x")], 1),
-  ];
+  const rows = [activity([shell("gh pr comment https://github.com/acme/app/pull/41#issuecomment-123 --body x")], 1)];
   expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, changed: true, kind: "pullRequest" }]);
   expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });
