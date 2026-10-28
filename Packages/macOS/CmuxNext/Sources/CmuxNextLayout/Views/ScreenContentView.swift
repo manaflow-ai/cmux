@@ -306,7 +306,11 @@ final class ScreenContentView: NSView {
             arrivals = arrivals.filter { $0.value.source != .split }
             if handoff != nil { (arrivals, handoff) = ([:], nil) }
         }
-        let departing = (zooming ? animate : splits) && structural && arrivals.isEmpty
+        // A close with the fade choice is the split's inverse: one layout to the final state, the closed pane gone in
+        // this turn and its neighbours at their new sizes, no frame moving a pane (motion-first-principles.md rule 2).
+        // The grow choice keeps the close spring; a zoom is not a close.
+        let closesAtOnce = !zooming && context.splitArrival() == .fade
+        let departing = (zooming ? animate : splits && !closesAtOnce) && structural && arrivals.isEmpty
             && PaneArrival.departing(paneFrames.keys, to: baseGeometry.panes.keys)
         // An unzoom: the other panes come back in place under the zoomed one, which springs back to its slot.
         let returning = animate && structural && unzooming

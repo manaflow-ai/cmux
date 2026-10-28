@@ -27,6 +27,8 @@ struct ColumnCloseMotionTests {
             model.followsDesignMetrics = false
             model.baseStyle.columnGap = 0
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the close spring: the Debug choice `motion.split.arrival` = grow (a close lays out once by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

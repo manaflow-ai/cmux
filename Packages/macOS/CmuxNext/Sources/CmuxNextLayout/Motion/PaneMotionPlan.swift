@@ -252,8 +252,10 @@ extension PaneMotionPlan {
             arrivals = arrivals.filter { $0.value.source != .split }
             if slide != nil { (arrivals, slide) = ([:], nil) }
         }
-        // `ScreenContentView.reconcile`'s `animateFrames`: what it does not carry snaps.
-        let springs = fadesIn.isEmpty && (!structural || kind != .move || inFlight)
+        // `ScreenContentView.reconcile`'s `animateFrames`: what it does not carry snaps. A close with the fade choice is
+        // set at rest too (one layout, no frame moves a pane).
+        let closesAtOnce = kind == .close && splitArrival == .fade
+        let springs = fadesIn.isEmpty && !closesAtOnce && (!structural || kind != .move || inFlight)
         let frameToken: MotionSpring = switch kind {
         case .split: variant.splitSpring
         case .close: variant.closeSpring

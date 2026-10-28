@@ -68,6 +68,16 @@ struct SplitFadeMotionTests {
         #expect(dock.from != dock.to, "the dock column does not grow in")
     }
 
+    /// A close with the default choice is the split's inverse: the plan sets every pane and divider at rest.
+    @Test func aCloseIsSetAtRestByDefault() throws {
+        let before = Plan.splits(Plan.stacked(Plan.side(.leaf("p1"), .leaf("p2")), .leaf("p3"), id: "a"))
+        let after = Plan.splits(Plan.stacked(.leaf("p1"), .leaf("p3"), id: "a"))
+        let plan = PaneMotionPlan.build(from: before, to: after)
+        #expect(plan.kind == .close)
+        for (pane, change) in plan.panes { #expect(change.from == change.to, "\(pane) springs from \(change.from) to \(change.to)") }
+        for (divider, change) in plan.dividers { #expect(change.from == change.to, "\(divider) springs") }
+    }
+
     // MARK: The content
 
     /// Records each pane a split fades in (`paneArrived`), so its content fades in when it first draws.

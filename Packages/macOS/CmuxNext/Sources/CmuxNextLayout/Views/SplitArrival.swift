@@ -13,10 +13,12 @@ public nonisolated enum SplitArrival: String, Sendable, CaseIterable, TunableCho
     /// at its final layout: the new pane at its rest frame, every pane beside it at its new size. The new
     /// pane's layer fades from 0 to 1 on the render server from that turn (`MotionFade.fadeIn`, ease-out), on its
     /// own background; its content fades in when it first draws (`LayoutPaneContentProvider.paneArrived`). No pane
-    /// frame moves on any display frame.
+    /// frame moves on any display frame. A pane close is its inverse: laid out once at the final layout, the closed
+    /// pane gone and its neighbours at their new sizes in the key's turn, nothing moving.
     case fade
     /// The split spring of plans/cmux-next/split-spring-animation/DESIGN.md: the new pane grows in from a
-    /// sliver on its neighbour's edge while the chain springs to its new sizes, laid out on every frame.
+    /// sliver on its neighbour's edge while the chain springs to its new sizes, laid out on every frame; a close
+    /// springs the neighbours into the closed pane's space the same way.
     case grow
 
     public var tunableTitle: String {

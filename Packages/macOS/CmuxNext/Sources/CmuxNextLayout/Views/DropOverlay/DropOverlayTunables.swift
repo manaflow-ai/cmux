@@ -136,8 +136,8 @@ public nonisolated enum LayoutTunables {
         default: .standard, code: "LayoutTunables.paneMotionVariant")
     /// How a split's new pane comes in (``SplitArrival``): read in each change turn.
     public static let splitArrival = Tunable<SplitArrival>.choice(
-        "motion.split.arrival", .springs, "New split pane",
-        help: "Fade in: the split lays out once at its final sizes and only the new pane fades in. Grow from the edge: the new pane grows in from its neighbour's edge while the panes beside it spring to their new sizes. Enable Pane Animations first; Reduce Motion shows the split in one frame either way.",
+        "motion.split.arrival", .springs, "Split and close motion",
+        help: "Fade in: a split lays out once at its final sizes and only the new pane fades in; a close lays out once, the neighbours take the space at once. Grow from the edge: the new pane grows in from its neighbour's edge, and a close springs the neighbours into the space. Enable Pane Animations first; Reduce Motion shows both in one frame either way.",
         default: .fade, code: "LayoutTunables.splitArrival")
     // @intent live resize (Lawrence 2026-10-23): on every frame of a split, close, column or zoom each
     // terminal and page shows its content at exactly that frame's size, no frozen content, no

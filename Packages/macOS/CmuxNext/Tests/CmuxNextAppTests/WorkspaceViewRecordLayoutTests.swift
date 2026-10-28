@@ -27,6 +27,8 @@ struct WorkspaceViewRecordLayoutTests {
             model.rowsEnabledOverride = true
             model.centerFocusedColumnOverride = .never // a focus change scrolls the least that shows its pane
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+            // This suite measures the close spring: the Debug choice `motion.split.arrival` = grow (a close lays out once by default).
+            root.context.splitArrival = { .grow }
             root.context.reduceMotionOverride = false
             if let restoring { root.restoreScroll(restoring) }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],

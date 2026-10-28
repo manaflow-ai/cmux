@@ -105,7 +105,7 @@ struct PaneMotionPlanTests {
     @Test func closeLetsTheGoneLeaveAtItsRestAndGrowsItsNeighbour() throws {
         let before = Self.splits(Self.stacked(Self.side(.leaf("p1"), .leaf("p2")), .leaf("p3"), id: "a"))
         let after = Self.splits(Self.stacked(.leaf("p1"), .leaf("p3"), id: "a"))
-        let plan = PaneMotionPlan.build(from: before, to: after)
+        let plan = PaneMotionPlan.build(from: before, to: after, arrival: .grow)
         #expect(plan.kind == .close)
         #expect(Set(plan.panes.keys) == ["p1", "p2"])
 
@@ -130,7 +130,7 @@ struct PaneMotionPlanTests {
         let one = Self.splits(.leaf("p1")), two = Self.splits(Self.side(.leaf("p1"), .leaf("p2")))
         for variant in PaneMotionVariant.allCases {
             let split = PaneMotionPlan.build(from: one, to: two, variant: variant, arrival: .grow)
-            let close = PaneMotionPlan.build(from: two, to: one, variant: variant)
+            let close = PaneMotionPlan.build(from: two, to: one, variant: variant, arrival: .grow)
             #expect(split.panes.values.allSatisfy { $0.token == variant.splitSpring })
             #expect(close.panes.values.allSatisfy { $0.token == variant.closeSpring })
             #expect(close.dividers.values.allSatisfy { $0.token == variant.closeSpring })
@@ -393,7 +393,7 @@ struct PaneMotionPlanTests {
         #expect(next.panes["p3"]?.presence == .appears)
 
         // The split taken back before it lands: a close from its rest, on the close spring.
-        let back = PaneMotionPlan.build(from: two, to: one)
+        let back = PaneMotionPlan.build(from: two, to: one, arrival: .grow)
         #expect(back.kind == .close)
         #expect(back.panes["p1"]?.from == first.panes["p1"]?.to)
         #expect(back.panes["p1"]?.to == one.panes["p1"])
