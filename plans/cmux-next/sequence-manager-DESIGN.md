@@ -1,6 +1,6 @@
 # One main-thread sequence manager (design, for review by cmux-ad)
 
-Status: DESIGN ONLY, not reviewed. No product code may start from this file until cmux-ad has reviewed it
+Status: DESIGN ONLY, revision 2 (after one independent review, section 7). No product code may start from this file until cmux-ad has reviewed it
 (audit-findings-2.md D3, binding). Covers D3, D4, D5, D6 and D10. Read at origin/perf/chrome-parity
 `8a75e216703`. Paths are under `Packages/macOS/CmuxNext/Sources/` unless they say otherwise; `W/` is
 `CmuxNextWakeups/`. Counts leave out `Tests/`, `TestSupport/` and `///` doc lines.
@@ -11,7 +11,8 @@ Today 12 objects decide when main-thread work runs. Most of them are layers of o
 finished: `MainWorkScheduler` has the class queues; `MainTaskQueue`, `MainDeadline`, `StartupScheduler`,
 `IdleScheduler`, `ContentPresentationScheduler` and `MainActorWorkQueue` each post into it or wrap it with a
 second queue; `FrameScheduler` runs it on a frame tick; `MainJobGate` reorders the main executor because a large
-part of main-thread work (135 `Task { @MainActor`, the hop of 86 of the 88 `DemandTimer`s) does not go through it.
+part of main-thread work (131 `Task { @MainActor`, the `Task` hop of every `DemandTimer` that is not on the
+wake-up queue) does not go through it.
 
 The target is Chrome's model, one level stricter:
 
@@ -20,17 +21,19 @@ The target is Chrome's model, one level stricter:
    queue with a priority, enable voters and an optional fence.
 2. One post API: a `TaskRunner` (manager, queue, owner) that an owner gets in its init. Every post states its
    priority at the post site; delayed work is a delayed post on the same runner, timed by the injected `Clock`.
-3. Input first by construction: event dispatch is never behind a task, the batch yields at the first pending
-   input, and after a discrete input the input-response voter holds automation, background and idle until the
-   frame (Blink `kWaitingForInputResponse`).
+3. Input first for every posted task: the batch yields at the first pending input, and after a discrete input
+   the input-response voter holds automation, background and idle until the frame (Blink
+   `kWaitingForInputResponse`), with today's progress rules as a floor. Main-actor jobs that are not posted (await
+   resumes, framework tasks) stay FIFO on `DispatchQueue.main`, as they are in every shipped channel today.
 4. Fences: startup fences (Chrome `OnStartupComplete`) and one `CommitFence` for "show when ready, at most one
    frame" that replaces the hold types (D10).
 5. Two time sources only: one `DisplayClock` per display (Chrome `BeginFrameSource` / `DisplayLinkMac`) for
    frames, one injected `any Clock<Duration>` for delays (D4). No executor reorder: `MainJobGate` goes, and the
    executor hook has one owner that only records (D6).
 
-The migration is 10 steps (section 4). Each step is one reviewable branch, deletes the API it replaces, and adds
-a pre-push guardrail rule that refuses the old API.
+The migration is 13 steps (section 4: S0-S10, with S2 in three parts); S3, S5, S7 and S10 split further into
+one branch per package or per family. Every step that replaces an API deletes it at its end and adds a pre-push
+guardrail rule that refuses it.
 
 ## 1. Inventory
 
@@ -48,7 +51,7 @@ a pre-push guardrail rule that refuses the old API.
 | 6 | `IdleScheduler` | `W/IdleScheduler.swift:46`; 404 + `+Records` 190 + `IdleTask.swift` 105 | Chrome `IdleHelper`. Long periods after 50 ms of quiet (no link, no budgeted work, no input), at most 50 ms, armed by `IdlePeriodTimer` (a precise `CFRunLoopTimer`); short periods after a frame's render pass when >= 2 ms remain to vsync. Runs tasks one at a time through `budget.run(.idle)` with an `IdleDeadline`. | internal `post(owner:site:maxDelay:node:_:)` (`:155`); public through `MainWorkScheduler.postIdle`; `noteInput()` (`:201`) | `postIdle(` 6 sites in 6 files: `ChromiumWarmupIdle.swift:51`, `W/VisibleObservation.swift:189`, `HiddenWorkspaceMemory.swift:89`, `ExtensionActionToolbar.swift:120`, `SidebarSnapshotRecorder.swift:118`, `BookmarkChromiumSync.swift:39` | FIFO; a period ends on higher work, a link coming up, input, or the deadline; nested posts wait for the next period; past `maxDelay` a task moves to background; periods stop 10 s after hide | Never runs while higher work or input waits; 0 wakeups when empty | zero-latency.md (g) "idle callbacks" (:56); threading-model.md :133, :448; PATTERNS.md P15 |
 | 7 | `StartupScheduler` | `W/StartupScheduler.swift:50`; 475; with `StartupPhase.swift` (304), `StartupTaskTag.swift` (131), `StartupTaskLog.swift` (156), `StartupMainHop` | Chrome after-startup queue. `.critical` runs inline; `.afterFirstFrame` main tasks go to a `FrameBatchQueue(budgeted: .visible)`; `.afterStartup` main tasks to a `FrameClient(budgeted: .background)`, one per frame; lane tasks to `BackgroundWork`. Completion is a reference count posted through `StartupMainHop.userVisible`, a raw `Task(priority: .userVisible) { @MainActor }` with a `main-hop-allow`. Failsafe `DemandTimer` (`:178`). `StartupPhase` (launching, revealed, settled) gates whole classes in `MainWorkScheduler`. | `post(_:_:on: .Main, _:)` (`:201`), `post(_:_:on: .Lane, _:)` (`:214`), `hold` (`:231`), `firstFrameCommitted` (`:250`), `whenComplete` (`:303`), `afterFirstFrame() async` (`:321`) | 51 posts in 30 files, 4 `hold(`. Main: `AppActions.swift:20`, `MainMenu.swift:19`, `Startup+Core.swift:64`, `SettingsController+LaunchRead.swift:91`, `LaunchWindowQueue.swift:46,50`, `ControlLaunch.swift:55,69`, `Startup+Settings.swift:22`, `CrashForwarders.swift:91`, `LaunchFirstOpenWarmups.swift:57-62` | 4 priorities (critical, afterFirstFrame, afterStartup, onDemand = afterStartup), FIFO in each; a 14-entry critical allowlist (`:59`) is logged, not enforced | No afterStartup task before completion; one completion; quit drops what has not started | Not named in the three docs; main-thread-budget.md section 4 (StartupPhase) |
 | 8 | `MainDeadlineScheduler` + `MainDeadline` | `W/MainDeadlineScheduler.swift:32` (217), `W/MainDeadline.swift:28` (207); the app's instance `AppServices.swift:791` | A `MainDeadline` holds one wake on `MainWakeUpQueue` through `AlignedWakeups` (precise, flexible, hidden). At the wake it posts its action with `work.post(workClass, owner:)` (`MainDeadline.swift:185`), so it waits behind input and higher classes. Hidden-node deadlines charge `CPUTimeBudgetPool`; a repeating deadline hidden 5 min joins a per-node pool, one wake a minute (`:151-202`). | `MainDeadline.init(owner:workClass:alignment:scheduler:file:line:)` (`:76`), `schedule(after:)` (`:104`), `scheduleIfIdle` (`:109`), `start(every:)` (`:116`), `cancel()` (`:121`); scheduler `nextFire`, `nextFireNanos` (`:81,88`) | `MainDeadline(` 153 in 119 files; `MainDeadlineScheduler(` 21 sites, about 12 of them default arguments that build a private `MainWorkScheduler`. Main: `AgentActivitySocketSource.swift:78`, `HomeService.swift:42`, `WindowRecordSaver.swift:55`, `UpdaterService.swift:237`, `SocketTasksSource.swift:67`, `PagePreloads.swift:119`, `AgentPaneFrameClocks.swift:28` | Class from `BudgetedWorkClass`; wakes aligned (8 ms, 32 ms in Energy Saver, whole seconds hidden, a minute in the pool); actions FIFO in their class | No sooner than the delay; cancel works after the wake posted; a released deadline never runs | threading-model.md :133, :434, :441 "every page deadline is a `MainDeadline`"; PATTERNS.md P15 "a `MainDeadline` for a delay"; main-thread-budget.md section 10; guardrail `timer-class` (`scripts/cmux-next/guardrails.py:2673`) |
-| 9 | `MainWakeUpQueue` | `W/MainWakeUpQueue.swift:38` (409), `MainWakeUpHeap.swift` (150), `MainWakeUpTimer.swift` | One `CFRunLoopTimer` (common modes, parked between arms) per queue; two heaps by latest time (visible, hidden at whole uptime seconds); a `Mutex` so inserts come from any thread; a fire runs due entries for at most 2 ms (`fireBudget`, `:54`) then arms a continuation | `insert(owner:after:policy:_:)` (`:176`), `insert(owner:at:window:ledgerReason:_:)` (`:223`), `insertHidden` (`:192`), `cancel` (`:270`) | 11 direct inserts in 7 files: `AlignedWakeups.swift:80-108`, `DemandTimer.swift:217`, `MainJobGate+RunLoop.swift:87`, `MainWorkScheduler+Classed.swift:203`, `CEFPumpTimer.swift:93`, `CEFEnergySaver.swift:47`, `GhosttyEnergySaver.swift:42` | Earliest latest-time first; precise entries under 36 ms never aligned; no classes (what an entry posts carries the class) | 0 wakes when empty; hidden entries never ride a visible fire | threading-model.md :134 "The one main run-loop `CFRunLoopTimer`"; idle-wakeups.md section 9. **Not true in code:** 7 `MainWakeUpQueue(` sites, only `CmuxNextApp.swift:40` is the app's; `MainWorkScheduler.swift:150`, `CEFRuntime.swift:236`, `CEFEngine.swift:107`, `DaemonStore.swift:234`, `WebKitEngine.swift:136`, `MockBrowserEngine.swift:29` make a private one (with its own timer) when none is passed |
+| 9 | `MainWakeUpQueue` | `W/MainWakeUpQueue.swift:38` (409), `MainWakeUpHeap.swift` (150), `MainWakeUpTimer.swift` | One `CFRunLoopTimer` (common modes, parked between arms) per queue; two heaps by latest time (visible, hidden at whole uptime seconds); a `Mutex` so inserts come from any thread; a fire runs due entries for at most 2 ms (`fireBudget`, `:54`) then arms a continuation | `insert(owner:after:policy:_:)` (`:176`), `insert(owner:at:window:ledgerReason:_:)` (`:223`), `insertHidden` (`:192`), `cancel` (`:270`) | 11 direct inserts in 7 files: `AlignedWakeups.swift:80-108`, `DemandTimer.swift:217`, `MainJobGate+RunLoop.swift:87`, `MainWorkScheduler+Classed.swift:203`, `CEFPumpTimer.swift:93`, `CEFEnergySaver.swift:47`, `GhosttyEnergySaver.swift:42` | Earliest latest-time first; precise entries under 36 ms never aligned; no classes (what an entry posts carries the class) | 0 wakes when empty; hidden entries never ride a visible fire | threading-model.md :134 "The one main run-loop `CFRunLoopTimer`"; idle-wakeups.md section 9. 7 `MainWakeUpQueue(` sites: `CmuxNextApp.swift:40` is the app's; `MainWorkScheduler.swift:150`, `CEFRuntime.swift:236`, `CEFEngine.swift:107`, `DaemonStore.swift:234`, `WebKitEngine.swift:136`, `MockBrowserEngine.swift:29` make a private one (own timer) when none is passed. The app always passes one (F2) |
 | 10 | `MainTaskQueue` (+ `MainTaskBoard`) | `W/MainTaskQueue.swift:39` (276), made only by `VisibilityNode.queue(_:owner:on:)` (`VisibilityNode+Queues.swift:12`); `MainTaskBoard.swift:27` (415) | Blink per-frame queue on a `VisibilityNode`: each pending item becomes one pump posted with `work.post(workClass, owner:)` (`:215`). Visible: runs in order; hidden: visible and automation held, background only at the 1 s hidden wake and charged to the hidden budget; frozen: nothing; any voter disabled: nothing (Chrome `QueueEnabledVoter`). Keyed posts replace the pending body in place. The board is not a queue: atomics that publish the running task for the watchdog, and the `pendingInput` count. | `post(file:line:_:)` (`:99`), `post(key:)` (`:111`), `makeVoter()` (`:139`), `setEnabled(_:by:)` (`:146`) | 5 `node.queue(` sites in 4 files (`CEFMergedEvents.swift:85-86`, `PageTabReplies.swift:67`, `W/FrameObservation.swift:114`, `W/VisibleObservation.swift:233`; the last two are generic, so the reach is larger); 58 `// node-free:` escapes post without a node | FIFO per queue; class order and budget come from `MainWorkScheduler` | Held tasks run in post order before later ones | PATTERNS.md P15 "`node.queue(class, owner:, on: mainWork).post`"; threading-model.md :133 "per-node `MainTaskQueue`" |
 | 11 | `MainJobGate` (and `MainJobRing`, the other hook) | `W/MainJobGate.swift:31` (413), `MainJobGateHook.swift:27` (146), `+RunLoop` (148), `+Switch` (100), diagnostics; 1923 lines in all. `CmuxNextCompat/MainJobRing.swift:35` (338, `#if DEBUG \|\| CMUX_BENCH_HOOKS`) | Gate: writes `swift_task_enqueueMainExecutor_hook` (`MainJobGateHook.swift:38,47`). While input is pending or in dispatch, every main-actor job that is not exempt (enqueued on main during dispatch, from a `MainWork.input`/`.frame` task, or in a nested loop) appends to one `Mutex` FIFO, by origin, never by priority (`MainJobGate.swift:14-15`); released one per pass after each CA commit (`AfterFrameCommit.everyPass`), all at one refresh (a precise `MainWakeUpQueue` entry, `+RunLoop.swift:87`), at a nested loop's entry and at uninstall. Ring: the census (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, `CmuxNextApp.swift:60`, `MainJobCensus.swift:77-78`) writes the same hook (`MainJobRing.swift:314`), records a slot and re-posts with `DispatchQueue.main.async` (`:261-268`). | `MainJobGateHook().install(gate)`, `MainJobGateSwitch.setEnabled` (`+Switch.swift:66`); `MainJobRing.install()` | Gate: built once (`CmuxNextApp.swift:278`) when feature `mainJobGate` is on, then follows setting `debug.mainJobGate` (`CmuxApplication.swift:307-312`); also holds `MainWorkScheduler` classed work (`+Classed.swift:57,228`). Ring: `MainJobCensus` only. `DemandTimer`'s fire looks the ring up (`DemandTimer.swift:231`). | Neither hook chains: the first install wins, the other refuses (`.busy`, `.otherHookInstalled`). The ring installs in `main()`, so on a census launch the gate is silently absent (`+Switch.swift:80` logs it). | Gate: at most about one refresh of delay; held jobs stay FIFO | threading-model.md "Main job gate" (:135; :141 is a stale second row that says task 076 has not landed); PATTERNS.md P5 "input first". Feature `mainJobGate` is off in dev, nightly and release, and not in the chrome-parity dogfood set: the gate does not run by default anywhere. |
 | 12 | `RenderStarvationGuard` | `W/RenderStarvationGuard.swift:44` (219) | Not a queue. `isStarved()` is asked before every budgeted task (`MainFrameBudget+Starvation.swift:6-16`, `MainFrameBudget.swift:406`): a shown, active, link-paced scheduler whose last tick is older than 100 ms plus one refresh. If it holds work, `mayRun` refuses every budgeted class; `admitsSlice` caps the CEF pump at one slice per late frame (`CEFMessagePump.swift:296`); `afterLateFrame` resumes at the next tick. Reports `stall.render_starved`. | `init(holdsWork:...)` (`:103`), `watch` (`:114`), `isStarved` (`:125`), `admitsSlice` (`:148`), `afterLateFrame` (`:160`) | 1 construction (`CmuxNextLaunch/LaunchOrder.swift:114`), watches at `LaunchOrder.swift:123`, `FrameScheduler+Windows.swift:20`; about 10 sites in 6 files | Binary hold of the budgeted classes; input and frame never held | **Today it only reports:** `holdsWork: false` is hard-coded at `LaunchOrder.swift:114`, and no code reads feature `renderStarvationGuard` (only `FeatureDogfoodSet.swift:98` lists it). Its header names a per-display check timer that the file does not have. | main-thread-budget.md section 5; not named in the three docs (PATTERNS.md P5 is the closest) |
@@ -79,7 +82,10 @@ four times (`MainDeadline`, `DemandTimer` main path, `AlignedWakeups` used direc
 Findings the inventory turned up (each one is a bug or a stale document, not a design question):
 - F1 `IdleNextDeadlineSource` has no conformer outside tests and nothing sets `idle.deadlines`, so the next
   `MainDeadline` does not shorten a long idle period in the app.
-- F2 Seven `MainWakeUpQueue` instances, not one (row 9).
+- F2 Seven `MainWakeUpQueue(` constructions (row 9). The app passes its one queue everywhere it builds those
+  owners (`DaemonService.swift:125`, `AppServices+Chromium.swift:170`, `TabContentCache.swift:240`,
+  `CEFRuntime.swift:275`, `LaunchOrder`), so the six fallbacks are taken only by tests and default arguments. A
+  trap for a new caller, not a second timer in the app today.
 - F3 `RenderStarvationGuard` never holds work in any build (row 12).
 - F4 On a census launch the gate cannot install (row 11).
 - F5 `MainWorkScheduler.post(class:)` and `postFromAnyThread(class:)` have no callers.
@@ -108,15 +114,20 @@ The audit counts 9 clock types plus `FrameScheduler` and `VSyncHub`. Sorted by w
 | `ManualClock` | `CmuxNextWakeupsTestSupport/ManualClock.swift:22` | The test `Clock` | 19 refs in 12 files | injected `Clock` (tests) |
 | `ClockDeadline` | `CmuxNextDesign/Overlay/ComponentDeadlines.swift:62` | A `ComponentDeadline` asleep on a `DemandTimer` clock | 2 refs | delay |
 
-Delay mechanisms beside these: `DemandTimer` (88 sites in 78 files; 86 sleep on the cooperative pool with
-`Task { @concurrent }` and then hop to main or run off main, 2 use the wake-up queue; no class, node or
-alignment), `MainDeadline` (row 8), `AlignedWakeups` (direct, CEF), `IdlePeriodTimer` /
-`MainRunLoopPreciseTimer`, `CEFPumpTimer`, `DeadlineHeap` (daemon connection, its own timer), `Deadline` (an
-async race helper, `W/Deadline.swift:19`).
+Delay mechanisms beside these: `DemandTimer` (88 `DemandTimer(` sites in 78 files; no class, node or alignment).
+Only 2 are built with a wake-up queue (`ChromiumHostBusyDeadline.swift:16`, `BusyWatchdog.swift:136`), but 38
+call sites in 34 files use `scheduleOnMain` / `scheduleOnMainIfIdle`: without a queue those sleep on the
+cooperative pool (`Task { @concurrent }`) and then hop to main. Among them are scheduler timers that must never
+wait behind the classes they measure: the reveal deadline (`StartupPhase.swift:176,272`), the display stall
+deadline (`DisplayClock.swift:490`) and the coalescer fallback (`FrameInputCoalescer.swift:388`). Others: `MainDeadline` (row 8), `AlignedWakeups` (direct, CEF), `IdlePeriodTimer` /
+`MainRunLoopPreciseTimer`, `CEFPumpTimer`, `DeadlineHeap` (daemon connection, `LineTransport+State.swift:11`, its
+own timer), `HostPressureMonitor` (its own timer), `Deadline` (an async race helper, `W/Deadline.swift:19`).
 
 So the real frame sources are two link owners (`DisplayClock`, `VSyncHub`) and one relay (`FrameScheduler`).
 Five types are views on frames, five are time readers or tests, and one is not a clock. D4 asks for exactly two
-sources: one `DisplayClock` per display and one injected `Clock`.
+sources of main-thread time: one `DisplayClock` per display and one injected `Clock`. Off-main timers
+(`DeadlineHeap`, `HostPressureMonitor`, off-main `DemandTimer`) are outside this design; they take the same
+injected `Clock` but keep their own threads.
 
 ### 1.3 Hold and deadline types (D10 input)
 
@@ -128,6 +139,23 @@ limit and timer: `PanePaintHold` (`AgentPane/PanePaintHold.swift:18`), the works
 up to 3 s), `FirstTabHold` (2 s), `SidebarSelectionHold`, `LaunchImageHold` (3 s), `SpringPageHold`,
 `FloatingChatFrameHold`, `WorkspaceAutoNameHold`. These are the targets of `CommitFence` (2.5). The `*Deadline`
 protocols are seams over `MainDeadline`; they become seams over a delayed-task handle (S4).
+
+### 1.4 Pieces that are not owners but that the model must place
+
+| Piece | File | What it does today | In the model |
+|---|---|---|---|
+| `MainFrameBudget` | `W/MainFrameBudget.swift` (579 + 7 extensions) | `mayRun(class)`, the class shares, progress rules, input-response state, the starvation veto | Budget pools and the voters of 2.3 and 2.4 (kept code, new owner) |
+| `InputResponsePass` | `W/InputResponsePass.swift` (181), `InputResponseRunLoop.swift` | A `beforeWaiting` observer at order 1,000,000 that applies person-caused work before the CA commit | Kept as is: the input-response policy's apply step (2.4) |
+| `ObservationCause`, `mainWork.causes` | `W/ObservationCause.swift` (161) | The cause of a change (person, frontend, program, automation) routes a post: person to the pass, person or frontend to the next frame unbudgeted, others to the class queue (`FrameBatchQueue.enqueue(cause:)`, `FrameBatchQueue.swift:117-127`; main-thread-budget.md section 9) | Cause routing on every runner post (2.2) |
+| `VisibleObservation`, `ServiceObservation` (211 sites), `FrameObservation`, `ObservationLoop`, `MainActorObservation` | `W/` | Observation primitives that post their apply in a class with a node | Unchanged API; they take a runner instead of `mainWork` + class (S3) |
+| `MainRunLoopBlock` | `CmuxNextCompat/MainRunLoopBlock.swift:47` | Common-modes run-loop block; the scheduler's next-turn path and `postFromAnyThread` today | Private to the manager (its signal), refused elsewhere after S5 |
+| `MainDelivery`, `callbackClass` | `W/MainDelivery.swift` | Runs inline when already on main (charged on the board), else posts | `runner.deliver { }` keeps the inline-on-main rule (S5) |
+| `AfterFrameCommit` | `W/AfterFrameCommit.swift` | One-shot or every-pass observer after the CA commit (CEF deferred browsers, the gate's release, task 201's planned batch signal) | Kept as a run-loop seam; its users post with a fence: `queue.insertFence(.now)` removed after the commit |
+| `FrameInputCoalescer` | `W/FrameInputCoalescer.swift` (398) | Per-window input stage that runs at the frame tick before frame clients, with its own fallback timer | The first observer of each window's frame (2.6), not an `input` queue; its fallback is a `control` delayed task |
+| `CEFMessagePump` | `CmuxNextBrowser/CEF/CEFMessagePump.swift` | Chromium UI-thread slices on main, its own timer (`CEFPumpTimer.swift:93`, a direct `MainWakeUpQueue` insert) | A native callout like AppKit's that reads the manager's frame deadline and starvation state (R4, Q8) |
+| Direct `MainWakeUpQueue` inserts | `CEFPumpTimer.swift:93`, `CEFEnergySaver.swift:47`, `GhosttyEnergySaver.swift:42` | Wakes on the shared timer with no class | `control`-queue delayed tasks (the manager exposes them to these three seams only) |
+| `CPUTimeBudgetPool` | `W/CPUTimeBudgetPool.swift` (206) | Hidden-node CPU budget, 10 ms/s, 100 ms cap | Kept, as the hidden-queue throttler's budget (2.1) |
+| `BackgroundWork` `.reply(on:)` | `W/BackgroundWork.swift:359` | Off-main work, main reply through `postFromAnyThread` | `.reply(on: runner)` |
 
 ## 2. The model
 
@@ -141,10 +169,10 @@ same job.
 | `TaskQueue` + `TaskQueue::Handle` (`task_queue.h`) | A FIFO with a priority (`SetQueuePriority`, `QueuePriority = uint8_t`, lower is higher), an optional fence and enable voters; immediate and delayed incoming queues; destroyed with its handle. | `MainTaskQueue` (the name moves from today's per-node queue to the general queue; a node's queue is one of them). Dropped with its owner, as today. |
 | `TaskQueue::QueueEnabledVoter` (`CreateQueueEnabledVoter`, `SetVoteToEnable`) | A queue runs only if every voter votes to enable it. | `QueueVoter`. Voters: node visibility and freeze (today's `MainTaskQueue` voters), startup phase, input response, rendering starvation. |
 | `InsertFence(InsertFencePosition::kNow / kBeginningOfTime)`, `InsertFenceAt`, `RemoveFence`, `BlockedByFence` | A barrier in enqueue order: tasks posted after the fence wait until it goes; one fence per queue; a delayed task gets its order when it ripens. | `queue.insertFence(.now / .beginningOfTime)`, `removeFence()`; and the display-side `CommitFence` (2.5). |
-| `TaskQueueSelector` + `ActivePriorityTracker` | Strictly the highest active priority first; oldest by enqueue order inside a priority, across queues and across the immediate and delayed work queues; `kMaxDelayedStarvationTasks = 3`. No protection across priorities. | `MainTaskSelector`, the same rule. The per-class frame budgets of `MainFrameBudget` stay as budget pools (2.3): the one cross-priority rule, as Blink's `BudgetPool` / `CPUTimeBudgetPool` and `TaskQueue::Throttler`. |
+| `TaskQueueSelector` + `ActivePriorityTracker` | Strictly the highest active priority first; oldest by enqueue order inside a priority, across queues and across the immediate and delayed work queues; `kMaxDelayedStarvationTasks = 3`. No protection across priorities. | `MainTaskSelector`, the same rule. The per-class frame budgets of `MainFrameBudget` stay (2.3). They are cmux's own rule: Blink's `BudgetPool` / `CPUTimeBudgetPool` throttle hidden and background frame queues, not foreground classes per frame. cmux uses that Blink mechanism only for hidden queues (2.1). Inside the automation priority cmux takes turns by queue, not oldest-first (2.1, a stated difference from Chrome). |
 | `WakeUpQueue`, `TimeDomain`, `base/task/delay_policy.h` (`kFlexibleNoSooner`, `kPrecise`), `kDefaultLeeway = 8 ms`, `kDefaultMaxPreciseDelay = 36 ms`, `kAlignWakeUps` | Delayed tasks wait in the delayed incoming queue; the manager keeps one native wake-up at the earliest desired time, aligned by leeway. | A delayed post on a runner. One wake-up timer for the whole manager: today's `MainWakeUpQueue` heap and `CFRunLoopTimer`, made private to the manager. Time comes from the injected `any Clock<Duration>`. |
 | `content/browser/scheduler/browser_task_queues.h` `QueueType` | `kUserInput` above `kUserBlocking`; `kDefault` = `kUserBlocking`; `kUserVisible`; `kBestEffort` (enabled at `OnStartupComplete()`); `kStartup`; a control queue "has maximum priority and will never be disabled"; all queues start disabled, `EnableAllExceptBestEffortQueues()` early in startup. | The queue types of 2.1. |
-| Blink `MainThreadSchedulerImpl`: `RenderingPrioritizationState` (`kWaitingForInputResponse`, `kRenderingStarved`), `kDefaultRenderingStarvationThreshold = 100 ms`, `is_frame_expected_after_discrete_input`, `ShouldYieldForHighPriorityWork`, `IdleHelper`, `kEndIdleWhenHiddenDelayMillis = 10000` | Priorities and voters change with state: after a discrete input that expects a frame, input and frame work go first until the frame; starved rendering is raised until the next BeginMainFrame; idle periods with deadlines. | The manager's policy (2.4). One object, never a second scheduler. |
+| Blink `MainThreadSchedulerImpl`: `RenderingPrioritizationState` (`kWaitingForInputResponse`, `kRenderingStarved`), `kDefaultRenderingStarvationThreshold = 100 ms`, `is_frame_expected_after_discrete_input`, `ShouldYieldForHighPriorityWork`, `IdleHelper`, `kEndIdleWhenHiddenDelayMillis = 10000` | Priorities and voters change with state: after a discrete input that expects a frame, input and frame work go first until the frame; starved rendering is raised until the next BeginMainFrame; idle periods with deadlines. | The manager's policy (2.4). One object, never a second scheduler. Stricter than Blink: Blink raises the priority of rendering and input in these states; cmux also disables the lower queues by voters (today's `MainFrameBudget.mayRun` behavior, kept). |
 | `viz::BeginFrameSource`, `BeginFrameObserver::OnBeginFrame`, `BeginFrameArgs` (`frame_time`, `deadline`, `interval`, `frame_id.sequence_number`), `ui::DisplayLinkMac::GetForDisplay` | One source per display; observers add and remove themselves; with no observer the source stops its timer; a newly added observer can get the missed frame (`GetMissedBeginFrameArgs`); `LastUsedBeginFrameArgs` shows what an observer took. | `DisplayClock`, the only frame source (2.6). |
 
 ### 2.1 Queues and priorities
@@ -156,22 +184,40 @@ priority and its own voters.
 | Prio | Queue type | What goes there | Today | Chrome |
 |---|---|---|---|---|
 | 0 | `control` | The manager's own work: wake-up continuations, policy updates, the input-response cap, the starvation check, the idle period start. Never disabled, never fenced. | scheduler-internal timers and observers (main-thread-budget.md section 3, last paragraph) | control queue |
-| 1 | `input` | What input posts and must run before any other task: injected keys (`debug.key`, the control socket's injected input), coalesced pointer delivery. AppKit's own dispatch is not a task (2.4). | `MainWorkClass.input`, `MainActorWorkQueue` urgent lane, `FrameInputCoalescer` | `kUserInput` |
+| 1 | `input` | What input posts and must run before any other task: `debug.key` from the Debug menu, an input subscriber's continuation. AppKit's own dispatch is not a task (2.4). A control connection's injected keys do not post here: its queue is raised to this priority (automation row). Coalesced pointer delivery is the first frame observer (1.4), not this queue. | `MainWorkClass.input` | `kUserInput` |
 | 2 | `frame` | The display clock's observers for this frame: springs, drags, terminal frame holds, page script frames. Unbudgeted, once per frame of the observer's display, in registration order. | `FrameClient`, `FrameBatchQueue(scheduler:)`, `MotionClock` | BeginMainFrame |
 | 3 | `userBlocking` | The async rest of a person's action: a `.waiting` effect's reply, a rollback, a person-caused flush that missed the input-response pass. | `MainWorkClass.userBlocking` | `kUserBlocking` |
-| 3 | `startup` | Launch steps the first window needs. Same priority as userBlocking; a voter disables it at `settled`. | `StartupScheduler` `.afterFirstFrame` | `kStartup` |
 | 4 | `visible` | Visible changes the person did not cause: the daemon store drain, sidebar row patches, PTY-driven changes, content presentation, visible pages. Budget 2.5 ms x scale. | `MainWorkClass.visible`, `ContentPresentationScheduler` | `kUserVisible` |
-| 5 | `automation` | CLI, MCP, agent, socket and page automation. Budget 1 ms x scale. One queue per control connection: inside the priority, oldest first across queues gives the round robin. | `MainWorkClass.automation`, `MainActorWorkQueue` | none (cmux goes further) |
-| 6 | `background` | Work nobody sees this frame. Budget 0.5 ms x scale. Fenced until `revealed`. | `MainWorkClass.background`, `StartupScheduler` `.afterStartup` | `kBestEffort` |
+| 4 | `startup` | `StartupScheduler`'s `.afterFirstFrame` main steps. Today they are budgeted `visible` (`StartupScheduler.swift:180`), so the queue has visible's priority and shares visible's budget pool: the priority does not change. Fenced until the first frame commits. | `StartupScheduler` `.afterFirstFrame` | `kStartup` (Chrome puts it higher; cmux keeps today's level, R6) |
+| 5 | `automation` | CLI, MCP, agent, socket and page automation. Budget 1 ms x scale. One queue per control connection, FIFO, holding that connection's injected keys too. While the head of a connection's queue is injected input, the manager raises that queue to `input` priority (Chrome `SetQueuePriority`); when the head is a request again, it goes back. So a key never passes its own connection's earlier requests (`MainActorWorkQueue.swift:24-28`: a focus change then a key types into the new focus), and a waiting key still goes ahead of every other connection and of visible work. | `MainWorkClass.automation`, `MainActorWorkQueue` (its urgent lane included) | none (cmux goes further) |
+| 6 | `background` | Work nobody sees this frame. Budget 0.5 ms x scale. Fenced until `revealed`. `StartupScheduler`'s `.afterStartup` main steps are a background queue with its own frame-count pool of one task per frame (today's pacing, `StartupScheduler.swift:133-135`). | `MainWorkClass.background`, `StartupScheduler` `.afterStartup` | `kBestEffort` |
 | 7 | `idle` | Idle tasks with a deadline. Enabled only inside an idle period and only after `settled`. | `IdleScheduler` | `IdleHelper` queue |
 
 Rules:
-- Selection: strictly the highest enabled priority with a runnable task, oldest enqueue order first (Chrome
-  `TaskQueueSelector`). Queues of one priority compete by enqueue order, so one node or one connection with a
-  backlog cannot hold the others.
+- Selection: strictly the highest enabled priority with a runnable task (Chrome `TaskQueueSelector`). Inside a
+  priority, two rules, chosen per queue type:
+  - oldest enqueue order first across queues (Chrome's rule): `control`, `input`, `userBlocking`, `visible`,
+    `startup`, `background`, `idle`;
+  - round robin by queue, least recently run first, FIFO inside each queue: `automation`. This is today's
+    fairness (`MainActorWorkQueue.swift:13`: "a client that floods the queue delays only its own requests";
+    budgeted frame clients are least recently run first, `FrameScheduler.swift:78-80`). Chrome's oldest-first
+    would let a connection that posted 256 requests first hold a later one-request connection for all 256.
 - A delayed task becomes runnable when it ripens and takes its enqueue order then.
-- Bounded queues: a queue may have a capacity and a per-task expiry. `MainActorWorkQueue`'s 1024 / 256 limits and
-  its `busy` / `timeout` replies become properties of the automation queues, not a second scheduler.
+- A continuation (`postContinuation`) goes to the front of its own queue but takes a new enqueue order, so across
+  queues of the same priority it does not keep its old place, and a task that keeps yielding cannot hold its
+  priority.
+- Queues of type `background`, `idle` and `startup` are created with the startup fence while the fence is up,
+  including per-node queues made during launch.
+- Hidden queues: a node queue whose node is hidden gets a wake-up throttler (Chrome `TaskQueue::Throttler`, Blink
+  `WakeUpBudgetPool`): its background tasks become runnable only at the node's aligned hidden wake (1 s, or one a
+  minute after 5 minutes hidden) and are charged to `CPUTimeBudgetPool`. Its visible and automation tasks are held
+  by the visibility voter and coalesced by key, as today (`MainTaskQueue`). An enable voter alone cannot express
+  "run only at the aligned wake"; the throttler can.
+- Bounded queues: a queue may have a capacity. `MainActorWorkQueue`'s 1024 / 256 limits and its `busy` reply become
+  properties of the automation queues. The `timeout` reply stays off main, as today (`MainActorWorkQueue.swift:222`):
+  an off-main deadline completes the caller at its time even while a voter, the starvation policy or a nested loop
+  holds the queue, and marks the task dead so it never runs. The `MainThreadEngineStart` exclusion from the
+  deadline (`:37`) stays.
 - Off the main thread, `WorkPriority` and `LaneScheduler` stay (Chrome's `ThreadPool` is a separate object from the
   `SequenceManager` too). `WorkPriority(queueType)` keeps today's table (`W/WorkPriority.swift:52`).
 
@@ -198,6 +244,20 @@ main.idle.post(owner: "warmup", maxDelay: .milliseconds(500)) { deadline in warm
 work.run(.userVisible, mayBlock: .files) { load() }.reply(on: rows) { value in show(value) }
 ```
 
+**Cause routing.** The queue gives the priority, but some work also has a cause (`ObservationCause`: person,
+frontend, program, automation; main-thread-budget.md section 9). The post keeps today's routing
+(`FrameBatchQueue.enqueue(cause:)`, `FrameBatchQueue.swift:117-127`):
+
+```swift
+rows.post(cause: change.cause) { apply(patch) }
+// person:   applied in the input's own turn by InputResponsePass, before the commit (unbudgeted)
+// frontend: runs in the next frame of the queue's display, unbudgeted (today's unbudgeted batcher)
+// program, automation, none: the runner's queue, in its budget
+```
+
+`mainWork.causes` (the mutation-id match) moves onto the manager unchanged. A cause never raises work above
+`frame` and is never used for authorization (main-thread-budget.md rule 5).
+
 What it replaces (section 3 has every row): `mainWork.post(class, owner:)`, `postFromAnyThread`, `apply`,
 `node.queue(...).post`, `MainDeadline`, main-actor `DemandTimer`, `MainDelivery(class:owner:)`,
 `MainRunLoopBlock(class:owner:on:)`, `FrameBatchQueue(budgeted:)`, `FrameClient(budgeted:)`, `postIdle`,
@@ -217,8 +277,22 @@ one main-actor job (2.7).
   render pass, `RenderPassMeter`) is not reached. Then it returns to the run loop, so AppKit dispatches and Core
   Animation commits. This is Chrome's yield to native between tasks.
 - Budget pools: visible 2.5 ms, automation 1 ms, background 0.5 ms, userBlocking up to visible + automation, each
-  x (refresh interval / 16.7 ms), reset at each frame of the main display's clock. The progress rules of
-  main-thread-budget.md section 2 stay unchanged.
+  x (refresh interval / 16.7 ms), reset at each frame of the main display's clock. As today
+  (main-thread-budget.md:66-68), a pool's share limits its queue only while a key or a click is pending; with no
+  input pending, a queue past its share may use the frame time the others left, up to the frame deadline.
+- Progress rules (main-thread-budget.md:70-72), as voter overrides that the manager applies before it consults the
+  voters:
+  - visible: a visible queue that yielded in one frame runs at least its first task in the next frame, even if
+    input is pending (today `yieldedLastFrame`, `MainFrameBudget.swift:436`);
+  - automation and background: for 500 ms after the last discrete input, each runs at least 1 task per 100 ms and
+    at most 10 per second, even while the input-response voter or pending input would hold it. So continuous
+    typing or dragging cannot starve automation, whose requests have deadlines.
+  The input-response voter (2.4) and the "no task while input is pending" rule yield to these floors; nothing else
+  does.
+- Frame-count pools: some owners limit work per frame by count, not time: one surface create per frame
+  (`ContentPresentationScheduler.mayCreate`, `:148`) and one `.afterStartup` step per frame. These are pools
+  counted against the frame sequence of the queue's display clock (after S8 each display has its own
+  sequence).
 - A long task asks `main.shouldYield()` and continues with `runner.postContinuation { }` (the front of its queue).
 - The frame queue is not part of the batch: it runs in the display clock's callout. Where the budgeted batch runs
   relative to the frame (in the tick, as the default is today, or right after the frame's commit, the
@@ -228,29 +302,41 @@ one main-actor job (2.7).
 ### 2.4 Input always first
 
 1. AppKit event dispatch is not a task. The batch returns at the first pending event (2.3), so a pending event
-   waits for at most the one task that is running.
+   waits for at most the one posted task that is running. This bound covers posted work only. Main-actor jobs
+   that are not posted (2.7) run in the main dispatch queue's drain, outside the batch.
 2. The work that dispatch does is a direct call (zero-latency.md: the synchronous change in the input's turn).
    It is never posted.
 3. After a discrete input whose turn expects a frame (`ActionEffect` `.applied`, `.intentEffect`, `.waiting`; a
    view asked for display; Ghostty asked to draw), the manager enters `waitingForInputResponse` (Blink's
    `kWaitingForInputResponse`): `InputResponsePass` applies the dirty person-caused work before the CA commit of
    that turn, and the input-response voter disables automation, background and idle until the end of the first
-   render pass after the input, at most 100 ms. Visible keeps its budget; frame runs.
+   render pass after the input, at most 100 ms, within the progress floors of 2.3. Visible keeps its budget;
+   frame runs.
 4. `input` queue tasks are priority 1, and every budget pool reports spent while one waits.
 5. Rendering starvation (Blink `kRenderingStarved`): when a shown window's display clock is more than 100 ms
-   late, the starvation voter disables visible, automation, background and idle until that clock's next frame.
+   late, the starvation voter disables userBlocking, visible, automation, background and idle until that clock's
+   next frame. That is today's set (every budgeted class, `MainFrameBudget.swift:409`) plus idle.
    It is a policy of the manager; whether it is on by default is Q6 (it holds nothing today, F3).
-6. Only the input path may post to `input`: a guardrail refuses `runner(.input` outside `CmuxNextInput` and the
-   control socket's injected-input path. Nothing off main can raise its own work above userBlocking.
+6. Only the input path may post to `input`: a guardrail refuses `runner(.input` outside `CmuxNextInput`. The control
+   socket's injected keys reach input priority only by the per-connection raise (2.1). Nothing off main can raise
+   its own work above userBlocking.
+7. The scheduler's own timers never wait behind the queues they measure (main-thread-budget.md section 3, last
+   paragraph): the reveal deadline (`StartupPhase.swift:176,272`), the display stall deadline
+   (`DisplayClock.swift:490`), the coalescer fallback (`FrameInputCoalescer.swift:388`), the input-response cap,
+   the idle period start and the starvation check are `control`-queue delayed tasks. They run in the wake-up
+   queue's fire, ahead of every other queue, and are never disabled.
 
 ### 2.5 Fences: startup, and "show when ready, max 1 frame" (D10)
 
-**Startup.** `background` and `idle` start with a `.beginningOfTime` fence. `revealed` removes the background
-fence, `settled` removes the idle fence and turns off the `startup` queue's voter (Chrome
-`EnableAllExceptBestEffortQueues()`, `OnStartupComplete()`). `StartupPhase` (the reference count with its
-failsafe) stays; its only outputs are these fence and voter changes and `LaneScheduler`'s best-effort fence.
-`StartupScheduler`'s `.critical` steps stay direct calls in `main()`; its `.afterFirstFrame` and `.afterStartup`
-main steps become posts to `startup` and `background`.
+**Startup.** `startup` starts with a `.beginningOfTime` fence, removed at the first frame commit (today's
+`firstFrameCommitted`). `background` and `idle` start with a `.beginningOfTime` fence. `revealed` removes the
+background fence, `settled` removes the idle fence (Chrome `EnableAllExceptBestEffortQueues()`,
+`OnStartupComplete()`). The `startup` queue is never disabled at `settled`: a task still queued then runs in its
+turn, so nothing is stranded; after `settled`, a post to it is refused by the guardrail and asserted in Debug.
+`StartupPhase` (the reference count with its failsafe) stays; its only outputs are these fence changes and
+`LaneScheduler`'s best-effort fence. `StartupScheduler`'s `.critical` steps stay direct calls in `main()`; its
+`.afterFirstFrame` and `.afterStartup` main steps become posts to `startup` and to the paced background queue
+(2.1). Quit drops every launch task that has not started (today's rule).
 
 **`CommitFence`.** Holds today implement "keep the old pixels or hide the new ones until X is ready, with a limit
 of N ms", each with its own timer, limit and release path (1.3; audit-findings-1.md B1-B15). The model has one
@@ -302,24 +388,35 @@ Today two code paths write `swift_task_enqueueMainExecutor_hook`: `MainJobRing.i
 `MainJobGateHook.install(_:)` (gate). The first wins. The gate holds every unexempt main-actor job while input is
 pending and releases the FIFO after the frame, because those jobs carry no class it can trust.
 
+How main-actor jobs reach the main thread: the Swift runtime enqueues every main-actor job on
+`DispatchQueue.main` (`MainJobRing.swift:265` re-posts that way). The run loop drains the main queue in one
+callout (`_dispatch_main_queue_callback_4CF`), which runs every job queued when the drain starts, back to back,
+with no check for pending events between them, and each job runs until its next suspension. The manager's batch
+source never sees these jobs.
+
 In the model:
-- Priority is set at the post site (2.2). Everything that reaches main today as an unclassed job (135
+- Priority is set at the post site (2.2). Everything that the app itself sends to main as an unclassed job (131
   `Task { @MainActor`, main-inherited `Task {}`, `MainActor.run`, `DispatchQueue.main.async`, `StartupMainHop`,
-  the hop of the 86 off-queue `DemandTimer`s) becomes a post to a runner (S4, S5). What stays on the main executor
-  is the resume of an `await` on the main actor, and Swift's own jobs.
-- Those resumes are bounded by the batch's yield: the manager starts no posted task while input is pending, and a
-  resume is one job between two batches, so input waits for at most one job, not a FIFO.
+  the `Task` hop of every `DemandTimer` with no wake-up queue) becomes a runner post (S4, S5).
+- What stays on the main executor and cannot be converted: the resume of an `await` on the main actor, calls into
+  `@MainActor` functions from off-main async code, main-actor `AsyncSequence` consumers, SwiftUI `.task`, and
+  framework tasks. These stay FIFO in the main queue's drain. **Input can wait for the whole snapshot of those jobs,
+  not for one job**, and the jobs are unbudgeted.
 - The gate is deleted: `MainJobGate*`, `MainJobGateHook`, the classed hold in `MainWorkScheduler+Classed.swift`,
   the gate bits of `InputPendingState`, feature `mainJobGate` and setting `debug.mainJobGate` (two switches, D1).
-  The gate is off in every channel today, so the deletion changes no default behavior.
+  **The guarantee that goes with it:** "main-actor jobs, including the ones that start off main, wait behind a
+  pending input until its frame commits". The gate is off in every channel and not in the chrome-parity dogfood
+  set, so no build a person runs has this guarantee today, and deleting the gate changes no default.
+- What replaces it is not a global reorder but fewer unposted jobs: S5 converts the app's own hops, and for the
+  rest the main-actor code that runs often under load (store observers, page replies, automation replies) moves to
+  the reply form (`.reply(on: runner)`), so its main part is a posted task. The census (`MainJobRing`,
+  `CMUX_NEXT_MAIN_JOB_CENSUS=1`) finds those sites: the unposted main jobs that ran between an event's arrival and
+  its dispatch during an automation storm, by enqueue site.
 - One hook owner: `MainJobRing` (CmuxNextCompat, Debug and bench builds only), and it only records. Its
-  `DispatchQueue.main.async` re-post (`MainJobRing.swift:266`, D12) is reviewed with it: it is how a hook forwards
-  a job with its QoS, and it has to stay inside the recorder. A guardrail refuses the hook symbol outside
-  `MainJobRing.swift`.
-- If the census then shows that resumes still delay input (input `dispatch_start` minus the event's timestamp
-  during an automation storm, optimized build), the fix is a reply form for those awaits (`.reply(on:)`), not a
-  global reorder. Mapping job priority onto the queues through a supported custom main executor, if the toolchain
-  offers one, is Q4.
+  `DispatchQueue.main.async` re-post (`MainJobRing.swift:266`, D12) is how a hook forwards a job with its QoS and
+  stays inside the recorder. A guardrail refuses the hook symbol outside `MainJobRing.swift`.
+- Mapping job priority onto the queues through a supported custom main executor, if the toolchain offers one, is
+  Q4. Until then cmux does not reorder the main queue.
 
 ## 3. The mapping
 
@@ -330,12 +427,12 @@ In the model:
 | `MainWorkScheduler` | The sequence manager (same type name): queues, selector, voters, fences, batch source, budget pools, delayed tasks, `runner(...)` | `MainFrameBudget` as the budget pools and progress rules; `MainTaskBoard`, `MainOwnerLedger`, `MainTurnMeter` as task observers | `post(_:owner:)`, `postFromAnyThread`, `post(class:)`, `postFromAnyThread(class:)`, `callbackClass` (moved to runners); the per-class `FrameBatchQueue`s; the classed hold |
 | `FrameScheduler` | Per-window observer sets on `DisplayClock` (a view) | `FrameClient` as the frame observer type (`frame` queue) | The budgeted `FrameScheduler` and `FrameClient(budgeted:)`, `FrameBatchQueue(budgeted:)`; `FrameScheduler.app` |
 | `LaneScheduler` | Unchanged (off main, the thread pool) | All | none |
-| `MainActorWorkQueue` | Automation queues, one per connection, with capacity and expiry; injected input posts to `input` | Its request contract (`busy`, `timeout`, order per connection) | The type, `ControlFrameSource`, `MainQueueFrameSource`, its deadline `Task` |
-| `ContentPresentationScheduler` | A keyed `visible` queue per window plus a "one create per frame" budget pool; a person's cause goes through the input-response pass | `showNow` (the synchronous path) | The type and its two batchers |
+| `MainActorWorkQueue` | Automation queues, one per connection, with capacity; the queue is raised to `input` priority while its head is an injected key (2.1); round robin across connections | Its request contract (`busy`, order per connection, keys never pass their connection's earlier requests); the off-main `timeout` deadline and the `MainThreadEngineStart` exclusion | The type, `ControlFrameSource`, `MainQueueFrameSource` |
+| `ContentPresentationScheduler` | A keyed `visible` queue per window with cause routing (2.2: person in the pass, frontend unbudgeted next frame) plus a frame-count pool of one create per frame, where a person's pane may take a frame automation used | `showNow` (the synchronous path) | The type and its two batchers |
 | `IdleScheduler` | The `idle` queue; the idle-period policy moves into the manager | `IdleDeadline`, the period rules | The scheduler object, `IdlePeriodTimer` (the manager's wake-up timer arms periods); F1 is fixed by construction (the manager knows its next delayed task) |
-| `StartupScheduler` | The `startup` queue and the startup fences; `.critical` stays direct calls; lane steps stay on `BackgroundWork` | `StartupPhase`, `StartupTaskLog` | Its arrays, its `FrameBatchQueue`/`FrameClient`, `StartupMainHop`, its failsafe `DemandTimer` |
+| `StartupScheduler` | The `startup` queue (visible priority and budget, fenced until the first frame) and the paced background queue (one step per frame); `.critical` stays direct calls; lane steps stay on `BackgroundWork` | `StartupPhase`, `StartupTaskLog` | Its arrays, its `FrameBatchQueue`/`FrameClient`, `StartupMainHop`, its failsafe `DemandTimer` |
 | `MainDeadlineScheduler` + `MainDeadline` | `runner.postDelayed` / `postRepeating` with a `DelayPolicy` (`.precise` under 36 ms, `.flexible`, `.whenHidden`) | Alignment rules, the hidden 5-minute pool, `CPUTimeBudgetPool`; the 8 `*Deadline` protocols as seams over the delayed-task handle | Both types, after the codemod |
-| `MainWakeUpQueue` | The manager's private wake-up queue (one timer) | Heap, alignment, `fireBudget`, hidden heap | Public construction (F2: the six private instances) |
+| `MainWakeUpQueue` | The manager's private wake-up queue (one timer) | Heap, alignment, `fireBudget`, hidden heap | Public construction and the six fallbacks (F2); direct inserts move to `control` delayed tasks (1.4) |
 | `MainTaskQueue` | The general `MainTaskQueue` of the manager; a node's queue is one with node voters | Voters, keyed posts, freeze | The pump-into-`MainWorkScheduler.post` layer |
 | `MainJobGate` | Deleted | none | All gate files, the feature and the setting |
 | `RenderStarvationGuard` | A manager policy (the starvation voter) | `isStarved` logic, `stall.render_starved` | The type and its veto inside `MainFrameBudget` |
@@ -359,14 +456,14 @@ In the model:
 
 | Old | Count now | Goes to | Wave |
 |---|---|---|---|
-| `postFromAnyThread` | 211 sites in 158 files | `runner.postFromAnyThread` (same semantics, priority from the runner) | S3 (codemod) |
+| `postFromAnyThread(` | 215 sites in about 160 files | `runner.postFromAnyThread` (same semantics, priority from the runner) | S3 (codemod) |
 | `mainWork.post(.class` / `.apply(.class` / `.reply(on:)` | 47 / 88 / 39 | `runner.post` / `runner.apply` / `.reply(on: runner)` | S3 (codemod) |
-| `MainDeadline(` | 153 in 119 files | `runner.postDelayed` / `postRepeating` | S4 (codemod) |
-| `DemandTimer(` in main-actor code | 20 files hold one (of 78 files with a `DemandTimer`) | `runner.postDelayed` | S4 |
-| `DemandTimer` main path (`wakeUps:`, `mainWork:` init, `scheduleOnMain`) | 2 users (`ChromiumHostBusyDeadline.swift:16`, `BusyWatchdog.swift:136`), 0 for `mainWork:` | Deleted; those 2 become delayed posts | S4 |
-| `DemandTimer` off main | about 66 sites | Stays as the off-main delayed task (Q3) | none |
-| `Task { @MainActor` | 135 in 103 files (App 48, Browser 23, Pages 12, Wakeups 8, Design 5, Control 5) | a runner post, or `.reply(on:)` for an async body | S5 |
-| `MainActor.run` 5, `DispatchQueue.main.async` 2, `CFRunLoopPerformBlock` 7, `RunLoop.main.perform` 1, `MainDelivery(` 30, `StartupMainHop` | | a runner post (`MainDelivery` keeps its inline-on-main rule as `runner.deliver { }`) | S5 |
+| `MainDeadline(` | 152 in 119 files | `runner.postDelayed` / `postRepeating` | S4 (codemod) |
+| `DemandTimer` main path: `scheduleOnMain` / `scheduleOnMainIfIdle` | 38 sites in 34 files (2 timers built with `wakeUps:`, 0 with `mainWork:`) | `runner.postDelayed`; the scheduler's own timers (2.4 item 7) become `control` delayed tasks | S4 |
+| `DemandTimer` with `schedule(after:)` in main-actor code | counted per site in S4 (the 20 main-actor files that build one are the start) | `runner.postDelayed` | S4 |
+| `DemandTimer` off main | the rest of the 88 | Stays as the off-main delayed task (Q3) | none |
+| `Task { @MainActor` | 131 in about 100 files (App 48, Browser 23, Pages 12, Wakeups 8, Design 5, Control 5) | a runner post, or `.reply(on:)` for an async body | S5 |
+| `MainActor.run` 3, `DispatchQueue.main.async` 2, `CFRunLoopPerformBlock` 5, `RunLoop.main.perform` 1, `MainDelivery(` 30, `StartupMainHop` | | a runner post (`MainDelivery` keeps its inline-on-main rule as `runner.deliver { }`) | S5 |
 | `// main-hop-allow:` | 337 | each converted, or kept only for an AppKit order (focus, menu tracking), with the list cut below 50 (D8) | S5 |
 | `// timer-class-allow:` | 106 | reviewed in S4; only off-main ones stay | S4 |
 
@@ -376,15 +473,17 @@ guardrail refuses every old form with no escape except a closed file list.
 ## 4. Migration plan
 
 Rules for every step:
-- One branch per step (`cp/seqmgr-sN-...`), cut from the train tip, small enough for one review. A step that is a
-  codemod has two commits: the script and its output; the reviewer reads the script and samples the output.
+- One branch per step (`cp/seqmgr-sN-...`), cut from the train tip, small enough for one review. A mechanical
+  step has two commits, the script and its output; the reviewer reads the script and samples the output. A step
+  that changes owner `init`s (S3) is split per package, one branch each.
 - Red then green: the step's behavioral test is committed first, fails on the base and passes on the head, run on
   the fleet (`cmux-ci run --class isolated --script ... --ref SHA`), never on a person's Mac. No CI test, job or
   gate is added; the step's tests are suite tests run by the agent.
 - Benches before and after on the same fleet host, optimized build (`cmux-ci build cmux --builder mac --release
   --ref SHA --tag chrome-parity-...`, the bench configuration), 120 Hz virtual display, light and STRESS:
-  - first-5s: `first-5s-typing.py` through `scripts/measure/split-spring.sh --suite=first5s`: 0 terminal keys with
-    `dispatchStart` > 50 ms in the first 5 s, and no worse p95/p99 than the base.
+  - first-5s: `scripts/cmux-next/first-5s-typing.py` (lands in S0; today it exists only on the scratch ref
+    `cp/first5s-measure-f`, `3ffa92040cb`): 0 terminal keys with `dispatchStart` > 50 ms in the first 5 s, and no
+    worse p95/p99 than the base.
   - key-to-frame: `sidebar-churn-typing.py --input real` and `typing-frame-bench.py`; for automation steps also
     `automation-typing-bench.py` and `bench_cli_storm.py` (throughput).
   - frame-time: `bench_frames.py` with the `frame_pacing.*` lab stories (dropped frames, p99 frame interval).
@@ -400,21 +499,25 @@ Rules for every step:
 
 | Step | Scope | Behavioral test (red first) | Benches | Deleted, and the rule that refuses it |
 |---|---|---|---|---|
-| S1 | One wake-up queue, one injected `Clock` (F2). Remove the six private `MainWakeUpQueue` fallbacks and the default `MainDeadlineScheduler(work: MainWorkScheduler(...))` arguments; inject the app's. Fix F1 (wire `nextFireNanos` into the idle period). Fix F6 in threading-model.md. | An app-shaped rig with CEF, WebKit and the store: one wake-up timer for all their deadlines (`WakeupLedger` count == 1); an idle period ends at the next deadline | bench_idle, first-5s | `MainWakeUpQueue(` and `MainDeadlineScheduler(` outside the composition root and TestSupport |
-| S2 | The manager core inside `MainWorkScheduler`: `MainTaskQueue` as the general queue (priority, voters, fence), `MainTaskSelector`, the batch source, budget pools from `MainFrameBudget`, `runner(...)`. The class queues move onto it; the public post API is unchanged in this step. `MainTaskQueue` per node becomes a queue of the manager (no pump layer). | Selector: with input pending, nothing posted runs; oldest-first across two queues of one priority; a fence holds later posts and keeps earlier ones; a disabled voter holds a node queue; budgets: a visible flood leaves the automation share, all with `ManualClock` and a fake `DisplayClock` | key-to-frame (light, STRESS), frame-time, bench_cli_storm | The node pump layer; the per-class `FrameBatchQueue`s inside the scheduler |
-| S3 | Codemod 1: every `post` / `postFromAnyThread` / `apply` / `.reply(on:class:)` site to a runner taken in its owner's init. | A post from another thread lands in the runner's queue with its owner and line on the board (existing board tests, moved to runners) | key-to-frame, first-5s | `mainWork.post(`, `postFromAnyThread(` on the scheduler, `post(class:`, `callbackClass(` |
-| S4 | Delayed tasks (D5, timers): `postDelayed` / `postRepeating` on the manager's wake-up queue; codemod of the 153 `MainDeadline(` sites; the 20 main-actor `DemandTimer` files; the `DemandTimer` main path; the 106 `timer-class-allow` escapes reviewed. | A flexible delayed post fires no sooner than its delay and on the 8 ms grid; precise under 36 ms is exact; a hidden node's repeating post joins the minute pool after 5 min; cancel after ripening runs nothing | bench_idle (idle and hidden), first-5s | `MainDeadline`, `MainDeadlineScheduler`; `DemandTimer` in main-actor code and its `wakeUps:` / `mainWork:` / `scheduleOnMain` |
-| S5 | Raw hops (D5): 135 `Task { @MainActor`, main-inherited `Task {}`, `MainActor.run`, `DispatchQueue.main.async`, `CFRunLoopPerformBlock`, `RunLoop.main.perform`, `MainDelivery(` and `StartupMainHop` to runner posts; the 337 `main-hop-allow` escapes cut below 50 | Per migrated family, the order test it needs (for example a notification click still runs after the event that caused it); a census run (`CMUX_NEXT_MAIN_JOB_CENSUS=1`, bench build) shows unattributed main jobs during an automation storm at or below an agreed number (Q5) | key-to-frame with automation, first-5s, `MainTurnMeter` `unattributed_share` | The raw forms, with no escape except the closed list |
-| S6 | The executor hook (D6): delete `MainJobGate` and its files, the classed hold, the gate bits, feature `mainJobGate` and setting `debug.mainJobGate`; `MainJobRing` is the one hook owner | A held-job test is deleted with the gate; a new test: the batch starts no posted task while input is pending (the property the gate stood in for) | key-to-frame with automation (gate off on both sides: the default), first-5s | `swift_task_enqueueMainExecutor_hook` outside `MainJobRing.swift` |
-| S7 | Owners into queues: `MainActorWorkQueue` to automation queues with capacity and expiry; `ContentPresentationScheduler` to a keyed visible queue and a create pool; `IdleScheduler` to the idle queue; `StartupScheduler` to the startup queue and fences; `RenderStarvationGuard` to the starvation voter (default per Q6). One sub-branch per owner (S7a-S7e). | Per owner, its existing contract tests run against the queue form (busy and timeout; one create per frame; idle deadline; no afterStartup task before completion; starvation holds visible work until the next frame) | per sub-branch: automation-typing and bench_cli_storm (S7a); key-to-frame and tab-switch (S7b); bench_idle (S7c); launch stories and first-5s (S7d); frame-time (S7e) | The five types, `ControlFrameSource`, `IdlePeriodTimer`, `StartupMainHop` |
-| S8 | One frame source (D4): `FrameScheduler` as observer sets on `DisplayClock`; `FrameScheduler.app` deleted; `VSyncHub` internal to `DisplayClock`; `TerminalVSyncSource` as the clock's off-main seam | Two windows on two displays (60 and 120 Hz) get frames from their own display only; no observer: 0 links; a late observer gets the missed frame | frame-time, key-to-frame, bench_idle | `check-concurrency.sh` display-link owners = `DisplayClock.swift` only; `FrameScheduler.app`; public `VSyncHub` |
+| S0 | Land the first-5s bench from `cp/first5s-measure-f` as `scripts/cmux-next/first-5s-typing.py` and its `split-spring.sh --suite=first5s` case (a bench the agent runs; no CI job). Record the base numbers of every bench above at the program's base sha. | The bench's own check: a planned 1-key-per-50-ms sender reports its real send time (the 50 ms step artifact of first-seconds-lag-result.md is gone) | all, base numbers only | none |
+| S1 | F1 and F2, F6: wire `MainDeadlineScheduler.nextFireNanos` into the idle period (the app's `IdleNextDeadlineSource`); remove the six `MainWakeUpQueue` fallbacks and the default `MainDeadlineScheduler(work: MainWorkScheduler(...))` arguments so a new caller cannot get a second timer; fix the two "Main job gate" rows of threading-model.md | Red on the base: in an app-shaped rig, a long idle period with a `MainDeadline` due in 20 ms ends before the deadline (today it runs to 50 ms) | bench_idle, first-5s | `MainWakeUpQueue(` and `MainDeadlineScheduler(` outside the composition root and TestSupport |
+| S2a | Manager core, no behavior change: `MainTaskQueue` as the general queue (priority, voters, fence, continuation order), `MainTaskSelector` (oldest-first and round-robin types, 2.1), with tests only on a `ManualClock`; nothing in the app uses it yet | Selector tests: strict priority; oldest-first across two `visible` queues; round robin across two `automation` queues where the first has 256 queued; a fence holds later posts and keeps earlier ones; a disabled voter holds a node queue; a continuation goes to its queue's front with a new order | none (no app change) | none |
+| S2b | The batch source and budget pools: the class queues of `MainWorkScheduler` move onto S2a's queues; the batch runs from the source at today's placement (in the tick) | Red on the base where the base differs, else a pin: with input pending, no posted task starts; shares apply only while input is pending; the visible and automation progress floors under continuous typing (a fake `SessionInputPending` held true for 2 s still runs automation at least every 100 ms) | key-to-frame (light, STRESS), frame-time, bench_cli_storm | The per-class `FrameBatchQueue`s inside the scheduler |
+| S2c | Node queues on the manager: today's `MainTaskQueue` pump layer removed; the hidden-queue throttler (2.1) | Hidden node: background runs only at the aligned 1 s wake and is charged to `CPUTimeBudgetPool`; visible posts coalesce by key while hidden and run in order on show | bench_idle (hidden workspaces), key-to-frame | The pump layer |
+| S3 | Runners, one branch per package (CmuxNextWakeups first, then the domain packages, CmuxNextApp last): every `post` / `postFromAnyThread` / `apply` / `.reply(on:class:)` / `post(cause:)` site to a runner its owner takes in `init` (about 200 constructors in all; a script does the call sites, a person the inits) | A post from another thread lands in its runner's queue with its owner and line on the board; a person-caused post applies in the input's turn (cause routing, 2.2) | key-to-frame, first-5s (last branch only; the others are mechanical) | After the last branch: `mainWork.post(`, scheduler `postFromAnyThread(`, `post(class:`, `callbackClass(` |
+| S4 | Delayed tasks: `postDelayed` / `postRepeating` on the manager's wake-up queue; the `control` delayed tasks for the scheduler's own timers (2.4 item 7) and the three direct inserts (1.4); codemod of the 152 `MainDeadline(` sites; the 38 `scheduleOnMain` sites and main-actor `schedule(after:)` sites; the 106 `timer-class-allow` escapes reviewed | A flexible delayed post fires no sooner than its delay, on the 8 ms grid; a precise one under 36 ms is exact; a hidden node's repeating post joins the minute pool after 5 min; cancel after ripening runs nothing; the reveal deadline fires on time while a `visible` flood holds its budget (it is `control`) | bench_idle (idle and hidden), first-5s, launch stories | `MainDeadline`, `MainDeadlineScheduler`; `DemandTimer` in main-actor code and its `wakeUps:` / `mainWork:` / `scheduleOnMain*` |
+| S5 | Raw hops: 131 `Task { @MainActor`, main-inherited `Task {}`, `MainActor.run`, `DispatchQueue.main.async`, `CFRunLoopPerformBlock`, `RunLoop.main.perform`, `MainDelivery(` and `StartupMainHop` to runner posts; the 337 `main-hop-allow` escapes cut below 50. One branch per package, as S3 | Per migrated family, the order test it needs (a notification click still runs after the event that caused it; a pipelined control request still runs in order) | key-to-frame with automation, first-5s, `MainTurnMeter` `unattributed_share` | The raw forms, with no escape except the closed list |
+| S6 | The executor hook: delete `MainJobGate` and its files, the classed hold, the gate bits, feature `mainJobGate` and setting `debug.mainJobGate`; `MainJobRing` is the one hook owner. Independent of S2-S5: the gate is off in every channel, so S6 can land at any time | The gate's tests are deleted with it. New, in the census rig (bench build): during a storm of main-actor awaits, it records the unposted main jobs that ran between an event's arrival and its dispatch, by enqueue site. This is a measurement, not a pass or fail: it picks the reply-form sites of 2.7 | key-to-frame with automation, first-5s (gate off on both sides: the default) | `swift_task_enqueueMainExecutor_hook` outside `MainJobRing.swift` |
+| S7 | Owners into queues, one sub-branch each: S7a `MainActorWorkQueue` to per-connection automation queues with the input raise, capacity and the off-main timeout; S7b `ContentPresentationScheduler` to a keyed visible queue with cause routing and the create pool; S7c `IdleScheduler` to the idle queue; S7d `StartupScheduler` to the startup queue, the paced background queue and the fences; S7e `RenderStarvationGuard` to the starvation voter (default per Q6) | Per owner, its contract tests against the queue form: S7a busy at 1024 / 256, timeout at its deadline while the queue is held, a focus request then a key types into the new focus, a flooding connection does not delay another; S7b one create per frame and a person's pane takes automation's frame; S7c idle deadline and the 10 s hidden stop; S7d no afterStartup task before completion, one per frame, none stranded at settle; S7e starvation holds userBlocking to idle until the next frame | S7a automation-typing and bench_cli_storm; S7b key-to-frame and tab switch; S7c bench_idle; S7d launch stories and first-5s; S7e frame-time | The five types, `ControlFrameSource`, `IdlePeriodTimer`, `StartupMainHop` |
+| S8 | One frame source: `FrameScheduler` as observer sets on `DisplayClock`, with `FrameInputCoalescer` as the first observer of each window; `FrameScheduler.app` deleted; `VSyncHub` internal to `DisplayClock`; `TerminalVSyncSource` as the clock's off-main seam; frame-count pools per display sequence | Two windows on two displays (60 and 120 Hz) get frames from their own display only; no observer: 0 links; a late observer gets the missed frame | frame-time, key-to-frame, bench_idle | `check-concurrency.sh` display-link owners = `DisplayClock.swift` only; `FrameScheduler.app`; public `VSyncHub` |
 | S9 | The daemon drain leaves the frame (D9): a `visible` post on inbox readiness; with change fences (PL-daemon's wire) a whole change in one batch; then the `DisplayClock` stall and rebuild rule reviewed | With the link stalled (display asleep), a daemon event still applies within one batch; a fenced 40-event change applies whole under a 1-event budget | key-to-frame under a CLI storm, frame-time | The store drain as a `FrameClient` |
 | S10 | `CommitFence` (D10) and the holds, one family per sub-branch: paint holds (`PanePaintHold`, workspace paint hold, tab switch), `TerminalFrameHold`, `FirstTabHold` and `NewTabSuccession`, `SidebarSelectionHold`, `LaunchImageHold`, the rest | Per family: the switch shows content or the stand-in within one frame of the clock; keys typed during the fence reach the new destination (hold-class.md rule 1) | first-5s (extended to Cmd-T and switches, hold-class.md item a), key-to-frame, frame-time | Each converted hold type; a rule refuses a new `*Hold` or `*Deadline` type that arms its own timer |
 
-Order: S1 and S2 first (S1 is independent and small). S3 needs S2. S4 and S5 need S3 and can run in parallel
-(different files, two codemods). S6 needs S5's census number. S7a-S7e need S2-S4 and are independent of each
-other. S8 needs S7a (it removes `ControlFrameSource`) and S2. S9 needs S8 and PL-daemon's change fences. S10 needs
-S8 (the fence's limit is a clock frame).
+Order: S0 first (every later step needs its bench). S1 and S6 are independent and small; they can land at any time
+after S0. S2a, then S2b, then S2c. S3 needs S2b (S2c for node queues). S4 and S5 need S3's Wakeups branch and run
+in parallel per package (different files). S7a-S7e need S2b-S4 and are independent of each other. S8 needs S7a
+(it removes `ControlFrameSource`) and S2b. S9 needs S8 and PL-daemon's change fences. S10 needs S8 (the fence's
+limit is a clock frame).
 
 ## 5. Risks and open questions
 
@@ -427,18 +530,23 @@ Risks:
 - R3 Nested run loops. Menu tracking, modal panels, live resize and drag sessions run the run loop in their own
   modes. The batch source and the wake-up timer must be in common modes (as today's blocks and timer are), and the
   input-response and starvation voters must not hold work forever inside a tracking loop (today the gate releases
-  at a nested loop's entry). Each S2 and S7 test set includes a nested-loop case.
+  at a nested loop's entry). Each S2b and S7 test set includes a nested-loop case.
 - R4 The CEF message pump. `CEFMessagePump` runs Chromium's UI-thread work in slices on main and is not a task of
   the manager. Its slice policy (`cefPumpFrameDeadline`, `admitsSlice`) has to read the same frame deadline and
   starvation state. The design treats the pump as a native callout like AppKit's (it yields between slices), not
   as a queue; that is Q8.
 - R5 `postFromAnyThread` cost. Today one run-loop block per post. The manager uses one lock-free MPSC push plus
-  one source signal per empty-to-non-empty change; this has to be measured (the hot path of 211 sites), and the
+  one source signal per empty-to-non-empty change; this has to be measured (the hot path of 215 sites), and the
   push must not allocate per post beyond the closure.
 - R6 Behavior changes hidden in a refactor. Budget placement, the starvation voter and the create cap change what
-  a person sees. Each is a separate, measured decision (Q2, Q6), never part of a codemod.
-- R7 Main-actor resumes stay unattributed. The model bounds their wait (one job) but does not class them. If the
-  census number after S5 is high, more await sites move to the reply form.
+  a person sees. Each is a separate, measured decision (Q2, Q6), never part of a codemod. The design keeps
+  today's levels where Chrome differs: `startup` stays at visible's priority and budget (Chrome's `kStartup` is
+  higher), `.afterStartup` keeps one step per frame, and the starvation voter holds userBlocking as today. A
+  change to any of these is its own branch with its own bench.
+- R7 Unposted main-actor jobs (await resumes, `@MainActor` calls from off-main async code, SwiftUI `.task`,
+  framework tasks) stay FIFO in the main queue's drain: input can wait for all the jobs queued when the drain
+  starts, and they are unbudgeted. This is today's behavior in every shipped channel (the gate is off). The model
+  reduces them (S5, the reply form at the sites S6's census names); it does not bound them.
 - R8 The one-frame fence limit can show a stand-in where a hold showed nothing for up to 3 s. That is the intended
   trade (show at once, reconcile), but it needs a good stand-in per family (S10).
 
@@ -446,18 +554,21 @@ Open questions for cmux-ad (each one is self-contained):
 - Q1 Type name: keep `MainWorkScheduler` as the manager's name (no rename in 884 files), or rename it to
   `MainSequenceManager` with a codemod in S3. Recommendation: keep the name.
 - Q2 Budget batch placement: keep the batch in the display tick (today's default), or move it to its own run-loop
-  turn right after the frame's commit (today's `mainBudgetTurn`, off). Either way one path and the
-  `mainBudgetTurn` switch are deleted in S2; the choice needs a key-to-frame and frame-time measurement first.
-  Recommendation: measure in S2, keep the tick placement unless the after-commit turn wins.
-- Q3 Off-main `DemandTimer` (about 66 sites): keep it as the off-main delayed task, or fold it into
+  turn right after the frame's commit (today's `mainBudgetTurn`, off). S2b keeps today's placement and changes no
+  behavior; the deletion of the losing path and of the `mainBudgetTurn` switch is a later branch of its own, after
+  a key-to-frame and frame-time measurement. Recommendation: measure after S2b; keep the tick placement unless the
+  after-commit turn wins.
+- Q3 Off-main `DemandTimer` (the sites that remain after S4): keep it as the off-main delayed task, or fold it into
   `BackgroundWork` as `work.postDelayed(priority, after:)` (Chrome `ThreadPool::PostDelayedTask`) in a later step.
   Recommendation: keep it now, fold it later.
 - Q4 A custom main executor: if the Swift 6.2 toolchain has a supported API to replace the main executor, map main
   job priority onto the queues there (one owner, no hook), or keep the hook record-only and never reorder.
   Recommendation: record-only now; check the toolchain separately.
-- Q5 The census bound for S6: what number of unattributed main-actor jobs per second during an automation storm
-  is acceptable to delete the gate. Recommendation: delete the gate in S6 whatever the number (it is off in every
-  channel), and use the number to pick the await sites for the reply form.
+- Q5 Deleting `MainJobGate` removes the guarantee "main-actor jobs that start off main wait behind a pending
+  input until its frame". No shipped channel has it (the feature is off everywhere). Decide: delete the gate in S6
+  and reduce unposted jobs with the reply form (this design), or first turn the gate on in a dogfood build and
+  measure what it buys on key-to-frame under automation before deleting it. Recommendation: delete; the gate
+  reorders by origin, which is the global reorder D6 removes.
 - Q6 Rendering starvation: today it holds nothing (`holdsWork: false` hard-coded, feature not read). Make it a
   manager voter that is on by default after a frame-time measurement, or delete it.
 - Q7 `CommitFence` limit: one frame of the node's display clock for every family, or a second, longer limit for
@@ -480,3 +591,27 @@ Chrome (chromium.googlesource.com, main): `base/task/sequence_manager/sequence_m
 `base/task/task_features.h`. cmux: main-thread-budget.md, threading-model.md (:128-145, :213-258),
 zero-latency.md, PATTERNS.md (P5, P6a, P14, P15), chrome-parity/p06-scheduler.md section 3, the handoff notes
 audit-findings-1.md (B), audit-findings-2.md (D3-D10), hold-class.md and change-fences-proposal.md.
+
+## 7. Review record
+
+Revision 1 (`9215e5c0bbf`) had one independent review subagent. It read the code, not the author's notes.
+Verdict: REWORK. Revision 2 (this file) answers each finding:
+
+| # | Finding | Severity | Disposition |
+|---|---|---|---|
+| 1 | Inventory: F2 overstated (the app passes its one queue); the `DemandTimer` main path is 38 `scheduleOnMain` sites in 34 files, not 2; small count drifts | major | Fixed: F2, row 9, 1.2, 3.3 and S1/S4 rewritten; counts corrected |
+| 2 | 2.7's bound "one job between batches" is false: the main queue drains every queued job in one callout | blocker | Fixed: 2.4 item 1, 2.7 and R7 rewritten; the lost guarantee is named (Q5); S6 is independent and its test is a census measurement |
+| 3 | Injected keys on a separate `input` queue would pass their connection's earlier requests | blocker | Fixed: per-connection queue raised to input priority while its head is a key (2.1) |
+| 4 | Oldest-first across queues is not round robin; connection fairness lost | major | Fixed: round robin inside `automation`, stated as a difference from Chrome (2.1) |
+| 5 | Cause routing (`ObservationCause`, `enqueue(cause:)`) missing | major | Fixed: cause routing on every post (2.2), 1.4 row |
+| 6 | Share-only-under-input and the progress rules contradicted | major | Fixed: 2.3 states both, progress rules as voter overrides |
+| 7 | The scheduler's own timers would wait behind classes | major | Fixed: `control` delayed tasks (2.4 item 7), S4 test |
+| 8 | Request timeout weakened | major | Fixed: off-main deadline kept (2.1, 3.1) |
+| 9 | Startup priority and pacing changed silently; stranded tasks at settle | major | Fixed: `startup` at visible priority, paced background queue, never disabled at settle (2.1, 2.5, R6) |
+| 10 | Missing pieces (observation primitives, `AfterFrameCommit`, `MainRunLoopBlock`, `FrameInputCoalescer`, direct inserts, `DeadlineHeap`, `HostPressureMonitor`) | major | Fixed: 1.4 table; "two sources" limited to main-thread time (1.2) |
+| 11 | Hidden-node throttling not modelled | major | Fixed: hidden-queue wake-up throttler (2.1), S2c |
+| 12 | First-5s bench not on the branch; S1 red would pass; S2 and S3 too large | major | Fixed: S0 lands the bench; S1 red is F1; S2 split into S2a-c; S3 and S5 per package |
+| 13 | Chrome descriptions: budget pools, voters stricter than Blink, starvation includes userBlocking; `kStartup` doubted | minor | Fixed: stated in the Chrome table and 2.4. `kStartup` checked: it is in `content/browser/scheduler/browser_task_queues.h` ("Tasks that are critical for startup performance"); `kMaxDelayedStarvationTasks = 3` is in the current `task_queue_selector.h` |
+| 14 | Continuation order; create cap is a count | minor | Fixed: 2.1 rule, frame-count pools (2.3) |
+
+Revision 2 had a second review of the changes only (section 7.1).
