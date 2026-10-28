@@ -822,7 +822,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // agents use by name (`cmux vault`), the `vault.*` control methods and the secure entry sheet.
         .target(
             name: "CmuxNextCredentialVault",
-            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings"],
+            dependencies: ["CmuxNextCompat", "CmuxNextControl", "CmuxNextDesign", "CmuxNextDesignTokens", "CmuxNextPages", "CmuxNextSettings"],
             resources: [
                 .process("Resources"),
             ],
@@ -1695,6 +1695,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextCookieImport",
                 "CmuxNextCopyMode",
                 "CmuxNextCrashReporting",
+                "CmuxNextCredentialVault",
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
