@@ -258,7 +258,7 @@ export default agentPaneEntry({
   ],
   variants: {
     controls: {
-      note: "A finished chat with every composer control: model, effort, access, the speed bolt, mic and Send.",
+      note: "A finished chat with every composer control: model, effort, access, Fast mode in the picker, mic and Send.",
       snapshot: withControls(chat(finished)),
       play: check,
     },

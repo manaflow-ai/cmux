@@ -38,7 +38,6 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { FastToggle } from "./FastToggle";
 
 type HarnessChoice = {
   id: string;
@@ -400,7 +399,6 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarnessEnable,
     onCombo,
     fastMode,
-    speed,
     catalogRefresh,
     signedOut,
     onLogIn,
@@ -1159,7 +1157,6 @@ export function ModelPicker(props: ModelPickerProps) {
               />
             )}
           </QuickModelMenu>
-          {speed && <FastToggle speed={speed} inline />}
         </>
       ) : (
         <>
@@ -1191,7 +1188,6 @@ export function ModelPicker(props: ModelPickerProps) {
             {chipFace}
             <ChevronIcon />
           </PickerButton>
-          {speed && <FastToggle speed={speed} inline />}
         </>
       )}
       {open && (

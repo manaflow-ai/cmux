@@ -13,7 +13,6 @@ import {
 import { loadLastChips, rememberLastChips } from "./chipMemory";
 import type { AcpmuxSnapshot } from "./model";
 import type { SpeedSection } from "./EffortPicker";
-import { type SpeedTiers } from "./FastToggle";
 import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
@@ -427,34 +426,11 @@ export function ComposerPickers({
           onPick: (value: string) => onEffort(fastOption.id, value),
         }
       : undefined;
-  // The catalog marks models whose Fast tier is a free, easy inline toggle. Paid or otherwise
-  // non-toggleable Fast modes stay inside the model menu, regardless of harness name.
-  const inlineFast =
-    catalogModel?.inlineFast === true ||
-    (catalogModel?.serviceTiers?.length ?? 0) > 0 ||
-    snapshot.catalog.some(
-      (entry) =>
-        entry.id === summary?.harness &&
-        entry.models.some(
-          (model) => model.id === runningModel && (model.inlineFast === true || (model.serviceTiers?.length ?? 0) > 0),
-        ),
-    );
   // Fast mode is offered where the running model honors it, or while it is still on.
   const fastOffered =
     fastMode !== undefined && (catalogModel?.fast !== false || fastMode.currentValue !== fastMode.offValue);
-  // The bolt: every tier the option offers past off.
-  const speedTiers: SpeedTiers | undefined =
-    inlineFast && fastOption && fastMode && fastOffered
-      ? {
-          current: fastOption.currentValue,
-          off: fastMode.offValue,
-          tiers: fastOption.options.map((option) => option.value).filter((value) => value !== fastMode.offValue),
-          names: Object.fromEntries(fastOption.options.map((option) => [option.value, option.name ?? option.value])),
-          onPick: fastMode.onPick,
-        }
-      : undefined;
-  // A Codex chip with no composer to draw the bolt (a bare gallery row) keeps Fast mode in its menu.
-  const bolted = speedTiers !== undefined;
+  // Fast mode is a row in the model menu for every harness. The picker owns the toggle;
+  // the composer never renders a separate lightning button.
   const model = models.find((choice) => choice.id === summary?.model);
   const effortName = efforts.find((choice) => choice.id === effort?.currentValue)?.name;
   // Recents follow what the session actually runs, whichever control changed it,
@@ -908,11 +884,10 @@ export function ComposerPickers({
     chatAccounts && summary?.sessionId && !summary.host && summary.hostKind !== "cloud"
       ? { sessionId: summary.sessionId, accounts: chatAccounts }
       : undefined;
-  // Claude Code's Fast mode is one checkbox row of the menu, after Account (Leo 2026-10-20, as Claude
-  // Code's). On is any tier past off; a click turns it off, or on at the option's first tier. Codex
-  // has the bolt instead.
+  // Fast mode is one checkbox row in the menu, after Account. On is any tier past off;
+  // a click turns it off, or on at the option's first tier.
   const quickFast: QuickMenuExtras["fast"] =
-    fastMode && fastOffered && !bolted
+    fastMode && fastOffered
       ? {
           checked: fastMode.currentValue !== undefined && fastMode.currentValue !== fastMode.offValue,
           onChange: (on) => fastMode.onPick(on ? fastMode.onValue : fastMode.offValue),
@@ -962,8 +937,7 @@ export function ComposerPickers({
           onAddAgent={onAddAgent}
           harnessFixed={locked}
           {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          fastMode={bolted ? undefined : fastMode}
-          {...(speedTiers ? { speed: speedTiers } : {})}
+          {...(fastMode ? { fastMode } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
