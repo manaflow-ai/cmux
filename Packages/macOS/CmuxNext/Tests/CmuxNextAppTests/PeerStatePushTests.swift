@@ -85,11 +85,19 @@ struct PeerStatePushTests {
         sidebar.peerStateChanged(peer: "huge-blue", state: "connected")
         #expect(await reads.answer([AcpmuxPeerList.Peer(name: "huge-blue", connected: false)]))
         #expect(await Self.settle { await reads.count == 2 }, "the overtaken answer is followed by one more read")
+        #expect(await reads.answer([AcpmuxPeerList.Peer(name: "huge-blue", connected: false)]))
+        // Listed down now. A read samples it up between two pushes; a lagging `reconnecting` then
+        // changes nothing shown, but the read's answer is from before it: dropped, read again.
+        sidebar.peerStateChanged(peer: nil, state: nil)
+        #expect(await Self.settle { await reads.count == 3 })
+        sidebar.peerStateChanged(peer: "huge-blue", state: "reconnecting")
         #expect(await reads.answer([AcpmuxPeerList.Peer(name: "huge-blue", connected: true)]))
+        #expect(await Self.settle { await reads.count == 4 }, "a push that changed nothing still drops the read it overtook")
+        #expect(await reads.answer([AcpmuxPeerList.Peer(name: "huge-blue", connected: false)]))
         sidebar.stop()
         sidebar.peerStateChanged(peer: "huge-blue", state: "offline")
         for _ in 0..<50 { await Task.yield() }
-        #expect(await reads.count == 2, "nothing reads after stop()")
+        #expect(await reads.count == 4, "nothing reads after stop()")
     }
 
     @Test func anUnknownOrRemovedPeerOrAReopenedWatchReadsTheListAgain() {
