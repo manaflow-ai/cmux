@@ -89,12 +89,11 @@ enum TabHandlers {
         ctx.services.closedTabs = ClosedTabsFeed(services: ctx.services)
         // Cmd-Shift-T (reopen-closed.md 4): the newest closed group of the key window at any
         // level, from the daemon's closed history (the only one); a window the app closed is a
-        // `window` group there (`window-records-v1`). With no group to reopen (an older daemon, a
-        // record write that failed) the app's registry reopens the last closed window.
+        // `window` group there (`window-records-v1`). Each press takes the newest one no earlier
+        // press took, in press order (`reopenNewest`, audit A1). With no group to reopen (an older
+        // daemon, a record write that failed) the app's registry reopens the last closed window.
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
-            if let entry = DaemonClosedHistory.newest(for: ctx.services.windows.active?.state.id, in: ctx.services) {
-                return DaemonClosedHistory.reopen(entry, services: ctx.services)
-            }
+            if DaemonClosedHistory.reopenNewest(for: ctx.services.windows.active?.state.id, in: ctx.services) { return }
             if ctx.services.windows.reopenClosedWindow() { return }
             guard DaemonClosedHistory.isServed(in: ctx.services) else {
                 return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapability.stateResources.rawValue))

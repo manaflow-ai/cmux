@@ -51,14 +51,15 @@ struct HistoryRestorer {
     /// Reopens one closed item by its history id (`nil`: the newest one of
     /// the key window, as Cmd-Shift-T picks it).
     func reopen(closedID: String?) {
-        let entry: DaemonClosedHistory.Entry?
-        if let closedID {
-            entry = DaemonClosedHistory.entry(DaemonClosedHistory.daemonID(fromHistoryID: closedID) ?? closedID, in: services)
-        } else {
-            entry = DaemonClosedHistory.newest(for: services.windows.active?.state.id, in: services)
+        guard let closedID else {
+            // Cmd-Shift-T's own path: each call takes the newest item no earlier one took, in order.
+            if !DaemonClosedHistory.reopenNewest(for: services.windows.active?.state.id, in: services) {
+                services.registry.refuse(HistoryAppStrings.nothingClosed)
+            }
+            return
         }
-        guard let entry else {
-            services.registry.refuse(closedID == nil ? HistoryAppStrings.nothingClosed : HistoryAppStrings.entryGone)
+        guard let entry = DaemonClosedHistory.entry(DaemonClosedHistory.daemonID(fromHistoryID: closedID) ?? closedID, in: services) else {
+            services.registry.refuse(HistoryAppStrings.entryGone)
             return
         }
         DaemonClosedHistory.reopen(entry, services: services)

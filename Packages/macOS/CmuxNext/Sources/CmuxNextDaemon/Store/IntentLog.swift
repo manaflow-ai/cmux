@@ -106,6 +106,12 @@ struct IntentLog {
         entries.contains { $0.transaction == transaction }
     }
 
+    /// Whether no intent of `transactions` is pending; for nil, whether none at all is.
+    func isIdle(of transactions: Set<ClientTransactionID>?) -> Bool {
+        guard let transactions else { return entries.isEmpty }
+        return !entries.contains { transactions.contains($0.transaction) }
+    }
+
     func wasSettled(_ transaction: ClientTransactionID) -> Bool { settled.contains(transaction) }
 
     /// Appends a new intent. False when the transaction is already pending

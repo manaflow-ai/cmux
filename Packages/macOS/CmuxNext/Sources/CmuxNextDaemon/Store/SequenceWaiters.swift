@@ -33,7 +33,8 @@ struct SequenceWaiters {
 
     private var lastID: UInt64 = 0
     private var applied: [UInt64: Applied] = [:]
-    private var idle: [UInt64: OnceContinuation<Bool, OnceContinuationError>] = [:]
+    /// Each idle wait with the transactions it waits for (nil: every intent).
+    private var idle: [UInt64: (transactions: Set<ClientTransactionID>?, continuation: OnceContinuation<Bool, OnceContinuationError>)] = [:]
     private var connection: [UInt64: (epoch: Int, continuation: OnceContinuation<Bool, OnceContinuationError>)] = [:]
 
     var hasApplied: Bool { !applied.isEmpty }
@@ -47,7 +48,10 @@ struct SequenceWaiters {
 
     mutating func addApplied(_ id: UInt64, _ waiter: Applied) { applied[id] = waiter }
 
-    mutating func addIdle(_ id: UInt64, _ continuation: OnceContinuation<Bool, OnceContinuationError>) { idle[id] = continuation }
+    mutating func addIdle(_ id: UInt64, _ transactions: Set<ClientTransactionID>?,
+                          _ continuation: OnceContinuation<Bool, OnceContinuationError>) {
+        idle[id] = (transactions, continuation)
+    }
 
     mutating func addConnection(_ id: UInt64, epoch: Int, _ continuation: OnceContinuation<Bool, OnceContinuationError>) {
         connection[id] = (epoch, continuation)
@@ -86,10 +90,14 @@ struct SequenceWaiters {
         return applied.values.map(\.continuation)
     }
 
-    /// Removes and returns every idle wait.
-    mutating func takeIdle() -> [OnceContinuation<Bool, OnceContinuationError>] {
-        defer { idle = [:] }
-        return Array(idle.values)
+    /// Removes and returns the idle waits `log` holds none of the intents of.
+    mutating func takeIdle(log: IntentLog) -> [OnceContinuation<Bool, OnceContinuationError>] {
+        var due: [OnceContinuation<Bool, OnceContinuationError>] = []
+        for (id, waiter) in idle where log.isIdle(of: waiter.transactions) {
+            due.append(waiter.continuation)
+            idle[id] = nil
+        }
+        return due
     }
 
     /// Drops the wait `id`'s entry, when it is still filed: its wait ended (a cancel ends it from the canceller's

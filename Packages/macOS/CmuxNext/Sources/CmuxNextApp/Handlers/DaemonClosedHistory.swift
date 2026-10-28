@@ -16,10 +16,15 @@ import Foundation
 /// agent, page and viewer tabs) comes back through the same op.
 @MainActor
 enum DaemonClosedHistory {
-    struct Entry {
+    struct Entry: Sendable {
         var item: ClosedItem
         var daemon: DaemonService
     }
+
+    /// A `closed.reopen` reply, with the connection that carried it.
+    typealias Reply = Result<(connection: DaemonConnection, item: StateResourceClient.ReopenedItem), any Error>
+    /// What one Cmd-Shift-T press sent (``reopenNewest(for:in:)``): its item and the reply.
+    typealias Sent = (entry: Entry, reply: Reply)
 
     /// Every connected daemon's closed items of `kinds`, newest first.
     static func entries(_ kinds: Set<ClosedItem.Kind>, in services: AppServices) -> [Entry] {
@@ -130,9 +135,75 @@ enum DaemonClosedHistory {
     /// the newest one no live window owns (a closed window among them).
     /// Never a group of another live window (decision 1).
     static func newest(for window: String?, in services: AppServices) -> Entry? {
+        owned(by: window, in: services).first
+    }
+
+    /// Cmd-Shift-T's items for `window`, in its order: this window's groups, then the unowned ones.
+    private static func owned(by window: String?, in services: AppServices) -> [Entry] {
         let all = entries(allKinds, in: services), install = try? services.cloud.localDeviceID()
-        return all.first { owner(of: $0, window: window, install: install, in: services) == .window }
-            ?? all.first { owner(of: $0, window: window, install: install, in: services) == .none }
+        let owners = all.map { owner(of: $0, window: window, install: install, in: services) }
+        return [Owner.window, Owner.none].flatMap { wanted in zip(all, owners).filter { $0.1 == wanted }.map { $0.0 } }
+    }
+
+    /// Cmd-Shift-T (input-principles.md 1-3, audit A1): the newest item of `window` no earlier press
+    /// took (``CloseUndoToasts/reopenClaims``: the store drops an item only on the daemon's event),
+    /// so N presses reopen N items newest first, none twice. A close on its way (a close intent) is
+    /// newer than every record: a press made then picks once that close is recorded, so Cmd-W then
+    /// Cmd-Shift-T reopens the tab just closed. Each press sends after the one before replied: each
+    /// item goes back to its old place, right only newest first. False: nothing to reopen.
+    static func reopenNewest(for window: String?, in services: AppServices) -> Bool {
+        guard let undo = services.closedTabs?.undoToasts else {
+            guard let entry = newest(for: window, in: services) else { return false }
+            reopen(entry, services: services)
+            return true
+        }
+        let closing = pendingCloses(in: services)
+        let target: Entry?
+        if closing.isEmpty, undo.reopensWaiting == 0 {
+            // No earlier press or close is still to be resolved: this press picks in its own turn.
+            guard let entry = take(for: window, in: services, undo) else { return false }
+            target = entry
+        } else {
+            let left = owned(by: window, in: services).count { !undo.reopenClaims.contains($0.item.id) }
+            guard left + closing.map(\.transactions.count).reduce(0, +) > undo.reopensWaiting else { return false }
+            undo.reopensWaiting += 1
+            target = nil
+        }
+        let previous = undo.reopenTail
+        // task-owner: CloseUndoToasts.reopenTail, the next press's wait; it ends with its reply
+        // main-hop-allow: the person's reopen, in press order: it resumes on main only after the press before it replied and after the closes pending at the press left the intent log, then reads the store and sends
+        let sent = Task { @MainActor [weak undo] () -> Sent? in
+            _ = await previous?.value
+            var entry = target
+            if entry == nil {
+                for close in closing { _ = await close.store.waitIntentsIdle(of: close.transactions) }
+                guard let undo else { return nil }
+                undo.reopensWaiting -= 1
+                entry = take(for: window, in: services, undo)
+            }
+            guard let entry else { return nil }
+            return (entry, await send(entry, services: services))
+        }
+        undo.reopenTail = sent
+        // main-hop-allow: the rest of the person's reopen (userBlocking, p06 rule 2), tracked for a capturing caller: it shows what came back on main
+        services.registry.track(Task { @MainActor [weak undo] in
+            guard let sent = await sent.value else {
+                services.registry.refuse(RefusalStrings.noRecentlyClosedTab, quiet: true)
+                return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedTab)
+            }
+            // Not reopened: a later press may take it again.
+            if case .failure = sent.reply { undo?.reopenClaims.remove(sent.entry.item.id) }
+            return await finish(sent.entry, sent.reply, services: services)
+        })
+        return true
+    }
+
+    /// The newest item of `window` no earlier press took, taken now (until it left the history).
+    private static func take(for window: String?, in services: AppServices, _ undo: CloseUndoToasts) -> Entry? {
+        undo.reopenClaims.formIntersection(entries(allKinds, in: services).map(\.item.id))
+        guard let entry = owned(by: window, in: services).first(where: { !undo.reopenClaims.contains($0.item.id) }) else { return nil }
+        undo.reopenClaims.insert(entry.item.id)
+        return entry
     }
 
     /// The entry with id `id` on any daemon.
@@ -146,82 +217,97 @@ enum DaemonClosedHistory {
         entries([.workspace], in: services).first { $0.item.group?.id == id }
     }
 
+    /// Each store's pending close intents (Cmd-W, close buttons): closes whose record may not be in the history yet.
+    private static func pendingCloses(in services: AppServices) -> [(store: DaemonStore, transactions: Set<ClientTransactionID>)] {
+        services.machines.daemons.compactMap { daemon in
+            let closes = Set(daemon.store.pendingIntents.compactMap { pending -> ClientTransactionID? in
+                if case .closeTabs = pending.intent { pending.transaction } else { nil }
+            })
+            return closes.isEmpty ? nil : (daemon.store, closes)
+        }
+    }
+
     /// Reopens `entry` on its daemon and shows it: a tab selected in its
     /// pane, a screen selected in its workspace, a workspace in the active
     /// window. The failure (if any) is the tracked work's result.
     static func reopen(_ entry: Entry, services: AppServices) {
+        // main-hop-allow: the person's reopen (Cmd-Shift-T, Undo) rest, userBlocking (p06 rule 2), tracked for a capturing caller: it awaits the reply, then shows the reopened item on main; post has no userBlocking class (task 208)
+        services.registry.track(Task { @MainActor in
+            await finish(entry, await send(entry, services: services), services: services)
+        })
+    }
+
+    /// Sends `closed.reopen` for `entry` and notes when its reply and its tabs came (`debug.filepages`).
+    private static func send(_ entry: Entry, services: AppServices) async -> Reply {
         let daemon = entry.daemon, item = entry.item
+        guard let connection = daemon.connection else { return .failure(DaemonError.notConnected) }
+        let start = ContinuousClock.now
+        // Its browser tabs' pages restore the history they closed with (cx-d0d.59).
+        if daemon.isLocal { services.cache.pageRequests.closedHistories.expect(item) }
+        do {
+            let reopened = try await connection.state.reopenClosed(item.id)
+            // Where a slow restore spends its time (nxdog52: the first Cmd-Z took over 2 s).
+            let reply = start.duration(to: .now)
+            services.closedTabs?.undoToasts.watchReopen(id: item.id, tabs: reopened.tabIDs, reply: reply, since: start,
+                                                        daemon: daemon, connection: connection)
+            return .success((connection, reopened))
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    /// Shows what `reply` reopened of `entry`, or why it did not.
+    private static func finish(_ entry: Entry, _ reply: Reply, services: AppServices) async -> ActionWorkFailure? {
+        let daemon = entry.daemon, item = entry.item
+        let connection: DaemonConnection, reopened: StateResourceClient.ReopenedItem
+        switch reply {
+        case .success(let value):
+            connection = value.connection
+            reopened = value.item
+        case .failure(DaemonError.notConnected):
+            return ActionWorkFailure(MiscHandlerStrings.daemonOffline)
+        case .failure(let error):
+            daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
+            services.cache.pageRequests.closedHistories.drop(item)
+            if item.kind == .workspace, item.group == nil,
+               case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
+                services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)
+                return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedWorkspace)
+            }
+            return "closed.reopen: \(error)"
+        }
+        // A reopened workspace group forms again in the sidebar; no window changes what it shows.
+        if item.group != nil { return nil }
+        // A closed window: the app shows it again with the workspaces it kept.
+        if item.kind == .window {
+            let windowID = reopened.window?.split(separator: "/", maxSplits: 1).last.map(String.init)
+            if let windowID, services.windows.reopenClosedWindow(id: windowID) { return nil }
+            let reason = RefusalStrings.noWindow(windowID ?? item.id)
+            services.registry.refuse(reason)
+            return ActionWorkFailure(refusal: .unavailable, reason: reason)
+        }
         let pane = item.paneID.flatMap { id in
             daemon.store.workspaces.lazy.flatMap(\.screens).flatMap(\.panes).first { $0.resourceID == id }
         }
-        let clock = ContinuousClock(), start = clock.now
-        // Its browser tabs' pages restore the history they closed with (cx-d0d.59).
-        if daemon.isLocal { services.cache.pageRequests.closedHistories.expect(item) }
-        // main-hop-allow: the person's reopen (Cmd-Shift-T, Undo) rest, userBlocking (p06 rule 2), tracked for a capturing caller: it awaits the reply, then shows the reopened item on main; post has no userBlocking class (task 208)
-        services.registry.track(Task { @MainActor in
-            guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
-            let reopened: StateResourceClient.ReopenedItem
-            do {
-                reopened = try await connection.state.reopenClosed(item.id)
-                // Where a slow restore spends its time (nxdog52: the first Cmd-Z took over 2 s).
-                let reply = start.duration(to: clock.now)
-                let tabs = reopened.tabIDs
-                let undo = services.closedTabs?.undoToasts
-                undo?.noteReopen(id: item.id, tabs: tabs.map(\.rawValue), reply: reply)
-                // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); keyed store waits, 30 s at most
-                undo?.reopenWatch?.cancel()
-                // main-hop-allow: debug.filepages timing of the person's reopen: it resumes on main only at the applied barrier and at each reopened tab's keyed store wait (StoreWaiters)
-                undo?.reopenWatch = Task { @MainActor [weak undo] in
-                    await daemon.appliedThroughReply(on: connection, after: "reopen closed")
-                    let store = daemon.store
-                    let inStore = tabs.allSatisfy { store.tab(idOrResource: $0.rawValue) != nil }
-                    undo?.noteReopenApplied(start.duration(to: clock.now), tabsInStore: inStore)
-                    // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
-                    for tab in tabs {
-                        guard await store.waitForTab(resource: tab, timeout: .seconds(30)) != nil else { return }
-                    }
-                    undo?.noteReopenTabsArrived(start.duration(to: clock.now))
-                }
-            } catch {
-                daemon.logger.error("closed.reopen failed: \(String(describing: error), privacy: .public)")
-                services.cache.pageRequests.closedHistories.drop(item)
-                if item.kind == .workspace, item.group == nil,
-                   case DaemonError.command(_, _, let code, _, _) = error, code == "resource.not_found" {
-                    services.registry.refuse(RefusalStrings.noRecentlyClosedWorkspace)
-                    return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.noRecentlyClosedWorkspace)
-                }
-                return "closed.reopen: \(error)"
-            }
-            // A reopened workspace group forms again in the sidebar; no window changes what it shows.
-            if item.group != nil { return nil }
-            // A closed window: the app shows it again with the workspaces it kept.
-            if item.kind == .window {
-                let windowID = reopened.window?.split(separator: "/", maxSplits: 1).last.map(String.init)
-                if let windowID, services.windows.reopenClosedWindow(id: windowID) { return nil }
-                let reason = RefusalStrings.noWindow(windowID ?? item.id)
-                services.registry.refuse(reason)
-                return ActionWorkFailure(refusal: .unavailable, reason: reason)
-            }
-            if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
-                controller.selectWhenReported(tab: tab.rawValue)
-                return nil
-            }
-            await daemon.appliedThroughReply(on: connection, after: "reopen closed")
-            if item.kind == .workspace {
-                if let id = reopened.workspaceID,
-                   let workspace = await daemon.store.workspace(afterReopen: id) {
-                    services.windows.reveal(workspaceID: workspace)
-                    return nil
-                } else {
-                    let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
-                    daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
-                    services.registry.refuse(reason)
-                    return ActionWorkFailure(reason, mayHaveApplied: true)
-                }
-            }
-            show(reopened, kind: item.kind, daemon: daemon, services: services)
+        if item.kind == .tab, let tab = reopened.tabIDs.first, let pane, let controller = services.paneController(for: pane) {
+            controller.selectWhenReported(tab: tab.rawValue)
             return nil
-        })
+        }
+        await daemon.appliedThroughReply(on: connection, after: "reopen closed")
+        if item.kind == .workspace {
+            if let id = reopened.workspaceID,
+               let workspace = await daemon.store.workspace(afterReopen: id) {
+                services.windows.reveal(workspaceID: workspace)
+                return nil
+            } else {
+                let reason = RefusalStrings.noWorkspace(reopened.workspaceID?.rawValue ?? item.id)
+                daemon.logger.error("closed.reopen timed out waiting for its workspace: \(item.id, privacy: .public)")
+                services.registry.refuse(reason)
+                return ActionWorkFailure(reason, mayHaveApplied: true)
+            }
+        }
+        show(reopened, kind: item.kind, daemon: daemon, services: services)
+        return nil
     }
 
     /// A deleted `window` item of this app: its closed window lets its

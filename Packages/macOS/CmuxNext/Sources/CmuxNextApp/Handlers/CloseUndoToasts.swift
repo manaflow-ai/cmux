@@ -88,6 +88,11 @@ final class CloseUndoToasts {
     private(set) var lastReopen: ReopenTiming?
     /// Watches the last reopen's tabs arrive in the store; the next reopen cancels it.
     var reopenWatch: Task<Void, Never>?
+    /// Cmd-Shift-T's presses (`DaemonClosedHistory.reopenNewest`): the closed items presses took that
+    /// are still in the history, the presses still to pick theirs, and the last press's send.
+    var reopenClaims: Set<String> = []
+    var reopensWaiting = 0
+    var reopenTail: Task<DaemonClosedHistory.Sent?, Never>?
 
     struct ReopenTiming {
         var id: String
@@ -100,6 +105,26 @@ final class CloseUndoToasts {
 
     func noteReopen(id: String, tabs: [String], reply: Duration) {
         lastReopen = ReopenTiming(id: id, tabs: tabs, reply: reply)
+    }
+
+    /// Notes reopen `id`'s reply, then when the store applied it and when its tabs arrived (`debug.filepages`).
+    func watchReopen(id: String, tabs: [ResourceID], reply: Duration, since start: ContinuousClock.Instant,
+                     daemon: DaemonService, connection: DaemonConnection) {
+        noteReopen(id: id, tabs: tabs.map(\.rawValue), reply: reply)
+        // task-owner: CloseUndoToasts.reopenWatch (the next reopen cancels it); keyed store waits, 30 s at most
+        reopenWatch?.cancel()
+        // main-hop-allow: debug.filepages timing of the person's reopen: it resumes on main only at the applied barrier and at each reopened tab's keyed store wait (StoreWaiters)
+        reopenWatch = Task { @MainActor [weak self] in
+            await daemon.appliedThroughReply(on: connection, after: "reopen closed")
+            let store = daemon.store
+            let inStore = tabs.allSatisfy { store.tab(idOrResource: $0.rawValue) != nil }
+            self?.noteReopenApplied(start.duration(to: .now), tabsInStore: inStore)
+            // When the reopened tabs reach the store (nxdog54: the first restore only after another event).
+            for tab in tabs {
+                guard await store.waitForTab(resource: tab, timeout: .seconds(30)) != nil else { return }
+            }
+            self?.noteReopenTabsArrived(start.duration(to: .now))
+        }
     }
 
     func noteReopenApplied(_ applied: Duration, tabsInStore: Bool) {

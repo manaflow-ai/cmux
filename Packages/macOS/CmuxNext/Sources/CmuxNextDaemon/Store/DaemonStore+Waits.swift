@@ -36,19 +36,19 @@ extension DaemonStore {
         return result
     }
 
-    /// Returns true once the intent log is empty (every pending intent echoed, settled or refused; at once when
-    /// it is), or false when the task was cancelled. Resumed by the overlay lift that removed the last intent.
-    public func waitIntentsIdle() async -> Bool {
-        if intentLog.isEmpty { return true }
+    /// Returns true once the intent log is empty, or holds none of `transactions` when given (each echoed, settled or
+    /// refused; at once when so), or false when cancelled. Resumed by the overlay lift that removed the last of them.
+    public func waitIntentsIdle(of transactions: Set<ClientTransactionID>? = nil) async -> Bool {
+        if intentLog.isIdle(of: transactions) { return true }
         let id = sequenceWaiters.makeID()
         // As ``waitApplied(atLeast:since:)``: a cancel ends the wait at once, its entry goes at the resume.
         let idle = (try? await withOnceContinuation(cancellation: .cancellable, failingWith: { $0 }) {
             (continuation: OnceContinuation<Bool, OnceContinuationError>) in
-            if intentLog.isEmpty {
+            if intentLog.isIdle(of: transactions) {
                 continuation.resume(returning: true)
                 return
             }
-            sequenceWaiters.addIdle(id, continuation)
+            sequenceWaiters.addIdle(id, transactions, continuation)
         }) ?? false
         sequenceWaiters.drop(id)
         return idle
@@ -115,9 +115,9 @@ extension DaemonStore {
         for continuation in sequenceWaiters.takeAllApplied() { continuation.resume(returning: .connectionChanged) }
     }
 
-    /// Resumes the idle waits once the intent log is empty.
+    /// Resumes the idle waits whose intents all left the log.
     func resumeIdleWaits() {
-        guard sequenceWaiters.hasIdle, intentLog.isEmpty else { return }
-        for continuation in sequenceWaiters.takeIdle() { continuation.resume(returning: true) }
+        guard sequenceWaiters.hasIdle else { return }
+        for continuation in sequenceWaiters.takeIdle(log: intentLog) { continuation.resume(returning: true) }
     }
 }
