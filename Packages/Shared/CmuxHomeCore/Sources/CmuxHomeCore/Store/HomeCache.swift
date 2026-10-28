@@ -11,7 +11,9 @@ public import Foundation
 /// 3.5). Encoding and writing run on the actor, never on the caller's main actor, which hands
 /// over a ``HomeCacheState`` of copy-on-write values. A file that does not decode is ignored,
 /// since the owner can rebuild everything in it but drafts and unsent sends. An index written
-/// whole by an older build (windows inline) still loads.
+/// whole by an older build (windows inline) still loads. Drafts are also saved as they are typed
+/// in a write-ahead record beside the index (``draftJournal``), which ``load()`` replays, so a
+/// forced end of the app that skips the last coalesced write loses no draft.
 ///
 /// ```swift
 /// let cache = HomeCache(url: temporaryDirectory.appendingPathComponent("home.json"))
@@ -38,6 +40,9 @@ public actor HomeCache { // memory: fixed the index plus one kept tail (windowLi
 
     /// The index file; the windows are in ``windowsDirectory`` beside it.
     public nonisolated let url: URL
+    /// Each draft change as it is typed (`<index>-drafts.journal` beside the index): what a write
+    /// that reached disk holds leaves it.
+    public nonisolated let draftJournal: HomeDraftJournal
 
     /// What the files on disk hold, as last written or read; nil until the first write reads it.
     private var written: Written?
@@ -62,6 +67,8 @@ public actor HomeCache { // memory: fixed the index plus one kept tail (windowLi
     public init(url: URL, writeFile: @escaping FileWriter = { try HomeCache.atomicWrite($0, to: $1) }) {
         self.url = url
         self.writeFile = writeFile
+        draftJournal = HomeDraftJournal(url: url.deletingLastPathComponent()
+            .appendingPathComponent(url.deletingPathExtension().lastPathComponent + "-drafts.journal"))
     }
 
     /// `Caches/cmux-home/<owner>/home.json` in the user's Caches folder; `owner` is made a single path component.
@@ -91,9 +98,13 @@ public actor HomeCache { // memory: fixed the index plus one kept tail (windowLi
 
     /// The cached snapshot, read synchronously (the Home list's first frame needs it before the
     /// owner answers). Nil when there is none or it does not decode; a window whose file is
-    /// gone or does not decode is left out.
+    /// gone or does not decode is left out. The drafts are the index's with the write-ahead
+    /// record's later changes on top (``draftJournal``); a record without an index still gives them.
     public nonisolated func load() -> HomeCacheSnapshot? {
-        guard var snapshot = readIndex() else { return nil }
+        let index = readIndex()
+        let drafts = draftJournal.replay(over: index?.drafts ?? [:])
+        guard var snapshot = index ?? drafts.map({ _ in HomeCacheSnapshot() }) else { return nil }
+        if let drafts { snapshot.drafts = drafts }
         for id in snapshot.windowIDs ?? [] where snapshot.windows[id] == nil {
             if let messages = readWindow(id) { snapshot.windows[id] = messages }
         }
@@ -114,7 +125,10 @@ public actor HomeCache { // memory: fixed the index plus one kept tail (windowLi
     func write(_ state: HomeCacheState, sequence: UInt64, writer: UUID) -> Bool {
         guard sequence > lastSequence[writer, default: 0] else { return true }
         lastSequence[writer] = sequence
-        return commit(state)
+        let complete = commit(state)
+        // On disk now: the record's lines up to the state's mark are in the index.
+        if complete, let mark = state.draftJournalMark { draftJournal.settle(through: mark) }
+        return complete
     }
 
     // MARK: - Files

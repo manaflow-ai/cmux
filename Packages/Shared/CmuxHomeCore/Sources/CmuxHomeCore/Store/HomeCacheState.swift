@@ -14,6 +14,9 @@ struct HomeCacheState: Sendable {
     var drafts: [ConversationID: String] = [:]
     var draftAttachments: [ConversationID: [HomeCachedDraftAttachment]] = [:]
     var scroll: [ConversationID: HomeScrollAnchor] = [:]
+    /// The draft record's number this state holds every change up to (``HomeDraftJournal/mark``), and
+    /// the earlier launch's lines; nil when it may not (taken before the view cache restored).
+    var draftJournalMark: UInt64?
 
     init() {}
 

@@ -64,6 +64,8 @@ final class HomeClientViewCache { // memory: fixed the person's drafts, draft at
         guard drafts[id] != value else { return }
         drafts[id] = value
         editsBeforeRestore?.drafts.insert(id)
+        // Saved as typed (write-ahead, its own queue): a forced end before the batch below loses nothing.
+        cache?.draftJournal.record(value, for: id)
         scheduleWrite()
     }
 
@@ -174,6 +176,8 @@ final class HomeClientViewCache { // memory: fixed the person's drafts, draft at
         guard dirty, !waitsForRestore else { return nil }
         dirty = false
         var state = ownerState()
+        // After the restore the drafts hold the record's replayed lines and every change since.
+        state.draftJournalMark = editsBeforeRestore == nil ? cache?.draftJournal.mark : nil
         state.drafts = drafts
         state.draftAttachments = draftAttachments
         state.scroll = scrollAnchors
