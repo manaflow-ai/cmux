@@ -252,10 +252,10 @@ async fn attempt_once(
         .or_else(|| hub.resolve_remote(target).map(|(_, _, summary)| summary));
     if let Some(summary) = summary {
         let config = hub.config.read().await.machine_wake.clone();
-        if let Some(config) = config {
-            if let Err(error) = crate::machine_wake::wake(&config, &summary).await {
-                return Err((format!("machine wake failed: {error}"), Next::Retry));
-            }
+        if let Some(config) = config
+            && let Err(error) = crate::machine_wake::wake(&config, &summary).await
+        {
+            return Err((format!("machine wake failed: {error}"), Next::Retry));
         }
     }
     let prompt_id = request

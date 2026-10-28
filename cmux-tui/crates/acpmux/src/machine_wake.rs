@@ -21,7 +21,7 @@ fn path_segment(value: &str) -> String {
 /// parser tolerant while the platform and peer summary contracts roll out.
 pub fn paused_lease(summary: &Value) -> Option<String> {
     fn paused_lease_in(value: &Value) -> Option<String> {
-        let Some(object) = value.as_object() else { return None };
+        let object = value.as_object()?;
         let paused = ["state", "machineState", "leaseState"].into_iter().any(|key| {
             object
                 .get(key)
