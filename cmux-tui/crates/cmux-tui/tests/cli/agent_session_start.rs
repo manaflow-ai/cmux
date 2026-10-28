@@ -628,7 +628,7 @@ fn agent_session_start_relays_the_requested_model() {
     assert_eq!(started["ok"], true, "{started}");
     let new = new_sessions.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(new["_meta"]["acpmux"]["model"], "model-x", "{new}");
-    assert_eq!(new["cwd"].as_str().unwrap().ends_with("/work"), true, "{new}");
+    assert!(new["cwd"].as_str().unwrap().ends_with("/work"), "{new}");
     let _ = fs::remove_file(daemon.dir.join("acpmux/acpmux.sock"));
 }
 
