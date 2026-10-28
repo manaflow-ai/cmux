@@ -14,11 +14,19 @@
     28,
     29
   ],
+  "x86_64": {
+    "asset": "cef-stage-e110f7a37c80-x86-64-macos-x86_64.tar",
+    "sha256": "e9ab439d5075b38edffcf5c110cc6d7dcdfef6605a0aa37ceb4b99335a767f28",
+    "dir": "cef-stage-e110f7a37c80-x86-64-macos-x86_64",
+    "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz",
+    "fork_ref": "e110f7a37c80aa932c419b0584d552ee508aeba8"
+  },
   "require_dcheck_off": true,
   "staging": {
     "note": "staging pin of fleet builds: no R2 object and no GitHub release; only the controller artifact store serves the sha256, until store_expires, and no Release build embeds it (scripts/cmux-next/cef-pin-staging.sh)",
     "jobs": {
-      "arm64": "c8c95d78b5b2710a2f3a24b4"
+      "arm64": "c8c95d78b5b2710a2f3a24b4",
+      "x86_64": "e871d7067bf1e15f9506c39a"
     },
     "store_expires": "2026-11-11"
   }
