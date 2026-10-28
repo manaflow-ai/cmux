@@ -191,7 +191,7 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     /// tags must not fork drafts, while unrelated channels and development tags stay isolated.
     public var draftIdentityKey: String {
         if let sessionTag = kept?.sessionTag { return "channel-\(sessionTag)" }
-        if kind == .release { return "release" }
+        if kind == .release, kept != nil { return "release" }
         return "build-\(key)"
     }
 
