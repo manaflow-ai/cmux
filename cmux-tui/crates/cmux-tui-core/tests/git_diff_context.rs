@@ -61,13 +61,16 @@ impl Client {
         let id = format!("r{}", self.next);
         params["machine"] = json!("current");
         params["session"] = json!("current");
-        let request = json!({
+        let mut request = json!({
             "protocol": "cmux.protocol/2",
             "type": "request",
             "id": id,
             "operation": operation,
             "params": params,
         });
+        if operation == "git.checkpoint.create" {
+            request["idempotency_key"] = json!(unique("checkpoint-create"));
+        }
         writeln!(self.stream.get_mut(), "{request}").unwrap();
         loop {
             let mut line = String::new();
@@ -247,6 +250,30 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     }
     assert_eq!(bytes, expected.stdout);
     assert_eq!(String::from_utf8(bytes.clone()).unwrap().matches("café").count(), 300_000);
+    // Revision alone does not authorize replay under another scope, path,
+    // context or repository. All are part of the stable server-derived key.
+    for changed in
+        [json!({"scope":"unstaged"}), json!({"paths":["other.txt"]}), json!({"context_lines":4})]
+    {
+        let mut params = json!({"path":path,"scope":"uncommitted","include_patch":true,
+            "paths":["large.txt"],"patch_offset":"1","patch_revision":revision});
+        params.as_object_mut().unwrap().extend(changed.as_object().unwrap().clone());
+        let refused = client.request("git.diff", params);
+        assert_eq!(refused["ok"], false, "{refused}");
+        assert!(refused.to_string().contains("patch_expired"), "{refused}");
+    }
+    let other_repo = dir.join("other");
+    std::fs::create_dir_all(&other_repo).unwrap();
+    git(&other_repo, &["init", "--quiet"]);
+    let refused = client.request(
+        "git.diff",
+        json!({"path":other_repo.to_string_lossy(),
+        "scope":"uncommitted","include_patch":true,"paths":["large.txt"],
+        "patch_offset":"1","patch_revision":revision}),
+    );
+    assert_eq!(refused["ok"], false, "{refused}");
+    assert!(refused.to_string().contains("patch_expired"), "{refused}");
+
     let missing_revision = client.request(
         "git.diff",
         json!({"path": path, "scope": "uncommitted", "include_patch": true,
@@ -305,6 +332,73 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
         assert!(names.len() < 4);
     }
     assert_eq!(names, ["large.txt", "next.txt", "z.txt"]);
+    mux.shutdown();
+    server::cleanup(&socket);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn checkpoint_pages_keep_their_original_live_tree_and_completeness() {
+    let dir = std::env::temp_dir().join(unique("gcp"));
+    let repo = dir.join("repo");
+    std::fs::create_dir_all(&repo).unwrap();
+    git(&repo, &["init", "--quiet"]);
+    write(&repo, "a.txt", "old\n");
+    write(&repo, "other.txt", "other\n");
+    git(&repo, &["add", "."]);
+    git(
+        &repo,
+        &["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "--quiet", "-m", "one"],
+    );
+    let mux = Mux::open_persistent(
+        unique("checkpoint-pages"),
+        SurfaceOptions::default(),
+        &dir.join("state"),
+    )
+    .unwrap();
+    let socket = dir.join("s.sock");
+    server::serve(mux.clone(), Some(socket.clone())).unwrap();
+    let mut client = Client::connect(&socket);
+    let path = repo.to_string_lossy();
+    let created = client.read("git.checkpoint.create", json!({"path":path}));
+    let from = created["value"]["checkpoint_id"].as_str().unwrap();
+    assert_eq!(created["value"]["complete"], true, "{created}");
+    write(&repo, "a.txt", "new\n");
+    // Default checkpoint capture excludes untracked files larger than 10MB,
+    // which makes the live comparison incomplete. Preserve that flag too.
+    std::fs::write(repo.join("oversized.txt"), vec![b'x'; 10_000_001]).unwrap();
+    let first = client.read(
+        "git.checkpoint.diff",
+        json!({"path":path,"from":from,
+        "include_patch":true,"paths":["a.txt"],"patch_offset":"0"}),
+    );
+    assert_eq!(first["complete"], false, "{first}");
+    let revision = first["patch_page"]["revision"].clone();
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(first["patch_page"]["data_base64"].as_str().unwrap())
+        .unwrap();
+    assert!(bytes.len() > 1);
+    // A later unrelated edit must not recapture/re-hash the working tree or
+    // label the captured bytes with a new completeness decision.
+    write(&repo, "other.txt", "changed after first page\n");
+    std::fs::remove_file(repo.join("oversized.txt")).unwrap();
+    let next = client.read(
+        "git.checkpoint.diff",
+        json!({"path":path,"from":from,
+        "include_patch":true,"paths":["a.txt"],"patch_offset":"1","patch_revision":revision}),
+    );
+    assert_eq!(next["complete"], false, "{next}");
+    assert_eq!(next["from"], from);
+    let resumed = base64::engine::general_purpose::STANDARD
+        .decode(next["patch_page"]["data_base64"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(resumed, bytes[1..]);
+    let missing = client.request(
+        "git.checkpoint.diff",
+        json!({"path":path,"from":"ckpt_missing",
+        "include_patch":true,"paths":["a.txt"],"patch_offset":"1","patch_revision":revision}),
+    );
+    assert_eq!(missing["ok"], false, "{missing}");
     mux.shutdown();
     server::cleanup(&socket);
     let _ = std::fs::remove_dir_all(&dir);

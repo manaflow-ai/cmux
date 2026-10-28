@@ -90,58 +90,69 @@ impl ChangedFile {
     }
 }
 
-/// Serve a continuation from its immutable capture before rebuilding a live
-/// comparison. This matters for checkpoint-to-working-tree reads: unrelated
+/// Stable request identity, independent of the current HEAD/tree. The revision
+/// separately identifies immutable bytes. No caller supplies a cache key.
+fn capture_key(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+    operation: &'static str,
+) -> Result<String, ResourceError> {
+    let scope = (operation == OPERATION)
+        .then(|| fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted"));
+    Ok(json!([
+        repository.root,
+        operation,
+        pathspecs(fields)?,
+        limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES),
+        scope,
+        fields.get("from"),
+        fields.get("to")
+    ])
+    .to_string())
+}
+
+fn page_offset(fields: &Map<String, Value>) -> Result<Option<u64>, ResourceError> {
+    fields
+        .get("patch_offset")
+        .map(|value| {
+            serde_json::from_value::<WireDecimal>(value.clone()).map(WireDecimal::get).map_err(
+                |_| {
+                    ResourceError::validation_invalid(
+                        Some("patch_offset"),
+                        "patch_offset must be an unsigned decimal string",
+                    )
+                },
+            )
+        })
+        .transpose()
+}
+
+/// Serve a continuation before rebuilding a live comparison. Unrelated
 /// working-tree changes must not invalidate an already-issued page cursor.
 pub(super) fn continuation(
     repository: &Repository,
     fields: &Map<String, Value>,
     operation: &'static str,
 ) -> Result<Option<Value>, ResourceError> {
-    let Some(offset) = fields
-        .get("patch_offset")
-        .and_then(|value| serde_json::from_value::<WireDecimal>(value.clone()).ok())
-        .map(WireDecimal::get)
-    else {
+    let Some(offset) = page_offset(fields)?.filter(|offset| *offset > 0) else {
         return Ok(None);
     };
-    if offset == 0 {
-        return Ok(None);
-    }
-    let Some(key) = fields.get("patch_key").and_then(Value::as_str) else {
-        return Ok(None);
-    };
-    let parsed: Value = serde_json::from_str(key).unwrap_or(Value::Null);
-    let Some(parts) = parsed.as_array() else {
-        return Err(ResourceError::validation_invalid(
-            Some("patch_key"),
-            "invalid patch capture key",
-        ));
-    };
-    if parts.first().and_then(Value::as_str) != repository.root.to_str()
-        || parts.get(1).and_then(Value::as_str) != Some(operation)
-    {
-        return Err(ResourceError::operation_failed(
-            operation,
-            "the patch capture does not belong to this repository or operation",
-            json!({"code":"patch_expired"}),
-        ));
-    }
-    let requested_paths = pathspecs(fields)?;
-    let requested_context = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
-    if parts.get(7) != Some(&json!(requested_paths))
-        || parts.get(8) != Some(&json!(requested_context))
-        || parts.get(9) != Some(&json!(fields.get("scope")))
-        || parts.get(10) != Some(&json!(fields.get("from")))
-        || parts.get(11) != Some(&json!(fields.get("to")))
+    if fields.get("include_patch").and_then(Value::as_bool) != Some(true)
+        || pathspecs(fields)?.len() != 1
     {
         return Err(ResourceError::validation_invalid(
-            Some("patch_key"),
-            "patch capture context does not match this request",
+            Some("patch_offset"),
+            "a patch page requires include_patch and exactly one file path",
         ));
     }
-    let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
-    let Some((window, mut metadata)) = super::diff_pages::get(key, revision) else {
+    let revision = fields.get("patch_revision").and_then(Value::as_str).ok_or_else(|| {
+        ResourceError::validation_invalid(
+            Some("patch_revision"),
+            "continuing a patch requires the first page's revision",
+        )
+    })?;
+    let key = capture_key(repository, fields, operation)?;
+    let Some((window, mut metadata)) = super::diff_pages::get(&key, revision) else {
         return Err(ResourceError::operation_failed(
             operation,
             "the patch capture expired; restart at offset zero",
@@ -159,34 +170,17 @@ pub(super) fn continuation(
     Ok(Some(metadata))
 }
 
-pub(super) fn remember_metadata(value: &Value) {
-    if let (Some(key), Some(revision)) = (
-        value.get("patch_key").and_then(Value::as_str),
-        value.get("patch_page").and_then(|page| page.get("revision")).and_then(Value::as_str),
-    ) {
-        if let Some((window, _)) = super::diff_pages::get(key, revision) {
-            let mut metadata = value.clone();
-            metadata.as_object_mut().map(|object| object.remove("patch_page"));
-            super::diff_pages::put(key.to_owned(), window, metadata);
-        }
-    }
-}
-
 pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
-    if let Some(mut value) = continuation(repository, fields, OPERATION)? {
-        value["scope"] = json!(scope);
+    if let Some(value) = continuation(repository, fields, OPERATION)? {
         return Ok(value);
     }
     let comparison = comparison(repository, scope)?;
-    let mut value = report(repository, &comparison, OPERATION, fields)?;
-    value["scope"] = json!(scope);
-    remember_metadata(&value);
-    Ok(value)
+    report(repository, &comparison, OPERATION, fields, json!({"scope":scope}))
 }
 
 /// One tree against another.
@@ -196,9 +190,14 @@ pub(in crate::git_ops) fn between(
     to: String,
     fields: &Map<String, Value>,
     operation: &'static str,
+    complete: bool,
 ) -> Result<Value, ResourceError> {
     let comparison = cmux_git::diff::between(repository, from, to);
-    report(repository, &comparison, operation, fields)
+    let mut metadata = json!({"from":fields.get("from"), "complete":complete});
+    if let Some(to) = fields.get("to") {
+        metadata["to"] = to.clone();
+    }
+    report(repository, &comparison, operation, fields, metadata)
 }
 
 /// The most unchanged lines a patch carries around each change.
@@ -217,6 +216,7 @@ fn report(
     comparison: &Comparison,
     operation: &'static str,
     fields: &Map<String, Value>,
+    metadata: Value,
 ) -> Result<Value, ResourceError> {
     let include_patch = fields.get("include_patch").and_then(Value::as_bool).unwrap_or(false);
     let max_patch_bytes = limit(fields, "max_patch_bytes", 262_144);
@@ -225,67 +225,16 @@ fn report(
     // changes view show more lines (cx-ncc.85).
     let context_lines = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
     let paths = pathspecs(fields)?;
-    let page_offset = fields
-        .get("patch_offset")
-        .map(|value| {
-            serde_json::from_value::<WireDecimal>(value.clone()).map(WireDecimal::get).map_err(
-                |_| {
-                    ResourceError::validation_invalid(
-                        Some("patch_offset"),
-                        "patch_offset must be an unsigned decimal string",
-                    )
-                },
-            )
-        })
-        .transpose()?;
+    let page_offset = page_offset(fields)?;
     if page_offset.is_some() && (!include_patch || paths.len() != 1) {
         return Err(ResourceError::validation_invalid(
             Some("patch_offset"),
             "a patch page requires include_patch and exactly one file path",
         ));
     }
-    if page_offset.is_some_and(|offset| offset > 0)
-        && fields.get("patch_revision").and_then(Value::as_str).is_none()
-    {
-        return Err(ResourceError::validation_invalid(
-            Some("patch_revision"),
-            "continuing a patch requires the first page's revision",
-        ));
-    }
-    let computed_page_key = json!([
-        repository.root,
-        operation,
-        comparison.revisions,
-        comparison.cached,
-        comparison.head,
-        comparison.base,
-        comparison.untracked,
-        paths,
-        context_lines,
-        fields.get("scope"),
-        fields.get("from"),
-        fields.get("to")
-    ])
-    .to_string();
-    let page_key = computed_page_key;
-    if let Some(offset) = page_offset.filter(|offset| *offset > 0) {
-        let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
-        let Some((window, mut metadata)) = super::diff_pages::get(&page_key, revision) else {
-            return Err(ResourceError::operation_failed(
-                operation,
-                "the patch capture expired; restart at offset zero",
-                json!({"code":"patch_expired"}),
-            ));
-        };
-        let bytes = window.read(offset, PATCH_PAGE_BYTES).map_err(|_| {
-            ResourceError::operation_failed(
-                operation,
-                "could not read the captured patch",
-                json!({"code":"patch_read_failed"}),
-            )
-        })?;
-        metadata["patch_page"] = page_value(&window, offset, bytes)?;
-        return Ok(metadata);
+    let page_key = capture_key(repository, fields, operation)?;
+    if let Some(value) = continuation(repository, fields, operation)? {
+        return Ok(value);
     }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
@@ -345,6 +294,11 @@ fn report(
             value["next_path"] = json!(last.path);
         }
     }
+    if let Some(extra) = metadata.as_object() {
+        if let Some(object) = value.as_object_mut() {
+            object.extend(extra.clone());
+        }
+    }
     if let Some(offset) = page_offset {
         if files.len() != 1 || files[0].path != paths[0] || !files[0].has_patch() {
             return Err(ResourceError::validation_invalid(
@@ -361,7 +315,6 @@ fn report(
             offset,
             fields,
         )?;
-        value["patch_key"] = json!(page_key);
         super::diff_pages::put(page_key, window, value.clone());
         value["patch_page"] = page;
     }

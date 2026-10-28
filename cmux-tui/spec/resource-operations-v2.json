@@ -9175,15 +9175,6 @@
           },
           "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
         },
-        "patch_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1
-          },
-          "description": "Opaque immutable capture key for patch continuations."
-        },
         "next_path": {
           "required": false,
           "type": {
@@ -10122,15 +10113,6 @@
             "name": "GitPatchPage"
           },
           "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
-        },
-        "patch_key": {
-          "required": false,
-          "type": {
-            "kind": "primitive",
-            "name": "string",
-            "min_length": 1
-          },
-          "description": "Opaque immutable capture key for patch continuations."
         },
         "next_path": {
           "required": false,
@@ -19545,15 +19527,6 @@
               "max_length": 64
             },
             "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
-          },
-          "patch_key": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "Opaque capture key returned by the first patch page; required for continuations."
           }
         },
         "extra": false
@@ -20147,15 +20120,6 @@
               "max_length": 64
             },
             "description": "The first patch_page revision; required when patch_offset is greater than zero. Continuations read that immutable capture, even if the working file changes. An expired capture refuses with patch_expired; restart at zero. A first-page revision mismatch refuses with repository_changed."
-          },
-          "patch_key": {
-            "required": false,
-            "type": {
-              "kind": "primitive",
-              "name": "string",
-              "min_length": 1
-            },
-            "description": "Opaque capture key returned by the first patch page; required for continuations."
           }
         },
         "extra": false
