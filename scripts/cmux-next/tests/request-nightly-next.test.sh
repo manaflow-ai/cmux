@@ -502,7 +502,7 @@ rm -f "$cdn/tree/$okey/daemon-tests.json" "$cdn/tree-commits/$other.json"
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
   || fail "the writer must succeed when nothing is ready:" "$wout"
 [[ ! -f "$cdn/tree-commits/$other.json" ]] || fail "a tree without its daemon tests must not be marked:" "$wout"
-# --tip: a run that publishes a tree late marks the newer branch commits sharing
+# --tip-branch: a run that publishes a tree late marks the newer branch commits sharing
 # it (their own runs ran before the tree existed and marked nothing). The run at
 # $head published its tree; $app, a later app-only commit, shares the key.
 rm -rf "$cdn/tree-commits"
@@ -510,24 +510,31 @@ git_q -C "$src" checkout -q --detach "$head"
 wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 2>&1) \
   || fail "the writer failed:" "$wout"
 [[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] \
-  || fail "without --tip the writer walks only HEAD's window:" "$wout"
-wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip "$app" 2>&1) \
-  || fail "the writer with --tip failed:" "$wout"
-[[ -f "$cdn/tree-commits/$app.json" ]] || fail "--tip must mark a newer commit that shares the published tree:" "$wout"
+  || fail "without --tip-branch the writer walks only HEAD's window:" "$wout"
+git_q -C "$src" update-ref refs/heads/marker-tip "$app"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip-branch marker-tip 2>&1) \
+  || fail "the writer with --tip-branch failed:" "$wout"
+[[ "$(git -C "$src" rev-parse --is-shallow-repository)" == false ]] || fail "--tip-branch must not make a full clone shallow"
+[[ -f "$cdn/tree-commits/$app.json" ]] || fail "--tip-branch must mark a newer commit that shares the published tree:" "$wout"
 python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d["commit"]==sys.argv[2] and d["key"]==sys.argv[3], d' \
   "$cdn/tree-commits/$app.json" "$app" "$(key "$head")" || fail "the tip's marker must name its own commit and the shared key"
-grep -q "1 written" <<<"$wout" || fail "--tip must write each commit once (HEAD was already marked):" "$wout"
-rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --tip "$(printf 'f%.0s' {1..40})" >/dev/null 2>&1) || rc=$?
-[[ "$rc" == 2 ]] || fail "a --tip that names no commit is a usage error (exit 2), got $rc"
+grep -q "1 written" <<<"$wout" || fail "--tip-branch must write each commit once (HEAD was already marked):" "$wout"
+rm -f "$cdn/tree-commits/$app.json"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 1 --tip-branch no-such-branch 2>&1) \
+  || fail "a tip that does not fetch must not fail the writer:" "$wout"
+[[ -f "$cdn/tree-commits/$head.json" && ! -f "$cdn/tree-commits/$app.json" ]] && grep -q "could not fetch no-such-branch" <<<"$wout" \
+  || fail "a tip that does not fetch marks from HEAD alone, with a warning:" "$wout"
+rc=0; (cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --tip-branch 'bad name' >/dev/null 2>&1) || rc=$?
+[[ "$rc" == 2 ]] || fail "a --tip-branch that is not a branch name is a usage error (exit 2), got $rc"
 # A tip commit whose tree key definition (key script or input list) differs from
 # this checkout's is not keyed here, even when this checkout's key would match.
 git_q -C "$src" checkout -q -b keydef "$app"
 echo "# a key definition change" >> "$src/scripts/cmux-next/cmux-tui-tree-inputs.txt"
-git_q -C "$src" add -A; git_q -C "$src" commit -m "key definition"
+git_q -C "$src" commit -m "key definition" scripts/cmux-next/cmux-tui-tree-inputs.txt
 keydef=$(git -C "$src" rev-parse HEAD)
 git_q -C "$src" checkout -q --detach "$head"
-wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 2 --tip "$keydef" 2>&1) \
-  || fail "the writer with a cross-definition --tip failed:" "$wout"
+wout=$(cd "$src" && PATH="$TMP/bin:$PATH" R2_ENDPOINT=https://r2.invalid bash scripts/cmux-next/tree-commit-marker.sh write --window 2 --tip-branch keydef 2>&1) \
+  || fail "the writer with a cross-definition --tip-branch failed:" "$wout"
 [[ ! -f "$cdn/tree-commits/$keydef.json" ]] || fail "a tip commit with another key definition must not be marked here:" "$wout"
 grep -q "key definition differs" <<<"$wout" || fail "the writer must say why it skipped the tip commit:" "$wout"
 # The same holds for an ancestor in HEAD's window: run from $keydef, the older

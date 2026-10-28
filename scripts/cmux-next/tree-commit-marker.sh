@@ -30,11 +30,11 @@
 #   tree-commit-marker.sh tree-ready <key>   exit 0 published, verified and daemon-tested
 #                                            (prints publishedBy=), 1 not (a 404), 3 a read failure
 #                                            or an unverifiable tree
-#   tree-commit-marker.sh write [--window N] [--tip REV]
+#   tree-commit-marker.sh write [--window N] [--tip-branch B]
 #                                            marks HEAD and its first-parent ancestors (default
-#                                            40) whose tree is ready, and with --tip the same
-#                                            window from REV too (the branch tip: later commits
-#                                            that share a tree this run just published); needs
+#                                            40) whose tree is ready, and with --tip-branch the
+#                                            same window from origin's B too (later commits that
+#                                            share a tree this run just published); needs
 #                                            R2_ENDPOINT and the R2 AWS_* credentials
 # Env: CMUX_TUI_PIN_BASE (default https://files.cmux.com/cmux-tui).
 set -euo pipefail
@@ -128,21 +128,18 @@ key_definition() {
 }
 
 write_markers() {
-  local window=40 tip="" rev key ready published code rrc marked=0 skipped=0
+  local window=40 tip_branch="" tip="" rev key ready published code rrc marked=0 skipped=0
   # One readiness check per distinct key: $tmp/keys/<key> holds "ready <publisher>" or "no".
   mkdir -p "$tmp/keys"
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --window) window="${2:-}"; shift 2 ;;
-      --tip) tip="${2:-}"; shift 2 ;;
+      --tip-branch) tip_branch="${2:-}"; shift 2 ;;
       *) echo "error: unknown argument $1" >&2; exit 2 ;;
     esac
   done
   [[ "$window" =~ ^[1-9][0-9]?$ ]] || { echo "error: --window must be 1 to 99" >&2; exit 2; }
-  if [[ -n "$tip" ]]; then
-    tip="$(git -C "$repo_root" rev-parse --verify -q "$tip^{commit}")" \
-      || { echo "error: --tip names no commit in this checkout" >&2; exit 2; }
-  fi
+  [[ -z "$tip_branch" || "$tip_branch" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "error: --tip-branch takes a branch name" >&2; exit 2; }
   [[ -n "${R2_ENDPOINT:-}" ]] || { echo "error: R2_ENDPOINT is required to write markers" >&2; exit 2; }
   local run_url="${GITHUB_SERVER_URL:-https://github.com}/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/runs/${GITHUB_RUN_ID:-local}"
   # The commits to walk: HEAD's window, then the tip's, each once. Listed up
@@ -150,6 +147,20 @@ write_markers() {
   git -C "$repo_root" rev-list --first-parent -n "$window" HEAD > "$tmp/head-revs" \
     || { echo "error: could not list HEAD's first-parent history" >&2; exit 1; }
   cp "$tmp/head-revs" "$tmp/revs"
+  # Fetched only after HEAD's window is listed: in a shallow checkout a
+  # --depth fetch of a tip less than a window ahead moves the shallow boundary
+  # into HEAD's window (the objects stay, so the listed commits still key). In
+  # a full clone no --depth, which would make it shallow. A failed fetch marks
+  # from HEAD alone, as before --tip-branch.
+  if [[ -n "$tip_branch" ]]; then
+    local depth=()
+    [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]] && depth=(--depth="$((window + 1))")
+    if git -C "$repo_root" fetch -q --no-tags ${depth[@]+"${depth[@]}"} origin "refs/heads/$tip_branch" 2>/dev/null; then
+      tip="$(git -C "$repo_root" rev-parse FETCH_HEAD)"
+    else
+      echo "warning: could not fetch $tip_branch; marking from this run's commit only" >&2
+    fi
+  fi
   if [[ -n "$tip" ]]; then
     git -C "$repo_root" rev-list --first-parent -n "$window" "$tip" > "$tmp/tip-revs" \
       || { echo "error: could not list the tip's first-parent history" >&2; exit 1; }

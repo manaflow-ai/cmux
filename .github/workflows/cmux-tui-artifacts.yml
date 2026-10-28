@@ -3037,16 +3037,9 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
-        run: |
-          set -euo pipefail
-          tip=()
-          # The public repository fetches without credentials.
-          if git fetch -q --no-tags --depth=41 origin refs/heads/feat-cmux-next; then
-            tip=(--tip FETCH_HEAD)
-          else
-            echo "::warning title=tree-commit markers::could not fetch the feat-cmux-next tip; marking from this run's commit only"
-          fi
-          scripts/cmux-next/tree-commit-marker.sh write --window 40 ${tip[@]+"${tip[@]}"}
+        # --tip-branch: the script fetches the tip (the public repository needs
+        # no credentials) after listing this commit's window.
+        run: scripts/cmux-next/tree-commit-marker.sh write --window 40 --tip-branch feat-cmux-next
 
   # nightly-next is promoted only to a commit whose cmux-tui tree is published
   # and whose cmux-next Release compile passed, so the nightly builds its tip
