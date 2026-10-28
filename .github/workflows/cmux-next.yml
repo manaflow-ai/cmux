@@ -277,6 +277,10 @@ on:
       - scripts/import-apple-developer-id-intermediates.sh
       - scripts/apple-developer-id-certs/**
       - scripts/prune_nightly_release_assets.py
+      # The push-only base-red classifier in the checks job (push only, never a
+      # pull request; the parity guard lists it in PUSH_ONLY_PATTERNS).
+      - scripts/ci/base_red_checks.py
+      - scripts/ci/tests/test_base_red_checks.py
       # Pull-request inputs that pushes must watch too (the parity guard,
       # tests/test_ci_workflow_path_filter_parity.py).
       - scripts/cmux-next/state-roots-baseline.tsv
@@ -286,8 +290,6 @@ on:
       - tests/test_ci_generator_input_freshness.sh
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
-      - scripts/ci/base_red_checks.py
-      - scripts/ci/tests/test_base_red_checks.py
       - scripts/ci/test_reds.py
       - scripts/ci/base_red_excuse.py
       - scripts/ci/next_batch.py
