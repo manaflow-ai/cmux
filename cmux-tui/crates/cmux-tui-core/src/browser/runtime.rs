@@ -440,130 +440,152 @@ pub(super) fn start_router(
     runtime: Weak<BrowserRuntime>,
     events: Receiver<CdpEvent>,
 ) -> anyhow::Result<()> {
-    supervised::spawn("browser-runtime-events", Fatal, ShutdownBehavior::Continue, move || {
-        while let Ok(event) = events.recv() {
-            let Some(runtime) = runtime.upgrade() else { break };
-            match event {
-                CdpEvent::ScreencastFrame(frame) => {
-                    let tx = {
-                        runtime.routes.lock().unwrap().by_session.get(&frame.session_id).cloned()
-                    };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::ScreencastFrame(frame))
-                    {
-                        runtime.remove_route(&tx);
+    supervised::spawn_at(
+        "browser-runtime-events",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            while let Ok(event) = events.recv() {
+                let Some(runtime) = runtime.upgrade() else { break };
+                match event {
+                    CdpEvent::ScreencastFrame(frame) => {
+                        let tx = {
+                            runtime
+                                .routes
+                                .lock()
+                                .unwrap()
+                                .by_session
+                                .get(&frame.session_id)
+                                .cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::ScreencastFrame(frame))
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::ScreencastFrameCaptureRequested {
-                    session_id,
-                    frame_id,
-                    loader_id,
-                    request_id,
-                    frame_epoch,
-                    navigation_epoch,
-                } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::ScreencastFrameCaptureRequested {
-                            session_id,
-                            frame_id,
-                            loader_id,
-                            request_id,
-                            frame_epoch,
-                            navigation_epoch,
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::ScreencastFrameCaptureRequested {
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        request_id,
+                        frame_epoch,
+                        navigation_epoch,
+                    } => {
+                        let tx =
+                            { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::ScreencastFrameCaptureRequested {
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                request_id,
+                                frame_epoch,
+                                navigation_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::FrameNavigated { params, session_id, frame_epoch } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::FrameNavigated { params, session_id, frame_epoch })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::FrameNavigated { params, session_id, frame_epoch } => {
+                        let tx =
+                            { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::FrameNavigated {
+                                params,
+                                session_id,
+                                frame_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::DocumentPainted { session_id, frame_id, loader_id, navigation_epoch } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::DocumentPainted {
-                            session_id,
-                            frame_id,
-                            loader_id,
-                            navigation_epoch,
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::DocumentPainted {
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        navigation_epoch,
+                    } => {
+                        let tx =
+                            { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::DocumentPainted {
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                navigation_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::NavigatedWithinDocument {
-                    params,
-                    session_id,
-                    frame_id,
-                    loader_id,
-                    frame_epoch,
-                } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::NavigatedWithinDocument {
-                            params,
-                            session_id,
-                            frame_id,
-                            loader_id,
-                            frame_epoch,
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::NavigatedWithinDocument {
+                        params,
+                        session_id,
+                        frame_id,
+                        loader_id,
+                        frame_epoch,
+                    } => {
+                        let tx =
+                            { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::NavigatedWithinDocument {
+                                params,
+                                session_id,
+                                frame_id,
+                                loader_id,
+                                frame_epoch,
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::TargetCreated(created) => {
-                    let tx = created.opener_id.as_ref().and_then(|opener_id| {
-                        runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
-                    });
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::TargetCreated(created))
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::TargetCreated(created) => {
+                        let tx = created.opener_id.as_ref().and_then(|opener_id| {
+                            runtime.routes.lock().unwrap().by_target.get(opener_id).cloned()
+                        });
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::TargetCreated(created))
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::TargetInfoChanged(info) => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_target.get(&info.target_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::TargetInfoChanged(info))
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::TargetInfoChanged(info) => {
+                        let tx = {
+                            runtime.routes.lock().unwrap().by_target.get(&info.target_id).cloned()
+                        };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::TargetInfoChanged(info))
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
-                }
-                CdpEvent::Other { method, params, session_id: Some(session_id) } => {
-                    let tx =
-                        { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
-                    if let Some(tx) = tx
-                        && tx.deliver(CdpEvent::Other {
-                            method,
-                            params,
-                            session_id: Some(session_id),
-                        })
-                    {
-                        runtime.remove_route(&tx);
+                    CdpEvent::Other { method, params, session_id: Some(session_id) } => {
+                        let tx =
+                            { runtime.routes.lock().unwrap().by_session.get(&session_id).cloned() };
+                        if let Some(tx) = tx
+                            && tx.deliver(CdpEvent::Other {
+                                method,
+                                params,
+                                session_id: Some(session_id),
+                            })
+                        {
+                            runtime.remove_route(&tx);
+                        }
                     }
+                    CdpEvent::Closed(reason) => {
+                        close_browser_runtime(&runtime, reason);
+                        break;
+                    }
+                    CdpEvent::Other { .. } => {}
                 }
-                CdpEvent::Closed(reason) => {
-                    close_browser_runtime(&runtime, reason);
-                    break;
-                }
-                CdpEvent::Other { .. } => {}
             }
-        }
-        if let Some(runtime) = runtime.upgrade() {
-            close_browser_runtime(&runtime, "CDP event channel closed".to_string());
-        }
-    })?;
+            if let Some(runtime) = runtime.upgrade() {
+                close_browser_runtime(&runtime, "CDP event channel closed".to_string());
+            }
+        },
+    )?;
     Ok(())
 }
 

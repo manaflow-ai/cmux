@@ -2,6 +2,7 @@
 import CmuxNextPages
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -37,7 +38,7 @@ struct DiffPageProviderFrozenDeliveryTests {
         defer { try? FileManager.default.removeItem(at: viewed) }
         let prefs = Prefs()
         let provider = DiffPageProvider(ready: nil, sidecar: nil, languages: nil,
-                                        stores: DiffPageStores(prefs: prefs, viewed: DiffViewedFiles(url: viewed)))
+                                        stores: DiffPageStores(prefs: prefs, viewed: DiffViewedFiles(url: viewed, runner: BackgroundWork(label: "test.diff-viewed"))))
         let page = PageHoldHarness(descriptor: .diff, prefix: "cmux.diff.", provider: provider)
         let reply = await page.subscribe(DiffPageProvider.prefsStream)
         try #require(reply["t"]?.stringValue == "ok", "\(reply)")

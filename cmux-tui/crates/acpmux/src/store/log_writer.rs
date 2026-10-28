@@ -124,6 +124,7 @@ impl LogWriter {
         let thread = crate::supervised::owned_thread(
             supervisor,
             THREAD,
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || run(&worker),

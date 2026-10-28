@@ -745,7 +745,7 @@ count grows by at most four a second (plus one) under any request pattern.
 The same thread is the daemon's one hang watcher: it also watches each batch
 commit of the journal writer, each frame a holder link routes and each item of
 the key echo path threads' work (a `mux-line-out` write, a `mux-pty-input`
-write, a `mux-attach-out` or `mux-render-attach-out` frame encode; never their
+write, a `mux-attach-out` or `mux-render-attach-out` item of a view's drain; never their
 wait for the next one), and writes a scope busy past its hang tier (`hang_ms`,
 2000, for a request or a journal commit; 1 s for a holder-link frame; 100 ms for
 an echo item, scope named after its thread) once to the owner's hang log

@@ -112,14 +112,16 @@ impl HostProcess {
         let reader = ours.try_clone()?;
         let writer = ours.try_clone()?;
         let (queue, outgoing) = sync_channel(QUEUE);
-        supervised::spawn(
+        supervised::spawn_at(
             format!("cmux-app-host-w:{name}"),
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || write_loop(writer, outgoing),
         )?;
-        supervised::spawn(
+        supervised::spawn_at(
             format!("cmux-app-host:{name}"),
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move || {

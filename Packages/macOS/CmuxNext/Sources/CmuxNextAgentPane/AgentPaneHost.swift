@@ -1,4 +1,4 @@
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 import CmuxNextWakeups
@@ -21,7 +21,9 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// ssh peer's chat: on that peer) and answers its path there. Throws
     /// ``AgentPaneFilePutFailure``. Never starts a daemon.
     func putFile(sessionId: String, name: String, data: Data) async throws -> String
-    func putFile(sessionId: String, name: String, file: URL) async throws -> String
+    /// ``putFile(sessionId:name:data:)`` for a file staged on disk. A host that streams it does so itself; the
+    /// default reads it on `runner`'s files lane and puts its bytes.
+    func putFile(sessionId: String, name: String, file: URL, runner: any MayBlockRunner) async throws -> String
 }
 
 extension AgentPaneHostProviding {
@@ -40,10 +42,9 @@ extension AgentPaneHostProviding {
         throw AgentPaneFilePutFailure.unsupported
     }
 
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
-        let data = try await Task.detached(priority: Task.currentPriority) {
-            try Data(contentsOf: file)
-        }.value
+    /// Reads the staged file on `runner`'s files lane (never a pool thread) and puts its bytes.
+    public func putFile(sessionId: String, name: String, file: URL, runner: any MayBlockRunner) async throws -> String {
+        let data = try await runner.runFiles(.userVisible) { try Data(blockingContentsOf: file) }
         return try await putFile(sessionId: sessionId, name: name, data: data)
     }
 }
@@ -199,7 +200,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, data: data)
     }
 
-    public func putFile(sessionId: String, name: String, file: URL) async throws -> String {
+    /// Streams the staged file on this host's queue; `runner` is not needed.
+    public func putFile(sessionId: String, name: String, file: URL, runner: any MayBlockRunner) async throws -> String {
         if environment == nil { environment = resolveEnvironment() }
         guard let environment else { throw AgentPaneFilePutFailure.unsupported }
         return try await AcpmuxStatusClient.putFile(socketPath: environment.socketPath, sessionId: sessionId, name: name, file: file)

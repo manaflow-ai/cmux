@@ -158,14 +158,23 @@ impl Client {
         let stdout = child.stdout.take().ok_or("codex app-server proxy has no stdout")?;
         let (sender, lines) = channel();
         // supervise-allow: the proxy's stdout reader for this CLI run; it ends at EOF, and a panic drops `sender`, so requests fail at their deadline.
-        std::thread::spawn(move || {
-            for line in BufReader::new(stdout).lines() {
-                let Ok(line) = line else { break };
-                if sender.send(line).is_err() {
-                    break;
+        let reader = cmux_threads::spawn(
+            "codex-app-server-lines",
+            cmux_threads::ThreadQos::UserInitiated,
+            move || {
+                for line in BufReader::new(stdout).lines() {
+                    let Ok(line) = line else { break };
+                    if sender.send(line).is_err() {
+                        break;
+                    }
                 }
-            }
-        });
+            },
+        );
+        if let Err(error) = reader {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("cannot read codex: {error}"));
+        }
         let mut client =
             Self { child, stdin, lines, next_id: 1, deadline: Instant::now() + DEADLINE };
         client.request(
