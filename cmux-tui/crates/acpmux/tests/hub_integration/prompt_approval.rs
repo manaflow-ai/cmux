@@ -331,3 +331,38 @@ async fn a_chat_is_not_moved_while_a_prompt_waits_for_the_owner() {
     let abort = json!({"sessionId": session, "transferId": moved["transferId"]});
     c.call("_acpmux/transfer_abort", abort).await;
 }
+
+/// `_acpmux/queue_get` reads a queued prompt whole, as it would run now: after the guest's edit,
+/// the new words, the blocks the edit kept (an image, a file link) and the new revision. Only the
+/// owner reads it, and once it left the queue it is `queue.not_found` with how it was decided.
+#[tokio::test]
+async fn the_owner_reads_a_held_prompt_whole_at_its_revision() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let image =
+        json!({"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo=", "name": "a.png"});
+    let link = json!({"type": "resource_link", "uri": "file:///tmp/notes.md", "name": "notes.md"});
+    let mut sent = held(&session, "g-1", "guest words");
+    sent["prompt"] = json!([{"type": "text", "text": "guest words"}, image, link]);
+    let waiting = c.queue(sent).await;
+    c.call("_acpmux/queue_edit", edit(&session, "g-1", "update")).await;
+
+    let got = c.call("_acpmux/queue_get", answer(&session, "g-1", None)).await;
+    assert_eq!((&got["revision"], &got["text"]), (&json!(1), &json!("my rewrite")), "{got}");
+    assert_eq!(got["prompt"], json!([{"type": "text", "text": "my rewrite"}, image, link]));
+    assert_eq!(got["awaitingOwner"], true, "{got}");
+    assert_eq!(got["author"], json!({"id": "guest:k3x9", "name": "Cy"}), "{got}");
+    assert_eq!(got.pointer("/provenance/approval"), Some(&json!("owner")), "{got}");
+    // What it reads is what the owner approves.
+    let revision = got["revision"].as_u64();
+    let authored = by(answer(&session, "g-1", None), Some(&guest()));
+    let refused = c.reply("_acpmux/queue_get", authored).await;
+    assert_eq!(reason(&refused), "queue.owner_only", "{refused}");
+
+    c.call("_acpmux/queue_decline", answer(&session, "g-1", revision)).await;
+    assert_eq!(reason(&c.reply_to(waiting).await), "queue.declined");
+    let gone = c.reply("_acpmux/queue_get", answer(&session, "g-1", None)).await;
+    assert_eq!(reason(&gone), "queue.not_found", "{gone}");
+    assert_eq!(gone.pointer("/error/data/decided"), Some(&json!("declined")), "{gone}");
+}

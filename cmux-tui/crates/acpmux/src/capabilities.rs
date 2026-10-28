@@ -90,6 +90,8 @@ pub const CAPABILITIES: &[Capability] = &[
         id: "queue-approval-v1",
         wire: &[method::MUX_QUEUE_APPROVE, method::MUX_QUEUE_DECLINE],
     },
+    // The owner reads a queued prompt whole, its blocks and revision (`hub/queue_approve.rs`).
+    Capability { id: "queue-get-v1", wire: &[method::MUX_QUEUE_GET] },
     // One answer for a group of permission asks, and revoking a chat's grants.
     Capability {
         id: "permission-groups-v1",
