@@ -197,7 +197,7 @@ impl Hub {
             .collect();
         let Some(retries) = held.iter().map(|(_, n)| *n).max() else { return };
         let (hub, session) = (self.clone(), session.clone());
-        tokio::spawn(async move {
+        self.supervise("hub.held-retry", Fatal, ShutdownBehavior::Skip, async move {
             let configured =
                 hub.config.read().await.auto_resume_delays_ms.clone().unwrap_or_default();
             // Past its last step a list repeats that step; an empty one means the defaults.

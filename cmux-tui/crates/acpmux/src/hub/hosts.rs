@@ -309,6 +309,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await?;
         let (child, adopted) = match attached {
@@ -338,9 +339,7 @@ impl Hub {
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
         if let Some(rx) = session.inbound_rx.lock().await.take() {
-            let hub = self.clone();
-            let s = session.clone();
-            tokio::spawn(async move { hub.inbound_loop(s, rx).await });
+            self.start_inbound_loop(session, rx);
         }
         // Asked once the inbound loop drains the replay, which the answer comes behind.
         self.note_host_kind(session, &child, kind).await;
@@ -703,7 +702,7 @@ impl Hub {
                     let hub = self.clone();
                     let s = session.clone();
                     let c = child.clone();
-                    tokio::spawn(async move {
+                    self.supervise("hub.recover", Fatal, ShutdownBehavior::Skip, async move {
                         // New prompts queue behind the recovered turn.
                         let guard = s.turn_lock.lock().await;
                         let result = match (answer, rx) {
@@ -772,7 +771,7 @@ impl Hub {
             let hub = self.clone();
             let s = session.clone();
             let turn_id = turn_id.clone();
-            tokio::spawn(async move {
+            self.supervise("hub.agent-request", Fatal, ShutdownBehavior::Skip, async move {
                 hub.on_agent_request(s, id, m, params, epoch, turn_id, ask).await
             });
         }
@@ -819,7 +818,7 @@ impl Hub {
         let hub = self.clone();
         let s = session.clone();
         let c = child.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.permission-answer", Fatal, ShutdownBehavior::Skip, async move {
             let outcome = rx.await.unwrap_or_else(|_| json!({"outcome": "cancelled"}));
             hub.append(
                 &s,
@@ -1054,6 +1053,7 @@ impl Hub {
             Vec::new(),
             session.inbound_tx.clone(),
             tap,
+            &self.supervisor,
         )
         .await;
         match attached {
