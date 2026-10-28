@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextHome
+import CmuxNextTestSupport
 import CmuxHomeCore
 @testable import MessagesLabSidebar
 import Testing
@@ -17,7 +18,7 @@ import Testing
 ///
 /// The clicks run as AppKit runs them: a left mouse-down on the list's document view at the
 /// item's place, with its mouse-up queued for the list's press-and-drag loop.
-@MainActor @Suite(.serialized, .timeLimit(.minutes(2))) struct HomeOpenFocusesComposerTests {
+@MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .closesItsWindows) struct HomeOpenFocusesComposerTests {
     struct Harness {
         let services: AppServices
         let window: NSWindow
@@ -76,7 +77,7 @@ import Testing
         var keyboardInBox: Bool { box != nil && window.firstResponder === box }
         var keyboardOnList: Bool { window.firstResponder === document }
 
-        func close() { window.orderOut(nil) }
+        func close() { window.close() }
     }
 
     static let rows = ["conv_open_focus_a", "conv_open_focus_b", "conv_open_focus_c"]
