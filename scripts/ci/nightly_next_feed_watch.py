@@ -84,6 +84,10 @@ GATE_QUEUED_MINUTES = 10.0
 GATE_RUNS_READ = 5  # queued or in-progress runs read per workflow, newest first
 TICK_ANNOTATION = "nightly-next tick"  # the tick's refusal tally
 PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
+# nightly.yml's run-name for an unsigned resume (nightly_next_unsigned_run): it
+# signs and publishes an older run's saved app, so it never carries the tip
+# (scripts/ci/nightly_next_unsigned_resume.py dispatches and counts these).
+RESUME_TITLE = re.compile(r"^Resume nightly-next run ([1-9][0-9]*) attempt ([1-9][0-9]?)$")
 
 
 @dataclass(frozen=True)
@@ -365,7 +369,11 @@ def carries_tip(run: dict, tip: str, tip_landed: dt.datetime | None) -> bool:
     landed: a tick, a train and a promotion all read the branch tip themselves
     when they dispatch, so anything that started later may be carrying it. A
     run that started earlier is building something older by construction.
+    An unsigned resume never carries it: it signs an older run's saved app,
+    so a newer tip still builds beside it.
     """
+    if RESUME_TITLE.match(str(run.get("display_title") or "")):
+        return False
     if (run.get("head_sha") or "").lower() == tip.lower():
         return True
     created = run.get("created_at")

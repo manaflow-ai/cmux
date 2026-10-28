@@ -151,6 +151,16 @@ class DecideTests(unittest.TestCase):
         self.assertEqual(len([read for read in gh.reads if read[0] == "jobs"]), resume.CANDIDATES_READ)
 
 
+class StarvationTests(unittest.TestCase):
+    def test_a_running_resume_never_holds_back_a_build_of_the_newer_tip(self):
+        watch = sys.modules["nightly_next_feed_watch"]
+        tip = "a" * 40
+        running = resumed(OLDER, 1, NEWER, status="in_progress")
+        running.update(head_sha=tip, created_at="2026-10-28T20:00:00Z")
+        self.assertFalse(watch.carries_tip(running, tip, None))
+        self.assertTrue(watch.carries_tip(dict(push(NEWER), head_sha=tip), tip, None))
+
+
 class FeedTests(unittest.TestCase):
     def test_feed_newest_build_reads_the_nightly_ring(self):
         item = ("<item><sparkle:channel>cmux-next</sparkle:channel><sparkle:version>{}</sparkle:version>"

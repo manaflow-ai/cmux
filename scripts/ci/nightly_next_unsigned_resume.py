@@ -40,17 +40,16 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
-import re
 import sys
 import urllib.parse
 import urllib.request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from nightly_next_feed_watch import ACTIVE, FEED_URL, TRANSPORT, GitHub, fetch_feed, nightly_builds  # noqa: E402
+from nightly_next_feed_watch import (  # noqa: E402
+    ACTIVE, FEED_URL, RESUME_TITLE, TRANSPORT, GitHub, fetch_feed, nightly_builds)
 
 WORKFLOW = "nightly.yml"
 BRANCH = "nightly-next"
-RESUME_TITLE = re.compile(r"^Resume nightly-next run ([1-9][0-9]*) attempt ([1-9][0-9]?)$")
 RUN_NAME_MARKER = "Resume nightly-next run "
 PRODUCERS = ("build-nightly-app", "build-nightly-ghostty-cli-helper")
 UNSIGNED_ARTIFACTS = ("cmux-nightly-unsigned-app", "cmux-nightly-remote-daemon", "cmux-nightly-ghostty-cli-helper",
