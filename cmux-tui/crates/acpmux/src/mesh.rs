@@ -11,30 +11,39 @@
 
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Whom a message is for: a session name (on its own or as `host/name`) or a session id.
+/// Whom a message is for: a session id, or a name (with `host` when several hosts have it); a
+/// daemon (`daemonId`, or `host` alone) for a control message. The hub fills what it resolved.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Target {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_id: Option<String>,
 }
 
-/// Who sent a message, as the sending daemon named it.
+/// Who sent a message: the session as its daemon named it; the hub adds the daemon id and the
+/// user from the sender's token.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Sender {
-    #[serde(default)]
-    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
-    #[serde(default)]
-    pub host: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daemon_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
 }
 
 /// When a message reaches a busy session: after its turn (`turn-end`), or into the running
@@ -47,33 +56,39 @@ pub enum Mode {
     Now,
 }
 
+/// A message's kind: text for a session, or a request to its daemon (start, resume or stop a
+/// session, [`ControlHook`]). A kind this build does not know is refused.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Kind {
+    #[default]
+    Prompt,
+    Control,
+    #[serde(other)]
+    Unknown,
+}
+
 /// A message this daemon's inbox holds for one of its sessions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InMessage {
     pub message_id: String,
     #[serde(default)]
+    pub kind: Kind,
+    /// A control message's request: `start`, `resume` or `stop`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    #[serde(default)]
+    pub mode: Mode,
+    #[serde(default)]
     pub to: Target,
     #[serde(default)]
     pub from: Sender,
     #[serde(default)]
     pub body: String,
-    #[serde(default)]
-    pub mode: Mode,
-    /// Which lease of the message this is (1 for the first).
+    /// How many times it was leased (1 for the first).
     #[serde(default)]
     pub attempt: u32,
-    /// `control` for a start, resume or stop ([`ControlHook`]); none for a message.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub kind: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub control: Option<Value>,
-}
-
-impl InMessage {
-    pub fn is_control(&self) -> bool {
-        self.kind.as_deref() == Some("control")
-    }
 }
 
 /// How a delivery settled.
@@ -133,8 +148,8 @@ impl std::error::Error for HubError {}
 
 /// The hub, as one daemon (its `daemonId` and credential are the implementation's) calls it.
 pub trait MeshHub: Send + Sync {
-    /// This daemon's leased messages, waiting up to `wait` for one.
-    fn inbox(&self, wait: Duration) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>>;
+    /// Up to `max` messages for this daemon, leased to it, waiting up to `wait` for one.
+    fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>>;
     fn ack<'a>(&'a self, message_id: &'a str, ack: &'a Ack) -> BoxFuture<'a, Result<(), HubError>>;
 }
 
@@ -196,15 +211,20 @@ mod tests {
 
     #[test]
     fn records_read_and_write_the_hubs_field_names() {
+        // An inbox message as the hub sends it (cmux-platform openapi.json 1.3.0 MeshInboxMessage).
         let message: InMessage = serde_json::from_value(json!({
-            "messageId": "m-1", "to": {"name": "dep-land"},
-            "from": {"name": "lane-a", "sessionId": "s-1", "host": "gcp-codex-lane-3"},
-            "body": "hi", "mode": "now", "attempt": 2,
+            "messageId": "msg_0123", "kind": "prompt", "op": null, "mode": "now",
+            "to": {"sessionId": null, "name": "dep-land"},
+            "from": {"daemonId": "inst_1", "user": "u_1", "host": "gcp-codex-lane-3",
+                     "name": "lane-a", "sessionId": null},
+            "body": "hi", "attempt": 2, "createdAt": 1, "leasedUntil": 2,
         }))
         .unwrap();
-        assert_eq!(message.mode, Mode::Now);
+        assert_eq!((message.kind, message.mode), (Kind::Prompt, Mode::Now));
         assert_eq!(message.to.name.as_deref(), Some("dep-land"));
-        assert!(!message.is_control());
+        assert_eq!(message.from.session_id, None);
+        let kind = |k: &str| serde_json::from_value::<Kind>(json!(k)).unwrap();
+        assert_eq!((kind("control"), kind("later")), (Kind::Control, Kind::Unknown));
         let ack = serde_json::to_value(Ack::delivered("m-1", None)).unwrap();
         assert_eq!(ack, json!({"state": "delivered", "promptId": "m-1"}));
         let ack = serde_json::to_value(Ack::refused("no")).unwrap();

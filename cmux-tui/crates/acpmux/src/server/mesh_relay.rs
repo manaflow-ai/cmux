@@ -17,7 +17,7 @@
 //! restart) answers with its first run instead of running twice (`hub/prompt_ledger.rs`).
 
 use super::*;
-use crate::mesh::{Ack, AckState, Backoff, ControlHook, InMessage, MeshHub, Mode};
+use crate::mesh::{Ack, AckState, Backoff, ControlHook, InMessage, Kind, MeshHub, Mode};
 use std::collections::HashSet;
 use std::sync::Weak;
 use std::time::{Duration, Instant};
@@ -112,8 +112,10 @@ async fn inbox(
             }
         }
         let started = Instant::now();
+        // Only as many as it can deliver now: a leased message waits for its ack.
+        let room = options.max_in_flight.max(1) - deliveries.len();
         let polled = tokio::select! {
-            r = client.inbox(options.inbox_wait) => r,
+            r = client.inbox(options.inbox_wait, room) => r,
             () = stopped(&mut stop) => break,
         };
         let wait = match polled {
@@ -131,7 +133,7 @@ async fn inbox(
                         (client.clone(), control.clone(), in_flight.clone());
                     deliveries.spawn(async move {
                         if let Some(ack) = deliver(&hub, &message, control.as_ref()).await
-                            && let Err(e) = client.ack(&message.message_id, &ack).await
+                            && let Err(e) = client.ack(&message.message_id, &clip(ack)).await
                         {
                             // Its lease brings it back, and that delivery answers with this one.
                             tracing::warn!("mesh relay: ack of {} failed: {e}", message.message_id);
@@ -166,11 +168,24 @@ pub fn relay_connection(hub: &Arc<Hub>) -> (mpsc::Sender<String>, mpsc::Receiver
     (in_tx, out_rx)
 }
 
+/// The longest ack detail the hub takes, in characters.
+const MAX_DETAIL_CHARS: usize = 1000;
+
+fn clip(mut ack: Ack) -> Ack {
+    if let Some(detail) = ack.detail.as_mut()
+        && detail.chars().count() > MAX_DETAIL_CHARS
+    {
+        *detail = detail.chars().take(MAX_DETAIL_CHARS).collect();
+    }
+    ack
+}
+
 /// How a relayed message names its sender to the session: `host/name`, one line, within
 /// `fromAgent`'s length. Never empty: a message from another machine is never the person's.
 fn sender_name(message: &InMessage) -> String {
     let clean = |s: &str| s.chars().filter(|c| !c.is_control()).collect::<String>();
-    let (host, name) = (clean(message.from.host.trim()), clean(message.from.name.trim()));
+    let field = |f: &Option<String>| clean(f.as_deref().unwrap_or_default().trim());
+    let (host, name) = (field(&message.from.host), field(&message.from.name));
     let named = match (host.is_empty(), name.is_empty()) {
         (false, false) => format!("{host}/{name}"),
         (true, false) => name,
@@ -187,11 +202,10 @@ pub async fn deliver(
     message: &InMessage,
     control: &dyn ControlHook,
 ) -> Option<Ack> {
-    if message.is_control() {
-        return control.control(hub, message).await;
-    }
-    if let Some(kind) = &message.kind {
-        return Some(Ack::refused(format!("unknown message kind {kind:?}")));
+    match message.kind {
+        Kind::Prompt => {}
+        Kind::Control => return control.control(hub, message).await,
+        Kind::Unknown => return Some(Ack::refused("a message kind this daemon does not know")),
     }
     if message.body.trim().is_empty() {
         return Some(Ack::refused("the message is empty"));
@@ -239,12 +253,12 @@ mod tests {
         InMessage {
             message_id: "m".into(),
             to: Target::default(),
-            from: Sender { name: name.into(), session_id: None, host: host.into() },
+            from: Sender { name: Some(name.into()), host: Some(host.into()), ..Sender::default() },
             body: "x".into(),
             mode: Mode::TurnEnd,
             attempt: 1,
-            kind: None,
-            control: None,
+            kind: Kind::Prompt,
+            op: None,
         }
     }
 
@@ -257,5 +271,12 @@ mod tests {
         assert_eq!(sender_name(&from("vm\n", "a\u{7}b")), "vm/ab");
         let long = sender_name(&from(&"h".repeat(80), "lane"));
         assert_eq!(long.chars().count(), crate::hub::MAX_FROM_AGENT_CHARS);
+    }
+
+    #[test]
+    fn an_ack_detail_is_clipped_to_what_the_hub_takes() {
+        let ack = clip(Ack::refused("é".repeat(5000)));
+        assert_eq!(ack.detail.unwrap().chars().count(), MAX_DETAIL_CHARS);
+        assert_eq!(clip(Ack::refused("short")).detail.as_deref(), Some("short"));
     }
 }

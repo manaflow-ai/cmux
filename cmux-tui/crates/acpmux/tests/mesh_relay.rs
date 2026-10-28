@@ -11,7 +11,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, HubError, InMessage, MeshHub, Mode, RefuseControl, Sender, Target,
+    Ack, AckState, ControlHook, HubError, InMessage, Kind, MeshHub, Mode, RefuseControl, Sender,
+    Target,
 };
 use acpmux::rpc::Message;
 use acpmux::server::mesh_relay::{MeshRelay, RelayOptions, relay_connection};
@@ -48,16 +49,21 @@ fn quick() -> RelayOptions {
     }
 }
 
-fn message(id: &str, to: &str, kind: Option<&str>) -> InMessage {
+fn message(id: &str, to: &str, kind: Kind) -> InMessage {
     InMessage {
         message_id: id.into(),
-        to: Target { name: Some(to.into()), session_id: None },
-        from: Sender { name: "lane-a".into(), session_id: None, host: "gcp-lane".into() },
-        body: "hello from another machine".into(),
+        kind,
+        op: (kind == Kind::Control).then(|| "start".to_owned()),
         mode: Mode::TurnEnd,
+        to: Target { name: Some(to.into()), ..Target::default() },
+        from: Sender {
+            name: Some("lane-a".into()),
+            host: Some("gcp-lane".into()),
+            daemon_id: Some("inst_a".into()),
+            ..Sender::default()
+        },
+        body: "hello from another machine".into(),
         attempt: 1,
-        kind: kind.map(str::to_owned),
-        control: kind.map(|_| json!({"op": "start"})),
     }
 }
 
@@ -112,7 +118,7 @@ impl FakeHub {
 }
 
 impl MeshHub for FakeHub {
-    fn inbox(&self, wait: Duration) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
+    fn inbox(&self, wait: Duration, max: usize) -> BoxFuture<'_, Result<Vec<InMessage>, HubError>> {
         Box::pin(async move {
             self.with(|s| s.inbox_calls += 1);
             if self.down {
@@ -121,7 +127,9 @@ impl MeshHub for FakeHub {
             let deadline = tokio::time::Instant::now() + wait;
             loop {
                 let changed = self.changed.notified();
-                let leased: Vec<_> = self.state.lock().unwrap().waiting.drain(..).collect();
+                let mut state = self.state.lock().unwrap();
+                let leased: Vec<_> = state.waiting.drain(..max.min(state.waiting.len())).collect();
+                drop(state);
                 if !leased.is_empty() || self.impatient {
                     return Ok(leased);
                 }
@@ -183,13 +191,13 @@ async fn a_message_for_a_session_here_runs_once_and_is_acked_with_its_prompt_id(
     let fake = Arc::new(FakeHub::default());
     let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
 
-    fake.lease(message("msg-1", "dep-land", None));
+    fake.lease(message("msg-1", "dep-land", Kind::Prompt));
     fake.until("the ack", |s| !s.acked("msg-1").is_empty()).await;
     // Its ack was lost: the hub leases it again, and it is acked again without a second run.
-    fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", None) });
+    fake.lease(InMessage { attempt: 2, ..message("msg-1", "dep-land", Kind::Prompt) });
     fake.until("the second ack", |s| s.acked("msg-1").len() == 2).await;
     for ack in fake.with(|s| s.acked("msg-1")) {
-        assert_eq!(ack, Ack::delivered("msg-1", None));
+        assert_eq!(ack, Ack::delivered("msg-1", Kind::Prompt));
     }
     let mut info = Value::Null;
     for _ in 0..600 {
@@ -218,7 +226,7 @@ async fn a_relayed_message_reads_no_peer_here_and_is_never_forwarded_to_one() {
 
     let fake = Arc::new(FakeHub::default());
     let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
-    fake.lease(message("msg-2", "secret-peer/lane", None));
+    fake.lease(message("msg-2", "secret-peer/lane", Kind::Prompt));
     fake.until("the refusal", |s| !s.acked("msg-2").is_empty()).await;
     let ack = fake.with(|s| s.acked("msg-2").remove(0));
     assert_eq!(ack.state, AckState::Refused);
@@ -243,14 +251,14 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
     let hub = hub();
     let fake = Arc::new(FakeHub::default());
     let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
-    fake.lease(message("c-1", "", Some("control")));
+    fake.lease(message("c-1", "", Kind::Control));
     fake.until("the refusal", |s| !s.acked("c-1").is_empty()).await;
     assert_eq!(fake.with(|s| s.acked("c-1")[0].state), AckState::Refused);
     relay.stop().await;
 
     let hook = Arc::new(Starts(Mutex::new(Vec::new())));
     let relay = MeshRelay::start(&hub, fake.clone(), hook.clone(), quick());
-    fake.lease(message("c-2", "", Some("control")));
+    fake.lease(message("c-2", "", Kind::Control));
     fake.until("the ack", |s| !s.acked("c-2").is_empty()).await;
     assert_eq!(fake.with(|s| s.acked("c-2")[0].state), AckState::Delivered);
     assert_eq!(*hook.0.lock().unwrap(), vec!["c-2".to_owned()]);
