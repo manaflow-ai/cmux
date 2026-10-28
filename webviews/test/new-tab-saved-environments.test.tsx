@@ -105,11 +105,14 @@ async function mount({
   worktree = "ok",
   tabCwd = "/Users/you",
   peerStart = "ok",
+  summary,
 }: {
   previews?: boolean;
   worktree?: "ok" | "refused";
   tabCwd?: string;
   peerStart?: "ok" | "refused" | "none";
+  /// The page's deferred chat, which binds the + menu's Plan/Build row (newtab/plusActions.ts).
+  summary?: NonNullable<Parameters<typeof noChat>[1]>["summary"];
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -156,6 +159,7 @@ async function mount({
         snapshot={noChat([], {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
+          ...(summary ? { summary } : {}),
         })}
         lastAgent="claude"
         cwd={tabCwd}
@@ -464,3 +468,85 @@ test("a chat started on another machine starts on the model the page showed", as
     peer: "devbox",
   });
 });
+
+// The + menu's Plan/Build (newtab/plusActions.ts, App wiring #27049) on the place a saved
+// environment names. Review of #27049 at bdfd3956: (2) a saved local environment picked after
+// another machine kept + bound to that machine, so Plan was hidden although the send goes to the
+// environment's folder on this Mac; (1) a Plan picked first was dropped when the place then
+// changed to another machine or no project, whose send starts a fresh chat, and the prompt ran in
+// Build.
+const PLANNING = {
+  sessionId: "deferred",
+  harness: "claude",
+  cwd: APP,
+  modes: { currentModeId: "default", availableModes: [{ id: "default" }, { id: "plan" }] },
+};
+// A place pick hands focus back to the field on the next frame; a + menu opened before that
+// frame closes as the field takes focus, as a person a frame later never sees.
+const nextFrame = () =>
+  act(async () => void (await new Promise((resolve) => dom.window.requestAnimationFrame(() => resolve(undefined)))));
+const openPlus = async () => {
+  await nextFrame();
+  await click($(".acpmux-newtab-plus .acpmux-picker-button"));
+};
+// An earlier test's started project (newtab/startedProject.ts) would make this page start there.
+const mountPlanning = () => {
+  dom.window.localStorage.clear();
+  return mount({ summary: PLANNING });
+};
+const pickPlus = async (id: string) => {
+  const choice = $(`.acpmux-newtab-plus [data-value="${id}"]`);
+  expect(choice).toBeTruthy();
+  await act(async () => {
+    choice!.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  });
+  await settle();
+};
+const order = (calls: Call[]) =>
+  calls
+    .filter((call) => ["chat.new", "chat.mode", "chat.send"].includes(call.method))
+    .map((call) => ({ method: call.method, ...(call.params ? { params: call.params } : {}) }));
+
+test("a saved local environment picked after another machine offers Plan for its own folder", async () => {
+  const calls = await mountPlanning();
+  await click(environmentButton());
+  await click(row("devbox"));
+  await click(environmentButton());
+  await click(row("Web"));
+  await openPlus();
+  await pickPlus("add.mode.plan");
+  expect(order(calls)).toEqual([
+    { method: "chat.new", params: expect.objectContaining({ harness: "claude", cwd: APP, deferred: true }) },
+    { method: "chat.mode", params: { modeId: "plan" } },
+  ]);
+});
+
+for (const place of ["devbox", "Do not work in a project"] as const)
+  test(`a Plan picked before the place changes to ${place} still starts the chat in Plan`, async () => {
+    const calls = await mountPlanning();
+    if (place === "devbox") {
+      await click(environmentButton());
+      await click(row("Web"));
+    } else {
+      await click(folderButton());
+      await click($$('[role="option"]').find((option) => option.textContent === "app"));
+    }
+    await openPlus();
+    await pickPlus("add.mode.plan");
+    if (place === "devbox") {
+      await click(environmentButton());
+      await click(row("devbox"));
+    } else {
+      await click(folderButton());
+      await click($$('[role="option"]').find((option) => option.textContent === place));
+    }
+    calls.length = 0;
+    await ask("plan the change");
+    // The chip's model goes with the start, as on any send.
+    const start = place === "devbox" ? { harness: "claude", peer: "devbox" } : { harness: "claude", noProject: true };
+    expect(order(calls)).toEqual([
+      { method: "chat.new", params: expect.objectContaining(start) },
+      { method: "chat.mode", params: { modeId: "plan" } },
+      { method: "chat.send", params: { text: "plan the change" } },
+    ]);
+  });
