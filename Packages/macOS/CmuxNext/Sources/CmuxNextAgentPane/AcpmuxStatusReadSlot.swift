@@ -1,4 +1,4 @@
-import os
+import CmuxNextCompat
 
 /// A pane can have one cached status read in flight. Menu refreshes share the connection's
 /// lifetime without letting an untrusted page fan out Unix-socket connections.

@@ -329,12 +329,19 @@ test("picking another machine acpmux lists starts the chat there", async () => {
 
 test("the New Tab Computer menu carries cached machine health into its warning row", async () => {
   await mount({
+    previews: false,
     peerResources: {
       devbox: { ramFreeGB: 1.2, coresBusy: 14, cores: 10, busy: true, lowMemory: true },
     },
   });
-  await click(environmentButton());
-  const machine = row("devbox");
+  const computer = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-location-button")].find((button) =>
+    (button.getAttribute("aria-label") ?? "").startsWith(t("composer.computer")),
+  );
+  await click(computer);
+  const machine = $$(".acpmux-location-menu .acpmux-menu-item").find(
+    (item) => item.querySelector(".acpmux-menu-label")?.textContent === "devbox",
+  );
+  expect(machine).toBeDefined();
   expect(machine?.querySelector(".acpmux-location-name")?.getAttribute("data-warning")).toBe("true");
   expect(machine?.querySelector(".acpmux-menu-description")?.textContent).toBe(
     t("composer.machineHighLoad", { busy: 14, cores: 10 }),
