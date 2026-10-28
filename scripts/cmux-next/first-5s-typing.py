@@ -1054,6 +1054,7 @@ def measure(app_path, zdot, result, family, features=""):
     app.zdot = zdot
     label = os.path.basename(app_path) + (" +felt" if features else "")
     entry = {"app": label, "family": family, "enable_features": features, "scenarios": {}}
+    started = time.time()
     result["apps"].append(entry)
     note(f"=== {entry['app']} ({family})")
     try:
@@ -1094,7 +1095,34 @@ def measure(app_path, zdot, result, family, features=""):
         if getattr(app, "photon", None):
             app.photon.stop()
         app.stop()
+        entry["hang_files"] = hang_files(app_path, since=started)
+        for h in entry["hang_files"]:
+            note(f"HANGFILE {entry['app']}: {h['name']}")
+            for line in h["head"]:
+                note(f"   | {line}")
         save(result)
+
+
+def hang_files(app_path, since):
+    """The app's watchdog hang files (a main thread blocked 2 s or more: the main thread's stack sampled while it was
+    still blocked, then every other thread's) written since `since`, so a long stall names what the main thread waited on."""
+    try:
+        import plistlib
+        bundle_id = plistlib.load(open(os.path.join(app_path, "Contents", "Info.plist"), "rb")).get("CFBundleIdentifier")
+    except (OSError, ValueError):
+        return []
+    homes = {os.path.expanduser("~"), account_home()}
+    out = []
+    for home in homes:
+        for path in sorted(glob.glob(os.path.join(home, "Library", "Logs", bundle_id or "-", "hangs", "hang-*.txt"))):
+            try:
+                if os.path.getmtime(path) < since:
+                    continue
+                text = open(path, errors="replace").read()
+            except OSError:
+                continue
+            out.append({"name": os.path.basename(path), "text": text[:200000], "head": text.splitlines()[:140]})
+    return out
 
 
 def print_table(name, scenario, data):
