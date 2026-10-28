@@ -38,6 +38,7 @@ test("a codex exec call is a running Codex subagent, then done with its final me
     kind: "Codex · gpt-6-astra xhigh",
     harness: "codex",
     model: "gpt-6-astra xhigh",
+    effort: "xhigh",
     state: "running",
     command: REVIEW,
   });
@@ -53,6 +54,7 @@ test("a codex exec call is a running Codex subagent, then done with its final me
   expect(fold.takeRows()[0]!.subagents![0]).toMatchObject({
     state: "completed",
     result: "VERDICT: SHIP",
+    lastMessage: "VERDICT: SHIP",
     endedAt: 2000,
   });
   // Its own view is the call: the command and all it printed.
@@ -158,6 +160,7 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   const started = {
     event: "started",
     shortName: "fix",
+    startedBy: "chat-1",
     harness: "codex",
     model: "gpt-6-astra",
     effort: "xhigh",
@@ -171,6 +174,7 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
     kind: "Codex · gpt-6-astra xhigh",
     harness: "codex",
     child: "child-1",
+    parent: "chat-1",
     session: "fix",
     state: "running",
     startedAt: 1000,
@@ -178,6 +182,7 @@ test("an acpmux run --parent call is the child acpmux records, with its harness,
   const reply = "Fixed: the test waits for the socket.";
   expect(child(fold, 3, { event: "turn_ended", state: "done", result: { state: "done", reply } })).toBeUndefined();
   expect(fold.all()[0]).toMatchObject({ state: "completed", result: reply, endedAt: 3000 });
+  expect(fold.all()[0]!.lastMessage).toBe(reply);
   // What the shell printed after is not its reply: acpmux's record is.
   const end = { sessionUpdate: "tool_call_update", toolCallId: "c1", status: "completed", content: text("Fixed…") };
   expect(send(end)).toBe(true);

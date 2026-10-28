@@ -80,10 +80,12 @@ export type Subagent = {
   /// xhigh". It has no `prompt`: Restart and Stop are a Claude subagent's.
   harness?: string;
   model?: string;
+  effort?: string;
   command?: string;
   session?: string;
   host?: string;
   result?: string;
+  lastMessage?: string;
   /// The acpmux sub-session it is (`acpmux run --parent`), by id: Open chat opens it, and its
   /// records (``reduceChild``) say its state and reply.
   child?: string;
@@ -332,6 +334,7 @@ export class SubagentFold {
       command,
       ...(run.harness && { harness: run.harness }),
       ...(model && { model }),
+      ...(run.effort && { effort: run.effort }),
       ...(run.session && { session: run.session }),
       ...(run.host && { host: run.host }),
       ...(update.rawInput.run_in_background === true && { background: true }),
@@ -369,8 +372,13 @@ export class SubagentFold {
     if (!agent) return undefined;
     // Each turn's end says the whole of it: a turn that said nothing has no reply, not the last one's.
     const said = text(record.result?.reply) ?? text(record.result?.error);
-    if (said) agent.result = said;
-    else delete agent.result;
+    if (said) {
+      agent.result = said;
+      agent.lastMessage = said;
+    } else {
+      delete agent.result;
+      delete agent.lastMessage;
+    }
     this.recorded.add(agent.id);
     agent.state = record.state === "done" ? "completed" : record.state === "cancelled" ? "cancelled" : "failed";
     agent.endedAt = event.at;
@@ -412,6 +420,8 @@ export class SubagentFold {
     };
     const agent = this.startRun(call, pending.first, run, pending.command);
     agent.child = child;
+    const parent = text(record.startedBy);
+    if (parent && !this.isChat(parent)) agent.parent = parent;
     if (!promptTitle(prompt)) agent.name = text(record.title) ?? agent.name;
     this.children.set(child, agent.id);
     if (pending.last) this.updateRun(agent, pending.last.event, pending.last.update);
@@ -431,7 +441,10 @@ export class SubagentFold {
       } else {
         const reply = runReply(output);
         // What acpmux recorded it said is its reply, not what the shell printed of it.
-        if (reply && !this.recorded.has(agent.id)) agent.result = reply;
+        if (reply && !this.recorded.has(agent.id)) {
+          agent.result = reply;
+          agent.lastMessage = reply;
+        }
         this.endRun(agent, status === "failed" ? "failed" : "completed", event.at);
         return;
       }
@@ -473,6 +486,7 @@ export class SubagentFold {
     const reply = runReply(withoutLineNumbers(outputOf(update)));
     if (reply && reply !== agent.result && !this.recorded.has(agent.id)) {
       agent.result = reply;
+      agent.lastMessage = reply;
       this.touch(agent);
     }
     // Read once the run ended, its file says nothing more.
@@ -613,6 +627,9 @@ export class SubagentFold {
     }
     agent.tokens = count(change.tokens) ?? agent.tokens;
     agent.toolUses = count(change.toolUses) ?? agent.toolUses;
+    agent.model = text(change.model) ?? agent.model;
+    agent.effort = text(change.effort) ?? agent.effort;
+    agent.lastMessage = text(change.lastMessage) ?? agent.lastMessage;
     if (change.background === true) agent.background = true;
     const done = count(change.agents?.done);
     const started = count(change.agents?.started);
