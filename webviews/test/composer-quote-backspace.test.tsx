@@ -5,6 +5,7 @@ import { JSDOM } from "jsdom";
 import { act, createRef } from "react";
 import type { Root } from "react-dom/client";
 import type { MarkdownFieldHandle } from "../src/agent-session/acpmux/MarkdownField";
+import { appendQuoteMarkdown } from "../src/agent-session/acpmux/composerQuote";
 import { promptField, proseMirrorGlobals } from "../src/agent-session/acpmux/promptFieldTesting";
 
 const scope = globalThis as Record<string, unknown>;
@@ -132,4 +133,25 @@ test("unwrapping a quote after another paragraph does not join or delete either 
     "Keep this quote text",
   ]);
   expect(field.value).toBe("Earlier paragraph\n\nKeep this quote text");
+});
+
+
+test("Quote in Reply appends after an existing draft and keeps successive quotes in order", () => {
+  const first = appendQuoteMarkdown("Keep this draft", "first selected line\nsecond selected line");
+  expect(first).toBe("Keep this draft\n\n> first selected line\n> second selected line\n\n");
+  expect(appendQuoteMarkdown(first, "second quote")).toBe(
+    "Keep this draft\n\n> first selected line\n> second selected line\n\n> second quote\n\n",
+  );
+});
+
+test("a composer quote is rendered as a blockquote while its value stays Markdown", async () => {
+  const markdown = appendQuoteMarkdown("Reply text", "Quoted text");
+  await render(markdown);
+  const field = promptField(document);
+  const blockquote = field.element.querySelector("blockquote");
+  expect(blockquote).not.toBeNull();
+  expect(blockquote?.textContent).toBe("Quoted text");
+  expect(field.element.textContent).toContain("Reply text");
+  expect(field.value()).toBe("Reply text\n\n> Quoted text\n\n");
+  expect(field.value()).not.toContain("Reply text\n\n> Quoted text\n\n> Quoted text");
 });
