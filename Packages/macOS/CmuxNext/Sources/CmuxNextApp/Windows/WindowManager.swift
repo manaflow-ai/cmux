@@ -428,6 +428,7 @@ final class WindowManager {
         contentWaiters[id] = nil
         restacking.remove(id)
         controller.teardown()
+        if let window = controller.window { WindowOverlayHost.windowIsClosing(window) }
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {
             // The unregistered launch window: nothing to hand over. It often wears the saved front

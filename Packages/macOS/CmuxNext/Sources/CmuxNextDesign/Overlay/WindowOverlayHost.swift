@@ -116,6 +116,13 @@ public final class WindowOverlayHost {
         return host
     }
 
+    /// `window` is closing: its host tears down, also a host made during the close (by the
+    /// window's own teardown), which came after the close notification and never heard it.
+    public static func windowIsClosing(_ window: NSWindow) {
+        guard let host = hosts[ObjectIdentifier(window)], host.window === window, !host.isTearingDown else { return }
+        host.tearDown()
+    }
+
     /// The host of `window` if one exists (never makes one).
     public static func existingHost(for window: NSWindow) -> WindowOverlayHost? {
         hosts[ObjectIdentifier(window)].flatMap { $0.window === window && !$0.isTearingDown ? $0 : nil }
