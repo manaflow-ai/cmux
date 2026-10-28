@@ -32,13 +32,13 @@ const message = (seq: number): Message => ({
   parts: [{ type: "text", text: `message ${seq}`, mentions: [] }],
   reactions: [],
 });
-const run = (index: number, answer: string): Run => ({
+const run = (index: number, answer: string, startedAt = index + 1): Run => ({
   id: `r${index}`,
   conversation: "chief-conv",
   author: "chief",
   status: "done",
-  startedAt: index + 1,
-  updatedAt: index + 1,
+  startedAt,
+  updatedAt: startedAt,
   rev: 1,
   stepCount: index === 1 ? 1 : 0,
   answers: [answer],
@@ -135,6 +135,28 @@ function waitForReport(store: {
 test("reload pages past twenty newer runs to restore a silent report", async () => {
   const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
   const allRuns = [run(1, "m1"), ...Array.from({ length: 25 }, (_, index) => run(index + 2, `m${index + 2}`))];
+  const fake = client(all, allRuns);
+  const store = new HomeChannelsStore(fake.api as never);
+  const stop = store.subscribe(() => {});
+  await store.start();
+  await waitForReport(store);
+  expect(
+    fake.calls.filter((call) => call.op === HomeOps.runs).some((call) => call.params.beforeStartedAt !== undefined),
+  ).toBe(true);
+  expect(store.runs.get("chief-conv", "chief", "r1")?.steps[0]?.text).toBe("[a1] report");
+  stop();
+});
+
+test("reload continues past an old answer-bearing boundary for a silent report", async () => {
+  const all = Array.from({ length: 26 }, (_, index) => message(index + 1));
+  // The first history page ends at a run started at the oldest loaded message. The report is
+  // older, has no turn/reply key, and answers that loaded question; the strict timestamp cutoff
+  // must not discard it.
+  const allRuns = [
+    run(1, "m1", 0),
+    run(2, "m2", 1),
+    ...Array.from({ length: 19 }, (_, index) => run(index + 3, `m${index + 3}`, index + 2)),
+  ];
   const fake = client(all, allRuns);
   const store = new HomeChannelsStore(fake.api as never);
   const stop = store.subscribe(() => {});
