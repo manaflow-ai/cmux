@@ -127,7 +127,7 @@ pub(super) enum AppCommand {
         params: Value,
         out: Option<String>,
     },
-    /// `settings list|schema|validate` (app/settings.rs).
+    /// Local settings completion/schema/validation (`app/settings.rs`).
     Settings(settings::Command),
     /// `browser right <verb>` (app/right.rs): `browser.page.right` names the
     /// tab right of the Home chat, then `then` runs on it.
