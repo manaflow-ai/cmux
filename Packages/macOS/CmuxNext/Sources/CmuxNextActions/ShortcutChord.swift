@@ -70,19 +70,10 @@ extension ActionRegistry {
     /// Shift or Option key reads only what it types: cmux decides those only after the input
     /// methods, never as a shortcut found by position or by another layout.
     public static func shortcuts(for input: KeyInput, armed: Bool = false) -> ShortcutReadings {
-        let flags = input.modifiers
+        // Scratch: the readings of 789b80d5f66 (charactersIgnoringModifiers, then unshifted), for the before number.
         var readings = ShortcutReadings()
-        let decided = input.isChord || armed
-        if decided, let digit = Self.digitRow[input.keyCode] { readings.append(Shortcut(digit, modifiers: flags)) }
-        // Three calls, not a loop over an array: reading a key allocates no array (p04-input-055).
-        func appendTyped(_ typed: String?) {
-            if let typed, typed.unicodeScalars.count == 1 { readings.append(Shortcut(typed, modifiers: flags)) }
-        }
-        if !flags.contains(.option) { appendTyped(input.text) }
-        appendTyped(input.commandUnshifted)
-        appendTyped(input.ignoringModifiers)
-        appendTyped(input.unshifted)
-        if decided, let ascii = input.asciiFallback { readings.append(Shortcut(ascii, modifiers: flags)) }
+        if let key = input.ignoringModifiers { readings.append(Shortcut(key, modifiers: input.modifiers)) }
+        if let base = input.unshifted { readings.append(Shortcut(base, modifiers: input.modifiers)) }
         return readings
     }
 
