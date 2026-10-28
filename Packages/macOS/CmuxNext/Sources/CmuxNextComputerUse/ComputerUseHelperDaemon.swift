@@ -303,7 +303,11 @@ public final class ComputerUseHelperDaemon {
     /// (`.off` while the restart runs, `.failed` past the restart budget)
     /// instead of every request saying the helper did not answer.
     public func confirmRunning() -> State {
-        state
+        if case .running(let pid) = state, !launcher.isRunning(pid) {
+            helperLogger.error("cmux Computer Use helper pid=\(pid, privacy: .public) is gone, but no exit event came")
+            helperExited(pid)
+        }
+        return state
     }
 
     /// Restarts the legacy helper. The caller checks the current setting and policy.
