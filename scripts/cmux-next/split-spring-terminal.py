@@ -61,6 +61,11 @@ if "--suite=pane-bench" not in sys.argv and "--suite=action-budget-bench" not in
 if "--suite=newterm" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "newterm-cold-warm-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=newterm"])
+# SCRATCH MEASUREMENT REF ONLY (cp/proof-ab-measure): `--suite=proof-ab`, one prove-or-remove switch A/B (on vs off of
+# the same switches on this app, interleaved runs), scripts/cmux-next/proof-ab.py.
+if "--suite=proof-ab" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "proof-ab.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=proof-ab"])
 if "--suite=first5s" in sys.argv:  # the first 5 s of typing (first-5s-typing.py)
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "first-5s-typing.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=first5s"])

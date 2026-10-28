@@ -240,6 +240,9 @@ class Launch:
             **({"CMUX_NEXT_HANG_THRESHOLD_MS": str(HANG_THRESHOLD_MS)} if HANG_THRESHOLD_MS else {}),
             **(extra_env or {}),
         }
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import proof_ab_env  # scratch measurement ref only: the prove-or-remove A/B arm
+        proof_ab_env.apply(env)
         with finder_limits() as changed:  # the limits a Finder launch gets (bench_launch.py, Resource limits)
             self.process = subprocess.Popen([app_binary(tag)], env=env, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, start_new_session=True, pass_fds=(write_fd,))

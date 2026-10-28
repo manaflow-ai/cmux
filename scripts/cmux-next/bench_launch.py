@@ -1191,7 +1191,8 @@ class BenchApp:
         env.update(self.extra_env)
         for key in DROPPED_ENV + tuple(k for k, v in self.extra_env.items() if v is None):
             env.pop(key, None)  # None in `env` removes a BASE_ENV variable (for example NO_ACTIVATE)
-        return env
+        import proof_ab_env  # scratch measurement ref only: the prove-or-remove A/B arm
+        return proof_ab_env.apply(env)
 
     def rpc(self, method, params=None, timeout=60):
         return rpc_at(self.socket, method, params, timeout)
@@ -1396,6 +1397,8 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
+                    import proof_ab_env  # scratch measurement ref only
+                    proof_ab_env.record(self.features, "bench_launch")
                     if validate_host:
                         self.validate_lab_host()
                     return self

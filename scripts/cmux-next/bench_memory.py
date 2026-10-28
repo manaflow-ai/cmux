@@ -485,6 +485,9 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None, direct: boo
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
            "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
     env.update(extra_env or {})
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import proof_ab_env  # scratch measurement ref only: the prove-or-remove A/B arm
+    proof_ab_env.apply(env)
     os.makedirs(env["TMPDIR"], exist_ok=True)
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
