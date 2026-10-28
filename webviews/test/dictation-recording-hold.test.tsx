@@ -129,21 +129,38 @@ test("the pending recording's x lets the waiting send go without it", async () =
   expect(intake.pending).toEqual([]);
 });
 
-test("a failed upload leaves the chip with its note and Retry; the waiting send goes without it", async () => {
+test("a failed upload keeps the waiting send blocked with the failed chip; Retry's answer lets it go with the audio", async () => {
   await fresh();
   const host = upload();
   await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
-  await act(async () => host.refuse(Object.assign(new Error("no route"), { code: "upload_failed" })));
-  expect(sent).toEqual([[]]);
+  // The stager refuses the recording (Cloud's `upload_refused` at begin, a peer's `too_large`).
+  await act(async () => host.refuse(Object.assign(new Error("refused"), { code: "upload_refused" })));
+  // The send does not go without its audio: it waits, and the chip says why, with Retry.
+  expect(sent).toEqual([]);
   expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
-  // Retry asks the host again; its answer becomes the saved chip, for the next prompt.
+  // A send pressed again while the chip shows its failure waits too.
+  await act(async () => send());
+  expect(sent).toEqual([]);
+  // Retry asks the host again; its answer becomes the chip, and the waiting send goes with it, once.
   await act(async () => intake.retry(intake.pending[0]!.id));
   expect(host.asked).toHaveLength(2);
   expect(intake.pending[0]?.failed).toBeUndefined();
+  expect(sent).toEqual([]);
   await act(async () => host.answer({ path: remote }));
   expect(intake.pending).toEqual([]);
-  expect(intake.attachments).toMatchObject([{ kind: "link", saved: true, path: remote }]);
+  expect(sent).toEqual([[remote]]);
+});
+
+test("the failed recording's x lets the waiting send go with the text alone", async () => {
+  await fresh();
+  const host = upload();
+  await act(async () => intake.attachLater("Recording.wav", host.make, FAILED));
   await act(async () => send());
-  expect(sent).toEqual([[], [remote]]);
+  await act(async () => host.answer(null));
+  expect(sent).toEqual([]);
+  expect(intake.pending).toMatchObject([{ name: "Recording.wav", failed: FAILED }]);
+  await act(async () => intake.cancel(intake.pending[0]!.id));
+  expect(sent).toEqual([[]]);
+  expect(intake.pending).toEqual([]);
 });

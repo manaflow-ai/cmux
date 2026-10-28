@@ -29,6 +29,10 @@ struct AgentPaneDictationUploadTests {
         var finish: [String: Any] = AgentPaneReply.success(["path": "/home/me/.acpmux/uploads/chat-a/Recording.wav"])
         /// The chunk the stager refuses (its machine dropped), if any.
         var failsAtChunk: Int?
+        /// A size limit the stager enforces at begin, as the App's stagers did: Cloud's
+        /// (`CloudUploads`, `upload_refused` past 32 MiB) and a peer's (`AgentPeerUploads`,
+        /// `too_large` past 1 GiB). Nil once those caps are gone.
+        var refusesOver: (bytes: Int, code: String)?
         private var chunkCount = 0
 
         var stage: AgentPaneUploadStager {
@@ -37,6 +41,9 @@ struct AgentPaneDictationUploadTests {
                 sessions.append(session)
                 switch request {
                 case .begin(_, let size, _, _):
+                    if let limit = refusesOver, size > limit.bytes {
+                        return AgentPaneReply.failure(code: limit.code, message: "This Mac won't send that file to the Cloud machine.")
+                    }
                     return AgentPaneReply.success(["token": "t1", "size": size, "chunkSize": 512 * 1024])
                 case .chunk(_, let offset, let data):
                     chunkCount += 1
@@ -197,5 +204,39 @@ struct AgentPaneDictationUploadTests {
         #expect(givenBack.recordings.map(\.session) == ["chat-a"])
         #expect(stager.requests.last == .cancel(token: "t1"))
         #expect(!stager.requests.contains(.finish(token: "t1")))
+    }
+
+    /// A stager that refuses the recording at begin (its size limit, Cloud's `upload_refused` or a
+    /// peer's `too_large`): the page gets that failure, not a path, and nothing is staged. The pane's
+    /// dictation gets the recording back for its chat, so the chip's Retry can send it once the
+    /// limit is gone, through the same wiring as AgentPaneView's.
+    @Test(arguments: ["upload_refused", "too_large"])
+    func aStagerThatRefusesTheSizeFailsAndGivesTheRecordingBackForRetry(code: String) async throws {
+        let (file, data) = try recordingFile(bytes: 4_096)
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let dictation = AgentPaneDictation(send: { _ in }, microphone: DictationMicrophone())
+        dictation.chatSession = { "chat-a" }
+        dictation.deliver(DictationUpdate(phase: .idle, text: "a long one", audio: DictationAudio(file: file, byteCount: data.count)), recordedIn: "chat-a")
+        let model = AgentPaneModel(host: NoHost(), sessionId: "chat-a")
+        let stager = Stager()
+        stager.refusesOver = (bytes: data.count - 1, code: code)
+        model.onUploadStage = { stager.stage }
+        model.onDictationRecording = { path, session in dictation.takeRecording(path, session: session) }
+        model.onDictationRecordingUnsent = { file, session in dictation.giveBackRecording(file, session: session) }
+
+        let refused = await upload(file.path, in: model)
+        #expect(refused["ok"] as? Bool != true)
+        #expect(Self.errorCode(refused) == code)
+        #expect((refused["value"] as? [String: Any])?["path"] == nil)
+        #expect(stager.requests == [.begin(name: "Recording.wav", size: data.count, batchToken: nil, batch: nil)])
+        #expect(stager.received.isEmpty)
+
+        // Retry, once the stager takes any size: the recording goes, whole.
+        stager.refusesOver = nil
+        let retried = await upload(file.path, in: model)
+        #expect(retried["ok"] as? Bool == true)
+        #expect((retried["value"] as? [String: Any])?["path"] as? String == "/home/me/.acpmux/uploads/chat-a/Recording.wav")
+        #expect(stager.received == data)
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == nil, "a sent recording is not given back")
     }
 }
