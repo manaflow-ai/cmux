@@ -21,5 +21,5 @@
   "agent-pane.transcript#codex-turn-run-open": "agent-pane, owned by chief-pet-default-off (its fix PR removes this line). Broken since it was added in #23081 (2026-10-21): play: waitFor did not hold within 5000 ms, 3 of 3 runs on #23400 and #23433.",
   "agent-pane.transcript#fold-holds-clicked-line": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
   "agent-pane.transcript#footer-actions-left": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
-  "agent-pane.transcript#footer-actions-right": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms.",
+  "agent-pane.transcript#footer-actions-right": "agent-pane, owned by chief-pet-default-off (fixing; its PR removes this line). Broken since before 2026-10-21: waitFor did not hold within 5000 ms."
 }

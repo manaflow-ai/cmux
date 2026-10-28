@@ -5,24 +5,44 @@
  */
 export const RUNNING_LINE_SHIMMER_NAMES = ["cmux-shimmer-band", "cmux-shimmer-lit"] as const;
 
-const RUNNING_LINE_SHIMMER_SET = new Set<string>(RUNNING_LINE_SHIMMER_NAMES);
-
 export type RunningLineLoop = {
   name: string | undefined;
-  target: object | null;
+  target: Element | null;
+  playState: AnimationPlayState;
+  playbackRate: number;
+  currentTime: CSSNumberish | null;
+  duration: number;
 };
 
 export type RunningLineLoopCheck = {
   shimmer: RunningLineLoop[];
   unapproved: RunningLineLoop[];
-  duplicateTargets: object[];
+  duplicateTargets: Element[];
 };
 
 export function checkRunningLineLoops(loops: readonly RunningLineLoop[]): RunningLineLoopCheck {
-  const shimmer = loops.filter((loop) => loop.name !== undefined && RUNNING_LINE_SHIMMER_SET.has(loop.name));
+  const active = loops.filter(
+    (loop) =>
+      loop.playState === "running" &&
+      loop.playbackRate !== 0 &&
+      Number.isFinite(loop.duration) &&
+      loop.duration > 0 &&
+      typeof loop.currentTime === "number" &&
+      Number.isFinite(loop.currentTime),
+  );
+  const shimmer = active.filter((loop) => {
+    if (loop.name === "cmux-shimmer-band") return loop.target?.classList.contains("cv-shimmer__band") ?? false;
+    if (loop.name === "cmux-shimmer-lit") {
+      return (
+        loop.target?.classList.contains("cv-shimmer__lit") === true &&
+        loop.target.parentElement?.classList.contains("cv-shimmer__band") === true
+      );
+    }
+    return false;
+  });
   const unapproved = loops.filter((loop) => !shimmer.includes(loop));
-  const counts = new Map<object, number>();
-  for (const loop of loops) {
+  const counts = new Map<Element, number>();
+  for (const loop of active) {
     if (loop.target !== null) counts.set(loop.target, (counts.get(loop.target) ?? 0) + 1);
   }
   const duplicateTargets = [...counts].filter(([, count]) => count > 1).map(([target]) => target);

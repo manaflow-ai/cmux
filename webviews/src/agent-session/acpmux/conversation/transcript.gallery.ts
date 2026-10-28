@@ -721,7 +721,11 @@ const liveLineClear = async (ctx: PlayContext) => {
       .filter((animation) => animation.effect?.getTiming().iterations === Infinity)
       .map((animation) => ({
         name: (animation as CSSAnimation).animationName,
-        target: animation.effect?.target ?? null,
+        target: animation.effect?.target instanceof Element ? animation.effect.target : null,
+        playState: animation.playState,
+        playbackRate: animation.playbackRate,
+        currentTime: animation.currentTime,
+        duration: Number(animation.effect?.getTiming().duration),
       }));
     const check = checkRunningLineLoops(loops);
     if (check.unapproved.length || check.duplicateTargets.length || !hasCompleteRunningLineShimmer(check))
@@ -749,7 +753,11 @@ const runningLineStill =
     const check = checkRunningLineLoops(
       loops.map((animation) => ({
         name: (animation as CSSAnimation).animationName,
-        target: animation.effect?.target ?? null,
+        target: animation.effect?.target instanceof Element ? animation.effect.target : null,
+        playState: animation.playState,
+        playbackRate: animation.playbackRate,
+        currentTime: animation.currentTime,
+        duration: Number(animation.effect?.getTiming().duration),
       })),
     );
     if (check.unapproved.length || check.duplicateTargets.length)
