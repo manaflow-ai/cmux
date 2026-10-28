@@ -299,6 +299,8 @@ impl Hub {
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
         // After `turn`: a retry's turn that started since is seen there (`retry_row`).
         let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
+        let stuck =
+            (m.status != SessionStatus::Closed).then(|| m.harness_failures.stuck()).flatten();
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -306,6 +308,10 @@ impl Hub {
             family: m.family.clone(),
             cwd: m.cwd.to_string_lossy().into_owned(),
             status: m.status.to_string(),
+            state: if stuck.is_some() { "stuck".to_owned() } else { m.status.to_string() },
+            stuck_reason: stuck.map(|s| s.0),
+            stuck_since: stuck.map(|s| s.1),
+            stuck_error: stuck.map(|s| s.2.to_owned()),
             agent_session_id: m.agent_session_id.clone(),
             created_at: m.created_at,
             updated_at: m.updated_at,
@@ -486,6 +492,18 @@ impl Hub {
             .await
             .unwrap_or(Value::Null);
         let sessions = self.sessions();
+        let stuck: Vec<Value> = sessions
+            .iter()
+            .filter_map(|s| {
+                let m = s.meta();
+                let (reason, since, error) = (m.status != SessionStatus::Closed)
+                    .then(|| m.harness_failures.stuck())
+                    .flatten()?;
+                Some(json!({"sessionId": m.id, "name": m.name, "harness": m.harness,
+                "lastSeq": m.last_seq, "state": "stuck", "stuckReason": reason,
+                "stuckSince": since, "stuckError": error}))
+            })
+            .collect();
         let mut live = 0;
         for s in &sessions {
             if s.child.lock().await.is_some() {
@@ -520,6 +538,7 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "stuckSessions": stuck,
             "disk": disk,
             // macOS: whether this daemon's agents can read the login keychain
             // (`daemon/login_session.rs`); absent elsewhere.

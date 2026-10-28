@@ -847,6 +847,26 @@ impl Hub {
         if session.caught_up.swap(true, Ordering::SeqCst) {
             return;
         }
+        let after = session.meta.lock().unwrap().harness_failures.through_seq;
+        let mut results = Vec::new();
+        let restored = self.store.scan_back(
+            &session.id,
+            after,
+            u64::MAX,
+            &|dir, kind| dir != b"mux" || kind != b"turn_result",
+            &mut |record| {
+                let success =
+                    record.msg["status"] == "completed" && record.msg["stopReason"] != "cancelled";
+                results.push(record);
+                !success
+            },
+        );
+        if restored.is_ok() {
+            let mut meta = session.meta.lock().unwrap();
+            for record in results.into_iter().rev() {
+                meta.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
+        }
         let last_seq = session.meta.lock().unwrap().last_seq;
         if let Ok((extra, last)) = self.store.tail_after(&session.id, last_seq)
             && extra > 0
@@ -1096,6 +1116,9 @@ impl Hub {
             m.last_seq = seq;
             m.event_count += 1;
             m.updated_at = record.at;
+            if record.dir == "mux" && record.kind == "turn_result" {
+                m.harness_failures.observe(&record.msg, record.seq, record.at);
+            }
         }
         if matches!(
             kind,

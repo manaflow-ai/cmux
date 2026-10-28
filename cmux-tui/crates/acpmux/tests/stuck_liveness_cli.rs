@@ -176,6 +176,14 @@ async fn ls_and_session_info_report_stuck_then_clear_after_success() {
     assert!(stuck["stuckSince"].as_u64().is_some(), "{stuck}");
     assert!(stuck["stuckError"].as_str().is_some(), "{stuck}");
 
+    let daemon_status = daemon.json(&["--json", "daemon", "status"]);
+    let status_row = daemon_status["stuckSessions"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|row| row["sessionId"] == id))
+        .unwrap_or_else(|| panic!("daemon status omitted stuck session: {daemon_status}"));
+    assert_eq!(status_row["state"], "stuck", "{daemon_status}");
+    assert_eq!(status_row["stuckReason"], "harness_unavailable", "{daemon_status}");
+
     let info = daemon.json(&["--json", "session", "info", &id]);
     assert_eq!(info["state"], "stuck", "{info}");
     assert_eq!(info["stuckReason"], "harness_unavailable", "{info}");
@@ -194,4 +202,9 @@ async fn ls_and_session_info_report_stuck_then_clear_after_success() {
     assert!(recovered["stuckReason"].is_null(), "{recovered}");
     assert!(recovered["stuckSince"].is_null(), "{recovered}");
     assert!(recovered["stuckError"].is_null(), "{recovered}");
+    let daemon_status = daemon.json(&["--json", "daemon", "status"]);
+    assert!(
+        daemon_status["stuckSessions"].as_array().is_some_and(Vec::is_empty),
+        "{daemon_status}"
+    );
 }

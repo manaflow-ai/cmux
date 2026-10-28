@@ -282,6 +282,7 @@ impl Hub {
             hibernated_ms: 0,
             claude_profile: None,
             last_turn: None,
+            harness_failures: Default::default(),
             // A fork of a remote-origin session stays remote-origin.
             remote_origin: parent_meta.remote_origin,
             vm_boundary: parent_meta.vm_boundary,

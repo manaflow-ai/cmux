@@ -27,6 +27,9 @@ fn cache_path(dir: &std::path::Path, peer: &str) -> Option<std::path::PathBuf> {
 pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
     let before = summary.clone();
     summary["status"] = Value::String("unreachable".into());
+    if summary.get("state").is_some() {
+        summary["state"] = Value::String("unreachable".into());
+    }
     summary["stale"] = Value::Bool(true);
     summary["lastSeen"] = json!(last_seen);
     super::views::decide(summary);

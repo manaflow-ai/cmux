@@ -243,6 +243,9 @@ pub struct SessionMeta {
     /// errorText?, errorSource?, endedAt}.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_turn: Option<Value>,
+    /// Classified harness attempts, projected from turn results; old stores default empty.
+    #[serde(default)]
+    pub harness_failures: crate::session_liveness::HarnessFailures,
     /// Created over a remote-origin connection (the WebSocket listener):
     /// its harness never spawns with a preset's args or system prompt.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

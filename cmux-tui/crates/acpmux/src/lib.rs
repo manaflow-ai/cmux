@@ -104,6 +104,7 @@ pub mod self_command;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;
+pub mod session_liveness;
 pub mod session_name;
 mod session_scope;
 pub mod sha256;
