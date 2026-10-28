@@ -5,7 +5,7 @@ import { SUBAGENT_OF } from "../subagents/subagentRows";
 import type { WorkflowAgent } from "./workflow";
 import { workflowPaneRequest, WorkflowTranscript, type TranscriptRead } from "./workflowTranscript";
 
-/// Selection owns the reader lifetime; only this agent's progress/state fields request a refresh.
+/// Selection owns the reader lifetime; its run's progress and this agent's state request a refresh.
 export function useWorkflowTranscript(
   id: string | undefined,
   sessionId: string | undefined,
@@ -33,7 +33,16 @@ export function useWorkflowTranscript(
   const reader = active?.request === request ? active : undefined;
   useEffect(() => {
     void reader?.refresh();
-  }, [reader, agent?.lastProgressAt, agent?.state, agent?.doing, agent?.tokens, agent?.lastMessage, connection]);
+  }, [
+    reader,
+    agent?.lastProgressAt,
+    agent?.progressVersion,
+    agent?.state,
+    agent?.doing,
+    agent?.tokens,
+    agent?.lastMessage,
+    connection,
+  ]);
   const rows = useMemo((): AcpmuxRow[] | undefined => {
     if (!enabled || !request || request.sessionId !== sessionId || !id) return undefined;
     const pill: AcpmuxRow = {

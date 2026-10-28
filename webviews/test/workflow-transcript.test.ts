@@ -6,6 +6,8 @@ import {
   workflowPaneRequest,
 } from "../src/agent-session/acpmux/summary/workflowTranscript";
 import { openSubagentPane, revealedSubagent } from "../src/agent-session/acpmux/subagents/subagentPanes";
+import { SubagentFold } from "../src/agent-session/acpmux/subagents/subagentFold";
+import { createWorkflowAdapter } from "../src/agent-session/acpmux/summary/foldWorkflows";
 
 const request = { sessionId: "chat", runId: "wf_demo", agentId: "review" };
 const text = (text: string) => ({
@@ -218,6 +220,83 @@ test("the hook refreshes only the selected agent, survives StrictMode, and drops
     await act(async () => show());
     await act(async () => pending.resolve(page(0, 1, 1, [text("wrong chat")])));
     expect(dom.window.document.body.textContent).not.toContain("wrong chat");
+  } finally {
+    await act(async () => root.unmount());
+    for (const [key, value] of saved) {
+      if (value === undefined) delete scope[key];
+      else scope[key] = value;
+    }
+    dom.window.close();
+  }
+});
+
+test("usage-only workflow progress refreshes once and coalesces events during a read", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM("<div id='root'></div>", { url: "http://localhost/" });
+  const scope = globalThis as Record<string, unknown>;
+  const globals = {
+    window: dom.window,
+    document: dom.window.document,
+    HTMLElement: dom.window.HTMLElement,
+    IS_REACT_ACT_ENVIRONMENT: true,
+  };
+  const saved = Object.keys(globals).map((key) => [key, scope[key]] as const);
+  Object.assign(scope, globals);
+  const { act, createElement } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { useWorkflowTranscript } = await import("../src/agent-session/acpmux/summary/useWorkflowTranscript");
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const fold = new SubagentFold();
+  const adapter = createWorkflowAdapter();
+  let seq = 0;
+  const feed = (id: string, fields: Record<string, unknown>) => {
+    const update = { sessionUpdate: "subagent_progress" };
+    fold.reduce(
+      { seq: ++seq, at: 100, msg: { params: { _meta: { acpmux: { subagents: [{ id, ...fields }] } } } } },
+      update,
+    );
+  };
+  feed("workflow", {
+    kind: "workflow",
+    runId: request.runId,
+    workflowAgents: [{ index: 0, agentId: request.agentId, state: "running" }],
+  });
+  let agent = adapter(fold.all(), request.sessionId)[0]!.agents[0]!;
+  const initial = agent;
+  const pending = deferred<unknown>();
+  let calls = 0;
+  const read = async () => (++calls === 3 ? pending.promise : page(0, 1, 1, [text(`read ${calls}`)]));
+  function Probe() {
+    useWorkflowTranscript(workflowPaneId(request), request.sessionId, true, agent, "Parent", read, "connected");
+    return null;
+  }
+  const show = () => {
+    agent = adapter(fold.all(), request.sessionId).find((workflow) => workflow.id === "workflow")!.agents[0]!;
+    root.render(createElement(Probe));
+  };
+  try {
+    await act(async () => show());
+    expect(calls).toBe(1);
+    feed("workflow", { tokens: 100, usage: { outputTokens: 100 } });
+    await act(async () => show());
+    expect(calls).toBe(2);
+    expect(agent.lastProgressAt).toBe(initial.lastProgressAt);
+    expect(agent.tokens).toBe(initial.tokens);
+    await act(async () => show());
+    expect(calls).toBe(2);
+    feed("other-workflow", { kind: "workflow", runId: "wf_other", tokens: 1 });
+    await act(async () => show());
+    expect(calls).toBe(2);
+    feed("workflow", { usage: { outputTokens: 101 } });
+    await act(async () => show());
+    expect(calls).toBe(3);
+    feed("workflow", { usage: { outputTokens: 102 } });
+    await act(async () => show());
+    feed("workflow", { usage: { outputTokens: 103 } });
+    await act(async () => show());
+    expect(calls).toBe(3);
+    await act(async () => pending.resolve(page(0, 1, 1, [text("read 3")])));
+    expect(calls).toBe(4);
   } finally {
     await act(async () => root.unmount());
     for (const [key, value] of saved) {

@@ -12,7 +12,7 @@ import { useT, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { useNow } from "../subagents/SubagentGroup";
-import { modelName, phaseAgents, tally, upNext, type Tally } from "../summary/foldWorkflows";
+import { modelName, phaseAgents, tally, upNext, workflowDetailRequest, type Tally } from "../summary/foldWorkflows";
 import type { WorkflowAgent, WorkflowPhase, WorkflowSummary } from "../summary/workflow";
 import { StopButton } from "./TasksSection";
 import "./inspector.css";
@@ -214,6 +214,7 @@ function WorkflowPhaseRow({
           {agents.map((agent) => (
             <WorkflowAgentRow
               key={agent.id}
+              workflow={workflow}
               agent={agent}
               now={now}
               onOpenSubagent={onOpenSubagent}
@@ -230,11 +231,14 @@ function WorkflowPhaseRow({
 /// A live workflow agent's state, model, elapsed time and latest action/message. Rows open through
 /// the workflow bridge when one is supplied; without it they remain inert.
 export function WorkflowAgentRow({
+  workflow,
   agent,
   now,
   onOpenWorkflowAgent,
   variant = "detail",
 }: {
+  /// The parent workflow supplies the session and run that identify this agent's transcript.
+  workflow: WorkflowSummary;
   /// The folded workflow agent to render.
   agent: WorkflowAgent;
   /// The shared current time used for running elapsed durations.
@@ -261,6 +265,7 @@ export function WorkflowAgentRow({
   // Workflow agent ids name Claude's workflow transcript, not a folded subagent node. Until the
   // workflow bridge is supplied, keep this row inert rather than sending the wrong id to the
   // ordinary subagent opener.
+  const openable = Boolean(onOpenWorkflowAgent && workflowDetailRequest(workflow, agent));
   const className = `acpmux-workflow-agent__button acpmux-workflow-agent__button--${variant}`;
   const content = (
     <>
@@ -292,12 +297,12 @@ export function WorkflowAgentRow({
   );
   return (
     <li className="acpmux-chat-inspector-task acpmux-workflow-agent" data-state={agent.state}>
-      {onOpenWorkflowAgent ? (
+      {openable ? (
         <button
           type="button"
           className={className}
           aria-label={accessibleLabel}
-          onClick={() => onOpenWorkflowAgent(agent)}
+          onClick={() => onOpenWorkflowAgent?.(agent)}
         >
           {content}
         </button>

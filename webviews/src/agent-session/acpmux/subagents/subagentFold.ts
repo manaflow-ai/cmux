@@ -56,6 +56,8 @@ export type Subagent = {
   workflowAgents?: ReadonlyMap<number, WorkflowAgent>;
   /// A Claude workflow Claude Code paused: its agents stopped, and a resume by `runId` runs it again.
   paused?: boolean;
+  /// Monotonic event sequence for progress, including usage-only workflow updates.
+  progressVersion?: number;
   /// The harness runs it in the background: it outlives its turn's stop.
   background?: boolean;
   /// What it was asked, as the harness got it (Claude's Agent `prompt`): Restart sends it again.
@@ -657,6 +659,7 @@ export class SubagentFold {
       change.workflowAgents,
       change.workflowAgentsFull === true,
     );
+    if (!spawn) agent.progressVersion = event.seq;
     if (change.reason === "paused") agent.paused = true;
     applyRetry(agent, change);
     const state = text(change.state);
