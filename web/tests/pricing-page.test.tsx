@@ -123,6 +123,15 @@ function personalizedIndividualSection(html: string): string {
   ).find((section) => section.includes("Current plan")) ?? "";
 }
 
+/** Select one rendered plan card so assertions do not mix sibling plans' labels. */
+function personalizedPlanCard(html: string, planName: string): string {
+  const cardMarker =
+    '<div class="relative flex h-full min-w-0 flex-col border border-border p-6">';
+  return personalizedIndividualSection(html)
+    .split(cardMarker)
+    .find((card) => card.includes(`>${planName}</h2>`)) ?? "";
+}
+
 describe("localized pricing page", () => {
   test("hides Go when the Go rollout is disabled", async () => {
     const previous = process.env.CMUX_TEST_GO_PLAN_DISABLED;
@@ -450,12 +459,11 @@ describe("localized pricing page", () => {
     stripeSubscriptionRows = [{ id: "sub_no_price", plan: "pro", status: "active" }];
 
     const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
-    const individual = personalizedIndividualSection(html);
+    const proCard = personalizedPlanCard(html, "Pro");
 
-    expect(individual).toContain("Manage billing");
-    expect(individual).toContain(">$50<");
-    // The Max card beside it still states its own yearly list bill.
-    expect(individual).not.toContain("Billed monthly");
+    expect(proCard).toContain("Manage billing");
+    expect(proCard).toContain(">$50<");
+    expect(proCard).toMatch(/<span class="truncate">\s*<\/span>/);
   });
 
   test("a Max subscriber's Pro card still states its monthly list bill", async () => {
@@ -512,7 +520,12 @@ describe("localized pricing page", () => {
   });
 
   test("states the yearly total next to the yearly per-month price", async () => {
-    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const html = await renderSettled(
+      await PricingPage({
+        params: Promise.resolve({ locale: "en" }),
+        searchParams: Promise.resolve({ interval: "year" }),
+      }),
+    );
 
     expect(html).toContain("Billed $480 yearly");
     expect(html).toContain("Billed $1920 yearly");
