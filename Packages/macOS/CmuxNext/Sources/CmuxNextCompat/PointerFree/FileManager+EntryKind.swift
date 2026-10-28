@@ -33,18 +33,6 @@ extension FileManager {
 }
 
 extension CheckedFileManager {
-    /// What is at `path`, a final symlink followed; nil when nothing is. Like
-    /// ``Foundation/FileManager/entryKind(atPath:)``, checked.
-    ///
-    /// - Parameters:
-    ///   - path: The path to look at.
-    ///   - fileID: The calling code's `#fileID` (names the call site).
-    ///   - line: The calling code's `#line`.
-    /// - Returns: The kind of what exists there, or nil.
-    public func entryKind(atPath path: String, fileID: StaticString = #fileID, line: UInt = #line) -> FileEntryKind? {
-        blockingCall(.fileIO, fileID: fileID, line: line) { FileManager.default.entryKind(atPath: path) }
-    }
-
     /// Whether `path` names a folder (or a symlink to one). Like ``Foundation/FileManager/directoryExists(atPath:)``,
     /// checked.
     ///

@@ -130,7 +130,7 @@ public final class KernelMemoryPressureSource: MemoryPressureSource {
         var size = MemoryLayout<Int32>.size
         // SAFETY: sysctlbyname reads the NUL-terminated name made for the call and writes at most `size` bytes (one
         // Int32) into `level` and the size it wrote into `size`; both are locals.
-        return unsafe blockingSysctlByName("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 ? level : nil
+        return unsafe sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 ? level : nil
     }
 
     /// A memory pressure dispatch source on the main queue, active when it returns.
