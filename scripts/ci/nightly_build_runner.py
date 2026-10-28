@@ -122,6 +122,7 @@ BUILD_JOB = "build-nightly-app"
 SETUP_STEP = "Set up runner"
 REFUSAL_HOLD = dt.timedelta(minutes=30)
 RECENT_RUNS = 6
+JOB_PAGES = 4
 
 
 def _stamp(value: Any) -> dt.datetime | None:
@@ -167,7 +168,14 @@ def read_admission(github: Any, label: str, runs: int = RECENT_RUNS) -> Mapping[
     for run in (listed or {}).get("workflow_runs") or []:
         if not isinstance(run, Mapping) or not run.get("id"):
             continue
-        jobs = (github.get(f"/actions/runs/{run['id']}/jobs?filter=all&per_page=100") or {}).get("jobs") or []
+        # Every attempt's jobs (filter=all): a run on attempt 3 has more than one page of them.
+        jobs: list[Mapping[str, Any]] = []
+        for page in range(1, JOB_PAGES + 1):
+            batch = (github.get(f"/actions/runs/{run['id']}/jobs?filter=all&per_page=100&page={page}")
+                     or {}).get("jobs") or []
+            jobs.extend(batch)
+            if len(batch) < 100:
+                break
         found = latest_admission(label, jobs)
         if found is not None:
             return found

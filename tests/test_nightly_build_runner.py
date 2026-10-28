@@ -196,8 +196,11 @@ class DedicatedRefusal(unittest.TestCase):
     def test_the_reader_stops_at_the_newest_run_with_a_decided_job(self) -> None:
         pages = {"/actions/workflows/nightly.yml/runs?branch=nightly-next&per_page=6":
                      {"workflow_runs": [{"id": 3}, {"id": 2}, {"id": 1}]},
-                 "/actions/runs/3/jobs?filter=all&per_page=100": {"jobs": [admission_job("", 1)]},
-                 "/actions/runs/2/jobs?filter=all&per_page=100": {"jobs": [admission_job("failure", 4, run_id=2)]}}
+                 "/actions/runs/3/jobs?filter=all&per_page=100&page=1": {"jobs": [admission_job("", 1)]},
+                 # A run on its third attempt: the refused job is on the second page.
+                 "/actions/runs/2/jobs?filter=all&per_page=100&page=1":
+                     {"jobs": [admission_job("success", 9, name="decide", run_id=2)] * 100},
+                 "/actions/runs/2/jobs?filter=all&per_page=100&page=2": {"jobs": [admission_job("failure", 4, run_id=2)]}}
         seen = []
 
         class Fake:
@@ -206,7 +209,7 @@ class DedicatedRefusal(unittest.TestCase):
                 return pages[path]
 
         self.assertEqual(picker.read_admission(Fake(), DEDICATED)["run_id"], 2)
-        self.assertNotIn("/actions/runs/1/jobs?filter=all&per_page=100", seen)
+        self.assertFalse(any(path.startswith("/actions/runs/1/") for path in seen))
 
     def run_pick(self, admission):
         with tempfile.TemporaryDirectory() as tmp:
@@ -226,6 +229,15 @@ class DedicatedRefusal(unittest.TestCase):
         self.assertEqual(clock.sleeps, [])
         out, _ = self.run_pick(lambda t, r: admission_job("success", 5))
         self.assertEqual(out["owned"], DEDICATED)
+
+    def test_the_dedicated_mode_honours_the_hold(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            env = {"GITHUB_REPOSITORY": "o/r", "GITHUB_OUTPUT": str(output), "GITHUB_EVENT_NAME": "push",
+                   "ROUTE_TOKEN": "r", "SNAPSHOT_TOKEN": "s", "DEDICATED_LABEL": DEDICATED}
+            picker.main(env, now=NOW, argv=("dedicated",), read_runners=lambda t, r: [runner(*BUILDER)],
+                        read_admission_fn=lambda t, r: admission_job("failure", 5))
+            self.assertEqual(output.read_text().strip(), "dedicated=")
 
     def test_an_unread_admission_history_leaves_the_builder_offered(self) -> None:
         def broken(token, repo):
