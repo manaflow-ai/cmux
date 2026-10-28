@@ -58,6 +58,22 @@ import Testing
         #expect(calls.disables.load(ordering: .relaxed) == 2, "releasing a view with no request changes nothing")
     }
 
+    @Test("A password prompt in a terminal without keyboard focus leaves the system's secure input off")
+    func anUnfocusedTerminalDoesNotTakeSystemSecureInput() {
+        // Ghostty asks for secure input when a program in ANY terminal reads a password (sudo in a
+        // background tab). System secure input is process-wide and blocks every other app's key taps
+        // (hotkeys, text expansion), so only the terminal the person types in may hold it, as Ghostty
+        // scopes it (macos/Sources/Features/Secure Input/SecureInput.swift).
+        let runtime = TraceRuntime(role: .app)
+        let calls = SwitchCalls()
+        let secureInput = TerminalSecureInput(trace: runtime, system: calls.system)
+        let surface = NSObject()
+        secureInput.apply(GHOSTTY_SECURE_INPUT_ON, for: ObjectIdentifier(surface))
+        #expect(calls.enables.load(ordering: .relaxed) == 0, "no terminal has keyboard focus")
+        #expect(runtime.isKeyTimingSuppressed, "the key-timing gate still closes for the request")
+        secureInput.release(ObjectIdentifier(surface))
+    }
+
     @Test("Turning terminal secure input off keeps the gate closed while the system still reports secure input")
     func anotherHoldOutlivesTheTerminals() {
         let runtime = TraceRuntime(role: .app)
