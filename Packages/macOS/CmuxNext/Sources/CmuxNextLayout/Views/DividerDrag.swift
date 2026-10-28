@@ -42,7 +42,16 @@ struct DividerDrag {
             screen.activeDrag?.lastWindowPoint = windowPoint
             screen.activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
             screen.resizeGestureMoved()
-            apply(at: windowPoint, phase: .changed)
+            // One layout per display frame: a pointer that sends several moves per frame (a high-rate
+            // mouse or trackpad) would otherwise lay the panes out, move each page window and resize
+            // each Chromium page once per move. The frame's first move applies now; later ones wait
+            // for the frame's tick, which applies the latest pointer (`applyPendingDividerMove`).
+            if screen.dividerMovedInFrame {
+                screen.dividerMovePending = true
+            } else {
+                screen.dividerMovedInFrame = true
+                apply(at: windowPoint, phase: .changed)
+            }
             screen.context.requestFrames()
         case let .modifiersChanged(flags):
             let modifiers = DividerDragModifiers(flags)
@@ -105,6 +114,8 @@ struct DividerDrag {
     /// Writes this frame's values. A split or column the drag set before and does not set now goes
     /// back to its start first.
     func apply(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
+        // Every apply reads the latest pointer: no move waits after it.
+        screen.dividerMovePending = false
         guard var drag = screen.activeDrag else { return }
         let point = drag.effective(contentPoint(fromWindow: windowPoint, kind: drag.kind))
         let targets: [DividerDragValue]

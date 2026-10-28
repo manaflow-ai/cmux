@@ -91,6 +91,12 @@ final class ScreenContentView: NSView {
     var panPresentationPending = false
     /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
     var panTicksLeft = 0
+    /// A divider drag move was applied in the current display frame (`DividerDrag`); the frame's tick
+    /// clears it (``applyPendingDividerMove()``).
+    var dividerMovedInFrame = false
+    /// Divider drag moves that came after it in that frame, not applied yet: the next frame tick
+    /// applies the latest pointer once.
+    var dividerMovePending = false
     /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
     /// moved or whose covers changed, not every pane).
     var stripClipsComputed = 0

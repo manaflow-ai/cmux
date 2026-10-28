@@ -454,6 +454,10 @@ public final class LayoutRootView: NSView {
             // Nothing new to apply: the screens already show the model.
             for view in screenViews.values where view.resizeGesture == .releasing { view.resizeGestureModelSynced(gestureActive: false) }
         }
+        // Divider drag moves that waited in the last frame (`DividerDrag`) show in this one.
+        var dividerMoved = false
+        for view in screenViews.values where view.applyPendingDividerMove() { dividerMoved = true }
+        if dividerMoved { syncWithModel() }
         // Reduce Motion (or the no-animation switch) turned on mid-flight: the final layout now, no more frames.
         if context.reduceMotion {
             for view in screenViews.values where view.hasMotion || view.resizeGesture == .landing { view.settleMotion() }
