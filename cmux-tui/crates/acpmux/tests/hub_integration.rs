@@ -43,6 +43,8 @@ mod permission_display;
 mod permission_groups;
 #[path = "hub_integration/presence.rs"]
 mod presence;
+#[path = "hub_integration/prompt_approval.rs"]
+mod prompt_approval;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]

@@ -370,6 +370,8 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    awaiting_owner: q.awaiting_owner,
+                    revision: q.revision,
                     from_agent: q.run.agent.clone(),
                     author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
