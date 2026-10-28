@@ -214,6 +214,9 @@ final class NewTabInputCoordinator {
         if entry.window != nil { release(entry, why: "creation made no page") } else { buffers[number] = nil }
     }
 
+    /// The page for incoming hold `token` was made as tab `key` (`AgentTabStore.showWorkspace`, in the press's turn).
+    func pageMade(_ token: String, key: String) {}
+
     /// A New Tab page `key` reported its field ready with `token`: the hold that gave it the token
     /// (in whatever window) sends its keys there.
     func pageReady(_ token: String, key: String) {
