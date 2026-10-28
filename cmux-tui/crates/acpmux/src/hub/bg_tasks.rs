@@ -9,7 +9,7 @@
 //! runs while its runner holds the lock, so a restarted daemon lists the same tasks. A stop goes
 //! through the FIFO, never a pid signal (`bg_run.rs`). They never keep a chat
 //! awake (`idle.rs`): a harness's own background shells do, since its exit ends them. A task
-//! runs until it ends or an agent or a person stops it.
+//! runs until it ends, an agent or a person stops it, or its chat is purged.
 //!
 //! The folder is keyed by the chat's id, which names one chat: an import takes an id here only
 //! for that same chat coming back (`transfer_in.rs` replaces a moved-away chat only when its
@@ -108,7 +108,7 @@ impl Hub {
         bg_spawn(&runner, &spec).await.map_err(|e| RpcError::internal(format!("{e:#}")))?;
         // A stop or purge that came meanwhile missed it: it ends here.
         if closing() {
-            bg_run::request_stop(&dir, &id);
+            bg_run::request_stop(&dir, &id, &spec.generation);
             return Err(RpcError::invalid_params("the chat stopped; its task was stopped"));
         }
         let record = bg_run::read_record(&dir, &id)
@@ -140,8 +140,8 @@ impl Hub {
         Ok(crate::agent::command_env(&cmd).into_iter().collect())
     }
 
-    /// The folder's tasks: only records of its own generation, so a runner of an earlier folder
-    /// of this name never shows here.
+    /// The folder's tasks: only records of its own generation, so a runner that outlived a purge
+    /// of an earlier folder of this name never shows here.
     fn bg_records(&self, dir: &std::path::Path) -> Vec<Record> {
         let Ok(generation) = bg_generation(dir, false) else { return Vec::new() };
         let mut records: Vec<Record> = std::fs::read_dir(dir)
@@ -203,24 +203,135 @@ impl Hub {
     /// to the group after the grace) and waits until the runner is gone, at most [`STOP_WAIT`].
     pub async fn bg_stop(&self, session: &Session, id: &str) -> Result<Value, RpcError> {
         let (dir, record) = self.bg_record(session, id)?;
-        if bg_run::request_stop(&dir, id) {
+        if bg_run::request_stop(&dir, id, &record.generation) {
             bg_wait_gone(&dir, id).await;
         }
         let record = bg_run::read_record(&dir, id).unwrap_or(record);
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
+
+    /// A purged chat's tasks are stopped at once and its folder goes at once, moved to
+    /// `bg/.purged/<chat>-<uuid>` where no chat looks, so a purge never waits with the chat still
+    /// open (a prompt meanwhile could reopen it) and a chat that later takes its id (an import)
+    /// finds none. The runners exit on their own; a background wait ([`STOP_WAIT`]) then removes
+    /// the moved folder, and each purge also clears earlier moved folders whose runners are all
+    /// gone. A runner that writes later under the old path finds no folder, or a new one whose
+    /// generation is not its own (its records never show there). A folder that neither moves nor
+    /// goes fails the purge, so the chat stays (stopped) rather than leave its tasks to a later
+    /// chat of this id. It holds the start lock, so a start in flight is either seen here or sees
+    /// the chat closing.
+    pub(super) async fn bg_purge(&self, session: &Session) -> Result<(), RpcError> {
+        let _one = self.bg_starts.lock().await;
+        let dir = self.bg_dir(session);
+        let aside = crate::config::home().join("bg").join(".purged");
+        bg_sweep(&aside);
+        // Every task the folder holds, from its files, not its records: a record that cannot be
+        // read still has a runner to stop. A folder that cannot be listed fails the purge.
+        let ids = bg_task_ids(&dir).map_err(internal)?;
+        if ids.is_empty() {
+            let _ = std::fs::remove_dir_all(&dir);
+            return bg_cleared(&dir);
+        }
+        // The stops carry the folder's generation, so only its own runners act on them: a runner
+        // of an earlier folder of this id whose FIFO landed here ignores them. A folder with no
+        // generation started no task of its own (a start makes it first). One that cannot be
+        // read fails the purge.
+        let generation = match bg_generation(&dir, false) {
+            Ok(g) => Some(g),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+            Err(e) => return Err(internal(e)),
+        };
+        if let Some(generation) = &generation {
+            for id in &ids {
+                bg_run::request_stop(&dir, id, generation);
+            }
+        }
+        let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
+        match std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to)) {
+            // The runners' locks moved with the folder (same files), so the wait reads them there.
+            Ok(()) => {
+                tokio::spawn(async move {
+                    let waits = ids.iter().map(|id| bg_wait_gone(&to, id));
+                    futures::future::join_all(waits).await;
+                    bg_sweep_one(&to);
+                });
+            }
+            // Where no move works, the folder goes; a runner keeps its open files.
+            Err(e) => {
+                tracing::warn!(dir = %dir.display(), "a purged chat's tasks could not be moved aside: {e}");
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
+        bg_cleared(&dir)
+    }
 }
 
-/// The folder's generation (`.generation`, made with the folder's first task when `make`).
+/// Clears the moved folders of earlier purges whose runners are all gone.
+fn bg_sweep(aside: &std::path::Path) {
+    for entry in std::fs::read_dir(aside).into_iter().flatten().flatten() {
+        bg_sweep_one(&entry.path());
+    }
+}
+
+/// Removes a purged chat's moved folder once nothing holds any of its locks. A folder that
+/// cannot be listed stays.
+fn bg_sweep_one(dir: &std::path::Path) {
+    if bg_task_ids(dir).is_ok_and(|ids| ids.iter().all(|id| bg_gone(dir, id))) {
+        let _ = std::fs::remove_dir_all(dir);
+    }
+}
+
+/// The ids of every task a folder holds files of (its lock or stop FIFO); none when the folder
+/// is gone, an error when it cannot be listed.
+fn bg_task_ids(dir: &std::path::Path) -> std::io::Result<Vec<String>> {
+    let entries = match std::fs::read_dir(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        r => r?,
+    };
+    let mut ids = std::collections::BTreeSet::new();
+    for entry in entries {
+        let name = entry?.file_name();
+        let name = name.to_string_lossy();
+        if let Some(id) = name.strip_suffix(".lock").or_else(|| name.strip_suffix(".ctl")) {
+            ids.insert(id.to_owned());
+        }
+    }
+    Ok(ids.into_iter().collect())
+}
+
+/// The folder's generation (`.generation`, made with the folder's first task when `make`). An
+/// empty file (a write a crash or a full disk cut short) is no generation: no task ever started
+/// with one, and `make` replaces it. A new one appears whole (written aside, then renamed), so a
+/// runner's stops always match the generation its folder holds.
 fn bg_generation(dir: &std::path::Path, make: bool) -> std::io::Result<String> {
     let path = dir.join(".generation");
-    match std::fs::read_to_string(&path) {
+    let read = std::fs::read_to_string(&path).and_then(|g| match g.trim() {
+        "" => Err(std::io::Error::new(std::io::ErrorKind::NotFound, "an empty generation")),
+        g => Ok(g.to_owned()),
+    });
+    match read {
         Err(e) if make && e.kind() == std::io::ErrorKind::NotFound => {
             let generation = uuid::Uuid::now_v7().simple().to_string();
-            std::fs::write(&path, &generation)?;
+            let aside = dir.join(format!(".generation.{generation}"));
+            std::fs::write(&aside, &generation)
+                .and_then(|()| std::fs::rename(&aside, &path))
+                .inspect_err(|_| {
+                    let _ = std::fs::remove_file(&aside);
+                })?;
             Ok(generation)
         }
         r => r,
+    }
+}
+
+/// A purge's end: the chat's folder is gone, or the purge fails.
+fn bg_cleared(dir: &std::path::Path) -> Result<(), RpcError> {
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        _ => Err(RpcError::internal(format!(
+            "the chat's background tasks in {} could not be removed",
+            dir.display()
+        ))),
     }
 }
 
