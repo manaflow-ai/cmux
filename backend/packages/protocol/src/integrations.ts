@@ -353,7 +353,14 @@ export const GitHubTokenPermissions = Schema.Struct(Object.fromEntries(GITHUB_TO
 export const GitHubRepoName = Schema.String.check(isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))
 const Label = Schema.String.check(isPattern(/^[A-Za-z0-9._-]{1,64}$/))
 /** `team` is required unless the caller is a vm install (then its machine's team); `label` is logged unverified. */
-export const GitHubTokenRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), repo: GitHubRepoName, permissions: GitHubTokenPermissions, label: Schema.optionalKey(Label) })
+export const GitHubTokenRequest = Schema.Struct({
+  team: Schema.optionalKey(TeamId),
+  repo: GitHubRepoName,
+  permissions: GitHubTokenPermissions,
+  label: Schema.optionalKey(Label),
+  /** Effective lifetime for connector callers; the ledger revokes before GitHub's one-hour maximum. */
+  ttlSec: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(60), Schema.isLessThanOrEqualTo(3600))),
+})
 /** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
 export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
 

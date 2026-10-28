@@ -22,7 +22,7 @@ import { github, installationToken, mintedToken, requestInstallationToken, revok
 const [REUSE_MARGIN_MS, MINT_RATE, REVOKE_RETRY_MAX_MS] = [15 * 60_000, { burst: 60, per_second: 1 }, 10 * 60_000]
 
 /** `machine`: a vm install's own machine (the route checked it through vmGate). */
-export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly label?: string; readonly machine?: string }
+export type TokenAsk = { readonly repo: string; readonly permissions: Readonly<Record<string, "read" | "write">>; readonly label?: string; readonly machine?: string; readonly ttlSec?: number }
 export type TokenFail = { readonly ok: false; readonly status: number; readonly code: string; readonly message: string; readonly retry_after?: number }
 export type TokenReply = { readonly ok: true; readonly value: { token: string; expires_at: string; repo: string; permissions: Record<string, string>; token_id: string } } | TokenFail
 
@@ -122,12 +122,13 @@ export const githubRepos = async (
   p: Principal,
   query: { readonly query?: string; readonly cursor?: string },
 ): Promise<RepoListReply> => {
+  if (query.cursor !== undefined && !/^(?:0|[1-9][0-9]*)$/.test(query.cursor)) return fail(400, "request.invalid", "cursor is invalid")
   if (!github.configured(h.env) || !h.env.INTEGRATIONS_KEK) return fail(503, "integration.unavailable", "the cmux GitHub App is not configured on this deployment")
   const state = h.state()
   if (!providerAllowed(policyOf(state), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
   const connections = Object.values(state.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
   if (connections.length === 0) return fail(404, "integration.not_found", "this team has no GitHub connection")
-  const seen = new Map<string, { full_name: string; private: boolean }>()
+  const seen = new Map<string, { full_name: string; private: boolean; connection: string }>()
   for (const connection of connections) {
     const installation = Number(/^github:installation:(\d+)$/.exec(connection.account?.key ?? "")?.[1])
     if (!Number.isSafeInteger(installation)) continue
@@ -137,26 +138,36 @@ export const githubRepos = async (
     } catch {
       return fail(503, "integration.unavailable", "GitHub did not answer; retry")
     }
-    for (let page = 1; page <= 10; page++) {
+    for (let page = 1; ; page++) {
       const response = await h.http(new Request(`https://api.github.com/installation/repositories?per_page=100&page=${page}`, { headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "x-github-api-version": "2022-11-28", "user-agent": "cmux-cloud" } })).catch(() => null)
       if (!response) return fail(503, "integration.unavailable", "GitHub did not answer; retry")
       if (!response.ok) return response.status === 401 ? fail(409, "needs_reauth", "the GitHub App installation needs to be linked again") : fail(503, "integration.unavailable", "GitHub repository listing failed")
-      const body = (await response.json().catch(() => ({}))) as { repositories?: Array<{ full_name?: unknown; private?: unknown }> }
-      const batch = body.repositories ?? []
+      const body = (await response.json().catch(() => undefined)) as { repositories?: unknown; total_count?: unknown } | undefined
+      if (!body || !Array.isArray(body.repositories)) return fail(503, "integration.unavailable", "GitHub returned an invalid repository list")
+      const batch = body.repositories as Array<{ full_name?: unknown; private?: unknown }>
       for (const repo of batch) {
         const fullName = typeof repo.full_name === "string" ? repo.full_name : ""
         if (!fullName || !githubRepoAllowed(connection, policyOf(state), fullName)) continue
-        seen.set(fullName.toLowerCase(), { full_name: fullName, private: repo.private === true })
+        seen.set(fullName.toLowerCase(), { full_name: fullName, private: repo.private === true, connection: connection.id })
       }
-      if (batch.length < 100) break
+      if (batch.length < 100 || (typeof body.total_count === "number" && page * 100 >= body.total_count)) break
     }
   }
+  const current = h.state()
+  if (!providerAllowed(policyOf(current), "github")) return fail(403, "policy.denied", "the team policy does not allow GitHub")
+  const currentConnections = Object.values(current.connections).filter((c) => c.provider === "github" && c.status === "active" && mayUse(c, p))
+  const allowed = new Map(currentConnections.map((c) => [c.id, c]))
   const needle = query.query?.trim().toLowerCase()
-  const all = [...seen.values()].filter((repo) => !needle || repo.full_name.toLowerCase().includes(needle)).sort((a, b) => a.full_name.localeCompare(b.full_name))
-  const start = query.cursor === undefined ? 0 : Number.parseInt(query.cursor, 10)
+  const all = [...seen.values()]
+    .filter((repo) => {
+      const connection = allowed.get(repo.connection)
+      return connection !== undefined && githubRepoAllowed(connection, policyOf(current), repo.full_name) && (!needle || repo.full_name.toLowerCase().includes(needle))
+    })
+    .sort((a, b) => a.full_name.localeCompare(b.full_name))
+  const start = query.cursor === undefined ? 0 : Number(query.cursor)
   if (!Number.isSafeInteger(start) || start < 0) return fail(400, "request.invalid", "cursor is invalid")
   const repos = all.slice(start, start + 100)
-  return { ok: true, value: { repos, cursor: start + repos.length < all.length ? String(start + repos.length) : null } }
+  return { ok: true, value: { repos: repos.map(({ connection: _connection, ...repo }) => repo), cursor: start + repos.length < all.length ? String(start + repos.length) : null } }
 }
 
 /** A row is served only while it is live and nobody revoked it (checked after each await, with no await before the answer). */
@@ -164,7 +175,7 @@ const stillLive = (sql: SqlStorage, tokenId: string) => sql.exec(`SELECT 1 FROM 
 
 const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation: number }, p: Principal, pk: string, cacheKey: string, ask: TokenAsk, now: number): Promise<TokenReply> => {
   const generation = h.revokes.get(pk) ?? 0
-  pruneExpired(h.sql, now)
+  expireRows(h.sql, now)
   const live = h.sql.exec<Row>(`SELECT * FROM github_tokens WHERE cache_key = ? AND principal = ? AND revoking = 0 AND expires_at > ? ORDER BY expires_at DESC LIMIT 1`, cacheKey, pk, now + REUSE_MARGIN_MS).toArray()[0]
   if (live) {
     const token = await openRow(h.env, live).catch(() => null)
@@ -195,7 +206,8 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   const minted = await mintedToken(res)
   if (!minted.token) return fail(503, "integration.unavailable", "GitHub returned no token")
   const tokenId = sha256hex(minted.token).slice(0, 16)
-  const row = { token_id: tokenId, principal: pk, install: p.kind === "install" ? (p.install ?? null) : null, team: h.team, repo: ask.repo, permissions: JSON.stringify(minted.permissions), expires_at: minted.expires_at }
+  const requestedExpiry = ask.ttlSec === undefined ? minted.expires_at : Math.min(minted.expires_at, now + ask.ttlSec * 1000)
+  const row = { token_id: tokenId, principal: pk, install: p.kind === "install" ? (p.install ?? null) : null, team: h.team, repo: ask.repo, permissions: JSON.stringify(minted.permissions), expires_at: requestedExpiry }
   const sealed = JSON.stringify(await seal(h.env.INTEGRATIONS_KEK!, minted.token, aad(row)))
   // From here every minted token has a durable row: one we refuse is revoked at GitHub (retried from the alarm until it expires).
   const refuse = async (f: TokenFail) => {
@@ -226,13 +238,14 @@ const mintOrReuse = async (h: LedgerHost, picked: { c: Connection; installation:
   h.audit({
     at: now, team: h.team, principal_kind: kind, user: p.user!,
     ...(row.install ? { install: row.install } : {}), ...(ask.machine ? { machine: ask.machine } : {}), ...(ask.label ? { label: ask.label } : {}),
-    repo: ask.repo, permissions: minted.permissions, token_id: tokenId, expires_at: minted.expires_at
+    repo: ask.repo, permissions: minted.permissions, token_id: tokenId, expires_at: row.expires_at
   })
   console.log(JSON.stringify({ msg: "github.token.minted", team: h.team, principal_kind: kind, install: row.install, repo: ask.repo, token_id: tokenId, label: ask.label ?? null }))
-  return { ok: true, value: { token: minted.token, expires_at: new Date(minted.expires_at).toISOString(), repo: ask.repo, permissions: { ...minted.permissions }, token_id: tokenId } }
+  return { ok: true, value: { token: minted.token, expires_at: new Date(row.expires_at).toISOString(), repo: ask.repo, permissions: { ...minted.permissions }, token_id: tokenId } }
 }
 
-const pruneExpired = (sql: SqlStorage, now: number) => sql.exec(`DELETE FROM github_tokens WHERE expires_at <= ?`, now)
+const expireRows = (sql: SqlStorage, now: number) =>
+  sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE expires_at <= ? AND revoking = 0`, now, now)
 
 /**
  * Revokes every live token of one principal (`install:<id>` or `session:<user>`), or of one install
@@ -241,16 +254,16 @@ const pruneExpired = (sql: SqlStorage, now: number) => sql.exec(`DELETE FROM git
 export const revokeTokens = async (h: Pick<LedgerHost, "sql" | "env" | "http" | "revokes">, who: { principal: string } | { install: string }, now: number): Promise<number> => {
   const key = "install" in who ? `install:${who.install}` : who.principal
   h.revokes.set(key, (h.revokes.get(key) ?? 0) + 1)
-  pruneExpired(h.sql, now)
+  expireRows(h.sql, now)
   const [col, val] = "install" in who ? ["install", who.install] : ["principal", who.principal]
   const n = h.sql.exec(`UPDATE github_tokens SET revoking = 1, retry_at = ? WHERE ${col} = ? AND revoking = 0`, now, val).rowsWritten
   await drainTokenRevocations(h, now)
   return n
 }
 
-/** The alarm's pass: drops expired rows and retries the DELETEs that are due (backoff up to 10 minutes). */
+/** The alarm's pass: revokes expired rows and retries provider DELETEs (backoff up to 10 minutes). */
 export const drainTokenRevocations = async (h: Pick<LedgerHost, "sql" | "env" | "http">, now: number) => {
-  pruneExpired(h.sql, now)
+  expireRows(h.sql, now)
   const due = h.sql.exec<Row & { attempts: number }>(`SELECT * FROM github_tokens WHERE revoking = 1 AND retry_at <= ? LIMIT 100`, now).toArray()
   await Promise.all(
     due.map(async (r) => {
@@ -265,13 +278,13 @@ export const drainTokenRevocations = async (h: Pick<LedgerHost, "sql" | "env" | 
 
 /** When the alarm has ledger work: the next revoke retry or the next expiry. */
 export const nextLedgerAt = (sql: SqlStorage): number | null => {
-  const r = sql.exec<{ at: number | null }>(`SELECT MIN(CASE WHEN revoking = 1 AND retry_at < expires_at THEN retry_at ELSE expires_at END) AS at FROM github_tokens`).toArray()[0]
+  const r = sql.exec<{ at: number | null }>(`SELECT MIN(CASE WHEN revoking = 1 THEN retry_at ELSE expires_at END) AS at FROM github_tokens`).toArray()[0]
   return r?.at === null || r?.at === undefined ? null : Number(r.at)
 }
 
 /** GET /v1/integrations/github/status: whether the App is configured, and the connection this principal would use. */
 export const githubStatus = (env: Env, state: ConnectionsState, p: Principal) => {
-  const usable = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && c.status !== "revoked" && c.status !== "expired" && c.status !== "pending")
+  const usable = Object.values(state.connections).filter((c) => c.provider === "github" && mayUse(c, p) && c.status !== "revoked" && c.status !== "pending")
   const c = usable.find((x) => x.status === "active") ?? usable.sort((a, b) => b.updated_at - a.updated_at)[0]
   return {
     configured: Boolean(env.INTEGRATIONS_KEK) && github.configured(env),

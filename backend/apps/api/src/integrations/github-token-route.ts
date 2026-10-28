@@ -16,7 +16,7 @@ import type { RepoListReply, TokenAsk, TokenReply } from "./github-tokens.ts"
  * `daemon`, `cli` or `mac` install, or a member's session; chief tokens (`agent`), team VMs, phone
  * and web installs are refused. Errors are `{error: {code, message}}` and never carry a token.
  */
-export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|token\/revoke|status|repos)$/
+export const GITHUB_TOKEN_PATH = /^\/v1\/integrations\/github\/(token|machine-token|token\/revoke|status|repos)$/
 
 const TOKEN_INSTALL_KINDS: ReadonlySet<string> = new Set(["vm", "daemon", "cli", "mac"])
 const NO_STORE = { "cache-control": "no-store" }
@@ -98,15 +98,19 @@ export const handleGithubToken = async (request: Request, env: Env, sub: string)
   }
   if (request.method !== "POST") return failed(no(405, "request.invalid", "POST"))
   const json = (await request.json().catch(() => undefined)) as unknown
-  if (sub === "token") {
+  if (sub === "token" || sub === "machine-token") {
     const body = decode(GitHubTokenRequest as unknown as Schema.Codec<typeof GitHubTokenRequest.Type, unknown>, json)
     if (isFail(body)) return failed(body)
     if (Object.keys(body.permissions).length === 0) return failed(no(400, "request.invalid", "permissions must name at least one permission"))
     const who = await caller(request, env, body.team)
     if (isFail(who)) return failed(who)
-    // A person's install needs at least the read class (paired daemons hold read and mutate-own); the VM's vm-self grant is its machine's.
-    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
-    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(who.machine ? { machine: who.machine } : {}) }
+    if (sub === "machine-token" && (who.p.kind !== "install" || !TOKEN_INSTALL_KINDS.has(who.p.install_kind ?? ""))) {
+      return failed(no(403, "auth.forbidden", "a machine install is required"))
+    }
+    if (who.p.kind === "install" && who.p.install_kind !== "vm" && !who.p.grant_classes?.includes("read")) {
+      return failed(no(403, "auth.forbidden", "this install's grant does not cover read"))
+    }
+    const ask: TokenAsk = { repo: body.repo, permissions: body.permissions as Record<string, "read" | "write">, ...(body.label ? { label: body.label } : {}), ...(body.ttlSec === undefined ? {} : { ttlSec: body.ttlSec }), ...(who.machine ? { machine: who.machine } : {}) }
     const r = await connections(env, who.team).githubToken(who.team, who.p, ask).catch(() => null)
     return r === null ? failed(unreachable("the team's GitHub connection")) : r.ok ? Response.json(r.value, { headers: NO_STORE }) : failed(r)
   }

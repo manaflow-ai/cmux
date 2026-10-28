@@ -215,9 +215,13 @@ export class ConnectionDO extends OwnerDO<ConnectionsState> {
     return this.boundTo(entity) ? ghTokens.revokeTokens(this.ledger(), who, Date.now()).finally(() => this.scheduleAlarm()) : 0
   }
 
-  async githubStatus(entity: string, principal: Principal) { return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal) }
+  async githubStatus(entity: string, principal: Principal) {
+    if (principal.team !== entity) return { configured: false, app_slug: null, connection: null }
+    return ghTokens.githubStatus(this.env, this.boundTo(entity) ? this.bind(entity).currentState : connectionsDomain.initial(), principal)
+  }
 
   async githubRepos(entity: string, principal: Principal, query: { readonly query?: string; readonly cursor?: string }) {
+    if (principal.team !== entity) return { ok: false as const, status: 403, code: "auth.forbidden", message: "not this team's connections" }
     if (!this.boundTo(entity)) return { ok: false as const, status: 404, code: "integration.not_found", message: "this team has no GitHub connection" }
     return ghTokens.githubRepos({ env: this.env, http: this.http, state: () => this.bind(entity).currentState }, principal, query)
   }
