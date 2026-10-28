@@ -293,6 +293,30 @@ await requireBrowserLane("transcript-fold-anchor-browser.test.ts", async () => {
     await page.close();
   });
 
+  test("loading the older prompt keeps the provisional fold open and the first click closes it", async () => {
+    const page = await open("reduce");
+    const rows = [
+      row("older-prompt", "user", "Check the retry path."),
+      row("loaded-steer", "user", "And the tests.", { steer: "landed" }),
+      row("loaded-tool", "activity", undefined, { items: [read("retry")] }),
+      row("loaded-answer", "assistant", "The retry tests passed."),
+      row("loaded-end", "turnSummary", undefined, { status: "completed" }),
+    ];
+    await show(page, rows.slice(1));
+    await settle(page);
+    await page.locator('[data-row-id="worked-loaded-steer"] .cv-worked').click();
+    await show(page, rows);
+    await settle(page);
+    const line = page.locator('[data-row-id="worked-older-prompt"] .cv-worked');
+    expect(await line.getAttribute("aria-expanded")).toBe("true");
+    expect(await line.getAttribute("aria-controls")).toContain("loaded-tool");
+    await line.click();
+    await settle(page);
+    expect(await line.getAttribute("aria-expanded")).toBe("false");
+    expect(await page.locator('[data-row-id="loaded-tool"]').count()).toBe(0);
+    await page.close();
+  });
+
   test("mid-transcript, Worked for opens and closes with its line on its pixel", async () => {
     const page = await open("no-preference");
     await show(page, done);
