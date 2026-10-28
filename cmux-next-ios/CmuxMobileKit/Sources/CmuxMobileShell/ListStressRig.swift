@@ -45,7 +45,10 @@ final class ListStressRig: NSObject {
         running = rig
         if settings.wraps {
             // For this launch only (the argument domain), as Settings → Wrap code would.
-            UserDefaults.standard.setVolatileDomain([CmuxMobilePreferences.Key.wrapCode: true], forName: UserDefaults.argumentDomain)
+            // Merged into the launch arguments (replacing the domain dropped `-cmuxMobile.setupComplete`).
+            var arguments = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
+            arguments[CmuxMobilePreferences.Key.wrapCode] = true
+            UserDefaults.standard.setVolatileDomain(arguments, forName: UserDefaults.argumentDomain)
         }
         await rig.open(screen)
         try? await Task.sleep(for: .seconds(settings.settle))

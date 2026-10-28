@@ -8,8 +8,9 @@
 #   rig.sh seed-xcf            copy the Rust xcframework into $DIR from FROM=host:dir (default aws-m4pro-6:smooth-lists)
 #   rig.sh sim                 create + boot $SIM_NAME ($DEVICE, default iPhone 17 Pro, iOS 26.5) on $HOST
 #   rig.sh shot LABEL SCREEN SECS [K=V..]
-#                              install and launch as `run` does (no passes: LIST_PASSES=0), take LABEL.png
-#                              SECS seconds after launch, then terminate the app
+#                              install and launch as `run` does (no passes: LIST_PASSES=0), wait for the rig's
+#                              "holding" line, take LABEL.png SECS seconds later, then terminate the app
+#                              (ARGS: extra launch arguments, e.g. `-cmuxMobile.settings.wrapCode YES`)
 #   rig.sh build               Demo simulator build on $HOST (arm64 only)
 #   rig.sh run LABEL SCREEN [K=V..]
 #                              install, launch with CMUX_MOBILE_LIST_SCREEN=SCREEN and CMUX_MOBILE_<K>=V,
@@ -116,8 +117,9 @@ case "${1:-}" in
       app=\$(ls -d $DIR/cmux-next-ios/${PRODUCTS:-build/demo}/Build/Products/Demo-iphonesimulator/*.app | head -1); \
       bid=\$(plutil -extract CFBundleIdentifier raw \$app/Info.plist); \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; xcrun simctl install \$udid \$app; \
-      $envs xcrun simctl launch --terminate-running-process \$udid \$bid -cmuxMobile.setupComplete YES -cmux-mobile-no-restore >/dev/null; \
-      sleep $secs; rm -f $DIR/$label.png; xcrun simctl io \$udid screenshot $DIR/$label.png >/dev/null 2>&1; \
+      pid=\$($envs xcrun simctl launch --terminate-running-process \$udid \$bid -cmuxMobile.setupComplete YES -cmux-mobile-no-restore ${ARGS:-} | awk '{print \$NF}'); \
+      for i in \$(seq 1 60); do xcrun simctl spawn \$udid log show --last 30s --predicate 'subsystem == \"dev.cmux.mobile\"' --style compact 2>/dev/null \
+        | grep \"\\[\$pid:\" | grep -q 'list-stress holding' && break; sleep 3; done; sleep $secs; rm -f $DIR/$label.png; xcrun simctl io \$udid screenshot $DIR/$label.png >/dev/null 2>&1; \
       xcrun simctl terminate \$udid \$bid 2>/dev/null; true"
     remote "cat $DIR/$label.png" > "$out/$label.png" && echo "shot: $out/$label.png"
     ;;
