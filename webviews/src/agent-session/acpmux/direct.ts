@@ -196,7 +196,8 @@ type Reply = {
   error?: { message?: string; code?: unknown; data?: unknown };
 };
 type Notification = { method: string; params?: any };
-type Listener = (snapshot: AcpmuxSnapshot) => void;
+// A display-frame delivery is already paced; presentation must not schedule it a second time.
+type Listener = (snapshot: AcpmuxSnapshot, timing?: "frame") => void;
 
 /// A hint that a harness is likely next, so acpmux can warm its adapter (cmux-tui acpmux lane).
 export const PREWARM_METHOD = "_acpmux/prewarm";
@@ -3433,7 +3434,7 @@ export class AcpmuxDirectClient {
     if (scheduled) return;
     schedule(() => {
       const pending = this.frameSnapshot;
-      if (pending !== undefined && !this.closed) this.emit(pending);
+      if (pending !== undefined && !this.closed) this.emit(pending, "frame");
     });
   }
 
@@ -4612,11 +4613,11 @@ export class AcpmuxDirectClient {
     return !this.selectedSessionId || this.drewKeptTail || this.attachedGeneration === this.selectionGeneration;
   }
 
-  private emit(connection = "connected"): void {
-    acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
+  private emit(connection = "connected", timing?: "frame"): void {
+    acpmuxPerf.timed("client.emit", () => this.emitNow(connection, timing));
   }
 
-  private emitNow(connection: string): void {
+  private emitNow(connection: string, timing?: "frame"): void {
     if (this.snapshotHold) {
       this.snapshotHold.connection = connection;
       // The release draws everything since: no frame-batched snapshot is left waiting.
@@ -4636,7 +4637,7 @@ export class AcpmuxDirectClient {
     const effort = (summary?.configOptions ?? []).find(
       (option: any) => option.category === "thought_level" || option.id === "reasoning_effort",
     );
-    this.listener({
+    const snapshot: AcpmuxSnapshot = {
       type: "snapshot",
       protocolVersion: 1,
       rows: this.rows.sorted(),
@@ -4759,7 +4760,8 @@ export class AcpmuxDirectClient {
         command: this.liveAdopt.command,
       },
       liveTakeOver: this.liveTakeOverFor === this.selectedSessionId ? this.liveTakeOver : undefined,
-    });
+    };
+    this.listener(snapshot, timing);
   }
 
   snapshot(): void {

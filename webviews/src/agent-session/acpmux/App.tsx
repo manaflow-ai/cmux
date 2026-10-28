@@ -53,7 +53,14 @@ import {
 } from "./conversation/QueuedMessageCard";
 import { WaitingMessagesCard } from "./conversation/WaitingMessagesCard";
 import { groupWaitingTurn } from "./conversation/waitingMessages";
-import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBlock, isTrustRefusal } from "./direct";
+import {
+  AcpmuxDirectClient,
+  nextFrame,
+  type AcpmuxHostConfig,
+  harnessBlock,
+  type HarnessBlock,
+  isTrustRefusal,
+} from "./direct";
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
@@ -123,6 +130,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
+import { snapshotFrames } from "./snapshotFrames";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -7160,11 +7168,15 @@ function AcpmuxPane() {
       if (composerHandle.current) composerHandle.current.restore(text, attachments);
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
+    let activePresentation: ReturnType<typeof snapshotFrames> | undefined;
     const connectHost = async () => {
       // A Restart acpmux in flight: the old daemon is still there until it stops, and the restart
       // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
+      activePresentation?.stop();
+      const presentation = snapshotFrames(nextFrame, setSnapshot);
+      activePresentation = presentation;
       try {
         acpmuxPerf.markAgent("handshakeStart");
         acpWire.lifecycle("handshake", { reconnect });
@@ -7317,7 +7329,7 @@ function AcpmuxPane() {
           : mockHost;
         const client = await AcpmuxDirectClient.connect(
           mock ? mockConfig : (host as AcpmuxHostConfig),
-          (next) => {
+          presentation.guard((next: AcpmuxSnapshot, timing?: "frame") => {
             harnessSwitch.reconcile(next);
             rowsRef.current = next.rows;
             snapshotRef.current = next;
@@ -7338,19 +7350,11 @@ function AcpmuxPane() {
                 showsNewTabRef.current,
               );
             }
-            setSnapshot((previous) => {
-              if (
-                next.canHandoff &&
-                !next.handoff?.ready &&
-                next.sessionId === previous.sessionId &&
-                previous.handoff?.record
-              )
-                return { ...next, handoff: { ...next.handoff, record: previous.handoff.record } };
-              return next;
-            });
-          },
-          () => {
+            presentation.push(next, timing);
+          }),
+          presentation.guard(() => {
             // The daemon went away. Ask Swift again: a restarted daemon has a new port and token.
+            presentation.stop();
             if (cancelled) return;
             reconnect = true;
             // A switch in flight runs again on the next client.
@@ -7361,7 +7365,7 @@ function AcpmuxPane() {
             setHostRetrying(true);
             retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
             retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-          },
+          }),
           mock
             ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
             : bridge
@@ -8050,6 +8054,7 @@ function AcpmuxPane() {
         // draws it now and starts on it with the first Send; no session opens before that.
         else if (harness && !client.adopted && client.startsOnSend) void harnessSwitch.switchTo(harness, host.cwd);
       } catch (error) {
+        presentation.stop();
         if (!cancelled) {
           acpWire.lifecycle("handshake failed", { message: String(error) });
           setSnapshot((current) => ({ ...current, connection: `connecting: ${String(error)}` }));
@@ -8103,6 +8108,7 @@ function AcpmuxPane() {
     void connectHost();
     return () => {
       cancelled = true;
+      activePresentation?.stop();
       window.removeEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
       harnessSwitch.disconnect();
       setStartModeSource(undefined);

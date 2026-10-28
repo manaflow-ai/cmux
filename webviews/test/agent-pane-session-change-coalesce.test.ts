@@ -11,7 +11,10 @@
 // change to the pane's own chat still reaches a hidden pane, so its tab row stays right.
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { AcpmuxDirectClient } from "../src/agent-session/acpmux/direct";
+import { AcpmuxDirectClient, nextFrame } from "../src/agent-session/acpmux/direct";
+import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { noChat } from "../src/gallery/fixtures/acpmux";
+import { snapshotFrames } from "../src/agent-session/acpmux/snapshotFrames";
 
 const dom = new JSDOM("<!doctype html>", { url: "http://localhost/" });
 const scope = globalThis as Record<string, unknown>;
@@ -133,7 +136,9 @@ class FakeAcpmux {
   }
 }
 
-async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectClient; snapshots: () => number }> {
+async function openPane(
+  receive?: (snapshot: AcpmuxSnapshot, timing?: "frame") => void,
+): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectClient; snapshots: () => number }> {
   const socket = new FakeAcpmux();
   let count = 0;
   const client = await AcpmuxDirectClient.connect(
@@ -144,8 +149,9 @@ async function openPane(): Promise<{ socket: FakeAcpmux; client: AcpmuxDirectCli
       token: "t",
       sessionId: SELECTED,
     },
-    (message: any) => {
+    (message: AcpmuxSnapshot, timing?: "frame") => {
       if (message?.type === "snapshot") count += 1;
+      receive?.(message, timing);
     },
     undefined,
     () => socket as unknown as WebSocket,
@@ -244,3 +250,69 @@ test("bench: client time for 30 running chats changing 20 times (600 changes)", 
     client.close();
   }
 });
+
+for (const mode of ["visible", "hidden"] as const) {
+  test(`${mode}: a live delta presents in the client's frame without a second frame`, async () => {
+    let schedule: (run: () => void) => void = (run) => void frames.push(run);
+    let current = noChat();
+    let presentations = 0;
+    const presentation = snapshotFrames(
+      (run) => schedule(run),
+      (update) => {
+        current = update(current);
+        presentations += 1;
+      },
+    );
+    const { socket, client } = await openPane((next, timing) => presentation.push(next, timing));
+    const originals = { requestAnimationFrame: scope.requestAnimationFrame, setTimeout: scope.setTimeout };
+    const animationFrames: (() => void)[] = [];
+    const timers: { at: number; run: () => void }[] = [];
+    let now = 0;
+    try {
+      setVisibility(mode);
+      flushFrames();
+      scope.requestAnimationFrame = (run: FrameRequestCallback) => {
+        animationFrames.push(() => run(now));
+        return animationFrames.length;
+      };
+      scope.setTimeout = (run: () => void, delay: number) => {
+        timers.push({ at: now + delay, run });
+        return timers.length;
+      };
+      AcpmuxDirectClient.scheduleFrame = schedule = nextFrame;
+      const before = presentations;
+      socket.notify("session/update", {
+        sessionId: SELECTED,
+        _meta: { acpmux: { seq: transcript.length + 1, at: 2_000_000 } },
+        update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "First streamed chunk" } },
+      });
+      expect(presentations).toBe(before);
+      expect(animationFrames).toHaveLength(1);
+      expect(timers.map(({ at }) => at)).toEqual([50]);
+      if (mode === "visible") {
+        now = 16;
+        animationFrames.shift()!();
+      } else {
+        now = 49;
+        expect(presentations).toBe(before);
+        now = 50;
+        timers.shift()!.run();
+      }
+      expect(presentations).toBe(before + 1);
+      expect(current.rows.some((row) => row.text?.includes("First streamed chunk"))).toBe(true);
+      // The other branch of nextFrame may still fire, but it cannot schedule or publish again.
+      for (const callback of animationFrames) callback();
+      for (const timer of timers) timer.run();
+      expect(presentations).toBe(before + 1);
+      expect(timers.every(({ at }) => at === 50)).toBe(true);
+    } finally {
+      for (const [key, value] of Object.entries(originals)) {
+        if (value === undefined) delete scope[key];
+        else scope[key] = value;
+      }
+      presentation.stop();
+      client.close();
+      setVisibility("visible");
+    }
+  });
+}
