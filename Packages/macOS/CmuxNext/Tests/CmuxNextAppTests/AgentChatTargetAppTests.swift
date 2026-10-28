@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextAgentPane
 @testable import CmuxNextApp
+@testable import CmuxNextDaemon
 import CmuxNextControl
 import CmuxNextFocus
 import CmuxNextSettings
@@ -20,27 +21,59 @@ struct AgentChatTargetAppTests {
         func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
     }
 
-    /// The two-pane window of `CanvasLayoutActionTests`: the first pane keeps its terminal and
-    /// the focus; the second shows an agent chat page that never connects.
+    /// Two panes side by side: the first has one terminal tab, the second two tabs.
+    private static func tree() -> DaemonTree {
+        let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
+        let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~"),
+                                                                 TabSnapshot(surface: SurfaceID(rawValue: 3), title: "~")])
+        let layout: LayoutNode = .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: [first, second])
+        var tree = DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "chat-target-ws"), name: "chat target", screens: [screen]),
+        ])
+        tree.personal = PersonalState(workspaces: [PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: "chat-target-ws"), index: 0)])
+        return tree
+    }
+
+    /// One window on `tree()` (as `CanvasLayoutActionTests.window()`): the first pane keeps its
+    /// terminal and the focus; the second shows an agent chat page that never connects, with a
+    /// terminal tab behind it.
     @MainActor final class Rig {
         let services: AppServices
         let controller: WindowController
         let terminal: PaneController
         let chat: PaneController
         let chatTab: String
+        /// The second pane's other tab, a terminal its pane does not show.
+        let behindTab: String
         let directory: URL
 
         init() async throws {
-            let (services, controller, content) = try await CanvasLayoutActionTests.window()
+            _ = NSApplication.shared
+            let services = AppServices(environment: AppEnvironment.current([:]))
+            AppActions.bind(services)
+            services.windows.ordersWindowsIn = false
+            let store = services.machines.local.store
+            let identity = try JSONDecoder().decode(DaemonIdentity.self, from: Data(#"{"app":"cmux-tui","protocol":1,"session":"s-local","generation":"g1"}"#.utf8))
+            store.noteHandshake(identity)
+            store.connectionState = .connected(identity)
+            store.apply(snapshot: AgentChatTargetAppTests.tree())
+            let controller = try #require(services.windows.openWindow(workspaces: ["chat-target-ws"], frame: CGRect(x: 200, y: 200, width: 1200, height: 760)))
             self.services = services
             self.controller = controller
-            let models = try #require(services.machines.local.store.workspaces.first?.screens.first?.panes)
+            for _ in 0..<200 where controller.workspaceContent?.panes.count != 2 { try await Task.sleep(for: .milliseconds(10)) }
+            let content = try #require(controller.workspaceContent)
+            try #require(content.panes.count == 2, "the window never showed the workspace's two panes")
+            content.contentView.layoutSubtreeIfNeeded()
+            let models = try #require(store.workspaces.first?.screens.first?.panes)
             try #require(models.count == 2)
             terminal = try #require(content.paneController(key: models[0].id))
             chat = try #require(content.paneController(key: models[1].id))
             for _ in 0..<100 where chat.currentTabKey == nil { try await Task.sleep(for: .milliseconds(10)) }
             if chat.currentTabKey == nil { chat.showSelected() }
-            chatTab = try #require(chat.currentTabKey, "the second pane shows no tab")
+            let shown = try #require(chat.currentTabKey, "the second pane shows no tab")
+            chatTab = shown
+            behindTab = try #require(models[1].tabs.first { $0.id != shown }?.id, "the second pane has no second tab")
 
             directory = FileManager.default.temporaryDirectory.appending(path: "agent-chat-target-\(UUID().uuidString)")
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -67,8 +100,9 @@ struct AgentChatTargetAppTests {
             topology.isLoaded = true
             topology.daemonState = "connected"
             let tab = ControlTabInfo(id: chatTab, surface: "2", kind: "terminal", title: "~")
+            let behind = ControlTabInfo(id: behindTab, surface: "3", kind: "terminal", title: "~")
             let panes = [ControlPaneInfo(id: terminal.paneKey, handle: "1"),
-                         ControlPaneInfo(id: chat.paneKey, handle: "2", selectedTabID: chatTab, tabs: [tab])]
+                         ControlPaneInfo(id: chat.paneKey, handle: "2", selectedTabID: chatTab, tabs: [tab, behind])]
             topology.workspaces = [ControlWorkspaceInfo(id: "canvas-ws", handle: "1", name: "canvas",
                                                         screens: [ControlScreenInfo(id: "screen-1", handle: "1", panes: panes)])]
             return topology
@@ -153,6 +187,35 @@ struct AgentChatTargetAppTests {
             #expect(error.data?["not_run"] == true, "\(second): \(error)")
             #expect(rig.controller.sidebar.model.isHidden == hidden, "\(second): Toggle Sidebar applied before the refused op")
         }
+    }
+
+    /// A tab target is its own tab, not the chat its pane shows: Set Agent Chat Model on the
+    /// terminal tab behind the chat is refused by the App, alone and in a batch, before anything
+    /// applies.
+    @Test(arguments: [false, true])
+    func aTerminalTabBehindAChatIsNotTheChat(staleSnapshot: Bool) async throws {
+        let rig = try await Rig()
+        defer { rig.tearDown() }
+        let topology = staleSnapshot ? rig.staleTopology : nil
+        let target = "tab:\(rig.behindTab)"
+        guard case .failure(let alone) = await rig.setModel(target, topology: topology) else {
+            Issue.record("the terminal tab behind the chat took its model")
+            return
+        }
+        #expect(alone.code == "unavailable", "\(alone)")
+        #expect(alone.data?["not_run"] == true, "\(alone)")
+
+        let hidden = rig.controller.sidebar.model.isHidden
+        let reply = await rig.batchAfterToggleSidebar(["action": "agentPane.setModel", "target": .string(target), "args": ["model": "opus"]],
+                                                      topology: topology)
+        guard case .failure(let error) = reply else {
+            Issue.record("the batch ran: \(reply)")
+            return
+        }
+        #expect(error.code == "unavailable", "\(error)")
+        #expect(error.data?["op"] == 1, "\(error)")
+        #expect(error.data?["not_run"] == true, "\(error)")
+        #expect(rig.controller.sidebar.model.isHidden == hidden, "Toggle Sidebar applied before the refused op")
     }
 
     @Test func aBatchWhoseOpsTheAppTakesRunsThemAll() async throws {

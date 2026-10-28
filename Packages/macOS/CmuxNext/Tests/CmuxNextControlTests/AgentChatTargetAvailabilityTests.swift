@@ -66,7 +66,7 @@ private final class TargetRecordingExecutor: ControlActionExecutor {
         return topology
     }
 
-    static func router(_ executor: TargetRecordingExecutor, topology: ControlTopology?) -> ControlRouter {
+    fileprivate static func router(_ executor: TargetRecordingExecutor, topology: ControlTopology?) -> ControlRouter {
         let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: .loadTolerant)
         router.snapshots.publish { snapshot in
             snapshot.catalog = Self.catalog()
@@ -127,6 +127,27 @@ private final class TargetRecordingExecutor: ControlActionExecutor {
         #expect(error.data?["op"] == 1)
         #expect(error.data?["not_run"] == true)
         #expect(executor.seen.isEmpty, "op 0 applied before op 1 was refused")
+    }
+
+    /// `atomic: false` with transactions of one op: the refused op 2 is named and nothing ran.
+    @Test func aNonAtomicBatchIsCheckedWholeBeforeItsFirstTransaction() async {
+        let executor = TargetRecordingExecutor(unavailable: ["pane:pane-term"])
+        var configuration = ControlRouter.Configuration.loadTolerant
+        configuration.batchOpLimit = 1
+        let router = ControlRouter(identity: testIdentity(), executor: executor, configuration: configuration)
+        router.snapshots.publish { $0.catalog = Self.catalog() }
+        let op: (String) -> JSONValue = { ["action": "agentPane.setModel", "target": .string($0), "args": ["model": "opus"]] }
+        let result = await router.handle(ControlRequest(id: "1", method: "action.batch", params: [
+            "ops": [op("pane:pane-chat"), op("tab:tab-chat"), op("pane:pane-term")], "atomic": false,
+        ]))
+        guard case .failure(let error) = result else {
+            Issue.record("expected unavailable, got \(result)")
+            return
+        }
+        #expect(error.code == "unavailable")
+        #expect(error.data?["op"] == 2)
+        #expect(error.data?["not_run"] == true)
+        #expect(executor.seen.isEmpty, "a transaction applied before the refused op")
     }
 
     @Test func onlyPaneAndTabTargetsDeferTheirFactsToTheRegistry() {
