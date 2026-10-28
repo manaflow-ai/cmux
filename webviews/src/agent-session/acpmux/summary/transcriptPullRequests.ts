@@ -198,15 +198,32 @@ function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
   const plain = bare(command);
-  const calls = callText(command)
+  const parts = callText(command)
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
-    .split(/[\n;&|]+/)
-    .map((part) =>
-      part
+    .split(/[\n;&|]+/);
+  let skipFalseBranch = false;
+  const calls = parts
+    .flatMap((part) => {
+      const trimmed = part.trim();
+      if (/^(?:if\s+)?false\s*$/.test(trimmed)) {
+        skipFalseBranch = true;
+        return [];
+      }
+      if (/^(?:else|elif)\b/.test(trimmed)) skipFalseBranch = false;
+      if (/^fi\b/.test(trimmed)) {
+        skipFalseBranch = false;
+        return [];
+      }
+      if (skipFalseBranch) return [];
+      const normalized = part
+        .replace(/^\s*[({]\s*/, "")
+        .replace(/\s*[)}]\s*$/, "")
         .replace(/^\s*(?:(?:if|then|do|else|elif)\s+)+/, "")
-        .replace(/^\s*!\s*/, ""),
-    )
-    .filter((part) => EXECUTED_PR_COMMAND.test(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
+        .replace(/^\s*!\s*/, "");
+      return EXECUTED_PR_COMMAND.test(normalized) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(normalized)
+        ? [normalized]
+        : [];
+    })
     .join("\n");
   const found: Finding[] = [];
   if (CREATE.test(calls)) {
