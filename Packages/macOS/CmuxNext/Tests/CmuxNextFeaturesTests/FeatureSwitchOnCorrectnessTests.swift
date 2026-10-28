@@ -9,7 +9,6 @@ struct FeatureSwitchOnCorrectnessTests {
     static let names = [
         "featureFlagsCard",
         "highEnergyTabs",
-        "memoryFreezeEligibility",
         "memorySaverBackgroundActivity",
         "pageHangNotice",
         "recentlyAudibleProtection",

@@ -374,8 +374,8 @@ frozen page keeps its memory and its state.
 
 ### What never freezes
 
-Chrome's `CannotFreezeReason`s (`components/performance_manager/freezing/freezing_policy.cc`), behind
-feature `memoryFreezeEligibility` (`FreezeEligibility`, `HibernationPlanner.freezePlan`): never freeze a
+Chrome's `CannotFreezeReason`s (`components/performance_manager/freezing/freezing_policy.cc`), in every
+channel (`FreezeEligibility`, `HibernationPlanner.freezePlan`): never freeze a
 page whose site may show notifications, that holds a Web Lock or an open IndexedDB connection (Chrome:
 a blocking IndexedDB lock; cmux has no engine hook for that yet, so any open connection counts), or that
 still loads. The page's recorder counts the locks this document holds (`BrowserPageBusy`), as Chrome

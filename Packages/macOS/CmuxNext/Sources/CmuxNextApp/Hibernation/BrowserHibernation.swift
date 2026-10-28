@@ -75,7 +75,7 @@ final class BrowserHibernation {
     private(set) var frozen: Set<String> = []
     /// Pages a freeze probe is asking (media, Web Audio, capture).
     private var freezeProbing: Set<String> = []
-    /// Which hidden pages may freeze: pages kept awake, Chrome's reasons and opener groups (`memoryFreezeEligibility`).
+    /// Which hidden pages may freeze: pages kept awake, Chrome's reasons and opener groups.
     let freezeRules = FreezeEligibility()
     /// What each hidden page's probes said lately: the benefit of the doubt while it does not
     /// answer (the freeze probes, `freezeSeconds` apart, count the misses).
@@ -228,7 +228,7 @@ final class BrowserHibernation {
     ///   - deadlines: The app's main-thread deadline scheduler: the hibernation and freeze deadlines, the hover dwell and the frozen
     ///     pages' one-shot reading are `background` deadlines on it (nobody sees them), and the probes' answers land on its scheduler.
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, deadlines: MainDeadlineScheduler,
-         energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil, followsTabVisibility: Bool = false, freezeEligibility: Bool = false) {
+         energy: EnergyPolicySource = EnergyPolicySource(), audible: AudibleHistory? = nil, followsTabVisibility: Bool = false) {
         self.cache = cache
         tabVisibility = BrowserVisibilityFollowers(isEnabled: followsTabVisibility)
         growthDeadline = MainDeadline(owner: "BrowserFrozenGrowth", workClass: .background, scheduler: deadlines)
@@ -245,7 +245,7 @@ final class BrowserHibernation {
         self.audible = audible
         audible?.onEnded = { [weak self] key in self?.soundDidEnd(key) }
         snapshots.neighbors = { [weak self] in self?.pictureNeighbors ?? [] }
-        freezeRules.configure(isEnabled: freezeEligibility, work: deadlines.work, isLoading: { [weak cache] in cache?.browsers[$0]?.tab.state.isLoading }) { [weak self] in self?.replan() }
+        freezeRules.configure(work: deadlines.work, isLoading: { [weak cache] in cache?.browsers[$0]?.tab.state.isLoading }) { [weak self] in self?.replan() }
     }
 
     /// The tabs one step beside each pane's shown tab, at any pressure and setting: their pictures stay

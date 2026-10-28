@@ -4,26 +4,22 @@ package import CmuxNextWakeups
 /// Which hidden browser pages may freeze, after Chrome's
 /// components/performance_manager/freezing/freezing_policy.cc.
 ///
-/// With Chrome's rules on (feature `memoryFreezeEligibility`), a page whose site may show
-/// notifications, that holds a Web Lock or an IndexedDB connection, or that still loads does not
-/// freeze, and an opener and the pages it opened (Chrome's browsing instance) freeze and thaw
-/// together. Off, the plan is the one from before: the delay and cmux's own reasons decide, and every
-/// page freezes and thaws alone. Either way it remembers the pages that could not freeze lately, which
-/// are asked again after the delay.
+/// A page whose site may show notifications, that holds a Web Lock or an IndexedDB connection, or
+/// that still loads does not freeze, and an opener and the pages it opened (Chrome's browsing
+/// instance) freeze and thaw together. It remembers the pages that could not freeze lately, which are
+/// asked again after the delay.
 ///
 /// Event-driven: a page kept for its load is watched (a background `ServiceObservation`) until the
 /// load ends, then its owner plans again; there is no timer.
 ///
 /// ```swift
 /// let rules = FreezeEligibility()
-/// rules.configure(isEnabled: true, work: mainWork, isLoading: { key in tabs[key]?.state.isLoading }) { replan() }
+/// rules.configure(work: mainWork, isLoading: { key in tabs[key]?.state.isLoading }) { replan() }
 /// let plan = rules.plan(setting, candidates: hidden, frozen: frozen, groups: openerGroup)
 /// for member in rules.thaw("shown") { thaw(member) }   // its opener group thaws with it
 /// ```
 @MainActor
 package final class FreezeEligibility {
-    /// Whether Chrome's reasons and the opener groups apply.
-    package private(set) var isEnabled = false
     /// Whether page `key` still loads; nil once it is gone. Read with observation tracking, so the
     /// watch of a loading page wakes when the load ends.
     private var isLoading: @MainActor @Sendable (String) -> Bool? = { _ in nil }
@@ -44,22 +40,20 @@ package final class FreezeEligibility {
 
     package init() {}
 
-    /// Turns Chrome's rules on or off and sets where page facts come from.
+    /// Sets where page facts come from.
     ///
     /// - Parameters:
-    ///   - isEnabled: Feature `memoryFreezeEligibility`.
     ///   - work: The app's main-thread scheduler: a load's end applies there as background work.
     ///   - isLoading: Whether a page still loads (nil once it is gone), read with observation tracking.
     ///   - onLoaded: Runs when a page kept for its load stopped loading.
-    package func configure(isEnabled: Bool, work: MainWorkScheduler, isLoading: @escaping @MainActor @Sendable (String) -> Bool?,
+    package func configure(work: MainWorkScheduler, isLoading: @escaping @MainActor @Sendable (String) -> Bool?,
                            onLoaded: @escaping @MainActor @Sendable () -> Void) {
-        self.isEnabled = isEnabled
         self.work = work
         self.isLoading = isLoading
         self.onLoaded = onLoaded
     }
 
-    /// Which hidden pages freeze now (`HibernationPlanner.freezePlan`), with Chrome's reasons when on.
+    /// Which hidden pages freeze now (`HibernationPlanner.freezePlan`), with Chrome's reasons.
     ///
     /// - Parameters:
     ///   - setting: `browser.hibernation`.
@@ -68,7 +62,6 @@ package final class FreezeEligibility {
     ///   - groups: A page's opener group, itself included (`BrowserScriptOpeners`); asked only for due pages.
     package func plan(_ setting: BrowserHibernationSetting, candidates: [HibernationPlanner.Candidate],
                       frozen: Set<String>, groups openers: (String) -> Set<String>) -> FreezePlan {
-        guard isEnabled else { return HibernationPlanner.freezePlan(setting, candidates: candidates, chromeReasons: false) }
         let facts = candidates.map { candidate in
             var facts = candidate
             facts.isLoading = isLoading(candidate.key) == true
@@ -83,19 +76,19 @@ package final class FreezeEligibility {
         return plan
     }
 
-    /// Whether what probed page `probe` said keeps it awake: what a freeze stops, and with the rules
-    /// on, storage its site's other pages may wait for.
+    /// Whether what probed page `probe` said keeps it awake: what a freeze stops, and storage its
+    /// site's other pages may wait for.
     package func keeps(_ probe: PageProbe) -> Bool {
-        probe.stopsWhenFrozen || (isEnabled && probe.holdsSharedStorage)
+        probe.stopsWhenFrozen || probe.holdsSharedStorage
     }
 
     /// Whether page `key` may still freeze when its freeze probe answers: its opener group did not thaw
-    /// since its plan, and with the rules on, it did not start to load meanwhile (a meta refresh, a timed
-    /// reload, a script navigation). A page that loads again is watched as a plan watches it: its load
+    /// since its plan, and it did not start to load meanwhile (a meta refresh, a timed reload, a script
+    /// navigation). A page that loads again is watched as a plan watches it: its load
     /// end plans again (`onLoaded`).
     package func mayFreeze(_ key: String) -> Bool {
         guard !held.contains(key) else { return false }
-        guard isEnabled, isLoading(key) == true else { return true }
+        guard isLoading(key) == true else { return true }
         watchLoad(key)
         return false
     }

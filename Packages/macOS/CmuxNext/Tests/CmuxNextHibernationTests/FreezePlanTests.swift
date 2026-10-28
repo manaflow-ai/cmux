@@ -8,7 +8,6 @@ import Testing
 /// Chrome's freeze eligibility (components/performance_manager/freezing/freezing_policy.cc): a page with
 /// the notification permission, a held Web Lock, a held IndexedDB lock or a load in progress never
 /// freezes, and a browsing instance (an opener and the pages it opened) freezes and thaws as a whole.
-/// The rules apply with feature `memoryFreezeEligibility`; off, the plan is the one from before.
 @Suite struct FreezePlanTests {
     let setting = BrowserHibernationSetting.fallback
 
@@ -76,14 +75,6 @@ import Testing
         #expect(asked == ["due"])
     }
 
-    /// Feature `memoryFreezeEligibility` off: Chrome's reasons keep no page, as before them.
-    @Test func withoutChromesReasonsTheNotificationPageAndTheLoadingPageFreeze() {
-        let plan = HibernationPlanner.freezePlan(setting, candidates: [page("chat", notifications: true), page("slow", loading: true)],
-                                                 chromeReasons: false)
-        #expect(Set(plan.due) == ["chat", "slow"])
-        #expect(plan.kept.isEmpty)
-    }
-
     @Test func freezingOffKeepsEveryPageWithNoReason() {
         var off = setting
         off.freezeSeconds = nil
@@ -92,27 +83,20 @@ import Testing
     }
 }
 
-/// The App's side of the rules (`FreezeEligibility`): the switch, the probe's locks, the opener groups'
+/// The App's side of the rules (`FreezeEligibility`): the probe's locks, the opener groups'
 /// thaw, the pages kept lately, and the load watch.
 @MainActor @Suite struct FreezeEligibilityTests {
     let setting = BrowserHibernationSetting.fallback
     let groups: (String) -> Set<String> = { ["opener", "popup"].contains($0) ? ["opener", "popup"] : [$0] }
 
-    func makeRules(enabled: Bool = true, loading: Set<String> = []) -> FreezeEligibility {
+    func makeRules(loading: Set<String> = []) -> FreezeEligibility {
         let rules = FreezeEligibility()
-        rules.configure(isEnabled: enabled, work: MainWorkScheduler(budget: MainFrameBudget()), isLoading: { loading.contains($0) }, onLoaded: {})
+        rules.configure(work: MainWorkScheduler(budget: MainFrameBudget()), isLoading: { loading.contains($0) }, onLoaded: {})
         return rules
     }
 
     func page(_ key: String, notifications: Bool = false) -> HibernationPlanner.Candidate {
         HibernationPlanner.Candidate(key: key, hiddenFor: 31, allowsNotifications: notifications)
-    }
-
-    /// Off, the plan is the one from before the rules: the notification page and the group freeze.
-    @Test func offThePlanIsTheOneFromBefore() {
-        let plan = makeRules(enabled: false).plan(setting, candidates: [page("chat", notifications: true), page("popup")], frozen: [], groups: groups)
-        #expect(Set(plan.due) == ["chat", "popup"])
-        #expect(plan.kept.isEmpty)
     }
 
     @Test func onTheLoadingPageWaits() {
@@ -127,12 +111,10 @@ import Testing
     func aPageHoldingALockStaysAwake(webLock: Bool) {
         let probe = webLock ? PageProbe(heldWebLock: true) : PageProbe(openIndexedDB: true)
         #expect(makeRules().keeps(probe), "a Web Lock or IndexedDB holder froze")
-        #expect(!makeRules(enabled: false).keeps(probe), "off, the probe's locks do not count")
     }
 
-    @Test func whatAFreezeStopsKeepsThePageEitherWay() {
+    @Test func whatAFreezeStopsKeepsThePage() {
         #expect(makeRules().keeps(PageProbe(playingMedia: true)))
-        #expect(makeRules(enabled: false).keeps(PageProbe(playingMedia: true)))
         #expect(!makeRules().keeps(PageProbe()))
     }
 
@@ -173,7 +155,7 @@ import Testing
         let work = MainWorkScheduler(budget: MainFrameBudget())
         await confirmation { loaded in
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                rules.configure(isEnabled: true, work: work, isLoading: { [weak load] _ in load?.isLoading }, onLoaded: {
+                rules.configure(work: work, isLoading: { [weak load] _ in load?.isLoading }, onLoaded: {
                     loaded()
                     done.resume()
                 })
@@ -187,8 +169,7 @@ import Testing
         rules.stop()
     }
 
-    @Test func offALoadingPageMayFreezeAndAThawedGroupMayNot() {
-        #expect(makeRules(enabled: false, loading: ["slow"]).mayFreeze("slow"), "off, the load does not count, as before the rules")
+    @Test func aThawedGroupMayNotFreeze() {
         let rules = makeRules()
         _ = rules.plan(setting, candidates: [page("opener"), page("popup")], frozen: [], groups: groups)
         #expect(rules.mayFreeze("popup"))
@@ -200,7 +181,7 @@ import Testing
     /// site may show notifications, a loading page and a lock holder still stay awake. Release once froze them.
     @Test func releaseKeepsTheNotificationPageTheLoadingPageAndTheLockHolderAwake() {
         let rules = FreezeEligibility()
-        rules.configure(isEnabled: false, work: MainWorkScheduler(budget: MainFrameBudget()), isLoading: { $0 == "slow" }, onLoaded: {})
+        rules.configure(work: MainWorkScheduler(budget: MainFrameBudget()), isLoading: { $0 == "slow" }, onLoaded: {})
         defer { rules.stop() }
         let plan = rules.plan(setting, candidates: [page("chat", notifications: true), page("slow"), page("docs")], frozen: [], groups: { [$0] })
         #expect(plan.due == ["docs"], "a notification page or a loading page froze")
@@ -216,7 +197,7 @@ import Testing
         let work = MainWorkScheduler(budget: MainFrameBudget())
         await confirmation { loaded in
             await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
-                rules.configure(isEnabled: true, work: work, isLoading: { [weak load] _ in load?.isLoading }, onLoaded: {
+                rules.configure(work: work, isLoading: { [weak load] _ in load?.isLoading }, onLoaded: {
                     loaded()
                     done.resume()
                 })

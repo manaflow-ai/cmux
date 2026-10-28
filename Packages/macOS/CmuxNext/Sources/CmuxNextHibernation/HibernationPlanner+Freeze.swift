@@ -41,7 +41,7 @@ package nonisolated struct FreezePlan: Hashable, Sendable {
 
 nonisolated extension HibernationPlanner {
     /// Which hidden pages freeze now, and when the next one will: after `freezeSeconds` hidden,
-    /// whatever the hibernation mode, unless ``freezeRefusal(_:setting:chromeReasons:)`` keeps it, and
+    /// whatever the hibernation mode, unless ``freezeRefusal(_:setting:)`` keeps it, and
     /// only when every other page of its opener group is frozen or due too.
     ///
     /// - Parameters:
@@ -49,15 +49,13 @@ nonisolated extension HibernationPlanner {
     ///   - candidates: The hidden pages that could freeze (not frozen, not being asked).
     ///   - groups: A page's opener group, itself included (`BrowserScriptOpeners`); asked only for due pages.
     ///   - frozen: The pages frozen now: they count as due members of a group.
-    ///   - chromeReasons: Chrome's reasons (notifications, loading) keep a page; off, only cmux's own do
-    ///     (feature `memoryFreezeEligibility` off).
     package static func freezePlan(_ setting: BrowserHibernationSetting, candidates: [Candidate], groups: (String) -> Set<String> = { [$0] },
-                                   frozen: Set<String> = [], chromeReasons: Bool = true) -> FreezePlan {
+                                   frozen: Set<String> = []) -> FreezePlan {
         var plan = FreezePlan()
         guard let threshold = setting.freezeSeconds else { return plan }
         var due: [String] = []
         for candidate in candidates {
-            if let reason = freezeRefusal(candidate, setting: setting, chromeReasons: chromeReasons) {
+            if let reason = freezeRefusal(candidate, setting: setting) {
                 plan.kept[candidate.key] = reason
                 continue
             }
@@ -88,16 +86,14 @@ nonisolated extension HibernationPlanner {
     /// Why hidden page `candidate` does not freeze, or nil when its delay alone decides: pinned tabs
     /// (unless they hibernate too), excluded hosts, open DevTools, capture, an agent's lease, a page
     /// with background activity (the timeout keeps it for its updates, so they stay live), and
-    /// with `chromeReasons` Chrome's reasons the planner knows (notifications, loading).
-    package static func freezeRefusal(_ candidate: Candidate, setting: BrowserHibernationSetting,
-                                      chromeReasons: Bool = true) -> CannotFreezeReason? {
+    /// Chrome's reasons the planner knows (notifications, loading).
+    package static func freezeRefusal(_ candidate: Candidate, setting: BrowserHibernationSetting) -> CannotFreezeReason? {
         if candidate.hasDevTools { return .devTools }
         if candidate.isCapturing { return .capturing }
         if candidate.hasAgentLease { return .agentLease }
         if candidate.hasBackgroundActivity { return .backgroundActivity }
         if setting.excludes(host: candidate.host) { return .excluded }
         if candidate.isPinned && !setting.includesPinnedTabs { return .pinned }
-        guard chromeReasons else { return nil }
         if candidate.allowsNotifications { return .notifications }
         if candidate.isLoading { return .loading }
         return nil

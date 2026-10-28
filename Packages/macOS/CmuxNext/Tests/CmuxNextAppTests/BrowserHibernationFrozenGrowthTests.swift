@@ -133,10 +133,11 @@ struct BrowserHibernationFrozenGrowthTests {
         let keys = try await rig.pages(["opener", "popup", "outsider"])
         let shown = try await rig.pages(["shown"], hide: false)[0]
         let (opener, popup, outsider) = (keys[0], keys[1], keys[2])
-        rig.hibernation.openerLinks = { [popup: opener, shown: opener] }
         try await rig.until("every hidden page freezes with a baseline") {
             keys.allSatisfy { rig.hibernation.frozenGrowth.pages[$0]?.baseline != nil }
         }
+        // Linked once frozen: a group with a shown member does not freeze (`FreezeEligibility`).
+        rig.hibernation.openerLinks = { [popup: opener, shown: opener] }
 
         rig.hibernation.noteMemory([popup: Self.alone(popup, 200), opener: Self.alone(opener, 100),
                                     outsider: Self.alone(outsider, 100), shown: Self.alone(shown, 900)])
@@ -183,11 +184,11 @@ struct BrowserHibernationFrozenGrowthTests {
         #expect(groups[keys[2]] == nil)
     }
 
-    /// With `memoryFreezeEligibility` an opener and the pages it opened freeze as a group, and the
+    /// An opener and the pages it opened freeze as a group, and the
     /// hibernation of one member thaws that page alone: the others stay frozen, as Chrome discards a
     /// frozen page without unfreezing its browsing instance (freezing_policy.cc).
     @Test func aMembersHibernationLeavesItsGroupFrozen() async throws {
-        let rig = try Rig(freezeEligibility: true)
+        let rig = try Rig()
         defer { rig.close() }
         // Each page links to the first once it exists, so each freezes through a plan that groups it.
         rig.hibernation.openerLinks = { [weak rig] in
@@ -229,11 +230,10 @@ struct BrowserHibernationFrozenGrowthTests {
         var recorders: [String: Recorder] = [:]
         var downloading: Set<String> = []
 
-        init(freezeEligibility: Bool = false) throws {
+        init() throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines,
-                                             freezeEligibility: freezeEligibility)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines)
             folder = FileManager.default.temporaryDirectory
                 .appendingPathComponent("cn-frozen-growth-\(UUID().uuidString.prefix(8).lowercased())", isDirectory: true)
             services.cache.hibernation = hibernation
