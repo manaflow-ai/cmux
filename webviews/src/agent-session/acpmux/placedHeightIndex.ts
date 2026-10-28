@@ -100,6 +100,37 @@ function prefixBeforeLeaf(node: Node | undefined, low: number, high: number, lea
   return nodeSum(node.left) + prefixBeforeLeaf(node.right, middle, high, leafIndex);
 }
 
+function upperBoundNode(
+  node: Node | undefined,
+  low: number,
+  high: number,
+  count: number,
+  target: number,
+  before: number,
+): number {
+  if (!node || low >= high) return -1;
+  if (high - low === 1) {
+    const leaf = node.leaf;
+    if (!leaf) return -1;
+    const start = low * BLOCK_SIZE;
+    const limit = Math.min(BLOCK_SIZE, count - start);
+    let top = before;
+    for (let offset = 0; offset < limit; offset += 1) {
+      if (top > target) return start + offset;
+      top += leaf.values[offset] ?? 0;
+    }
+    return -1;
+  }
+  const middle = low + ((high - low) >>> 1);
+  const left = node.left;
+  const leftSum = nodeSum(left);
+  if (before + leftSum > target) {
+    const result = upperBoundNode(left, low, middle, count, target, before);
+    if (result >= 0) return result;
+  }
+  return upperBoundNode(node.right, middle, high, count, target, before + leftSum);
+}
+
 /**
  * Immutable row-height prefix sums. `update` and `append` share untouched
  * tree nodes with their input; they never retain a reference to an entire
@@ -206,14 +237,8 @@ export class PlacedHeightIndex {
 
   /** Finds the first row whose top is greater than `target` (upper-bound semantics). */
   upperBoundTop(target: number): number {
-    let low = 0;
-    let high = this.count;
-    while (low < high) {
-      const middle = (low + high) >>> 1;
-      if (this.topAt(middle) <= target) low = middle + 1;
-      else high = middle;
-    }
-    return low;
+    const result = upperBoundNode(this.root, 0, this.capacity, this.count, target, 0);
+    return result >= 0 ? result : this.count;
   }
 
   /** Explicitly materializes a compatibility array for consumers that need one. */

@@ -55,6 +55,21 @@ describe("PlacedHeightIndex", () => {
     expect(index.upperBoundTop(12)).toBe(5);
   });
 
+  test("upper-bound descends across padded capacity leaves", () => {
+    const heights = Array.from({ length: 258 }, (_, index) => (index * 17) % 5);
+    const index = PlacedHeightIndex.fromHeights(heights);
+    let top = 0;
+    for (let target = -1; target <= index.totalHeight + 1; target += 0.5) {
+      let expected = 0;
+      top = 0;
+      while (expected < heights.length && top <= target) {
+        top += heights[expected]!;
+        expected += 1;
+      }
+      expect(index.upperBoundTop(target)).toBe(expected);
+    }
+  });
+
   test("normalizes invalid measurements without shifting rows", () => {
     const index = PlacedHeightIndex.fromHeights([1, Number.NaN, Number.POSITIVE_INFINITY, -4, 2]);
     expect([...index.materializeHeights()]).toEqual([1, 0, 0, 0, 2]);

@@ -23,6 +23,15 @@ import { mcpCall } from "./conversation/mcpCalls";
 import { subsessionCall } from "./conversation/subsessionCalls";
 import type { ChatTool } from "./summary/chatTools";
 import type { TaskGoal } from "./goal";
+import {
+  applyHeightChanges,
+  type HeightChange,
+  type IndexedLayoutGeometry,
+  type LayoutGeometry,
+} from "./conversationGeometry";
+
+export type { HeightChange, IndexedLayoutGeometry, LayoutGeometry } from "./conversationGeometry";
+export { applyHeightChanges, geometryFromHeights, geometryFromIndex } from "./conversationGeometry";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -1484,6 +1493,18 @@ export function placeRows(
     top += height;
   }
   return { tops, heights, totalHeight: top };
+}
+
+/**
+ * Places measured rows through the persistent geometry path.  This additive
+ * API is used by the indexed consumer port; the array layout above remains for
+ * legacy callers until that port is complete.
+ */
+export function placeRowsIndexed(
+  estimate: IndexedLayoutGeometry,
+  changes: readonly HeightChange[],
+): IndexedLayoutGeometry {
+  return applyHeightChanges(estimate, changes);
 }
 
 function upperBound(values: Float64Array, target: number): number {
