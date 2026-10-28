@@ -9371,7 +9371,16 @@ function AcpmuxPane() {
                   [...turnRowsShown]
                     .reverse()
                     .find((row) => ![WORKING, THINKING, ACTIVITY_LINE, DATE].includes(row.kind)),
-                  (question, sessionId) => callNative<string>("chat.btw.inline", { question, sessionId }),
+                  async (question, sessionId) => {
+                    // Older daemons ignore `inline` and would leave a real side session running.
+                    // Gate the new reply shape on the daemon capability; legacy /btw remains safe.
+                    if (client.capabilities?.has("btw-inline-v1") !== true) {
+                      const side = await client.btw(question, sessionId);
+                      await postNative("chat.sideChat", { sessionId: side });
+                      return "Opened a side session for this question.";
+                    }
+                    return callNative<string>("chat.btw.inline", { question, sessionId });
+                  },
                 );
                 // The pending aside keeps the whole question; typing and the main turn continue.
                 return true;

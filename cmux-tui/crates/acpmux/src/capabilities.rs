@@ -71,6 +71,9 @@ pub const CAPABILITIES: &[Capability] = &[
             method::MUX_SECRET_SUBMIT,
         ],
     },
+    // Inline `/btw` answers: the pane may send `inline: true` and receive `{text}`;
+    // older daemons treat that field as legacy side-session input, so this id gates the shape.
+    Capability { id: "btw-inline-v1", wire: &[method::MUX_BTW] },
     // Owner-VM Codex app-server bridge: access-only external tokens are read
     // from the private broker file and never exposed through ACP frames.
     Capability {
