@@ -252,7 +252,8 @@ class FakeApp:
             else:
                 self.add(pane, self.tab("conversation"))
         elif action == "newTab.page":
-            self.add(pane, self.tab("page", page="new-tab"))
+            # The New Tab page is an agent tab showing the page (PaneController.newTabPage): kind conversation.
+            self.add(pane, self.tab("conversation"))
         return {}
 
 
@@ -539,6 +540,14 @@ class ChatTests(Case):
         session.build_measured()  # no "terminal tab did not appear": the new tab is found by id, not by count
         for pane in session.panes(session.workspace(session.measured)):
             self.assertEqual(sum(1 for t in pane["tabs"] if t["kind"] == "terminal"), 2)
+
+    def test_an_allowed_chat_fallback_is_recorded_as_the_new_tab_page_it_opened(self):
+        app = FakeApp(chat="refused")
+        session = builder(app, allow_chat_fallback=True)
+        session.build_measured()
+        made = [(kind, tab, fallback) for tabs in session.made.values() for kind, tab, fallback in tabs if kind == "chat"]
+        self.assertTrue(made and all(tab and fallback for _, tab, fallback in made), made)
+        self.assertEqual(session.summary()["pane_problems"], [])
 
     def test_refused_chats_are_not_stress_unless_asked(self):
         for allow in (False, True):

@@ -606,12 +606,13 @@ class Stress:
 
 def topology_kinds(asked, fallback):
     """The `snapshot.get` tab kinds a tab asked as `asked` may have: a terminal, a browser tab for Chromium
-    and WebKit, an agent chat (`conversation`), or the New Tab page (`page`) for a counted chat fallback."""
+    and WebKit, an agent chat (`conversation`), or the New Tab page for a counted chat fallback: an agent tab
+    showing the page (`conversation`, PaneController.newTabPage), or a store page tab (`page`)."""
     if asked == "terminal":
         return {"terminal"}
     if asked in ("chromium", "webkit"):
         return {"browser"}
-    return {"page"} if fallback else {"conversation"}
+    return {"page", "conversation"} if fallback else {"conversation"}
 
 
 def cef_problems(cef, web_dev_config=None):
