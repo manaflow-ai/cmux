@@ -447,6 +447,12 @@ async fn lifecycle_commands_keep_a_peer_owner_when_raw_ids_collide() {
     .await
     .expect("the peer received stop");
 
+    // A vanished mirrored row must not turn the already resolved peer id into a
+    // local name. The configured peer still owns this namespace.
+    let peer = a.peer("lying").unwrap();
+    a.forget_remote(("lying", peer.generation), &local_id, None);
+    assert!(a.resolve(&qualified).is_err(), "a vanished peer row exposed a local name");
+
     server.abort();
     a.end_agents_at_shutdown(Default::default()).unwrap();
     a.shutdown_all().await;
