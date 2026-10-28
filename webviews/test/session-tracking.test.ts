@@ -6,7 +6,13 @@ describe("sessions projected onto workflow rows", () => {
     const rows = sessionTrackingRows(
       [
         { sessionId: "one", name: "review", status: "running", lane: { state: "working" } },
-        { sessionId: "one", name: "review", peer: "fixture-worker", status: "closed", tags: { archived: "1" } },
+        {
+          sessionId: "one",
+          name: "review",
+          peer: "fixture-worker",
+          status: "closed",
+          tags: { archived: "1" },
+        },
       ],
       { localHost: "fixture-desktop" },
     );
@@ -60,18 +66,33 @@ describe("sessions projected onto workflow rows", () => {
     });
   });
 
-  test.each(["unreachable", "disconnected", "closed"])("%s cannot retain a mirrored working state", (status) => {
-    const [row] = sessionTrackingRows([{ sessionId: "s", status, lane: { state: "working" } }]);
-    expect(row!.agent.state).toBe("unknown");
-    expect(row!.agent.startedAt).toBeUndefined();
-  });
+  test.each(["unreachable", "disconnected", "closed"])(
+    "%s cannot retain a mirrored working state",
+    (status) => {
+      const [row] = sessionTrackingRows([{ sessionId: "s", status, lane: { state: "working" } }]);
+      expect(row!.agent.state).toBe("unknown");
+      expect(row!.agent.startedAt).toBeUndefined();
+    },
+  );
 
   test("a stale peer is unknown and a delayed resolve cannot restore running", () => {
     const [row] = sessionTrackingRows(
-      [{ sessionId: "s", qualifiedSessionId: "fixture-worker/s", stale: true, lane: { state: "working" } }],
+      [
+        {
+          sessionId: "s",
+          qualifiedSessionId: "fixture-worker/s",
+          stale: true,
+          lane: { state: "working" },
+        },
+      ],
       {
         resolved: [
-          { sessionId: "s", qualifiedSessionId: "fixture-worker/s", host: "fixture-worker", status: "running" },
+          {
+            sessionId: "s",
+            qualifiedSessionId: "fixture-worker/s",
+            host: "fixture-worker",
+            status: "running",
+          },
         ],
       },
     );
@@ -90,17 +111,19 @@ describe("sessions projected onto workflow rows", () => {
     expect(rows[0]!.pullRequests).toEqual([url]);
     expect(rows[0]!.currentPullRequest).toBeUndefined();
     expect(rows[1]!.pullRequests).toEqual([]);
-    expect(sessionTrackingRows(sessions, { resolved: [match, match] })[0]!.pullRequests).toEqual([]);
+    expect(sessionTrackingRows(sessions, { resolved: [match, match] })[0]!.pullRequests).toEqual(
+      [],
+    );
     expect(
-      sessionTrackingRows(sessions, { resolved: [{ ...match, sessionId: "different" }] })[0]!.pullRequests,
+      sessionTrackingRows(sessions, { resolved: [{ ...match, sessionId: "different" }] })[0]!
+        .pullRequests,
     ).toEqual([]);
   });
 
   test("an explicit empty PR list supersedes an older resolve result", () => {
-    const [row] = sessionTrackingRows(
-      [{ sessionId: "s", pullRequests: [] }],
-      { resolved: [{ sessionId: "s", pullRequests: ["https://github.com/example/project/pull/12"] }] },
-    );
+    const [row] = sessionTrackingRows([{ sessionId: "s", pullRequests: [] }], {
+      resolved: [{ sessionId: "s", pullRequests: ["https://github.com/example/project/pull/12"] }],
+    });
     expect(row!.pullRequests).toEqual([]);
   });
 
@@ -119,7 +142,13 @@ describe("sessions projected onto workflow rows", () => {
 
   test("running elapsed time starts at the current turn, never at session creation", () => {
     const sessions = [
-      { sessionId: "s", status: "running", createdAt: 1, turn: { startedAt: 1200 }, model: "fixture-model" },
+      {
+        sessionId: "s",
+        status: "running",
+        createdAt: 1,
+        turn: { startedAt: 1200 },
+        model: "fixture-model",
+      },
       { sessionId: "missing", status: "running", createdAt: 1 },
       { sessionId: "idle", status: "idle", turn: { startedAt: 1200 } },
     ];
