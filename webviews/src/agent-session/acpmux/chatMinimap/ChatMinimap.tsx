@@ -9,7 +9,7 @@
 import React, { memo, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { transcriptColumn, type AcpmuxRow, type ConversationLayout } from "../model";
 import { useT } from "../i18n";
-import { layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
+import { clearScrollOrigin, layoutScrollTop, physicalScrollTop } from "../conversation/scrollCoordinates";
 import { useChatDisplay, useChatMinimap } from "../chatDisplay";
 import { chatColumnOf, useChatWidth } from "../chatWidth";
 import type { RowsChange } from "../threadMinimap/model";
@@ -435,6 +435,8 @@ const Minimap = memo(function Minimap({
           if (delta === undefined) return;
           event.preventDefault();
           stopScroll(node);
+          // Absolute navigation owns a new end point; relative keys keep the row-coordinate origin.
+          if (event.key === "Home" || event.key === "End") clearScrollOrigin(node);
           node.scrollTop = Math.max(0, node.scrollTop + delta);
         }}
       >
