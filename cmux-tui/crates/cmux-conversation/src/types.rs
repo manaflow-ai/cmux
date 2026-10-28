@@ -119,8 +119,8 @@ pub enum Part {
     },
     /// A link with the preview its sender fetched (link_preview.rs).
     /// Receivers render only from this part and never fetch the URL.
-    /// `image` names an ordinary attachment record (JPEG or WebP, at most
-    /// `MAX_PREVIEW_IMAGE_BYTES`) the sender uploaded to this conversation;
+    /// `image` names an ordinary attachment record (JPEG or WebP) the sender
+    /// uploaded to this conversation;
     /// the owner checks it like an `attachment` part's hash.
     LinkPreview {
         url: String,
