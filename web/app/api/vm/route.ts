@@ -485,8 +485,7 @@ export async function POST(request: Request): Promise<Response> {
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
-      const pickedShape = pickedShapeOf(memory.pick, imageSelection.size, created.resourceReservation);
-      recordMeasuredRun(pickedShape ? memory.tag : null, user.id, created);
+      const sizePick = settleSizePick(memory, imageSelection.size, created, user.id);
       const attach = createAttachBlock({
         entry: created,
         manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
@@ -519,7 +518,7 @@ export async function POST(request: Request): Promise<Response> {
         // resize shape are separate contracts even when they currently match.
         ...createResourceFields(created.resourceReservation),
         ...(attach ? { attach } : {}),
-        ...(pickedShape ? { sizePick: { vcpus: pickedShape.vcpus, memoryGb: pickedShape.memoryGb, pick: pickedShape.pick, reason: pickedShape.reason } } : {}),
+        ...sizePick,
       });
     },
   );
@@ -604,6 +603,19 @@ function recordMeasuredRun(tag: AutosizeTag | null, userId: string, vm: { readon
  * the machine the first request made). Only then is it the answer's
  * `sizePick` (the hand-off's size fields) and a measured run of the pick.
  */
+/** The answer's `sizePick` for the machine created, and its measured-run tag (after the answer) when it holds the pick. */
+function settleSizePick(
+  sized: { readonly pick: AutosizePick | null; readonly tag: AutosizeTag | null },
+  booted: { readonly name: string } | null | undefined,
+  created: { readonly provider: string; readonly providerVmId: string; readonly resourceReservation?: { readonly vcpus: number; readonly memoryMb: number } | null },
+  userId: string,
+) {
+  const pick = pickedShapeOf(sized.pick, booted, created.resourceReservation);
+  if (!pick) return {};
+  recordMeasuredRun(sized.tag, userId, created);
+  return { sizePick: { vcpus: pick.vcpus, memoryGb: pick.memoryGb, pick: pick.pick, reason: pick.reason } };
+}
+
 function pickedShapeOf(
   pick: AutosizePick | null,
   booted: { readonly name: string } | null | undefined,
