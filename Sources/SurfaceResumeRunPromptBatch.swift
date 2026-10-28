@@ -22,8 +22,11 @@ final class SurfaceResumeRunPromptBatch {
 
     /// Outcome of claiming automatic startup for one agent checkpoint.
     enum AgentRestoreClaim: Equatable {
+        /// No restore pass is active, so the checkpoint is not tracked.
         case unscoped
+        /// This panel owns automatic startup for the checkpoint.
         case owner
+        /// Another panel already owns automatic startup for the checkpoint.
         case duplicate
     }
 
@@ -55,6 +58,7 @@ final class SurfaceResumeRunPromptBatch {
         claimedAgentRestoreKeys.remove(key)
     }
 
+    /// Builds the canonical key shared by all representations of a checkpoint.
     private func agentRestoreKey(kind: String, sessionID: String) -> String {
         let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
         return normalizedKind + "\u{1f}" + ManagedAgentSessionIdentity.canonicalSessionID(
@@ -63,10 +67,12 @@ final class SurfaceResumeRunPromptBatch {
         )
     }
 
+    /// Starts a nested restore pass and retains claims from its enclosing pass.
     func beginRestorePass() {
         activePassDepth += 1
     }
 
+    /// Ends a nested restore pass and clears claims when the outer pass ends.
     func endRestorePass() {
         activePassDepth -= 1
         if activePassDepth <= 0 {
@@ -77,11 +83,13 @@ final class SurfaceResumeRunPromptBatch {
         }
     }
 
+    /// Records the restore prompt decision for the active pass.
     func recordDecision(_ decision: StickyDecision) {
         guard activePassDepth > 0 else { return }
         stickyDecision = decision
     }
 
+    /// Clears the prompt decision, claims, and ownership bookkeeping.
     func reset() {
         activePassDepth = 0
         claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
@@ -102,7 +110,8 @@ extension SurfaceResumeRunPromptBatch {
         resumeBinding: SurfaceResumeBindingSnapshot?,
         bindingWillLaunch: Bool
     ) -> (kind: String, sessionID: String)? {
-        if agentMayAutoResume, let restorableAgent {
+        if agentMayAutoResume, let restorableAgent,
+           Self.hasAgentRestoreIdentity(restorableAgent) {
             return (restorableAgent.kind.rawValue, restorableAgent.sessionId)
         }
         guard bindingWillLaunch,
@@ -116,20 +125,65 @@ extension SurfaceResumeRunPromptBatch {
         return (kind, checkpointID)
     }
 
+    /// Infers the legacy kind only when the command's executable is Codex.
     private nonisolated static func agentHookKind(_ binding: SurfaceResumeBindingSnapshot) -> String? {
         if let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines), !kind.isEmpty {
             return kind
         }
-        // Legacy Codex hooks persisted before `kind` was added. Their command
-        // is the only durable discriminator; unknown kindless hooks remain
-        // unscoped rather than risking suppression of an unrelated command.
-        let command = binding.command.lowercased()
-        return command.contains("codex") ? "codex" : nil
+        // Legacy Codex hooks persisted before `kind` was added. Parse the
+        // executable token rather than searching the whole command: a Claude
+        // restore can legitimately have "codex" in its working directory.
+        return Self.legacyAgentExecutable(in: binding.command) == "codex" ? "codex" : nil
     }
 
-    nonisolated static func isConcreteAgentRestoreInput(_ input: String?) -> Bool {
-        guard let input else { return false }
-        let normalized = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !normalized.isEmpty && normalized != "cmux restore --surface"
+    /// Checks that a structured snapshot has a nonempty, canonicalizable identity.
+    private nonisolated static func hasAgentRestoreIdentity(
+        _ restorableAgent: SessionRestorableAgentSnapshot
+    ) -> Bool {
+        !restorableAgent.kind.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !restorableAgent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Extracts the executable after a simple cwd guard and shell prefixes.
+    private nonisolated static func legacyAgentExecutable(in command: String) -> String? {
+        let words = command
+            .split(whereSeparator: { $0.isWhitespace || $0.isNewline })
+            .map { String($0).trimmingCharacters(in: CharacterSet(charactersIn: "'\"")) }
+            .filter { !$0.isEmpty }
+        guard !words.isEmpty else { return nil }
+
+        var index = 0
+        if words[index] == "cd" {
+            guard let separator = words[index...].firstIndex(where: {
+                $0 == "&&"
+                    || $0 == ";"
+                    || $0 == "|"
+                    || $0 == "||"
+            }) else {
+                return nil
+            }
+            // A generated cwd guard uses `|| ... && executable`; prefer the
+            // command after the final && so the guard's test is not treated as
+            // the agent executable.
+            let guardEnd = words[index...].lastIndex(of: "&&") ?? separator
+            index = guardEnd + 1
+        }
+        while index < words.count {
+            let word = words[index]
+            if word.contains("=") && !word.hasPrefix("=") {
+                index += 1
+                continue
+            }
+            if word == "env" || word == "exec" || word == "command" {
+                index += 1
+                continue
+            }
+            if word.hasPrefix("-") {
+                index += 1
+                continue
+            }
+            return word.split(separator: "/").last.map(String.init)?.lowercased()
+        }
+        return nil
     }
 }

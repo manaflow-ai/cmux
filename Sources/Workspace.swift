@@ -1919,8 +1919,7 @@ extension Workspace {
                     !stablePanelHasLiveProcess
                     ? SurfaceResumeRunPromptBatch.agentRestoreIdentity(
                         restorableAgent: restorableAgent,
-                        agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume &&
-                            SurfaceResumeRunPromptBatch.isConcreteAgentRestoreInput(agentRestoreStartupInput),
+                        agentMayAutoResume: shouldAutoResumeAgent && restorableAgentCanAutoResume,
                         resumeBinding: resumeBinding,
                         bindingWillLaunch: unresolvedBindingLaunch != nil ||
                             deferredAgentResumeCandidateInput != nil
