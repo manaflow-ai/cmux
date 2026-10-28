@@ -1,4 +1,4 @@
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextDesign
 import QuartzCore
 

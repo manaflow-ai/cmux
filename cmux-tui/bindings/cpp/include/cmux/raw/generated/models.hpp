@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6";
+inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -119,6 +119,7 @@ enum class ConversationThreadStatus;
 struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
+struct DaemonStartupMarks;
 struct DeadPane;
 struct DeclarativeLayout;
 struct DetachClientTarget;
@@ -3839,6 +3840,20 @@ struct DaemonShutdownEvent {
     friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
+struct DaemonStartupMarks {
+    std::optional<std::uint64_t> config_loaded{};
+    std::optional<std::uint64_t> first_identify_served{};
+    std::optional<std::uint64_t> launch_snapshot_writer_started{};
+    std::optional<std::uint64_t> lifecycle_ready{};
+    std::uint64_t main_start_unix_us{};
+    std::optional<std::uint64_t> mux_restored{};
+    std::optional<std::uint64_t> owner_event_loop{};
+    std::optional<std::uint64_t> owner_prepared{};
+    std::optional<std::uint64_t> socket_bound{};
+    std::optional<std::uint64_t> websocket_ready{};
+    friend bool operator==(const DaemonStartupMarks&, const DaemonStartupMarks&) = default;
+};
+
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
@@ -4564,6 +4579,7 @@ struct IdMapping {
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
     std::optional<bool> revisions{};
+    std::optional<bool> startup_marks{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
@@ -4598,6 +4614,7 @@ struct IdentifyResult {
     Field<std::string> sdk_schema_digest{};
     std::string session{};
     std::optional<std::string> session_id{};
+    Field<DaemonStartupMarks> startup_marks{};
     std::uint64_t terminal_revision{};
     Field<std::string> update_command{};
     std::string version{};
@@ -8507,6 +8524,12 @@ template <>
 struct Codec<CursorStyle> {
     static Result<Json> encode(const CursorStyle& value);
     static Result<CursorStyle> decode(const Json& value);
+};
+
+template <>
+struct Codec<DaemonStartupMarks> {
+    static Result<Json> encode(const DaemonStartupMarks& value);
+    static Result<DaemonStartupMarks> decode(const Json& value);
 };
 
 template <>

@@ -61,6 +61,11 @@ ALLOWED_LISTENERS = {
     "chat's unsent attachments before the page can go away (#23139); a write, not a read",
     (f"{ACPMUX}/chips/ReplyMedia.tsx", "visibilitychange"): "stops a muted hover preview when the "
     "agent page hides; it only cancels local media and reads no data",
+    (f"{ACPMUX}/clock.ts", "visibilitychange"): "the shared minute clock rests while the page is "
+    "hidden (p13-webui-035) and on show reads the minute once; reads no data",
+    (f"{ACPMUX}/chips/referenceExistence.ts", "visibilitychange"): "a bare #N's pull request rounds rest "
+    "while the page is hidden (p13-webui-069): the lifecycle only picks the first wait, and a show "
+    "waits a period (`onResume: \"wait\"`), so a switch reads nothing",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "
     "every focus to catch a Sign In run in a terminal; should re-read only once one ran, as App.tsx "
     "`healthStale` does",

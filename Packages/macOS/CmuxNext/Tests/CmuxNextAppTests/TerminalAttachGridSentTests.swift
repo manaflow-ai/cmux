@@ -73,7 +73,7 @@ nonisolated private final class FakeLink: TerminalAttachLink {
         self.log = log
     }
 
-    func sendInput(_ data: Data) {}
+    func sendInput(_ data: Data, keyFlow: UInt64) {}
     func sendClaim(reporting size: CellSize) { log.yield("claim \(size.cols)x\(size.rows)") }
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) { log.yield("takeOver \(size.cols)x\(size.rows)") }
     func sendHidden(_ hidden: Bool) { log.yield(hidden ? "hide" : "unhide") }

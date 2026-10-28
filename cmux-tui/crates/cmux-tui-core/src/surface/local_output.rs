@@ -149,6 +149,9 @@ impl LocalOutput {
         let n = read(&mut buf)?;
         // The key press this read echoes, taken with the read so it stamps no later one.
         let flow = self.take_echo_flow(pty);
+        if flow != 0 {
+            pty.input_stages.echoed(flow, crate::input_stages::now_ns());
+        }
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);
         if output.is_empty() {

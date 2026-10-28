@@ -27,6 +27,7 @@
 //! home to adopt gets a record too (`mode: none`), so an old path that
 //! appears later never replaces a home in use.
 
+use crate::json_fields::JsonFields;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -142,10 +143,10 @@ fn adopt_locked(
                 aside.clone()
             }
         };
-        record["mode"] = "merge".into();
-        record["merged_sessions"] = merged.0.into();
-        record["renamed_sessions"] = serde_json::json!(merged.1);
-        record["post_update_kept"] = serde_json::json!(kept);
+        record.insert("mode", "merge".into());
+        record.insert("merged_sessions", merged.0.into());
+        record.insert("renamed_sessions", serde_json::json!(merged.1));
+        record.insert("post_update_kept", serde_json::json!(kept));
     }
     // Asides a crash left between the two renames of an earlier run.
     let leftovers: Vec<PathBuf> = cmux_blocking::fs::read_dir(&builds)
@@ -175,7 +176,7 @@ fn adopt_locked(
         Ok(()) => steps.step(format!("{} is now a link to {}", legacy.display(), link.display())),
         Err(error) => steps.step(format!("no link at {}: {error}", legacy.display())),
     }
-    record["steps"] = serde_json::json!(steps.lines);
+    record.insert("steps", serde_json::json!(steps.lines));
     if let Err(error) = super::write_record(&home.join(RECORD), &record) {
         steps.step(format!("record not written: {error}"));
     }
@@ -294,17 +295,33 @@ fn move_host_records(aside: &Path, home: &Path, id: &str) {
 
 /// A new UUID-shaped session id (version 4).
 fn new_session_id() -> String {
-    let hex = super::random_hex(16);
-    let mut chars: Vec<char> = hex.chars().collect();
-    chars[12] = '4';
-    chars[16] = ['8', '9', 'a', 'b'][(chars[16].to_digit(16).unwrap_or(0) % 4) as usize];
-    let s: String = chars.into_iter().collect();
-    format!("{}-{}-{}-{}-{}", &s[0..8], &s[8..12], &s[12..16], &s[16..20], &s[20..32])
+    let mut digits: Vec<char> = super::random_hex(16).chars().collect();
+    // RFC 9562 version 4: the version digit is 4, the variant digit 8..b.
+    if let Some(version) = digits.get_mut(12) {
+        *version = '4';
+    }
+    if let Some(variant) = digits.get_mut(16) {
+        *variant = match variant.to_digit(16).unwrap_or(0) % 4 {
+            0 => '8',
+            1 => '9',
+            2 => 'a',
+            _ => 'b',
+        };
+    }
+    let mut digits = digits.into_iter();
+    let mut id = String::with_capacity(36);
+    for (group, width) in [8, 4, 4, 4, 12].into_iter().enumerate() {
+        if group > 0 {
+            id.push('-');
+        }
+        id.extend(digits.by_ref().take(width));
+    }
+    id
 }
 
 fn set_session_id(path: &PathBuf, id: &str) {
     let Ok(text) = cmux_blocking::fs::read_to_string(path) else { return };
     let Ok(mut value) = serde_json::from_str::<serde_json::Value>(&text) else { return };
-    value["id"] = id.into();
+    value.insert("id", id.into());
     let _ = super::write_record(path, &value);
 }

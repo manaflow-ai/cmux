@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import Foundation
 
 public extension NSApplication {

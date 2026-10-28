@@ -2,7 +2,7 @@ public import CmuxNextFiles
 public import CmuxNextWakeups
 public import AppKit
 public import Foundation
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 public import UniformTypeIdentifiers
 
 /// ``FileAppsProviding`` over Launch Services: every app the system reports for the file's type, the default

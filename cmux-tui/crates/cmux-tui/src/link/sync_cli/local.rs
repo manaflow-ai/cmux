@@ -242,15 +242,14 @@ fn is_per_worktree(relative: &str) -> bool {
 /// rules in the module doc.
 fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()> {
     let parts: Vec<&str> = relative.split('/').collect();
-    if !GIT_TOP.contains(&parts[0]) || relative.ends_with(".lock") {
+    if !parts.first().is_some_and(|top| GIT_TOP.contains(top)) || relative.ends_with(".lock") {
         return Ok(());
     }
     // Below refs/, logs/ and objects/ names are refs and hashes, never
     // hooks or config files, so a branch called `hooks` still goes.
     let data_at = parts.iter().position(|part| matches!(*part, "refs" | "logs" | "objects"));
-    let before_data = &parts[..data_at.unwrap_or(parts.len())];
-    if before_data.iter().any(|part| matches!(*part, "hooks" | "worktrees" | "lfs" | "FETCH_HEAD"))
-    {
+    let mut before_data = parts.iter().take(data_at.unwrap_or(parts.len()));
+    if before_data.any(|part| matches!(*part, "hooks" | "worktrees" | "lfs" | "FETCH_HEAD")) {
         return Ok(());
     }
     let target = format!(".git/{relative}");
@@ -261,7 +260,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
         set.files.insert(target, LocalFile { source, permissions: 0o644 });
         return Ok(());
     }
-    if data_at.is_some_and(|index| parts[index] == "logs") {
+    if data_at.and_then(|index| parts.get(index)) == Some(&"logs") {
         let text = String::from_utf8_lossy(&cmux_blocking::fs::read(path).unwrap_or_default())
             .into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
@@ -398,11 +397,10 @@ pub(super) fn clean_config(config: &str) -> String {
         }
         let mut rest = line.trim();
         if let Some(header) = rest.strip_prefix('[') {
-            let Some(end) = header.find(']') else {
+            let Some((section, after_section)) = header.split_once(']') else {
                 keys = None;
                 continue;
             };
-            let section = &header[..end];
             let plain = section.split('"').next().unwrap_or_default();
             let name = plain.split([' ', '.']).next().unwrap_or_default().to_ascii_lowercase();
             // The old `[section.sub]` form is not allow-listed; a quoted
@@ -418,7 +416,7 @@ pub(super) fn clean_config(config: &str) -> String {
                 out.push_str("]\n");
             }
             // `[core] key = value` on one line: the setting follows the header.
-            rest = header[end + 1..].trim();
+            rest = after_section.trim();
             if rest.is_empty() {
                 continue;
             }
@@ -441,12 +439,16 @@ pub(super) fn clean_config(config: &str) -> String {
 fn without_user_info(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(scheme_end) = rest.find("://") {
-        out.push_str(&rest[..scheme_end + 3]);
-        rest = &rest[scheme_end + 3..];
-        let authority_end = rest.find(['/', ' ', '\t', '"', '\n']).unwrap_or(rest.len());
-        if let Some(at) = rest[..authority_end].rfind('@') {
-            rest = &rest[at + 1..];
+    while let Some((before, after_scheme)) = rest.split_once("://") {
+        out.push_str(before);
+        out.push_str("://");
+        rest = after_scheme;
+        let authority = rest.split(['/', ' ', '\t', '"', '\n']).next().unwrap_or_default();
+        if let Some((user_info, _)) = authority.rsplit_once('@')
+            && let Some(from_host) =
+                rest.strip_prefix(user_info).and_then(|after| after.strip_prefix('@'))
+        {
+            rest = from_host;
         }
     }
     out.push_str(rest);

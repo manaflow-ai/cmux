@@ -452,8 +452,10 @@ fn attach_view(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
+    // The terminal's key presses: each echo goes out with its stages (p04-input-094).
+    let key_stages = surface.input_stages();
     let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
     StreamView { mux, client, surface: surface_id, writer, stream: &outbound_stream, commit }
-        .start_bytes(attach, shape)?;
+        .start_bytes(attach, shape, key_stages)?;
     Ok(attach_response(mux, surface_id, client, lease))
 }

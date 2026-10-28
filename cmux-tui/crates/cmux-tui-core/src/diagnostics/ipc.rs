@@ -27,7 +27,8 @@ use serde::Serialize;
 use super::{HistogramSnapshot, LogLinearHistogram};
 
 /// One write syscall that blocked this long found the peer's receive buffer
-/// full: a write stall.
+/// full: a write stall. A non-blocking write (the mux-io loop) that finds it
+/// full counts one at once ([`IpcStats::write_stall`]).
 pub const WRITE_STALL_THRESHOLD: Duration = Duration::from_millis(1);
 
 /// The name of a JSON message (a line, or a WebSocket text message) in
@@ -111,6 +112,13 @@ impl IpcStats {
         OpenStream { stats: self }
     }
 
+    /// [`Self::stream_opened`] for an owner that cannot hold a borrow (a
+    /// connection served on the mux-io loop and its line sequence).
+    pub fn stream_opened_owned(self: &Arc<Self>) -> OwnedOpenStream {
+        std::mem::forget(self.stream_opened());
+        OwnedOpenStream { stats: self.clone() }
+    }
+
     /// A request arrived at its connection's sequence, which then held
     /// `depth` requests (itself included), also when the sequence was full
     /// and refused it.
@@ -140,6 +148,13 @@ impl IpcStats {
     pub fn frame_sent(&self, kind: FrameKind, bytes: usize) {
         frame_slot(&self.sent, kind).add(bytes);
         self.messages_written.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// A non-blocking write found the peer's receive buffer full: one
+    /// stall, however long the queue then waits for room (the mux-io loop
+    /// counts it once per wait).
+    pub fn write_stall(&self) {
+        self.write_stalls.fetch_add(1, Ordering::Relaxed);
     }
 
     /// A connection closed because a message was malformed.
@@ -236,6 +251,17 @@ pub struct OpenStream<'a> {
 }
 
 impl Drop for OpenStream<'_> {
+    fn drop(&mut self) {
+        self.stats.streams_open.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// An open stream counted until it drops ([`IpcStats::stream_opened_owned`]).
+pub struct OwnedOpenStream {
+    stats: Arc<IpcStats>,
+}
+
+impl Drop for OwnedOpenStream {
     fn drop(&mut self) {
         self.stats.streams_open.fetch_sub(1, Ordering::AcqRel);
     }

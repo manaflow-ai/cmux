@@ -19,6 +19,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     // default it listens on loopback only and refuses every non-loopback peer. A private
     // single-tenant overlay needs the explicit flag below.
     let (reach, bind) = reach_and_bind(opts)?;
+    check_cdp_options(opts)?;
     // The per-launch token from the parent (the daemon) through an inherited pipe.
     let token_fd: i32 = opts.get("token-fd").ok_or("--token-fd N is required: the daemon passes the session token through an inherited pipe")?.parse()?;
     let token = crate::token::Token::read_fd(token_fd)?;
@@ -108,26 +109,62 @@ pub fn run(opts: &Opts) -> Res<()> {
     Ok(())
 }
 
+/// The cloud browser and, with `--browser-cdp-socket`, the socket that serves its CDP pipe.
+/// The supervisor drops first, so the browser stops before its socket goes away.
+struct CloudBrowser {
+    _supervisor: crate::browser::BrowserSupervisor,
+    _cdp: Option<std::sync::Arc<crate::cdp_socket::CdpBridge>>,
+}
+
+/// Refuses CDP options that no longer exist or have no browser to serve.
+fn check_cdp_options(opts: &Opts) -> Res<()> {
+    if opts.get("browser-cdp-port").is_some() {
+        return Err(
+            "--browser-cdp-port was removed: a TCP debugging port lets every local user drive the \
+                    browser. Use --browser-cdp-socket PATH (an owner-only Unix socket)"
+                .into(),
+        );
+    }
+    if opts.get("browser-cdp-socket").is_some() && opts.get("browser").is_none() {
+        return Err("--browser-cdp-socket needs --browser URL".into());
+    }
+    Ok(())
+}
+
 /// Starts the cloud browser at the display's full size (read from the X server).
-fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<crate::browser::BrowserSupervisor> {
+fn start_browser(opts: &Opts, display: &str, url: &str) -> Res<CloudBrowser> {
     let (conn, screen_num) = x11rb::connect(Some(display))?;
     let screen = &x11rb::connection::Connection::setup(&conn).roots[screen_num];
     let (w, h) = (u32::from(screen.width_in_pixels), u32::from(screen.height_in_pixels));
     drop(conn);
     let program = opts.str_or("browser-bin", "google-chrome");
     let profile = opts.str_or("browser-profile", "/tmp/cmux-rd-browser-profile");
-    let mut cmd = crate::browser::BrowserCommand::chrome(&program, display, url, w, h, &profile);
-    // `--browser-cdp-port N`: CDP on 127.0.0.1:N for an agent on this machine (off by default).
-    if let Some(port) = opts.get("browser-cdp-port") {
-        let port: u16 =
-            port.parse().map_err(|_| format!("invalid value for --browser-cdp-port: {port}"))?;
-        cmd = cmd.with_cdp_port(port);
-        eprintln!("cmux-rd host: browser CDP on 127.0.0.1:{port} (loopback only)");
-    }
-    let sup = crate::browser::BrowserSupervisor::start(cmd, crate::browser::Backoff::default())
-        .map_err(|e| format!("--browser: cannot start {program}: {e}"))?;
+    let cmd = crate::browser::BrowserCommand::chrome(&program, display, url, w, h, &profile);
+    let backoff = crate::browser::Backoff::default();
+    // `--browser-cdp-socket PATH`: CDP for an agent of this user, on an owner-only Unix
+    // socket; Chrome speaks it on a pipe and opens no port (off by default).
+    let (sup, cdp) = match opts.get("browser-cdp-socket") {
+        Some(path) => {
+            let bridge = std::sync::Arc::new(
+                crate::cdp_socket::CdpBridge::serve(std::path::Path::new(path))
+                    .map_err(|e| format!("--browser-cdp-socket {path}: {e}"))?,
+            );
+            let sup = crate::browser::BrowserSupervisor::start_with_cdp(
+                cmd.with_cdp_pipe(),
+                backoff,
+                std::sync::Arc::clone(&bridge),
+            );
+            eprintln!(
+                "cmux-rd host: browser CDP on {path} (mode 0600, uid {} only, one client at a time)",
+                crate::cdp_socket::host_uid()
+            );
+            (sup, Some(bridge))
+        }
+        None => (crate::browser::BrowserSupervisor::start(cmd, backoff), None),
+    };
+    let sup = sup.map_err(|e| format!("--browser: cannot start {program}: {e}"))?;
     eprintln!("cmux-rd host: browser {program} ({w}x{h}, pid {}) showing {url}", sup.pid());
-    Ok(sup)
+    Ok(CloudBrowser { _supervisor: sup, _cdp: cdp })
 }
 
 /// Which peers the host serves while hello claims are unauthenticated.
@@ -381,6 +418,25 @@ fn stream_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_tcp_cdp_port_option_is_refused() {
+        let opts =
+            |a: &[&str]| Opts::parse(&a.iter().map(|s| s.to_string()).collect::<Vec<_>>()).unwrap();
+        let err =
+            check_cdp_options(&opts(&["--browser", "about:blank", "--browser-cdp-port", "9222"]))
+                .expect_err("--browser-cdp-port must be refused");
+        assert!(err.to_string().contains("--browser-cdp-socket"), "{err}");
+        assert!(check_cdp_options(&opts(&["--browser-cdp-socket", "/x/cdp.sock"])).is_err());
+        assert!(check_cdp_options(&opts(&[
+            "--browser",
+            "u",
+            "--browser-cdp-socket",
+            "/x/cdp.sock"
+        ]))
+        .is_ok());
+        assert!(check_cdp_options(&opts(&["--browser", "u"])).is_ok());
+    }
 
     #[test]
     fn a_real_loopback_connection_passes_the_default_check() {
