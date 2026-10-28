@@ -5951,10 +5951,7 @@ function AcpmuxPane() {
     setSandboxDraftMoved(false);
     setSandboxViewing(false);
     sandboxWake.current = undefined;
-    // A new chat: Cloud carried over from the chat before (picked there) is only a default here,
-    // which this folder's history may undo (the folder default, below).
     runModePicked.current = false;
-    if (sandbox.mode === "cloud") cloudByDefault.current = true;
   }, [snapshot.sessionId, newTabGeneration]);
   /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
   /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
@@ -6722,7 +6719,16 @@ function AcpmuxPane() {
         : undefined,
     [sandboxOffered, composerSnapshot.summary?.cwd, newTab?.cwd, snapshot.sessions, snapshot.peerKinds],
   );
+  /// The chat the folder default last saw (its session, or the New Tab adoption it came with).
+  const defaultedChat = useRef<string | undefined>(undefined);
   useEffect(() => {
+    const chat = `${snapshot.sessionId ?? ""}:${newTabGeneration}`;
+    if (defaultedChat.current !== chat) {
+      defaultedChat.current = chat;
+      // A new chat: Cloud carried over from the chat before (picked there) is only a default here,
+      // which this folder's history may undo.
+      if (sandbox.mode === "cloud") cloudByDefault.current = true;
+    }
     if (runModePicked.current || snapshot.sessionId) return;
     if (folderRunDefault === "cloud" && sandbox.mode === "persistent") {
       cloudByDefault.current = true;
