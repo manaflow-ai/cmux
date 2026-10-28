@@ -8,6 +8,8 @@
 mod daemon_env;
 #[path = "durable_agents/grant_cleared.rs"]
 mod grant_cleared;
+#[path = "durable_agents/idle_adopted.rs"]
+mod idle_adopted;
 #[path = "durable_agents/queue_edit_parts.rs"]
 mod queue_edit_parts;
 #[path = "durable_agents/queue_restore.rs"]
@@ -18,8 +20,6 @@ mod restart_fence;
 mod restart_reattach;
 #[path = "durable_agents/stalled_turn.rs"]
 mod stalled_turn;
-#[path = "durable_agents/idle_adopted.rs"]
-mod idle_adopted;
 // This process runs stand-in agents (the fake agents under tests/). The restart harness's sizes
 // and budget (`restart_reattach.rs`) are test-runner knobs that hold no credential.
 const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in().keep(&[
