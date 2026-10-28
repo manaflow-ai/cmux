@@ -316,7 +316,7 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
                     control = try await MobileSSHTmuxControlClient.open(connection: connection, tmux: self.tmux, session: session)
                 }
                 guard self.opening[session]?.id == id else {
-                    await control.close()
+                    await control.abort()
                     throw CancellationError()
                 }
                 // Adoption belongs to the shared task, so every waiter gets the same outcome.
