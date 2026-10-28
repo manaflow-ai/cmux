@@ -2566,10 +2566,24 @@ export class AcpmuxDirectClient {
     return unavailable;
   }
 
-  /// Reconnect on the unavailable chat: reads the machines and the chat list again now, and opens
-  /// the chat when it is listed.
+  /// Reconnect on the unavailable chat: reconnects the chat's machine when acpmux lists it down
+  /// (`_acpmux/peer_reconnect`, waiting for its handshake; before, the button only read the lists
+  /// again, so the machine sat out its backoff of up to a minute), then reads the machines and the
+  /// chat list again and opens the chat when it is listed.
   async recheckMissing(): Promise<void> {
     if (this.missingSession === undefined || this.selectedSessionId !== undefined) return;
+    const [missing, generation, peer] = [this.missingSession, this.selectionGeneration, this.missingPeer];
+    if (peer !== undefined && this.peerDown(peer)) {
+      await this.reconnectPeer(peer, true).catch(() => undefined);
+      // Another chat was selected (or this one opened) meanwhile: that is not this press's to read.
+      if (
+        this.closed ||
+        this.missingSession !== missing ||
+        this.selectionGeneration !== generation ||
+        this.selectedSessionId !== undefined
+      )
+        return;
+    }
     await this.refreshPeers().catch(() => undefined);
     await this.refreshSessions().catch(() => undefined);
     // Listed but not open (an earlier open failed): open it now.
