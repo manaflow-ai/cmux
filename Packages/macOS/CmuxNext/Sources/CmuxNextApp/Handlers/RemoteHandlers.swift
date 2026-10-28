@@ -165,10 +165,41 @@ enum RemoteHandlers {
     /// the active window once its tree loads (creating one when it has
     /// none). Keeps recovery available through retries; ends on dismissal or disconnect.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
+        session.connectPresentationTask?.cancel()
         session.connectRecovery?.stop()
-        let recovery = SSHConnectRecovery(session: session, context: context)
+        let target = ActionTargetRef(kind: .machine, id: session.machineID)
+        let recovery = SSHConnectRecovery(
+            retry: { context.services.ssh.reconnect(session) },
+            check: { context.registry.perform("machine.doctor", invocation: ActionInvocation(target: target)) },
+            copy: { context.copy($0) },
+            dismissed: { [weak session] in session?.connectPresentationTask?.cancel() })
         session.connectRecovery = recovery
-        recovery.start()
+        let daemon = session.daemon, window = CloudHandlers.window(context)
+        // task-owner: ends on loaded workspace, disconnect, dismissal, removed session, or closed window.
+        session.connectPresentationTask = Task { @MainActor [weak window] in
+            defer { recovery.stop() }
+            for await (loaded, status, failure) in ObservationStream({
+                (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure)
+            }) {
+                guard !Task.isCancelled, let window else { return }
+                if loaded {
+                    recovery.stop()
+                    let id: String?
+                    if let first = daemon.store.workspaces.first { id = first.id }
+                    else { id = await context.services.windows.createWorkspace(on: daemon) }
+                    if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
+                    return
+                }
+                if status == .offline { return }
+                if status.needsRecovery || failure != nil {
+                    let detail = RemoteStrings.detail(session) ?? ""
+                    let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
+                        detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
+                        check: RemoteStrings.checkMachine, retry: RemoteStrings.retry)
+                    recovery.present(spec, error: RemoteStrings.sshError(session) ?? detail, in: window)
+                }
+            }
+        }
     }
 }
 

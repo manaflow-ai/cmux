@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextDesign
-@testable import CmuxNextApp
+import CmuxNextServer
 import Foundation
 import Testing
 
@@ -13,7 +13,7 @@ import Testing
         for appearance in [NSAppearance.Name.aqua, .darkAqua] {
             var shots: [(String, NSImage)] = []
             for variant in ["compact", "balanced", "details"] {
-                var spec = SSHConnectRecovery.spec(name: "nohost.invalid", detail: detail)
+                var spec = SSHConnectRecovery.spec(title: "Cannot Connect to nohost.invalid", detail: detail, cancel: "Cancel", copy: "Copy Error", check: "Check Machine", retry: "Retry")
                 if variant == "compact" { spec.lines = ["Could not resolve hostname nohost.invalid."] }
                 if variant == "details" { spec.lines = ["nohost.invalid", detail] }
                 let center = CmuxDialogCenter(host: CmuxDialogHeadlessHost())

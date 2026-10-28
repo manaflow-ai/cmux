@@ -32,6 +32,15 @@ public struct SSHConnectionMachine: Hashable, Sendable {
         case installing
         case installFailed(String)
         case failed(String)
+
+        /// A first connection needs a visible recovery action, even while the
+        /// underlying link remains eligible for automatic network retries.
+        public var needsRecovery: Bool {
+            switch self {
+            case .unreachable, .failed, .authFailed, .hostKeyUntrusted, .installFailed: true
+            default: false
+            }
+        }
     }
 
     /// Events that may let a blocked attempt succeed.

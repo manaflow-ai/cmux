@@ -2,6 +2,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextSidebar
+import CmuxNextServer
 import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
@@ -46,6 +47,7 @@ final class SSHMachineSession {
     @ObservationIgnored var offersInstall = false
     @ObservationIgnored var onStatusChange: ((SSHMachineSession, SSHConnectionMachine.Status) -> Void)?
     @ObservationIgnored var connectRecovery: SSHConnectRecovery?
+    @ObservationIgnored var connectPresentationTask: Task<Void, Never>?
     @ObservationIgnored private var statusTask: Task<Void, Never>?
     @ObservationIgnored private var startupTask: Task<Void, Never>?
 
@@ -97,6 +99,8 @@ final class SSHMachineSession {
 
     /// Ends the session for good (forget, quit).
     func close() {
+        connectPresentationTask?.cancel()
+        connectPresentationTask = nil
         connectRecovery?.stop()
         connectRecovery = nil
         disconnect(keepAutoConnect: true)
