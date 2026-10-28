@@ -66,9 +66,10 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// is a theme fill, not a second glass material: the window keeps its
     /// one root material (WindowRootMaterialTests).
     let trafficLightsGlass = TrafficLightsPatch(frame: .zero)
-    /// Back, Forward and the glass patch: hidden until the top row or the
-    /// sidebar is hovered (`window.titlebarButtons`). The sidebar toggle
-    /// always shows.
+    /// The sidebar toggle, Back, Forward and the glass patch. With the
+    /// sidebar open they show (unless `sidebar.controlsOnHover`); with it
+    /// hidden, `window.titlebarButtons` hover hides them until the top row is
+    /// hovered (`applyTitlebarButtonsMode`).
     private(set) lazy var titlebarReveal = HoverReveal(region: titlebarRevealRegion)
     /// Held while the pointer is over the sidebar (its chrome reveal).
     var sidebarHoverHold: HoverReveal.Hold?
@@ -79,6 +80,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         didSet {
             toolbarBand.showSidebarState(hidden: sidebarHidden)
             collapsedBand.setSidebarHidden(sidebarHidden)
+            applyTitlebarButtonsMode()
         }
     }
     /// Opens the collapsed band while the top-left corner is hovered.
@@ -171,7 +173,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         setUpCollapsedBandReveal()
         tokenObservation = Task { [weak self] in
             for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
-                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
+                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0,
+                                           DesignSettings.shared.sidebarSections.controlsOnHover ? 1 : 0] }) {
                 self?.applyTokens()
                 self?.applyTitlebarButtonsMode()
             }

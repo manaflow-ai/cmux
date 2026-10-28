@@ -1363,7 +1363,7 @@
         {
           "key": "window.titlebarButtons",
           "title": "Titlebar Buttons",
-          "help": "On Hover hides Back and Forward until the pointer is over the top row. The sidebar button always shows.",
+          "help": "With the sidebar hidden, On Hover hides the sidebar button, Back and Forward until the pointer is over the top row. With the sidebar open, they always show.",
           "kind": "choice",
           "default": "hover",
           "group": "Window",
@@ -3021,7 +3021,7 @@
         {
           "key": "sidebar.controlsOnHover",
           "title": "Show Sidebar Controls Only on Hover",
-          "help": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show.",
+          "help": "The sidebar's New Workspace button, spaces, profile button and Search button, and the sidebar button, Back and Forward above it, show only while the pointer is over the sidebar. Off, they always show.",
           "kind": "toggle",
           "default": false,
           "group": "Sidebar"
