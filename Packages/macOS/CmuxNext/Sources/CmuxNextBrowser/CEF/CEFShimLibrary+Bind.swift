@@ -286,6 +286,19 @@ nonisolated extension CEFShimLibrary {
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         tabCopySurface = r.optional("cmux_shim_tab_copy_surface")
+        let cHistogramSnapshot: (@convention(c) (UnsafePointer<UnsafePointer<CChar>?>?, Int32, HistogramFn?,
+                                                 UnsafeMutableRawPointer?) -> Int32)? = unsafe r.optional("cmux_shim_histogram_snapshot")
+        unsafe histogramSnapshot = { names, callback, context in
+            guard let call = unsafe cHistogramSnapshot else { return nil }
+            // SAFETY: strdup makes a NUL-terminated copy of each name (NULL when out of memory, which the fork
+            // refuses); the copies outlive the call and are freed once, after it, by the defer. The fork copies
+            // the names before it returns.
+            let copies: [UnsafeMutablePointer<CChar>?] = unsafe names.map { unsafe strdup($0) }
+            defer { unsafe copies.forEach { unsafe Darwin.free($0) } }
+            let pointers: [UnsafePointer<CChar>?] = unsafe copies.map { unsafe UnsafePointer($0) }
+            // SAFETY: `pointers` is an array of names.count live C strings (above) for the call alone.
+            return unsafe call(pointers, Int32(pointers.count), callback, context)
+        }
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
         dragTarget = try CEFShimDragTargetOps(r)

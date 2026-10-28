@@ -65,6 +65,10 @@ public final class ChromiumEngineSlot {
         return engine
     }
 
+    /// Chromium's own histograms into the app's store at report triggers (``CEFHistogramHarvest``, p09-observability
+    /// 107): one per slot, so hang reports and `metrics.snapshot` share its tally. It builds no engine.
+    public private(set) lazy var histograms = CEFHistogramHarvest(engine: self)
+
     /// The engine's ``CEFEngine/unavailableReason``, answered without building it.
     public var unavailableReason: CEFUnavailableReason? { CEFEngine.unavailableReason(source: source) }
 

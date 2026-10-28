@@ -7,21 +7,35 @@ public import Foundation
 /// `metrics.snapshot` (`cmux metrics`, View Metrics; plans/cmux-next/chrome-parity/p09-observability.md task 065):
 /// the app's field histograms as JSON, read-only, served only while the `metricsView` feature is on.
 extension ControlRouter {
-    /// The `metrics.snapshot` method over `snapshot`'s store. It runs on the snapshot lane from the last published
-    /// snapshot, so it answers while the main thread is stalled; its only parameter is `names`.
+    /// The `metrics.snapshot` method over `snapshot`'s store; its only parameter is `names`. Without `harvest` it
+    /// runs on the snapshot lane from the last published snapshot, so it answers while the main thread is stalled.
+    /// With `harvest` (Chromium's histograms, task 107) a request is a report trigger, as a chrome://histograms load
+    /// is one in Chrome (it fetches the child processes' histograms first): the async lane runs `harvest`, then the
+    /// read.
     ///
     /// - Parameters:
     ///   - snapshot: Reads the process's histograms (the app runtime's store by default; tests pass their own).
     ///   - enabled: Whether the `metricsView` feature is on; while it is off every request answers `unavailable`.
-    public static func metricsMethod(_ snapshot: MetricsSnapshot = MetricsSnapshot(), enabled: Bool) -> ControlMethod {
-        .snapshot(MetricsSnapshot.method) { call in
-            guard enabled else {
-                throw ControlError(code: "unavailable", message: ControlStrings.format(
-                    "control.error.metricsOff", "%1$@ is off: turn on the feature %2$@ (CMUX_ENABLE_FEATURES=%2$@)",
-                    MetricsSnapshot.method, "metricsView"))
-            }
-            return snapshot.json(names: try MetricsSnapshot.names(call.params))
-        }.readingLastPublished()
+    ///   - harvest: Folds other sources into the store before the read; nil folds nothing.
+    public static func metricsMethod(_ snapshot: MetricsSnapshot = MetricsSnapshot(), enabled: Bool,
+                                     harvest: (@Sendable () async -> Void)? = nil) -> ControlMethod {
+        guard let harvest else {
+            return .snapshot(MetricsSnapshot.method) { call in try metricsJSON(snapshot, enabled: enabled, call: call) }.readingLastPublished()
+        }
+        return .async(MetricsSnapshot.method) { call in
+            _ = try MetricsSnapshot.names(call.params)
+            if enabled { await harvest() }
+            return try metricsJSON(snapshot, enabled: enabled, call: call)
+        }
+    }
+
+    private static func metricsJSON(_ snapshot: MetricsSnapshot, enabled: Bool, call: ControlCall) throws -> JSONValue {
+        guard enabled else {
+            throw ControlError(code: "unavailable", message: ControlStrings.format(
+                "control.error.metricsOff", "%1$@ is off: turn on the feature %2$@ (CMUX_ENABLE_FEATURES=%2$@)",
+                MetricsSnapshot.method, "metricsView"))
+        }
+        return snapshot.json(names: try MetricsSnapshot.names(call.params))
     }
 }
 
@@ -29,7 +43,9 @@ extension ControlRouter {
 /// (Chrome's chrome://histograms over `base::StatisticsRecorder::ToJSON`, base/metrics/statistics_recorder.cc, whose
 /// `query` keeps the histograms whose name contains it). Each histogram has its name, unit, layout, count, sum and
 /// non-empty buckets (`low`, `high`, `count`; the overflow bucket's `high` is null), with p50, p95, p99 and max read
-/// from the buckets. Catalog names and numbers only: no path, URL, title or text.
+/// from the buckets. Chromium's own histograms (`chromium.*`, task 107) are in Chromium's buckets: `low` is a bucket's
+/// smallest sample, `high` is null and the percentiles are bucket lower bounds. Catalog names and numbers only: no
+/// path, URL, title or text.
 ///
 /// ```swift
 /// let json = MetricsSnapshot().json(names: ["key.frame"])
@@ -53,7 +69,8 @@ public struct MetricsSnapshot: Sendable {
         guard let store = MetricsStore.attached(to: runtime) else {
             return ["recording": false, "count": 0, "histograms": []]
         }
-        let units = Dictionary(store.histograms.map { ($0.name, $0.unit) }, uniquingKeysWith: { first, _ in first })
+        let units = Dictionary((store.histograms + HistogramID.Chromium.allCases.map(HistogramID.chromium)).map { ($0.name, $0.unit) },
+                               uniquingKeysWith: { first, _ in first })
         let shown = store.totals().histograms.filter { histogram in
             guard let names else { return true }
             return names.contains { name in histogram.name.contains(name) }
@@ -118,6 +135,8 @@ public struct MetricsSnapshot: Sendable {
             if let range {
                 low = JSONValue(Int(truncatingIfNeeded: range.lowerBound))
                 if bucket.index != overflow { high = JSONValue(Int(truncatingIfNeeded: range.upperBound)) }
+            } else if layout == .chromium {
+                low = JSONValue(bucket.index)
             }
             return .object(["index": JSONValue(bucket.index), "low": low, "high": high, "count": .number(Double(bucket.count))])
         }
@@ -153,6 +172,7 @@ public struct MetricsSnapshot: Sendable {
             return seen >= rank
         })
         let holding = reached ?? histogram.buckets.last
+        if histogram.layout == .chromium { return holding.map { Int64(truncatingIfNeeded: $0.index) } }
         guard let holding, let range = histogram.layout.bucketRange(holding.index) else { return nil }
         return holding.index == histogram.layout.bucketCount - 1 ? range.lowerBound : range.upperBound
     }

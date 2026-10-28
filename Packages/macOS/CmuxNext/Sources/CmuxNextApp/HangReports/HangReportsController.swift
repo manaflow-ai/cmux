@@ -52,6 +52,8 @@ final class HangReportsController {
     private let managedDisables: @Sendable () -> Bool
     /// Before each report: the local daemon's `daemon.request.<class>` from its metrics file (task 062).
     let daemonMetrics: DaemonMetricsFold?
+    /// Before each report: Chromium's own histograms as `chromium.*` (task 107); nil while feature chromiumHistograms is off.
+    private let chromiumHistograms: (@Sendable () async -> Void)?
     /// The local daemon's pid now; nil without one.
     private let daemonPID: @MainActor @Sendable () -> Int32?
     private let defaults: UserDefaults
@@ -82,8 +84,8 @@ final class HangReportsController {
 
     init(service: HangReportService?, managedDisables: @escaping @Sendable () -> Bool, defaults: UserDefaults = .standard,
          activityFeed: MainThreadActivityFeed? = nil, memory: HiddenWorkspaceMemory? = nil, daemonMetrics: DaemonMetricsFold? = nil,
-         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, work: BackgroundWork, mainWork: MainWorkScheduler,
-         blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in }) {
+         daemonPID: @escaping @MainActor @Sendable () -> Int32? = { nil }, chromiumHistograms: (@Sendable () async -> Void)? = nil,
+         work: BackgroundWork, mainWork: MainWorkScheduler, blackboxConsent: @escaping @MainActor (Bool) -> Void = { _ in }) {
         self.service = service
         self.activityFeed = activityFeed
         self.memory = memory
@@ -91,6 +93,7 @@ final class HangReportsController {
         self.defaults = defaults
         self.daemonMetrics = daemonMetrics
         self.daemonPID = daemonPID
+        self.chromiumHistograms = chromiumHistograms
         self.work = work
         self.mainWork = mainWork
         self.blackboxConsent = blackboxConsent
@@ -101,7 +104,8 @@ final class HangReportsController {
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
     /// them) the active time and `watchdog`'s main-turn and input-queueing histograms. Before each report the local
     /// daemon's request latency is folded from its metrics file in `metricsFolder` on `work`'s files lane. `memory`
-    /// samples at the report triggers too, and runs where nothing is sent. `wireSchema` is schema 3 only while the
+    /// samples at the report triggers too, and runs where nothing is sent. `chromiumHistograms` folds Chromium's own
+    /// histograms in before each report (nil: none). `wireSchema` is schema 3 only while the
     /// `hangReportsSchema3` feature says cmux.com accepts it. `features` reads the features hash and overrides the
     /// app runs with, at each report. `blockingSites` reads the blocking detector's main-thread sites (and reset count), whose counts a
     /// schema-3 report carries by hashed site id. `blackboxConsent` is told each decision of whether reports are on.
@@ -109,6 +113,7 @@ final class HangReportsController {
                               watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents, memory: HiddenWorkspaceMemory,
                               work: BackgroundWork, mainWork: MainWorkScheduler,
                               metricsFolder: URL, daemonPID: @escaping @MainActor @Sendable () -> Int32?,
+                              chromiumHistograms: (@Sendable () async -> Void)? = nil,
                               wireSchema: HangReport.WireSchema = .deployed,
                               features: @escaping @Sendable () -> HangReport.FeatureState? = { nil },
                               blockingSites: @escaping @Sendable () -> BlockingDetector.MainThreadRead = { .init() },
@@ -151,8 +156,8 @@ final class HangReportsController {
         let daemonMetrics = DaemonMetricsFold(reader: ChildMetricsReader(role: .daemon, directory: metricsFolder), metrics: Metrics(),
                                               work: work)
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed, memory: memory,
-                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, work: work, mainWork: mainWork,
-                                     blackboxConsent: blackboxConsent)
+                                     daemonMetrics: daemonMetrics, daemonPID: daemonPID, chromiumHistograms: chromiumHistograms,
+                                     work: work, mainWork: mainWork, blackboxConsent: blackboxConsent)
     }
 
     /// The folders the app's Rust processes write their black boxes and crash-key pages in: the app's trace folder,
@@ -163,14 +168,18 @@ final class HangReportsController {
         return .app(bundleID: bundleID, flowsDirectory: flows.map { URL(filePath: $0, directoryHint: .isDirectory) })
     }
 
-    /// The local daemon's request latency into the app's histograms, before a report reads them (no socket request).
+    /// The local daemon's request latency and Chromium's histograms into the app's histograms, before a report reads
+    /// them (no socket request).
     private func foldDaemonMetrics() async {
-        await Self.foldDaemonMetrics(daemonMetrics, pid: daemonPID(), logger: logger)
+        await Self.foldDaemonMetrics(daemonMetrics, pid: daemonPID(), chromium: chromiumHistograms, logger: logger)
     }
 
-    /// One fold of `daemonMetrics` for the daemon `pid`. Every outcome is counted in its tally (`debug.shipping_mode`'s
-    /// `hang_reports.daemon_metrics_fold`); one that left the daemon's samples out of the report is also logged.
-    private static func foldDaemonMetrics(_ daemonMetrics: DaemonMetricsFold?, pid: Int32?, logger: Logger) async {
+    /// One fold of `daemonMetrics` for the daemon `pid`, then one harvest of `chromium`'s histograms. Every daemon
+    /// outcome is counted in its tally (`debug.shipping_mode`'s `hang_reports.daemon_metrics_fold`); one that left the
+    /// daemon's samples out of the report is also logged.
+    private static func foldDaemonMetrics(_ daemonMetrics: DaemonMetricsFold?, pid: Int32?, chromium: (@Sendable () async -> Void)?,
+                                          logger: Logger) async {
+        await chromium?()
         guard let daemonMetrics else { return }
         let outcome = await daemonMetrics.fold(pid: pid)
         let described = String(describing: outcome), daemon = pid ?? 0
@@ -269,10 +278,11 @@ final class HangReportsController {
     func viewReport(open: @escaping @MainActor @Sendable (URL) -> Void) {
         guard let service else { return }
         let mainWork = mainWork, memory = memory, daemonMetrics = daemonMetrics, pid = daemonPID(), logger = logger
+        let chromium = chromiumHistograms
         // task-owner: one memory sample, fold, read and open, the rest of the person's click; nothing to cancel.
         work.task(.userBlocking) {
             await memory?.sampleNow(.report)
-            await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
+            await Self.foldDaemonMetrics(daemonMetrics, pid: pid, chromium: chromium, logger: logger)
             guard let url = await service.viewableReport() else { return }
             mainWork.postFromAnyThread(.userBlocking, owner: "HangReports.view") { open(url) }
         }
@@ -292,12 +302,13 @@ final class HangReportsController {
                 // MetricKit hands over payloads it kept from before the consent: dropped.
                 let since = defaults.object(forKey: Self.consentKey) as? Date ?? Date()
                 let work = work, memory = memory, daemonMetrics = daemonMetrics, daemonPID = daemonPID, logger = logger
+                let chromium = chromiumHistograms
                 let subscriber = MetricKitSubscriber(since: since) { input in
                     // task-owner: one memory sample and fold, then one delivery handed to the service actor, at best effort.
                     work.task(.bestEffort) {
                         await memory?.sampleNow(.report)
                         let pid = await daemonPID()
-                        await Self.foldDaemonMetrics(daemonMetrics, pid: pid, logger: logger)
+                        await Self.foldDaemonMetrics(daemonMetrics, pid: pid, chromium: chromium, logger: logger)
                         await service.receive(input)
                     }
                 }

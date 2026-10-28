@@ -385,6 +385,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_energy_saver, "cmux_cef_set_energy_saver");
   CMUX_BIND(browser_renderer_pid, "cmux_cef_browser_renderer_pid");
   CMUX_BIND(memory_pressure_vote, "cmux_memory_pressure_vote");
+  CMUX_BIND(histogram_snapshot, "cmux_cef_histogram_snapshot");
 #undef CMUX_BIND
 }
 
@@ -565,6 +566,19 @@ int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme) {
   }
   fork_api().set_energy_saver(enabled != 0, exempt_scheme);
   return 1;
+}
+
+// The fork checks the names and its own context; the shim adds the fork's
+// absence (-2) and quit (0: CefShutdown is about to tear the pool down).
+int cmux_shim_histogram_snapshot(const char* const* names, int name_count, cmux_shim_histogram_fn fn,
+                                 void* ctx) {
+  if (!fork_api().histogram_snapshot) {
+    return -2;
+  }
+  if (stopping()) {
+    return 0;
+  }
+  return fork_api().histogram_snapshot(names, name_count, fn, ctx);
 }
 
 // The fork checks the level and the UI thread; a vote during quit would reach

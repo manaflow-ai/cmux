@@ -40,7 +40,8 @@ extension HangReportBuilder {
     }
 
     /// The histograms (the ``HangReport/maxFieldHistograms`` with the most samples, in directory order) and the
-    /// stability counts of `delta`. A name outside this build's catalog, and Chromium's own layout, are left out.
+    /// stability counts of `delta`. A name outside this build's catalog is left out. Chromium's own histograms
+    /// (task 107) go as unit `chromium`, each bucket index its smallest sample.
     public static func fieldData(_ delta: MetricsDelta) -> (histograms: [HangReport.FieldHistogram], stability: HangReport.Stability) {
         var stability = HangReport.Stability()
         var candidates: [HangReport.FieldHistogram] = []
@@ -95,7 +96,7 @@ extension HangReportBuilder {
 
     /// A histogram's wire form: its ``HangReport/maxFieldBuckets`` fullest buckets, by index. With more buckets
     /// than that, the count is the kept buckets' and the sum their share of it, so the rest and its sum stay
-    /// for a later report. Nil for Chromium's layout.
+    /// for a later report. Nil for a name outside the catalog.
     static func fieldHistogram(_ histogram: MetricsDelta.Histogram) -> HangReport.FieldHistogram? {
         guard let id = catalogByName[histogram.name], let unit = unitName(id.unit), let ceiling = ceiling(histogram.layout) else {
             return nil
@@ -118,7 +119,7 @@ extension HangReportBuilder {
         return HangReport.FieldHistogram(name: histogram.name, unit: unit, buckets: buckets, count: keptCount, sum: sum, max: ceiling)
     }
 
-    /// The wire unit of `unit`; nil for Chromium's.
+    /// The wire unit of `unit` (`chromium` for Chromium's own, which the server reads with no layout check).
     static func unitName(_ unit: HistogramID.Unit) -> String? {
         switch unit {
         case .microseconds: "us"
@@ -127,16 +128,16 @@ extension HangReportBuilder {
         case .percent: "pct"
         case .count: "count"
         case .enumeration: "enum"
-        case .chromium: nil
+        case .chromium: "chromium"
         }
     }
 
-    /// The layout's maximum or value count; nil for Chromium's.
+    /// The layout's maximum or value count; 0 for Chromium's, which has neither (the server ignores it).
     static func ceiling(_ layout: HistogramID.Layout) -> Int64? {
         switch layout {
         case let .logLinear(maximum), let .linear(maximum): maximum
         case let .enumeration(valueCount): Int64(valueCount)
-        case .chromium: nil
+        case .chromium: 0
         }
     }
 

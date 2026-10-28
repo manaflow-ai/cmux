@@ -172,7 +172,7 @@ final class AppControl {
             // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
             EnergyReport.statusMethod(services: services),
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
-            ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
+            ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView), harvest: services.chromiumHistogramHarvest),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
         // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.

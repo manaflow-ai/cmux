@@ -1974,6 +1974,14 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
   - An old fork reports unsupported.
   - The directory does not grow.
 - Test phase: `cmux metrics --json` lists chromium.EventLatency.KeyPressed.TotalLatency with count > 0.
+- Fork: manaflow-ai/cef `cp/p09-observability-107` at 387ab2b4 (on the train tip `cp/p13-webui-086`, no API number:
+  the shim binds the symbol). The app reads it behind the default-off feature `chromiumHistograms`.
+- BrowserMetrics (checked 2026-10-28 on cmux21 and cmux23, 21 tagged bundles): no `BrowserMetrics/` folder and no
+  `*.pma` in it in any bundle; each Chromium root holds one 4 MiB `BrowserMetrics-spare.pma`, rewritten each launch.
+  Chromium itself deletes the folder at start while metrics reporting is off (file_metrics_provider.cc
+  `RegisterSource`), so cmux deletes nothing. The feature cannot be turned off: `ChromeMainDelegate::SandboxInitialized`
+  calls `InstantiatePersistentHistograms` with persistence on, and the renderers' shared-memory histograms need that
+  allocator (`RenderProcessHostImpl::CreateMetricsAllocator`).
 
 ### 108 WebKit content-process ends and Page unresponsive
 - Files: S/CmuxNextBrowser/WebKit/WebKitTab+Delegates.swift, S/CmuxNextPages/PageWebView+Lifecycle.swift, S/CmuxNextAgentPane/AgentPaneNavigation.swift, S/CmuxNextBrowser/CEF/CEFTab+Events.swift, S/CmuxNextBrowser/Core/BrowserTabStateMachine.swift.

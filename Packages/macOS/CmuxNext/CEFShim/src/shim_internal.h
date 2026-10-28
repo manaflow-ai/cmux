@@ -180,6 +180,10 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p09-observability-107; the fork train numbers it):
+  // deltas of an allowlist of Chromium histograms. The fork's bucket struct
+  // has cmux_shim_histogram_bucket's layout.
+  int (*histogram_snapshot)(const char* const*, int, cmux_shim_histogram_fn, void*) = nullptr;
 };
 
 struct Host {

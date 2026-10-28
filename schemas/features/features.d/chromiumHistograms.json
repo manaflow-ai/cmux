@@ -1,0 +1,13 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumHistograms",
+  "owner": "PL-telemetry",
+  "description": "At report triggers (a hang report, cmux metrics) the app reads an allowlist of Chromium's own histograms (key press latency, dropped frames, memory, stability, first paint) from a fork with cmux_cef_histogram_snapshot and records them as chromium.* histograms.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "killSwitch",
+  "process": "app",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

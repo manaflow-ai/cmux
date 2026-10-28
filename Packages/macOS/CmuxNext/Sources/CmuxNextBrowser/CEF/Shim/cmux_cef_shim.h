@@ -1431,6 +1431,34 @@ CMUX_SHIM_EXPORT void cmux_shim_set_popup_menus(int enabled);
 // group label, a separator, a disabled option) closes the popup as -1 does.
 // An answered or hidden token does nothing. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index);
+// Chromium's own histograms for cmux's field metrics (p09-observability 107,
+// the fork's cmux_cef_histogram_snapshot; same layout as the fork's
+// cmux_histogram_bucket_t): `count` samples in [min, max).
+typedef struct {
+  int64_t min;
+  int64_t max;
+  int64_t count;
+} cmux_shim_histogram_bucket;
+// One histogram's samples since the previous snapshot that named it in this
+// Chromium (all of them the first time), its non-empty buckets ascending and
+// valid only during the call; the last call of a snapshot has name NULL and
+// every other argument 0 or NULL. Called on a Chromium thread-pool thread.
+typedef void (*cmux_shim_histogram_fn)(void* ctx, const char* name, int64_t sum, int64_t count,
+                                       const cmux_shim_histogram_bucket* buckets, int bucket_count);
+// Reads the deltas of the histograms in names (1 to 16, each exactly one of
+// the fork's allowlist: EventLatency.KeyPressed.TotalLatency,
+// EventLatency.MousePressed.TotalLatency,
+// Graphics.Smoothness.PercentDroppedFrames3.AllSequences,
+// Memory.Renderer.PrivateMemoryFootprint, Memory.Gpu.PrivateMemoryFootprint,
+// Stability.Counts2, PageLoad.PaintTiming.NavigationToFirstContentfulPaint).
+// Returns 1 when started: fn then gets one call per histogram with new
+// samples and exactly one end call. Returns 0 when Chromium is not running
+// or is stopping, -1 when the fork refused the request (a name outside the
+// list, no fn, a bad count), -2 when the fork lacks the call; nothing is
+// called back for any of those. Any thread. Host mode returns -2: the
+// histograms are the Chromium Host's.
+CMUX_SHIM_EXPORT int cmux_shim_histogram_snapshot(const char* const* names, int name_count, cmux_shim_histogram_fn fn,
+                                                  void* ctx);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not

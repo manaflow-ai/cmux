@@ -4541,6 +4541,38 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "A page's host events and replies as data (p13-webui-079), one-way and in call order on the control channel, which also carries the page's scripts (tab_evaluate), so a push never overtakes a script sent before it. The app reads no answer: it pushes only while CEFForkFeatures.pagePush says the fork and the shim have the channel."
+    },
+    {
+      "name": "cmux_shim_histogram_snapshot",
+      "class": "local",
+      "args": [
+        {
+          "name": "names",
+          "type": "const char* const*"
+        },
+        {
+          "name": "name_count",
+          "type": "int"
+        },
+        {
+          "name": "fn",
+          "type": "cmux_shim_histogram_fn",
+          "function_pointer": true
+        },
+        {
+          "name": "ctx",
+          "type": "void*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFHistogramHarvest.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Function-pointer arg, called back on a Chromium thread-pool thread (p09-observability-107). Chromium's histograms are the Chromium Host's in host mode and no op carries them yet: the client returns -2 (a fork without the call) and sends nothing, so the app reports the harvest unsupported."
     }
   ],
   "events": [

@@ -110,6 +110,13 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let setEnergySaver: (Int32, String?) -> Int32
     /// `cmux_shim_memory_pressure_vote(level)`: cmux's vote in Chromium's pressure aggregator (``CEFMemoryPressureVote``).
     let memoryPressureVote: @convention(c) (Int32) -> Int32
+    /// `cmux_shim_histogram_fn`: ctx, name (NULL for the end call), sum, count, the buckets as `min, max, count`
+    /// triples (`cmux_shim_histogram_bucket`), bucket count. Called on a Chromium thread-pool thread.
+    typealias HistogramFn = @convention(c) (UnsafeMutableRawPointer?, UnsafePointer<CChar>?, Int64, Int64,
+                                            UnsafePointer<Int64>?, Int32) -> Void
+    /// `cmux_shim_histogram_snapshot(names, count, fn, ctx)` (``CEFHistogramHarvest``, p09-observability-107): 1 started,
+    /// 0 Chromium not running, -1 refused, -2 no fork call; nil from a shim without the export and in host mode.
+    let histogramSnapshot: ([String], HistogramFn?, UnsafeMutableRawPointer?) -> Int32?
 
     let createWindow: (Int32, CEFParentView?, Int32, Int32, String?, String?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's

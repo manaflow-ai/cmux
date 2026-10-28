@@ -23,6 +23,7 @@ public nonisolated struct FeatureDogfoodSet: Sendable, Equatable {
         "cefPumpInputPolicy",
         "cefTimerSlack",
         "chromiumAdBlockerAtFirstTab",
+        "chromiumHistograms",
         "chromiumHostDragIn",
         "chromiumHostFileDialogs",
         "chromiumHostIdleExit",

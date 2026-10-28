@@ -15,7 +15,8 @@ import Darwin
 /// - A record (``Metrics/record(_:_:)``) is one dictionary probe and three relaxed atomic adds (bucket, count,
 ///   sum) into the active block: no lock, allocation or system call, on any thread.
 /// - An expired histogram (``HistogramID/Expiry``, by the profile's build day) and Chromium's own have no block
-///   and record nothing.
+///   and record nothing. Chromium's own are folded in from Chromium at report triggers instead
+///   (``foldChromium(_:count:sum:buckets:)``, MetricsStore+Chromium.swift) and kept on the heap.
 /// - Each block has a "logged" shadow of its counters. ``delta()`` reads current minus logged, and
 ///   ``markLogged(_:)`` adds an uploaded delta to the shadow, so each sample is sent once. Both run under the
 ///   store's shadow lock, as Chrome takes `StatisticsRecorder`'s snapshot lock around a delta
@@ -77,9 +78,17 @@ public final class MetricsStore: Sendable {
     private let fileAddress = Atomic<UInt64>(0)
     /// 0 before adoption, 1 while it runs, 2 after it succeeded.
     private let adoption = Atomic<UInt64>(0)
-    /// The block whose logged shadow ``delta()`` and ``markLogged(_:)`` use: the heap, then the file. The adoption
-    /// changes it in the same critical section as its swap and fold.
-    private let shadow: Mutex<UInt>
+    /// The block whose logged shadow ``delta()`` and ``markLogged(_:)`` use (the heap, then the file; the adoption
+    /// changes it in the same critical section as its swap and fold), and Chromium's folded histograms.
+    let shadow: Mutex<Shadow>
+
+    /// What the shadow lock guards.
+    struct Shadow {
+        /// The block's address.
+        var address: UInt
+        /// Chromium's histograms folded in so far, with their logged part.
+        var chromium = ChromiumCounts()
+    }
 
     /// A store whose counters start on the heap; no file work. Attach it to the process's runtime with
     /// ``attach(to:)`` so every ``Metrics`` of the process records into it.
@@ -108,7 +117,7 @@ public final class MetricsStore: Sendable {
         histograms = layout.entries.map(\.id)
         slots = layout.slots
         heapAddress = UInt(bitPattern: heap)
-        shadow = Mutex(UInt(bitPattern: heap))
+        shadow = Mutex(Shadow(address: UInt(bitPattern: heap)))
         activeAddress.store(UInt64(heapAddress), ordering: .releasing)
     }
 
@@ -166,16 +175,20 @@ public final class MetricsStore: Sendable {
     /// What was recorded since the last ``markLogged(_:)``: current minus logged, per histogram with samples.
     /// Waits while an adoption folds the heap into the file.
     public func delta() -> MetricsDelta {
-        shadow.withLock { address in
-            shadowImage(at: address)?.delta() ?? MetricsDelta(profile: profile, histograms: [])
+        shadow.withLock { state in
+            var delta = shadowImage(at: state.address)?.delta() ?? MetricsDelta(profile: profile, histograms: [])
+            delta.histograms += state.chromium.histograms(unloggedOnly: true)
+            return delta
         }
     }
 
     /// Every sample since the store was made, uploads or not, per histogram with samples (``MetricsImage/totals()``):
     /// what `metrics.snapshot` and View Metrics show. Waits while an adoption folds the heap into the file.
     public func totals() -> MetricsDelta {
-        shadow.withLock { address in
-            shadowImage(at: address)?.totals() ?? MetricsDelta(profile: profile, histograms: [])
+        shadow.withLock { state in
+            var totals = shadowImage(at: state.address)?.totals() ?? MetricsDelta(profile: profile, histograms: [])
+            totals.histograms += state.chromium.histograms(unloggedOnly: false)
+            return totals
         }
     }
 
@@ -183,9 +196,9 @@ public final class MetricsStore: Sendable {
     /// One owner (the report uploader) calls it, once per delta, after the upload succeeded. Waits while an
     /// adoption folds the heap into the file.
     public func markLogged(_ delta: MetricsDelta) {
-        shadow.withLock { address in
-            guard let image = shadowImage(at: address) else { return }
-            image.markLogged(delta)
+        shadow.withLock { state in
+            state.chromium.markLogged(delta)
+            shadowImage(at: state.address)?.markLogged(delta)
         }
     }
 
@@ -231,13 +244,13 @@ public final class MetricsStore: Sendable {
         let heap = UnsafeMutableRawPointer(bitPattern: heapAddress)?.assumingMemoryBound(to: UInt64.self)
         let words = file.assumingMemoryBound(to: UInt64.self)
         let blockWords = image.count / 8 ..< byteCount / 8
-        shadow.withLock { address in
+        shadow.withLock { state in
             activeAddress.store(UInt64(fileWord), ordering: .releasing)
             for word in blockWords {
                 let value = heap.map { AtomicPointerSlot($0 + word).load(ordering: .relaxed) } ?? 0
                 if value != 0 { AtomicPointerSlot(words + word).add(value, ordering: .relaxed) }
             }
-            address = fileWord
+            state.address = fileWord
         }
         adoption.store(2, ordering: .releasing)
         return path

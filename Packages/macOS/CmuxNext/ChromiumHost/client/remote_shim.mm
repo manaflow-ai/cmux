@@ -1216,6 +1216,17 @@ CMUX_SHIM_EXPORT int cmux_shim_renderer_frames(int* browser_ids, int* client_ids
   return 0;
 }
 
+// Chromium's histograms are the Chromium Host's (p09-observability-107): no op carries them yet, so the
+// remote shim answers as a fork without the call (-2) and the app reports them unsupported.
+CMUX_SHIM_EXPORT int cmux_shim_histogram_snapshot(const char* const* names, int name_count, cmux_shim_histogram_fn fn,
+                                                  void* ctx) {
+  (void)names;
+  (void)name_count;
+  (void)fn;
+  (void)ctx;
+  return -2;
+}
+
 // Strings this dylib returns are Dup's malloc'd copies.
 CMUX_SHIM_EXPORT void cmux_shim_free(char* s) {
   std::free(s);

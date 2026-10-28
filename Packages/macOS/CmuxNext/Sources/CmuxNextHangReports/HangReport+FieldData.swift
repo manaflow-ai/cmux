@@ -53,8 +53,8 @@ extension HangReport {
 
         /// The catalog name (``HistogramID/name``).
         public var name: String
-        /// What a sample counts, and so the layout: `us`, `ms`, `kib`, `count` (log-linear), `pct` (linear) or
-        /// `enum` (one bucket per value).
+        /// What a sample counts, and so the layout: `us`, `ms`, `kib`, `count` (log-linear), `pct` (linear),
+        /// `enum` (one bucket per value) or `chromium` (Chromium's own buckets, each index the bucket's smallest sample).
         public var unit: String
         /// The non-empty buckets, by index.
         public var buckets: [Bucket]
@@ -63,7 +63,7 @@ extension HangReport {
         /// Their sum (an estimate when the histogram had more than ``HangReport/maxFieldBuckets`` buckets).
         public var sum: UInt64
         /// The layout's ceiling: its maximum (log-linear and linear) or value count (enumeration); the last
-        /// bucket counts every larger sample.
+        /// bucket counts every larger sample. 0 for Chromium's own layout.
         public var max: Int64
 
         /// Makes the value from its parts.

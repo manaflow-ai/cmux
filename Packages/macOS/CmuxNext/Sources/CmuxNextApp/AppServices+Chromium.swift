@@ -17,6 +17,14 @@ import Observation
 // from SettingsHandlers. Every warm-start step is an idle task of the app's main-thread scheduler
 // (`AppServices.mainDeadlines`, given to ChromiumWarmup at init), posted once startup settled.
 extension AppServices {
+    /// Chromium's own histograms into the app's store (chromium.*, p09-observability 107), run at report triggers while
+    /// the default-off feature chromiumHistograms is on; nil while it is off. Builds no engine.
+    var chromiumHistogramHarvest: (@Sendable () async -> Void)? {
+        guard features.isEnabled(.chromiumHistograms) else { return nil }
+        let harvest = cache.chromium.histograms
+        return { _ = await harvest.harvest() }
+    }
+
     /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
     /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
     /// (``AppBrowserHostTabs/access(forTab:)``) and the Allow Agents prompt read it in memory (p02-threads-122).

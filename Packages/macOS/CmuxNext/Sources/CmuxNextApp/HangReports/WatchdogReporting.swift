@@ -33,7 +33,7 @@ enum WatchdogReporting {
             watchdog: watchdog, input: services.inputTap, events: services.appEvents, memory: memory,
             work: services.work, mainWork: services.mainWork,
             metricsFolder: TraceBlackBoxFileSteps.appDirectory(bundleID: Bundle.main.bundleIdentifier),
-            daemonPID: { [weak services] in services?.daemon.identity?.pid },
+            daemonPID: { [weak services] in services?.daemon.identity?.pid }, chromiumHistograms: services.chromiumHistogramHarvest,
             wireSchema: .written(serverAcceptsSchema3: services.features.isEnabled(.hangReportsSchema3)),
             features: { [features = FeatureFlagsPage.report(services.features, tunables: TunableStore.shared,
                                                            daemon: services.environment.daemonFeatureHello)] in
