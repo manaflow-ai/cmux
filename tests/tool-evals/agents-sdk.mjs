@@ -16,18 +16,23 @@ const claudeBin = () => process.env.CLAUDE_BIN ?? execFileSync("which", ["claude
 /**
  * On macOS each harness runs under `agentProfile` (live-guard.mjs): a model's `open <url>`
  * fails in the sample instead of opening the person's default browser or their cmux app.
- * Returns [command, args] for spawn.
+ * It also may not read this machine's own agent skills (an old installed cmux skill sent
+ * Codex to classic commands) or other samples' results (Codex searched them for the answer);
+ * its own sample dir `own` stays readable. Returns [command, args] for spawn.
  */
-function guarded(home, command, args) {
+function guarded(home, own, command, args) {
   if (process.platform !== "darwin") return [command, args];
+  mkdirSync(home, { recursive: true });
   const profile = join(home, "live-guard.sb");
-  writeFileSync(profile, agentProfile());
+  const hidden = [join(homedir(), ".agents"), join(homedir(), ".claude", "skills"), join(homedir(), ".codex", "skills"), "/tmp/cmux-tool-evals/runs", "/private/tmp/cmux-tool-evals/runs"];
+  const reads = [...hidden.map((p) => `(deny file-read* (subpath ${JSON.stringify(p)}))`), `(allow file-read* (subpath ${JSON.stringify(own)}))`];
+  writeFileSync(profile, agentProfile().replace(/\n$/, `\n${reads.join("\n")}\n`));
   return ["sandbox-exec", ["-f", profile, command, ...args]];
 }
 
 /** An executable that runs the installed Claude Code under [`guarded`] (the SDK takes a path). */
-function guardedClaude(home) {
-  const [command, args] = guarded(home, CLAUDE_BIN, []);
+function guardedClaude(home, own) {
+  const [command, args] = guarded(home, own, claudeBin(), []);
   const wrapper = join(home, "claude-guarded");
   writeFileSync(wrapper, `#!/bin/sh\nexec ${[command, ...args].map((a) => JSON.stringify(a)).join(" ")} "$@"\n`);
   chmodSync(wrapper, 0o755);
@@ -38,7 +43,7 @@ function guardedClaude(home) {
  * One Claude Code turn through the Agent SDK. `mcp` is {command, args, env} for the cmux
  * server. Returns {text, steps, usage, cost, shell, error}.
  */
-export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, effort, timeoutMs, allTools }) {
+export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs, allTools }) {
   const { query } = await import(SDK_PATH);
   mkdirSync(home, { recursive: true });
   const abort = new AbortController();
@@ -60,7 +65,7 @@ export async function runClaudeSdk({ model, prompt, cwd, mcp, env, home, effort,
         settingSources: [],
         // The installed Claude Code: the SDK's bundled one can be older than a model requires
         // (Opus 5.5 needs 2.1.280+, the SDK bundled 2.1.81 and every run got a 400).
-        pathToClaudeCodeExecutable: guardedClaude(home),
+        pathToClaudeCodeExecutable: guardedClaude(home, own),
         mcpServers: { cmux: { type: "stdio", ...mcp } },
         effort,
         env: { ...env, CLAUDE_CONFIG_DIR: home, ...(allTools ? { ENABLE_TOOL_SEARCH: "true" } : {}) },
@@ -111,14 +116,19 @@ export function codexHome(home) {
  * One Codex turn through `codex app-server`: initialize, thread/start with the cmux MCP
  * server in its config, turn/start, then read notifications until turn/completed.
  */
-export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, effort, timeoutMs }) {
+export async function runCodexAppServer({ model, prompt, cwd, mcp, env, home, own, effort, timeoutMs }) {
   codexHome(home);
   const mcpConfig = [
     `mcp_servers.cmux.command=${tomlString(mcp.command)}`,
     `mcp_servers.cmux.args=[${mcp.args.map(tomlString).join(",")}]`,
     `mcp_servers.cmux.env={${Object.entries(mcp.env).map(([k, v]) => `${k}=${tomlString(v)}`).join(",")}}`,
   ].flatMap((c) => ["-c", c]);
-  const child = spawn(...guarded(home, "codex", ["app-server", ...mcpConfig]), { cwd, env: { ...env, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"] });
+  // A scratch HOME too: Codex reads ~/.agents/skills, which holds this machine's own skills.
+  const scratchHome = join(home, "home");
+  mkdirSync(scratchHome, { recursive: true });
+  const child = spawn(...guarded(home, own, "codex", ["app-server", ...mcpConfig]), {
+    cwd, env: { ...env, HOME: scratchHome, CODEX_HOME: home }, stdio: ["pipe", "pipe", "pipe"],
+  });
   let next = 1;
   const waiting = new Map();
   const shell = [];

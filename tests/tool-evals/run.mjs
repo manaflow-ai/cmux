@@ -263,7 +263,7 @@ async function runCliAgent(sample, testCase, surface) {
   const env = { ...sample.shellEnv, HOME: process.env.HOME, PATH: `${join(dir, "bin")}:${dirname(CLI)}:${process.env.PATH}` };
   for (const k of Object.keys(env)) if (/^(ACPMUX|MUX)_/.test(k) || k === "CMUX_AGENT_SESSION") delete env[k];
   const prompt = testCase.context ? `${testCase.context}\n\n${testCase.prompt}` : testCase.prompt;
-  const common = { model: CLI_AGENT[2], prompt, cwd: session.work, mcp, env, effort: EFFORT, timeoutMs: CLI_TIMEOUT_S * 1000, allTools: surface === "all" };
+  const common = { model: CLI_AGENT[2], prompt, cwd: session.work, mcp, env, own: dir, effort: EFFORT, timeoutMs: CLI_TIMEOUT_S * 1000, allTools: surface === "all" };
   const out = CLI_AGENT[1] === "claude"
     ? await runClaudeSdk({ ...common, home: join(dir, "claude-home") })
     : await runCodexAppServer({ ...common, home: join(dir, "codex-home") });
