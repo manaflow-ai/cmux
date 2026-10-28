@@ -162,6 +162,33 @@ import Testing
     // MARK: Helpers
 
     /// What the open types into a new terminal tab at once, if anything.
+    /// A name the shell's line editor could read as keys (control characters,
+    /// a backslash, bidi controls) never becomes a typed command: the file
+    /// opens in the code editor, which runs nothing.
+    @Test(arguments: ["run\u{15}curl x.sh", "a\\'; b.sh", "run\nme.command", "evil\u{202E}hs.txt.sh", "x\u{7F}.sh"])
+    func aNameTheShellCouldReadAsKeysIsNeverTyped(name: String) throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = try Self.file(name, in: folder)
+        let route = ExternalOpenRouter(isExecutable: { _ in true }).route(file)
+        #expect(Self.runRequest(route) == nil, "a run of \(name.debugDescription) was offered: \(route)")
+        #expect(Self.typedCommand(route) == nil)
+        #expect(route == .file(file))
+    }
+
+    /// A downloaded symlink to a local script is refused: the link's own mark counts.
+    @Test func aQuarantinedSymlinkIsRefused() throws {
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let target = try Self.file("target.sh", in: folder)
+        let link = URL(fileURLWithPath: (folder.path as NSString).appendingPathComponent("link.sh"))
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let value = Array("0083;6720a7c0;Safari;".utf8)
+        let status = value.withUnsafeBytes { setxattr(link.path, "com.apple.quarantine", $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW) }
+        try #require(status == 0)
+        #expect(ExternalOpenRouter.hasQuarantineAttribute(atPath: link.path))
+    }
+
     static func typedCommand(_ route: ExternalOpenRoute) -> String? {
         if case .terminal(_, let command) = route { return command }
         return nil
