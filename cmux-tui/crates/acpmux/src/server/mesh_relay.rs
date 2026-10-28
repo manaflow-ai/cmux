@@ -1,6 +1,6 @@
 //! The daemon's side of the mesh relay (`mesh.rs`): two loops and the delivery of one message.
 //! [`start_configured`] starts them when config.json names a hub (`meshRelay`, `mesh_http.rs`);
-//! without one nothing here runs.
+//! without one nothing here runs. A send to a name nobody here resolves is `mesh_send.rs`'s.
 //!
 //! The heartbeat sends this daemon's sessions (`Hub::mesh_rows`) every `heartbeat_every`, or a
 //! third of the hub's row TTL when that is sooner (never sooner than `min_poll_gap`). Its reply
@@ -167,8 +167,8 @@ async fn started(hub: &Weak<Hub>, stop: &mut watch::Receiver<bool>) -> bool {
     }
 }
 
-/// The relay config.json names, started with the HTTPS client. None, and nothing started, when
-/// none is named or it is unusable.
+/// The relay config.json names, started with the HTTPS client, which also becomes the hub's
+/// for sends (`Hub::mesh`). None, and nothing started, when none is named or it is unusable.
 pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
     let config = hub.config.read().await.mesh_relay.clone()?;
     let client: Arc<dyn MeshHub> = match crate::mesh_http::HttpHub::new(&config) {
@@ -178,6 +178,7 @@ pub async fn start_configured(hub: &Arc<Hub>) -> Option<MeshRelay> {
             return None;
         }
     };
+    let _ = hub.mesh.set(client.clone());
     // The origin only (no user, password or query is accepted in the URL).
     let shown = config.origin().unwrap_or_default();
     tracing::info!("mesh relay: on, through {shown}");
