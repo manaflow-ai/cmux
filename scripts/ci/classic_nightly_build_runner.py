@@ -23,6 +23,12 @@ and verify jobs of main's nightly
 and the DEV publisher's Mac jobs keep 6 vCPU, their old pinned default, while it moves. With
 ENABLED unset the trusted pick is skipped and only `cloud` is read. `alternate` is the other label,
 for a re-run.
+`classic_nightly_build_runner.py prepare` prints only `trusted`, read once with no wait, and false
+when the list cannot be read: prepare-nightly-variant (no secrets) takes the same pinned tuple while
+that mini is idle right after the build, else its Blacksmith label. Its three legs ran about 1 min
+each but queued 27-42 min on blacksmith-6vcpu-macos-26 in runs 40557789720 and 40567539918, and
+run 40604652316's sat queued from 00:54:52Z with every Blacksmith macOS 26 label stalled, while the
+mini that had just built the app sat idle. Signing and verify stay on Blacksmith.
 It never fails the job and never prints an empty `cloud`:
 
     ROUTE_TOKEN=<runners: read> SNAPSHOT_TOKEN=<actions: read> TRUSTED_POOL=... TRUSTED_RUNNER=...
@@ -68,8 +74,10 @@ def runner_state(pool: str, runner: str, runners: Sequence[Mapping[str, Any]] | 
 def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[str, Any]] | None],
                   enabled: bool, attempt: str, *, wait_seconds: float = WAIT_SECONDS,
                   look_seconds: float = LOOK_SECONDS, sleep: Callable[[float], None] = time.sleep,
-                  clock: Callable[[], float] = time.monotonic) -> tuple[bool, str]:
-    """(whether the build asks for the pinned trusted tuple, why)."""
+                  clock: Callable[[], float] = time.monotonic, unread_keeps: bool = True) -> tuple[bool, str]:
+    """(whether the build asks for the pinned trusted tuple, why).
+
+    `unread_keeps` False (the prepare pick) takes Blacksmith when the runner list cannot be read."""
     if not enabled:
         return False, "not a main push or schedule with the owned pool on"
     if attempt not in ("", "1"):
@@ -82,6 +90,8 @@ def trusted_route(pool: str, runner: str, read: Callable[[], Sequence[Mapping[st
         if state == "idle":
             return True, f"`{runner}` is online and idle"
         if state == "unread":
+            if not unread_keeps:
+                return False, "the runner list could not be read"
             return True, f"the runner list could not be read, so `{runner}` keeps the build (the rescue watches it)"
         if state == "offline":
             return False, f"`{runner}` is offline"
@@ -135,7 +145,7 @@ def alternate(label: str) -> str:
     return next(other for other in CANDIDATES if other != label) if label in CANDIDATES else SMALL
 
 
-def main(env: Mapping[str, str] = os.environ,
+def main(env: Mapping[str, str] = os.environ, argv: Sequence[str] = (),
          read_runners: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
          read_snapshot: Callable[[str, str], Any] | None = None, now: dt.datetime | None = None,
          sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.monotonic,
@@ -159,10 +169,22 @@ def main(env: Mapping[str, str] = os.environ,
     # Wall time before the wait: the snapshot's queue ages are read against it plus the wait.
     now = now or wall()
     started = clock()
+    prepare = list(argv[:1]) == ["prepare"]
     trusted, trusted_why = trusted_route((env.get("TRUSTED_POOL") or "").strip(),
                                          (env.get("TRUSTED_RUNNER") or "").strip(), read,
                                          (env.get("ENABLED") or "").strip() == "1",
-                                         (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock)
+                                         (env.get("GITHUB_RUN_ATTEMPT") or "").strip(), sleep=sleep, clock=clock,
+                                         wait_seconds=0 if prepare else WAIT_SECONDS, unread_keeps=not prepare)
+    if prepare:
+        line = f"prepare: {'trusted' if trusted else 'blacksmith'} ({trusted_why})"
+        print(f"classic nightly build runner: {line}")
+        if env.get("GITHUB_OUTPUT"):
+            with open(env["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+                handle.write(f"trusted={'true' if trusted else 'false'}\n")
+        if env.get("GITHUB_STEP_SUMMARY"):
+            with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+                handle.write(f"\nNightly prepare runner:\n- {line}\n")
+        return 0
     now += dt.timedelta(seconds=max(0.0, clock() - started))
     snapshot = None
     snapshot_token = env.get("SNAPSHOT_TOKEN", "")
@@ -193,4 +215,4 @@ def main(env: Mapping[str, str] = os.environ,
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(argv=sys.argv[1:]))
