@@ -48,12 +48,18 @@ extension WindowRootView {
     /// the traffic lights and the pointer over the top-left tab bar did not
     /// open it (Lawrence 2026-10-09). One fixed region also means the open
     /// band's growth never moves the edge under the pointer (no flicker).
+    /// The region ends at the open band's Forward button, with no margin
+    /// past it: a strip there opened the band with nothing to click and
+    /// pushed the tabs out for nothing (Leo, relaying Austin, 2026-10-28:
+    /// "you only get that hoverable animation when you're in the area of
+    /// the, like, the rightmost area of the go forward button").
     /// The glass patch covers the traffic lights with a small margin.
-    /// - Parameter fullBandMaxX: The open band's trailing edge.
+    /// - Parameter fullBandMaxX: The open band's trailing edge (its Forward
+    ///   button's trailing edge).
     func layoutTitlebarReveal(rowHeight: CGFloat, fullBandMaxX: CGFloat) {
         let sidebarMaxX = sidebarSide == .left && !sidebar.isHidden ? sidebar.frame.maxX : 0
         let bandMaxX = max(fullBandMaxX, toolbarBand.frame.maxX)
-        let width = min(bounds.width, max(sidebarMaxX, bandMaxX + Metrics.space3))
+        let width = min(bounds.width, max(sidebarMaxX, bandMaxX))
         titlebarRevealRegion.frame = CGRect(x: 0, y: bounds.maxY - rowHeight, width: width, height: rowHeight)
         guard let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else {
             trafficLightsGlass.frame = .zero
