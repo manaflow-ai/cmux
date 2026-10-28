@@ -56,6 +56,16 @@ struct SidebarChatFrontTests {
         #expect(row.directory == "~")
     }
 
+    /// A command running in a shell still titled "~" (no title from the program) is work.
+    @Test func aRunningCommandUnderABareTitleStillNamesTheRow() throws {
+        let workspace = try Self.workspace(shell: "~")
+        let shell = try #require(Self.tab(workspace, .pty))
+        shell.applyState(nil, progress: nil, commandSinceMs: 1_000)
+        let row = Self.row(workspace)
+        #expect(row.title == "~")
+        #expect(row.directory == "~")
+    }
+
     @Test func anIdleShellInAProjectKeepsItsFolder() throws {
         let row = Self.row(try Self.workspace(shell: "zsh", cwd: "/tmp/project"))
         #expect(row.title == "Fix login")

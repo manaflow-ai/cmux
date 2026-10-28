@@ -17,10 +17,11 @@ extension SidebarMapping {
         return chats.first { $0.agent?.state == .working || $0.agent?.state == .blocked } ?? chats.first ?? front
     }
 
-    /// A New Tab page, or a terminal with no agent whose title is empty, a bare shell or its own folder.
+    /// A New Tab page, or a terminal with no agent and no running command (its shell integration's
+    /// `commandSinceMs`, its title's activity) whose title is empty, a bare shell or its own folder.
     func isIdle(_ tab: TabModel, newTabPages: Set<String>) -> Bool {
         if newTabPages.contains(tab.id) { return true }
-        guard tab.kind == .pty, tab.agent == nil else { return false }
+        guard tab.kind == .pty, tab.agent == nil, tab.commandSinceMs == nil, tab.titleActivity == nil else { return false }
         let title = tab.titleText.trimmingCharacters(in: .whitespaces)
         if title.isEmpty || Self.bareShells.contains(title.hasPrefix("-") ? String(title.dropFirst()) : title) { return true }
         return tab.cwd.map { title == $0 || title == abbreviate($0) } == true
