@@ -9,6 +9,8 @@ extension TabStripView {
         let group = press.groupID
         let chipID = TabID.groupChip(group)
         guard var chip = placed[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        // A scroll in flight ends where it shows: the dragged block sits exactly under the pointer.
+        settleScroll()
         // The block is lifted where its chip shows now (a move may be in flight).
         if let shown = shownMaxX(chipID) { chip.x = shown - max(0, chip.width) }
         placed[chipID] = chip

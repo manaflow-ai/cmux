@@ -95,13 +95,29 @@ final class TabCell {
             layoutLayers()
         }
     }
+    /// The strip's tab clip (`TabStripView.tabsClip`'s layer): ``frame`` is in its coordinates.
+    weak var clipLayer: CALayer?
+
+    /// The tab's frame in the strip's clip at the scroll's target, where hit tests, anchors and accessibility
+    /// read it. Its layer sits in content coordinates in the scrolling layer (or in the clip, pinned in the fixed
+    /// band), so a scroll changes this without writing the layer; setting it converts.
     var frame: CGRect {
-        get { layer.frame }
-        set { setFrame(newValue, laysOut: true) }
+        get {
+            guard let clipLayer, let parent = layer.superlayer, parent !== clipLayer else { return layer.frame }
+            return parent.convert(layer.frame, to: clipLayer)
+        }
+        set {
+            guard let clipLayer, let parent = layer.superlayer, parent !== clipLayer else { return setFrame(newValue, laysOut: true) }
+            setFrame(parent.convert(newValue, from: clipLayer), laysOut: true)
+        }
     }
 
-    /// `laysOut` false: the caller adds the strip move of the new size first, then calls
-    /// `layoutLayers()`, so the parts follow the path once (`TabStripView.applyFrames`).
+    /// Whether the selected pill's mask cuts this tab now (`TabOcclusion`).
+    var isOccluded: Bool { occlusionMaskIfMade.map { layer.mask === $0 } ?? false }
+
+    /// Sets the layer's frame (its layer's coordinates). `laysOut` false: the caller adds the strip move of
+    /// the new size first, then calls `layoutLayers()`, so the parts follow the path once
+    /// (`TabStripView.applyFrames`).
     func setFrame(_ frame: CGRect, laysOut: Bool) {
         let resized = layer.frame.size != frame.size
         layer.frame = frame
@@ -153,6 +169,8 @@ final class TabCell {
         }
     }
     private var measuredTitle: (String, CGFloat)?
+    /// The pill size and radius `backgroundLayer.shadowPath` was built for (`updateShadowPath`).
+    private var shadowPathShape: (size: CGSize, radius: CGFloat)?
     /// Set while a hover change lays out, so the x and the title fade.
     private var animatesCloseChange = false
 
@@ -187,7 +205,7 @@ final class TabCell {
             root.addSublayer(sublayer)
         }
         // Fills fade; geometry never implicitly animates.
-        backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull()]
+        backgroundLayer.actions = ["backgroundColor": Self.fade, "shadowOpacity": Self.fade, "bounds": NSNull(), "position": NSNull(), "shadowPath": NSNull()]
     }
 
     static let noActions: [String: any CAAction] = [
@@ -276,12 +294,24 @@ final class TabCell {
         let elevation = PopupStyle.elevation2
         backgroundLayer.shadowRadius = elevation.layerRadius
         backgroundLayer.shadowOffset = elevation.layerOffset(flipped: true)
+        if isLifted { updateShadowPath() }
         Motion.tabs.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
         updateStacking()
         if isLifted { titleFade.stopMarquee(animated: false) }
         // The lifted fill reads as solid from the first frame, so nothing it
         // passes over (a group chip) shows through while it would ease in.
         updateColors(animated: !isLifted)
+    }
+
+    /// The lifted pill's shadow follows its rounded rect: given as a path, the render server draws it
+    /// without an offscreen pass over the pill's alpha each frame. Rebuilt only when the pill's size or
+    /// radius changed (the drop's fade keeps the last one).
+    private func updateShadowPath() {
+        let size = backgroundLayer.bounds.size, radius = min(backgroundLayer.cornerRadius, size.width / 2, size.height / 2)
+        guard shadowPathShape?.size != size || shadowPathShape?.radius != radius else { return }
+        shadowPathShape = (size, radius)
+        backgroundLayer.shadowPath = CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: max(0, radius),
+                                            cornerHeight: max(0, radius), transform: nil)
     }
 
     /// `showing` is whether the fill that changed shows: the tab's by
@@ -392,6 +422,7 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        if isLifted { updateShadowPath() }
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize
