@@ -108,25 +108,25 @@ impl Hub {
     /// sees whatever its harness passes an MCP server (Codex passes only a few names): built by
     /// the launch's own builder (`agent::harness_command`) from the profile env the agent was
     /// started with (`Session::launch_env`), or, before this daemon started one, from the
-    /// chat's profile, preset and session env.
+    /// profile as a spawn would build it (`Hub::spawn_profile_for`: defaults, preset, chat
+    /// store, session env, expansions).
     async fn bg_env(
         &self,
         session: &Session,
         meta: &SessionMeta,
     ) -> Result<BTreeMap<String, String>, RpcError> {
-        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        let env = match launched {
-            Some(env) => env,
-            None => {
-                let (_, mut env) = self.harness_env(meta).await;
-                env.extend(meta.session_env.clone());
-                env
-            }
+        let (profile, defaults) = {
+            let cfg = self.config.read().await;
+            let profile =
+                super::resolve::session_profile(&cfg, &meta.harness, &meta.cwd, meta.remote_origin)
+                    .map_err(RpcError::invalid_params)?;
+            (profile, cfg.defaults_for(&meta.harness))
         };
-        let mut profile = self.config.read().await.profile(&meta.harness).cloned().ok_or_else(
-            || RpcError::invalid_params(format!("harness {} is not configured", meta.harness)),
-        )?;
-        profile.env = env;
+        let mut profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
+        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        if let Some(env) = launched {
+            profile.env = env;
+        }
         let at = Some((session.id.as_str(), meta.name.as_str()));
         let cmd = crate::agent::harness_command(&meta.harness, &profile, &meta.cwd, None, at)
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
@@ -198,9 +198,10 @@ impl Hub {
     }
 
     /// A purged chat's tasks are stopped and waited for (at most [`STOP_WAIT`], all at once).
-    /// Its folder then goes, so a chat that later takes its id (an import) finds none, unless a
-    /// runner outlived the wait: then the folder stays, the runner's record and FIFO with it.
-    /// It holds the start lock, so a start in flight is either seen here or sees the chat closing.
+    /// Its folder then goes, so a chat that later takes its id (an import) finds none. A runner
+    /// that outlived the wait keeps its files, moved to `bg/.purged/<chat>-<n>` where no chat
+    /// looks. It holds the start lock, so a start in flight is either seen here or sees the chat
+    /// closing.
     pub(super) async fn bg_purge(&self, session: &Session) {
         let _one = self.bg_starts.lock().await;
         let dir = self.bg_dir(session);
@@ -212,9 +213,13 @@ impl Hub {
         }
         if futures::future::join_all(gone).await.into_iter().all(|g| g) {
             let _ = std::fs::remove_dir_all(&dir);
-        } else {
-            tracing::warn!(dir = %dir.display(), "a purged chat's background task outlived its stop");
+            return;
         }
+        let aside = crate::config::home().join("bg").join(".purged");
+        let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
+        let moved = std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to));
+        tracing::warn!(dir = %dir.display(), to = %to.display(), ?moved,
+            "a purged chat's background task outlived its stop; its files were moved aside");
     }
 }
 
@@ -240,11 +245,28 @@ fn bg_live(dir: &std::path::Path, id: &str) -> bool {
     }
 }
 
+/// Whether the task's runner is surely gone: its lock is free or missing. A lock that cannot be
+/// probed proves nothing, so it never counts.
+fn bg_gone(dir: &std::path::Path, id: &str) -> bool {
+    #[cfg(unix)]
+    {
+        matches!(
+            crate::agent_host::liveness_of(&bg_run::lock_path(dir, id)),
+            crate::agent_host::Liveness::Dead
+        )
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (dir, id);
+        true
+    }
+}
+
 /// Waits until the task's runner exited (nothing holds its lock), at most [`STOP_WAIT`]: a
 /// non-blocking look every [`STOP_LOOK`], so no thread or descriptor outlives the wait.
 async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
     let deadline = tokio::time::Instant::now() + STOP_WAIT;
-    while bg_live(dir, id) {
+    while !bg_gone(dir, id) {
         if tokio::time::Instant::now() >= deadline {
             return false;
         }
