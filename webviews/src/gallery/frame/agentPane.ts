@@ -32,8 +32,14 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
   resetSummaryCards();
-  if (state.mockHarnesses)
-    (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = state.mockHarnesses;
+  // Only the gallery's mock daemon reads these. Clear them between staged variants, so one
+  // capture's negative auth cannot leak into the next fixture.
+  Object.assign(globalThis, {
+    cmuxAcpmuxMockHarnesses: state.mockHarnesses,
+    cmuxAcpmuxMockHarnessHealth: state.mockHarnessHealth,
+    cmuxAcpmuxMockNative: state.native,
+    cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
+  });
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   // The app's staged upload (cloudUploads.ts: begin, base64 chunks, finish, cancel), so a pasted
@@ -155,4 +161,11 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   await import("virtual:cmux-gallery/agent-pane.css");
   await import("katex/dist/katex.min.css");
   await import("../../agent-session/acpmux/main");
+  // main.tsx imports some pane sheets itself (styles.css, diffTokens.css, composerFooterShared.css,
+  // #26126). The app's bundle drops those imports and ships each sheet once in dev.tsx's order, but
+  // here each lands as a second copy after the pane's sheet, so styles.css's base rules outranked the
+  // later sheets' (the quiet row took the bar's 10 px padding back). The pane's sheet goes last again,
+  // after every copy, so the shipped order wins.
+  const paneSheet = document.querySelector('style[data-vite-dev-id$="/agent-pane.virtual.css"]');
+  if (paneSheet) document.head.append(paneSheet);
 }

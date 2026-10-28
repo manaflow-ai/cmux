@@ -78,7 +78,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     /// This list's workspace whose card shows now.
     var shownID: WorkspaceID? {
-        guard let id = coordinator.machine.shownTarget?.id, let ws = workspaceID(id), list?.workspaces[ws] != nil else { return nil }
+        guard let id = coordinator.machine.shownTarget?.id, let ws = workspaceID(id), list?.hoverCardRow(ws) != nil else { return nil }
         return ws
     }
 
@@ -135,7 +135,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
-        guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
+        guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }

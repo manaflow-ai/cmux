@@ -217,11 +217,12 @@ async fn a_failed_model_probe_is_reported_with_its_reason() {
 }
 
 /// A session's harness that nobody uses exits after the idle period
-/// (measured on the hub's injected clock): no client attached, no turn, no
-/// activity. The session keeps its record and resumes on the next prompt.
-/// An attached session's harness stays.
+/// (measured on the hub's injected clock): no turn, no activity. A client
+/// attached to it does not keep it (`hub/idle.rs`): the attached session's
+/// harness exits too. The session keeps its record and resumes on the next
+/// prompt.
 #[tokio::test]
-async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt() {
+async fn an_idle_session_harness_exits_attached_or_not_and_resumes_on_the_next_prompt() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let clock = acpmux::clock::ManualClock::new();
     hub.set_clock(clock.clone());
@@ -244,27 +245,27 @@ async fn an_idle_detached_session_harness_exits_and_resumes_on_the_next_prompt()
     clock.advance(Duration::from_secs(299));
     settle().await;
     assert_eq!(status("idle-gone"), "ready", "stopped before the idle period ended");
+    assert_eq!(status("idle-attached"), "ready", "stopped before the idle period ended");
     clock.advance(Duration::from_secs(2));
     let deadline = std::time::Instant::now() + Duration::from_secs(20);
-    while status("idle-gone") != "idle" {
-        assert!(std::time::Instant::now() < deadline, "the idle harness never exited");
+    while status("idle-gone") != "idle" || status("idle-attached") != "idle" {
+        assert!(std::time::Instant::now() < deadline, "the idle harnesses never exited");
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    clock.advance(Duration::from_secs(900));
-    settle().await;
-    assert_eq!(status("idle-attached"), "ready", "an attached session's harness was stopped");
-    // The stopped session resumes on its next prompt.
-    let r = c
-        .request(
-            method::SESSION_PROMPT,
-            json!({"sessionId": ids[0], "prompt": [{"type": "text", "text": "back"}]}),
-        )
-        .await
-        .unwrap();
-    assert_eq!(r["stopReason"], "end_turn");
-    let kinds: Vec<String> =
-        hub.events(&ids[0], 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
-    assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
+    // The stopped sessions resume on their next prompt.
+    for id in &ids {
+        let r = c
+            .request(
+                method::SESSION_PROMPT,
+                json!({"sessionId": id, "prompt": [{"type": "text", "text": "back"}]}),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r["stopReason"], "end_turn");
+        let kinds: Vec<String> =
+            hub.events(id, 0, 1000).unwrap().into_iter().map(|e| e.kind).collect();
+        assert!(kinds.iter().any(|k| k == "resumed"), "{kinds:?}");
+    }
 }
 
 /// Shutdown owns every child from its first step: once it stopped the idle

@@ -2,7 +2,9 @@
 // stage, the agent pane runs on the gallery's stand-in for the app's pane bridge; this test wraps
 // that bridge so `popup.show/update/hide` are recorded and answered as the app's host does
 // (WebPopupHost), and sends the host's events back as the app does (the `cmux-popup` event).
-// In a 600x400 window the composer's commands list has no room above the prompt:
+// In a 600x360 window the composer's commands list has no room above the prompt (at 400px its
+// capped 296px list just fits over the prompt once the gallery's cascade matched the app's,
+// a5393bc0de6f, so it rightly stays in the page there):
 // - its rows go to the host, every one of them, and the page's list goes invisible without moving
 //   the transcript or the composer;
 // - the keyboard stays in the prompt: ArrowDown moves the host's highlight;
@@ -97,8 +99,8 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
     await vite?.close();
   });
 
-  test("a 600x400 window sends the commands list past its edge, keyboard and pick intact", async () => {
-    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 400 });
+  test("a 600x360 window sends the commands list past its edge, keyboard and pick intact", async () => {
+    const page = await stage("agent-pane.composer", "slash-menu-full", { width: 600, height: 360 });
     // The variant's play opened the list before the recorder; clear the prompt and open it again.
     await page.click("[contenteditable='true']");
     await page.keyboard.press("Backspace");
@@ -158,17 +160,19 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       );
     });
     await page.waitForSelector(".ui-context-menu[data-escaped]", { state: "attached", timeout: 10_000 });
-    const rows = await page.locator(".ui-context-menu [role=menuitem]").count();
+    // Its rows: the actions and, last, the "Scroll to bottom when I send" checkbox (#25690).
+    const ROWS = ".ui-context-menu :is([role=menuitem], [role=menuitemcheckbox])";
+    const rows = await page.locator(ROWS).count();
     const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
     expect(show?.params).toMatchObject({ kind: "menu", side: "bottom" });
     // Every row, its separator and its disabled state as the page has them.
-    const items = show?.params.items as { separator?: boolean; disabled?: boolean }[];
+    const items = show?.params.items as { label?: string; separator?: boolean; disabled?: boolean }[];
     // ArrowDown skips separators and disabled rows (Redo with no history, after Undo).
     const from = Number(show?.params.highlighted);
     const next = String(items.findIndex((item, index) => index > from && !item.separator && !item.disabled));
     expect(next).not.toBe("-1");
     expect(items.filter((item) => !item.separator).map((item) => item.disabled)).toEqual(
-      await page.$$eval(".ui-context-menu [role=menuitem]", (all) => all.map((row) => row.hasAttribute("disabled"))),
+      await page.$$eval(ROWS, (all) => all.map((row) => row.hasAttribute("disabled"))),
     );
     expect(items.some((item) => item.separator)).toBe(true);
     expect(rows).toBeGreaterThan(3);
@@ -193,12 +197,19 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       (above) =>
         (window as unknown as { popupCalls: { method: string; params: { highlighted?: string } }[] }).popupCalls.at(-1)
           ?.params.highlighted === above,
-      String(items.length - 2),
+      // The row above the last, past its separator.
+      String(
+        items
+          .map((item, index) => (index < items.length - 1 && !item.separator && !item.disabled ? index : -1))
+          .reduce((last, index) => Math.max(last, index), -1),
+      ),
     );
-    // Insert Mention, the last row, picked in the host: its @ lands in the prompt, the panel ends.
+    // Insert Mention picked in the host: its @ lands in the prompt, the panel ends.
+    const mention = String(items.findIndex((item) => item.label === "Insert Mention"));
+    expect(mention).not.toBe("-1");
     await page.evaluate(
       (id) => window.dispatchEvent(new CustomEvent("cmux-popup", { detail: { type: "pick", id } })),
-      lastId,
+      mention,
     );
     await page.waitForSelector(".ui-context-menu", { state: "detached" });
     expect(await page.locator("[contenteditable='true']").innerText()).toContain("@");
@@ -224,9 +235,16 @@ await requireBrowserLane("popup-escape.test.ts", async () => {
       state: "attached",
       timeout: 10_000,
     });
+    // The panel escapes on the first key and follows the rows as the rest of the query lands
+    // (popup.update): every row the page has now is in the host's latest model.
+    await page.waitForFunction((list) => {
+      const calls = (window as unknown as { popupCalls: { params: { items?: unknown[] } }[] }).popupCalls;
+      return calls.at(-1)?.params.items?.length === document.querySelectorAll(`${list} [role=option]`).length;
+    }, list);
     const rows = await page.locator(`${list} [role=option]`).count();
-    const show = (await popupCalls(page)).find((call) => call.method === "popup.show");
-    expect(show?.params).toMatchObject({ kind: "list", side });
+    const calls = await popupCalls(page);
+    expect(calls.find((call) => call.method === "popup.show")?.params).toMatchObject({ kind: "list", side });
+    const show = calls.filter((call) => call.method === "popup.show" || call.method === "popup.update").at(-1);
     expect(show?.params.items as unknown[] | undefined).toHaveLength(rows);
     expect(rows).toBeGreaterThan(1);
     // The field keeps the keyboard; the host's highlight follows the arrows to the page's row.
