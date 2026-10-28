@@ -303,6 +303,59 @@ struct AgentPaneDictationAudioTests {
         #expect(last.audioOmitted == .writeFailed)
     }
 
+    /// Review of #26966 (P1): a long recording was tagged with the chat the pane showed when it
+    /// finished closing, not the chat it was recorded in. Closing is async, so a switch from chat A
+    /// to chat B meanwhile issued A's recording to B: B's upload could send it, and A could not.
+    /// The close is held on the recording's writer while the pane moves to B.
+    @Test func aRecordingIsIssuedToTheChatItWasRecordedIn() async throws {
+        let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+        let engine = LongRecordingTranscriber(seconds: 140)
+        let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
+            engine.meter = meter
+            return engine
+        })
+        let updates = Updates()
+        let dictation = AgentPaneDictation(send: { updates.all.append($0) }, microphone: DictationMicrophone(), makeSession: { session })
+        let chat = Chat()
+        dictation.chatSession = { chat.shown }
+        dictation.recordingFolder = { folder }
+        dictation.handle(.recordAudio(true))
+        dictation.handle(.start)
+        try await waitFor { engine.fed && session.phase == .listening }
+        let writer = try #require(session.recording?.writer)
+        await withCheckedContinuation { done in writer.async { done.resume() } }
+        // The close waits on the held writer while the pane moves to chat B.
+        writer.suspend()
+        dictation.handle(.stop)
+        try await waitFor { session.closing != nil }
+        chat.shown = "chat-b"
+        writer.resume()
+        try await waitFor { updates.all.last?.audio?.file != nil }
+        let file = try #require(updates.all.last?.audio?.file)
+
+        // Chat B's upload of that path is refused before anything is read or staged.
+        let model = AgentPaneModel(host: MockAgentPaneHost(), sessionId: "chat-b")
+        let staged = Updates()
+        let stager: AgentPaneUploadStager = { _, _ in
+            staged.all.append(DictationUpdate(phase: .idle))
+            return AgentPaneReply.failure(code: "upload_failed", message: "no")
+        }
+        model.onUploadStage = { stager }
+        model.onDictationRecording = { path, session in dictation.takeRecording(path, session: session) }
+        let refused = await model.respond(to: AgentPaneRequest(body: ["method": "dictation.recording.upload", "params": ["path": file.path]]))
+        #expect((refused["error"] as? [String: Any])?["code"] as? String == "dictation.not_a_recording")
+        #expect(staged.all.isEmpty, "nothing of A's recording went to chat B's machine")
+        #expect(dictation.takeRecording(file.path, session: "chat-b") == nil, "issued to chat A, not B")
+        #expect(dictation.takeRecording(file.path, session: "chat-a") == file, "chat A can still take its recording")
+    }
+
+    /// The chat a test pane shows.
+    private final class Chat {
+        var shown: String? = "chat-a"
+    }
+
     /// The updates a session sent, in order.
     private final class Updates {
         var all: [DictationUpdate] = []
