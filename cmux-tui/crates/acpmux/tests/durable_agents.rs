@@ -2975,6 +2975,72 @@ async fn an_older_option_report_does_not_hide_a_bare_answer_under_mdm_off() {
     );
 }
 
+/// #26343: a full-access `set_config_option` still unanswered when its daemon crashes is answered
+/// bare only after the next daemon adopted the host and judged its log under MDM's off (the
+/// harness holds the answer until `FAKE_OPTION_ANSWER_GATE` exists). No request waits for that
+/// answer, so nothing records what it took: the agent ends under the off, and no prompt reaches it.
+#[tokio::test]
+async fn a_full_access_answer_after_adoption_ends_its_agent_under_mdm_off() {
+    let tag = "mdmlateanswer";
+    // `Daemon::with_env`'s home: the gate is made there once the next daemon adopted the host.
+    let gate = std::env::temp_dir().join(format!("amd-{tag}-{}", std::process::id())).join("gate");
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1",
+                      "FAKE_MODE_OPTION": "1", "FAKE_BARE_OPTION_ANSWER": "1",
+                      "FAKE_OPTION_ANSWER_GATE": gate}});
+    let (mut daemon, mut rpc) = proven_daemon(tag, fake, &[]).await;
+    let session = new_session(&daemon).await;
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let set = json!({"sessionId": session, "configId": "mode", "value": "full-access"});
+    rpc.send("session/set_config_option", set).await;
+    let asked = daemon.wait_event(&session, "the full-access option request", |e| {
+        e["dir"] == "out" && e["kind"] == "session/set_config_option"
+    });
+    daemon.sigkill();
+    drop(rpc);
+    assert!(alive(harness_pid), "the crash ended the agent");
+    let crashed_at = daemon.events(&session).last().map_or(0, |e| e["seq"].as_u64().unwrap());
+    record_mdm_off(&daemon);
+    daemon.start();
+    let after = |e: &Value| e["seq"].as_u64().is_some_and(|s| s > crashed_at);
+    let judged = daemon.wait_event(&session, "the adoption's judgement", |e| {
+        after(e)
+            && e["dir"] == "mux"
+            && (e["kind"] == "host_adopted" || e["kind"] == "full_access_ended")
+    });
+    // The harness answers now: the answer reaches a daemon that sent no request for it.
+    std::fs::write(&gate, b"").unwrap();
+    if judged["kind"] == "host_adopted" {
+        daemon.wait_event(&session, "the late answer", |e| {
+            after(e)
+                && e["dir"] == "in"
+                && e["kind"] == "response"
+                && e["msg"]["id"] == asked["msg"]["id"]
+        });
+    }
+    let mut rpc = daemon.rpc().await;
+    prove(&mut rpc).await;
+    let pushed = rpc.call("_acpmux/chat_settings", mdm_off_push()).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let ask = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi again"}]});
+    rpc.reply("session/prompt", ask).await;
+    // A prompt the adopted host took (a new host the prompt started may take it).
+    let (mut adopted, mut handed_out) = (false, false);
+    for e in daemon.events(&session).iter().filter(|e| after(e)) {
+        match (e["dir"].as_str(), e["kind"].as_str()) {
+            (Some("mux"), Some("host_adopted")) => adopted = true,
+            (Some("mux"), Some("host_started")) => adopted = false,
+            (Some("out"), Some("session/prompt")) => handed_out |= adopted,
+            _ => {}
+        }
+    }
+    let ended = gone_within(harness_pid, Duration::from_secs(10));
+    assert!(
+        ended && !handed_out,
+        "the full-access option answered after adoption escaped the managed off \
+         (ended: {ended}, handed out: {handed_out})"
+    );
+}
+
 /// Review 1 of #26058: with MDM unset, an answer whose options are null is saved as before (the
 /// chat's options become null), so a full-access option the harness reported earlier is not
 /// kept for the next agent to replay.

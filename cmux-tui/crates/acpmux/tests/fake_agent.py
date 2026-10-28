@@ -1485,6 +1485,17 @@ def main():
                     MODE_OPTION[params.get("sessionId")] = v
                 # FAKE_BARE_OPTION_ANSWER=1: the answer carries no configOptions; =null: a null.
                 if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "1":
+                    # FAKE_OPTION_ANSWER_GATE=<path>: that answer comes once the file exists, on
+                    # its own thread (the option is taken at once).
+                    answer_gate = os.environ.get("FAKE_OPTION_ANSWER_GATE")
+                    if answer_gate:
+                        def answer_later(rid=rid):
+                            import time as clock  # main() imports `time` locally
+                            while not os.path.exists(answer_gate):
+                                clock.sleep(0.01)
+                            send({"jsonrpc": "2.0", "id": rid, "result": {}})
+                        threading.Thread(target=answer_later, daemon=True).start()
+                        continue
                     send({"jsonrpc": "2.0", "id": rid, "result": {}})
                     continue
                 if os.environ.get("FAKE_BARE_OPTION_ANSWER") == "null":
