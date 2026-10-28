@@ -62,6 +62,43 @@ fn pool_auth_claude_saved_key_uses_the_child_home() {
 }
 
 #[test]
+fn pool_auth_empty_config_directory_uses_the_child_home() {
+    for (family, config, path, first, second) in [
+        (
+            "claude",
+            "CLAUDE_CONFIG_DIR",
+            ".claude.json",
+            json!({"primaryApiKey": "fixture-a"}),
+            json!({"primaryApiKey": "fixture-b"}),
+        ),
+        (
+            "codex",
+            "CODEX_HOME",
+            ".codex/auth.json",
+            json!({"OPENAI_API_KEY": "fixture-a"}),
+            json!({"OPENAI_API_KEY": "fixture-b"}),
+        ),
+    ] {
+        let daemon = LoginFiles::new("empty-config-daemon");
+        let child = LoginFiles::new("empty-config-child");
+        let cache = AuthCache::default();
+        let env = |key: &str| {
+            if key == "HOME" {
+                Some(child.0.display().to_string())
+            } else if key == config {
+                Some(String::new())
+            } else {
+                None
+            }
+        };
+        child.write(path, first);
+        let before = cache.fingerprint_with(family, &env, &daemon.0);
+        child.write(path, second);
+        assert_ne!(before, cache.fingerprint_with(family, &env, &daemon.0), "{family}");
+    }
+}
+
+#[test]
 fn pool_auth_claude_refresh_preserves_the_key_but_account_switch_and_logout_do_not() {
     let files = LoginFiles::new("claude-oauth");
     let cache = AuthCache::default();

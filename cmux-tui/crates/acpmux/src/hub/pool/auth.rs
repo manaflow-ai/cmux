@@ -50,9 +50,13 @@ fn files(
     env: &dyn Fn(&str) -> Option<String>,
     home: &Path,
 ) -> Vec<(PathBuf, Reader)> {
+    let home = env("HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home.to_path_buf());
     match family {
         "claude" => {
-            let dir = env("CLAUDE_CONFIG_DIR").map(PathBuf::from);
+            let dir = env("CLAUDE_CONFIG_DIR").filter(|value| !value.is_empty()).map(PathBuf::from);
             let account = match &dir {
                 Some(d) => d.join(".claude.json"),
                 None => home.join(".claude.json"),
@@ -61,7 +65,10 @@ fn files(
             vec![(account, Reader::ClaudeAccount), (creds, Reader::Stat)]
         }
         "codex" => {
-            let dir = env("CODEX_HOME").map(PathBuf::from).unwrap_or_else(|| home.join(".codex"));
+            let dir = env("CODEX_HOME")
+                .filter(|value| !value.is_empty())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".codex"));
             vec![(dir.join("auth.json"), Reader::CodexAuth)]
         }
         "opencode" | "opencode-v2" => {
