@@ -286,11 +286,6 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
         ["m2", "m3"],
       ] as const) {
         const gap = await gapBetween(page, above, below);
-        const target = await page.evaluate(
-          ({ x, y }) => document.elementFromPoint(x, y)?.closest(".acpmux-row")?.getAttribute("data-row-id") ?? null,
-          gap,
-        );
-        expect(target).toBe(above);
         const lower = await box(page, below);
         await drag(page, gap, { x: lower.left + 220, y: lower.top + 4 });
         const text = await selected(page);
@@ -311,7 +306,11 @@ await requireBrowserLane("transcript-gutter-select-browser.test.ts", async () =>
       });
       const button = await copy.boundingBox();
       expect(button).not.toBeNull();
-      await drag(page, { x: button!.x + button!.width / 2, y: button!.y + button!.height / 2 }, { x: button!.x + 80, y: button!.y + 40 });
+      await drag(
+        page,
+        { x: button!.x + button!.width / 2, y: button!.y + button!.height / 2 },
+        { x: button!.x + 80, y: button!.y + 40 },
+      );
       expect(await selected(page)).toBe("");
       await page.close();
     });

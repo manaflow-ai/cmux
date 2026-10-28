@@ -1,18 +1,19 @@
-// A drag that starts in the transcript's side gutters (the empty margins either side of the centered
-// column) selects text, as a document's margins do (Leo 2026-10-21: "i want click and drag to
-// highlight text even when im just clicking on the left or right of the main pane").
+// A drag that starts in the transcript's side gutters or its empty row spacing selects text, as a
+// document's margins and line gaps do (Leo 2026-10-21: "i want click and drag to highlight text even
+// when im just clicking on the left or right of the main pane").
 //
 // The browser cannot do this alone. The page is `user-select: none` with messages opting back in
 // (shared/desktop.css), and the rows are absolutely placed (virtualized), so a press in the gutter
 // hits the scroller or its spacer and the browser's own hit test finds no line beside it: no
 // selection starts, and making the gutter selectable would anchor at the thread's start instead.
 // So a press there is taken over: it starts nothing until the pointer moves, then selects from the
-// caret beside the press to the caret under the pointer, both read with x clamped into the column.
+// nearest mounted caret beside the press to the caret under the pointer, both read with x clamped
+// into the column.
 // The press still takes focus off the composer as a press on the background always has (Leo
 // 2026-10-20, composerFocus.ts); a plain click selects nothing.
 //
-// Stop conditions: the window and scroll listeners are added on a gutter press and removed on
-// mouseup, on a move with the button up (released outside the page), on window blur, and when the
+// Stop conditions: the window and scroll listeners are added on a gutter or gap press and removed on
+// pointerup, on a move with the button up (released outside the page), on window blur, and when the
 // transcript unmounts; the frame request is cancelled with them. A selection the drag left keeps its
 // two end rows mounted (at most two) through one `selectionchange` listener and one MutationObserver
 // on those rows' parents (childList only), both removed when the selection is cleared, no longer
@@ -78,6 +79,9 @@ type CaretDocument = Document & {
   caretRangeFromPoint?: (x: number, y: number) => Range | null;
 };
 
+const INTERACTIVE_TARGETS =
+  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy';
+
 /// The caret at a client point: the standard caretPositionFromPoint, else WebKit's and older
 /// Chromium's caretRangeFromPoint.
 export function caretAt(doc: Document, x: number, y: number): Caret | undefined {
@@ -91,6 +95,58 @@ export function caretAt(doc: Document, x: number, y: number): Caret | undefined 
     if (range) return { node: range.startContainer, offset: range.startOffset };
   }
   return undefined;
+}
+
+type CaretHit = { caret: Caret; row: HTMLElement };
+
+/// A text node that the browser would include in a native selection. Mounted rows are bounded by
+/// virtualization; this check is only used during the one pointerdown that resolves a gap anchor.
+function selectableTextNode(node: Node): boolean {
+  const element = node.parentElement;
+  if (!element || element.closest(INTERACTIVE_TARGETS)) return false;
+  const style = getComputedStyle(element);
+  return style.userSelect !== "none" && style.getPropertyValue("-webkit-user-select") !== "none";
+}
+
+/// Finds the closest visible text line around a gap. A line above contributes its end caret, a line
+/// below its start caret; a side gutter uses the line edge nearest that gutter. It walks only the
+/// mounted thread subtree, once at pointerdown, and never runs in the drag's animation-frame path.
+function nearestCaretAtPoint(doc: Document, thread: HTMLElement, x: number, y: number): CaretHit | undefined {
+  const walker = doc.createTreeWalker(thread, 4);
+  let best: { distance: number; above: boolean; hit: CaretHit } | undefined;
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (!selectableTextNode(node)) continue;
+    const row = rowOf(node);
+    if (!row) continue;
+    const range = doc.createRange();
+    try {
+      range.selectNodeContents(node);
+    } catch {
+      continue;
+    }
+    for (const rect of Array.from(range.getClientRects())) {
+      if (rect.width <= 0 || rect.height <= 0) continue;
+      const above = y >= rect.bottom;
+      const below = y <= rect.top;
+      const distance = above ? y - rect.bottom : below ? rect.top - y : 0;
+      const lineX = above
+        ? rect.right - 0.5
+        : below
+          ? rect.left + 0.5
+          : Math.min(Math.max(x, rect.left + 0.5), rect.right - 0.5);
+      const caret = caretAt(doc, lineX, rect.top + rect.height / 2);
+      if (!caret || !thread.contains(caret.node)) continue;
+      const hitRow = rowOf(caret.node);
+      if (!hitRow) continue;
+      const hit = { caret, row: hitRow };
+      // Prefer the nearest line. An exact midpoint picks the line above so its end is the stable
+      // document-style anchor; moving toward the next row then extends in the expected direction.
+      if (!best || distance < best.distance || (distance === best.distance && above && !best.above)) {
+        best = { distance, above, hit };
+      }
+    }
+  }
+  return best?.hit;
 }
 
 /// The gutter geometry now: the column from a mounted row (rows sit --cv-inset in, the column's
@@ -135,6 +191,7 @@ export function installGutterSelect(
   // (and the composer card) in charge of their own presses.
   const eventSurface = surface ?? scroller;
   type Drag = {
+    pointerId: number;
     startX: number;
     startY: number;
     x: number;
@@ -244,15 +301,16 @@ export function installGutterSelect(
     } else release();
     if (frame) win.cancelAnimationFrame(frame);
     frame = 0;
-    win.removeEventListener("mousemove", onMove, true);
-    win.removeEventListener("mouseup", onUp, true);
+    win.removeEventListener("pointermove", onMove, true);
+    win.removeEventListener("pointerup", onUp, true);
+    win.removeEventListener("pointercancel", stop, true);
     win.removeEventListener("blur", stop);
     scroller.removeEventListener("scroll", onScroll);
   };
-  function onMove(event: MouseEvent) {
+  function onMove(event: PointerEvent) {
     const current = drag;
-    if (!current) return;
-    // The button came up outside the page (no mouseup reached it).
+    if (!current || event.pointerId !== current.pointerId) return;
+    // The button came up outside the page (no pointerup reached it).
     if ((event.buttons & 1) === 0) {
       stop();
       return;
@@ -271,8 +329,9 @@ export function installGutterSelect(
     event.preventDefault();
     if (!frame) frame = win.requestAnimationFrame(tick);
   }
-  function onUp(event: MouseEvent) {
+  function onUp(event: PointerEvent) {
     const current = drag;
+    if (current && event.pointerId !== current.pointerId) return;
     if (current?.selecting) {
       current.x = event.clientX;
       current.y = event.clientY;
@@ -285,25 +344,34 @@ export function installGutterSelect(
     }
     stop();
   }
-  const onDown = (event: MouseEvent) => {
-    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+  const onDown = (event: PointerEvent) => {
+    if (
+      event.button !== 0 ||
+      event.isPrimary === false ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      event.shiftKey
+    )
+      return;
     // A press that only closes an open composer menu does nothing else (menuPressGuard.ts).
     if (swallowsPress(doc)) return;
-    // Only the empty gutter: the scroller, its spacer and the thread's own box, never a row, the
-    // minimap, Find's bar or anything else drawn in the scroller. The one overlay exception is the
-    // blank composer location strip; its controls remain interactive and are filtered below.
+    // Only the transcript's empty gutter or row spacing: the scroller, its spacer and the thread's
+    // own box, plus a row's blank padding. The minimap, Find bar and controls remain in charge of
+    // their presses; the blank composer location strip is the one overlay exception.
     const target = event.target;
     const directTranscriptTarget = target === scroller || target === thread || target === thread.parentElement;
     const targetElement = target instanceof Element ? target : undefined;
-    const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
-    const stripPress = Boolean(
-      strip &&
-      eventSurface.contains(strip) &&
-      !targetElement?.closest(
-        'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"]',
-      ),
+    const targetRow = targetElement?.closest<HTMLElement>(".acpmux-row");
+    const rowGapPress = Boolean(
+      targetRow &&
+      thread.contains(targetRow) &&
+      !targetElement?.closest(INTERACTIVE_TARGETS) &&
+      (targetElement === targetRow || !targetElement?.textContent?.trim()),
     );
-    if (!directTranscriptTarget && !stripPress) return;
+    const strip = targetElement?.closest<HTMLElement>(".acpmux-composer-strip");
+    const stripPress = Boolean(strip && eventSurface.contains(strip) && !targetElement?.closest(INTERACTIVE_TARGETS));
+    if (!directTranscriptTarget && !stripPress && !rowGapPress) return;
     const geometry = measure(scroller, thread);
     if (!geometry) return;
     // A spacer band under the last row is still part of the transcript, even when the x coordinate is
@@ -312,13 +380,29 @@ export function installGutterSelect(
       event.clientY >= geometry.view.bottom &&
       event.clientX >= geometry.view.left &&
       event.clientX < geometry.view.right - geometry.lane;
-    if (!inGutter(event.clientX, geometry) && !inBottomBand && !stripPress) return;
+    const sideGutter = inGutter(event.clientX, geometry);
+    const inColumn = event.clientX >= geometry.column.left && event.clientX <= geometry.column.right;
+    const transcriptGap =
+      rowGapPress || inBottomBand || stripPress || (directTranscriptTarget && inColumn && !sideGutter);
+    if (!sideGutter && !transcriptGap) return;
     const point = clampIntoColumn(event.clientX, event.clientY, geometry);
-    const caret = caretAt(doc, point.x, point.y);
-    // No text to start at (a hit beside a blank gap): the native press goes ahead untouched, and
-    // moves focus off the composer to the page as it always has.
-    const row = inThread(caret) ? rowOf(caret.node) : undefined;
-    if (!caret || !row) return;
+    const resolved = transcriptGap
+      ? nearestCaretAtPoint(doc, thread, point.x, point.y)
+      : (() => {
+          const caret = caretAt(doc, point.x, point.y);
+          const row = inThread(caret) ? rowOf(caret.node) : undefined;
+          return caret && row ? { caret, row } : nearestCaretAtPoint(doc, thread, point.x, point.y);
+        })();
+    // A plain click in a gap with no mounted text clears an existing transcript selection, while
+    // leaving the browser's normal background focus behavior untouched.
+    if (!resolved) {
+      stop();
+      release();
+      const selection = doc.getSelection();
+      if (selection?.anchorNode && thread.contains(selection.anchorNode)) selection.removeAllRanges();
+      return;
+    }
+    const { caret, row } = resolved;
     // No native press: it would start no selection here. Focus leaves the composer (or a row) as
     // the native press on the background moved it, to the page.
     event.preventDefault();
@@ -327,6 +411,7 @@ export function installGutterSelect(
     stop();
     release();
     drag = {
+      pointerId: event.pointerId,
       startX: event.clientX,
       startY: event.clientY,
       x: event.clientX,
@@ -336,12 +421,13 @@ export function installGutterSelect(
       row,
       selecting: false,
     };
-    win.addEventListener("mousemove", onMove, true);
-    win.addEventListener("mouseup", onUp, true);
+    win.addEventListener("pointermove", onMove, true);
+    win.addEventListener("pointerup", onUp, true);
+    win.addEventListener("pointercancel", stop, true);
     win.addEventListener("blur", stop);
     scroller.addEventListener("scroll", onScroll, { passive: true });
   };
-  eventSurface.addEventListener("mousedown", onDown, true);
+  eventSurface.addEventListener("pointerdown", onDown, true);
   /// Ends a drag without extending it, and lets every held row go.
   const end = () => {
     drag = undefined;
@@ -351,7 +437,7 @@ export function installGutterSelect(
   return {
     release: end,
     remove: () => {
-      eventSurface.removeEventListener("mousedown", onDown, true);
+      eventSurface.removeEventListener("pointerdown", onDown, true);
       end();
     },
   };

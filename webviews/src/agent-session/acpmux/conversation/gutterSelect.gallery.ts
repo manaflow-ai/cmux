@@ -35,26 +35,37 @@ function answerLine(doc: Document, text: string) {
   return undefined;
 }
 
+/// The blank vertical rhythm between the two public answer fixtures.
+function answerGap(doc: Document, above: string, below: string) {
+  const first = answerLine(doc, above);
+  const second = answerLine(doc, below);
+  if (!first || !second) return undefined;
+  return { x: (first.left + first.right) / 2, y: (first.bottom + second.top) / 2 };
+}
+
 /// Presses at `from` in the margin, drags to `to` in steps a frame apart, and lifts.
 async function drag(ctx: PlayContext, from: { x: number; y: number }, to: { x: number; y: number }) {
   const doc = ctx.document;
   const view = doc.defaultView!;
   const scroller = doc.querySelector<HTMLElement>(".acpmux-scroll")!;
-  const init = (x: number, y: number, buttons: number): MouseEventInit => ({
+  const init = (x: number, y: number, buttons: number): PointerEventInit => ({
     bubbles: true,
     cancelable: true,
     clientX: x,
     clientY: y,
     button: 0,
     buttons,
+    isPrimary: true,
+    pointerId: 1,
+    pointerType: "mouse",
   });
-  scroller.dispatchEvent(new MouseEvent("mousedown", init(from.x, from.y, 1)));
+  scroller.dispatchEvent(new PointerEvent("pointerdown", init(from.x, from.y, 1)));
   for (let step = 1; step <= 6; step += 1) {
     const at = (a: number, b: number) => a + ((b - a) * step) / 6;
-    view.dispatchEvent(new MouseEvent("mousemove", init(at(from.x, to.x), at(from.y, to.y), 1)));
+    view.dispatchEvent(new PointerEvent("pointermove", init(at(from.x, to.x), at(from.y, to.y), 1)));
     await new Promise((resolve) => view.requestAnimationFrame(resolve));
   }
-  view.dispatchEvent(new MouseEvent("mouseup", init(to.x, to.y, 0)));
+  view.dispatchEvent(new PointerEvent("pointerup", init(to.x, to.y, 0)));
   await ctx.waitFor(() => !(view.getSelection()?.isCollapsed ?? true), { capMs: 1500 }).catch(() => undefined);
 }
 
@@ -87,6 +98,16 @@ export default agentPaneEntry({
         const width = ctx.document.documentElement.clientWidth;
         if (width - third.right < 60) return;
         await drag(ctx, { x: (third.right + width - 16) / 2, y: third.bottom }, { x: first.left + 300, y: first.top });
+      },
+    },
+    "from-row-gap": {
+      note: "Pressed in the blank rhythm between the first two answers and dragged into the second: the nearest mounted caret starts the native range instead of leaving a dead zone.",
+      snapshot: chat(rows, { title: "Drag-select from a row gap" }),
+      play: async (ctx) => {
+        const gap = answerGap(ctx.document, "Alpha", "Bravo");
+        const second = answerLine(ctx.document, "Bravo");
+        if (!gap || !second) return;
+        await drag(ctx, gap, { x: second.left + 300, y: second.top + 4 });
       },
     },
   },
