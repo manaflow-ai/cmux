@@ -6,7 +6,7 @@ import { authenticate } from "./auth.ts"
 import { principalForOwner } from "./team-select.ts"
 import type { AttachmentAccess, DownloadAccess } from "./conversation-do.ts"
 import type { Env } from "./env.ts"
-import { derivedReady, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
+import { derivedReady, PART_RENEW_MS, randomId, slotKeys, type UploadSlot } from "./home-attachment-store.ts"
 import { completionFailure, ResumableSha256, streamInto, streamPartInto } from "./home-attachment-stream.ts"
 import { ssoGate } from "./policy-gate.ts"
 import { presignUrl, type Presigner } from "./r2-presign.ts"
@@ -67,6 +67,7 @@ interface ConversationAttachments {
   setMultipartUpload(entity: string, id: string, uploadId: string): Promise<boolean>
   claimMultipartPart(entity: string, id: string, part: number, before: string | null): Promise<{ ok: true; claim: string } | { ok: false; busy: boolean }>
   releaseMultipartPart(entity: string, id: string, claim: string): Promise<void>
+  renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean>
   recordMultipartPart(entity: string, id: string, part: number, etag: string, before: string | null, after: string, claim: string): Promise<boolean>
   multipartEtags(entity: string, id: string): Promise<Array<string>>
   reopenMultipart(entity: string, id: string): Promise<boolean>
@@ -403,9 +404,19 @@ export const handleAttachmentMultipartPart = async (request: Request, env: Env, 
       : failure({ status: 409, code: "attachment.part_order", message: "that part was already stored, or the slot ended" })
   }
   let recorded = false
+  // While bytes arrive the claim is renewed; once another request has taken it, this one stops before R2 keeps its bytes.
+  let lost = false
+  const renew = {
+    everyMs: PART_RENEW_MS,
+    run: async () => {
+      lost = !(await conv.renewMultipartPart(conversation, id, claimed.claim).catch(() => false))
+      return !lost
+    }
+  }
   try {
     const upload = env.HOME_ATTACHMENTS!.resumeMultipartUpload(slot.object_key, slot.multipart_upload_id)
-    const uploaded = await streamPartInto(upload, part, request, length, sha)
+    const uploaded = await streamPartInto(upload, part, request, length, sha, renew)
+    if (!uploaded && lost) return failure({ status: 409, code: "attachment.part_order", message: `part ${part} lost its claim (a later request took it, or it could not be renewed); nothing of this one was kept, send it again if no other request stored it` })
     if (!uploaded) return failure({ status: 400, code: "attachment.size_mismatch", message: `part ${part} must be exactly ${length} bytes` })
     const after = part < plan.parts ? sha.state() : `${sha.digest()}:${sha.bytes}`
     if (part === plan.parts && after !== `${slot.hash}:${slot.byte_count}`) {

@@ -600,6 +600,14 @@ export class ConversationDO extends OwnerDO<Head> {
     return claimed
   }
 
+  /** A streaming part's claim is still its request's: renewed, or false when it was taken over (store.renewMultipartPart). */
+  async renewMultipartPart(entity: string, id: string, claim: string): Promise<boolean> {
+    if (!this.existingState(entity)) return false
+    const renewed = store.renewMultipartPart(this.sqlStore, id, claim)
+    this.scheduleAlarm()
+    return renewed
+  }
+
   /** Ends a part claim whose upload failed (store.releaseMultipartPart). */
   async releaseMultipartPart(entity: string, id: string, claim: string): Promise<void> {
     if (this.existingState(entity)) store.releaseMultipartPart(this.sqlStore, id, claim)

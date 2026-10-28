@@ -205,11 +205,14 @@ export const takeSlot = (sql: Sql, id: string, mode: UploadSlot["mode"], consume
 }
 
 /**
- * How long a part claim holds when its request never releases it (a Worker evicted mid-part): the
- * time one bounded part may take to stream (UPLOADING_GRACE_MS). Past it the holder's request is
- * over, so its upload can no longer write the R2 part, and another request may take the part.
+ * How long a part claim holds without word from its request (a Worker evicted mid-part, a stalled
+ * body). A live request renews it every PART_RENEW_MS while bytes arrive (renewMultipartPart), so
+ * a slow part keeps its claim however long it streams. It is well under the idle lease a claim or a
+ * renewal gives the slot (uploadTtlMs), so a lapsed claim always leaves the slot open for the retry.
  */
-export const PART_CLAIM_MS = UPLOADING_GRACE_MS
+export const PART_CLAIM_MS = 5 * 60_000
+/** How often a streaming part renews its claim: well inside PART_CLAIM_MS, at most a few dozen renewals for the slowest part. */
+export const PART_RENEW_MS = 2 * 60_000
 
 /**
  * Claims the next part of open multipart slot `id` for one request before any byte goes to R2:
@@ -226,6 +229,20 @@ export const claimMultipartPart = (sql: Sql, id: string, part: number, before: s
   const claim = `${part}:${randomId()}`
   sql.exec(`UPDATE ${SLOTS} SET part_claim = ?, part_claim_at = ?, expires_at = ? WHERE id = ?`, claim, now, now + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
   return { ok: true, claim }
+}
+
+/**
+ * The request holding `claim` is still streaming its part: the claim's clock restarts and the
+ * slot's idle lease reaches at least uploadTtlMs ahead. False when the claim is no longer this
+ * request's (it lapsed and another request took the part, or the slot ended): the request must
+ * stop before its bytes reach R2, since they would replace the part the new holder records.
+ */
+export const renewMultipartPart = (sql: Sql, id: string, claim: string): boolean => {
+  const slot = slotIn(sql, id, "open")
+  if (!slot || slot.part_claim !== claim) return false
+  const now = Date.now()
+  sql.exec(`UPDATE ${SLOTS} SET part_claim_at = ?, expires_at = MAX(expires_at, ?) WHERE id = ?`, now, now + conversation.ATTACHMENT_LIMITS.uploadTtlMs, id)
+  return true
 }
 
 /** Ends claim `claim` without recording its part (its upload failed), so the part may be sent again at once. */

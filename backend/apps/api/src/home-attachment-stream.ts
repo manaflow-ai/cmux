@@ -85,17 +85,30 @@ export class ResumableSha256 {
   }
 }
 
+/** A streaming part's claim renewal: `run` every `everyMs` while bytes arrive; false means the claim is gone. */
+export interface PartRenewal {
+  readonly everyMs: number
+  readonly run: () => Promise<boolean>
+}
+
 /**
  * Streams one multipart part (exactly `length` bytes) into R2 part `part`, hashing it onto `sha`.
- * Null when the body has another length or R2 refused it; R2 keeps nothing until the completion.
+ * Null when the body has another length, R2 refused it, or `renew` reports the claim gone (the
+ * stream fails before the next bytes, so R2 keeps none of this upload); R2 keeps nothing until the completion.
  */
-export const streamPartInto = async (upload: R2MultipartUpload, part: number, request: Request, length: number, sha: ResumableSha256): Promise<R2UploadedPart | null> => {
+export const streamPartInto = async (upload: R2MultipartUpload, part: number, request: Request, length: number, sha: ResumableSha256, renew?: PartRenewal): Promise<R2UploadedPart | null> => {
   if (!request.body || request.headers.get("content-length") !== String(length)) return null
   let count = 0
+  let renewedAt = Date.now()
   const meter = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, ctl) {
+    async transform(chunk, ctl) {
       count += chunk.byteLength
       if (count > length) return ctl.error(new Error("body longer than declared"))
+      if (renew && Date.now() - renewedAt >= renew.everyMs) {
+        renewedAt = Date.now()
+        // A claim that cannot be confirmed may have lapsed: stop rather than risk replacing another request's part.
+        if (!(await renew.run().catch(() => false))) return ctl.error(new Error("the part's claim was not renewed"))
+      }
       sha.update(chunk)
       ctl.enqueue(chunk)
     }
