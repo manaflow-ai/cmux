@@ -65,6 +65,15 @@ const open: Play = async (ctx) => {
     throw new Error("Project search must keep the composer field style without a native border");
 };
 
+const openFifteen: Play = async (ctx) => {
+  await open(ctx);
+  const rows = ctx.document.querySelectorAll('.acpmux-project-menu [role="option"]');
+  if (rows.length < 15) throw new Error(`Expected fifteen project rows, found ${rows.length}`);
+  const list = ctx.document.querySelector<HTMLElement>(".acpmux-project-menu .ui-combobox-list");
+  if (!list || list.scrollHeight <= list.clientHeight)
+    throw new Error("Fifteen-row gallery must exercise the project scrollbar");
+};
+
 // The macOS menu gesture: press the pill, drag onto a row, release to pick it.
 const pressDragRelease: Play = async (ctx) => {
   await ctx.pointer.down({ selector: ".acpmux-project-button" });
@@ -240,7 +249,7 @@ export default componentEntry<Props>({
         onPick: () => undefined,
         onBrowse: () => undefined,
       },
-      play: open,
+      play: openFifteen,
     },
     "variant-aligned-columns": {
       note: "Gallery variant A: the selected shared-column layout keeps the icon, name, secondary path and check aligned.",
