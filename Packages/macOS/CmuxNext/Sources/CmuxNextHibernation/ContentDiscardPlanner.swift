@@ -51,6 +51,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// It changed its title or icon while hidden (`PageBackgroundActivity`): the timeout keeps
         /// it and it does not freeze (`HibernationPlanner.freezePlan`), memory pressure does not.
         package var hasBackgroundActivity = false
+        /// It still loads: it does not freeze until the load ends (Chrome's kLoading); a discard ignores it.
+        package var isLoading = false
 
         /// The tab sits beside a pane's shown tab or was just hovered (browser pages).
         package var isNeighbor = false
@@ -58,6 +60,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         package var isAgentDriving = false
         /// The page a pane shows while its window is off screen (browser pages).
         package var isActiveTab = false
+        /// A discard of it was tried and did not finish since it last showed (``AttemptMarkers``).
+        package var discardAttempted = false
 
         // The lead rule's facts (p07-memory.md section 3.C). A web page's probe fills them right
         // before a discard (`PageProbe.fill(_:)`); other kinds set them from their own state.
@@ -128,7 +132,8 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         /// per critical pressure event (`UrgentPageDiscardingPolicy`,
         /// chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc), then one
         /// every 5 s while it stays critical. Browser pages keep their own paces
-        /// (`HibernationPlanner.pace(at:)`) until task 114 measures both.
+        /// (`HibernationPlanner.pace(at:urgent:)`): at critical, cmux's relieves more within 30 s
+        /// (`HibernationPlanner.UrgentPace.browsers`).
         package static let chromeUrgent = Self(perPass: 1, interval: 5, minimumHidden: 0)
     }
 
@@ -269,5 +274,34 @@ package nonisolated struct ContentDiscardPlanner: Sendable {
         let young = pace.minimumHidden - hiddenFor
         let dueIn = max(threshold - idleness, young)
         return urgent ? min(dueIn, max(young, pace.interval)) : dueIn
+    }
+}
+
+extension ContentDiscardPlanner {
+    /// Content whose discard was tried and did not finish, by its owner's key: a refused freeze, a
+    /// `beforeunload` that asked, no state to restore it from, or a teardown that failed. Each such
+    /// item is ``DiscardRule/discardAttempted`` until it shows again, so the planner gives its slot
+    /// to the next candidate instead of trying it on every pass. Chrome marks a page the same way
+    /// (`DiscardAttemptMarker`, chrome/browser/performance_manager/policies/page_discarding_helper.cc);
+    /// cmux clears the mark when the person sees the content again.
+    package nonisolated struct AttemptMarkers: Hashable, Sendable {
+        private var keys: Set<String> = []
+
+        package init() {}
+
+        /// Whether `key`'s discard was tried and did not finish since it last showed.
+        package func contains(_ key: String) -> Bool {
+            keys.contains(key)
+        }
+
+        /// `key`'s discard was tried and did not finish.
+        package mutating func mark(_ key: String) {
+            keys.insert(key)
+        }
+
+        /// `key` showed or closed: a later discard may try it again.
+        package mutating func clear(_ key: String) {
+            keys.remove(key)
+        }
     }
 }

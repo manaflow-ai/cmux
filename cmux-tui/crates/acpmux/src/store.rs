@@ -450,7 +450,9 @@ impl SessionMeta {
             },
             _ => return,
         };
-        let real = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let real = |path: &Path| {
+            cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+        };
         let default = dirs::home_dir().map(|home| real(&home.join(default)));
         if default.is_some_and(|default| default == real(dir)) {
             env.remove(var);
@@ -707,11 +709,40 @@ pub struct LocalStore {
     log: log_writer::LogWriter,
 }
 
-/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one is closed for a
-/// new one (`store/log_writer.rs`). A daemon held one descriptor per session it wrote since it
-/// started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of its 256, every agent start
-/// failing with "Too many open files").
+/// The fewest logs held open: a quarter of launchd's soft limit of 256. The least recently
+/// written one is closed for a new one (`store/log_writer.rs`). A daemon held one descriptor per
+/// session it wrote since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
+/// its 256, every agent start failing with "Too many open files").
 const OPEN_LOGS: usize = 64;
+
+/// The most logs held open under any limit.
+const OPEN_LOGS_MAX: usize = 2048;
+
+/// How many logs a store holds open under a soft open-file limit of `soft`: a quarter of it,
+/// from [`OPEN_LOGS`] (the 256 of launchd) to [`OPEN_LOGS_MAX`]. With 64 at the daemon's raised
+/// limit, more than 64 agents that stream at once closed one log and opened another on every
+/// record: 100 fake agents logged about 700 records a second in all, and each agent's unlogged
+/// entries waited in the daemon (p07-memory-064).
+pub(crate) fn open_logs_for(soft: u64) -> usize {
+    usize::try_from(soft / 4).unwrap_or(usize::MAX).clamp(OPEN_LOGS, OPEN_LOGS_MAX)
+}
+
+/// This process's soft open-file limit; the daemon raises it before it opens the store
+/// (`daemon/open_file_limit.rs`).
+#[cfg(unix)]
+fn soft_open_file_limit() -> u64 {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `lim` is a valid rlimit for getrlimit to fill.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } != 0 {
+        return 0;
+    }
+    lim.rlim_cur
+}
+
+#[cfg(not(unix))]
+fn soft_open_file_limit() -> u64 {
+    0
+}
 
 impl LocalStore {
     pub fn new(
@@ -721,8 +752,12 @@ impl LocalStore {
     ) -> Result<Self> {
         crate::config::private_state_dir(&root)
             .with_context(|| format!("create private store {}", root.display()))?;
-        let log =
-            log_writer::LogWriter::start(root.clone(), segment_bytes.max(64 * 1024), supervisor);
+        let log = log_writer::LogWriter::start(
+            root.clone(),
+            segment_bytes.max(64 * 1024),
+            open_logs_for(soft_open_file_limit()),
+            supervisor,
+        );
         Ok(Self { root, log })
     }
 
@@ -743,7 +778,7 @@ impl LocalStore {
     fn has_records(&self, id: &str) -> Result<bool> {
         for (_, path) in self.segments(id)? {
             // An unreadable segment counts as a log: the session is listed as before.
-            match std::fs::symlink_metadata(&path) {
+            match cmux_blocking::fs::symlink_metadata(&path) {
                 Ok(meta) if meta.len() == 0 => {}
                 _ => return Ok(true),
             }
@@ -755,7 +790,7 @@ impl LocalStore {
 /// The segments in a log's `events` folder, by index, oldest first.
 fn segments_in(dir: &Path) -> Result<Vec<(u32, PathBuf)>> {
     let mut out = Vec::new();
-    let Ok(rd) = std::fs::read_dir(dir) else {
+    let Ok(rd) = cmux_blocking::fs::read_dir(dir) else {
         return Ok(out);
     };
     for entry in rd {
@@ -957,7 +992,7 @@ impl Store for LocalStore {
     fn list(&self) -> Result<Vec<SessionMeta>> {
         let mut out = Vec::new();
         let mut skipped = 0usize;
-        let Ok(rd) = std::fs::read_dir(&self.root) else {
+        let Ok(rd) = cmux_blocking::fs::read_dir(&self.root) else {
             return Ok(out);
         };
         for entry in rd {
@@ -972,7 +1007,7 @@ impl Store for LocalStore {
             let session = entry.path();
             crate::config::private_state_dir(&session)?;
             let events = session.join("events");
-            match std::fs::symlink_metadata(&events) {
+            match cmux_blocking::fs::symlink_metadata(&events) {
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
                 Ok(_) => crate::config::private_state_dir(&events)?,
@@ -1008,7 +1043,7 @@ impl Store for LocalStore {
 
     fn load(&self, id: &str) -> Result<Option<SessionMeta>> {
         let path = self.dir(id).join("session.json");
-        if !path.exists() {
+        if !cmux_blocking::fs::exists(&path).unwrap_or(false) {
             return Ok(None);
         }
         let mut text = String::new();
@@ -1203,14 +1238,14 @@ impl Store for LocalStore {
         // macOS returns ENOTEMPTY when a file lands mid-removal; retry briefly.
         let mut last = None;
         for _ in 0..5 {
-            if !dir.exists() {
+            if !cmux_blocking::fs::exists(&dir).unwrap_or(false) {
                 return Ok(());
             }
-            match std::fs::remove_dir_all(&dir) {
+            match cmux_blocking::fs::remove_dir_all(&dir) {
                 Ok(()) => return Ok(()),
                 Err(e) => {
                     last = Some(e);
-                    std::thread::sleep(std::time::Duration::from_millis(40));
+                    cmux_blocking::thread::sleep(std::time::Duration::from_millis(40));
                 }
             }
         }
@@ -1243,12 +1278,19 @@ impl Store for LocalStore {
 fn open_private_append(path: &Path) -> Result<File> {
     use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW)
-        .open(path)?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = cmux_blocking::scoped_blocking_call(
+        "fs::open_with",
+        cmux_blocking::BlockingKind::Fs,
+        || {
+            OpenOptions::new()
+                .create(true)
+                .append(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(path)
+        },
+    )?;
     if file.metadata()?.permissions().mode() & 0o077 != 0 {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
@@ -1265,3 +1307,17 @@ mod permission_tests;
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
+
+#[cfg(test)]
+mod open_logs_tests {
+    use super::*;
+
+    #[test]
+    fn a_quarter_of_the_open_file_limit_holds_logs_from_64_to_2048() {
+        assert_eq!(open_logs_for(0), 64);
+        assert_eq!(open_logs_for(256), 64);
+        assert_eq!(open_logs_for(10_240), 2048);
+        assert_eq!(open_logs_for(1_000), 250);
+        assert_eq!(open_logs_for(u64::MAX), 2048);
+    }
+}

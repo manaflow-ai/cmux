@@ -10,6 +10,7 @@
 //! one write and the file never goes back to an older state. `flush` waits for what is queued:
 //! before the daemon reads `config.json` back (`reload_catalog`) and at shutdown.
 
+use crate::daemon::hang_watch::{SyncThread, WRITE_ITEM};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex};
@@ -30,6 +31,9 @@ struct Shared {
     written: Condvar,
 }
 
+/// The writer thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-config-writer";
+
 pub(crate) struct ConfigWriter {
     shared: Arc<Shared>,
     thread: Mutex<Option<OwnedThread>>,
@@ -44,7 +48,7 @@ impl ConfigWriter {
         // Fatal. Continue on shutdown: the owner's drop writes what is queued and joins it.
         let thread = crate::supervised::owned_thread(
             supervisor,
-            "acpmux-config-writer",
+            THREAD,
             Fatal,
             ShutdownBehavior::Continue,
             move || run(&worker),
@@ -71,7 +75,8 @@ impl ConfigWriter {
     pub(crate) fn flush(&self) {
         let mut state = self.lock();
         while self.running() && (!state.queued.is_empty() || state.writing) {
-            state = self.shared.written.wait(state).unwrap_or_else(|e| e.into_inner());
+            state = cmux_blocking::sync::wait(&self.shared.written, state)
+                .unwrap_or_else(|e| e.into_inner());
         }
     }
 
@@ -90,25 +95,32 @@ impl Drop for ConfigWriter {
         self.lock().stop = true;
         self.shared.work.notify_one();
         if let Some(thread) = self.thread.get_mut().unwrap_or_else(|e| e.into_inner()).take() {
-            thread.join();
+            cmux_blocking::scoped_blocking_call(
+                "thread::join",
+                cmux_blocking::BlockingKind::Join,
+                || thread.join(),
+            );
         }
     }
 }
 
 fn run(shared: &Shared) {
+    let watched = SyncThread::register(THREAD, WRITE_ITEM);
     let mut state = shared.state.lock().unwrap_or_else(|e| e.into_inner());
     loop {
         if state.queued.is_empty() {
             if state.stop {
                 return;
             }
-            state = shared.work.wait(state).unwrap_or_else(|e| e.into_inner());
+            state =
+                cmux_blocking::sync::wait(&shared.work, state).unwrap_or_else(|e| e.into_inner());
             continue;
         }
         let batch = std::mem::take(&mut state.queued);
         state.writing = true;
         drop(state);
         for (path, bytes) in batch {
+            let _item = watched.item();
             write(&path, &bytes);
         }
         state = shared.state.lock().unwrap_or_else(|e| e.into_inner());

@@ -178,6 +178,7 @@ final class ReportsBasketView: NSView {
         // refused, or passed its deadline). A sent reply clears the draft unless the
         // person typed on or chose another report; a refused one keeps it.
         // task-owner: one reply send; it ends when the host answers (bounded by its deadline)
+        // main-hop-allow: onReply is the host's main-actor async send seam (acpmux takes the reply off main); the answer re-renders this view's sending state
         Task { @MainActor [weak self] in
             let sent = await onReply(reply)
             guard let self else { return }

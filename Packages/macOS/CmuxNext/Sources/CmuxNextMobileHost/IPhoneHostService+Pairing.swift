@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextMobile
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -48,9 +49,7 @@ extension IPhoneHostService {
         }
         if paired?.userID != account?.userID { resetPrompts() }
         paired = account.map { file.load(userID: $0.userID) }
-        if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {
-            approverSync = MobileHostApproverSync(environment: environment)
-        }
+        ensureApproverSync()
         pushPaired()
     }
 
@@ -64,6 +63,7 @@ extension IPhoneHostService {
         savePaired()
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; dropping a phone with no link is a no-op
+        // main-hop-allow: main's FIFO starts it after the list push above, so the supervisor gets them in order
         Task { await supervisor.drop(phoneDeviceIDs: [id]) }
     }
 
@@ -153,17 +153,18 @@ extension IPhoneHostService {
         return .window(window)
     }
 
-    /// A waiting prompt shows when a cmux window becomes main or the app comes forward
-    /// (one pair of observers for the service's life; a pass with nothing waiting does nothing).
+    /// A waiting prompt shows when a cmux window becomes main or the app comes forward (one pair of
+    /// subscriptions on the app's notice fan-out for the service's life; a pass with nothing waiting does
+    /// nothing). The sheet goes up one visible task after the notice, once AppKit finished the activation.
     private func watchForPairWindow() {
-        guard pairWindowWatch.isEmpty else { return }
-        let center = NotificationCenter.default
-        for name in [NSWindow.didBecomeMainNotification, NSApplication.didBecomeActiveNotification] {
-            pairWindowWatch.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                // task-owner: one hop to the main actor per window or app activation; ends at once
-                Task { @MainActor [weak self] in self?.showPairDialog() }
-            })
+        guard pairWindowWatch.isEmpty, let appEvents, let mainWork = deadlines?.work else { return }
+        let show: @MainActor () -> Void = { [weak self] in
+            mainWork.post(.visible, owner: "IPhoneHost.pairWindow") { [weak self] in self?.showPairDialog() }
         }
+        pairWindowWatch = [
+            appEvents.subscribe(NSWindow.didBecomeMainNotification, owner: "IPhoneHost.pairWindow", show),
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IPhoneHost.pairWindow", show),
+        ]
     }
 
     private func decide(_ request: MobileHostPairRequest, allow: Bool) {
@@ -221,6 +222,7 @@ extension IPhoneHostService {
         let list = paired ?? MobileHostPairedDevices(userID: "")
         let supervisor = supervisor
         // task-owner: one hop to the supervisor actor; setDevices is idempotent
+        // main-hop-allow: main's FIFO starts the pushes in call order, so an older list never lands after a newer one
         Task { await supervisor.setDevices(list) }
         guard let directory = dependencies?.stateDirectory,
               let macDevice = try? MobileHostDeviceIdentity(directory: directory).deviceID() else { return }

@@ -3,6 +3,7 @@
 //! blocks until an event arrives, then gathers a short burst (debounce) and
 //! hands the changed paths to the index.
 
+use crate::daemon::hang_watch::{BLOCKING_ITEM, SyncThread};
 use std::path::PathBuf;
 use std::sync::Weak;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -51,12 +52,10 @@ pub(super) fn start(
     }
     // The thread updates the shared chat index: a panic in it is fatal. It ends when the
     // watcher drops (its channel closes), so shutdown does not wait for it.
-    let thread = supervisor.supervise_thread(
-        "acpmux-chat-watch",
-        Fatal,
-        ShutdownBehavior::Continue,
-        move |_stop| run(&rx, &service),
-    );
+    let thread =
+        supervisor.supervise_thread(THREAD, Fatal, ShutdownBehavior::Continue, move |_stop| {
+            run(&rx, &service)
+        });
     if let Err(e) = thread {
         errors.push(format!("the chat watcher thread cannot start: {e}"));
         return (None, errors);
@@ -96,8 +95,14 @@ impl Burst {
     }
 }
 
+/// The watch thread's name, also its name in a hang record.
+const THREAD: &str = "acpmux-chat-watch";
+
 /// Ends when the watcher is dropped (the channel closes) or the service is gone.
+/// Each burst's index update, not its wait, is one hang-watch item; a rescan
+/// walks whole roots, as the index's start does, and is not watched.
 fn run(rx: &Events, service: &Weak<ChatService>) {
+    let watched = SyncThread::register(THREAD, BLOCKING_ITEM);
     while let Ok(first) = rx.recv() {
         let started = Instant::now();
         let mut burst = Burst::default();
@@ -117,6 +122,7 @@ fn run(rx: &Events, service: &Weak<ChatService>) {
                 }
             }
         }
+        let _item = (!burst.rescan).then(|| watched.item());
         let Some(service) = service.upgrade() else { return };
         service.paths_changed(&burst.paths, burst.rescan);
         if closed {

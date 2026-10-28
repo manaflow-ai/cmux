@@ -79,7 +79,7 @@ final class DropHighlightView: NSView {
         renderer.applyTheme()
     }
 
-    override func viewDidChangeEffectiveAppearance() {
+    override func viewDidChangeEffectiveAppearance() { // visibility-walk-allow: the outline's layer colors and its label's text color, no layout or text measure; cheaper than a deferral
         super.viewDidChangeEffectiveAppearance()
         renderer.applyTheme()
     }

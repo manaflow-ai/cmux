@@ -14,7 +14,7 @@ use cmux_panic_log::crash_keys::{self, Key};
 use futures::future::BoxFuture;
 use serde_json::Value;
 
-use super::{Conn, chats};
+use super::{Conn, agent_mcp, chats};
 use crate::hub::Hub;
 use crate::rpc::{Id, Message, RpcError};
 use crate::supervised::{Fatal, ShutdownBehavior, Supervisor};
@@ -35,9 +35,16 @@ pub(super) fn spawn(
 ) {
     let route = {
         let (hub, conn, method) = (hub.clone(), conn.clone(), method.clone());
-        Box::pin(
-            async move { chats::route(&hub, &conn, &method, params.unwrap_or(Value::Null)).await },
-        )
+        Box::pin(async move {
+            let params = params.unwrap_or(Value::Null);
+            match conn.agent_tools() {
+                // Boxed: the tool calls hold a whole `chats::route` of their own.
+                Some(tools) => {
+                    Box::pin(agent_mcp::handle(&hub, &conn, tools, &method, params)).await
+                }
+                None => chats::route(&hub, &conn, &method, params).await,
+            }
+        })
     };
     start(hub.supervisor(), conn, id, &method, slot, route);
 }

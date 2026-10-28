@@ -61,8 +61,12 @@ pub(super) fn notification_handler(
         let supervisor = hub.supervisor().clone();
         let (hub, conn) = (hub.clone(), conn.clone());
         Box::pin(async move {
-            let handle =
-                Box::pin(async move { handle_notification(&hub, &conn, &method, params).await });
+            // An agent tool server's notifications are MCP (`agent_mcp.rs`): nothing to do.
+            let handle = Box::pin(async move {
+                if conn.agent_tools().is_none() {
+                    handle_notification(&hub, &conn, &method, params).await
+                }
+            });
             let handled = crate::supervised::call(
                 &supervisor,
                 NOTIFICATION_WORKER,
@@ -111,9 +115,11 @@ impl Conn {
             holds_calls: std::sync::atomic::AtomicU32::new(0),
             caller: std::sync::OnceLock::new(),
             unproven_caller: std::sync::OnceLock::new(),
+            agent_tools: std::sync::OnceLock::new(),
             peer_leases: StdMutex::new(Some(Vec::new())),
             ephemeral: StdMutex::new(Some(Vec::new())),
             media: crate::hub::media_handles::Handles::default(),
+            memory_vote: std::sync::OnceLock::new(),
         }
     }
 }

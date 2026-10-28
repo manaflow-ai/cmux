@@ -33,7 +33,6 @@ final class PaletteActionsMenuView: NSView {
     private let empty = PaletteText.label(Typography.body, tone: .tertiary)
     private let separator = NSView()
     private var rowViews: [PaletteMenuRow] = []
-    private var tracking: NSTrackingArea?
     /// A press on a row: the selection follows a drag and the release runs the row it ends on.
     private lazy var press = PalettePress(in: content, rows: { [weak self] in self?.rowViews ?? [] }, select: { [weak self] index in
         self?.onHover?(index)
@@ -50,6 +49,9 @@ final class PaletteActionsMenuView: NSView {
         empty.stringValue = PaletteStrings.noResults
         [title, separator, filter, empty].forEach(content.addSubview)
         addSubview(glass)
+        // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
+        // The rows' own edges are not; they post like moves.
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -150,19 +152,10 @@ final class PaletteActionsMenuView: NSView {
                                                    width: bounds.width - 2 * padding, height: filterHeight))
     }
 
+    // visibility-walk-allow: colors only (the glass's theme, the separator's fill), no layout; a deferral costs more than the stores
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
-    }
-
-    // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
-    // The rows' own edges are not; they post like moves.
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
     }
 
     override func mouseEntered(with event: NSEvent) {}
@@ -187,6 +180,8 @@ final class PaletteActionsMenuView: NSView {
         press.began(event)
     }
 
+    // input-coalesce: native (a press highlight: a row hit test per event; it selects only when the row changes)
+    // local-monitor-allow: a held press's drag (PalettePress) is per event and keeps order; no hover work runs here
     override func mouseDragged(with event: NSEvent) {
         guard press.isPressed else { return super.mouseDragged(with: event) }
         press.dragged(event)
@@ -233,19 +228,13 @@ final class PaletteMenuRow: NSView {
         keys.keycaps = keycaps ?? []
         keys.isHidden = keycaps == nil
         [icon, label, keys].forEach(addSubview)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
     nonisolated override var isFlipped: Bool { true }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect],
-                                       owner: self))
-    }
 
     override func mouseEntered(with event: NSEvent) {
         onCross?(event)
@@ -255,6 +244,7 @@ final class PaletteMenuRow: NSView {
         onCross?(event)
     }
 
+    // local-monitor-allow: forwards the move to the menu's PointerFrameHover (onMove), which coalesces moves to the window's frame
     override func mouseMoved(with event: NSEvent) {
         onMove?(event) // the menu's PointerFrameHover coalesces it
     }
@@ -272,6 +262,7 @@ final class PaletteMenuRow: NSView {
         applyColors()
     }
 
+    // visibility-walk-allow: one icon tint, no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

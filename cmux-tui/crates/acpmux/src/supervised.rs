@@ -162,7 +162,8 @@ where
 }
 
 /// Runs `work` on the runtime's blocking pool as a supervised task: a panic in
-/// `work` is the task's, under `policy`.
+/// `work` is the task's, under `policy`. The item may block and is hang-watched
+/// (`crate::daemon::spawn_blocking`).
 pub fn blocking<F>(
     supervisor: &Supervisor,
     name: &str,
@@ -173,7 +174,7 @@ pub fn blocking<F>(
     F: FnOnce() + Send + 'static,
 {
     task(supervisor, name, policy, shutdown, async move {
-        if let Err(error) = tokio::task::spawn_blocking(work).await
+        if let Err(error) = crate::daemon::spawn_blocking(work).await
             && error.is_panic()
         {
             std::panic::resume_unwind(error.into_panic());

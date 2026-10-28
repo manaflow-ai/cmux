@@ -170,7 +170,7 @@ impl Hub {
             let hub = self.clone();
             self.supervise("hub.harness-checks", Fatal, ShutdownBehavior::Skip, async move {
                 let installed = || {
-                    tokio::task::spawn_blocking(|| {
+                    crate::daemon::spawn_blocking(|| {
                         crate::registry::installed(&crate::config::home())
                     })
                 };

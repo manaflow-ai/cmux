@@ -459,6 +459,7 @@ impl Hub {
         };
         let pids: Vec<u32> = lock(&self.pool.pool).ready_mut().map(|p| p.record.host_pid).collect();
         let probe = lock(&self.pool.rss).clone();
+        // `ps` per host: a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
         let measured: HashMap<u32, u64> =
             tokio::task::spawn_blocking(move || pids.into_iter().map(|p| (p, probe(p))).collect())
                 .await
@@ -789,7 +790,7 @@ impl Hub {
             )
             .await;
             if ended {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = tokio::fs::remove_file(&b.path).await;
             }
         }
     }
