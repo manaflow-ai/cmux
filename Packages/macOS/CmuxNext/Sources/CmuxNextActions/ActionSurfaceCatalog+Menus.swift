@@ -133,7 +133,7 @@ nonisolated extension ActionSurfaceCatalog {
         // the space actions stay in the palette and the CLI (`.minimalMenu`).
         "space.new": [p(.sidebarBackground, .create, 6, folder: .new)],
         "space.newWorkspace": [p(.profile, .create, 0, label: SpaceMenuLabels.newWorkspace)],
-        "space.newWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.newWindow)],
+        "space.openInNewWindow": [p(.profile, .create, 1, label: SpaceMenuLabels.openInNewWindow)],
         "space.setIcon": [p(.profile, .identity, 100, label: IconMenuLabels.setIcon)],
         "space.clearIcon": [p(.profile, .identity, 100, label: IconMenuLabels.removeIcon)],
         "space.rename": [p(.profile, .identity, 101)],
