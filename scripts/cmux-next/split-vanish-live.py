@@ -58,7 +58,8 @@ def rpc(method, params=None, timeout=30):
 
 def shown_panes():
     """Panes the first window's selected workspace shows (its tab strips)."""
-    windows = (rpc("debug.windows") or {}).get("windows") or []
+    # The first open window: a relaunch also lists closed windows it saved (`open` false).
+    windows = [w for w in (rpc("debug.windows") or {}).get("windows") or [] if w.get("open", True)]
     first = windows[0].get("id") if windows else None
     report = rpc("debug.tab_drag") or {}
     return len([s for s in report.get("strips") or [] if first is None or s.get("window") == first])

@@ -43,8 +43,11 @@ struct RapidSplitsKeepPanesTests {
             mark("start")
             for (index, id) in burst.actions.enumerated() {
                 #expect(services.registry.perform(id, invocation: ActionInvocation(origin: .user)), "\(id) did not run")
-                // Key repeat: the next press comes before the daemon answers this one.
-                try await Task.sleep(for: .milliseconds(30))
+                // Back to back, as fast presses are: the next press comes before the daemon answers
+                // this one, so it is aimed at the pane this one still shows provisionally (#26695:
+                // that stand-in's handle went to the daemon, which refused it, and the pane vanished).
+                // A 30 ms gap let the daemon confirm each split first and the test passed on the bug.
+                await Task.yield()
                 mark("\(index + 1)")
             }
             let expected = 1 + burst.actions.count
