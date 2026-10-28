@@ -95,6 +95,11 @@ test("an assistant body pins the turn summary row used by the rail", () => {
   expect(target?.rowId).toBe("summary-9");
 });
 
+test("an assistant body without a completed summary has no pin target", () => {
+  const target = messageMenuTarget({ ...snapshot, isWorking: true } as unknown as AcpmuxSnapshot, answer.id);
+  expect(target?.rowId).toBeUndefined();
+});
+
 test("a footer with no answer has no More", async () => {
   await act(async () => root.render(<TurnFooter row={summary} />));
   expect(doc.querySelector('button[aria-label="More"]')).toBeNull();
