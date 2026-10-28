@@ -287,9 +287,9 @@ pub(crate) fn update_tab_state(
                 .query_row(
                     "SELECT json_extract(attention_json, '$.at_ms') FROM tab_state WHERE tab_id = ?1",
                     [tab_id],
-                    |row| row.get(0),
+                    |row| row.get::<_, Option<i64>>(0),
                 )
-                .optional()?;
+                ?;
             let last_at_ms: Option<i64> = transaction
                 .query_row(
                     "SELECT at_ms FROM tab_attention_revisions WHERE tab_id = ?1",
