@@ -1740,7 +1740,7 @@ jobs:
     name: build nightly inputs
     needs: [decide, resolve-nightly-cmux-tui-client]
     if: needs.decide.outputs.should_build == 'true' && needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.continue_only != 'true' && inputs.nightly_next_unsigned_run == '' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.resolve-nightly-cmux-tui-client.outputs.already_published != 'true' && needs.resolve-nightly-cmux-tui-client.outputs.superseded != 'true'
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}
     permissions:
       contents: read
     timeout-minutes: 30
@@ -2186,16 +2186,27 @@ jobs:
               fi'
 
       - name: Start Release DerivedData empty
+        id: release-derived-data
         if: inputs.nightly_next_unsigned_run == ''
+        # The build's settings key the kept DerivedData (nightly_build_state.py BUILD_SETTINGS).
+        env:
+          IMPORT_VARIANT: ${{ needs.decide.outputs.import_variant }}
+          SWIFT_IMPORT_FLAGS: ${{ needs.decide.outputs.swift_import_flags }}
+          EMPTY_BROWSER_SOURCES: ${{ needs.decide.outputs.empty_browser_sources }}
         run: |
           set -euo pipefail
-          # The shipped app never builds on warm DerivedData. An incremental
+          # Every runner but one starts from an empty tree. An incremental
           # build can keep stale autolink and force-load data in objects it
-          # did not recompile after an import set changed, and those objects
-          # then link into the app. Every runner starts from an empty tree.
-          # Warm state that stays: the compilation cache restored into it
+          # did not recompile after the module graph changed, and those objects
+          # then link into the app. Warm state that stays: the compilation cache restored into it
           # below (content-keyed, with explicit module dependencies in each
           # key) and the Swift package checkouts in .spm-cache.
+          # The exception is the dedicated nightly-next builder, which runs only
+          # this build: nightly_build_state.py keeps its DerivedData and builds
+          # each tip on it, starting clean when the last build did not finish,
+          # the toolchain, a build setting, a lockfile or a submodule changed, a
+          # module- or link-shaping file (Package.swift, *.pbxproj, ...), an import
+          # or an #if changed, or every 10th build. Output `mode`: clean or incremental.
           scripts/ci/clear-dirs.sh build-universal
           mkdir -p build-universal
           if [ "${{ needs.decide.outputs.track }}" = nightly-next ]; then
@@ -2670,6 +2681,13 @@ jobs:
       # generated here as before. The Release build copied the committed file;
       # bundle-notices replaces that copy with this tree's. The sign job
       # verifies the bundle against scripts/cmux-next/notices/bundle-map.json.
+      # The dedicated builder's next build may build on this DerivedData only after this
+      # one finished (nightly_build_state.py); a build that failed or was cancelled leaves it
+      # unmarked, so the next one starts clean.
+      - name: Mark the kept Release DerivedData built (dedicated nightly-next builder)
+        if: success() && steps.release-derived-data.outputs.mode != '' && steps.nightly-product.outputs.hit != 'true'
+        run: python3 scripts/ci/nightly_build_state.py mark-built
+
       - name: Download the third-party notices generated beside the app (cmux-next)
         if: (inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.track == 'nightly-next')) && steps.nightly-product.outputs.hit != 'true'
         continue-on-error: true
