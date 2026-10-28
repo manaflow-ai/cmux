@@ -46,9 +46,11 @@ struct AgentPeerUploads {
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
                     else { batches[batchToken] = Batch(session: target.session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
                 }
+                guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
                 if let manifest {
                     guard manifest.first?.name == name, manifest.first?.size == size,
-                          manifest.allSatisfy({ $0.size >= 0 }) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
+                          manifest.allSatisfy({ $0.size >= 0 && $0.size <= AgentPaneUpload.maximumPeerFileBytes }),
+                          manifest.reduce(0) { $0 + $1.size } <= AgentPaneUpload.maximumTotalBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
                 }
                 let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
@@ -117,10 +119,12 @@ struct AgentPeerUploads {
     }
 
     /// The reply to the page's upload: each file put in turn with `put`, which answers its path on
-    /// `machine`. Native staged uploads stream each file in bounded chunks; the peer decides any
-    /// transport-specific capability refusal.
+    /// `machine`. A file past ``AgentPaneUpload/maximumPeerFileBytes`` is refused before any is sent.
     static func upload(_ files: [AgentPaneUpload], machine: String,
                        put: (_ name: String, _ data: Data) async throws -> String) async -> [String: Any] {
+        guard files.allSatisfy({ $0.data.count <= AgentPaneUpload.maximumPeerFileBytes }) else {
+            return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(machine))
+        }
         var uploads: [[String: Any]] = []
         for file in files {
             do {

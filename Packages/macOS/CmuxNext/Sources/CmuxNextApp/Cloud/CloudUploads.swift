@@ -10,7 +10,10 @@ import Foundation
 /// from anywhere else on this Mac, and the machine can't start an upload.
 @MainActor
 final class CloudUploads {
-    /// Chunks bound each native write; the original file has no policy size cap.
+    /// Cloud paste uploads retain an independent abuse guard even though local and peer uploads
+    /// stream up to the native transport's larger limit.
+    nonisolated static let maximumFileBytes = 32 * 1024 * 1024
+    nonisolated static let maximumTotalBytes = 64 * 1024 * 1024
     nonisolated static let stageChunkBytes = 512 * 1024
     private static let stageLifetime: TimeInterval = 10 * 60
     /// `cmux-pastes` in the temporary folder the upload CLI (a child of this app, with its
@@ -79,7 +82,11 @@ final class CloudUploads {
     }
 
     private static func upload(_ files: [AgentPaneUpload], to target: Target, services: AppServices) async -> [String: Any] {
-        guard !files.isEmpty else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+        let total = files.reduce(into: 0) { $0 += $1.data.count }
+        guard !files.isEmpty, total <= maximumTotalBytes,
+              files.allSatisfy({ $0.data.count <= maximumFileBytes }) else {
+            return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused)
+        }
         guard let socket = await target.machine.daemon.connection?.endpoint?.socketPath, let pastes else {
             return AgentPaneReply.failure(code: "link_error", message: CloudUploadStrings.failed)
         }
@@ -135,16 +142,19 @@ final class CloudUploads {
                 guard let found = Self.target(tab: tab, services: services), found.chat.session == session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
                 target = found
             }
-            guard target.chat.session == session, size >= 0 else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+            guard target.chat.session == session,
+                  size <= Self.maximumFileBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
             let batchID: String?
             if let manifest, batchToken == nil {
                 guard manifest.first?.name == name, manifest.first?.size == size,
-                      manifest.allSatisfy({ $0.size >= 0 }) else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+                      manifest.allSatisfy({ $0.size >= 0 && $0.size <= Self.maximumFileBytes }),
+                      manifest.reduce(0) { $0 + $1.size } <= Self.maximumTotalBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
                 let newBatchID = UUID().uuidString.lowercased()
                 batchID = newBatchID
                 batches[newBatchID] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
             } else { batchID = batchToken }
-            guard let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
+            let used = stages.values.filter { $0.target.chat.session == session }.reduce(0) { $0 + $1.size }
+            guard used + size <= Self.maximumTotalBytes, let pastes = Self.pastes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
             let token = UUID().uuidString.lowercased(), folder = pastes.appendingPathComponent("staged-" + token, isDirectory: true)
             let file = folder.appendingPathComponent(name, isDirectory: false)
             do {
@@ -224,7 +234,12 @@ enum CloudUploadStrings {
     static var failed: String {
         String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module)
     }
+    /// Names the limits from ``CloudUploads/maximumFileBytes`` and ``CloudUploads/maximumTotalBytes``.
     static var refused: String {
-        String(localized: "cloud.upload.refused", defaultValue: "This file could not be sent to the Cloud machine.", table: "Cloud", bundle: .module)
+        let size = { (bytes: Int) in ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .binary) }
+        return String(format: String(localized: "cloud.upload.refused",
+                                     defaultValue: "This Mac won't send that file to the Cloud machine: send regular files of up to %1$@ each, %2$@ in all.",
+                                     table: "Cloud", bundle: .module),
+                      size(CloudUploads.maximumFileBytes), size(CloudUploads.maximumTotalBytes))
     }
 }
