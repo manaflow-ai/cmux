@@ -13,9 +13,21 @@ public import Carbon.HIToolbox
 /// Each ``ActionRegistry`` owns one (``ActionRegistry/keyboardLayout``); the app makes one registry.
 public final class KeyboardLayoutKeys {
     private let read: () -> [UInt16: String]
-    private let readTyped: () -> Set<String>
+    private let readTyped: () -> TypedKeys
     private var characters: [UInt16: String]?
-    private var typed: Set<String>?
+    private var typed: TypedKeys?
+
+    /// The selected layout's plain keys: the characters they type, and the keys that are dead keys
+    /// (they type nothing and compose with the next key: ^ on French, the key left of 1 on German).
+    public struct TypedKeys: Sendable {
+        public var characters: Set<String>
+        public var deadKeys: Set<UInt16>
+
+        public init(characters: Set<String> = [], deadKeys: Set<UInt16> = []) {
+            self.characters = characters
+            self.deadKeys = deadKeys
+        }
+    }
     private var observer: KeyboardLayoutObserver?
 
     /// The live reader: the current ASCII-capable layout, and what the selected layout types.
@@ -25,7 +37,7 @@ public final class KeyboardLayoutKeys {
 
     /// `read` builds the ASCII-capable table, `readTyped` the selected layout's unshifted characters
     /// (tests pass fixtures).
-    public init(read: @escaping () -> [UInt16: String], readTyped: @escaping () -> Set<String> = { [] }) {
+    public init(read: @escaping () -> [UInt16: String], readTyped: @escaping () -> TypedKeys = { TypedKeys() }) {
         self.read = read
         self.readTyped = readTyped
     }
@@ -39,11 +51,21 @@ public final class KeyboardLayoutKeys {
     /// Whether the selected layout types `character` on some key with no modifier (Dvorak types `[`,
     /// German does not: it is Option-5 there).
     public func typesUnshifted(_ character: String) -> Bool {
-        if let typed { return typed.contains(character) }
+        typedKeys().characters.contains(character)
+    }
+
+    /// Whether `keyCode` is a dead key on the selected layout with no modifier (its own data, never
+    /// the event's text: AppKit's key-equivalent readings give a dead key's spacing accent).
+    public func isDeadKey(_ keyCode: UInt16) -> Bool {
+        typedKeys().deadKeys.contains(keyCode)
+    }
+
+    private func typedKeys() -> TypedKeys {
+        if let typed { return typed }
         let built = readTyped()
         typed = built
         observeLayoutChanges()
-        return built.contains(character)
+        return built
     }
 
     private func observeLayoutChanges() {
@@ -94,10 +116,34 @@ public final class KeyboardLayoutKeys {
 
     /// The selected keyboard layout's unshifted characters (`TISCopyCurrentKeyboardLayoutInputSource`:
     /// with an input method selected, the layout it types through).
-    nonisolated static func readSelectedLayoutCharacters() -> Set<String> {
+    nonisolated static func readSelectedLayoutCharacters() -> TypedKeys {
         // SAFETY: a Copy function returns a +1 reference (Create rule), taken over once here.
-        guard let source = unsafe TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return [] }
-        return Set(characters(of: source, asciiOnly: false, command: false).values)
+        guard let source = unsafe TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue() else { return TypedKeys() }
+        return TypedKeys(characters: Set(characters(of: source, asciiOnly: false, command: false).values), deadKeys: deadKeys(of: source))
+    }
+
+    /// The keys of `source` that are dead keys with no modifier: UCKeyTranslate with dead keys on
+    /// types nothing and leaves a dead-key state.
+    nonisolated static func deadKeys(of source: TISInputSource) -> Set<UInt16> {
+        // SAFETY: the layout data property is a CFData owned by `source` (Get rule), alive for this call.
+        guard let pointer = unsafe TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) else { return [] }
+        // SAFETY: as above.
+        let data = unsafe Unmanaged<CFData>.fromOpaque(pointer).takeUnretainedValue()
+        // SAFETY: as above.
+        guard let bytes = unsafe CFDataGetBytePtr(data) else { return [] }
+        // SAFETY: as above; HIToolbox documents the bytes as a UCKeyboardLayout.
+        let layout = unsafe UnsafeRawPointer(bytes).assumingMemoryBound(to: UCKeyboardLayout.self)
+        var dead: Set<UInt16> = []
+        var chars = [UniChar](repeating: 0, count: 4)
+        for keyCode in UInt16(0)..<128 where !(kVK_ANSI_KeypadDecimal...kVK_ANSI_Keypad9).contains(Int(keyCode)) {
+            var state: UInt32 = 0
+            var length = 0
+            // SAFETY: `layout` is valid for this call; UCKeyTranslate writes at most chars.count units.
+            let status = unsafe UCKeyTranslate(layout, keyCode, UInt16(kUCKeyActionDown), 0, UInt32(LMGetKbdType()), 0, &state,
+                                               chars.count, &length, &chars)
+            if status == noErr, length == 0, state != 0 { dead.insert(keyCode) }
+        }
+        return dead
     }
 
     /// The ASCII-capable layout's character on `keyCode`, or nil (a key that types none there).

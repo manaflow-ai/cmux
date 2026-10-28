@@ -26,6 +26,8 @@ import Testing
         /// Types ASCII letters (TISCopyCurrentASCIICapableKeyboardLayoutInputSource returns the layout
         /// itself, so a chord has no other layout to fall back to); else US is the ASCII-capable layout.
         var asciiCapable = true
+        /// Keys that are dead keys with no modifier (their readings give the spacing accent).
+        var deadKeys: Set<UInt16> = []
         var testDescription: String { name }
 
         nonisolated struct Pair: Sendable {
@@ -125,9 +127,13 @@ import Testing
             (46, ",", "?"), (43, ";", "."), (47, ":", "/"), (44, "=", "+"),
         ]
         for (code, base, shifted) in typed { keys[code] = Layout.Pair(base: base, shifted: shifted) }
-        // The dead-key keys (^ next to P, ` next to Return) and the key left of 1 are left out.
-        for code: UInt16 in [33, 42, 50] { keys[code] = nil }
-        return Layout(name: "French", keys: keys, command: [:])
+        // The dead ^ next to P: AppKit's readings give the spacing accent; the layout's data says dead.
+        // The ` key next to Return and the key left of 1 are left out.
+        keys[33] = Layout.Pair(base: "^", shifted: "¨")
+        for code: UInt16 in [42, 50] { keys[code] = nil }
+        var layout = Layout(name: "French", keys: keys, command: [:])
+        layout.deadKeys = [33]
+        return layout
     }()
 
     nonisolated static let dvorakLetters: [(String, String)] = [
@@ -167,7 +173,8 @@ import Testing
         let shift = modifiers.contains(.shift)
         let typed = modifiers.contains(.command) ? layout.command[keyCode] ?? base : base
         let fallback = !layout.asciiCapable && !layout.typesASCII(keyCode) ? us.keys[keyCode]?.base : nil
-        let positional = KeyInput.positionalPunctuation(keyCode: keyCode, keyTypes: base.base, iso: false, layoutTypes: layout.typesUnshifted)
+        let positional = KeyInput.positionalPunctuation(keyCode: keyCode, keyTypes: base.base, isDead: layout.deadKeys.contains(keyCode), iso: false,
+                                                        layoutTypes: layout.typesUnshifted)
         return KeyInput(keyCode: keyCode, modifiers: modifiers, text: shift ? typed.shifted : typed.base,
                         ignoringModifiers: shift ? base.shifted : base.base, unshifted: base.base,
                         commandUnshifted: modifiers.contains(.command) ? typed.base : nil, asciiFallback: fallback,
@@ -424,13 +431,23 @@ import Testing
     /// and types the dead ^ (no text): Ctrl and that key is Ctrl-`. The extra key left of Z
     /// (kVK_ANSI_Grave, 50, types <) names nothing.
     @Test func graveIsTheKeyLeftOfOneOnISO() throws {
-        let positional = KeyInput.positionalPunctuation(keyCode: 10, keyTypes: "", iso: true, layoutTypes: Self.german.typesUnshifted)
+        let positional = KeyInput.positionalPunctuation(keyCode: 10, keyTypes: "^", isDead: true, iso: true, layoutTypes: Self.german.typesUnshifted)
         #expect(positional == "`")
-        let key = KeyInput(keyCode: 10, modifiers: [.control], text: nil, ignoringModifiers: "^", unshifted: "", positional: positional)
+        let key = KeyInput(keyCode: 10, modifiers: [.control], text: nil, ignoringModifiers: "^", unshifted: "^", positional: positional)
         let (got, expected) = try Self.sameStepAsUS(key, usKeyCode: 50, [.control], in: [])
         #expect(expected != "none")
         #expect(got == expected, "German ISO Ctrl and the key left of 1: \(got), not \(expected)")
-        #expect(KeyInput.positionalPunctuation(keyCode: 50, keyTypes: "<", iso: true, layoutTypes: Self.german.typesUnshifted) == nil)
+        #expect(KeyInput.positionalPunctuation(keyCode: 50, keyTypes: "<", isDead: false, iso: true, layoutTypes: Self.german.typesUnshifted) == nil)
+    }
+
+    /// French Cmd and the dead ^ key (US [): the dead key types nothing, so it names [ by position,
+    /// though AppKit's readings give the spacing ^ (ASCII).
+    @Test(arguments: [ActionContext(), .terminalFocused, .browserFocused])
+    func aDeadKeyKeepsItsPosition(context: ActionContext) throws {
+        let key = try #require(Self.key(33, [.command], on: Self.french))
+        #expect(key.positional == "[")
+        let (got, expected) = try Self.sameStepAsUS(key, usKeyCode: 33, [.command], in: context)
+        #expect(got == expected, "French Cmd and the dead ^ key: \(got), not \(expected)")
     }
 
     /// Never steal a key the layout types: German, Spanish and Italian type + on the key US has ]
@@ -443,7 +460,7 @@ import Testing
         let registry = Self.registry(context)
         #expect(Self.step(key, after: [], in: registry) == Self.step(KeyInput(keyCode: 30, modifiers: [.command], text: "+",
                                                                                ignoringModifiers: "+", unshifted: "+"), after: [], in: registry))
-        #expect(KeyInput.positionalPunctuation(keyCode: 30, keyTypes: "$", iso: false, layoutTypes: Self.french.typesUnshifted) == nil)
+        #expect(KeyInput.positionalPunctuation(keyCode: 30, keyTypes: "$", isDead: false, iso: false, layoutTypes: Self.french.typesUnshifted) == nil)
     }
 
     /// Never steal a key the layout types: Dvorak types [ itself (on US's - key), so Cmd and the key

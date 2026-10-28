@@ -59,12 +59,14 @@ public nonisolated struct KeyInput: Equatable, Sendable {
 
     /// The US punctuation `keyCode` names by position on a layout (``positional``), or nil:
     /// - only punctuation the layout types on no key without Option (`layoutTypes` false);
-    /// - only on a key that types no plain ASCII character itself (`keyTypes`: its unshifted text,
-    ///   nil or empty for a dead key): German ü and the dead ^ keep a position, German + and French $
-    ///   do not (Cmd-+ is zoom there, never Cmd-]);
+    /// - only on a key that types no plain ASCII character itself (`keyTypes`: its unshifted text)
+    ///   or is a dead key (`isDead`, from the layout's data: AppKit's readings give a dead key's
+    ///   spacing accent): German ü and the dead ^ keep a position, German + and French $ do not
+    ///   (Cmd-+ is zoom there, never Cmd-]);
     /// - on an ISO keyboard (`iso`) the key left of 1 is kVK_ISO_Section (10), the US ` key, and
     ///   kVK_ANSI_Grave (50) is the extra key left of Z, which names nothing.
-    public static func positionalPunctuation(keyCode: UInt16, keyTypes: String?, iso: Bool, layoutTypes: (String) -> Bool) -> String? {
+    public static func positionalPunctuation(keyCode: UInt16, keyTypes: String?, isDead: Bool, iso: Bool,
+                                             layoutTypes: (String) -> Bool) -> String? {
         let us: String? = iso ? (keyCode == 10 ? "`" : keyCode == 50 ? nil : usPunctuation[keyCode]) : usPunctuation[keyCode]
         guard let us else { return nil }
         if let typed = keyTypes, typed.unicodeScalars.count == 1, let scalar = typed.unicodeScalars.first,
@@ -100,8 +102,8 @@ public nonisolated struct KeyInput: Equatable, Sendable {
         let commandUnshifted = flags.contains(.command) ? event.characters(byApplyingModifiers: [.command]) : nil
         var positional: String?
         if let layout {
-            positional = Self.positionalPunctuation(keyCode: event.keyCode, keyTypes: unshifted, iso: layout.isISO,
-                                                    layoutTypes: layout.typesUnshifted)
+            positional = Self.positionalPunctuation(keyCode: event.keyCode, keyTypes: unshifted, isDead: layout.isDeadKey(event.keyCode),
+                                                    iso: layout.isISO, layoutTypes: { layout.typesUnshifted($0) })
         }
         self.init(keyCode: event.keyCode, modifiers: flags, text: Self.text(of: event), ignoringModifiers: event.charactersIgnoringModifiers,
                   unshifted: unshifted, commandUnshifted: commandUnshifted, asciiFallback: fallback, positional: positional)

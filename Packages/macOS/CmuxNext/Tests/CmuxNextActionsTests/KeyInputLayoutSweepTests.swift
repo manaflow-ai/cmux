@@ -114,7 +114,9 @@ import Testing
             let latin = translate(ascii.data, keyCode: keyCode, modifiers: [], deadKeyState: &none).lowercased()
             if latin.count == 1, latin.allSatisfy({ $0.isASCII && !$0.isWhitespace }) { fallback = latin }
         }
-        let positional = KeyInput.positionalPunctuation(keyCode: keyCode, keyTypes: unshifted, iso: false,
+        var zero: UInt32? = 0
+        let isDead = translate(layout.data, keyCode: keyCode, modifiers: [], deadKeyState: &zero).isEmpty && (zero ?? 0) != 0
+        let positional = KeyInput.positionalPunctuation(keyCode: keyCode, keyTypes: unshifted, isDead: isDead, iso: false,
                                                         layoutTypes: { typesUnshifted($0, on: layout) })
         return KeyInput(keyCode: keyCode, modifiers: modifiers, text: text, ignoringModifiers: ignoring.isEmpty ? nil : ignoring,
                         unshifted: unshifted.isEmpty ? nil : unshifted, commandUnshifted: command.flatMap { $0.isEmpty ? nil : $0 },
