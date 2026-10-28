@@ -24,10 +24,11 @@ struct MotionInspectorSlowMotionTests {
 
     /// A window on screen with one layer-backed view, and an inspector over it on the real media clock.
     static func slowMotionRig() throws -> (NSWindow, NSView, MotionInspector) {
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 200), styleMask: [.titled],
+        // Borderless, as MotionGateMainWorkTests' rig: a layer-backed content view is the window's layer tree.
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 400, width: 400, height: 200), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        let content = NSView(frame: NSRect(origin: .zero, size: window.contentLayoutRect.size))
+        let content = NSView(frame: NSRect(origin: .zero, size: window.frame.size))
         content.wantsLayer = true
         window.contentView = content
         let view = NSView(frame: NSRect(x: 100, y: 80, width: 24, height: 24))
@@ -36,6 +37,12 @@ struct MotionInspectorSlowMotionTests {
         content.addSubview(view)
         window.orderFrontRegardless()
         try #require(window.screen != nil, "the window is on no screen: every change applies at once")
+        try #require(view.layer?.superlayer === content.layer, "the view's layer is in its superview's layer")
+        try #require(MotionInspector.rootLayer(of: window).map { root in
+            var layer = view.layer
+            while let current = layer, current !== root { layer = current.superlayer }
+            return layer === root
+        } == true, "the view's layer is under the window's root layer")
         Motion.reduceMotionOverride = false
         let inspector = MotionInspector(windows: { [window] }, design: .shared)
         return (window, view, inspector)
@@ -101,7 +108,7 @@ struct MotionInspectorSlowMotionTests {
         let slowed = try #require(await once(), "\(path) never landed at 5x")
         // By this file's call site: another suite's animation in the same process cannot be taken for this one.
         let record = try #require(inspector.records.last { $0.kind.hasPrefix(path.kindPrefix) && Self.isOurs($0) },
-                                  "\(path) is not in the list: \(inspector.records.map(\.kind))")
+                                  "\(path) is not in the list: \(inspector.records.map(\.kind)); layer keys \(view.layer?.animationKeys() ?? [])")
         #expect(record.category == .feedback)
         #expect(record.site?.hasPrefix("CmuxNextDesignTests/MotionInspectorSlowMotionTests.swift:") == true, "owner \(record.owner)")
         inspector.stop()

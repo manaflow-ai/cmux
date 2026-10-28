@@ -44,7 +44,7 @@ extension MotionInspector {
         let start = inspector.motionNow + delay
         let id = inspector.add(kind: kind() ?? Self.kind(of: animation, property: property, curve: curve), property: property,
                                from: Self.describe((animation as? CABasicAnimation)?.fromValue, additive: animation.isAdditiveValue),
-                               to: Self.describe((animation as? CABasicAnimation)?.toValue, additive: false),
+                               to: Self.describe((animation as? CABasicAnimation)?.toValue, additive: animation.isAdditiveValue),
                                curve: curve, runs: .renderServer, ownerType: layer.map(Self.ownerType(of:)), start: start,
                                end: curve.seconds.map { _ in start + MotionActivity.activeSeconds(animation) })
         animation.setValue(NSNumber(value: id), forKey: tagKey)
@@ -205,7 +205,8 @@ extension MotionInspector {
     /// A short text for an animation value: numbers, points, sizes and rects; "color" for a color.
     static func describe(_ value: Any?, additive: Bool) -> String? {
         guard let value else { return nil }
-        let prefix = additive ? "+" : ""
+        // An additive animation's values are offsets from the model value.
+        let prefix = additive ? "Δ" : ""
         func n(_ v: CGFloat) -> String { String(format: "%.4g", Double(v)) }
         switch value {
         case let number as NSNumber: return prefix + String(format: "%.4g", number.doubleValue)

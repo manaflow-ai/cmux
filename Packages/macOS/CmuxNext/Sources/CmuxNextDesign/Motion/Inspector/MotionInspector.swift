@@ -297,9 +297,12 @@ public final class MotionInspector {
 
     // MARK: Windows
 
-    /// The layer whose time base every animation of `window` runs on: the frame view's, else the content view's.
+    /// The layer whose time base every animation of `window` runs on: the top of the content view's layer tree
+    /// (the frame view's layer when AppKit backs it, else the content view's own).
     public static func rootLayer(of window: NSWindow) -> CALayer? {
-        window.contentView?.superview?.layer ?? window.contentView?.layer
+        guard var layer = window.contentView?.layer ?? window.contentView?.superview?.layer else { return nil }
+        while let parent = layer.superlayer { layer = parent }
+        return layer
     }
 
     /// Retimes every window's root layer to the time scale: from the time it shows now (no jump), or back
