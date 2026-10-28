@@ -28,6 +28,14 @@ enum TabUnreadMark {
         let daemon = context.services.daemon(for: pane)
         switch step(showsUnread: tab.showsUnread) {
         case .read:
+            // Validate every write up front: a mixed-version daemon must not leave a
+            // notification acknowledged or a manual mark cleared when its conditional
+            // attention-clear capability is unavailable.
+            if tab.attention != nil {
+                guard daemon.supports(DaemonCapability.tabAttentionConditionalClear.rawValue), daemon.store.servesStateResources else {
+                    throw ActionFailure(message: daemon.missingCapabilityMessage(DaemonCapability.tabAttentionConditionalClear.rawValue))
+                }
+            }
             if tab.hasUnread { try NotificationHandlers.acknowledge([tab.surface], context) }
             if tab.markedUnread { try set(false, tab: tab, daemon: daemon) }
             if tab.attention != nil { try clearAttention(tab: tab, daemon: daemon) }
