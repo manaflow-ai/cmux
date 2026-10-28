@@ -180,6 +180,15 @@ def step_hold_key(j, step):
     key_up = start + seconds
     mark = _budget_mark(j)
     threads, replies = _play(j, step["key"], step.get("modifiers", []), schedule, window)
+    # The key goes up at key_up: debug.key stops reading it as held (repeats still queued then are a backlog).
+    time.sleep(max(0.0, key_up - uptime()))
+    try:
+        up = {"key": step["key"], "modifiers": step.get("modifiers", []), "up": True}
+        if window or j.key_window:
+            up["window"] = window or j.key_window
+        j.app.rpc("debug.key", up)
+    except Exception:
+        pass
     # One frame after the key-up: what the person sees when they let go.
     time.sleep(max(0.0, key_up + FRAME - uptime()))
     name = step["as"]
