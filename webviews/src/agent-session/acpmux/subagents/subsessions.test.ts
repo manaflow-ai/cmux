@@ -36,9 +36,9 @@ test("a summary's sub-session fields: its parent, short name, lane, queue and wh
     queued: 2,
     doing: "Check retries · bun test src/net",
     effort: "high",
-    parent: "chat",
     lastMessage: "Done.",
   });
+  expect(subsessionInfo(entry)).toMatchObject({ effort: "high", parent: "chat", lastMessage: "Done." });
   // Without a plan step or a tool, what the turn was asked; not working, nothing.
   expect(summary("a", { lane: { state: "working", step: "Fix the grid" }, turn: {} }).doing).toBe("Fix the grid");
   expect(summary("b", { turn: { activity: "Read" } }).doing).toBeUndefined();
