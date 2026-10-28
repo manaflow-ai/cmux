@@ -11,8 +11,9 @@ import CmuxNextDesignTokens
 /// It is `@Observable`: a SwiftUI body or a ``VisibleObservation`` that reads ``reduceMotion``
 /// (through `Motion`), ``display``, ``showsHoverCards`` or ``inactiveWindowDim`` re-reads when they
 /// change, and only while it is on screen. An AppKit owner with no Observation scope subscribes to
-/// the ``Signal``s it follows (``subscribe(_:node:delivery:owner:_:)``): a subscriber whose node is
-/// hidden gets no call, and one ``EventCall/missed`` call when the node shows.
+/// the ``Signal``s it follows (``subscribe(_:node:delivery:owner:_:)``): a subscriber whose node does
+/// not render (hidden, and no capture vote holds it) gets no call, and one ``EventCall/missed``
+/// call when the node renders again.
 ///
 /// The system's display options are observed once for the whole app: the composition root hands
 /// its workspace ``AppEvents`` to ``observeDisplayOptions(through:)``. Chromium does the same:
@@ -79,7 +80,7 @@ public final class AppearanceSignals {
         private weak var node: VisibilityNode?
         private let delivery: EventDelivery
         private let handler: @MainActor (EventCall) -> Void
-        /// A signal came while the node was hidden; its missed call waits for the show.
+        /// A signal came while the node did not render; its missed call waits until it does.
         private var missed = false
         public private(set) var isCancelled = false
 
@@ -105,7 +106,7 @@ public final class AppearanceSignals {
             guard delivery == .whenVisible else { return handler(.posted) }
             // A released node's view is gone: nothing to update.
             guard let node else { return }
-            if node.isVisible { return handler(.posted) }
+            if node.wantsFrames { return handler(.posted) }
             guard !missed else { return }
             missed = true
             node.deferUntilVisible(key: ObjectIdentifier(self)) { [weak self] in self?.deliverMissed() }

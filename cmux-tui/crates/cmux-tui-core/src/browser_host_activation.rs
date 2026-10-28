@@ -215,7 +215,7 @@ fn wait(agent: Option<RawFd>, cancel: RawFd, timeout: Option<Duration>) -> Wake 
         if ready == 0 {
             return Wake::Timeout;
         }
-        if fds[0].revents != 0 {
+        if fds.first().is_some_and(|cancel| cancel.revents != 0) {
             return Wake::Cancel;
         }
         return Wake::Agent;

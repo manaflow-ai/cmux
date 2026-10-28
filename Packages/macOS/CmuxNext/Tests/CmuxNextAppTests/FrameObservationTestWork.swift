@@ -7,8 +7,8 @@ import Foundation
     MainWorkScheduler.testing { _ in nil }
 }
 
-/// A deadline placer on a ``linklessMainWork()`` scheduler (tests): its deadlines fire on the real
-/// clock and their actions run on the next main run loop pass.
+/// A deadline placer on a ``linklessMainWork()`` scheduler (tests): the main thread's real wake-up queue;
+/// its deadlines fire on the real clock and their actions run on the next main run loop pass.
 @MainActor func linklessDeadlines() -> MainDeadlineScheduler {
     MainDeadlineScheduler(work: linklessMainWork())
 }

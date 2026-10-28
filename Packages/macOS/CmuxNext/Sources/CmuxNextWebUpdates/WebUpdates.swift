@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 public import CmuxNextDesign
-import CmuxNextPages
+package import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
 public import CmuxNextWakeups
@@ -12,11 +12,14 @@ import Observation
 /// bundled web output sits in an update, starts the launch check of the kept update before a
 /// page loads, follows `updates.web`, and makes a ready update the served one at a safe point
 /// (``WebSwapGate``, WebUpdates+SafePoint.swift): at once while no page shows, else once nobody has
-/// touched cmux for a while (or it has been behind other apps for a moment) and every page answers
-/// that a reload keeps what it holds, then reloads every page and agent pane in place. Until then
-/// open pages keep the files they started with, so a page never mixes two builds' chunks.
+/// touched cmux for a while (or it has been behind other apps for a moment) and every page the swap
+/// reloads answers that a reload keeps what it holds. The swap goes through the page host
+/// (``WebBundleHost/webBundleDidChange()``), which reaches only the WebKit pages the update folder
+/// serves: they reload in place, or with feature `webUpdateReloadOnShow` only the shown ones do and
+/// hidden and frozen ones reload when they show. Until then a page keeps the files it started with
+/// (``WebBundleOverlay/Pin``), so it never mixes two builds' chunks.
 /// The App reads the kept update from `main` (``startLaunchRead(bundle:on:)``), starts it with
-/// ``prepare(_:launch:bundle:inputs:)``, calls ``follow(_:)`` with each `updates.*` read and
+/// ``prepare(_:launch:bundle:inputs:pages:)``, calls ``follow(_:)`` with each `updates.*` read and
 /// ``startChecks()`` once startup completes: no pointer is read from the network before that.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
 @Observable
@@ -33,9 +36,8 @@ public final class WebUpdates {
                                        download: { try await WebUpdater.downloadToFile($0) })
     }
 
-    /// The folder the pages' scheme handlers serve from and the views they served.
+    /// The folder the pages' scheme handlers serve from (tests pass their own).
     @ObservationIgnored let overlay: WebBundleOverlay
-    @ObservationIgnored let servedViews: WebBundleServedViews
     @ObservationIgnored private let transport: Transport
 
     public private(set) var updater: WebUpdater?
@@ -50,7 +52,7 @@ public final class WebUpdates {
     /// Whether the updater handed an update over; a late launch result never replaces it.
     @ObservationIgnored private var handedOver = false
     /// The next look for a safe point while an update is pending; it stops when none is. A `background`
-    /// deadline on the app's scheduler (nobody waits on a swap), made by ``prepare(_:launch:bundle:inputs:)``.
+    /// deadline on the app's scheduler (nobody waits on a swap), made by ``prepare(_:launch:bundle:inputs:pages:)``.
     @ObservationIgnored private(set) var safePoint: MainDeadline?
     /// A look that is asking the pages (one at a time).
     @ObservationIgnored var looking = false
@@ -65,17 +67,22 @@ public final class WebUpdates {
     /// The app's activation notices (``Inputs/appEvents``), held for the life of the app.
     @ObservationIgnored private var observers: [EventSubscription] = []
     @ObservationIgnored private var started = false
-    /// What web updates run on, from ``prepare(_:launch:bundle:inputs:)``; they start only once it is known.
+    /// What web updates run on, from ``prepare(_:launch:bundle:inputs:pages:)``; they start only once it is known.
     @ObservationIgnored private(set) var inputs: Inputs?
     @ObservationIgnored private var shownObservation: ShownWindowsObservation?
     /// The last `updates.*` followed, applied to the updater when it is made.
     @ObservationIgnored private var settings: UpdatesSettings?
     /// Whether startup completed (``startChecks()``): an updater made after it reads at once.
     @ObservationIgnored private var checksStarted = false
+    /// The page host a swap goes through (the app's `WebUIHost`), read only once an update is ready;
+    /// nil in a build with no pages: no page shows, and a swap reloads none.
+    @ObservationIgnored var pages: @MainActor () -> (any WebBundleHost)? = { nil }
+    /// In place of the app's state at a look (focus, input, a sheet; ``WebSwapGate/app(pagesShown:active:idle:blocked:away:)``):
+    /// tests decide it. Takes whether a page shows.
+    @ObservationIgnored var appGate: (@MainActor (Bool) -> WebSwapGate.Decision)?
 
-    init(overlay: WebBundleOverlay = .shared, servedViews: WebBundleServedViews = .shared, transport: Transport = .network) {
+    init(overlay: WebBundleOverlay = .shared, transport: Transport = .network) {
         self.overlay = overlay
-        self.servedViews = servedViews
         self.transport = transport
     }
 
@@ -136,11 +143,14 @@ public final class WebUpdates {
     /// request its entry document: pages wait for `launch` (the read from ``startLaunchRead(bundle:on:)``,
     /// nil when this bundle takes no web updates), never the main thread. Applying the channel
     /// first keeps `updates.web: off` on the bundled web even while the settings observer is still
-    /// starting. None reads the network before ``startChecks()``.
-    public func prepare(_ settings: UpdatesSettings, launch: LaunchRead<Launch?>?, bundle: Bundle = .main, inputs: Inputs) {
+    /// starting. None reads the network before ``startChecks()``. `pages` gives the app's page host
+    /// once it exists: a swap goes through it (``WebBundleHost/webBundleDidChange()``).
+    package func prepare(_ settings: UpdatesSettings, launch: LaunchRead<Launch?>?, bundle: Bundle = .main, inputs: Inputs,
+                         pages: @escaping @MainActor () -> (any WebBundleHost)? = { nil }) {
         self.inputs = inputs
         safePoint = MainDeadline(owner: "web-updates.safe-point", workClass: .background, scheduler: inputs.deadlines)
         self.settings = settings
+        self.pages = pages
         start(launch, bundle: bundle)
     }
 
@@ -156,6 +166,11 @@ public final class WebUpdates {
         inputs?.files.task(.bestEffort) { [weak self] in await self?.look() }
     }
 
+    /// Starts one ``askShownStale()`` on the app's lanes (its page answers and reloads run on main).
+    func startAskShownStale() {
+        inputs?.files.task(.bestEffort) { [weak self] in await self?.askShownStale() }
+    }
+
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point. The updater is made when the launch read lands.
     private func start(_ launch: LaunchRead<Launch?>?, bundle: Bundle) {
@@ -167,7 +182,7 @@ public final class WebUpdates {
         if let resources = bundle.resourceURL {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
-        if servedViews.isEmpty {
+        if !overlay.hasServedDocument {
             launchServed = true
             overlay.load { [weak self] in await self?.launchTree(await launch.finished()) }
         } else {
@@ -213,7 +228,8 @@ public final class WebUpdates {
             self?.handedOver = true
             self?.ready(tree, version: pointer)
         }
-        updater.served = { [overlay] in overlay.activeTree }
+        // The active folder and each one a kept document still loads from: none is pruned.
+        updater.served = { [overlay] in overlay.liveTrees }
         // Checks come every minute only while cmux is in the front (the activation observers follow it).
         updater.foreground = NSApp?.isActive ?? false
         if let shown = inputs.shown {
@@ -257,7 +273,8 @@ public final class WebUpdates {
         scheduleSafePoint()
     }
 
-    /// Serves the pending folder now and reloads the pages; returns how many reloaded.
+    /// Serves the pending folder now and hands the change to the page host
+    /// (``WebBundleHost/webBundleDidChange()``). Returns how many pages reloaded now.
     @discardableResult
     public func applyPending() -> Int {
         guard let tree = pending else { return 0 }
@@ -269,7 +286,7 @@ public final class WebUpdates {
         guard overlay.activate(tree) else { return 0 }
         // task-owner: one prune of the trees nothing serves now; it ends by itself
         if let updater { Task { await updater.pruneUnused() } }
-        let reloaded = servedViews.reloadServed()
+        let reloaded = pages()?.webBundleDidChange() ?? 0
         // A swap back to the bundled pages (no version) clears an unseen note of an earlier one.
         if reloaded > 0 { unseenNote = nil }
         if reloaded > 0, let version { note(version.updatedNote) }

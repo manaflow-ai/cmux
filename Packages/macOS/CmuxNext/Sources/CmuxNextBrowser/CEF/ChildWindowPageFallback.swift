@@ -38,6 +38,21 @@ nonisolated enum ChildWindowPageFallback {
         }
         return []
     }
+
+    /// Whether the page window over `host` hides while its pane shows a render-server move with the
+    /// `pageSpringResizeOnce` feature (p03-rendering-036, `RestingPlacement.showsRenderMove`): a page in its own
+    /// window is placed from the pane's frame, which a render-server spring sets at rest in its first turn, so it
+    /// would show at the rest place for the whole spring. It hides through an occlusion hole over all of the host
+    /// (`ChildWindowPageGeometry.occlusionRects()`, the fork's way to keep a page from showing) in the turn the spring starts,
+    /// the host shows the page's background meanwhile (`CEFHostView.pageBackdrop`), and the geometry update when
+    /// the move lands or the main thread takes it back orders it in where the pane is. A hosted page moves with
+    /// its pane and never hides. A page in its own window has no last frame the app can show: the window server
+    /// leaves the GPU process's pixels out of an app's capture without the Screen Recording grant
+    /// (`NSWindow.compositedImage`), so the page's own background stands in for it.
+    @MainActor
+    static func hidesForSpring(_ host: CEFHostView) -> Bool {
+        host.isOnRenderMove && host.drawsInChildWindow
+    }
 }
 
 /// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`) or the
@@ -198,10 +213,13 @@ final class ChildWindowPageGeometry {
     }
 
     /// The chrome's rects plus the window's interactive overlays over the
-    /// view, in the view's coordinates; all of it when the clip shows nothing.
+    /// view, in the view's coordinates; all of it when the clip shows nothing or a pane spring hides the page
+    /// (`ChildWindowPageFallback.hidesForSpring`).
     func occlusionRects() -> [CGRect] {
         guard let view else { return [] }
-        if CEFClipShape.showsNothing(clipShape().path), !view.bounds.isEmpty { return [view.bounds] }
+        if ChildWindowPageFallback.hidesForSpring(view) || CEFClipShape.showsNothing(clipShape().path), !view.bounds.isEmpty {
+            return [view.bounds]
+        }
         var rects = view.occlusionRects
         if let provider = view.window as? any BrowserWindowOcclusionProviding {
             for rect in provider.browserOcclusionRectsInWindow {

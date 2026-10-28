@@ -46,12 +46,15 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     ///   - owner: The Chief owner (`ChiefHome.session`).
     ///   - caches: The folder of the Home caches (the user's Caches folder in the app).
     ///   - work: The app's blocking-work lanes.
+    ///   - reads: Asked on the lane before the files are read; false reads neither and gives an empty ``Value``
+    ///     (the app's crash-streak safe launch, `LaunchSafeMode`).
     /// - Returns: The read in flight.
-    public static func start(owner: String, caches: URL, on work: BackgroundWork) -> HomeListLaunchRead {
+    public static func start(owner: String, caches: URL, on work: BackgroundWork,
+                             reads: @escaping @Sendable () -> Bool = { true }) -> HomeListLaunchRead {
         let conversations = HomeCache.standard(owner: owner, caches: caches)
         let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches)
         return HomeListLaunchRead(owner: owner, caches: caches, conversations: conversations, sidebar: sidebar, on: work) {
-            Value(conversations: conversations.load(), sidebar: sidebar.read())
+            reads() ? Value(conversations: conversations.load(), sidebar: sidebar.read()) : Value()
         }
     }
 

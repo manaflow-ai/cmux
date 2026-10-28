@@ -1,0 +1,500 @@
+{
+  "about": "The lines the macOS app sends for every request in Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Requests/Layout and Requests/TabMove (p05-ipc-038), recorded before their migration to the generated <Name>Request types. LayoutTabMoveRequestWireGoldenTests (CmuxNextDaemonTests) encodes each request and compares it with its line (as JSON: key order does not count); the daemon test server/tab_column_wire_tests.rs parses every line through the server's own Request parse and reads back the fields of the fullest lines. The caller-authored keys of new-row.env, move-tab-to-split.respawn.env and move-tab-to-column.respawn.env go out as given.",
+  "requests": [
+    {
+      "name": "set-split-ratio",
+      "line": {
+        "id": 1,
+        "cmd": "set-split-ratio",
+        "split": 5,
+        "ratio": 0.25
+      }
+    },
+    {
+      "name": "set-split-ratio in a drag transaction",
+      "line": {
+        "id": 1,
+        "cmd": "set-split-ratio",
+        "split": 5,
+        "ratio": 0.25,
+        "transaction": 41
+      }
+    },
+    {
+      "name": "set-viewport-pane-width",
+      "line": {
+        "id": 1,
+        "cmd": "set-viewport-pane-width",
+        "pane": 4,
+        "width": 0.5
+      }
+    },
+    {
+      "name": "set-viewport-pane-width in a drag transaction",
+      "line": {
+        "id": 1,
+        "cmd": "set-viewport-pane-width",
+        "pane": 4,
+        "width": 0.5,
+        "transaction": 42
+      }
+    },
+    {
+      "name": "undo-layout",
+      "line": {
+        "id": 1,
+        "cmd": "undo-layout",
+        "pane": 4
+      }
+    },
+    {
+      "name": "undo-layout confirming a close",
+      "line": {
+        "id": 1,
+        "cmd": "undo-layout",
+        "pane": 4,
+        "revision": 17,
+        "confirm_close": true
+      }
+    },
+    {
+      "name": "move-column left",
+      "line": {
+        "id": 1,
+        "cmd": "move-column",
+        "pane": 4,
+        "direction": "left"
+      }
+    },
+    {
+      "name": "move-column right",
+      "line": {
+        "id": 1,
+        "cmd": "move-column",
+        "pane": 4,
+        "direction": "right"
+      }
+    },
+    {
+      "name": "new-row",
+      "line": {
+        "id": 1,
+        "cmd": "new-row",
+        "pane": 4,
+        "height_permille": 500
+      }
+    },
+    {
+      "name": "new-row with every spawn field",
+      "line": {
+        "id": 1,
+        "cmd": "new-row",
+        "pane": 4,
+        "height_permille": 300,
+        "cwd": "/tmp/w",
+        "cols": 80,
+        "rows": 24,
+        "env": {
+          "FOO_BAR": "1",
+          "camelKey": "2"
+        },
+        "keep": true,
+        "terminal_id": "0123456789ab4cde8f0123456789abcd",
+        "shell_args": [
+          "--login"
+        ],
+        "pane_id": "pane_a",
+        "tab_id": "tab_a"
+      }
+    },
+    {
+      "name": "set-row-heights",
+      "line": {
+        "id": 1,
+        "cmd": "set-row-heights",
+        "column": 9,
+        "heights": [
+          {
+            "row": 11,
+            "height": 400
+          },
+          {
+            "row": 12,
+            "height": 600
+          }
+        ],
+        "fit": false
+      }
+    },
+    {
+      "name": "set-row-heights fitting in a drag transaction",
+      "line": {
+        "id": 1,
+        "cmd": "set-row-heights",
+        "column": 9,
+        "heights": [
+          {
+            "row": 11,
+            "height": 1000
+          }
+        ],
+        "fit": true,
+        "transaction": 43
+      }
+    },
+    {
+      "name": "set-column-dock undocking",
+      "line": {
+        "id": 1,
+        "cmd": "set-column-dock",
+        "pane": 4,
+        "dock": false
+      }
+    },
+    {
+      "name": "set-column-dock docking",
+      "line": {
+        "id": 1,
+        "cmd": "set-column-dock",
+        "pane": 4,
+        "dock": true,
+        "edge": "left",
+        "mode": "docked"
+      }
+    },
+    {
+      "name": "set-column-dock with every field",
+      "line": {
+        "id": 1,
+        "cmd": "set-column-dock",
+        "pane": 4,
+        "dock": true,
+        "edge": "right",
+        "mode": "overlay",
+        "role": "agent_chat",
+        "pinned": true,
+        "transaction": 44
+      }
+    },
+    {
+      "name": "swap-pane by direction",
+      "line": {
+        "id": 1,
+        "cmd": "swap-pane",
+        "pane": 4,
+        "dir": "up"
+      }
+    },
+    {
+      "name": "swap-pane with a pane",
+      "line": {
+        "id": 1,
+        "cmd": "swap-pane",
+        "pane": 4,
+        "target": 6
+      }
+    },
+    {
+      "name": "zoom-pane",
+      "line": {
+        "id": 1,
+        "cmd": "zoom-pane"
+      }
+    },
+    {
+      "name": "zoom-pane with every field",
+      "line": {
+        "id": 1,
+        "cmd": "zoom-pane",
+        "pane": 4,
+        "mode": "on"
+      }
+    },
+    {
+      "name": "move-tab",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab",
+        "surface": 7,
+        "pane": 4,
+        "index": 2
+      }
+    },
+    {
+      "name": "move-tab in a drag transaction",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab",
+        "surface": 7,
+        "pane": 4,
+        "index": 0,
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-workspace into a new workspace",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-workspace",
+        "surface": 7
+      }
+    },
+    {
+      "name": "move-tab-to-workspace with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-workspace",
+        "surface": 7,
+        "workspace": 3,
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-new-workspace",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-new-workspace",
+        "surface": 7
+      }
+    },
+    {
+      "name": "move-tab-to-new-workspace with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-new-workspace",
+        "surface": 7,
+        "group": "grp_1",
+        "index": 0,
+        "name": "Logs",
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-split",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "left"
+      }
+    },
+    {
+      "name": "move-tab-to-split with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "bottom",
+        "ratio": 0.25,
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-split keeping focus",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "right",
+        "keep_focus": true
+      }
+    },
+    {
+      "name": "move-tab-to-split keeping focus with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "top",
+        "ratio": 0.5,
+        "keep_focus": true,
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-split respawning a terminal",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "right",
+        "respawn": {
+          "kind": "terminal"
+        }
+      }
+    },
+    {
+      "name": "move-tab-to-split respawning a terminal with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "left",
+        "ratio": 0.5,
+        "respawn": {
+          "kind": "terminal",
+          "cwd": "/tmp/w",
+          "env": {
+            "FOO_BAR": "1",
+            "camelKey": "2"
+          },
+          "terminal_id": "0123456789ab4cde8f0123456789abcd",
+          "shell_args": [
+            "--login"
+          ]
+        },
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-split respawning a browser",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "right",
+        "respawn": {
+          "kind": "browser",
+          "url": "cmux://newtab",
+          "engine": "webkit"
+        }
+      }
+    },
+    {
+      "name": "move-tab-to-split respawning a browser with a profile",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-split",
+        "surface": 7,
+        "pane": 4,
+        "edge": "bottom",
+        "respawn": {
+          "kind": "browser",
+          "url": "cmux://newtab",
+          "engine": "cef",
+          "profile_id": "prof_1"
+        }
+      }
+    },
+    {
+      "name": "move-tab-to-column by screen",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "screen": 2
+      }
+    },
+    {
+      "name": "move-tab-to-column by pane",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "pane": 4
+      }
+    },
+    {
+      "name": "move-tab-to-column into a dock",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "screen": 2,
+        "dock": {
+          "edge": "bottom",
+          "mode": "overlay"
+        }
+      }
+    },
+    {
+      "name": "move-tab-to-column with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "pane": 4,
+        "after_column": 9,
+        "width": 0.5,
+        "dock": {
+          "edge": "left",
+          "mode": "docked",
+          "role": "agent_chat",
+          "pinned": true
+        },
+        "keep_focus": true,
+        "transaction": "drag-1"
+      }
+    },
+    {
+      "name": "move-tab-to-column respawning a terminal",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "screen": 2,
+        "dock": {
+          "edge": "right",
+          "mode": "docked",
+          "pinned": true
+        },
+        "respawn": {
+          "kind": "terminal",
+          "cwd": "/tmp/w"
+        }
+      }
+    },
+    {
+      "name": "move-tab-to-column respawning a terminal with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "pane": 4,
+        "respawn": {
+          "kind": "terminal",
+          "cwd": "/tmp/w",
+          "env": {
+            "FOO_BAR": "1",
+            "camelKey": "2"
+          },
+          "terminal_id": "0123456789ab4cde8f0123456789abcd",
+          "shell_args": [
+            "--login"
+          ]
+        }
+      }
+    },
+    {
+      "name": "move-tab-to-column respawning a browser with every field",
+      "line": {
+        "id": 1,
+        "cmd": "move-tab-to-column",
+        "surface": 7,
+        "pane": 4,
+        "after_column": 9,
+        "width": 0.5,
+        "dock": {
+          "edge": "right",
+          "mode": "docked",
+          "role": "agent_chat"
+        },
+        "keep_focus": true,
+        "transaction": "drag-1",
+        "respawn": {
+          "kind": "browser",
+          "url": "cmux://newtab",
+          "engine": "cef",
+          "profile_id": "prof_1"
+        }
+      }
+    }
+  ]
+}

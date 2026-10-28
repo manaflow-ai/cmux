@@ -32,4 +32,6 @@ serde_json = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 cmux-threads.workspace = true
+# The process's black box (src/main.rs), mapped before the sandbox.
+cmux-trace.workspace = true
 libc = { workspace = true }

@@ -14,6 +14,11 @@ public import CmuxNextWakeups
 /// sends what the last run left: each forwarder keeps its watermark or offset across runs, so a report written
 /// before the first pass of this launch is sent by it.
 ///
+/// With `systemWaitsForRelease` the helper crash forwarder starts only once both have happened: the start (``start()``,
+/// ``run()`` or ``post(on:)``) and ``releaseSystem()`` (the app calls it at the hang-reports controller's first
+/// decision, p09-observability-097, so no pass sends a Rust crash's black box before consent is decided). Released
+/// before the start, it runs with the others; released after, it starts then on its own queue.
+///
 /// ```swift
 /// let forwarders = CrashForwarders(system: system, ownerPanics: owner) { acpmuxForwarder() }
 /// forwarders.post(on: startup)   // or forwarders.start() with no launch to wait for
@@ -30,17 +35,33 @@ public final class CrashForwarders: Sendable {
     /// hang-report sink once attached (``setHangEntries(_:)``), so the forwarder made later gets it too. One lock for
     /// both, so each forwarder gets the sink exactly once whichever comes first.
     private let acpmux = Mutex<(forwarder: OwnerPanicForwarder?, hangEntries: OwnerPanicForwarder.HangEntries?)>((nil, nil))
+    /// Whether the forwarders started, whether the helper crash forwarder was released and whether it started: it
+    /// starts once, at whichever of the two comes last.
+    private let systemGate: Mutex<(started: Bool, released: Bool, systemStarted: Bool)>
 
     /// - Parameters:
     ///   - system: The helper crash report forwarder.
     ///   - ownerPanics: The owner's diagnostics log forwarder.
+    ///   - systemWaitsForRelease: The helper crash forwarder waits for ``releaseSystem()`` too; false starts it with
+    ///     the others.
     ///   - acpmuxPanics: Makes the acpmux daemon's diagnostics log forwarder, or nil with no acpmux; called once, by
     ///     ``start()`` or ``run()``, because finding acpmux reads the file system.
-    public init(system: SystemCrashForwarder, ownerPanics: OwnerPanicForwarder,
+    public init(system: SystemCrashForwarder, ownerPanics: OwnerPanicForwarder, systemWaitsForRelease: Bool = false,
                 acpmuxPanics: @escaping @Sendable () -> OwnerPanicForwarder?) {
         self.system = system
         self.ownerPanics = ownerPanics
         makeAcpmuxPanics = acpmuxPanics
+        systemGate = Mutex((started: false, released: !systemWaitsForRelease, systemStarted: false))
+    }
+
+    /// Lets the helper crash forwarder start: now on its own queue if the forwarders started, else with them. Only the
+    /// first call counts.
+    public func releaseSystem() {
+        let startNow = systemGate.withLock { gate -> Bool in
+            gate.released = true
+            return gate.started && Self.claimSystem(&gate)
+        }
+        if startNow { system.start() }
     }
 
     /// The acpmux daemon's panic log forwarder, once ``start()`` or ``run()`` made it.
@@ -59,7 +80,7 @@ public final class CrashForwarders: Sendable {
 
     /// Starts every forwarder on its own queue. Call it, or ``run()``, once.
     public func start() {
-        system.start()
+        if markStarted() { system.start() }
         ownerPanics.start()
         makeAcpmux()?.start()
     }
@@ -73,9 +94,23 @@ public final class CrashForwarders: Sendable {
     /// Sends what each forwarder's log holds since its last run and starts their watches, on the calling
     /// thread (a files lane). Call it, or ``start()``, once.
     public func run() {
-        system.forwardAndWatch()
+        if markStarted() { system.forwardAndWatch() }
         ownerPanics.forwardAndWatch()
         makeAcpmux()?.forwardAndWatch()
+    }
+
+    /// Marks the forwarders started; returns whether the helper crash forwarder starts now.
+    private func markStarted() -> Bool {
+        systemGate.withLock { gate in
+            gate.started = true
+            return gate.released && Self.claimSystem(&gate)
+        }
+    }
+
+    private static func claimSystem(_ gate: inout (started: Bool, released: Bool, systemStarted: Bool)) -> Bool {
+        guard !gate.systemStarted else { return false }
+        gate.systemStarted = true
+        return true
     }
 
     private func makeAcpmux() -> OwnerPanicForwarder? {

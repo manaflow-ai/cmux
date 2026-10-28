@@ -5,7 +5,7 @@ public import CmuxNextWakeups
 ///
 /// - The design-mode cleanup is ``WorkPriority/idle`` (QoS `.background`, as before), so it waits
 ///   behind the launch's best-effort fence (``LaunchOrder/BestEffortFence``, raised in `main()`) and
-///   runs at startup complete or the fence's cap; quit drops it if it has not started (the next launch
+///   runs at the launch's reveal (p06-scheduler-204); quit drops it if it has not started (the next launch
 ///   redoes it). It deletes only earlier launches' folders, so it is safe whenever it runs.
 /// - The CLI pointer is ``WorkPriority/userVisible`` and ``ShutdownBehavior/blockShutdown``: the
 ///   fence does not hold it, because a script that opens the app and runs `cmux` at once must get this

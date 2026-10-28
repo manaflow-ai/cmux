@@ -132,7 +132,7 @@ extension CEFTab {
             }
         case .takeFocus(_, let forward):
             emit(.takeFocus(forward: forward))
-        case .renderTerminated(_, let status, let code, _, _):
+        case .renderTerminated(_, let status, let code, _, _, _):
             rendererTerminated(.cef(status: status, code: code))
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
@@ -295,12 +295,16 @@ extension CEFTab {
             pendingExtensionAction = (id, anchor)
             return
         }
+        // Whether the click opens a popup comes from the mirrored action list, as Chrome's
+        // ExtensionActionViewController::ExecuteUserAction reads IsEnabled and the popup URL before
+        // it triggers (chrome/browser/ui/extensions/extension_action_view_controller.cc); the run is
+        // one-way and EXTENSION_POPUP_CLOSED (`extensionPopupClosed`) ends the popup.
         guard let shim = runtime.shim else { return }
         // The fork anchors the popup at the top edge of the browser area
         // between x and x + width (DIPs, browser view coordinates), so it
         // hangs below the toolbar button.
-        let ran = shim.extActionRun(browserID, id, anchor.minX.clampedInt32, max(anchor.width, 1).clampedInt32) == 1
-        if ran, extensionActions.first(where: { $0.id == id })?.hasPopup == true { openExtensionPopup = id }
+        _ = shim.extActionRun(browserID, id, anchor.minX.clampedInt32, max(anchor.width, 1).clampedInt32)
+        if let action = extensionActions.first(where: { $0.id == id }), action.isEnabled, action.hasPopup { openExtensionPopup = id }
     }
 
     public func hideExtensionPopups() {

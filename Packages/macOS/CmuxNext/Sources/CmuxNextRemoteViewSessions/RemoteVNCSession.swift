@@ -25,6 +25,8 @@ public final class RemoteVNCSession {
     private var demoStart: Task<Void, Never>?
     private var prompting = false
     private var closed = false
+    /// The app's scheduler: the demo server's start answers in its userBlocking class (the person opened the tab).
+    private let mainWork: MainWorkScheduler
 
     /// `demoHost`: the reserved host name served by the loopback demo desktop; `work` and `mainWork`: the app's
     /// lanes and main-thread scheduler (the Keychain reads and writes of the sign-in, and their answers);
@@ -33,6 +35,7 @@ public final class RemoteVNCSession {
                 signIns: RemoteVNCSignIns) {
         self.record = record
         self.work = work
+        self.mainWork = mainWork
         // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
         // `localhost` are this Mac, `mock` is the loopback demo desktop.
         let host = record.host.lowercased()
@@ -69,17 +72,23 @@ public final class RemoteVNCSession {
             return
         }
         guard demoStart == nil else { return }
-        demoStart = Task { [weak self] in
+        let mainWork = mainWork
+        // The server starts off main; its port is one userBlocking task (the rest of the person's open, Chrome's
+        // PostTaskAndReply).
+        // task-owner: the demo server's start; ends with its port, or at close().
+        demoStart = Task { @concurrent [weak self] in
             let port = try? await demo.start()
-            // Closed (or gone) while the server started: stop it, never connect.
-            guard let self, !closed, !Task.isCancelled else {
-                demo.stop()
-                return
+            mainWork.postFromAnyThread(.userBlocking, owner: "remote-view.vnc-demo") { [weak self] in
+                // Closed (or gone) while the server started: stop it, never connect.
+                guard let self, !closed else {
+                    demo.stop()
+                    return
+                }
+                demoStart = nil
+                guard let port else { return }
+                demoPort = port
+                connect()
             }
-            demoStart = nil
-            guard let port else { return }
-            demoPort = port
-            connect()
         }
     }
 

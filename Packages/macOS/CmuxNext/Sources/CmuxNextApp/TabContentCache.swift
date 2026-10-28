@@ -58,6 +58,8 @@ final class TabContentCache {
     var warmBudget = WarmSetBudget.standard, warmSetRelease: WarmSetRelease?
     /// Lets paused away terminals' GPU memory go (`terminalGPURelease`, `ghostty_surface_set_gpu_resident`); nil: none.
     let gpuResidency: (any TerminalGPUResidency)?
+    /// Every terminal session it makes shows its cursor on the render server (feature `terminalCursorLayer`).
+    let terminalExternalCursor: Bool
     /// The warm set's capacity at normal pressure (`SubsystemBudget.warmTerminalSurfaces`: larger with
     /// ``gpuResidency``); `WarmSetRelease` scales it under pressure.
     let normalWarmCapacity: Int
@@ -81,7 +83,7 @@ final class TabContentCache {
     /// on demand for its hover card; volatile, bounded by the warm set (`warmBudgetDidChange`).
     let lastFrames = TerminalLastFrames(capacity: WarmSetBudget.standard.terminalCapacity)
     /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
-    let goneTabs = GoneTabWatch()
+    let goneTabs: GoneTabWatch
     /// Browser pages' hover card thumbnails (R131), at most `TabPreviewFitting.cachedPixelSize`
     /// each, with the page version each shows (`pageVersion`): a page is captured again only when
     /// its version moved. A hidden page's thumbnail is the only copy (the engine cannot picture a
@@ -123,6 +125,9 @@ final class TabContentCache {
     private(set) var pendingBrowsers: Set<String> = [] {
         didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
     }
+    /// Terminals made before their daemon knew its tab records, waiting to take their record's font scale
+    /// (`applyFontScaleWhenKnown`), by tab; each ends when it applies or its tab is released.
+    var fontScaleWaits: [String: ServiceObservation<Bool>] = [:]
     /// Tabs whose page waits for `enginesAwait`, one posted step each (p08-startup-028).
     private var awaitingRead: Set<String> = [] {
         didSet { if !oldValue.isEmpty, !hasPendingPages { onPagesSettled?() } }
@@ -183,6 +188,8 @@ final class TabContentCache {
     var onPageFocusRequest: ((String) -> Void)?
     /// A provisional split's terminal tab got its daemon surface on a daemon (``awaitConfirm(_:of:daemon:)``).
     var onTerminalConfirmed: ((TabModel, DaemonService) -> Void)?
+    /// A Ctrl-` stand-in's terminal became its daemon tab's (stand-in id, daemon tab id): the key holds follow it.
+    var onStandInAdopted: ((String, String) -> Void)?
     /// Every new page's chrome gets this (the page info bubble's registry router).
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's action registry, `ExtensionMenuRouter`).
@@ -209,12 +216,13 @@ final class TabContentCache {
     ///   - gpuResidency: The app's GPU memory release (``gpuResidency``); tests get none.
     ///   - webKitProcessReuse: Same-site WebKit tab processes above the renderer limit (`webKitSameSiteProcesses`);
     ///     nil, the default, gives every WebKit tab its own process.
+    ///   - terminalExternalCursor: `terminalCursorLayer` is on (``terminalExternalCursor``); tests get Ghostty's cursor.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
          resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
          terminalPointerFrames: FrameInputCoalescers? = nil, mainWork: MainWorkScheduler, deadlines: MainDeadlineScheduler,
          appEvents: AppEvents, imageCaches: ImageCacheShares = .legacy, gpuResidency: (any TerminalGPUResidency)? = nil,
-         webKitProcessReuse: WebKitProcessReuse? = nil) {
+         webKitProcessReuse: WebKitProcessReuse? = nil, terminalExternalCursor: Bool = false) {
         self.imageCaches = imageCaches
         previews = PreviewImageCache(fullCapacityBytes: imageCaches.previewBytes, contents: .rebuildable, allocator: imageCaches.pictureAllocator)
         internalPagePictures = PreviewImageCache(fullCapacityBytes: imageCaches.internalPagePictureBytes, contents: .onlyCopy, allocator: imageCaches.pictureAllocator)
@@ -222,7 +230,9 @@ final class TabContentCache {
         (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         self.terminalPointerFrames = terminalPointerFrames
         self.gpuResidency = gpuResidency
+        self.terminalExternalCursor = terminalExternalCursor
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
+        goneTabs = GoneTabWatch(mainWork: mainWork)
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines,
                               deadlines: deadlines, appEvents: appEvents, processReuse: webKitProcessReuse)
         self.afterFrame = afterFrame
@@ -250,6 +260,9 @@ final class TabContentCache {
             if entry.gate != nil, entry.confirming !== tab { awaitConfirm(entry, of: tab, daemon: daemon) } // a new record of the tab
             return entry
         }
+        // The daemon's tab of a Ctrl-` stand-in (the terminal id that create chose): the stand-in's view, session and
+        // input lane become this tab's, so the keys typed into it meanwhile reach the PTY in order and none is dropped.
+        if let adopted = adoptStandIn(for: tab, daemon: daemon) { return adopted }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
         // Daemon restarted or the tab's surface changed: the pane presenting the old view lets it go before it closes.
@@ -265,7 +278,8 @@ final class TabContentCache {
                                   endpoint: { try await daemon.endpoint() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
-                                  store: daemon.store, surface: tab.surface, gate: gate)
+                                  store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)
+        if gate != nil, let terminal = tab.terminalID { entry.standIn = .init(terminal: terminal, daemon: daemon) }
         terminals[tab.id] = entry
         // The delegate builds a machine-aware link filter. Install it only
         // after this session can be resolved back to its owning tab.
@@ -313,8 +327,8 @@ final class TabContentCache {
         goneTabs.track(key, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         if let entry = browsers[key] { return entry }
         if pageRequests.claimCloseOnArrival(tab.surface) {
-            // Its page closed before the tab appeared (BrowserPageRequests).
-            Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
+            // Its page closed before the tab appeared (BrowserPageRequests): the tab closes after this presentation.
+            mainWork.post(.visible, owner: "TabContentCache.closeOnArrival") { [weak self] in self?.pageRequests.closeTab(key) }
             return nil
         }
         if let adopted = pageRequests.takeAdoption(for: tab) { return tracked(install(adopted, for: key), tab) }
@@ -338,28 +352,32 @@ final class TabContentCache {
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         if !pendingBrowsers.contains(key), let page = ChromiumNewTabNow(cache: self).page(tab, url: url, origin: origin) { return tracked(install(page, for: key), tab) }
         guard pendingBrowsers.insert(key).inserted, cef.notePoint("page_task") else { return nil }
-        Task {
-            defer { pendingBrowsers.remove(key) }
-            let page: any BrowserTab
-            do {
-                page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url, origin: origin)), cache: self)))
-            } catch {
-                guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
-                _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
-                onBrowserReady?(key)
-                return
-            }
-            guard goneTabs.tracks(key) else { return page.close() } // closed while it started (release forgot it)
-            let entry = install(page, for: key)
-            // By id, not the captured TabModel: a tab moved while its page
-            // started (`cmux browser open` then split) has a new model.
-            browserTabs.track(page, tabID: key)
-            if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) {
-                entry.chrome.showNotice(notice)
-            }
-            onBrowserReady?(key)
-        }
+        // Off main until CEF's own main-thread steps (configuration, page creation); the cache's steps run in `startCEFPage`.
+        Task { @concurrent [weak self] in await self?.startCEFPage(tab, key: key, url: url, origin: origin) }
         return nil
+    }
+
+    /// Makes Chromium page `key` for `tab`, made with `origin`, and installs it, or falls back to WebKit when CEF fails.
+    private func startCEFPage(_ tab: TabModel, key: String, url: URL?, origin: BrowserTabOrigin) async {
+        defer { pendingBrowsers.remove(key) }
+        let page: any BrowserTab
+        do {
+            page = try await makeCEFTab(cef.noted("history", await browserTabs.historyStarts.chromium(tab, cef.noted("configured", await chromiumConfiguration(for: tab, key: key, url: url, origin: origin)), cache: self)))
+        } catch {
+            guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
+            _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
+            onBrowserReady?(key)
+            return
+        }
+        guard goneTabs.tracks(key) else { return page.close() } // closed while it started (release forgot it)
+        let entry = install(page, for: key)
+        // By id, not the captured TabModel: a tab moved while its page
+        // started (`cmux browser open` then split) has a new model.
+        browserTabs.track(page, tabID: key)
+        if let tab = browserTabs.tabModel(key), let notice = browserTabs.takeNotice(for: tab) {
+            entry.chrome.showNotice(notice)
+        }
+        onBrowserReady?(key)
     }
 
     /// No page yet: once `read` is done the page is made for the tab (shown or not) and panes showing it re-show,
@@ -407,13 +425,16 @@ final class TabContentCache {
               pendingBrowsers.insert(key).inserted else { return }
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        Task {
-            defer { pendingBrowsers.remove(key) }
-            guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url, origin: .user)) else { return }
-            install(page, for: key)
-            browserTabs.track(page, tabID: key)
-            onBrowserReady?(key)
-        }
+        Task { @concurrent [weak self] in await self?.restartCEFPage(tab, key: key, url: url) }
+    }
+
+    /// Makes Chromium page `key` again with `url` in its new store (``reroute(_:to:)``).
+    private func restartCEFPage(_ tab: TabModel, key: String, url: URL) async {
+        defer { pendingBrowsers.remove(key) }
+        guard let page = try? await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url, origin: .user)) else { return }
+        install(page, for: key)
+        browserTabs.track(page, tabID: key)
+        onBrowserReady?(key)
     }
 
     /// Move Tab to Browser Profile (data-model.md 5): an engine fixes a page's store when it makes it, so `key`'s page is
@@ -493,12 +514,17 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
-        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
+        moveNode(key, to: tab.id) // the page's node goes with it
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
         _ = tracked(entry, tab)
         return true
+    }
+
+    /// Stand-in tab `key`'s visibility node becomes `real`'s, unless `real` has one: the content moving with it keeps it.
+    func moveNode(_ key: String, to real: String) {
+        if let node = tabNodes.removeValue(forKey: key), tabNodes[real]?.node == nil { tabNodes[real] = node }
     }
 
     /// Swaps `tab`'s page for `page` (an adopted popup that arrived after the tab's placeholder page was created).
@@ -542,6 +568,7 @@ final class TabContentCache {
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
+        fontScaleWaits[key] = nil
         goneTabs.forget(key)
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)

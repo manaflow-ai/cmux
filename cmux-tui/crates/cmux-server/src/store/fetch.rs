@@ -171,8 +171,11 @@ fn copy_hashing(mut reader: impl Read, out: &mut impl Write) -> io::Result<(u64,
             Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
             Err(e) => return Err(e),
         };
-        hasher.update(&buf[..n]);
-        out.write_all(&buf[..n])?;
+        let read = buf
+            .get(..n)
+            .ok_or_else(|| io::Error::other("read returned more bytes than the buffer holds"))?;
+        hasher.update(read);
+        out.write_all(read)?;
         total += n as u64;
     }
     Ok((total, hasher.finalize().into()))

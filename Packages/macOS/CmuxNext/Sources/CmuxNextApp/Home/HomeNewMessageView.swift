@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextInput
 import CmuxNextWakeups
 
 /// New Message as a page, as in Messages (Lawrence 2026-10-19: "it makes a
@@ -18,7 +19,7 @@ import CmuxNextWakeups
 /// person looks at another conversation: the page keeps its state.
 @MainActor
 final class HomeNewMessageView: NSView {
-    let field = HomeRecipientField()
+    let field: HomeRecipientField
     /// Clips the conversation below the field (its header slides under the field).
     let content = HomeNewMessageClip()
     let notice = ThemedLabel(wrappingLabelWithString: "")
@@ -43,6 +44,7 @@ final class HomeNewMessageView: NSView {
     init(services: AppServices) {
         self.services = services
         mainWork = services.mainWork
+        field = HomeRecipientField(pictures: HomeRecipientPictures(work: services.work, mainWork: services.mainWork))
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.home.newMessage")
         content.wantsLayer = true
@@ -119,6 +121,22 @@ final class HomeNewMessageView: NSView {
     /// Nothing chosen, nothing typed in To:, and an empty message box:
     /// leaving drops the draft (and its row in the list).
     var isEmpty: Bool { field.draft.isEmpty && messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+
+    /// What the person put on the page: the To: field and the blank page's text. The text of a
+    /// conversation the people already have is that conversation's draft in Home's store, which
+    /// every Home view reads live; it is never copied here, so a message sent meanwhile from
+    /// another view does not come back.
+    typealias Saved = HomePageViewState.NewMessage
+
+    var saved: Saved { Saved(recipients: field.draft, text: existing == nil ? messageText : "") }
+
+    /// Puts `saved` back on a new page (its Home view was discarded): the box takes the blank
+    /// page's text, then the To: field's people show their conversation, as when the person chose them.
+    func restore(_ saved: Saved) {
+        showComposer(carrying: saved.text)
+        field.setDraft(saved.recipients)
+        recipientsChanged()
+    }
 
     /// The message box's text (the blank page's, or the shown conversation's draft).
     var messageText: String {
@@ -210,8 +228,9 @@ final class HomeNewMessageView: NSView {
         store.start()
         if !text.isEmpty { store.setDraft(text, for: HomeNewMessageComposerSource.conversation) }
         let view = HomeNativeTranscriptView(store: store, conversation: HomeNewMessageComposerSource.conversation, me: me.id,
-                                            openPanel: services.openPanel, mainWork: services.mainWork, deadlines: services.mainDeadlines)
+                                            openPanel: services.openPanel, deadlines: services.mainDeadlines)
         view.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
+        view.composerTextInputScope = services.inputLatency.textInput.interpreting
         // The first message is text: attachments go once the conversation exists (they upload to it).
         view.attachmentPreparer = nil
         view.setAccessibilityIdentifier("cmux.home.newMessage.composer")

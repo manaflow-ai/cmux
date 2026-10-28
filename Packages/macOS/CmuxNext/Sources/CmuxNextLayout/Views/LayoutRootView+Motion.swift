@@ -7,7 +7,7 @@ extension LayoutRootView {
     /// task that moves one of the root's kinds to the render server writes its variant in its own
     /// file and adds its one line here; with none listed, or `motion.renderServer` off (the
     /// default), the screen frames and the highlight step on the main thread in `advanceFrame`.
-    static var renderServerMotions: [any RenderServerMotion<LayoutRootView>] { [DropHighlightRenderMotion()] }
+    static var renderServerMotions: [any RenderServerMotion<LayoutRootView>] { [ScreenSwitchRenderMotion(), DropHighlightRenderMotion()] }
 
     /// Ends a change turn of the root (a screen switch, a drop-highlight show, move or hide), after
     /// it set its targets and before the caller places the screens: the render-server kinds take

@@ -124,13 +124,13 @@ extension PaneController {
         // The window's keys wait until the new terminal has the keyboard (cx-wb5.76); a creation
         // that types its own text first keeps the keys where they are.
         let window = self.workspace == nil || text != nil || page != nil ? nil : view.window
-        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // The PTY starts at the grid this pane's view will fit, so the first frame is final (NewTerminalGrid).
         let size = newTerminalSize
         let command = NewTerminalTabCommand(pane: handle, options: SpawnOptions(cwd: cwd, size: size, workspace: workspace, keep: keep))
         if text == nil, page == nil, command.isOptimistic(on: daemon) {
-            return newTerminalTabNow(command, agent: agent, intent: intent, keys: keys, window: window, timing: timing, then: then)
+            return newTerminalTabNow(command, agent: agent, intent: intent, window: window, timing: timing, then: then)
         }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent)
         // main-hop-allow: the action's tracked work awaits the daemon connection's actor and the agent page's main-actor context; selection and focus run in its reply's job
         services.registry.track(Task { [services] in
             var landed = false
@@ -160,10 +160,13 @@ extension PaneController {
     /// ``newTerminalTab(cwd:typing:typingAhead:keep:fromSelectedTab:daemonResolvesCwd:then:)`` that
     /// waits for nothing (Ctrl-`, ctrl-backtick-instant): the stand-in tab is in the store, selected
     /// and shown in this turn, so it draws in the key's frame; `new-tab` runs behind it, and the
-    /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile wait for
-    /// the daemon's terminal, as before.
+    /// daemon's tab takes its place (``NewTerminalTabCommand``). The keys typed meanwhile go to the
+    /// stand-in's terminal as soon as its view has the keyboard: the view sends them to the daemon by
+    /// the terminal id this create chose, which queues them for the PTY (cx-wb5.78), so no key waits
+    /// for the reply (first-seconds-evidence.md: they waited 250-1600 ms and were sent again late).
+    /// A daemon that does not queue such keys keeps them until the daemon's terminal has the keyboard.
     private func newTerminalTabNow(_ command: NewTerminalTabCommand, agent: AgentPaneView?, intent: UInt64?, // perf-hot: 10ms new-tab (the terminal stand-in shows in the key's turn)
-                                   keys: CreationInputBuffer.Ticket?, window: NSWindow?, timing: CreateTabInterval?, then: (@MainActor (SurfaceID) -> Void)?) {
+                                   window: NSWindow?, timing: CreateTabInterval?, then: (@MainActor (SurfaceID) -> Void)?) {
         // task-owner: the selected agent's cwd, read while the stand-in shows (#16620)
         let agentCwd = agent.map { agent in
             // main-hop-allow: the agent page's working context is its main-actor async read; the stand-in already shows
@@ -173,6 +176,12 @@ extension PaneController {
             }
         }
         let pending = BenchSpans.measure("newTerminal.intend") { command.intendNow(on: daemon, cwd: agentCwd) }
+        // In the key's turn, before any later key: focus expects the stand-in (so a Cmd-W of it drops the keys typed for
+        // it), and its view takes them early, by its terminal id, once it has the keyboard; the daemon's tab then adopts
+        // that view (`TabContentCache.adoptStandIn`), as a split's provisional pane keeps its own.
+        if let intent { self.workspace?.focus.expect(.tab(pending.tab), generation: intent) }
+        let keys = services.keyRouter.creationInputCoordinator.begin(in: window, generation: intent,
+                                                                     earlyTab: daemon.queuesCreatingInput ? pending.tab : nil, tab: pending.tab)
         if let timing { services.cache.createTabs.expect(timing, tab: pending.tab, standIn: true) } // the stand-in's terminal is the tab's for good
         selectWhenReported(surface: pending.surface)
         // main-hop-allow: the stand-in shows in this turn; the tracked work awaits the command's main-actor send and selects in its reply's job
@@ -243,6 +252,9 @@ extension PaneController {
         var keys: [String] = []
         for id in ids {
             services.cache.createTabs.released(id.rawValue) // closed before its first frame: create.tab ends as closed
+            // Keys held for a creation of this tab (a stand-in its daemon tab adopted included) go with it: a close by
+            // mouse or menu never runs them into what has the focus next. A no-op when nothing waits for it.
+            services.keyRouter.creationInputCoordinator.drop(tab: id.rawValue, in: view.window)
             if id.rawValue.hasPrefix(LocalBrowserTab.prefix) {
                 state?.localBrowserTabs[paneKey].removeAll { $0.id == id.rawValue }
                 services.cache.release(id.rawValue)

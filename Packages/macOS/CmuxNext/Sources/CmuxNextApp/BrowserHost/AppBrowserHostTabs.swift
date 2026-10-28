@@ -25,10 +25,11 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// only when the profile's extension list or the page URL changes.
     private var accessMemo: [String: (extensions: [BrowserExtensionInfo], url: URL?, names: [String])] = [:]
     /// Hidden agent-driven WebKit tabs render here (``keepRendering(_:)``).
-    let renderWindows = AgentRenderWindows()
+    let renderWindows: AgentRenderWindows
 
     init(services: AppServices) {
         self.services = services
+        renderWindows = AgentRenderWindows(mainWork: services.mainWork)
     }
 
     private struct LocalTab {

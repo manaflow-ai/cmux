@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import CmuxNextInputModel
 public import Foundation
 import CmuxNextCompat
 

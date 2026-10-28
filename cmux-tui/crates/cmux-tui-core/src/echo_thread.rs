@@ -43,6 +43,25 @@ where
     })
 }
 
+/// [`spawn`] for a per-terminal echo thread that follows `desired`, the
+/// terminal's class: it starts at [`ECHO_PATH_QOS`] and applies a change
+/// itself with [`cmux_threads::apply_pending_qos`] after each wake (a hidden
+/// terminal's threads run at utility, p02-threads-236).
+pub fn spawn_following<F, T>(
+    name: impl Into<String>,
+    desired: cmux_threads::DesiredQos,
+    f: F,
+) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    cmux_threads::spawn_following(name, ECHO_PATH_QOS, desired, move || {
+        cmux_threads::disallow_blocking();
+        f()
+    })
+}
+
 /// Runs `f` with `stream` as the current thread's own descriptor and
 /// blocking disallowed, then restores the thread. The steady-state phase of
 /// a thread whose setup may block (terminal-host-client: the handshake waits
@@ -69,7 +88,24 @@ where
     F: FnOnce(&mut OwnHostStream<'_>) -> T + Send + 'static,
     T: Send + 'static,
 {
-    cmux_threads::spawn(name, ECHO_PATH_QOS, move || {
+    let desired = cmux_threads::DesiredQos::new(ECHO_PATH_QOS);
+    spawn_host_stream_reader_following(name, stream, desired, f)
+}
+
+/// [`spawn_host_stream_reader`] for a per-terminal reader that follows
+/// `desired`, as [`spawn_following`].
+#[cfg(any(unix, windows))]
+pub(crate) fn spawn_host_stream_reader_following<F, T>(
+    name: impl Into<String>,
+    stream: crate::terminal_host_runtime::HostStream,
+    desired: cmux_threads::DesiredQos,
+    f: F,
+) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce(&mut OwnHostStream<'_>) -> T + Send + 'static,
+    T: Send + 'static,
+{
+    cmux_threads::spawn_following(name, ECHO_PATH_QOS, desired, move || {
         // Registration is thread setup and must come before the disallow.
         let mut own = OwnHostStream::register(&stream);
         cmux_threads::disallow_blocking();

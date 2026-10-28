@@ -10,6 +10,8 @@
 //! clock in microseconds, and each source keeps its own I/O loop, capture
 //! and encoder.
 
+#![forbid(unsafe_code)]
+
 use std::collections::{BTreeMap, VecDeque};
 
 use cmux_rd_core::cc::{CcConfig, CongestionController, PathKind};

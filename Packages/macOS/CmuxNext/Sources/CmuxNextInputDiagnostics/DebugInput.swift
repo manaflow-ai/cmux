@@ -13,7 +13,7 @@ internal import Foundation
 /// launch.
 ///
 /// ```swift
-/// let debugInput = DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), latencyReporter])
+/// let debugInput = DebugInput(sources: [InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), latencyReporter])
 /// router.register([debugInput.method])
 /// let report = try await debugInput.reply(to: .read(Set(DebugInputSection.allCases)))
 /// ```

@@ -444,6 +444,15 @@ STRESS, on macOS 26 and 27 minis. VM timing is not perf evidence.
 11. Old benches (typing-frame-bench.py, home-perf.py, strip-scroll-check.py, sidebar-scroll-floor.swift) and new ones
     can drift. 070 and 072 reuse their HID posters and parsers through one shared module; 075 records that old and
     new rows agree within noise on the base sha.
+12. Notice to PL-typing from p05-ipc-032 (2026-10-26): the typing path's `send` line changes type. p05-ipc-032
+    replaces the hand-written `SendInputRequest` (CmuxNextDaemon/Requests/TerminalIO/Input.swift) with the type
+    CmuxNextWireGen's RequestEmitter generates. Its nullable members `surface`, `text`, `bytes` and `flow` become
+    `FieldUpdate`, so `TerminalAttachment.swift` (the `sendNoReply` of `SendInputRequest`, key-press path) passes
+    `.set(surface)`, `.set(data)` and `flow.map(FieldUpdate.set) ?? .unchanged`; a nil maps to `.unchanged`, which leaves the key
+    out as today. The bytes stay the same and two tests pin them: `TerminalIORequestWireGoldenTests`
+    (CmuxNextDaemonTests, over cmux-tui/spec/fixtures/terminal-io-requests/lines.json) and the daemon's echo test
+    `server::cmd_terminal_io::wire_tests::every_echo_line_writes_its_input_bytes_to_the_pty` (cmux-tui-core).
+    p05-ipc-032 waits on p05-ipc-025 (DaemonRequest in a leaf target) and on RequestEmitter output in the build.
 
 ## 8. Task table
 

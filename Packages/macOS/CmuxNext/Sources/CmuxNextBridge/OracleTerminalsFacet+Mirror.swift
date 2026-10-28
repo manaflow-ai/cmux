@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextDaemon
+public import CmuxNextInputModel
 public import CmuxNextOracle
 
 extension TerminalAttachMachine.Phase {

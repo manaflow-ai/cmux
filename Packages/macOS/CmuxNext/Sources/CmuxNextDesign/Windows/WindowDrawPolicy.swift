@@ -165,6 +165,8 @@ public struct WindowDrawPolicy {
         SurfaceDrawInputs(
             inWindow: view.window != nil,
             windowVisible: view.window.map(isOnScreen) ?? false,
+            // visibility-walk-allow: drawing reads AppKit's own view state, as isOnScreen reads the window's, never a
+            // node's mirror of it a flip behind; read on a draw-input change (an occlusion or hide), not per frame
             hidden: view.isHiddenOrHasHiddenAncestor,
             parked: view.isParkedOrHasParkedAncestor,
             suspended: suspended,

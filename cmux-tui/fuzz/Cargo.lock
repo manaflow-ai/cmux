@@ -623,6 +623,7 @@ name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
  "cmux-threads",
+ "cmux-trace",
  "libc",
  "serde",
  "serde_json",
@@ -721,6 +722,7 @@ name = "cmux-config"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "cmux-threads",
  "core-foundation",
  "core-foundation-sys",
  "notify",
@@ -1092,6 +1094,7 @@ dependencies = [
  "base64",
  "bytes",
  "cmux-agent-pane-policy",
+ "cmux-api-compat",
  "cmux-blocking",
  "cmux-build-identity",
  "cmux-config",

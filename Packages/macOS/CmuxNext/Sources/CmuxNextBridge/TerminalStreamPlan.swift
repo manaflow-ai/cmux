@@ -1,4 +1,5 @@
 public import CmuxNextDaemon
+public import CmuxNextInputModel
 public import Foundation
 
 /// Maps one daemon attach event to what a terminal view does with it.

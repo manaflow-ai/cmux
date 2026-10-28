@@ -228,6 +228,7 @@ public final class DiffPageProvider: PageProvider {
         sessions.insert(id)
         // The chat's turn now (the header gives a tab a newer one), else the one the tab opened with.
         let turnPatch = DiffTurnPatch.opens(params), turn = host?.turn(for: grant.repository) ?? tab.turn
+        // main-hop-allow: the page's open, awaited by its call: writeTurnPatch and send are this provider's main-actor async sidecar requests (the patch is written and the sidecar runs off main); the task only lets a newer open cancel it
         let task = Task { [self] in
             if turnPatch {
                 try await writeTurnPatch(turn, in: grant)
@@ -268,6 +269,7 @@ public final class DiffPageProvider: PageProvider {
         let id = current.session, task = current.task
         opening = nil
         task.cancel()
+        // main-hop-allow: it awaits the cancelled open, then closes its session through the provider's main-actor async send, in its one resume
         discards.append(Task { [self] in
             _ = try? await task.value
             await closeQuietly(id, grant: grant)

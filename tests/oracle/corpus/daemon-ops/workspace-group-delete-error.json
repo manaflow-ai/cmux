@@ -38,19 +38,23 @@
       "args": {
         "method": "workspace_group.delete",
         "params": {
-          "workspace_group": ""
+          "workspace_group": "oracle-missing-group"
         },
         "idempotencyKey": "workspace-group-delete-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "workspace_group",
+          "id": "oracle-missing-group"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "workspace_group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a group id that names no workspace group (state/personal.rs GroupDelete, state_not_found)"
     }
   ],
   "invariants": [

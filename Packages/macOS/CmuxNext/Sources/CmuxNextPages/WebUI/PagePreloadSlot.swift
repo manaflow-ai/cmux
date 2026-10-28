@@ -130,6 +130,8 @@ public final class PagePreloadSlot {
     public private(set) var lastClaim: ClaimRecord?
     /// Told the key of the page that left after a claim or a drop emptied the slot (``observeEmptied(_:)``).
     private var emptiedListeners: [@MainActor (Key) -> Void] = []
+    /// Told the key of a page ``dropStale()`` dropped (``observeStaleDropped(_:)``).
+    private var staleDroppedListeners: [@MainActor (Key) -> Void] = []
     private let trace: @MainActor (Move, UInt64) -> Void
     /// Where the refit's quiet deadline and each cover's limit go (the app's `mainDeadlines`).
     private let deadlines: MainDeadlineScheduler
@@ -185,6 +187,13 @@ public final class PagePreloadSlot {
 
     private func emptied(_ key: Key) {
         for listener in emptiedListeners { listener(key) }
+    }
+
+    /// Calls `listener` with the key of the page each time ``dropStale()`` dropped it, after the
+    /// ``observeEmptied(_:)`` listeners: its owner makes it again, from the web files served now (an
+    /// owner that does not arm its own page on a plain drop, as New Tab, arms it here).
+    public func observeStaleDropped(_ listener: @escaping @MainActor (Key) -> Void) {
+        staleDroppedListeners.append(listener)
     }
 
     // MARK: Moves
@@ -293,6 +302,14 @@ public final class PagePreloadSlot {
         held.page.preloadView.removeFromSuperview()
         held.page.close()
         emptied(held.key)
+    }
+
+    /// The served web files changed (``WebUIHost/webBundleDidChange()``): the held page, loaded from
+    /// the old files, is dropped, and its owner makes it again (``observeStaleDropped(_:)``).
+    public func dropStale() {
+        guard let key else { return }
+        drop()
+        for listener in staleDroppedListeners { listener(key) }
     }
 
     /// The memory pressure changed (``WebUIHost``'s memory registration): anything but normal drops

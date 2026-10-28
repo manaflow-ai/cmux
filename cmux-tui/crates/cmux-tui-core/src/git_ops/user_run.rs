@@ -251,9 +251,11 @@ impl Pipe {
                 match reader.read(&mut chunk) {
                     Ok(0) => break,
                     Ok(read) => {
+                        // A reader that claims more than the chunk broke Read's contract.
+                        let Some(bytes) = chunk.get(..read) else { break };
                         let mut kept = buffer.lock().unwrap_or_else(PoisonError::into_inner);
                         let room = half.saturating_sub(kept.head.len());
-                        let (head, rest) = chunk[..read].split_at(read.min(room));
+                        let (head, rest) = bytes.split_at(read.min(room));
                         kept.head.extend_from_slice(head);
                         kept.tail.extend(rest.iter().copied());
                         while kept.tail.len() > half {

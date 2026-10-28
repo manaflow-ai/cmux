@@ -30,6 +30,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import driver_daemon as d  # noqa: E402
+import invariants  # noqa: E402
 
 BINARY = os.environ.get("CMUX_ORACLE_DAEMON_BINARY", "")
 # netns (unshare -rn, the default) or none on a host that refuses unprivileged user namespaces.
@@ -518,8 +519,8 @@ class RunBatchTests(unittest.TestCase):
             case = oracle.Case(f"s/c{index}", "s", Path("c.json"), data)
             batches.append((oracle.Work(case, {"case_id": case.id, "state_root": str(base / f"{index:06d}")}),))
         try:
-            results, errors, _logs = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
-                                                      itertools.count())
+            results, errors, _logs, _refusals = oracle.run_phase(batches, StubWorker, {"run_id": "batch-test"}, 8,
+                                                                 itertools.count())
         finally:
             shutil.rmtree(base, ignore_errors=True)
         self.assertEqual(errors, [])
@@ -532,10 +533,91 @@ class SchemaTests(unittest.TestCase):
         """oracle.py passes no snapshot_schema, so `oracle.py run --product daemon` needs normalize.py to load
         its own default schema. Red while schemas/oracle/snapshot-v1.schema.json uses keywords normalize.py
         refuses (the p15-oracle-011/013 agreement)."""
-        try:
-            d.open_session({"binary": sys.executable, "run_id": "schema-test"})
-        except ValueError as error:
-            self.fail(str(error)[:3000])
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                d.open_session({"binary": str(oracle_build(Path(tmp))), "run_id": "schema-test"})
+            except ValueError as error:
+                self.fail(str(error)[:3000])
+
+
+def oracle_build(folder: Path, lock_ranks: bool = True) -> Path:
+    """An executable that passes for a cmux-tui with (or without) the lock-rank checker compiled in."""
+    binary = folder / "cmux-tui"
+    marker = invariants.LOCK_RANK_PANIC_PREFIX.encode() if lock_ranks else b""
+    binary.write_bytes(b"#!/bin/sh\nexit 0\n# " + marker + b"\n")
+    binary.chmod(0o755)
+    return binary
+
+
+def panic_line(message: str, location: str) -> str:
+    """A cmux-panic-log record (cmux-tui/crates/cmux-panic-log/src/lib.rs)."""
+    return json.dumps({"session": "oracle", "owner_pid": 1, "message": message, "location": location,
+                       "thread": "main", "at_ms": 1, "test": False, "backtrace": ""}) + "\n"
+
+
+class PanicLogTests(unittest.TestCase):
+    """Invariant I16 (p15-oracle-236): lock ranks compiled in, panic logs in the case root, a panic fails the case."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "c00001"
+        self.root.mkdir()
+        self.isolation = d.hermetic_env.Isolation("none", (), "test")
+
+    def test_a_session_refuses_a_binary_without_the_lock_rank_checker(self):
+        with self.assertRaisesRegex(ValueError, "no lock-rank checker"):
+            d.open_session({"binary": str(oracle_build(Path(self.tmp.name), lock_ranks=False)), "run_id": "i16"})
+        with self.assertRaisesRegex(ValueError, "cannot read --binary"):
+            d.require_lock_ranks(str(Path(self.tmp.name) / "missing"))
+        d.require_lock_ranks(str(oracle_build(Path(self.tmp.name))))
+
+    def test_the_hermetic_case_env_keeps_both_panic_logs_in_the_case_root(self):
+        case_env = d.case_environment(d.CasePaths(self.root), "seed", self.isolation)
+        self.assertEqual(d.panic_log_dirs(case_env), [self.root, self.root / "home" / ".acpmux"])
+        self.assertIsNone(d.panic_logs_outside(case_env, self.root))
+        shared = Path(self.tmp.name) / "shared-acpmux"
+        leaky = d.hermetic_env.daemon_case(self.root, self.isolation, extra={"ACPMUX_HOME": str(shared)})
+        self.assertIn(str(shared), d.panic_logs_outside(leaky, self.root) or "")
+
+    def test_a_panic_fails_a_passing_case_with_its_message_and_location(self):
+        result = {"status": "Pass", "message": "", "checkpoints": [], "trace": {"steps": []}}
+        d.apply_panic_log(result, self.root)
+        self.assertEqual(result["status"], "Pass")
+        self.assertEqual(result["trace"]["teardown"], {"panicLog": []})
+        (self.root / "owner-panics-oracle-abc123.jsonl").write_text(
+            panic_line("called `Option::unwrap()` on a `None` value", "crates/cmux-tui/src/main.rs:9:5"))
+        d.apply_panic_log(result, self.root)
+        self.assertEqual(result["status"], "Failure")
+        self.assertEqual(result["message"], "I16 panic at crates/cmux-tui/src/main.rs:9:5: called `Option::unwrap()` "
+                                            "on a `None` value (thread 'main', owner-panics-oracle-abc123.jsonl:1)")
+        self.assertEqual([e["location"] for e in result["trace"]["teardown"]["panicLog"]],
+                         ["crates/cmux-tui/src/main.rs:9:5"])
+
+    def test_a_crash_keeps_its_status_and_gains_the_panic_text(self):
+        (self.root / "owner-panics-oracle.jsonl").write_text(
+            panic_line("lock order violation: acquiring mux.state (MuxState) while this thread holds pty.term",
+                       "crates/cmux-tui-core/src/mux.rs:301:28"))
+        result = {"status": "Crash", "message": "the daemon exited before it was ready", "step": "setup"}
+        d.apply_panic_log(result, self.root)
+        self.assertEqual((result["status"], result["step"]), ("Crash", "setup"))
+        self.assertTrue(result["message"].startswith("the daemon exited before it was ready; I16 lock-rank panic at "
+                                                     "crates/cmux-tui-core/src/mux.rs:301:28: "), result["message"])
+
+    def test_the_session_reads_the_root_before_removing_it(self):
+        class PanickingWorker(d.DaemonSession):
+            def __init__(self):  # noqa: D107 - the worker is stubbed
+                self.scan = lambda: {}
+                self.session_ctx = {"run_id": "i16"}
+
+            def run_worker(self, case, case_ctx, scale):
+                Path(case_ctx["state_root"], "owner-panics-oracle.jsonl").write_text(panic_line("boom", "a.rs:1:1"))
+                return {"status": "Pass", "message": "", "checkpoints": [], "sockets": []}, True
+
+        result = PanickingWorker().run_case({"id": "c", "suite": "s"}, {"state_root": str(self.root / "case")})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIn("I16 panic at a.rs:1:1: boom", result["message"])
+        self.assertFalse((self.root / "case").exists())
 
 
 class RestorePreviewTraceTests(unittest.TestCase):
@@ -577,27 +659,32 @@ class RestorePreviewTraceTests(unittest.TestCase):
         captures = [d.Capture("create-ws", "before", self.snapshot, reply),
                     d.Capture("create-ws", "settled", self.snapshot, reply),
                     d.Capture("read", "settled", self.snapshot, None)]
-        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"},
-                 {"id": "not-reached", "op": "settle"}]
-        trace = d.case_trace("t/i9", steps, captures)
-        self.assertEqual([s["id"] for s in trace["steps"]], ["create-ws", "read"])
+        steps = [{"id": "create-ws", "op": "resource.call"}, {"id": "read", "op": "snapshot"}]
+        trace = traced_case("t/i9", steps, captures)
         self.assertEqual(sorted(trace["steps"][0]["restorePreviews"]), ["before", "settled"])
         self.assertNotIn("restorePreviews", trace["steps"][1])
         report = self.inv.check_trace(json.loads(json.dumps(trace)), schema=self.schema)
         self.assertEqual(report.checked.get("I9"), 2)
         self.assertEqual([v for v in report.violations if v.invariant == "I9"], [])
-        self.assertIsNone(d.case_trace("t/i9", steps, []))
 
     def test_a_trace_catches_the_skip_journal_append_mutant(self):
         """The preview a daemon gives when a step's journal record was never appended: I9 fails."""
         stale = copy.deepcopy(self.raw)
         stale["workspaces"][0]["name"] = "before the rename"
-        trace = d.case_trace("t/i9", [{"id": "rename", "op": "resource.call"}],
-                             [d.Capture("rename", "settled", self.snapshot,
-                                        self.inv._restore_reply(stale, self.head))])
+        trace = traced_case("t/i9", [{"id": "rename", "op": "resource.call"}],
+                            [d.Capture("rename", "settled", self.snapshot,
+                                       self.inv._restore_reply(stale, self.head))])
         report = self.inv.check_trace(trace, schema=self.schema)
         self.assertEqual([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I9"],
                          [("I9", "/daemon/session/workspaces/0/name")])
+
+
+def traced_case(case_id: str, steps: list, captures: list) -> dict:
+    """The trace CaseRun.trace_doc gives for these captures: each step's record, filled by trace_capture."""
+    records = {step["id"]: dict(step, checkpoints={}) for step in steps}
+    for capture in captures:
+        d.trace_capture(records[capture.step], capture.checkpoint, capture.snapshot, capture.restore_preview)
+    return {"schema": d.invariants.TRACE_SCHEMA, "case": case_id, "steps": list(records.values())}
 
 
 def holder_crash_case(arm: str) -> dict:

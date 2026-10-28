@@ -57,11 +57,22 @@ async fn a_stopped_session_does_not_keep_its_event_log_open() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// The logs a store holds open under this process's soft open-file limit: a quarter of it,
+/// from 64 to 2048 (`store.rs` `open_logs_for`).
+fn open_logs_bound() -> usize {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `lim` is a valid rlimit for getrlimit to fill.
+    assert_eq!(unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) }, 0);
+    usize::try_from(lim.rlim_cur / 4).unwrap_or(usize::MAX).clamp(64, 2048)
+}
+
 /// However many sessions a daemon writes, it holds a bounded number of logs
-/// open (64): the rest are opened again when they are next written.
+/// open (a quarter of its open-file limit, 64 to 2048): the rest are opened
+/// again when they are next written.
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 #[test]
 fn writing_many_sessions_holds_a_bounded_number_of_logs_open() {
+    let bound = open_logs_bound();
     let dir = std::env::temp_dir().join(format!("acpmux-fds-{}", uuid::Uuid::now_v7()));
     let mut cfg = Config::default();
     cfg.store.mode = StoreMode::Local;
@@ -74,14 +85,18 @@ fn writing_many_sessions_holds_a_bounded_number_of_logs_open() {
         msg: json!({"n": seq}),
         host_seq: None,
     };
-    for n in 0..200 {
-        store.append(&format!("session-{n:03}"), &record(1)).unwrap();
+    let sessions = bound + 100;
+    for n in 0..sessions {
+        store.append(&format!("session-{n:04}"), &record(1)).unwrap();
     }
     let open = open_files_under(&dir).len();
-    assert!(open <= 64, "{open} event logs open after writing 200 sessions");
+    assert!(
+        open <= bound,
+        "{open} event logs open after writing {sessions} sessions (bound {bound})"
+    );
     // A session whose log was closed keeps appending to the same segment.
-    store.append("session-000", &record(2)).unwrap();
-    let events = store.events("session-000", 0, usize::MAX).unwrap();
+    store.append("session-0000", &record(2)).unwrap();
+    let events = store.events("session-0000", 0, usize::MAX).unwrap();
     assert_eq!(events.iter().map(|e| e.seq).collect::<Vec<_>>(), [1, 2]);
     let _ = std::fs::remove_dir_all(&dir);
 }

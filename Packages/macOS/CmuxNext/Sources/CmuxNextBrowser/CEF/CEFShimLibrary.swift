@@ -64,6 +64,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let browserSetLayerHosting: @convention(c) (Int32, Int32) -> UInt32
     /// Fork API 27: `cmux_shim_browser_set_resize_sync` (deadline in ms, 0 never holds the commit).
     let browserSetResizeSync: @convention(c) (Int32, Int32) -> Int32
+    /// `cmux_shim_browser_set_resize_fence(browser, fence, deadline_frames)` (fork API
+    /// ``CEFLayerHosting/resizeFenceForkAPI``, p03-rendering-042): 1 when the fork took its own send
+    /// right to `fence` for the page's next GPU commit at its new size. Nil when the shim lacks the
+    /// export, and in host mode: a Mach port name means nothing in the Chromium Host's process.
+    let browserSetResizeFence: (@convention(c) (Int32, UInt32, UInt32) -> Int32)?
     /// Fork API 30: `cmux_shim_browser_set_embedder_active`, a detached page's key state: its focus
     /// with no key window (0 when the fork lacks it or the page is not detached).
     let browserSetEmbedderActive: @convention(c) (Int32, Int32) -> Int32
@@ -197,6 +202,11 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let shutdown: @convention(c) () -> Void
     /// Chromium never shows a window of its own (fork API 8; no-op before).
     let setWindowRequestHandler: @convention(c) (WindowRequestFn?) -> Void
+    /// `cmux_shim_set_window_request_policy`: windows, count, clicks, count, profile root, then the
+    /// Cmd, Shift-Cmd, Shift, Option and middle click actions (`CEFWindowRequestPolicy`).
+    let setWindowRequestPolicy: @convention(c) (
+        UnsafeRawPointer?, Int32, UnsafeRawPointer?, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32, Int32, Int32
+    ) -> Void
     /// Chromium's own focus requests go through cmux (`CefFocusHandler`).
     let setFocusRequestHandler: @convention(c) (FocusRequestFn?) -> Void
     /// Browsers Chromium created outside cmux (fork API 8; -1 before).

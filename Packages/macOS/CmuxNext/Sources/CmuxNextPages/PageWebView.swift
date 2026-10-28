@@ -141,6 +141,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Whether the engine was last told the page shows (``setEngineVisible(_:)``): in a window and not
     /// hidden. The router's hidden hold starts from it (``deliverOnFrames(_:)``).
     var engineVisible = false
+    /// The served web files changed while the page was hidden or frozen (``WebUIHost/webBundleDidChange()``):
+    /// it keeps its document, and reloads once it shows and the safe point found that a reload keeps
+    /// what it holds (``setEngineVisible(_:)``, ``WebBundleSafePoint``).
+    package internal(set) var bundleStale = false
+    /// Takes the page when it shows with web files it has not loaded (``bundleStale``): its host sets
+    /// it (``WebUIHost/open(_:)``, preloaded pages included). Nil: the page keeps its document until a
+    /// swap reloads it.
+    weak var bundleSafePoint: (any WebBundleSafePoint)?
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {

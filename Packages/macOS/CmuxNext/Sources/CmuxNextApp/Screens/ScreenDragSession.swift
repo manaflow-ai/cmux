@@ -25,6 +25,11 @@ final class ScreenDragSession {
     private let tabID: StripTabID
     /// The drag's input tap intercept; cancelled when the drag ends (and when the session goes).
     private var input: InputSubscription?
+    /// The drag's moves on the strip window's coalescer (feature `pointerFrameDrags`): a frame interval's first move
+    /// and the frame's latest move light the row under them. Nil while it is off: every move does.
+    private var moves: PointerFrameConsumer?
+    /// Sidebar hit tests the drag made (tests: at most two per frame interval's moves with ``moves``).
+    private(set) var hitTests = 0
     /// Ends the drag when the app goes inactive (a release in another app never reaches the tap).
     private var resign: EventSubscription?
     /// The app's fan-out of app-wide notices (`AppServices.appEvents`; tests pass their own).
@@ -52,14 +57,28 @@ final class ScreenDragSession {
         resign = appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "ScreenDragSession") { [weak self] in // raw-observer-allow: this is the AppEvents fan-out (one app observer), not a raw one
             self?.finish(at: nil)
         }
+        moves = strip?.window.flatMap { services.dragFrameInput?.coalescer(for: $0) }?.consumer(owner: Self.movesOwner) { [weak self] input in
+            // An ended drag gets none: its end cancels the consumer.
+            guard let self, self.input != nil else { return }
+            self.track(CGPoint(x: input.latest.location.x, y: input.latest.location.y))
+        }
     }
+
+    /// The coalescer owner of a screen tab drag's moves.
+    static let movesOwner = "ScreenDragSession.moves"
 
     private func handle(_ event: NSEvent) -> InputEventTap.InterceptResult {
         switch event.type {
         case .leftMouseDragged:
-            track(Self.screenPoint(of: event))
+            // Once per frame interval's first move and once at its frame, with the coalescer (Chromium's rAF-aligned
+            // input, `third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`), in screen
+            // coordinates: the drag crosses windows.
+            let point = Self.screenPoint(of: event)
+            if let moves { moves.post(TabDragSession.moveRecord(at: point, time: event.timestamp)) } else { track(point) }
             return .consume
         case .leftMouseUp:
+            // The app delivered the frame's last move before this release (the coalescer flushes its window's moves
+            // before a button, Chromium's ShouldFlushQueue); the release hit-tests at its own point.
             finish(at: Self.screenPoint(of: event))
             return .consume
         case .leftMouseDown:
@@ -99,6 +118,7 @@ final class ScreenDragSession {
     /// Lights the sidebar row or gap under the pointer.
     @discardableResult
     private func track(_ point: CGPoint) -> (WindowController, SidebarTabDropHit)? {
+        hitTests += 1
         let controller = window(at: point)
         let current = controller.map(target(for:))
         if let lastTarget, lastTarget !== current { lastTarget.dropExited() }
@@ -109,6 +129,8 @@ final class ScreenDragSession {
 
     private func finish(at point: CGPoint?) {
         guard let input else { return }
+        moves?.cancel()
+        moves = nil
         input.cancel()
         self.input = nil
         resign?.cancel()

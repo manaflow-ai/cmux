@@ -97,6 +97,7 @@ final class HomeHeaderButton: NSButton {
         hover.refresh(animated: false)
     }
 
+    // visibility-walk-allow: one 28 pt symbol image and the hover fill in the theme scope (applyTint), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTint()
@@ -110,6 +111,7 @@ final class HomeHeaderButton: NSButton {
 
     /// Shown again (itself or an ancestor): a theme change while hidden is drawn now, even one whose
     /// repaint never reached this button.
+    // visibility-walk-allow: the show's own repaint of one 28 pt glyph, no layout; the header buttons sit in the Home list, whose node is the page's, and have none of their own
     override func viewDidUnhide() {
         super.viewDidUnhide()
         applyTint()

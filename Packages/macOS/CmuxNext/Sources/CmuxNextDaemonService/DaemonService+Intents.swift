@@ -40,6 +40,9 @@ extension DaemonService {
         store.intend(intent, transaction: transaction)
         return { [self] in do {
             let value = try await body(connection)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            await DebugSlowCreateReply.shared.beforeReply(label) // a slow daemon's reply (first-keys proof)
+            #endif
             // Every event the daemon emitted before the reply. Nil when the
             // connection is gone: no event will come on it, and the next
             // connection's first snapshot holds the result.

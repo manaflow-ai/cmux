@@ -37,10 +37,13 @@ pub(super) fn run(fd: &str) -> u8 {
     // `fd` across exec and nothing else owns it.
     let socket = unsafe { UnixStream::from_raw_fd(fd) };
     let Ok(to_host) = socket.try_clone() else { return 1 };
-    let from_client = std::thread::Builder::new()
-        .name("cmux-mcp-relay".into())
-        .stack_size(COPY_STACK)
-        .spawn(move || {
+    // An agent's requests are automation: they never compete with the
+    // person (Utility, Chromium kUtility).
+    let from_client = cmux_threads::spawn_with_stack(
+        "cmux-mcp-relay",
+        cmux_threads::ThreadQos::Utility,
+        COPY_STACK,
+        move || {
             // SAFETY: descriptor 0 stays open for the process's life; the
             // `ManuallyDrop` never closes it.
             let stdin = ManuallyDrop::new(unsafe { File::from_raw_fd(0) });
@@ -48,7 +51,8 @@ pub(super) fn run(fd: &str) -> u8 {
             // The client is done sending; the host answers what it has and
             // closes its side, which ends the copy below.
             let _ = to_host.shutdown(Shutdown::Write);
-        });
+        },
+    );
     if from_client.is_err() {
         return 1;
     }

@@ -56,11 +56,12 @@ struct HostBrowserDeadline: Sendable {
 
     /// Resolves `false` at the deadline without cancelling the underlying task.
     func resolve(_ attempt: Task<Bool, Never>, timeout: TimeInterval) async -> Bool {
-        let clamped = max(0, min(timeout, 24 * 60 * 60))
+        let clamped = Duration.seconds(max(0, min(timeout, 24 * 60 * 60)))
         let stream = AsyncStream<Bool>(bufferingPolicy: .bufferingOldest(1)) { continuation in
             let deadlineTask = Task {
                 do {
-                    try await clock.sleep(for: .seconds(clamped))
+                    // wakeup-allow: deadline the caller's one wait on the attempt; cancelled when the attempt finishes first
+                    try await clock.sleep(for: clamped, tolerance: clamped.authWakeLeeway)
                 } catch {
                     return
                 }

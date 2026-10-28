@@ -14,7 +14,7 @@
 //! list requests read it directly, and set-terminal-command-history writes
 //! only the retention value there before waking the worker.
 
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
@@ -48,6 +48,55 @@ pub(crate) enum CommandHistoryMessage {
 /// The answer of a delete: the deleted row count, or the worker stopped.
 pub(crate) type DeletionAnswer = Answer<anyhow::Result<u64>>;
 
+/// The worker's bounded queue and the client deletes queued on it that are
+/// not answered yet. While one is, no pass runs at utility: the client
+/// waits on its answer, not on the registry lock, so `LockBoost` cannot
+/// raise the pass it waits behind.
+#[derive(Clone)]
+pub(crate) struct CommandHistoryQueue {
+    sender: SyncSender<CommandHistoryMessage>,
+    deletes_waiting: Arc<AtomicUsize>,
+}
+
+impl CommandHistoryQueue {
+    fn new(sender: SyncSender<CommandHistoryMessage>) -> Self {
+        Self { sender, deletes_waiting: Arc::default() }
+    }
+
+    /// A client delete, counted as waiting until `done` has its answer.
+    fn delete(
+        &self,
+        deletion: CommandDeletion,
+        done: impl FnOnce(anyhow::Result<u64>) + Send + 'static,
+    ) -> CommandHistoryMessage {
+        let waiting = DeleteWaiting::new(&self.deletes_waiting);
+        let answer = DeletionAnswer::new(
+            move |deleted| {
+                done(deleted);
+                drop(waiting);
+            },
+            worker_stopped,
+        );
+        CommandHistoryMessage::Delete(deletion, answer)
+    }
+}
+
+/// One unanswered client delete in [`CommandHistoryQueue::deletes_waiting`].
+struct DeleteWaiting(Arc<AtomicUsize>);
+
+impl DeleteWaiting {
+    fn new(count: &Arc<AtomicUsize>) -> Self {
+        count.fetch_add(1, Ordering::AcqRel);
+        Self(Arc::clone(count))
+    }
+}
+
+impl Drop for DeleteWaiting {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 fn worker_stopped() -> anyhow::Result<u64> {
     Err(anyhow::anyhow!("terminal command history worker stopped"))
 }
@@ -78,9 +127,9 @@ impl Mux {
             registry.terminal_command_retention_days()?
         };
         self.terminal_command_history.store(enabled, Ordering::Release);
-        if let Some(sender) = self.command_history_sender() {
+        if let Some(queue) = self.command_history_queue() {
             // A full queue wakes the worker anyway.
-            let _ = sender.try_send(CommandHistoryMessage::Wake);
+            let _ = queue.sender.try_send(CommandHistoryMessage::Wake);
         }
         Ok(json!({ "enabled": enabled, "retention_days": retention_days }))
     }
@@ -109,12 +158,12 @@ impl Mux {
         deletion: CommandDeletion,
         done: impl FnOnce(anyhow::Result<u64>) + Send + 'static,
     ) {
-        let answer = DeletionAnswer::new(done, worker_stopped);
-        let Some(sender) = self.command_history_sender() else {
-            answer.send(Err(anyhow::anyhow!("terminal command history worker not started")));
+        let Some(queue) = self.command_history_queue() else {
+            done(Err(anyhow::anyhow!("terminal command history worker not started")));
             return;
         };
-        let message = match sender.try_send(CommandHistoryMessage::Delete(deletion, answer)) {
+        let sender = queue.sender.clone();
+        let message = match sender.try_send(queue.delete(deletion, done)) {
             Ok(()) => return,
             Err(TrySendError::Disconnected(_)) => {
                 // Dropping the message answers that the worker stopped.
@@ -158,12 +207,12 @@ impl Mux {
         if !self.terminal_command_history_enabled() {
             return;
         }
-        let Some(sender) = self.command_history_sender() else {
+        let Some(queue) = self.command_history_queue() else {
             self.report_internal_diagnostic("terminal command history worker not started");
             return;
         };
         for command in commands {
-            match sender.try_send(CommandHistoryMessage::Append(terminal.clone(), command)) {
+            match queue.sender.try_send(CommandHistoryMessage::Append(terminal.clone(), command)) {
                 Ok(()) => {}
                 Err(TrySendError::Full(_)) => self.report_internal_diagnostic(
                     "terminal command history queue full; record dropped",
@@ -214,7 +263,7 @@ impl Mux {
         *self.command_history_worker.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
 
-    fn command_history_sender(self: &Arc<Self>) -> Option<SyncSender<CommandHistoryMessage>> {
+    fn command_history_queue(self: &Arc<Self>) -> Option<CommandHistoryQueue> {
         self.spawn_command_history_worker(None, false)
     }
 
@@ -224,20 +273,29 @@ impl Mux {
         self: &Arc<Self>,
         deadline: Option<u64>,
         checkpoint_pending: bool,
-    ) -> Option<SyncSender<CommandHistoryMessage>> {
+    ) -> Option<CommandHistoryQueue> {
         let mut slot = self.command_history_worker.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(sender) = slot.as_ref() {
-            return Some(sender.clone());
+        if let Some(queue) = slot.as_ref() {
+            return Some(queue.clone());
         }
         let (sender, receiver) =
             std::sync::mpsc::sync_channel::<CommandHistoryMessage>(MAX_QUEUED_COMMANDS);
-        let mux = Arc::downgrade(self);
-        std::thread::Builder::new()
-            .name("terminal-command-history".into())
-            .spawn(move || Worker { mux, checkpoint_pending }.run(receiver, deadline))
-            .ok()?;
-        *slot = Some(sender.clone());
-        Some(sender)
+        let queue = CommandHistoryQueue::new(sender);
+        let worker = Worker {
+            mux: Arc::downgrade(self),
+            checkpoint_pending,
+            deletes_waiting: Arc::clone(&queue.deletes_waiting),
+        };
+        // An upkeep thread (p04-input-084): a pass runs at utility unless a
+        // client waits for a delete (`Worker::pass`).
+        cmux_threads::spawn(
+            "terminal-command-history",
+            crate::request_qos::UPKEEP_THREAD_QOS,
+            move || worker.run(receiver, deadline),
+        )
+        .ok()?;
+        *slot = Some(queue.clone());
+        Some(queue)
     }
 }
 
@@ -245,6 +303,8 @@ struct Worker {
     mux: Weak<Mux>,
     /// Rows were deleted but a reader blocked the WAL checkpoint.
     checkpoint_pending: bool,
+    /// [`CommandHistoryQueue::deletes_waiting`].
+    deletes_waiting: Arc<AtomicUsize>,
 }
 
 impl Worker {
@@ -349,6 +409,11 @@ impl Worker {
     ) -> Option<u64> {
         let mux = self.mux.upgrade()?;
         let now = unix_epoch_ms().ok()?;
+        // Utility with `daemonRequestQos` on, raised by the registry lock
+        // while a request waits for it; at the declared class while a client
+        // waits for a delete queued behind this pass.
+        let client_waits = self.deletes_waiting.load(Ordering::Acquire) > 0;
+        let _pass = (!client_waits).then(|| mux.request_qos().enter_upkeep_pass()).flatten();
         let mut registry = mux.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);
         let next = match work(&mut registry, now) {
             Ok(expiry) => {
@@ -396,3 +461,7 @@ fn command_history_page_json(page: &CommandHistoryPage) -> Value {
         "retention_days": page.retention_days,
     })
 }
+
+#[cfg(test)]
+#[path = "command_history_tests.rs"]
+mod tests;

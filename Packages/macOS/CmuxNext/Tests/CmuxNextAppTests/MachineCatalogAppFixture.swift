@@ -62,13 +62,14 @@ final class MachineCatalogAppFixture {
         server.connect()
         try await wait("server registry handshake") { server.daemon.connection != nil && server.daemon.identity != nil }
 
-        let transport = DaemonAppsTransport(daemon: local, mainWork: MainWorkScheduler(budget: MainFrameBudget()),
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        let transport = DaemonAppsTransport(daemon: local, mainWork: mainWork,
                                             inventoryRoutes: { [registry] in registry.agentInventoryWatchRoutes() })
         self.transport = transport
         transport.provider.attach(AppHostCapabilities([AgentCLICapabilityHandler { [registry] in registry.agentInventoryRoutes() }]))
         transport.start()
         try await wait("native provider registration") { transport.provider.isRegistered }
-        let publisher = MachineCatalogPublisher { [registry] in registry.catalogSource() }
+        let publisher = MachineCatalogPublisher(source: { [registry] in registry.catalogSource() }, on: mainWork)
         self.publisher = publisher
         publisher.start()
         try await wait("native catalog acknowledgement") { publisher.publishedSequence != nil }

@@ -1,7 +1,10 @@
 /// The on-request recorders of `debug.input`, each its own action: `hops` (task 022), `dirty`
-/// (task 093), `hittest` (task 098) and `slots` (the newest closed input latency slots, one row per input).
+/// (task 093), `hittest` (task 098), `late_keys` (key-downs dispatched more than 100 ms after their OS time, with
+/// the path that held them) and `slots` (the newest closed input latency slots, one row per input).
 public nonisolated enum DebugInputRecorderKind: String, CaseIterable, Sendable {
-    case hops, dirty, hittest, slots
+    case hops, dirty, hittest
+    case lateKeys = "late_keys"
+    case slots
 }
 
 /// The producer of one on-request `debug.input` action (``DebugInputRecorderKind``). The recorder

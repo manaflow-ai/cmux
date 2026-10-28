@@ -47,7 +47,7 @@ extension AppServices {
         seedGlass()
         notifications.preferences = settings.snapshot.notifications
         notifications.followChiefPet(settings)
-        updater.follow(settings)
+        updater.follow(settings, on: mainWork)
         startHibernation(settings: settings)
         // Each start has its own declared type: one expression with every closure inline (and a ternary closure)
         // was too much for the type checker ("failed to produce diagnostic").

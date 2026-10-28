@@ -363,6 +363,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     capabilities.push(energy_op::CAPABILITY);
     capabilities.push(energy_op::RULE_CAPABILITY);
+    capabilities.push(memory_limit::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
     #[cfg(unix)]
@@ -626,6 +627,7 @@ pub(super) fn advertised_capabilities(
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
         crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
+        crate::request_origin::PAGE_STREAMS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,

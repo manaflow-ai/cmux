@@ -24,7 +24,7 @@ final class SidebarBridge {
     /// Weak: a daemon command's `Task` can outlive the window.
     weak var state: WindowState?
     /// The rows and selection observations, also run in the turn the window shows a workspace.
-    private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView)
+    private(set) lazy var sameTurn = SidebarSameTurn(view: container.sidebarView, mainWork: services.mainWork)
     private var widthObservation: ServiceObservation<(CGFloat, SidebarPresentation)>?
     /// Item presentation for sidebar sections (SidebarBridge+Sections).
     var sectionsObservation: ServiceObservation<SectionInputs>?
@@ -32,9 +32,12 @@ final class SidebarBridge {
     private var appSections: SidebarAppSections?
     /// The bottom-left cards (SidebarBridge+Cards).
     var cards: ServiceObservation<SidebarCardFeed.Cards>?
-    /// The Priority view and the window's top items.
-    var cardsObservation: Task<Void, Never>?
-    var nowPlayingFeed: AnyObject?  // the Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops
+    /// The Now Playing card's feed (`SidebarModel.followNowPlaying`); released, it stops.
+    var nowPlayingFeed: AnyObject?
+    /// The Priority view (`SidebarPriorityFeed`).
+    var priority: ServiceObservation<SidebarPriorityPanel?>?
+    /// The window's top items (`SidebarModel.followTopItems`); nil for a window with no saved state.
+    var topItems: ServiceObservation<SidebarModel.TopItems>?
     /// The footer's avatar (`SidebarProfileControl.followAvatar`).
     private var profileAvatar: ServiceObservation<SidebarAvatar>?
     /// True once the sidebar shows real content: saved rows, the first
@@ -42,7 +45,7 @@ final class SidebarBridge {
     /// sidebar region ready for `LaunchReveal`.
     private(set) var isReadyForReveal = false
     /// The window's saved rows, shown until live data replaces them.
-    private var seed = SidebarSeed()
+    private lazy var seed = SidebarSeed(grace: SidebarPlaceholderGrace(deadlines: services.mainDeadlines))
     /// The one writer of the rows: live rows plus pending edits (cx-odqn).
     lazy var rows = SidebarRows(model: model)
     lazy var selectionHold = SidebarSelectionHold(model: model, deadlines: services.mainDeadlines)
@@ -135,9 +138,10 @@ final class SidebarBridge {
         widthObservation?.cancel()
         sectionsObservation?.cancel()
         appSections?.releaseAll()
-        cardsObservation?.cancel()
         nowPlayingFeed = nil
         cards?.cancel()
+        priority?.cancel()
+        topItems?.cancel()
         profileAvatar?.cancel()
         // The update surface pages cancel their subscriptions (cx-urd.61.2).
         container.sidebarView.updateSurfaces = nil

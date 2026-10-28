@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+package import CmuxNextSignposts
 public import CmuxNextWakeups
 public import WebKit
 
@@ -38,6 +39,9 @@ public final class WebUIHost {
     /// per frame (``PageWebView/deliverOnFrames(_:)``, p06-scheduler-222). Nil while
     /// `pageScriptFrames` is off: each envelope is its own script, as before. The composition root sets it.
     package var scriptFrames: PageScriptFrame?
+    /// Where the WebKit content-process ends of the pages this host opens go as stability events (p09-observability-108).
+    /// Nil records none; the composition root sets the app's one.
+    package var rendererStability: RendererStability?
     /// The app's one preloaded page (p13-webui.md 3.D); the host's memory registration
     /// (`preloadMemory`) drops it at any level but normal. Nil until the composition root installs it
     /// with the app's deadline scheduler (p13-webui-044, 045); installing it hands it the current level.
@@ -71,6 +75,18 @@ public final class WebUIHost {
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
     /// closing it still deinits (p13-webui-061 makes every tab close call ``close(_:)``).
     private let opened = NSHashTable<PageWebView>.weakObjects()
+    /// Follows `web-dev.json` (``WebDevOverride``): a change reaches the pages as a web update does
+    /// (``webBundleDidChange()``). Armed by the first page ``open(_:)`` makes, a preloaded one included
+    /// (``PagePreloads`` opens through it), so a launch that shows no page reads nothing; the first page
+    /// loads bundled and reloads once the file is read.
+    public let devOverride = WebDevOverrideWatcher()
+    /// A web files change reloads only the shown pages; hidden and frozen ones reload after they show,
+    /// once they allow it (feature `webUpdateReloadOnShow`, ``webBundleDidChange()``, ``bundleSafePoint``).
+    /// Off: every page reloads at the change.
+    package var bundleReloadsOnShow = false
+    /// Takes each page this host opens when it shows with web files it has not loaded (the app's web
+    /// updates): it asks the page before it reloads it (``WebBundleSafePoint``). Set before the first open.
+    package weak var bundleSafePoint: (any WebBundleSafePoint)?
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Yields when a page's oracle reading may have changed (the `webviews` facet's wait, p15-oracle-215): a page
     /// ``observeOracleState(of:)`` hooked posted ``PageRouter/oracleStateChangedOp`` or its document loaded.
@@ -111,6 +127,7 @@ public final class WebUIHost {
         self.registry = registry
         self.deadlines = deadlines
         self.processGroups = processGroups
+        devOverride.onChange = { [weak self] in _ = self?.webBundleDidChange() }
         preloadMemory = SpareMemoryConsumer(
             name: "webui-preload", registry: memory, spares: { [weak self] in self?.preload?.count ?? 0 },
             drop: { [weak self] in self?.preloadLevelDidChange() }, refill: { [weak self] in self?.preloadLevelDidChange() })
@@ -132,11 +149,14 @@ public final class WebUIHost {
     /// - Returns: The view, or nil when the page has no root it may be served from (missing from
     ///   the bundle, or a first-party page asked for at another root).
     public func open(_ request: PageOpenRequest) -> PageWebView? {
+        devOverride.start() // once; nothing unless the override is available
         guard let view = PageWebView(request: request, chromium: chromium, openPanel: openPanel, registry: registry,
                                      processGroups: processGroups, startsAtFirstShow: startsPagesAtFirstShow,
                                      deadlines: deadlines) else { return nil }
         if lifecycle != nil { view.crash.groups = crashGroups }
+        view.crash.stability = rendererStability
         view.popupHoverFrameInput = hoverFrameInput
+        view.bundleSafePoint = bundleSafePoint
         if let scriptFrames { view.deliverOnFrames(scriptFrames) }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -185,5 +205,33 @@ public final class WebUIHost {
     /// The pages this host opened and has not closed, oldest first.
     public var openPages: [PageWebView] {
         opened.allObjects.sorted { registry.instance(of: $0) < registry.instance(of: $1) }
+    }
+}
+
+// The served web files change (a web UI update at its safe point, a `web-dev.json` change): only the
+// pages a person sees are asked and reloaded (p13-webui.md 3.C, task 071).
+extension WebUIHost: WebBundleHost {
+    /// Every live WebKit page of the host's registry (``PageWebView/bundleServedByOverlay``), which
+    /// lists the pages it opened and, in the app, the views made outside it while the static
+    /// forwarders remain (p13-webui-010), the preload slot's parked page included. With
+    /// ``bundleReloadsOnShow``, not the preloaded page, which nobody sees and the swap makes again.
+    package var webBundlePages: [any WebBundlePage] {
+        let preloaded = bundleReloadsOnShow ? preload?.page?.preloadView : nil
+        return registry.pages().filter { page in
+            page.bundleServedByOverlay && (preloaded.map { !page.isDescendant(of: $0) } ?? true)
+        }
+    }
+
+    /// With ``bundleReloadsOnShow``, shown pages reload now; hidden and frozen ones are marked and
+    /// reload after they show, once they allow it (``PageWebView/bundleStale``, ``bundleSafePoint``),
+    /// so a frozen page is never woken, and the
+    /// preloaded page is dropped and made again from the new files. Without it, every page that
+    /// holds a document reloads now, and the parked page is marked: its claim loads the
+    /// new files. A document kept meanwhile keeps loading its lazy chunks from the files it started
+    /// with (``WebBundleOverlay/Pin``).
+    @discardableResult
+    package func webBundleDidChange() -> Int {
+        if bundleReloadsOnShow { preload?.dropStale() }
+        return reloadOrMarkStale(webBundlePages)
     }
 }

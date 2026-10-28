@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 
 // A strip under the window's traffic lights (minimal titlebar, sidebar
 // hidden, the top-left pane) starts its tabs after them. Only strips whose
@@ -16,6 +16,22 @@ extension TabStripView {
     public func updateWindowControlsAvoidance() {
         guard computeWindowControlsInset() != windowControlsInset else { return }
         needsLayout = true
+    }
+
+    /// A window's one-layout move of this strip (the sidebar's show and hide on the render server,
+    /// `motion.renderServer`): called before that layout, it notes where the tabs' clip shows; the
+    /// closure it returns, called after it, lays the strip out at its new inset and gives the springs that
+    /// carry the clip from where it showed, on the spring the strip's pane moves with, so the tabs stay
+    /// clear of the traffic lights through the move, as each frame of the main-thread slide keeps them.
+    public func windowControlsSlide() -> () -> [RenderSpring.Move] {
+        let start = RenderSpring.Start(tabsClip, keys: [.positionX, .boundsWidth])
+        return { [weak self] in
+            guard let self, let start else { return [] }
+            updateWindowControlsAvoidance()
+            // sync-layout: the springs end at the clip's new inset, which this strip's layout places.
+            layoutSubtreeIfNeeded()
+            return start.moves()
+        }
     }
 
     /// Leading points to keep clear so the first tab starts a little after

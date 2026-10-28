@@ -1,3 +1,4 @@
+import CmuxThreading
 import CmuxVNC
 import CmuxVNCWebRTC
 import CoreImage
@@ -18,10 +19,13 @@ import Foundation
 // The pairing (room and secret) is kept in ~/.config/cmux-vnc-host/pairing.json
 // (mode 0600) so the phone stays paired across runs. Scan the printed QR code
 // or open the link on the phone. The VNC server still asks for its own sign-in.
+//
+// A command-line tool: its main thread has nothing else to do while it reads the pairing, so the reads and writes
+// below block it, marked as blocking calls.
 
 struct Options {
     var target = "127.0.0.1:5900"
-    var name = Host.current().localizedName ?? "Mac"
+    var name = blockingCall(.systemCall) { Host.current().localizedName } ?? "Mac"
     var signal = VNCPairing.defaultSignal
     var newPairing = false
     var stream = false
@@ -31,41 +35,57 @@ struct Options {
     var user: String?
 }
 
-var options = Options()
-var arguments = Array(CommandLine.arguments.dropFirst())
-while !arguments.isEmpty {
-    let flag = arguments.removeFirst()
-    switch flag {
-    case "--target": options.target = arguments.isEmpty ? options.target : arguments.removeFirst()
-    case "--name": options.name = arguments.isEmpty ? options.name : arguments.removeFirst()
-    case "--signal": options.signal = arguments.isEmpty ? options.signal : (URL(string: arguments.removeFirst()) ?? options.signal)
-    case "--new-pairing": options.newPairing = true
-    case "--stream": options.stream = true
-    case "--capture":
-        options.stream = true
-        options.capture = true
-    case "--user": options.user = arguments.isEmpty ? nil : arguments.removeFirst()
-    default:
-        print("usage: cmux-vnc-host [--stream] [--user NAME] [--target HOST:PORT] [--name NAME] [--signal URL] [--new-pairing]")
-        exit(flag == "--help" ? 0 : 2)
+/// The options the command line gives; prints the usage and exits on an unknown flag.
+func parseOptions(_ commandLine: [String]) -> Options {
+    var options = Options()
+    var arguments = commandLine
+    while !arguments.isEmpty {
+        let flag = arguments.removeFirst()
+        switch flag {
+        case "--target": options.target = arguments.isEmpty ? options.target : arguments.removeFirst()
+        case "--name": options.name = arguments.isEmpty ? options.name : arguments.removeFirst()
+        case "--signal": options.signal = arguments.isEmpty ? options.signal : (URL(string: arguments.removeFirst()) ?? options.signal)
+        case "--new-pairing": options.newPairing = true
+        case "--stream": options.stream = true
+        case "--capture":
+            options.stream = true
+            options.capture = true
+        case "--user": options.user = arguments.isEmpty ? nil : arguments.removeFirst()
+        default:
+            print("usage: cmux-vnc-host [--stream] [--user NAME] [--target HOST:PORT] [--name NAME] [--signal URL] [--new-pairing]")
+            exit(flag == "--help" ? 0 : 2)
+        }
     }
+    return options
 }
 
+/// The saved pairing when it is for the same signal server and kind (renamed to `options.name`), else a new one;
+/// saved back to `file` (mode 0600 in a 0700 folder) so the phone stays paired across runs.
+func loadPairing(_ options: Options, folder: URL, file: URL) -> VNCPairing {
+    let kind = options.stream ? "stream" : "vnc"
+    let saved: VNCPairing? = options.newPairing ? nil : blockingCall(.fileIO) {
+        (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(VNCPairing.self, from: $0) }
+    }
+    var pairing: VNCPairing
+    if let saved, saved.signal == options.signal, saved.kind == kind {
+        pairing = saved
+        pairing.name = options.name
+    } else {
+        pairing = VNCPairing.generate(name: options.name, signal: options.signal, kind: kind)
+    }
+    let data = try? JSONEncoder().encode(pairing)
+    blockingCall(.fileIO) {
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        if let data {
+            _ = FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
+        }
+    }
+    return pairing
+}
+
+let options = parseOptions(Array(CommandLine.arguments.dropFirst()))
 let folder = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/cmux-vnc-host")
-let file = folder.appendingPathComponent("pairing.json")
-var pairing: VNCPairing
-let kind = options.stream ? "stream" : "vnc"
-if !options.newPairing, let data = try? Data(contentsOf: file), let saved = try? JSONDecoder().decode(VNCPairing.self, from: data),
-   saved.signal == options.signal, saved.kind == kind {
-    pairing = saved
-    pairing.name = options.name
-} else {
-    pairing = VNCPairing.generate(name: options.name, signal: options.signal, kind: kind)
-}
-try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-if let data = try? JSONEncoder().encode(pairing) {
-    FileManager.default.createFile(atPath: file.path, contents: data, attributes: [.posixPermissions: 0o600])
-}
+let pairing = loadPairing(options, folder: folder, file: folder.appendingPathComponent("pairing.json"))
 
 let parts = options.target.split(separator: ":")
 let targetHost = parts.count > 1 ? parts.dropLast().joined(separator: ":") : options.target
@@ -115,7 +135,9 @@ if options.capture {
     await host.run()
 } else if options.stream {
     let password = ProcessInfo.processInfo.environment["CMUX_VNC_PASSWORD"]
-        ?? (try? String(contentsOf: folder.appendingPathComponent("password"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        ?? blockingCall(.fileIO) {
+            (try? String(contentsOf: folder.appendingPathComponent("password"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
     let host = ScreenStreamHost(pairing: pairing, target: VNCEndpoint(host: targetHost, port: targetPort),
                                 credentials: VNCCredentials(username: options.user, password: password), log: log)
     await host.run()

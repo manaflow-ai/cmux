@@ -32,8 +32,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 /// they reach this one recorder (as ``TypingLatencyProbe``). Times are `CLOCK_UPTIME_RAW` nanoseconds,
 /// so marks from any thread compare.
 public final class NewTerminalTrace: Sendable {
+    /// The process's recorder: the mark sites share no injection seam.
     public static let shared = NewTerminalTrace()
 
+    /// One step of a new terminal, in the order a new terminal runs them.
     public enum Mark: Int, CaseIterable, Sendable {
         case action, requestSent, reply, tabAdded, surfaceCreated, attachStart, attachReplied, attachEnd,
              firstOutputMain, firstParsed, firstContents, promptParsed, promptContents, finalGrid
@@ -98,6 +100,7 @@ extension NewTerminalTrace {
         public internal(set) var terminal: String?
         /// The daemon surface of its tab (nil until `tab_added`).
         public internal(set) var surface: UInt64?
+        /// Whether it ended on its time limit (``NewTerminalTrace/finish(timedOut:)``), not its last mark.
         public internal(set) var timedOut = false
         let armedAt: UInt64
         var marks = [UInt64?](repeating: nil, count: Mark.allCases.count)

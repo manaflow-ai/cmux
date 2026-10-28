@@ -13,6 +13,8 @@
 use base64::Engine;
 use std::time::{Duration, Instant};
 
+use crate::panic_free::split_once_byte;
+
 const MAX_OSC_BODY_BYTES: usize = 4096;
 pub(crate) const MAX_PROGRESS_CHARS: usize = 256;
 /// Shown text bounds for a terminal notification.
@@ -340,24 +342,20 @@ fn observe_kitty_notification(
     pending: &mut KittyPending,
     data: &[u8],
 ) -> Option<TerminalNotification> {
-    let separator = data.iter().position(|byte| *byte == b';')?;
-    let (meta, payload) = (&data[..separator], &data[separator + 1..]);
+    let (meta, payload) = split_once_byte(data, b';')?;
     let mut kind = Some(KittyPayload::Title);
     let mut done = true;
     let mut base64 = false;
     let mut id = None;
     for part in meta.split(|byte| *byte == b':') {
-        let Some(equals) = part.iter().position(|byte| *byte == b'=') else { continue };
-        if equals == 0 {
-            continue;
-        }
-        let value = &part[equals + 1..];
+        let Some((key, value)) = split_once_byte(part, b'=') else { continue };
+        let Some(&key) = key.first() else { continue };
         let flag = |default: bool| match value.first() {
             Some(b'0') => false,
             Some(b'1') => true,
             _ => default,
         };
-        match part[0] {
+        match key {
             b'p' => {
                 kind = match value {
                     b"title" => Some(KittyPayload::Title),
@@ -513,11 +511,10 @@ impl TerminalMetadata {
         let shell_marks = &mut self.shell_marks;
         let activity = &mut self.activity;
         self.osc.observe(bytes, |body| {
-            let Some(separator) = body.iter().position(|byte| *byte == b';') else {
+            let Some((command, data)) = split_once_byte(body, b';') else {
                 return;
             };
-            let data = &body[separator + 1..];
-            let notification = match &body[..separator] {
+            let notification = match command {
                 b"9" => {
                     *progress = String::from_utf8_lossy(data)
                         .chars()
@@ -530,10 +527,10 @@ impl TerminalMetadata {
                 }
                 b"777" => {
                     let Some(rest) = data.strip_prefix(b"notify;") else { return };
-                    let Some(title_end) = rest.iter().position(|byte| *byte == b';') else {
+                    let Some((title, body)) = split_once_byte(rest, b';') else {
                         return;
                     };
-                    TerminalNotification::new(&rest[..title_end], &rest[title_end + 1..])
+                    TerminalNotification::new(title, body)
                 }
                 b"99" => observe_kitty_notification(kitty, data),
                 b"133" => {

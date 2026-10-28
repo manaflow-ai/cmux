@@ -31,6 +31,14 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// The daemon's launch snapshot file (`launch-snapshot-v1`), read by the
     /// next launch before it connects (`LaunchSnapshot`).
     public var launchSnapshotPath: String?
+    /// The API revision the daemon speaks (`api_revision`), only in the reply to
+    /// `identify {revisions: true}`; nil otherwise and from an older daemon.
+    public var apiRevision: UInt32?
+    /// The digest of the schema the daemon's method tables came from (`sdk_schema_digest`, 16 hex digits), and
+    /// the method ids it answers on REQUEST frames (`framed_methods`): only in the reply to
+    /// `identify {revisions: true}` on a connection offered `ipc-frames-v2`; nil otherwise.
+    public var sdkSchemaDigest: String?
+    public var framedMethods: [UInt16]?
 
     public func supports(_ capability: String) -> Bool { capabilitySet.contains(capability) }
 
@@ -98,6 +106,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         case workspaceRevision = "workspace_revision"
         case lifecycleReady = "lifecycle_ready"
         case launchSnapshotPath = "launch_snapshot_path"
+        case apiRevision = "api_revision"
+        case sdkSchemaDigest = "sdk_schema_digest"
+        case framedMethods = "framed_methods"
     }
 
     public init(from decoder: any Decoder) throws {
@@ -123,6 +134,9 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         workspaceRevision = try c.decodeIfPresent(UInt64.self, forKey: .workspaceRevision) ?? 0
         lifecycleReady = try c.decodeIfPresent(Bool.self, forKey: .lifecycleReady) ?? true
         launchSnapshotPath = try? c.decodeIfPresent(String.self, forKey: .launchSnapshotPath)
+        apiRevision = try? c.decodeIfPresent(UInt32.self, forKey: .apiRevision)
+        sdkSchemaDigest = try? c.decodeIfPresent(String.self, forKey: .sdkSchemaDigest)
+        framedMethods = try? c.decodeIfPresent([UInt16].self, forKey: .framedMethods)
     }
 }
 
@@ -131,8 +145,14 @@ public struct IdentifyRequest: DaemonRequest {
     public static let commandName: DaemonCommandName = "identify"
     /// Explicit owner metadata; omission keeps the original raw response shape.
     public var machineMetadata: Bool?
-    public init(machineMetadata: Bool? = nil) { self.machineMetadata = machineMetadata }
-    private enum CodingKeys: String, CodingKey { case machineMetadata = "machine_metadata" }
+    /// Adds `api_revision` to the reply. Only a daemon that advertises a framed IPC capability is
+    /// asked: an older one refuses the unknown field (`additional_properties: false`).
+    public var revisions: Bool?
+    public init(machineMetadata: Bool? = nil, revisions: Bool? = nil) {
+        self.machineMetadata = machineMetadata
+        self.revisions = revisions
+    }
+    private enum CodingKeys: String, CodingKey { case machineMetadata = "machine_metadata", revisions }
 }
 
 public struct SetClientInfoRequest: DaemonRequest {
@@ -144,16 +164,19 @@ public struct SetClientInfoRequest: DaemonRequest {
     /// Shared-sizing identity (`shared-sizing-v1`): the device this connection's views are on.
     public var deviceKind: String?
     public var deviceName: String?
+    /// The API revision this client speaks (`api_revision`); nil declares none (a revision 12 client).
+    public var apiRevision: UInt32?
     public init(name: String? = nil, kind: String? = "frontend", capabilities: [String]? = nil,
-                deviceKind: String? = nil, deviceName: String? = nil) {
+                deviceKind: String? = nil, deviceName: String? = nil, apiRevision: UInt32? = nil) {
         self.name = name
         self.kind = kind
         self.capabilities = capabilities
         self.deviceKind = deviceKind
         self.deviceName = deviceName
+        self.apiRevision = apiRevision
     }
 
     enum CodingKeys: String, CodingKey {
-        case name, kind, capabilities, deviceKind = "device_kind", deviceName = "device_name"
+        case name, kind, capabilities, deviceKind = "device_kind", deviceName = "device_name", apiRevision = "api_revision"
     }
 }

@@ -20,8 +20,26 @@ Usage:
     switches.py --hits FILE --switch NAME --arm old|new
                                                the verdict of one debug.oracle.switch_hits result
                                                (exit 0: exercised, 1: arm-not-exercised or arm-mixed, 2: bad input)
+    switches.py --plan [NAME=ARM ...]         the launch argument and variables that apply these arms
+                                               (exit 0; 2: an unknown switch, arm or key)
     switches.py --selftest                    the refusal table below, on temporary registries
 `oracle.py switches ARGS` runs this script with ARGS.
+
+Arms (task p15-oracle-049; driver_app.py and driver_daemon.py apply them). `arm_plan` turns a run's
+request (registry name -> arm) into each product's `KEY=ARM,KEY=ARM` value: the app's
+`--cmux-switches=` (passed as CMUX_NEXT_SWITCHES, since bench_launch starts the app with no arguments)
+and the daemon's CMUX_TUI_SWITCHES. The daemon the app starts gets that value as CMUX_NEXT_TUI_SWITCHES:
+the app unsets every inherited CMUX* variable that is not a CMUX_NEXT_* knob before its daemon starts
+(LaunchIdentity.stripInheritedEnvironment), and DaemonDiagnosticKnobs passes this one on as
+CMUX_TUI_SWITCHES. An unknown name, an arm outside old/new, a key the product's catalog lacks, or a
+catalog that is not on the branch aborts before anything launches. After the launch `read_back`
+compares what each product reports, the app's `debug.oracle.snapshot` switches facet (`arms`) and the
+daemon's `identify` and `oracle-state` `switches`, with the plan: a requested switch must read back its
+arm in every reader that knows its key and needs at least one reader; any other registry switch must
+read back its default wherever a reader reports it. A mismatch is `arm-not-applied` (ArmNotApplied,
+with the readback): the run stops there, since every later case would run on the same wrong arms.
+`hits_by_name` turns one `debug.oracle.switch_hits` result into the result's per-name hit counts. The
+driver's result carries both (`switch_readback`, `switch_hits`), which oracle.py writes into the receipt.
 
 `--hits` (task p15-oracle-027) reads the per-site hit counters the app reports through
 `debug.oracle.switch_hits` (`SwitchHits.swift`): `{"switches": {KEY: {"old": N, "new": N, "sites":
@@ -75,7 +93,7 @@ import tempfile
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Set, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -538,6 +556,215 @@ def hits(roots: Roots, report_path: Path, name: str, arm: str) -> HitVerdict:
 
 
 # ---------------------------------------------------------------------------------------------------------
+# Applying and reading back the arms (p15-oracle-049)
+
+
+APP_SWITCHES_ENV = "CMUX_NEXT_SWITCHES"
+APP_SWITCHES_ARG = "--cmux-switches"
+DAEMON_SWITCHES_ENV = "CMUX_TUI_SWITCHES"
+# The app's knob for it (DaemonDiagnosticKnobs): the app's launch strip unsets a raw CMUX_TUI_SWITCHES.
+DAEMON_SWITCHES_APP_ENV = "CMUX_NEXT_TUI_SWITCHES"
+ARM_NOT_APPLIED = "arm-not-applied"
+APP, DAEMON = "app", "daemon"
+# The task that gives each product its readback: the frozen RefactorSwitches value, the Switches value.
+READBACK_TASK = {APP: APP_CATALOG_TASK, DAEMON: DAEMON_CATALOG_TASK}
+
+
+class UnknownSwitch(Exception):
+    """A requested switch the run cannot apply: no registry file, no key, an arm outside old/new, a key the
+    product's catalog does not declare, or no catalog on the branch. The run aborts before anything launches."""
+
+
+class ArmNotApplied(Exception):
+    """The product read back other arms than the run applied: `problems` names each mismatch and `readback`
+    is what was read (registry name -> arm). A driver raises it out of `run_case`; oracle.py then stops the
+    run with one arm-not-applied verdict, since every later case would run on the same arms."""
+
+    def __init__(self, problems: Sequence[str], readback: Optional[Mapping[str, str]] = None):
+        super().__init__(f"{ARM_NOT_APPLIED}: " + "; ".join(problems))
+        self.problems = tuple(problems)
+        self.readback = dict(readback or {})
+
+
+@dataclass(frozen=True)
+class SwitchArm:
+    """One registry switch in one run: the product that parses its key and the arm the run expects of it
+    (the requested arm, else the registry default)."""
+
+    name: str
+    product: str
+    key: str
+    arm: str
+    requested: bool
+
+
+@dataclass(frozen=True)
+class ArmPlan:
+    """The arms of one run. Only requested switches are passed; every other registry switch must read back
+    its default, so an arm that leaked in from elsewhere is caught too."""
+
+    switches: Tuple[SwitchArm, ...]
+
+    def requested(self, product: str) -> List[SwitchArm]:
+        return sorted((s for s in self.switches if s.requested and s.product == product), key=lambda s: s.key)
+
+    def value(self, product: str) -> str:
+        """`KEY=ARM,KEY=ARM` by key: one comma list, as FeatureList reads --enable-features
+        (base/feature_list.cc, SplitFeatureListString)."""
+        return ",".join(f"{s.key}={s.arm}" for s in self.requested(product))
+
+    def app_arguments(self) -> List[str]:
+        value = self.value(APP)
+        return [f"{APP_SWITCHES_ARG}={value}"] if value else []
+
+    def daemon_environment(self) -> Dict[str, str]:
+        value = self.value(DAEMON)
+        return {DAEMON_SWITCHES_ENV: value} if value else {}
+
+    def app_environment(self) -> Dict[str, str]:
+        """The app launch's variables: CMUX_NEXT_SWITCHES is --cmux-switches= in the environment (bench_launch
+        starts the app with no arguments), and CMUX_NEXT_TUI_SWITCHES is the daemon's value. The app's launch
+        strip keeps CMUX_NEXT_* knobs only, and DaemonDiagnosticKnobs hands this one to the daemon the app
+        starts as CMUX_TUI_SWITCHES. The daemon's readback proves it got there."""
+        app, daemon = self.value(APP), self.value(DAEMON)
+        return {**({APP_SWITCHES_ENV: app} if app else {}), **({DAEMON_SWITCHES_APP_ENV: daemon} if daemon else {})}
+
+
+@dataclass(frozen=True)
+class Readback:
+    """What one product read back: `arms` (registry name -> arm, `a|b` when its readers disagree), the
+    raw reader values (`sources`), and every mismatch with the plan (`problems`)."""
+
+    arms: Dict[str, str]
+    sources: Dict[str, Optional[Dict[str, str]]]
+    problems: Tuple[str, ...]
+
+    def check(self) -> Dict[str, str]:
+        """The readback when every arm is the planned one; raises ArmNotApplied otherwise."""
+        if self.problems:
+            raise ArmNotApplied(self.problems, self.arms)
+        return dict(self.arms)
+
+
+def load_registry(roots: Roots) -> Dict[str, Dict[str, Any]]:
+    """Name -> entry of every registry file that parses (`--check` reports the others)."""
+    if not roots.registry.is_dir():
+        return {}
+    entries: Dict[str, Dict[str, Any]] = {}
+    for path in sorted(roots.registry.glob("*.json")):
+        data, _ = load_entry(path)
+        if data is not None:
+            entries[path.stem] = data
+    return entries
+
+
+def entry_key(entry: Mapping[str, Any]) -> Optional[Tuple[str, str]]:
+    for product in (APP, DAEMON):
+        key = entry.get(f"{product}_key")
+        if isinstance(key, str) and key:
+            return product, key
+    return None
+
+
+def arm_plan(requested: Mapping[str, str], roots: Roots = Roots(),
+             registry: Optional[Mapping[str, Mapping[str, Any]]] = None) -> ArmPlan:
+    """The plan of a run that requests `requested` (registry name -> arm). Raises UnknownSwitch for every
+    request it cannot apply, a requested key whose product catalog is not on the branch among them: nothing
+    then says the build parses that key."""
+    registry = load_registry(roots) if registry is None else registry
+    catalogs: Dict[str, Any] = {APP: app_catalog(roots.app_catalog), DAEMON: daemon_catalog(roots.daemon_catalog)}
+    catalog_paths = {APP: roots.app_catalog, DAEMON: roots.daemon_catalog}
+    problems: List[str] = []
+    for name in sorted(set(requested) - set(registry)):
+        problems.append(f"{name}: no {relative(roots.registry / f'{name}.json', roots.repo)}")
+    switches: List[SwitchArm] = []
+    for name in sorted(registry):
+        entry, asked = registry[name], name in requested
+        product_key = entry_key(entry)
+        if product_key is None:
+            if asked:
+                problems.append(f"{name}: the registry file has no app_key or daemon_key")
+            continue
+        product, key = product_key
+        arm = requested[name] if asked else entry.get("default")
+        if arm not in ARMS:
+            if asked:
+                problems.append(f"{name}: arm {arm!r} is not old or new")
+            continue
+        catalog = catalogs[product]
+        if asked and catalog is None:
+            problems.append(f"{name}: {product} key {key!r} cannot be checked: "
+                            f"{relative(catalog_paths[product], roots.repo)} is not on this branch ({READBACK_TASK[product]})")
+            continue
+        if asked and key not in catalog:
+            problems.append(f"{name}: {product} key {key!r} is not in {relative(catalog_paths[product], roots.repo)}")
+            continue
+        switches.append(SwitchArm(name=name, product=product, key=key, arm=str(arm), requested=asked))
+    if problems:
+        raise UnknownSwitch("unknown switch: " + "; ".join(problems))
+    return ArmPlan(tuple(switches))
+
+
+def string_arms(value: Any, label: str) -> Optional[Dict[str, str]]:
+    """A reader's `{key: arm}`, or None when the build has no such reader. A malformed value is bad input."""
+    if value is None:
+        return None
+    if not isinstance(value, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in value.items()):
+        raise UsageError(f"{label}: switch arms are an object of strings, got {value!r:.200}")
+    return dict(value)
+
+
+def read_back(plan: ArmPlan, product: str, sources: Mapping[str, Any]) -> Readback:
+    """Compares the arms `product`'s readers report (label -> `{key: arm}`, or None for a reader this build
+    lacks) with the plan. A requested switch of `product` needs at least one reader; every reader that
+    reports a switch's key must report the planned arm (a switch nobody requested: its default). Chrome
+    hands every child process the same --enable-features and trusts it; here each process proves it."""
+    readers = {label: string_arms(value, label) for label, value in sorted(sources.items())}
+    problems: List[str] = []
+    arms: Dict[str, str] = {}
+    for switch in plan.switches:
+        seen: List[str] = []
+        planned = f"{switch.name}={switch.arm}" + ("" if switch.requested else " (default)")
+        for label, values in readers.items():
+            if values is None:
+                continue
+            got = values.get(switch.key)
+            if got is None:
+                if switch.requested and switch.product == product:
+                    problems.append(f"{planned}: {label} reports no {switch.key}")
+                continue
+            seen.append(got)
+            if got != switch.arm:
+                problems.append(f"{planned}: {label} read back {switch.key}={got}")
+        if switch.requested and switch.product == product and all(v is None for v in readers.values()):
+            problems.append(f"{planned}: no {product} reader in this build reports its arms "
+                            f"({', '.join(readers) or 'none'}; {READBACK_TASK[product]})")
+        if seen:
+            arms[switch.name] = "|".join(sorted(set(seen)))
+    return Readback(arms=arms, sources=readers, problems=tuple(problems))
+
+
+def hits_by_name(plan: ArmPlan, report: Any) -> Dict[str, Dict[str, int]]:
+    """One `debug.oracle.switch_hits` result as an oracle.py result's `switch_hits`: registry name ->
+    {"old": N, "new": N} for every app switch (only app sites count hits). Raises UsageError on a bad report."""
+    return {s.name: dict(hit_verdict(report, s.name, f"app:{s.key}", s.arm).hits) for s in plan.switches
+            if s.product == APP}
+
+
+def parse_requests(items: Sequence[str]) -> Dict[str, str]:
+    """`NAME=ARM` words as a request; a name given twice is refused."""
+    requested: Dict[str, str] = {}
+    for item in items:
+        name, sep, arm = item.partition("=")
+        if not sep or not name:
+            raise UsageError(f"{item!r} is not NAME=ARM")
+        if name in requested:
+            raise UsageError(f"{name} is requested twice")
+        requested[name] = arm
+    return requested
+
+
+# ---------------------------------------------------------------------------------------------------------
 # --selftest
 
 
@@ -868,6 +1095,143 @@ def selftest_hits(tmp: Path) -> List[str]:
     return failures
 
 
+def selftest_arms(tmp: Path) -> Tuple[List[str], int]:
+    """arm_plan, read_back, hits_by_name, parse_requests and --plan (task p15-oracle-049): the failures and
+    the number of checks."""
+    failures: List[str] = []
+    checks = 0
+
+    def expect(label: str, ok: bool, detail: Any = "") -> None:
+        nonlocal checks
+        checks += 1
+        if not ok:
+            failures.append(f"arms {label}: {detail}")
+
+    def refused(label: str, error: type, want: str, call: Any) -> None:
+        try:
+            call()
+        except error as caught:
+            expect(label, want in str(caught), f"{caught} lacks {want!r}")
+            return
+        expect(label, False, f"no {error.__name__}")
+
+    cef = selftest_entry(name="cef-helper", app_key="browser.cef-helper", expected_differences=[], old_paths=None)
+    roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry(), "cef-helper": cef}, None)
+
+    plan = arm_plan({}, roots)
+    expect("no request passes nothing", plan.app_environment() == {} and plan.app_arguments() == []
+           and plan.daemon_environment() == {}, plan)
+    expect("no request expects every default", [(s.name, s.arm, s.requested) for s in plan.switches]
+           == [("cef-helper", "old", False), ("holder", "old", False), ("layer-hosting", "old", False)], plan)
+
+    plan = arm_plan({"layer-hosting": "new", "cef-helper": "old", "holder": "new"}, roots)
+    expect("app value is KEY=ARM by key", plan.value(APP) == "browser.cef-helper=old,browser.layer-hosting=new",
+           plan.value(APP))
+    expect("app launch argument", plan.app_arguments() == ["--cmux-switches=browser.cef-helper=old,browser.layer-hosting=new"],
+           plan.app_arguments())
+    expect("the app gets both values under CMUX_NEXT_ names", plan.app_environment() == {
+        "CMUX_NEXT_SWITCHES": "browser.cef-helper=old,browser.layer-hosting=new", "CMUX_NEXT_TUI_SWITCHES": "holder=new"},
+        plan.app_environment())
+    expect("no raw daemon variable on the app: its launch strip unsets every other CMUX*",
+           all(key.startswith("CMUX_NEXT_") for key in plan.app_environment()), plan.app_environment())
+    expect("the daemon gets CMUX_TUI_SWITCHES only", plan.daemon_environment() == {"CMUX_TUI_SWITCHES": "holder=new"},
+           plan.daemon_environment())
+
+    refused("an unknown name aborts", UnknownSwitch, "ghost: no registry/ghost.json", lambda: arm_plan({"ghost": "new"}, roots))
+    refused("an arm outside old/new aborts", UnknownSwitch, "arm 'launch' is not old or new",
+            lambda: arm_plan({"holder": "launch"}, roots))
+    ghost_roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(app_key="browser.ghost"), "holder": daemon_entry(daemon_key="ghost")}, None)
+    refused("an app key the catalog lacks aborts", UnknownSwitch, "app key 'browser.ghost' is not in Sources/RefactorSwitches.swift",
+            lambda: arm_plan({"layer-hosting": "new"}, ghost_roots))
+    refused("a daemon key the catalog lacks aborts", UnknownSwitch, "daemon key 'ghost' is not in switches.rs",
+            lambda: arm_plan({"holder": "new"}, ghost_roots))
+    ghost_roots.app_catalog.unlink()
+    ghost_roots.daemon_catalog.unlink()
+    refused("a requested app key with no catalog on the branch aborts", UnknownSwitch,
+            "app key 'browser.ghost' cannot be checked: Sources/RefactorSwitches.swift is not on this branch (p15-oracle-180)",
+            lambda: arm_plan({"layer-hosting": "new"}, ghost_roots))
+    refused("a requested daemon key with no catalog on the branch aborts", UnknownSwitch,
+            "daemon key 'ghost' cannot be checked: switches.rs is not on this branch (p15-oracle-020)",
+            lambda: arm_plan({"holder": "new"}, ghost_roots))
+    expect("with no catalog a default run still expects every default",
+           [(s.name, s.arm) for s in arm_plan({}, ghost_roots).switches] == [("holder", "old"), ("layer-hosting", "old")])
+
+    roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry()}, None)
+    plan = arm_plan({"layer-hosting": "new", "holder": "new"}, roots)
+    app_new = {"browser.layer-hosting": "new", "other.unregistered": "new"}
+    try:
+        got = read_back(plan, APP, {"snapshot.switches": app_new}).check()
+        expect("app arm read back", got == {"layer-hosting": "new"}, got)
+    except ArmNotApplied as error:
+        expect("app arm read back", False, error)
+    try:
+        got = read_back(plan, DAEMON, {"identify": {"holder": "new"}, "oracle-state": {"holder": "new"}}).check()
+        expect("daemon arm read back from both readers", got == {"holder": "new"}, got)
+    except ArmNotApplied as error:
+        expect("daemon arm read back from both readers", False, error)
+    try:
+        got = read_back(plan, DAEMON, {"identify": None, "oracle-state": {"holder": "new"}}).check()
+        expect("one daemon reader is enough", got == {"holder": "new"}, got)
+    except ArmNotApplied as error:
+        expect("one daemon reader is enough", False, error)
+
+    # (label, plan request, product, sources, the text every problem holds, arms read back)
+    mismatches: Sequence[Tuple[str, Dict[str, str], str, Dict[str, Any], str, Dict[str, str]]] = (
+        ("the other arm read back", {"layer-hosting": "new"}, APP, {"snapshot.switches": {"browser.layer-hosting": "old"}},
+         "layer-hosting=new: snapshot.switches read back browser.layer-hosting=old", {"layer-hosting": "old"}),
+        ("no reader in the build", {"layer-hosting": "new"}, APP, {"snapshot.switches": None},
+         "no app reader in this build reports its arms (snapshot.switches; p15-oracle-180)", {}),
+        ("a reader without the key", {"layer-hosting": "new"}, APP, {"snapshot.switches": {}},
+         "snapshot.switches reports no browser.layer-hosting", {}),
+        ("a default arm that leaked in", {}, APP, {"snapshot.switches": {"browser.layer-hosting": "new"}},
+         "layer-hosting=old (default): snapshot.switches read back browser.layer-hosting=new", {"layer-hosting": "new"}),
+        ("daemon readers that disagree", {"holder": "new"}, DAEMON,
+         {"identify": {"holder": "new"}, "oracle-state": {"holder": "old"}}, "oracle-state read back holder=old",
+         {"holder": "new|old"}),
+        ("a daemon arm the app reports wrong", {"holder": "new"}, APP, {"snapshot.switches": {"holder": "old"}},
+         "holder=new: snapshot.switches read back holder=old", {"holder": "old"}),
+        ("a daemon that ignores CMUX_TUI_SWITCHES", {"holder": "new"}, DAEMON, {"identify": None, "oracle-state": {"holder": "old"}},
+         "holder=new: oracle-state read back holder=old", {"holder": "old"}),
+    )
+    for label, request, product, sources, want, arms in mismatches:
+        readback = read_back(arm_plan(request, roots), product, sources)
+        expect(label, bool(readback.problems) and all(want in p for p in readback.problems) and readback.arms == arms,
+               f"problems {readback.problems}, arms {readback.arms}")
+        refused(f"{label} raises", ArmNotApplied, want, readback.check)
+    refused("the abort names arm-not-applied", ArmNotApplied, "arm-not-applied: layer-hosting=new: ",
+            read_back(arm_plan({"layer-hosting": "new"}, roots), APP, {"snapshot.switches": {}}).check)
+    try:
+        read_back(arm_plan({"layer-hosting": "new"}, roots), APP,
+                  {"snapshot.switches": {"browser.layer-hosting": "old"}}).check()
+        expect("the abort carries the readback", False, "no ArmNotApplied")
+    except ArmNotApplied as error:
+        expect("the abort carries the readback", error.readback == {"layer-hosting": "old"}, error.readback)
+    expect("an app reader need not know a daemon switch",
+           read_back(plan, APP, {"snapshot.switches": {"browser.layer-hosting": "new"}}).problems == ())
+    refused("a malformed reader is bad input", UsageError, "an object of strings",
+            lambda: read_back(plan, APP, {"snapshot.switches": {"browser.layer-hosting": 1}}))
+
+    golden = json.loads(GOLDEN_HITS.read_text(encoding="utf-8"))
+    hits_got = hits_by_name(plan, golden)
+    expect("hits by registry name, app switches only", hits_got == {"layer-hosting": {"old": 0, "new": 3}}, hits_got)
+    refused("a malformed hit report is bad input", UsageError, "switches", lambda: hits_by_name(plan, {"hits": {}}))
+
+    expect("NAME=ARM requests", parse_requests(["a=new", "b=old"]) == {"a": "new", "b": "old"})
+    refused("a word without = is refused", UsageError, "is not NAME=ARM", lambda: parse_requests(["a"]))
+    refused("a name twice is refused", UsageError, "requested twice", lambda: parse_requests(["a=new", "a=old"]))
+
+    for argv, want_code, want_out, want_err in (
+        (["--plan", "ghost=new"], 2, "", "unknown switch: ghost"),
+        (["--plan"], 0, '"app_environment": {}', ""),
+    ):
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main([*argv, "--registry", str(roots.registry)])
+        expect(f"CLI {argv}", code == want_code and want_out in out.getvalue() and want_err in err.getvalue(),
+               f"exit {code}, stdout {out.getvalue()!r}, stderr {err.getvalue()!r}")
+    return failures, checks
+
+
 def selftest() -> int:
     failures = selftest_closures()
     with tempfile.TemporaryDirectory(prefix="oracle-switches-") as name:
@@ -883,6 +1247,8 @@ def selftest() -> int:
                 failures.append(f"{label}: want {'pass' if not want else repr(want)}, got {messages}")
         failures.extend(selftest_expired(tmp))
         failures.extend(selftest_hits(tmp))
+        arm_failures, arm_checks = selftest_arms(tmp)
+        failures.extend(arm_failures)
         missing = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry()}, None)
         missing.app_catalog.unlink()
         missing.daemon_catalog.unlink()
@@ -890,9 +1256,9 @@ def selftest() -> int:
         if not (len(messages) == 2 and APP_CATALOG_TASK in messages[1] and DAEMON_CATALOG_TASK in messages[0]):
             failures.append(f"missing catalogs: got {messages}")
     # The closure, refusal, --expired, --expired CLI, --hits, --hits golden and --hits CLI tables, the missing registry,
-    # the missing catalogs, the golden sites and the --hits line round trip.
+    # the missing catalogs, the golden sites, the --hits line round trip and the arm checks.
     total = (len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + len(SELFTEST_EXPIRED) + len(SELFTEST_EXPIRED_CLI)
-             + len(SELFTEST_HITS) + len(SELFTEST_HITS_GOLDEN) + len(SELFTEST_HITS_CLI) + 4)
+             + len(SELFTEST_HITS) + len(SELFTEST_HITS_GOLDEN) + len(SELFTEST_HITS_CLI) + 4 + arm_checks)
     for failure in failures:
         print(f"FAIL {failure}")
     print(f"selftest: {total - len(failures)}/{total} pass")
@@ -911,6 +1277,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     mode.add_argument("--selftest", action="store_true", help="run the refusal table on temporary registries")
     mode.add_argument("--hits", type=Path, metavar="FILE",
                       help="the verdict of one debug.oracle.switch_hits result on --switch at --arm")
+    mode.add_argument("--plan", nargs="*", metavar="NAME=ARM",
+                      help="the launch argument and variables that apply these arms (exit 2: an unknown switch)")
     parser.add_argument("--registry", type=Path, default=REGISTRY, help="registry directory (default: this checkout's)")
     parser.add_argument("--today", type=dt.date.fromisoformat, help="the day for --expired (default: today, UTC)")
     parser.add_argument("--switch", metavar="NAME", help="--hits: the registry switch the run requested")
@@ -921,6 +1289,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         if args.selftest:
             return selftest()
+        if args.plan is not None:
+            plan = arm_plan(parse_requests(args.plan), Roots(registry=args.registry.resolve()))
+            print(json.dumps({"switches": {s.name: s.arm for s in plan.switches if s.requested},
+                              "app_arguments": plan.app_arguments(), "app_environment": plan.app_environment(),
+                              "daemon_environment": plan.daemon_environment()}, indent=1, sort_keys=True))
+            return 0
         if args.hits is not None:
             verdict = hits(Roots(registry=args.registry.resolve()), args.hits, args.switch, args.arm)
             print(verdict.line())
@@ -934,7 +1308,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 print(f"switches --expired: {finding}", file=sys.stderr)
             return 2 if unread else 1 if tasks else 0
         findings, count = check(Roots(registry=args.registry.resolve()))
-    except UsageError as error:
+    except (UsageError, UnknownSwitch) as error:
         print(f"switches: {error}", file=sys.stderr)
         return 2
     for finding in findings:

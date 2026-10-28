@@ -47,14 +47,18 @@ extension TabContentCache {
     /// transition and the tab still has this page.
     func capturePagePreview(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) {
         guard keepsPageThumbnails else { return }
-        Task { [weak self] in
-            _ = await self?.capturePage(entry, key: key) { [weak self] in
-                guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
-                    self?.trace(key, "preview \(token) dropped (stale)")
-                    return false
-                }
-                return true
+        // The capture awaits the engine: the task is nonisolated, and the capture's main steps are the engine's.
+        Task { @concurrent [weak self] in await self?.capturePagePreviewNow(entry, key: key, token: token) }
+    }
+
+    /// The capture ``capturePagePreview(_:key:token:)`` starts, kept only while `token` is the tab's latest transition.
+    private func capturePagePreviewNow(_ entry: BrowserEntry, key: String, token: ContentLifecycle<String>.Token) async {
+        _ = await capturePage(entry, key: key) { [weak self] in
+            guard let self, self.browsers[key] === entry, self.lifecycle.accepts(key, token) else {
+                self?.trace(key, "preview \(token) dropped (stale)")
+                return false
             }
+            return true
         }
     }
 

@@ -33,6 +33,12 @@
 // critical too while cmux is the active app, and lets App Nap apply when cmux
 // is hidden or every page is (host_page_activity.h, tasks p14-energy-128 and
 // p01-process-222). Its main thread runs user-interactive.
+//
+// Hangs: each turn of the main run loop is a hang watch scope
+// (host_hang_watcher.h, task p01-process-084). A turn of 250 ms or more goes
+// to cmux's hang reports, one still running at 10 s gets a dump without
+// crashing, and the input a turn dispatched is acked at its end, so cmux
+// shows "Chromium is busy" when the UI thread takes no input for 2 s.
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -66,6 +72,7 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_hang_watcher.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
 #include "host_user_input.h"
@@ -224,6 +231,31 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
     if (arg.rfind(prefix, 0) == 0) return arg.substr(prefix.size());
   }
   return std::string();
+}
+
+// The Crashpad database in the host's data folder (`--root-cache`); ChromiumHostConfiguration.crashDatabase
+// names the same folder for cmux, which reads the dumps.
+constexpr char kCrashDatabase[] = "Crashpad";
+
+// Puts this host's crash dumps (its own and its helpers') into `<root cache>/Crashpad`. CEF starts Chromium's
+// Crashpad handler in CefInitialize when the app bundle holds crash_reporter.cfg (embed-cef.sh puts it there with
+// the host; no ServerURL, so no dump leaves this Mac), as Chrome does in components/crash/core/app/crashpad_mac.mm,
+// and takes the database folder from BREAKPAD_DUMP_LOCATION (CefCrashReporterClient::GetCrashDumpLocation).
+// Before any other thread starts: setenv races a thread that reads the environment.
+void SetCrashDumpLocation(const std::string& root_cache) {
+  if (root_cache.empty()) return;
+  const std::string database = root_cache + "/" + kCrashDatabase;
+  @autoreleasepool {
+    NSError* error = nil;
+    if (![NSFileManager.defaultManager createDirectoryAtPath:@(database.c_str())
+                                 withIntermediateDirectories:YES
+                                                  attributes:@{NSFilePosixPermissions : @0700}
+                                                       error:&error]) {
+      fprintf(stderr, "cmux-chromium-host: no crash dump folder: %s\n", error.localizedDescription.UTF8String ?: "");
+      return;
+    }
+  }
+  setenv("BREAKPAD_DUMP_LOCATION", database.c_str(), 1);
 }
 
 // A kWheel frame to its page (task p04-input-063), with its scroll phase,
@@ -540,6 +572,7 @@ int main(int argc, char* argv[]) {
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
+  SetCrashDumpLocation(Arg(args, "root-cache"));
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
@@ -610,14 +643,25 @@ int main(int argc, char* argv[]) {
   // After the framework load, which must run before any other thread exists:
   // NSWorkspace's notifications may start one.
   ParentAppObserver parent_app(page_activity);
+  // The UI thread's turns from here on, and its watcher thread; the HELLO
+  // says the host acks dispatched input and reports its hangs.
+  cmux_host::hang::HostHangWatch hang_watch(
+      [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); });
+  host.SetHangWatch(true);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
-  // no frame comes and cmux stamps no ordered op with an input seq.
+  // no frame comes and cmux stamps no ordered op with an input seq. Each
+  // ordered input frame dispatched is acked at the end of its turn (the host's
+  // ack is its dispatch, p01-process.md 3.1); a kPing's or kStats' seq is its
+  // request id and is never acked.
   cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
-  ordered.AttachInput([&host, &wheel_carry, set_event_time = fork_input.set_input_event_time](
-                          const cmux_host::Header& frame) { DispatchInput(host, wheel_carry, set_event_time, frame); });
+  ordered.AttachInput([&host, &wheel_carry, &hang_watch, set_event_time = fork_input.set_input_event_time](
+                          const cmux_host::Header& frame) {
+    DispatchInput(host, wheel_carry, set_event_time, frame);
+    hang_watch.FrameDispatched(frame);
+  });
   // The host's one input queue (host_user_input.h): Chromium's user-input
   // queue, or CefPostTask(TID_UI) on a fork without it, chosen here once; the
   // main run loop until CefInitialize returned. HostInput's Post when task
@@ -664,18 +708,27 @@ int main(int argc, char* argv[]) {
     const std::string main_bundle =
         request.main_bundle_path.empty() ? Arg(args, "main-bundle") : request.main_bundle_path;
     const std::string subprocess = request.subprocess_path.empty() ? Arg(args, "subprocess") : request.subprocess_path;
+    const std::string log_file = cmux_host::HostLogFile(request.log_file, Arg(args, "log-file"));
     // The framework this host loaded at start; cmux names the same directory.
     // No schedule_fn: the shim then runs without an external pump, and
     // CefRunMessageLoop below is the loop.
     const int ok = cmux_shim_initialize(framework.c_str(), main_bundle.c_str(),
                                         subprocess.c_str(), request.root_cache_path.c_str(),
-                                        c_str(request.log_file), request.log_severity, c_str(request.locale),
+                                        log_file.empty() ? nullptr : log_file.c_str(), request.log_severity, c_str(request.locale),
                                         c_str(request.accept_languages), switches.data(), &host, nullptr,
                                         &cmux_host::HostContext::OnShimEvent, nullptr);
     if (!ok) {
       fprintf(stderr, "cmux-chromium-host: CefInitialize failed\n");
       channel->Close();
       return cmux_host::kExitInitialize;
+    }
+    // One line of the host's own after Chromium's start, so a crashed host's log tail (ChromiumHostSupervisor) says it
+    // got past CefInitialize and on which fork, even when Chromium logged nothing at cmux's severity (warnings and up).
+    if (!log_file.empty()) {
+      if (FILE* log = fopen(log_file.c_str(), "a")) {
+        fprintf(log, "cmux-chromium-host: Chromium started, pid %d, fork API %d\n", getpid(), fork_api);
+        fclose(log);
+      }
     }
     host_main.set_running();
     input_tasks.Start();
@@ -684,6 +737,7 @@ int main(int argc, char* argv[]) {
       check(ordered.OpenInput());  // the messages that waited for initialize ran first
     });
     CefRunMessageLoop();
+    hang_watch.Stop();  // before Chromium shuts down: no dump of its shutdown
     channel->Close();
     cmux_shim_shutdown();
     status = host_main.exit_status();

@@ -259,7 +259,6 @@ public final class BrowserChromeView: NSView {
         addSubview(toolbar)
         addSubview(separator)
         addSubview(accessoryBar)
-        installHeaderBand()
         addSubview(progressLine)
         pageStatus.install(in: self) { [weak self] in self?.tab }
         addSubview(promptBar)
@@ -309,7 +308,6 @@ public final class BrowserChromeView: NSView {
         extensionSlot.spacing = OmnibarStyle.buttonSpacing
         rowMetrics = BrowserChromeRowMetrics(toolbarHeight: OmnibarStyle.toolbarHeight(scale: scale),
                                              progressThickness: BrowserMetrics.progressThickness)
-        syncHeaderBand(animated: false)
     }
 
     /// The toolbar row's frame: hidden on the render server, it keeps its height past its edge, so a
@@ -324,7 +322,7 @@ public final class BrowserChromeView: NSView {
     var chromeLayout: BrowserChromeLayout {
         BrowserChromeLayout(BrowserChromeLayout.Input(
             size: bounds.size, position: toolbarPosition, toolbarHeight: toolbarRowHeight, accessoryHeight: shownAccessoryHeight,
-            bandHeight: headerBand.height?.constant ?? 0, progressThickness: rowMetrics.progressThickness
+            bandHeight: headerBand.height, progressThickness: rowMetrics.progressThickness
         ))
     }
 
@@ -449,6 +447,7 @@ public final class BrowserChromeView: NSView {
         pageStatus.layout(over: contentContainer.frame)
         updateOcclusion()
         syncPageOverlays()
+        reportHeaderBandLayout(mapping.map(rows.band))
         startToolbarSlide()
     }
 
@@ -465,7 +464,7 @@ public final class BrowserChromeView: NSView {
     /// A hidden tab repaints once, when it shows (R-appear).
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.updateColors() }
+        visibilityNode.deferAppearance(owner: Self.appearanceKey) { [weak self] in self?.updateColors() }
     }
 
     /// The ``visibilityNode`` keys of the chrome's deferred repaints.

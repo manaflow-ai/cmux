@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentActivity
@@ -23,18 +24,24 @@ import CmuxNextRemoteBrowser
 /// 5.1). The page is a browser tab whose record URL is `cmux://history`, so
 /// it survives relaunch like any tab.
 final class HistoryPageService: HistoryPageSource {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     /// The Stashed page's stashes (stash-v1), History's sibling page.
-    private(set) lazy var stash = StashService(host: stashHost, mainWork: services.mainWork)
-    private(set) lazy var stashHost = StashAppHost(services)
+    private(set) lazy var stash = StashService(host: stashHost, mainWork: mainWork)
+    let stashHost: StashAppHost
+    private let mainWork: MainWorkScheduler
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
+        stashHost = StashAppHost(services)
+        mainWork = services.mainWork
     }
 
     /// Selects the active window's history tab, else opens one beside the
     /// focused tab (or in it, when that tab is a blank page).
     func open() {
+        guard let services else { return }
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { HistoryPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
@@ -54,27 +61,30 @@ final class HistoryPageService: HistoryPageSource {
     // MARK: HistoryPageSource
 
     func entries(_ query: HistoryQuery) async -> [HistoryEntry] {
-        await services.history.entries(query)
+        guard let services else { return [] }
+        return await services.history.entries(query)
     }
 
     func open(_ entry: HistoryEntry, newTab: Bool) {
+        guard let services else { return }
         HistoryRestorer(services: services).open(entry, newTab: newTab)
     }
 
     func remove(_ entry: HistoryEntry) {
-        services.history.remove(entry)
+        services?.history.remove(entry)
     }
 
     func removeSite(of entry: HistoryEntry) {
         guard case .page(let url, _) = entry.payload, let host = URL(string: url)?.host() else { return }
-        services.history.removePages(host: host)
+        services?.history.removePages(host: host)
     }
 
     func clear(range: HistoryRange) {
-        services.history.clear(kinds: [], range: range)
+        services?.history.clear(kinds: [], range: range)
     }
 
     func copy(_ text: String) {
+        guard let services else { return }
         HistoryRestorer(services: services).copy(text)
     }
 
@@ -82,7 +92,7 @@ final class HistoryPageService: HistoryPageSource {
     /// system lane: the files are decrypted with the Keychain key, which
     /// waits for securityd.
     func cookieBackups() async -> [HistoryCookieBackup] {
-        guard let backups = services.browserHost?.driver.cookieBackups else { return [] }
+        guard let services, let backups = services.browserHost?.driver.cookieBackups else { return [] }
         return (try? await services.work.run(.userVisible, mayBlock: .system) {
             backups.pruneExpired()
             return backups.summaries().map { HistoryCookieBackup(id: $0.restoreID, site: $0.site, createdAt: $0.createdAt) }
@@ -91,7 +101,7 @@ final class HistoryPageService: HistoryPageSource {
 
     /// The person confirmed: the backups go for good (an agent never gets here).
     func deleteCookieBackups(_ ids: [String]) async {
-        guard let backups = services.browserHost?.driver.cookieBackups else { return }
+        guard let services, let backups = services.browserHost?.driver.cookieBackups else { return }
         let deleted = (try? await services.work.run(.userVisible, mayBlock: .files) { ids.filter { (try? backups.remove($0)) != nil }.count }) ?? 0
         Self.logger.info("deleted \(deleted, privacy: .public) of \(ids.count, privacy: .public) cookie backups at the person's request")
     }
@@ -188,7 +198,7 @@ extension TabContentCache {
         }
         #endif
         if AgentActivityPageAddress.matches(url) {
-            let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile)
+            guard let page = services.agentActivityPage.makePage(key: key, engine: engine, profile: profile) else { return nil }
             page.onNavigate = { [weak self] target in self?.leaveAppPage(key, to: target) }
             return page
         }

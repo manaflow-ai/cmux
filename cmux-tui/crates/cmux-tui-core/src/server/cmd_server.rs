@@ -87,6 +87,8 @@ pub(super) fn identify(
 ) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
     let (build_id, cli_path) = super::daemon_build::identify_build_fields();
+    let capabilities = identify_capabilities_for(mux, client);
+    let frames_offered = capabilities.contains(&super::line_connection::IPC_FRAMES_CAPABILITY);
     let mut identity = json!({
         "app": "cmux-tui",
         // The npm/PyPI release (the crate version in the app and local builds).
@@ -96,7 +98,7 @@ pub(super) fn identify(
         "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
-        "capabilities": identify_capabilities_for(mux, client),
+        "capabilities": capabilities,
         "session": mux.session,
         "pid": std::process::id(),
         "session_id": registry_id,
@@ -122,6 +124,13 @@ pub(super) fn identify(
         identity.insert("update_command", json!(channel.update_command()));
         // The stream frame cut (bench-daemon-latency.py --bulk-interference).
         identity.insert("bulk_frame_max", json!(mux.bulk_frame_max()));
+        // What a client checks before it sends REQUEST frames: the schema
+        // its method table must come from, and the methods this daemon
+        // answers on frames (server/frame_dispatch.rs).
+        if frames_offered {
+            identity.insert("sdk_schema_digest", json!(super::frame_dispatch::sdk_schema_digest()));
+            identity.insert("framed_methods", json!(super::frame_dispatch::framed_method_ids()));
+        }
     }
     if machine_metadata {
         identity.insert("machine_id", json!(mux.machine_public_id));

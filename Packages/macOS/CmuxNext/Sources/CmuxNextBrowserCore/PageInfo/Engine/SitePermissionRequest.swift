@@ -32,6 +32,7 @@ package struct SitePermissionRequest {
         guard kind != .automaticDownloads else { return done(.deny) }
         let kinds = kind.siteKinds
         let (kind, origin, store) = (kind, origin, store)
+        // main-hop-allow: one main-actor chain per request: the store's one file read (whenLoaded), the prompt's answer and the engine's async `confirm` (macOS capture access) each resume on main, where the store and the prompt bar live
         Task {
             await store.whenLoaded()
             let settings = kinds.map { store.setting($0, for: origin) }

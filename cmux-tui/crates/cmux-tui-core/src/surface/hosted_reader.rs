@@ -147,10 +147,14 @@ impl HostedReader {
             self.control_responses.clone(),
             self.protocol_version,
             self.smart_renderer,
+            pty.thread_qos.clone(),
         ) {
             Ok(frames) => frames,
             Err(_) => return None,
         };
+        // A host keeps the class an earlier connection or owner set: tell
+        // every connection the current one.
+        pty.send_host_thread_qos();
         loop {
             if journal_update.is_none() {
                 journal_target = pty.journal_target();
@@ -164,6 +168,7 @@ impl HostedReader {
                 host_frames::HostFrame::Frame(frame) => frame,
                 host_frames::HostFrame::End => break,
             };
+            cmux_threads::apply_pending_qos();
             // Targeted responses must be consumed before live staging:
             // HostedFrameStager intentionally rejects every nonzero request id.
             if host_frames::is_targeted_host_response(frame.kind) && frame.request_id != 0 {

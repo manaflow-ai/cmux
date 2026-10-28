@@ -20,7 +20,8 @@ import Testing
         services.windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(
             windows: { [first, second] }, orderedWindows: { stack.frontToBack },
             facts: { WindowOcclusionFacts(id: ObjectIdentifier($0), frame: CGRect(x: 0, y: 0, width: 800, height: 600)) },
-            isAppHidden: { false }, drawsWhenOccluded: false, center: NotificationCenter())
+            isAppHidden: { false }, drawsWhenOccluded: false, center: NotificationCenter(),
+            workspaceEvents: services.workspaceEvents, mainWork: services.mainWork)
         defer { services.windowOcclusionFamilies?.stop() }
         try await Self.until("the first pass occludes the back window") { secondFamily.isOccluded && !firstFamily.isOccluded }
 

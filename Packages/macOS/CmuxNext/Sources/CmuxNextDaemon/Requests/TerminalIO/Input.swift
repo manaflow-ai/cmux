@@ -120,12 +120,15 @@ public struct AttachSurfaceRequest: DaemonRequest {
     public var snapshotLocalHistory: Bool?
     /// The view applies Kitty image replays (`terminal-snapshot-images-v1`).
     public var snapshotImages: Bool?
+    /// The id this side minted for the view (`attach-streams-v1`): every item of the view carries it. Nil
+    /// attaches the connection itself, untagged.
+    public var stream: UInt16?
 
     /// - Parameter snapshotVersion: the viewer's GHOSTSNP version, or nil for
     ///   a byte replay.
     public init(surface: SurfaceID?, expectedGeneration: DaemonGeneration? = nil, expectedTerminalID: ResourceID? = nil,
                 size: CellSize?, snapshotVersion: UInt16? = nil, snapshotLocalHistory: Bool = false,
-                snapshotImages: Bool = false) {
+                snapshotImages: Bool = false, stream: UInt16? = nil) {
         self.surface = surface
         self.expectedGeneration = expectedGeneration
         self.expectedTerminalID = expectedTerminalID
@@ -136,11 +139,12 @@ public struct AttachSurfaceRequest: DaemonRequest {
         self.snapshotVersion = snapshotVersion
         self.snapshotLocalHistory = snapshotVersion != nil && snapshotLocalHistory ? true : nil
         self.snapshotImages = snapshotVersion != nil && snapshotImages ? true : nil
+        self.stream = stream
     }
 
     enum CodingKeys: String, CodingKey {
         case surface, expectedGeneration = "expected_generation", expectedTerminalID = "expected_terminal_id", mode
         case cols, rows, snapshot, snapshotVersion = "snapshot_version", snapshotLocalHistory = "snapshot_local_history"
-        case snapshotImages = "snapshot_images"
+        case snapshotImages = "snapshot_images", stream
     }
 }

@@ -1,3 +1,4 @@
+import CmuxNextInputModel
 import Foundation
 import os
 

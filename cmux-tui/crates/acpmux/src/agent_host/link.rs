@@ -157,7 +157,7 @@ pub struct Link {
     queries: Queries,
     next_query: std::sync::atomic::AtomicU64,
     pub record: HostRecord,
-    pub entries: Mutex<mpsc::Receiver<(u64, Entry)>>,
+    pub entries: Mutex<super::entry_queue::EntryQueue>,
     detach_ack: Mutex<Option<oneshot::Receiver<()>>>,
     /// Set when the host closed the connection or another owner took over.
     pub closed: Arc<std::sync::atomic::AtomicBool>,
@@ -219,7 +219,7 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         bail!("agent host incarnation does not match its record");
     }
     let (tx, mut rx) = mpsc::channel::<(ControllerFrame, Option<oneshot::Sender<()>>)>(1024);
-    let (entries_tx, entries_rx) = mpsc::channel::<(u64, Entry)>(4096);
+    let (entries_tx, entries_rx) = super::entry_queue::entry_queue(super::entry_queue::QUEUE_BYTES);
     let (detach_tx, detach_rx) = oneshot::channel();
     let closed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let queries: Queries = Arc::default();
@@ -241,25 +241,23 @@ async fn connect_inner(record: HostRecord, resume_after: u64) -> Result<Connect>
         tokio::spawn(async move {
             let mut detach_tx = Some(detach_tx);
             loop {
-                match read_frame::<_, HostFrame>(&mut rd).await {
-                    Ok(Some(HostFrame::Entry { h, e })) => {
-                        if entries_tx.send((h, e)).await.is_err() {
+                match read_sized_frame::<_, HostFrame>(&mut rd).await {
+                    Ok(Some((HostFrame::Entry { h, e }, bytes))) => {
+                        if entries_tx.send(h, e, bytes).await.is_err() {
                             break;
                         }
                     }
-                    Ok(Some(HostFrame::DetachAck)) => {
+                    Ok(Some((HostFrame::DetachAck, _))) => {
                         if let Some(t) = detach_tx.take() {
                             let _ = t.send(());
                         }
                         break;
                     }
-                    Ok(Some(HostFrame::TerminateAck)) => {}
-                    Ok(Some(HostFrame::QueryReply {
-                        id,
-                        claude_session_id,
-                        modes,
-                        config_options,
-                    })) => {
+                    Ok(Some((HostFrame::TerminateAck, _))) => {}
+                    Ok(Some((
+                        HostFrame::QueryReply { id, claude_session_id, modes, config_options },
+                        _,
+                    ))) => {
                         if let Some(reply) = queries.lock_or_recover().remove(&id) {
                             let _ =
                                 reply.send(QueryReply { claude_session_id, modes, config_options });

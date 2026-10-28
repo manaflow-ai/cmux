@@ -80,8 +80,9 @@ public final class TerminalLaunchFrames {
 
     /// The frames kept in `state`, the app's state directory (beside its sidebar snapshot); nil keeps none.
     /// The app makes one per launch, so a frame taken at launch is not handed out again.
-    public convenience init(state: URL?) {
-        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory))
+    /// `reader` reads the saved frames; the app's skips every one in a crash streak's safe launch (`LaunchSafeMode`).
+    public convenience init(state: URL?, reader: LaunchFileReader = LaunchFileReader()) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), reader: reader)
     }
 
     /// The folder of the saved frames in the app's state directory.

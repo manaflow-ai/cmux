@@ -11,7 +11,8 @@ public import CmuxNextInputCore
 /// synthetic input (`SyntheticInput`, `debug.key`, `debug.mouse`) is labelled
 /// ``CmuxNextInputCore/InputEntrypoint/automation`` so the person's histograms leave it out. Key presses and scrolls
 /// also carry the older `key.frame` and `key.scroll_frame` intervals (``InputFrameInterval``), so `sendEvent` has one
-/// classification and one commit boundary per turn for all three.
+/// classification and one commit boundary per turn for all three. While a key press's slot is in dispatch, its text
+/// view's input method call stamps `textInputStart` and `textInputEnd` through ``textInput`` (p04-input-101).
 ///
 /// A slot's frame update comes from what AppKit holds for the commit once the dispatch returned (views marked for
 /// display or layout, in the event's window or the window that presents it) or the layout taking the scroll (it
@@ -40,10 +41,16 @@ public final class InputLatencyDispatch {
         public let window: NSWindow?
         /// The event's own window (a page, a popover, a panel).
         public let eventWindow: NSWindow?
+        /// A key down's slot: the key down whose dispatch this one runs inside, which ``textInput`` goes back to.
+        let outerKeyDown: TextInputStage.KeyDown?
     }
 
     /// The tracker the slots open in.
     public let tracker: InputLatencyTracker
+    /// Stamps the text input call of the key down in dispatch (``TextInputStage``).
+    public let textInput: TextInputStage
+    /// Each key-down's first arrival on the main thread and the path that held it (first-seconds-evidence.md step 1).
+    public let arrivals = KeyArrivalLedger()
     private let classifier: InputTargetClassifier
     private let frameInterval: FrameInterval
     private let windowChanged: WindowChanged
@@ -68,6 +75,7 @@ public final class InputLatencyDispatch {
                 frameInterval: @escaping FrameInterval = InputLatencyDispatch.screenFrameInterval,
                 windowChanged: @escaping WindowChanged = InputLatencyDispatch.windowHasPendingDisplay) {
         self.tracker = tracker
+        textInput = TextInputStage(tracker: tracker)
         self.classifier = classifier
         self.frameInterval = frameInterval
         self.windowChanged = windowChanged
@@ -81,11 +89,23 @@ public final class InputLatencyDispatch {
     ///   - keyWindow: The window a key goes to (read for key downs only).
     /// - Returns: The open slot, or nil for an untracked event, a drag that joined its frame's slot, or a full table.
     // perf-hot: 0.5us key-dispatch
+    ///
+    /// A key-down's slot gets `arrivedMain`, the first time the main thread had it (``arrivals``): a key a cmux path
+    /// held and sent again keeps that first arrival, so its hold is `arrivedMain -> dispatchStart`. A key dispatched
+    /// more than 100 ms after its OS time is logged there (`debug.input late_keys`, first-seconds-evidence.md step 1).
     public func willDispatch(_ event: NSEvent, synthetic: Bool, keyWindow: @autoclosure () -> NSWindow?) -> Slot? {
         guard let type = InputEventType(event.type) else { return nil }
         let phase = type == .scrollWheel ? InputEventRecord.scrollPhase(of: event) : .none
-        return open(type, scrollPhase: phase, timestamp: event.timestamp, window: event.window, synthetic: synthetic,
-                    keyWindow: keyWindow(), underPointer: { classifier.pointerTarget(of: event) })
+        let arrived = event.type == .keyDown ? arrivals.arrived(event, at: InputLatencyTracker.uptimeNanos()) : nil
+        let window = arrived == nil ? nil : keyWindow()
+        let slot = open(type, scrollPhase: phase, keyCode: Self.keyCode(of: event, type: type), timestamp: event.timestamp,
+                        window: event.window, synthetic: synthetic, keyWindow: window ?? keyWindow(),
+                        underPointer: { classifier.pointerTarget(of: event) }, arrivedMain: arrived)
+        if let arrived {
+            let start = slot.flatMap { tracker.table.time($0.token, .dispatchStart) } ?? InputLatencyTracker.uptimeNanos()
+            arrivals.logIfLate(event, arrived: arrived, dispatchStart: start, target: slot?.target, keyWindow: window)
+        }
+        return slot
     }
 
     /// ``willDispatch(_:synthetic:keyWindow:)`` for a synthesized event the app delivers to `view` in `window` itself
@@ -99,14 +119,16 @@ public final class InputLatencyDispatch {
     public func willDeliver(_ event: NSEvent, in window: NSWindow, to view: NSView?) -> Slot? {
         guard let type = InputEventType(event.type) else { return nil }
         let phase = type == .scrollWheel ? InputEventRecord.scrollPhase(of: event) : .none
-        return open(type, scrollPhase: phase, timestamp: event.timestamp, window: window, synthetic: true,
+        return open(type, scrollPhase: phase, keyCode: Self.keyCode(of: event, type: type), timestamp: event.timestamp,
+                    window: window, synthetic: true,
                     keyWindow: window, underPointer: { classifier.classify(view: view, in: window) })
     }
 
     /// ``willDispatch(_:synthetic:keyWindow:)`` with the event's fields; `underPointer` hit-tests the event's point.
-    func open(_ type: InputEventType, scrollPhase: InputScrollPhase, timestamp: TimeInterval, window: NSWindow?,
+    func open(_ type: InputEventType, scrollPhase: InputScrollPhase, keyCode: UInt16 = 0, timestamp: TimeInterval,
+              window: NSWindow?,
               synthetic: Bool, keyWindow: @autoclosure () -> NSWindow?,
-              underPointer: () -> InputTarget) -> Slot? {
+              underPointer: () -> InputTarget, arrivedMain: UInt64? = nil) -> Slot? {
         if type.isButtonDown {
             dragFrameInterval = frameInterval(window)
             dragToken = nil
@@ -128,8 +150,8 @@ public final class InputLatencyDispatch {
         }
         let presenting = window.map(InputEventRecord.ownerWindow(of:))
         let token = tracker.begin(kind: kind, target: target, entrypoint: synthetic ? .automation : .person,
-                                  eventTimestamp: timestamp, window: presenting,
-                                  frameInterval: Self.frameInterval(of: kind, scrollPhase: scrollPhase))
+                                  eventTimestamp: timestamp, window: presenting, arrivedMain: arrivedMain,
+                                  frameInterval: Self.frameInterval(of: kind, scrollPhase: scrollPhase), keyCode: keyCode)
         if kind == .drag {
             dragToken = token
             if let token, carriedDrags > 0 {
@@ -138,7 +160,30 @@ public final class InputLatencyDispatch {
             }
         }
         guard let token else { return nil }
-        return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window)
+        let outerKeyDown = kind == .keyPress ? textInput.keyDownDispatchBegan(token, timestamp: timestamp) : nil
+        return Slot(token: token, kind: kind, target: target, window: presenting, eventWindow: window,
+                    outerKeyDown: outerKeyDown)
+    }
+
+    /// A cmux path (`path`) took key-down `event` to run it again later: the ledger records the hold, and the slot this
+    /// dispatch opened for it is dropped, so the key keeps one slot, the one of the dispatch that runs it, whose
+    /// `arrivedMain` is this first arrival (``KeyArrivalLedger``).
+    ///
+    /// Only a path that runs the key again through `NSApplication.sendEvent` (``KeyArrivalLedger/HoldPath/creation``)
+    /// gets a second slot: a key the New Tab field or the launch picture runs straight into a window or view keeps its
+    /// first slot, and its hold is logged at that run (``replayed(_:keyWindow:)``).
+    public func held(_ event: NSEvent, by path: KeyArrivalLedger.HoldPath) {
+        arrivals.held(event, by: path, at: InputLatencyTracker.uptimeNanos())
+        guard path == .creation, let token = tracker.dispatchingKey, event.timestamp > 0,
+              tracker.table.time(token, .generated) == InputLatencyTracker.eventNanos(event.timestamp) else { return }
+        tracker.discard(token)
+    }
+
+    /// A held key-down a path runs now outside `sendEvent` (the New Tab field's or the launch picture's run): its hold
+    /// is logged when it was late (``KeyArrivalLedger/replayed(_:at:keyWindow:)``).
+    public func replayed(_ event: NSEvent, keyWindow: NSWindow?) {
+        guard event.type == .keyDown else { return }
+        arrivals.replayed(event, at: InputLatencyTracker.uptimeNanos(), keyWindow: keyWindow)
     }
 
     /// Finishes `slot` after its event's dispatch returned.
@@ -150,6 +195,7 @@ public final class InputLatencyDispatch {
     // perf-hot: 0.2us key-dispatch
     public func didDispatch(_ slot: Slot, layoutTookScroll: Bool) {
         tracker.endDispatch(slot.token)
+        if slot.kind == .keyPress { textInput.keyDownDispatchEnded(restoring: slot.outerKeyDown) }
         if layoutTookScroll, slot.target != .layout {
             tracker.setTarget(slot.token, .layout)
             scrollTarget = .layout
@@ -179,6 +225,12 @@ public final class InputLatencyDispatch {
             if isScroll { scrollTarget = target } else { pressTarget = target }
             return target
         }
+    }
+
+    /// The virtual key code of a key down or up (pairs the press with its release, ``InteractionLatency``), else 0:
+    /// `NSEvent.keyCode` raises for any other type.
+    static func keyCode(of event: NSEvent, type: InputEventType) -> UInt16 {
+        type == .keyDown || type == .keyUp ? event.keyCode : 0
     }
 
     /// The older interval a slot of `kind` carries: `key.frame` for a key press, `key.scroll_frame` with the scroll's

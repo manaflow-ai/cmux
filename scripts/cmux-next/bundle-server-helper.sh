@@ -185,9 +185,17 @@ swift_flags=(
   -enable-upcoming-feature ExistentialAny
   -enable-upcoming-feature InternalImportsByDefault
   "$optimize"
-  # file:line for crash reports, through the dSYM kept beside the app (below).
-  -gline-tables-only
 )
+# file:line for crash reports, through the dSYM kept beside the app (below).
+# With debug info the swift driver runs dsymutil at the link and stops with
+# `unableToFind(tool: "dsymutil")` when there is none (the Linux pool's
+# components build). A Mac always has /usr/bin/dsymutil; elsewhere the helper
+# builds without debug info, as acpmux and the Chief do there.
+if command -v dsymutil >/dev/null 2>&1; then
+  swift_flags+=(-gline-tables-only)
+else
+  echo "note: no dsymutil on PATH: the server helper builds without a dSYM" >&2
+fi
 # CmuxSafeConcurrency's and CmuxThreading's own settings (their Package.swift).
 safe_flags=(
   -swift-version 6

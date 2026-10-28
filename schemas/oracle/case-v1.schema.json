@@ -319,6 +319,10 @@
           "maxItems": 32,
           "items": {"$ref": "#/$defs/keystroke"},
           "description": "Keystrokes sent in order through the real key path, one turn each."
+        },
+        "keyWindow": {
+          "enum": ["page"],
+          "description": "The window that is key for these keystrokes, as when a person types in it: the Chromium page window of the focused pane (an agent chat or a web page). Absent: the step window's own shell window, whose first responder gets them (a terminal, an address bar); the open command palette takes keys through target.overlay palette instead. Not with target.overlay."
         }
       }
     },
@@ -492,12 +496,25 @@
           }
         },
         {
-          "$comment": "resource.call, cli and mcp mutate unless readOnly is true.",
+          "$comment": "resource.call, cli and mcp mutate unless readOnly is true; a connection-scoped resource.call has its own rule below.",
           "if": {
             "required": ["op"],
-            "properties": {"op": {"enum": ["resource.call", "cli", "mcp"]}, "readOnly": {"const": false}}
+            "properties": {
+              "op": {"enum": ["resource.call", "cli", "mcp"]},
+              "readOnly": {"const": false},
+              "args": {"not": {"required": ["scope"]}}
+            }
           },
           "then": {"required": ["target", "expect"], "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}}
+        },
+        {
+          "$comment": "A connection-scoped call (stream_open, connection_control) acts on its sending connection: it needs an expected outcome, and a target only when the operation has selectors (request.cancel has none).",
+          "if": {"required": ["op", "args"], "properties": {"op": {"const": "resource.call"}, "args": {"required": ["scope"]}}},
+          "then": {
+            "required": ["expect"],
+            "not": {"required": ["readOnly"]},
+            "properties": {"expect": {"$ref": "#/$defs/expectMutation"}}
+          }
         },
         {
           "$comment": "Only a mutating resource.call ends a process on purpose.",
@@ -524,8 +541,15 @@
           "then": {"required": ["args"], "properties": {"args": {"$ref": "#/$defs/argsResourceCall"}}}
         },
         {
-          "$comment": "resource-operations-v2: idempotency is required for every mutation and forbidden for every read.",
-          "if": {"required": ["op"], "properties": {"op": {"const": "resource.call"}, "readOnly": {"const": false}}},
+          "$comment": "resource-operations-v2: idempotency is required for every mutation and forbidden for every read, stream_open and connection_control operation.",
+          "if": {
+            "required": ["op"],
+            "properties": {
+              "op": {"const": "resource.call"},
+              "readOnly": {"const": false},
+              "args": {"not": {"required": ["scope"]}}
+            }
+          },
           "then": {"properties": {"args": {"required": ["idempotencyKey"]}}},
           "else": {"properties": {"args": {"not": {"required": ["idempotencyKey"]}}}}
         },
@@ -599,6 +623,18 @@
           "type": "string",
           "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$",
           "description": "Required for a mutation and refused for a read, as resource-operations-v2 declares. I10 retries reuse it."
+        },
+        "scope": {
+          "const": "connection",
+          "description": "The operation is a stream_open or connection_control operation of resource-operations-v2: it acts on the connection that sends it, the catalog forbids its idempotency key and I10 has nothing to retry. A stream_open step's reply is its open result (stream_id, attachment_lease); the driver keeps the stream and records its items until the case or the stream ends."
+        },
+        "connection": {
+          "$ref": "#/$defs/slug",
+          "description": "The case connection that sends the call; omitted means main. The driver opens one SDK connection per name, so request.cancel, stream.cancel, client.* with client current and a viewer lease act on the sender's own requests, streams and attachments."
+        },
+        "inFlight": {
+          "const": true,
+          "description": "Send the call and go on without its reply: the step's reply is {request_id}, which a later request.cancel on the same connection names. Only for an operation a client may cancel (terminal.wait, terminal.wait_exit)."
         }
       }
     },
@@ -616,6 +652,10 @@
         "entrypoint": {
           "enum": ["key", "pointer", "unattributed", "cli", "mcp", "script", "remote", "page"],
           "description": "ActionEntrypoint the run is attributed to (CmuxNextActions/ActionEntrypoint.swift)."
+        },
+        "focus": {
+          "type": "boolean",
+          "description": "action.run's focus: the run may change focus, selection and the shown workspace, as a person's would (ControlActionRequest.focus, ActionInvocation.allowsViewChange). Without it a socket caller's new tab opens unselected beside the focused one."
         }
       }
     },

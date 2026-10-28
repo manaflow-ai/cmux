@@ -122,7 +122,7 @@
   "terminal-stream-events": {
    "id": 192,
    "description": "Content of an attach stream: output, render state, frames and sizes.",
-   "next_ordinal": 13
+   "next_ordinal": 14
   },
   "mux-events": {
    "id": 193,
@@ -2174,6 +2174,31 @@
      "nullable": true,
      "constraints": [
       "The longest stream frame, in bytes, a connection writes whole; longer frames leave in chunks between control replies (CMUX_IPC_BULK_FRAME_MAX). Only with identify {revisions: true}."
+     ]
+    },
+    "sdk_schema_digest": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "FNV-1a 64 of the sdk-schema.json bytes this daemon's method tables came from, as 16 lowercase hex digits. A client sends REQUEST frames only when its own table has the same digest. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+     ]
+    },
+    "framed_methods": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "uint16"
+      }
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "The method ids this daemon answers on REQUEST frames, in id order; a client sends every other command as a line. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
      ]
     },
     "capabilities": {
@@ -10470,7 +10495,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Canonical public machine id (`machine_\u2026`) of the daemon that answered."
+     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
     }
    },
    "additional_properties": false,
@@ -10488,7 +10513,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Canonical public machine id (`machine_\u2026`) of the daemon that answered."
+     "description": "Canonical public machine id (`machine_…`) of the daemon that answered."
     },
     "watch_id": {
      "type": {
@@ -13385,6 +13410,7 @@
    "durability": "read_only",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -13595,6 +13621,7 @@
    "durability": "memory",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -13742,6 +13769,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -13929,6 +13957,7 @@
    "durability": "read_only",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -14338,6 +14367,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -15360,6 +15390,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -15617,6 +15648,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -15837,6 +15869,7 @@
    "durability": "reply_before_journal",
    "clients": [
     "macos",
+    "ios",
     "sdk"
    ]
   },
@@ -16054,6 +16087,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -16222,6 +16256,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -17476,6 +17511,7 @@
    "spawns_terminal": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -18022,6 +18058,7 @@
    "crosses_stream_ok": "Reads process state of the terminal host, which changes independently of queued stream items.",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -18733,6 +18770,7 @@
    "durability": "reply_before_journal",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19012,6 +19050,7 @@
    "durability": "reply_before_journal",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19074,6 +19113,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19188,6 +19228,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19296,6 +19337,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19370,6 +19412,7 @@
    "stream_scoped": true,
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19807,6 +19850,7 @@
    "priority": "control",
    "durability": "read_only",
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -19957,6 +20001,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20138,6 +20183,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20275,6 +20321,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20440,6 +20487,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20484,6 +20532,7 @@
    "durability": "memory",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20528,6 +20577,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20563,6 +20613,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -20597,6 +20648,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -20631,6 +20683,7 @@
    "durability": "reply_before_journal",
    "stream_scoped": true,
    "clients": [
+    "ios",
     "sdk"
    ]
   },
@@ -20781,6 +20834,7 @@
    "crosses_stream_ok": "Opens an event stream; surface only filters the events it carries.",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -20990,6 +21044,7 @@
    "crosses_stream_ok": "Opens a new stream that starts from its own snapshot; items queued on an older stream of the surface do not change it.",
    "clients": [
     "macos",
+    "ios",
     "cli",
     "sdk"
    ]
@@ -37314,6 +37369,65 @@
     ]
    },
    "event_id": 49411,
+   "priority": "control"
+  },
+  "input-failed": {
+   "since": 12,
+   "capability": "ipc-frames-v2",
+   "streams": [
+    "attach-byte"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "input-failed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream."
+     },
+     "reason": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "terminal_ended",
+        "not_a_terminal",
+        "write_failed",
+        "daemon_handoff",
+        "overflow",
+        "attach_failed"
+       ]
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false,
+    "constraints": [
+     "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT that fails the same way sends no second event until a write reaches a terminal again or the stream id is opened again."
+    ]
+   },
+   "event_id": 49165,
    "priority": "control"
   },
   "keybindings-changed": {

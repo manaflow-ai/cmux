@@ -33,6 +33,8 @@
 //! writes the same line with std alone ([`minimal`]), for the holder, which
 //! links std and libc only.
 
+#![forbid(unsafe_code)]
+
 pub mod crash_keys;
 #[cfg(feature = "json")]
 pub mod hang;

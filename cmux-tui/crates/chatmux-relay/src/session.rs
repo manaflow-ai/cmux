@@ -39,6 +39,7 @@ use crate::config::{Config, save_config};
 use crate::display::terminal_text;
 use crate::error::RelayError;
 use crate::pairing::websocket_url;
+use crate::panic_free::RecoverPoison as _;
 use crate::pty::FrameContext;
 #[cfg(unix)]
 use crate::pty::PtyManager;
@@ -682,7 +683,7 @@ async fn relay_session(
                         frame
                     }
                 };
-                let snapshot = auth.lock().expect("auth lock").clone();
+                let snapshot = auth.lock().recover_poison().clone();
                 let context =
                     make_context(&out, &pending, &snapshot, &transport, &connection_token);
                 tokio::select! {
@@ -975,10 +976,14 @@ async fn relay_session(
                                 local_trust.as_str().to_owned()
                             };
                             let local_observe = effective_trust == Trust::Observe.as_str();
-                            let mut snapshot = auth.lock().expect("auth lock");
-                            snapshot.trust = effective_trust;
-                            snapshot.roots = local_roots.clone();
-                            snapshot.owner = config.owner_user_id.clone();
+                            // One whole-value write: a panic can never leave a
+                            // new trust with the old roots or owner.
+                            let snapshot = AuthSnapshot {
+                                trust: effective_trust,
+                                roots: local_roots.clone(),
+                                owner: config.owner_user_id.clone(),
+                            };
+                            *auth.lock().recover_poison() = snapshot;
                             workspace.set_local_observe(local_observe);
                         }
                         let cadence = Duration::from_millis(hello.heartbeat_interval_ms);
@@ -1039,7 +1044,7 @@ async fn relay_session(
                         if !state.managed {
                             save(config, config_path).await;
                         }
-                        auth.lock().expect("auth lock").trust = ack.as_str().to_owned();
+                        auth.lock().recover_poison().trust = ack.as_str().to_owned();
                         workspace.set_local_observe(ack == Trust::Observe);
                         println!("Trust level set to {ack}.");
                     }
@@ -1049,7 +1054,7 @@ async fn relay_session(
                         if negotiated_version < EXEC_PROTOCOL_VERSION || state.managed {
                             continue;
                         }
-                        let snapshot = auth.lock().expect("auth lock").clone();
+                        let snapshot = auth.lock().recover_poison().clone();
                         let action = ActionContext {
                             trust: snapshot.trust,
                             local_roots: snapshot.roots,
@@ -1158,7 +1163,7 @@ async fn relay_session(
                                 // Close must always release its attachment, even when the
                                 // bounded work queue is saturated. The manager close path is
                                 // synchronous and short, so this cannot create an unbounded wait.
-                                let snapshot = auth_direct.lock().expect("auth lock").clone();
+                                let snapshot = auth_direct.lock().recover_poison().clone();
                                 let context = make_context(
                                     &out_tx,
                                     &pending,
@@ -1232,7 +1237,7 @@ async fn relay_session(
                     }
                     ServerFrame::Workspace { frame } => {
                         if negotiated_version >= crate::workspace::WORKSPACE_FRAME_VERSION as u64 {
-                            let snapshot = auth.lock().expect("auth lock").clone();
+                            let snapshot = auth.lock().recover_poison().clone();
                             workspace.set_local_observe(snapshot.trust == "observe");
                             workspace.handle_frame(frame);
                         }

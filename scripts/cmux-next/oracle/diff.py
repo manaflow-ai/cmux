@@ -3,7 +3,7 @@
 
 Usage:
   diff.py A_DIR B_DIR [--out divergence.json] [--expected FILE ...] [--case GLOB ...]
-                      [--host-policy same-host|same-arch-any-os]
+                      [--host-policy same-host|same-arch-any-os] [--arm-pointer POINTER ...]
   diff.py --selftest
 
 A run directory holds the two files the runner writes:
@@ -46,10 +46,19 @@ This is the FlagExpectations analog of `run_web_tests.py --flag-specific`
 A difference at or under `pointer` in a matching case and step is labeled explained with its
 reason; it does not count as a divergence.
 
+`--arm-pointer POINTER` (repeatable; `oracle.py diff --switch`, task p15-oracle-111) names a
+snapshot value that reads back the refactor switch arm under test, such as
+/facets/switches/arms/<key>. A and B are the old and new arm of one build, so that value must
+differ wherever both snapshots of a compared checkpoint have it: there the difference is the arm
+under test, counted under `readback`, not a divergence. If any such checkpoint holds the same
+value on both sides, the arms were not both applied and nothing the run shows is evidence: the
+comparison is refused with `arms-read-back-same` and exit 5. A value only one side has is an
+ordinary divergence. A flaky case is not checked, as it is not compared.
+
 Exit codes: 0 no unexplained divergence, 1 divergences, 2 bad input (including no cases to
-compare), 3 host-mismatch, 4 internal error. Every exit writes --out with its verdict (pass,
-divergent, host-mismatch, bad-input, internal-error), so a reused out path never holds an older
-run's result. Stdlib only; safe under `python3 -I`.
+compare), 3 host-mismatch, 4 internal error, 5 arms-read-back-same. Every exit writes --out with
+its verdict (pass, divergent, host-mismatch, bad-input, internal-error, arms-read-back-same), so
+a reused out path never holds an older run's result. Stdlib only; safe under `python3 -I`.
 """
 
 from __future__ import annotations
@@ -86,6 +95,8 @@ EXIT_DIVERGENT = 1
 EXIT_BAD_INPUT = 2
 EXIT_HOST_MISMATCH = 3
 EXIT_INTERNAL_ERROR = 4
+EXIT_ARMS_SAME = 5
+READBACK_SAMPLES = 20
 
 
 class InputError(Exception):
@@ -386,6 +397,37 @@ def iter_differences(a: Any, b: Any, pointer: str = "") -> Iterator[tuple[str, A
             yield path, left, right
 
 
+def _unescape(token: str) -> str:
+    return token.replace("~1", "/").replace("~0", "~")
+
+
+def resolve_pointer(value: Any, pointer: str) -> Any:
+    """The value at an RFC 6901 pointer, or MISSING."""
+    if pointer == "":
+        return value
+    for token in pointer[1:].split("/"):
+        token = _unescape(token)
+        if isinstance(value, dict):
+            value = value.get(token, MISSING)
+        elif isinstance(value, list) and token.isdigit() and int(token) < len(value):
+            value = value[int(token)]
+        else:
+            return MISSING
+        if value is MISSING:
+            return MISSING
+    return value
+
+
+def _under(pointer: str, scope: str) -> bool:
+    return pointer == scope or pointer.startswith(scope + "/")
+
+
+def check_arm_pointer(pointer: str) -> str:
+    if not pointer.startswith("/"):
+        raise InputError(f"--arm-pointer {pointer!r}: an arm readback is a JSON pointer below the root ('/...')")
+    return pointer
+
+
 def _json_value(value: Any) -> Any:
     return None if value is MISSING else value
 
@@ -479,7 +521,7 @@ def _outcome(result: str | None) -> str | None:
     return "Pass" if result == "Slow" else result
 
 
-def compare_case(case: str, a: Run, b: Run, rules: list[Rule]) -> CaseReport:
+def compare_case(case: str, a: Run, b: Run, rules: list[Rule], arm_pointers: tuple[str, ...] = ()) -> CaseReport:
     result_a, result_b = a.results.get(case), b.results.get(case)
     report = CaseReport(case, "equal", result_a, result_b)
     if "Flaky" in (result_a, result_b):
@@ -521,6 +563,9 @@ def compare_case(case: str, a: Run, b: Run, rules: list[Rule]) -> CaseReport:
             snap_a = left.snapshot if left is not None else MISSING
             snap_b = right.snapshot if right is not None else MISSING
             for pointer, value_a, value_b in iter_differences(snap_a, snap_b):
+                if value_a is not MISSING and value_b is not MISSING and any(_under(pointer, p) for p in arm_pointers):
+                    # The arm under test; readback_check() proved the two sides differ here.
+                    continue
                 rule = next(
                     (rule for rule in rules if all(rule.covers(case, name, checkpoint, pointer) for name in names)),
                     None,
@@ -550,13 +595,42 @@ def compare_case(case: str, a: Run, b: Run, rules: list[Rule]) -> CaseReport:
     return report
 
 
-def _replay_command(case: str, a: Run, b: Run, rules: list[Rule], host_policy: str) -> str:
+def readback_check(cases: list[str], a: Run, b: Run, arm_pointers: tuple[str, ...]) -> dict[str, Any]:
+    """Each compared checkpoint that both sides read the arm back in must show two different arms."""
+    same: list[dict[str, Any]] = []
+    same_count = differs = 0
+    for case in cases:
+        results = (a.results.get(case), b.results.get(case))
+        if "Flaky" in results or "Skip" in results:
+            continue
+        points_b = {point.key: point for point in b.checkpoints.get(case, [])}
+        for left in a.checkpoints.get(case, []):
+            right = points_b.get(left.key)
+            if right is None:
+                continue
+            for pointer in arm_pointers:
+                value_a, value_b = resolve_pointer(left.snapshot, pointer), resolve_pointer(right.snapshot, pointer)
+                if value_a is MISSING or value_b is MISSING:
+                    continue
+                if _kind(value_a) == _kind(value_b) and value_a == value_b:
+                    same_count += 1
+                    if len(same) < READBACK_SAMPLES:
+                        same.append({"case": case, "step": left.step, "index": left.index, "checkpoint": left.checkpoint,
+                                     "pointer": pointer, "value": value_a, "lines": {"a": left.line, "b": right.line}})
+                else:
+                    differs += 1
+    return {"pointers": list(arm_pointers), "differs": differs, "sameCount": same_count, "same": same}
+
+
+def _replay_command(case: str, a: Run, b: Run, rules: list[Rule], host_policy: str, arm_pointers: tuple[str, ...] = ()) -> str:
     """The command that reproduces this finding: same runs, same expectations, exactly this case."""
     parts = ["python3", "-I", "scripts/cmux-next/oracle/diff.py", a.path, b.path]
     for source in dict.fromkeys(rule.source for rule in rules):
         parts += ["--expected", source]
     if host_policy != DEFAULT_HOST_POLICY:
         parts += ["--host-policy", host_policy]
+    for pointer in arm_pointers:
+        parts += ["--arm-pointer", pointer]
     parts += ["--case", glob.escape(case)]
     return shlex.join(parts)
 
@@ -599,10 +673,12 @@ def diff_runs(
     rules: list[Rule],
     case_globs: list[str] | None = None,
     host_policy: str = DEFAULT_HOST_POLICY,
+    arm_pointers: list[str] | tuple[str, ...] = (),
 ) -> tuple[int, dict[str, Any]]:
     """Compare two loaded runs. Raises InputError when nothing is left to compare."""
     if host_policy not in HOST_POLICIES:
         raise InputError(f"host policy {host_policy!r} is not one of {sorted(HOST_POLICIES)}")
+    arm_pointers = tuple(dict.fromkeys(check_arm_pointer(pointer) for pointer in arm_pointers))
     host_keys = HOST_POLICIES[host_policy]
     cases = sorted(set(a.results) | set(a.checkpoints) | set(b.results) | set(b.checkpoints))
     if case_globs:
@@ -630,7 +706,17 @@ def diff_runs(
         scope = f" matching --case {' '.join(case_globs)}" if case_globs else ""
         raise InputError(f"no cases to compare{scope}")
 
-    reports = [compare_case(case, a, b, rules) for case in cases]
+    readback = readback_check(cases, a, b, arm_pointers) if arm_pointers else None
+    if readback is not None and readback["sameCount"]:
+        return EXIT_ARMS_SAME, {
+            "schema": SCHEMA,
+            "verdict": "arms-read-back-same",
+            "hostPolicy": host_policy,
+            "a": _run_header(a),
+            "b": _run_header(b),
+            "readback": readback,
+        }
+    reports = [compare_case(case, a, b, rules, arm_pointers) for case in cases]
     summary = {status: 0 for status in ("equal", "explained", "divergent", "flaky", "skipped")}
     for report in reports:
         summary[report.status] += 1
@@ -643,10 +729,13 @@ def diff_runs(
         "b": _run_header(b),
         "summary": {"cases": len(reports), **summary},
         "divergences": [
-            _finding(report, a, b, _replay_command(report.case, a, b, rules, host_policy)) for report in divergent
+            _finding(report, a, b, _replay_command(report.case, a, b, rules, host_policy, arm_pointers))
+            for report in divergent
         ],
         "cases": [report.to_json() for report in reports],
     }
+    if readback is not None:
+        document["readback"] = readback
     return (EXIT_DIVERGENT if divergent else EXIT_OK), document
 
 
@@ -678,6 +767,13 @@ def _failure_document(verdict: str, error: str, a: str | None, b: str | None) ->
 
 
 def _print_summary(code: int, document: dict[str, Any]) -> None:
+    if code == EXIT_ARMS_SAME:
+        readback = document["readback"]
+        print(f"arms-read-back-same: {readback['sameCount']} checkpoints show one arm on both sides", file=sys.stderr)
+        for item in readback["same"]:
+            print(f"  {item['case']} {item['step']} {item['checkpoint']} {item['pointer']}="
+                  f"{json.dumps(item['value'], sort_keys=True)}", file=sys.stderr)
+        return
     if code == EXIT_HOST_MISMATCH:
         required = ", ".join(HOST_POLICIES[document["hostPolicy"]])
         print(f"host-mismatch ({document['hostPolicy']}): the runs must share {required}", file=sys.stderr)
@@ -711,6 +807,12 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_HOST_POLICY,
         help="host fields both runs must share: same-host (default) or same-arch-any-os (platform parity)",
     )
+    parser.add_argument(
+        "--arm-pointer",
+        action="append",
+        default=[],
+        help="snapshot value that reads back the switch arm: it must differ between A and B (repeatable)",
+    )
     parser.add_argument("--selftest", action="store_true", help="run the synthetic-run self tests")
     args = parser.parse_args(argv)
     if args.selftest:
@@ -721,7 +823,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         rules = [rule for path in args.expected for rule in load_rules(path)]
         run_a, run_b = load_run(args.a), load_run(args.b)
-        code, document = diff_runs(run_a, run_b, rules, args.case, args.host_policy)
+        code, document = diff_runs(run_a, run_b, rules, args.case, args.host_policy, args.arm_pointer)
     except InputError as exc:
         print(f"diff.py: {exc}", file=sys.stderr)
         code, document = EXIT_BAD_INPUT, _failure_document("bad-input", str(exc), args.a, args.b)
@@ -735,7 +837,7 @@ def main(argv: list[str] | None = None) -> int:
         with contextlib.suppress(OSError):
             os.unlink(args.out)
         return EXIT_BAD_INPUT
-    if code in (EXIT_OK, EXIT_DIVERGENT, EXIT_HOST_MISMATCH):
+    if code in (EXIT_OK, EXIT_DIVERGENT, EXIT_HOST_MISMATCH, EXIT_ARMS_SAME):
         _print_summary(code, document)
     return code
 
@@ -1176,6 +1278,67 @@ class DiffSelfTest(unittest.TestCase):
         code, doc = self.run_diff(a, x86, "--host-policy", "same-arch-any-os")
         self.assertEqual(code, EXIT_HOST_MISMATCH)
         self.assertEqual(doc["mismatched"], {"c/x": ["arch ('arm64' != 'x86_64')"]})
+
+    ARM = "/facets/switches/arms/browserResize.layerHosting"
+
+    def arm_snapshot(self, arm: Any, value: int = 1) -> dict[str, Any]:
+        return {"facets": {"switches": {"arms": {"browserResize.layerHosting": arm}}, "layout": {"v": value}}}
+
+    def test_arm_pointer_differs_and_is_not_a_divergence(self) -> None:
+        a = self.write_run("a", {"tabs/x": [("s", "before", self.arm_snapshot("old")), ("s", "settled", self.arm_snapshot("old"))]})
+        b = self.write_run("b", {"tabs/x": [("s", "before", self.arm_snapshot("new")), ("s", "settled", self.arm_snapshot("new"))]})
+        self.assertEqual(self.run_diff(a, b)[0], EXIT_DIVERGENT)
+        code, doc = self.run_diff(a, b, "--arm-pointer", self.ARM)
+        self.assertEqual((code, doc["verdict"]), (EXIT_OK, "pass"))
+        self.assertEqual(doc["summary"]["equal"], 1)
+        self.assertEqual((doc["readback"]["differs"], doc["readback"]["sameCount"]), (2, 0))
+
+    def test_arm_pointer_hides_nothing_else(self) -> None:
+        a = self.write_run("a", {"tabs/x": [("s", "settled", self.arm_snapshot("old", 1))]})
+        b = self.write_run("b", {"tabs/x": [("s", "settled", self.arm_snapshot("new", 2))]})
+        code, doc = self.run_diff(a, b, "--arm-pointer", self.ARM)
+        self.assertEqual(code, EXIT_DIVERGENT)
+        [finding] = doc["divergences"]
+        self.assertEqual(finding["pointer"], "/facets/layout/v")
+        self.assertEqual(finding["count"]["pointers"], 1)
+        self.assertIn("--arm-pointer", shlex.split(finding["replay"]))
+
+    def test_arms_read_back_same_is_refused(self) -> None:
+        a = self.write_run("a", {"tabs/x": [("s", "settled", self.arm_snapshot("old"))],
+                                 "tabs/y": [("s", "settled", self.arm_snapshot("old"))]})
+        b = self.write_run("b", {"tabs/x": [("s", "settled", self.arm_snapshot("new"))],
+                                 "tabs/y": [("s", "settled", self.arm_snapshot("old", 2))]})
+        code, doc = self.run_diff(a, b, "--arm-pointer", self.ARM)
+        self.assertEqual((code, doc["verdict"]), (EXIT_ARMS_SAME, "arms-read-back-same"))
+        self.assertNotIn("cases", doc)
+        [same] = doc["readback"]["same"]
+        self.assertEqual((same["case"], same["pointer"], same["value"]), ("tabs/y", self.ARM, "old"))
+
+    def test_arm_readback_on_one_side_only_is_a_divergence(self) -> None:
+        a = self.write_run("a", {"tabs/x": [("s", "settled", self.arm_snapshot("old"))]})
+        b = self.write_run("b", {"tabs/x": [("s", "settled", {"facets": {"switches": {"arms": {}}, "layout": {"v": 1}}})]})
+        code, doc = self.run_diff(a, b, "--arm-pointer", self.ARM)
+        self.assertEqual(code, EXIT_DIVERGENT)
+        self.assertEqual((doc["divergences"][0]["pointer"], doc["cases"][0]["first"]["kind"]), (self.ARM, "missing-in-b"))
+
+    def test_flaky_case_is_not_read_back(self) -> None:
+        a = self.write_run("a", {"tabs/x": [("s", "settled", self.arm_snapshot("old"))]}, results={"tabs/x": "Flaky"})
+        b = self.write_run("b", {"tabs/x": [("s", "settled", self.arm_snapshot("old"))]})
+        code, doc = self.run_diff(a, b, "--arm-pointer", self.ARM)
+        self.assertEqual((code, doc["readback"]["sameCount"]), (EXIT_OK, 0))
+
+    def test_arm_pointer_must_be_below_the_root(self) -> None:
+        a = self.write_run("a", {"tabs/x": [("s", "settled", self.arm_snapshot("old"))]})
+        for pointer in ("", "facets/switches"):
+            code, doc = self.run_diff(a, a, "--arm-pointer", pointer)
+            self.assertEqual((code, doc["verdict"]), (EXIT_BAD_INPUT, "bad-input"), pointer)
+
+    def test_resolve_pointer(self) -> None:
+        value = {"a/b": [{"m~n": 1}], "x": None}
+        self.assertEqual(resolve_pointer(value, "/a~1b/0/m~0n"), 1)
+        self.assertIsNone(resolve_pointer(value, "/x"))
+        for missing in ("/a~1b/1", "/a~1b/z", "/y", "/x/z"):
+            self.assertIs(resolve_pointer(value, missing), MISSING, missing)
 
     def test_sha256_shortcut(self) -> None:
         a = self.write_run("a", {"c/x": [("s", "settled", {"v": 1})]})

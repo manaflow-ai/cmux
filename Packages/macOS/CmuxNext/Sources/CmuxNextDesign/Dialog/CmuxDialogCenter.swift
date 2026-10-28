@@ -1,5 +1,7 @@
 public import AppKit
 public import CmuxNextDesignTokens
+import CmuxNextCompat
+public import CmuxNextWakeups
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -35,8 +37,8 @@ public final class CmuxDialogCenter {
         var view: CmuxDialogView?
         /// The tab view's deallocation marker (`CmuxDialogScopeLifetime`).
         var lifetime: UUID?
-        /// The window's close observer.
-        var closeObserver: (any NSObjectProtocol)?
+        /// The window's close notice, through the window's one ``WindowEvents`` observer.
+        var closeWatch: EventSubscription?
     }
 
     private nonisolated enum ScopeKey: Hashable, Sendable {
@@ -50,9 +52,16 @@ public final class CmuxDialogCenter {
     private var queue = CmuxDialogQueue<ScopeKey>()
     private var nextID = 1
     private var observers: [UUID: (Event) -> Void] = [:]
+    /// A window's notices (tests pass their own center's).
+    private let windowEvents: @MainActor (NSWindow) -> WindowEvents
 
-    public init(host: any CmuxDialogHosting = CmuxDialogOverlayHost()) {
+    /// - Parameters:
+    ///   - host: Places the dialogs.
+    ///   - windowEvents: A window's notices: the window's one ``WindowEvents`` (tests pass their own center's).
+    public init(host: any CmuxDialogHosting = CmuxDialogOverlayHost(),
+                windowEvents: @escaping @MainActor (NSWindow) -> WindowEvents = { WindowEvents.of($0) }) {
         self.host = host
+        self.windowEvents = windowEvents
     }
 
     // MARK: Presenting
@@ -70,14 +79,15 @@ public final class CmuxDialogCenter {
         // workspace) or a closed window ends it with its cancel answer.
         if case .tab(let view) = scope {
             entry.lifetime = CmuxDialogScopeLifetime.attach(to: view) { [weak self] token in
-                Task { @MainActor in self?.scopeEnded(token) }
+                // The tab's view is deallocating: its dialogs end on the main run loop's next pass, never inside
+                // the dealloc (an answer's caller may reach the view).
+                MainRunLoopBlock.perform { self?.scopeEnded(token) }
             }
         }
         if let window = scope.window {
-            entry.closeObserver = NotificationCenter.default.addObserver(
-                forName: NSWindow.willCloseNotification, object: window, queue: .main
-            ) { [weak self] _ in
-                Task { @MainActor in _ = self?.dismiss(id) }
+            // In the close notice's own turn, as the window's overlay host ends the dialog it shows.
+            entry.closeWatch = windowEvents(window).subscribe(NSWindow.willCloseNotification, owner: "CmuxDialogCenter") { [weak self] in
+                _ = self?.dismiss(id)
             }
         }
         entries[id] = entry
@@ -230,7 +240,7 @@ public final class CmuxDialogCenter {
 
     private func finish(_ id: Int, _ answer: CmuxDialogAnswer) {
         guard let entry = entries.removeValue(forKey: id) else { return }
-        if let observer = entry.closeObserver { NotificationCenter.default.removeObserver(observer) }
+        entry.closeWatch?.cancel()
         if let view = entry.view { host.hide(view) }
         let next = queue.remove(id)
         entry.completion(answer)

@@ -78,6 +78,10 @@ impl RequestQos {
     /// drops, as a request of that class: a daemon thread's work that no
     /// request waits on (the journal writer between receipts).
     pub(crate) fn enter_class(self, class: cmux_threads::ThreadQos) -> Option<WorkQos> {
+        #[cfg(test)]
+        if self.enabled {
+            tests::note_entered(class);
+        }
         self.enabled.then(|| WorkQos::enter(class))
     }
 

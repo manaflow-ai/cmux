@@ -33,14 +33,19 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     let state: WindowState  // strong: a task holding this content past its window reads a live state; no cycle
     private(set) var handles = LayoutHandleMap()
     private(set) var panes: [LayoutPaneID: PaneController] = [:]
-    private var observation: Task<Void, Never>?
+    /// The daemon tree, mapped to the layout: a service observation, as the handles must stay current and an
+    /// empty workspace is repaired while it is off screen too (it records the layout for its show then).
+    private var observation: ServiceObservation<ObservationTrigger<LayoutMapping.Result>>?
     /// Who caused the tree changes the observation applies (feature `automationBurstSnap`); nil: off.
     private var changeCauses: LayoutChangeCauses?
-    private var connectionObservation: Task<Void, Never>?
-    private var attentionObservation: Task<Void, Never>?
-    private var settlingObservation: Task<Void, Never>?
+    /// The daemon's connection and first load: an empty workspace is repaired once its tree is live.
+    private var connectionObservation: ServiceObservation<String>?
+    /// The attention rings: drawn only while this content shows (``viewNode``).
+    private var attentionObservation: VisibleObservation<[LayoutPaneID: AttentionMark]>?
+    /// The empty state's title and failure: drawn only while this content shows (``viewNode``).
+    private var settlingObservation: VisibleObservation<String>?
     /// Republishes `canvasLayout` when this workspace's active screen goes into or out of a canvas.
-    private var canvasObservation: Task<Void, Never>?
+    private var canvasObservation: ServiceObservation<Bool>?
     /// True while `apply` mounts panes: it sends the topology once at its end,
     /// so a mount inside it does not rebuild the O(N) topology per pane (O(N^2)).
     private(set) var isApplying = false
@@ -73,6 +78,10 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// (`PaneController`, p06-scheduler-024). nil until p06-scheduler-023 gives each mounted workspace its
     /// node (an unmounted workspace has none); until then each pane's node is a root.
     var visibilityNode: VisibilityNode? { nil }
+    /// The node this content's view observations follow (the empty state, the attention rings): its workspace
+    /// node once it has one, else its own root, which ``park(serial:)`` hides and ``unpark()`` and
+    /// ``followAttention()`` show, as p06-scheduler-023 specifies for the workspace node.
+    private lazy var viewNode: VisibilityNode = visibilityNode ?? VisibilityNode(root: "workspace-content", own: .visible)
     /// The latest mapping that came while off screen: applied once, at rest, when it shows (each a hidden apply).
     private var deferredApply: LayoutMapping.Result? { didSet { if deferredApply != nil { services.hiddenLayoutWork.noteApply() } } }
     /// Torn down (its window closed, or it unmounted to free memory): it mounts no pane, starts no
@@ -92,7 +101,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         parkedSerial = serial
         isParked = true
         isOffScreen = true
-        attentionObservation?.cancel()
+        viewNode.set(.hidden)
         setDrawsNothing(true)
     }
 
@@ -105,7 +114,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         isParked = false
         comeOnScreen()
         setDrawsNothing(false)
-        observeAttention()
+        viewNode.set(.visible)
     }
 
     /// Parked but on screen beside the shown workspace (`sidebar.multiView`): it lays out what changed
@@ -114,7 +123,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard !isTornDown else { return }
         comeOnScreen()
         setDrawsNothing(false)
-        observeAttention()
+        viewNode.set(.visible)
     }
 
     private func comeOnScreen() {
@@ -227,13 +236,17 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
 
     /// Ends everything this content started, so it and its views, panes and strips free after
     /// this turn (UnmountedWorkspaceLeavesNoObjectsTests): every observation stops (each holds its
-    /// stream's tracking until cancelled, `ObservationStream`), a topology still queued for it is
+    /// tracking until cancelled), a topology still queued for it is
     /// dropped (the coordinator keys it by object identity, which a later content may reuse), and
     /// every pane controller unregisters from the app's services. Idempotent.
     func teardown() {
         guard !isTornDown else { return }
         isTornDown = true
-        for task in [observation, connectionObservation, attentionObservation, settlingObservation, canvasObservation] { task?.cancel() }
+        observation?.cancel()
+        connectionObservation?.cancel()
+        attentionObservation?.cancel()
+        settlingObservation?.cancel()
+        canvasObservation?.cancel()
         changeCauses?.cancel()
         focus.topologySent(by: self)
         screenBar.teardown()
@@ -247,62 +260,59 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     }
 
     private func observe() {
-        let workspace = workspace
-        // One mapping now (the first frame), tracked; the stream brings the later ones. A trigger:
-        // `applyCurrent` applies outside the stream too; `apply` compares with what it applied.
-        let (first, later) = ObservationStream.current({ ObservationTrigger(LayoutMapping.shared.map(workspace)) })
-        observation = Task { [weak self] in
-            for await result in later {
-                guard let self else { return }
-                // The hop has no cause of its own: who made the changes it applies.
-                self.apply(result.value, cause: self.changeCauses?.take() ?? .program)
-            }
+        let workspace = workspace, mainWork = services.mainWork
+        // One mapping now (the first frame), tracked; each later batch of tree changes applies once, in a task
+        // of its class (a person's in the input-response pass). A trigger: `applyCurrent` applies outside the
+        // observation too; `apply` compares with what it applied. The observation has no cause of its own:
+        // `changeCauses` names who made the changes it applies (none yet for the first mapping: `program`).
+        observation = ServiceObservation(.visible, owner: "WorkspaceContent.tree", on: mainWork) {
+            ObservationTrigger(LayoutMapping.shared.map(workspace))
+        } apply: { [weak self] result in
+            guard let self else { return }
+            apply(result.value, cause: changeCauses?.take() ?? .program)
         }
-        apply(first.value)
         // An empty workspace loaded while disconnected, or drawn from the
         // launch snapshot, is repaired once the daemon is back and its tree
         // is live, even if the tree itself does not change.
         let store = daemon.store
-        connectionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (String(describing: store.connectionState), store.isLoaded) }) {
-                self?.repairIfEmpty()
-            }
+        connectionObservation = ServiceObservation(.visible, owner: "WorkspaceContent.connection", on: mainWork) {
+            "\(String(describing: store.connectionState)):\(store.isLoaded)"
+        } apply: { [weak self] _ in
+            self?.repairIfEmpty()
         }
         // A first terminal or a close that starts or ends while the
         // workspace is empty decides whether it shows its title; a first
         // terminal that failed adds why (cx-tzlqb).
         let repair = emptyWorkspaceRepair
-        settlingObservation = Task { [weak self] in
-            for await _ in ObservationStream({ workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
-                self?.updateEmptyState()
-            }
+        settlingObservation = VisibleObservation(viewNode, owner: "WorkspaceContent.emptyState", on: mainWork) {
+            workspace.key.map { "\($0.rawValue):\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? ""
+        } apply: { [weak self] _ in
+            self?.updateEmptyState()
         }
         observeAttention()
         let layoutModel = layoutModel
-        canvasObservation = Task { [weak self] in
-            for await _ in ObservationStream({ layoutModel.isCanvasActive }) { self?.services.canvasContextDidChange() }
+        canvasObservation = ServiceObservation(.visible, owner: "WorkspaceContent.canvas", on: mainWork) {
+            layoutModel.isCanvasActive
+        } apply: { [weak self] _ in
+            self?.services.canvasContextDidChange()
         }
     }
 
     /// Panes whose shown tab reads unread (a notification or Mark as Unread) draw the attention
-    /// ring; this window's tab selection decides which tab a pane shows.
+    /// ring; this window's tab selection decides which tab a pane shows. Followed while this content
+    /// shows (``viewNode``); a show reads the marks again in its turn.
     private func observeAttention() {
-        guard !isTornDown else { return }
         let notifications = services.notifications, workspace = workspace
         let shownTab: @MainActor @Sendable (PaneModel) -> String? = { [weak self] pane in self?.panes[LayoutPaneID(pane.id)]?.stripModel.selectedID?.rawValue }
-        let marks = notifications.attentionMarks(for: workspace, shownTab: shownTab)
-        if layoutModel.attention != marks { layoutModel.attention = marks }
-        attentionObservation?.cancel()
-        attentionObservation = Task { [weak self] in
-            for await marks in ObservationStream({ notifications.attentionMarks(for: workspace, shownTab: shownTab) }) {
-                guard let self else { return }
-                guard self.layoutModel.attention != marks else { continue }
-                // A ring read by going into its pane blinks out (classic's dismiss flash); one
-                // cleared any other way fades. Set first, so the change that removes it sees it.
-                let removed = Set(self.layoutModel.attention.keys).subtracting(marks.keys)
-                self.layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
-                self.layoutModel.attention = marks
-            }
+        attentionObservation = VisibleObservation(viewNode, owner: "WorkspaceContent.attention", on: services.mainWork) {
+            notifications.attentionMarks(for: workspace, shownTab: shownTab)
+        } apply: { [weak self] marks in
+            guard let self, layoutModel.attention != marks else { return }
+            // A ring read by going into its pane blinks out (classic's dismiss flash); one
+            // cleared any other way fades. Set first, so the change that removes it sees it.
+            let removed = Set(layoutModel.attention.keys).subtracting(marks.keys)
+            layoutModel.attentionReadByEntry = notifications.takeEntryReads(removed: removed, in: workspace)
+            layoutModel.attention = marks
         }
     }
 
@@ -478,12 +488,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         // its tab after this layout pass, never inside it.
         if panes.count == 1, services.settingsWindow.isWaiting {
             let settings = services.settingsWindow
-            Task { settings.windowDidShowContent() }
+            services.mainWork.post(.visible, owner: "SettingsWindow.firstPane") { settings.windowDidShowContent() }
         }
         // So does the App Store (S22: never a window of its own).
         if panes.count == 1, services.apps.isStoreWaiting {
             let apps = services.apps
-            Task { apps.windowDidShowContent() }
+            services.mainWork.post(.visible, owner: "AppStore.firstPane") { apps.windowDidShowContent() }
         }
         return controller.view
     }

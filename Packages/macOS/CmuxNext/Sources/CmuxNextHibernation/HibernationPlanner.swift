@@ -41,27 +41,6 @@ package nonisolated struct HibernationPlanner: Sendable {
         ContentDiscardPlanner().eligibility(of: candidate, setting: setting, for: .external).reason
     }
 
-    /// Which hidden pages freeze now, and when the next one will: after
-    /// `freezeSeconds` hidden, whatever the hibernation mode, except pinned
-    /// tabs (unless they hibernate too), excluded hosts, open DevTools, capture, and a page with
-    /// background activity: the timeout keeps it for its updates, so they must stay live.
-    package static func freezePlan(_ setting: BrowserHibernationSetting, candidates: [Candidate]) -> Plan {
-        var plan = Plan()
-        guard let threshold = setting.freezeSeconds else { return plan }
-        for candidate in candidates {
-            if candidate.hasDevTools || candidate.isCapturing || candidate.hasAgentLease || candidate.hasBackgroundActivity
-                || setting.excludes(host: candidate.host)
-                || (candidate.isPinned && !setting.includesPinnedTabs) { continue }
-            let remaining = threshold - candidate.hiddenFor
-            if remaining <= 0 {
-                plan.due.append(candidate.key)
-            } else {
-                plan.nextCheck = min(plan.nextCheck ?? remaining, remaining)
-            }
-        }
-        return plan
-    }
-
     /// The share of the timeout each doubling of recent focus buys
     /// (``ContentDiscardPlanner/focusCreditPerDoubling``).
     package static let focusCreditPerDoubling = ContentDiscardPlanner.focusCreditPerDoubling

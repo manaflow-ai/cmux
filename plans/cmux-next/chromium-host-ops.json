@@ -7,7 +7,7 @@
     "post": "One-way op, sent in call order on the control channel; returns at once. A Swift caller that binds, guards, compares or returns the result is refused (--check-return-use) unless the site is a host_mode_rewrites entry. pending_keys name the mirror keys it changes: pending (or optimistic) until the host's ack (task 016b). Like a one-way mojo message.",
     "mirror": "Served on main from the client's cache, which the host's MIRROR pushes refresh in the same per-frame batch as the events in refresh_events, pushed before those events (tasks 013 and 016b). Chrome caches the renderer's pushed TextInputState the same way and answers NSTextInputClient queries from it (content/browser/renderer_host/text_input_manager.cc). A read before attach is a bug: the client returns the C zero value (0 or NULL) and reports a fault (task 014). In host mode CEFRuntime.start awaits attach before its first shim call (task 015), so the startup reads listed in host_mode_rewrites (needs after_attach) see the host's hello; --check-pre-attach (task 011) refuses any other mirror read on the startup path before that await.",
     "async": "Sent with a token; the answer is reply_event, resumed by token (task 018). The remote returns at once (1 once sent, NULL for a string result) and cmux_remote_shim_last_reply_token(), read right after the call, is the token of its wire:REPLY: the result, then the out-parameters. CEFHostStart.expectReply() reads it in the call's turn and expects it in CEFHostStart.replies (CEFHostReplies, CEFS/CEFReplyWaiters.swift, one per runtime), which awaits it with an injected-clock deadline. The remote shim's reply callback (cmux_remote_shim_set_reply, main thread) only copies the bytes in; the typed decode (CEFHostReplyFields) runs off main in the awaiting call. Every pending token resolves with .hostGone when the host exits (task 091). Like a mojo method with a reply callback; never a [Sync] call.",
-    "mint": "The client mints the id (browser ids from 1 << 20, DevTools message ids below 2^30); the host maps it to Chromium's id for every op and event (task 019, HOST/src/host_client_ids.h). The C return keeps the header's contract, named by mint_returns: id returns the minted id at once; sent returns 1 when the op is sent, and the minted id first reaches cmux in reply_event. A browser the host's shim refuses comes as CMUX_SHIM_CREATE_FAILED. In process, AFTER_CREATED runs inside the call; in host mode it comes in a later batch, so a Swift site that relies on that order is a host_mode_rewrites entry. Tabs Chromium opens itself (popups, target=_blank, chrome.tabs.create, DevTools browsers) keep Chromium's id, the same number on both sides, until task 031 reports the id cmux minted for a window request.",
+    "mint": "The client mints the id (browser ids in [1 << 20, 1 << 30), DevTools message ids below 2^30); the host maps it to Chromium's id for every op and event (task 019, HOST/src/host_client_ids.h). The C return keeps the header's contract, named by mint_returns: id returns the minted id at once; sent returns 1 when the op is sent, and the minted id first reaches cmux in reply_event. A browser the host's shim refuses comes as CMUX_SHIM_CREATE_FAILED. In process, AFTER_CREATED runs inside the call; in host mode it comes in a later batch, so a Swift site that relies on that order is a host_mode_rewrites entry. A tab Chromium opens for a window request (a popup, target=_blank, chrome.windows.create) gets an id the host mints from 1 << 30 when its shim decides the request with cmux's pushed policy (task 031): CMUX_SHIM_WINDOW_REQUEST_RESULT carries it before the tab exists and the tab's AFTER_CREATED names it by it (HOST/src/host_window_request_ids.h). Other tabs Chromium opens itself (DevTools browsers) keep Chromium's id, the same number on both sides.",
     "policy": "A synchronous callback becomes a policy pushed to the host plus events; the host decides inside Chromium without asking cmux (tasks 030-033).",
     "view": "NSView* or page-window plumbing: ChromiumHostPageView owns it in host mode, where cmux passes the page view's token for an NSView* argument (CEFRuntime.mintPageViewToken) and the client sends it as is; only geometry and ids cross the wire (tasks 040, 052, 053, 066).",
     "local": "Function-pointer args or client-only work: hand-written client code (task 014b), no generated marshaller.",
@@ -1626,9 +1626,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+BackForwardList.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -1636,7 +1634,7 @@
         "tab.navigation_state[browser_id]"
       ],
       "reply_event": null,
-      "reason": "1 when it went: the caller predicts it from the mirrored entries (offset within range) in the same turn; its site stops reading the result (task 022)."
+      "reason": "1 when it went: CEFTab.goToNativeEntry predicts it from the mirrored entries (the target index within them, Chrome's NavigationControllerImpl::CanGoToOffset) in the same turn and never reads the result (task 022)."
     },
     {
       "name": "cmux_shim_tab_window_id",
@@ -2013,8 +2011,8 @@
       ],
       "returns": "int",
       "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFRuntime+Events.swift",
-        "CmuxNextBrowser/CEF/CEFTabNodeVisibility.swift"
+        "CmuxNextBrowser/CEF/CEFRuntime+DevToolsSend.swift",
+        "CmuxNextBrowser/CEF/CEFTab+Perform.swift"
       ],
       "mirror_key": null,
       "refresh_events": [],
@@ -2249,7 +2247,7 @@
     },
     {
       "name": "cmux_shim_ext_action_run",
-      "class": "async",
+      "class": "post",
       "args": [
         {
           "name": "browser_id",
@@ -2269,14 +2267,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+Events.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
-      "reply_event": "wire:REPLY",
-      "reason": "Whether Chromium ran the action or opened its popup is known only in the host."
+      "reply_event": null,
+      "reason": "One-way, as Chrome's ExtensionActionViewController::ExecuteUserAction decides from the action's own state: CEFTab.runExtensionAction marks the popup open from the mirrored ext_actions (enabled, has_popup) and EXTENSION_POPUP_CLOSED ends it; it never reads the result (task 022)."
     },
     {
       "name": "cmux_shim_ext_action_hide_popup",
@@ -2383,9 +2379,7 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [
@@ -2393,7 +2387,7 @@
         "tab.navigation_state[browser_id]"
       ],
       "reply_event": null,
-      "reason": "Returns 1 when the fork has the call: the caller reads navigation_restore_supported (mirror) instead and loads the URL itself on a fork without it (task 022)."
+      "reason": "Returns 1 when the fork restored: CEFEngine sets a tab's pending restore only when navigation_restore_supported (mirror) and fork API 10 say the fork restores, and CEFTab.attach sends it one-way without reading the result, as Chrome's NavigationController::Restore returns nothing (task 022)."
     },
     {
       "name": "cmux_shim_navigation_restore_supported",
@@ -3027,7 +3021,60 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "window_request_fn runs on main inside a Chromium navigation. cmux pushes a WindowRequestPolicy; the host decides in the navigation and reports the result with the id it minted (task 031)."
+      "reason": "window_request_fn runs on main inside a Chromium navigation, where cmux cannot answer across processes. In host mode no one installs it: cmux pushes its policy (cmux_shim_set_window_request_policy), the host's shim decides in the navigation and reports CMUX_SHIM_WINDOW_REQUEST_RESULT (task 031). The host installs NULL whatever cmux sends."
+    },
+    {
+      "name": "cmux_shim_set_window_request_policy",
+      "class": "post",
+      "args": [
+        {
+          "name": "windows",
+          "type": "const cmux_shim_window_policy_window*"
+        },
+        {
+          "name": "window_count",
+          "type": "int"
+        },
+        {
+          "name": "clicks",
+          "type": "const cmux_shim_window_policy_click*"
+        },
+        {
+          "name": "click_count",
+          "type": "int"
+        },
+        {
+          "name": "profile_root",
+          "type": "const char*"
+        },
+        {
+          "name": "cmd_click",
+          "type": "int"
+        },
+        {
+          "name": "cmd_shift_click",
+          "type": "int"
+        },
+        {
+          "name": "shift_click",
+          "type": "int"
+        },
+        {
+          "name": "option_click",
+          "type": "int"
+        },
+        {
+          "name": "middle_click",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The policy the host's shim decides window requests with (task 031): cmux's pane windows by anchor, the last clicks and the link mapping, pushed when one changes (at most once per turn). The host maps the records' browser ids to Chromium's; each decision comes back as CMUX_SHIM_WINDOW_REQUEST_RESULT, an INSERT's with the id the host minted for its tab."
     },
     {
       "name": "cmux_shim_foreign_browser_count",
@@ -3556,14 +3603,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFTab+PasswordFill.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the fork lacks the switch (fork_api_version mirror, API 15). Ordered on the control channel, so fill is off before any later op of an agent-driven tab; its site reads the mirror instead (task 025)."
+      "reason": "Returns 0 only when the fork lacks the switch: CEFPasswordFill.apply reads fork_api_version (mirror, API 15) instead and never reads the result. Ordered on the control channel, so fill is off before any later op of an agent-driven tab (task 022)."
     },
     {
       "name": "cmux_shim_passkeys_available",
@@ -3789,7 +3834,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "Function-pointer arg (done). The client (ChromiumHost/client/remote_shim_local.mm) keeps done and ctx by token and sends the request with it; the host answers on a wire REPLY frame whose bytes go in a sealed shm fd (task 020) zeroed after done returns; done runs exactly once, on main, and the host's exit ends a pending reveal with done(ctx, NULL, 0). The password is never CMUX_SHIM_REPLY text and is never logged."
+      "reason": "Function-pointer arg (done). The client (ChromiumHost/client/remote_shim_local.mm) keeps done and ctx by token and sends kOpPasswordReveal (str profile_cache_path, str id) under it through cmux_remote::PostPasswordReveal (remote_shim.mm); the host (HostContext::RevealPassword) calls its shim with its own done and answers on a wire REPLY of one bytes field, the password, or no field when none was found, nothing started or 64 reveals wait already. That REPLY goes to the reveal's sink only, never to the reply callback (CEFHostReplies); done runs exactly once, on main, and a reveal with no answer (a detach, the host's exit, a malformed frame, a queued op that was not sent) ends with done(ctx, NULL, 0) from the remote shim. The password crosses as a plain frame: the channel's buffers are not zeroed, as Chrome's plaintext answer crosses its IPC (passwords_private_delegate_impl.cc); only the shims zero their own buffers. The password is never CMUX_SHIM_REPLY text, and no log, trace or counter names its fields (task p01-process-025)."
     },
     {
       "name": "cmux_shim_password_export",
@@ -4857,6 +4902,11 @@
       "value": 65,
       "refreshes": [],
       "reason": "Host mode only: one call of the fork's lock delegate (task 227) while cmux's lock handler is installed: request = cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's lock fn with it (host_locks.h LockClient), never cmux's event fn; cmux locks its cursor and keys as Chrome's app shim view does (RenderWidgetHostNSView SetCursorLocked, LockKeyboard; task 229)."
+    },
+    {
+      "kind": "CMUX_SHIM_WINDOW_REQUEST_RESULT",
+      "value": 66,
+      "refreshes": []
     }
   ],
   "optional_exports": [
@@ -5656,6 +5706,15 @@
       "needs": "reply",
       "change": "Host mode only: the token form (sendAsync, whenAnswered with a deadline). The REPLY's context id of the DevTools page window shows in the DevTools ChromiumHostPageView; a reply after that DevTools closed shows nothing (task 024).",
       "task": "p01-process-024"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFEngine+Passwords.swift: CEFEngine.revealPassword(_:in:copy:)",
+      "exports": [
+        "cmux_shim_password_reveal"
+      ],
+      "needs": "client",
+      "change": "The same call in both backends: in host mode remote_shim_local.mm's cmux_shim_password_reveal keeps done and ctx, its transport sends through cmux_remote::PostPasswordReveal with DeliverPasswordReveal as the sink, and done runs once on main with the host's REPLY, or with NULL when no answer comes (the sheet shows not found); its 0 with no host attached throws closed, as the in-process 0 does. Listed until remote_shim.mm's LocalTransport calls PostPasswordReveal (the 014/014b integration).",
+      "task": "p01-process-025"
     }
   ]
 }

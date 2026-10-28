@@ -25,13 +25,16 @@ import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The App's control-socket wiring (architecture.md 5a): the main-thread
-/// watchdog (from launch), the socket server with a display-link frame
+/// watchdog (made and started in `main()`, handed in), the socket server with a display-link frame
 /// source for the main-actor work queue, the snapshot publisher, and the
 /// App-only debug methods.
 @MainActor
 final class AppControl {
-    /// The watchdog (its busy windows end on the main deadline queue, p14-energy-065), and the app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
-    let watchdog: MainThreadWatchdog, crashKeys = CrashKeySlots()
+    /// The launch's watchdog, running since `main()` (p08-startup-088); its busy windows end on the main deadline
+    /// queue `main()` gave it and the scheduler (p14-energy-065).
+    let watchdog: MainThreadWatchdog
+    /// The app's crash keys (p10-stability-207: the action timing names the running action, the hang monitor the hung threads).
+    let crashKeys = CrashKeySlots()
     /// The app's main-thread scheduler (built by `AppDelegate`, the composition root).
     let mainWork: MainWorkScheduler
     private let frames: FrameBatcher
@@ -54,6 +57,10 @@ final class AppControl {
     #if DEBUG || CMUX_BENCH_HOOKS
     private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
     let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
+    /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
+    /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
+    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
+                                              counters: { nil }, scheduler: { _ in nil }, actionCatalogMainWaitMs: { nil })
     #endif
     private(set) var service: ControlService?
     private var publisher: ControlSnapshotPublisher?
@@ -73,10 +80,14 @@ final class AppControl {
     /// `idle.wakeups.*` (`AppServices.idleWakeups`): the same input ends its idle period at that input.
     weak var idleWakeups: IdleWakeupSampler?
 
-    /// - Parameter mainWork: The app's one main-thread scheduler: control requests are its
-    ///   automation tasks, and the watchdog reads its board. `input` is the app's input tap.
-    init(mainWork: MainWorkScheduler, input: any InputObserving) {
-        (self.mainWork, self.input, watchdog) = (mainWork, input, MainThreadWatchdog(wakeUps: mainWork.wakeUps))
+    /// - Parameters:
+    ///   - mainWork: The app's one main-thread scheduler: control requests are its automation tasks, and
+    ///     the watchdog reads its board.
+    ///   - input: The app's input tap.
+    ///   - watchdog: The launch's main-thread watchdog, made and started first in `main()` on `mainWork`'s
+    ///     deadline queue (``MainWorkScheduler/wakeUps``).
+    init(mainWork: MainWorkScheduler, input: any InputObserving, watchdog: MainThreadWatchdog) {
+        (self.mainWork, self.input, self.watchdog) = (mainWork, input, watchdog)
         frames = FrameBatcher(owner: "Control.frames", budgeted: .automation, on: mainWork)
         let renderStats = RenderStats(layoutGuard: .shared)
         self.renderStats = renderStats
@@ -89,9 +100,9 @@ final class AppControl {
                                           ghosttyOwners: [String(describing: TerminalSurfaceView.self), "IOSurfaceLayer"])
     }
 
-    /// Starts stall and busy detection. Call first thing at launch.
-    func startWatchdog() {
-        watchdog.start()
+    /// Connects the running watchdog to the app: the hang-watch scopes, the scheduler's board, the helper
+    /// processes and the input. Call first thing in `applicationDidFinishLaunching`.
+    func attachWatchdog() {
         // Hang-watch scopes are scanned on the watchdog's thread (overruns: debug.hangs thread_hangs, crash keys, ring).
         watchdog.attach(hangWatch: TraceRuntime.shared.hangWatch, crashKeys: crashKeys, trace: TraceRuntime.shared)
         // Stall records name the scheduled main-thread task they caught; a launch in the task
@@ -163,7 +174,9 @@ final class AppControl {
             // The field histograms since launch (`cmux metrics`), read-only; `unavailable` until the metricsView feature is on.
             ControlRouter.metricsMethod(enabled: services.features.isEnabled(.metricsView)),
         ])
-        router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
+        router.register(DebugHibernationControl.methods(services)) // debug.memory and debug.discards serve release builds too
+        // trace.start, trace.stop and trace.status (p09-observability 020), behind the default-off traceControl feature.
+        if services.features.isEnabled(.traceControl) { router.register(services.daemon.traceMethods(blackBox: services.traceBlackBox?.blackBox, work: services.work)) }
     }
 
     func startSnapshotPublisher(_ services: AppServices, on router: ControlRouter) {
@@ -184,7 +197,7 @@ final class AppControl {
         let latency = InputLatencyDebugSource(reporter: InputLatencyReporter(), tracker: services.inputLatency.tracker, mainWork: services.mainWork)
         latency.follow { (NSApp.keyWindow?.screen ?? NSScreen.main).map { UInt64(1_000_000_000 / max($0.maximumFramesPerSecond, 1)) } ?? 0 }
         services.work.task(.bestEffort) { await latency.foldBatches() }
-        router.register([DebugInput(sources: [latency, InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+        router.register([DebugInput(sources: [latency, InputTapDebugSource(tap: services.inputTap, mainWork: services.mainWork), DebugCEF.pumpInputSource(services.cache.chromium),
                                                DebugCEF.histogramSource(services.cache.chromium),
                                                IntentPrewarmDebugSource { [weak services] in services?.cache.hibernation?.intentPrewarm?.service },
                                                MainJobGateDebugSource { (NSApp as? CmuxApplication)?.jobGate?.gate },
@@ -196,10 +209,13 @@ final class AppControl {
                                                        }
                                                    }) ?? DebugInputScrollViews(rows: [])
                                                }],
+                                     // `hittest` (p04-input-098): one audit for the app, its hooks installed on request only.
                                      recorders: [hops.start(input: input),
                                                  InputDirtyRecorder(tap: services.inputTap) { [mainWork = services.mainWork] copy in
                                                      await mainWork.apply(.automation, owner: "debug.input.dirty") { copy() }
                                                  },
+                                                 HitTestAuditDebugRecorder(audit: HitTestAudit(input: services.inputTap)),
+                                                 LateKeysRecorder(ledger: services.inputLatency.arrivals, mainWork: services.mainWork),
                                                  InputLatencySlotsRecorder(tracker: services.inputLatency.tracker, mainWork: services.mainWork)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }

@@ -33,16 +33,40 @@
 //! daemon handoff is pending, a REQUEST gets its line's refusal as its ERROR
 //! frame (server/pending_handoff.rs).
 //!
+//! An INPUT frame (p05-ipc-078) is the raw bytes of a `send` on a stream:
+//! its header names the stream and the key press's flow id, its payload is
+//! the bytes. It is never parsed and never answered. It runs on the stream's
+//! sequence, after the stream's earlier items, and writes its surface's
+//! terminal the way `send` does, under the connection's cause. A failure is
+//! the stream's event `input-failed{stream, reason, bytes}`; while the
+//! terminal stays ended, later INPUT on the same open of the stream fails
+//! with no second event, and a write that reaches a terminal again (a
+//! respawned one) or a new open of the stream reports the next end again.
+//! INPUT obeys a line's gates: after a shutdown or a committed handoff it
+//! closes the connection, during a pending handoff it is refused with
+//! `daemon_handoff`, and from a remote-relay client it is a bad message
+//! (the relay denies by default). This is Chrome's
+//! `WidgetInputHandler`: input is a one-way message on the widget's own
+//! associated pipe, ordered with the widget's other messages, with no reply
+//! (chromium third_party/blink/public/mojom/input/input_handler.mojom,
+//! `DispatchNonBlockingEvent`).
+//!
 //! Only `Command` methods answer on frames yet. A feature route or a v2
 //! operation replies on its own writer, so a frame naming one gets the ERROR
-//! [`METHOD_NOT_FRAMED`] and the client sends that method as a line; the
-//! routes move to the method table in p05-ipc-062/063/070.
+//! [`METHOD_NOT_FRAMED`]; the routes move to the method table in
+//! p05-ipc-062/063/070. A client does not find these by trial, which would
+//! run a refused request after the ones written behind it: `identify
+//! {revisions}` lists [`framed_method_ids`] and the [`sdk_schema_digest`]
+//! their ids and priorities come from, and a client frames only those
+//! methods, and only when its own table came from the same schema. Mojo
+//! dispatches by ordinal only between ends built from one interface
+//! definition (mojo/public/tools/bindings/README.md, "Versioning").
 
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, LazyLock};
 
 use cmux_ipc::{
     Aux, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, MAX_FRAME_PAYLOAD,
@@ -53,11 +77,15 @@ use serde_json::json;
 
 use crate::diagnostics::{IpcTransport, JsonParseScope};
 
+use super::cmd_terminal_io::InputFailure;
 use super::line_connection::{
     ConnectionBadMessage, FrameConnection, FrameLane, IPC_FRAMES_CAPABILITY,
 };
 use super::pending_streams::{ClientStreams, RequestLane, StreamEndpoint, post_request};
-use super::{Command, ConnectionCancellation, MessageWriter, Mux, handle_connection_frame_at};
+use super::{
+    ClientTransport, Command, ConnectionCancellation, MessageWriter, Mux,
+    handle_connection_frame_at,
+};
 
 /// The `error_code` of the ERROR reply to a method that answers only lines.
 pub(super) const METHOD_NOT_FRAMED: &str = "method_not_framed";
@@ -174,6 +202,8 @@ pub(super) enum CallRefusal {
     CancelMismatch { request_id: u32, method_id: u16 },
     /// A CANCEL with a payload.
     CancelPayload { request_id: u32 },
+    /// An INPUT frame from a remote-relay client, which writes no terminal.
+    RemoteInput { stream: u16 },
 }
 
 impl CallRefusal {
@@ -190,6 +220,7 @@ impl CallRefusal {
             CallRefusal::DuplicateRequest { .. } => "duplicate_request",
             CallRefusal::CancelMismatch { .. } => "cancel_mismatch",
             CallRefusal::CancelPayload { .. } => "cancel_payload",
+            CallRefusal::RemoteInput { .. } => "remote_input",
         }
     }
 }
@@ -230,6 +261,9 @@ impl fmt::Display for CallRefusal {
             ),
             CallRefusal::CancelPayload { request_id } => {
                 write!(f, "cancel of request {request_id} has a payload")
+            }
+            CallRefusal::RemoteInput { stream } => {
+                write!(f, "INPUT on stream {stream} from a remote-relay client")
             }
         }
     }
@@ -289,9 +323,7 @@ impl FrameLane for RequestFrames {
                 .cancel(&header, call, frame.payload().is_empty())
                 .map(|()| true)
                 .map_err(ConnectionBadMessage::Call),
-            (FrameKind::Input, None) if header.stream() != 0 => {
-                self.streams.input(frame).map(|()| true)
-            }
+            (FrameKind::Input, None) if header.stream() != 0 => self.input(frame, connection),
             (kind, _) => Err(ConnectionBadMessage::UnroutedKind { kind }),
         }
     }
@@ -326,7 +358,7 @@ impl RequestFrames {
         // An admitted REQUEST is one framed request of `server-stats` `ipc`:
         // the body parses below and on its line's path count toward it.
         let _parses = JsonParseScope::enter(connection.mux.ipc_stats(), IpcTransport::Frames);
-        if !self.served_on_frames(method) {
+        if !served_on_frames(self.tables, method) {
             let call = Arc::new(FrameCall::new(stream, call));
             return Ok(send_not_framed(&connection.writer.replying_to(call), method));
         }
@@ -352,6 +384,32 @@ impl RequestFrames {
                 connection.arrived,
             )),
         }
+    }
+
+    /// Queues an INPUT frame's bytes on its stream, behind the line's gates.
+    /// Nothing parses them and nothing answers them; a failure is the
+    /// stream's `input-failed`. `Ok(false)` closes the connection, as a
+    /// line's handler does after a shutdown or a committed handoff.
+    fn input(
+        &mut self,
+        frame: Frame,
+        connection: &FrameConnection<'_>,
+    ) -> Result<bool, ConnectionBadMessage> {
+        let mux = connection.mux;
+        // The gates of `handle_connection_frame_at`, in its order: no input
+        // runs after the shutdown acknowledgement.
+        if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
+            return Ok(false);
+        }
+        let stream = frame.header().stream();
+        let (remote, cause) = mux.frame_client(connection.client);
+        if matches!(connection.transport, ClientTransport::Remote) || remote {
+            return Err(ConnectionBadMessage::Call(CallRefusal::RemoteInput { stream }));
+        }
+        // Refused without being written, as a line is while the handoff can
+        // still fail; the connection stays open.
+        let refused = mux.daemon_handoff_in_progress().then_some(InputFailure::DaemonHandoff);
+        self.streams.input(frame, cause, refused).map(|()| true)
     }
 
     fn cancel(
@@ -413,14 +471,36 @@ impl RequestFrames {
         }
         Ok(())
     }
+}
 
-    /// Whether the method's reply goes through the responder: a JSON v12
-    /// `Command` (its handler replies through `responses`).
-    fn served_on_frames(&self, method: &MethodAttrs) -> bool {
-        self.tables.v12(method.id).is_some()
-            && method.payload == Payload::Json
-            && Command::method_of_wire(method.name).is_some()
-    }
+/// Whether the method's reply goes through the responder: a JSON v12
+/// `Command` (its handler replies through `responses`).
+fn served_on_frames(tables: &MethodTables, method: &MethodAttrs) -> bool {
+    tables.v12(method.id).is_some()
+        && method.payload == Payload::Json
+        && Command::method_of_wire(method.name).is_some()
+}
+
+/// The v12 method ids this daemon answers on REQUEST frames, in id order
+/// (`identify {revisions}` `framed_methods`).
+pub(super) fn framed_method_ids() -> &'static [u16] {
+    static IDS: LazyLock<Vec<u16>> = LazyLock::new(|| {
+        let tables = MethodTables::schema();
+        tables
+            .v12_families()
+            .flat_map(|family| family.iter())
+            .filter(|method| served_on_frames(tables, method))
+            .map(|method| method.id.raw())
+            .collect()
+    });
+    &IDS
+}
+
+/// The digest of the schema this daemon's method tables came from, as 16
+/// lowercase hex digits (`identify {revisions}` `sdk_schema_digest`; the
+/// app's `WireSchemaIdentity.sdkSchemaDigest`).
+pub(super) fn sdk_schema_digest() -> String {
+    format!("{:016x}", cmux_ipc::SCHEMA_IDENTITY.sdk_schema_digest)
 }
 
 /// The flags a REQUEST of `method` may carry.
@@ -482,3 +562,7 @@ fn send_not_framed(writer: &MessageWriter, method: &MethodAttrs) -> bool {
 #[cfg(all(test, unix))]
 #[path = "frame_dispatch_tests.rs"]
 pub(super) mod tests;
+
+#[cfg(all(test, unix))]
+#[path = "input_frames_tests.rs"]
+mod input_frames_tests;

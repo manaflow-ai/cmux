@@ -31,6 +31,21 @@
 //! reader (mux-conn) and the sequenced pool's control workers
 //! (mux-seq-control) serve automation clients too, so they stay below
 //! InputCritical until the client's class is known (p02-threads task 224).
+//! The cmux-tui client's key writers (remote-input-writer, relay-input) are
+//! InputCritical too (p04-input-084). The terminal resource stream writer
+//! (mux-resource-terminal-attach) is not: it waits for its attach to commit,
+//! so it is a control stream at Interactive (p05-ipc-080). Watchers and
+//! best-effort writers are Utility: sqlite-wal-sync,
+//! mux-session-journal-fanout, terminal-host-record-mirror and
+//! cmux-config-watch (cmux-config's `watch::WATCH_THREAD_QOS`, kept equal
+//! by a test here; the daemon's settings and keybindings reloads run on a
+//! work lane, not on it); mux-inventory-watch and mux-project-sources start
+//! through [`spawn_raisable`], so a ranked lock raises them. Upkeep threads
+//! that hold the workspace registry a request waits for
+//! (terminal-command-history, mux-output-store-writer) start at
+//! `request_qos::UPKEEP_THREAD_QOS` and run each pass at utility, so the
+//! lock can raise them; mux-project-sources runs each import pass that way
+//! too.
 
 pub use cmux_threads::QosChange;
 use cmux_threads::ThreadQos;
@@ -86,4 +101,4 @@ pub fn set(thread_type: ThreadType) -> QosChange {
 
 #[cfg(test)]
 #[path = "thread_qos_tests.rs"]
-mod tests;
+pub(crate) mod tests;

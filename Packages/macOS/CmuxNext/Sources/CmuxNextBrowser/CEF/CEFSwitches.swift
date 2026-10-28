@@ -21,8 +21,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// Host mode shows `<input type=color>` in cmux (``ChromiumHostChoosers``): the renderer asks the browser
     /// for a chooser (fork API 31's Blink feature), so the fork's handler gets it, not Blink's own popup.
     var embedderColorChooser = false
+    /// Chromium's own spare renderer is off (``spareRendererFeature`` in the one `disable-features`
+    /// entry): the default-off feature `chromiumOneSpareRenderer` while the spare windows' placeholders
+    /// hold a renderer, which is then the one spare (``CEFSpareWindow/keepsChromiumSpare``).
+    var chromiumSpareOff = false
     /// Development builds share one ad hoc identity per tag; the real
     /// keychain would prompt for "Chromium Safe Storage" on every rebuild.
+    /// `CMUX_NEXT_BENCH_REAL_KEYCHAIN=1` turns it off in Debug and bench builds of a development
+    /// bundle: chromium-host-bench.py `--modes tcc` measures the real OSCrypt key read (p01-process-089).
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
@@ -69,26 +75,20 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     /// of a 120 Hz frame, so the app's own frame work and the display link fit beside a pass.
     static let pumpTimeSliceMicroseconds = 2_000
 
-    /// The first fork API with the resize-sync call: the fork waits for a page's frame at a new
-    /// size only up to a deadline the app sets (the same version as `CEFLayerHosting.resizeSyncForkAPI`,
-    /// which is main-actor isolated; this value is read where the switches are worked out, off it).
-    static let resizeSyncForkAPI: Int32 = 27
+    /// The first fork API with the resize-sync call (``CEFForkFeatures/resizeSyncForkAPI``; the same
+    /// version as `CEFLayerHosting.resizeSyncForkAPI`, which is main-actor isolated).
+    static let resizeSyncForkAPI = CEFForkFeatures.resizeSyncForkAPI
+
+    /// What the fork offers for the resize switch. The resize capability reads the API number only.
+    private var forkFeatures: CEFForkFeatures {
+        CEFForkFeatures(forkAPIVersion: forkAPIVersion, shimHasRendererPaths: rendererPaths)
+    }
 
     /// The fork's switch that keeps main-frame process reuse's DevTools check per renderer
     /// (`CEFForkFeatures.rendererPathsForkAPI`, fork API 29): Chromium's
     /// content/browser/renderer_host/render_frame_host_manager.cc asks
     /// `DevToolsAgentHost::WasEverAttachedToAnyFrame` for the whole browser instead.
     static let processReusePerRendererDevTools = "cmux-process-reuse-per-renderer-devtools"
-    /// Chrome keeps one spare renderer (live, no site lock, no document) for the profile that
-    /// last took a new process (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`
-    /// PrepareForFutureRequests). On desktop it has no destroy timer (StartDestroyTimer gets a
-    /// timeout only with Android's kAndroidWarmUpSpareRendererWithTimeout), and
-    /// kKillSpareRenderOnMemoryPressure is disabled by default: memory pressure only refuses a
-    /// new spare. With this fork switch (manaflow-ai/cef `cp/p13-webui-020`) a profile gets a
-    /// spare only after one of its browser tabs starts an http(s) navigation, so the cmux pages
-    /// profile, extension background pages and the spare windows should never make one. The
-    /// spare keeps Chrome desktop's lifetime. Older forks ignore the switch.
-    static let spareRendererAfterFirstTab = "cmux-spare-renderer-after-first-tab"
     /// The fork's Blink runtime feature that sends `<input type=color>` to the embedder's color chooser
     /// handler (include/cef_cmux.h, `cmux_set_color_chooser_handler`; Android's ColorChooserFactory path).
     static let embedderColorChooserArgument = "enable-blink-features=CmuxEmbedderColorChooser"
@@ -184,9 +184,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
         // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
         // in a live resize of its own, so the async live-resize path it also turns on never runs.
-        // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
-        // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { features.append("AsyncLiveResize") }
+        // From fork API 27 a resize with no deadline skips Synchronize (no pre-commit wait, no GPU
+        // CA transaction, no 50 ms post-commit wait), and a layer-hosted page waits up to the
+        // deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync. A fork without
+        // that skip keeps AsyncLiveResize: dropping it would put both waits back on the main thread.
+        if !forkFeatures.resizeWaitsOnlyForDeadline { features.append("AsyncLiveResize") }
         // The app's Chromium features come last, for example `cefTimerSlack` (default off):
         // `kTimerSlackMac` (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each
         // CFRunLoop and kqueue pump's delayed timer the task's leeway. It changes renderer, GPU and
@@ -204,10 +206,14 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     }
 
     /// The Chromium `base::Feature`s of the one `disable-features` entry, each once: the idle services
-    /// cmux does not use (``idleServiceOffFeatures``), then the app's off features.
+    /// cmux does not use (``idleServiceOffFeatures``), then the app's off features
+    /// (``disabledChromiumFeatures``), then Chromium's spare renderer while ``chromiumSpareOff``
+    /// (``spareRendererFeature``, p07-memory-113).
     var disabledFeatures: [String] {
         var features: [String] = []
-        for feature in Self.idleServiceOffFeatures + disabledChromiumFeatures where !features.contains(feature) {
+        let spareOff = chromiumSpareOff ? [Self.spareRendererFeature] : []
+        for feature in Self.idleServiceOffFeatures + disabledChromiumFeatures + spareOff
+        where !features.contains(feature) {
             features.append(feature)
         }
         return features
@@ -395,6 +401,7 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         disabledChromiumFeatures: [String] = [],
         spareAfterFirstTab: Bool = false,
         embedderColorChooser: Bool = false,
+        chromiumSpareOff: Bool = false,
         bundleIdentifier: String?,
         environment: [String: String],
         builtInExtensions: [String] = [],
@@ -406,21 +413,24 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let developmentBundle = bundle.contains(".debug") || bundle.hasSuffix(".dev")
-        let dev = developmentBundle || environment["CMUX_MOCK_KEYCHAIN"] == "1"
         let extensions = (environment["CMUX_NEXT_CEF_LOAD_EXTENSIONS"] ?? "")
             .split(separator: ":")
             .map(String.init)
             .filter { !$0.isEmpty }
         #if DEBUG
+        let dev = developmentBundle || environment["CMUX_MOCK_KEYCHAIN"] == "1"
         let extra = dev ? Self.extraSwitches(environment["CMUX_NEXT_CEF_EXTRA_SWITCHES"]) : []
         #else
         let extra: [String] = []
         #endif
         #if DEBUG || CMUX_BENCH_HOOKS
         let bench = developmentBundle ? Self.benchSwitches(environment["CMUX_NEXT_BENCH_CEF_SWITCHES"]) : []
+        let benchRealKeychain = developmentBundle && environment["CMUX_NEXT_BENCH_REAL_KEYCHAIN"] == "1"
         #else
         let bench: [String] = []
+        let benchRealKeychain = false
         #endif
+        let mockKeychain = environment["CMUX_MOCK_KEYCHAIN"] == "1" || (developmentBundle && !benchRealKeychain)
         return CEFSwitches(
             forkAPIVersion: forkAPIVersion,
             rendererPaths: rendererPaths,
@@ -428,7 +438,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTab,
             embedderColorChooser: embedderColorChooser,
-            useMockKeychain: dev,
+            chromiumSpareOff: chromiumSpareOff,
+            useMockKeychain: mockKeychain,
             loadExtensions: extensions,
             builtInExtensions: builtInExtensions,
             builtInExtensionsAtFirstTab: builtInExtensionsAtFirstTab && !builtInExtensions.isEmpty,

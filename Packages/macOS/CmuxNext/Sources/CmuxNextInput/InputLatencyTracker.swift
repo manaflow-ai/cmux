@@ -108,6 +108,13 @@ public final class InputLatencyTracker {
 
     /// Slots closed since launch.
     public private(set) var closedCount: UInt64 = 0
+    /// The slot of the key press being dispatched now, from its ``begin(kind:target:entrypoint:eventTimestamp:window:arrivedMain:frameInterval:)``
+    /// to its ``endDispatch(_:)``: a terminal arms its echo stages on it (p04-input-094). A key dispatched inside another
+    /// key's dispatch (a held key run again) is the dispatching key until its own dispatch ends; then the outer one is
+    /// again.
+    public var dispatchingKey: InputLatencyToken? { dispatchingKeys.top }
+    /// The key slots in dispatch, innermost on top: a fixed inline stack, so the per-key path never allocates.
+    private var dispatchingKeys = DispatchingKeys()
     /// Host presentation reports since launch that matched no open Chromium page slot (``hostPresented(eventNanos:at:)``):
     /// an input the tracker did not track, a slot that closed at its deadline first, or a report with no usable time.
     public internal(set) var unmatchedHostPresentations: UInt64 = 0
@@ -197,7 +204,7 @@ public final class InputLatencyTracker {
     public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       arrivedMain: UInt64? = nil) -> InputLatencyToken? {
         begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window,
-              arrivedMain: arrivedMain)
+              arrivedMain: arrivedMain, keyCode: kind.isKey ? event.keyCode : 0)
     }
 
     /// ``begin(event:kind:target:entrypoint:arrivedMain:)`` with the event's fields.
@@ -211,16 +218,19 @@ public final class InputLatencyTracker {
     ///     scheduler.
     ///   - arrivedMain: When the event reached the main thread, or nil when unknown (also when 0 or after now).
     ///   - frameInterval: The older interval the slot also carries (`key.frame`, `key.scroll_frame`), or nil.
+    ///   - keyCode: The virtual key code of a key event (pairs its press and release into one interaction), else 0.
     /// - Returns: The slot's token, or nil when the table is full.
     // perf-hot: 0.5us key-dispatch
     // perf-hot: 0.5us input-latency-mark
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       eventTimestamp: TimeInterval, window: NSWindow?,
-                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
+                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil,
+                      keyCode: UInt16 = 0) -> InputLatencyToken? {
         let dispatchStart = now()
         let arrived = arrivedMain.flatMap { $0 != 0 && $0 <= dispatchStart ? $0 : nil }
         let generated = Self.generatedNanos(eventTimestamp: eventTimestamp, arrived: arrived ?? dispatchStart)
-        guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated) else {
+        guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated,
+                                      keyCode: keyCode) else {
             return nil
         }
         if let arrived { table.mark(token, .arrivedMain, at: arrived) }
@@ -232,6 +242,7 @@ public final class InputLatencyTracker {
             hasFrameInterval = true
         }
         pending.append(Pending(token: token, window: window, target: target, kind: kind, hasFrameInterval: hasFrameInterval))
+        if kind == .keyPress { dispatchingKeys.push(token) }
         boundary.arm()
         return token
     }
@@ -275,6 +286,18 @@ public final class InputLatencyTracker {
     // perf-hot: 0.05us input-latency-mark
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
+        dispatchingKeys.remove(token)
+    }
+
+    /// Drops `token`'s slot, opened this turn, without recording it: its event was taken by a cmux path that runs it
+    /// again later (a creation hold), whose second dispatch opens the slot that counts. One slot per input: the first
+    /// pass of a held key is not a key of its own (first-seconds-evidence.md, item 4 of first-keys-proof.md).
+    public func discard(_ token: InputLatencyToken) {
+        guard let index = pending.lastIndex(where: { $0.token == token }) else { return }
+        let entry = pending.remove(at: index)
+        if entry.hasFrameInterval { frameIntervals?.end(token, target: entry.target, outcome: .missed) }
+        dispatchingKeys.remove(token)
+        _ = table.close(token)
     }
 
     // MARK: Closing

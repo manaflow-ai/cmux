@@ -69,6 +69,11 @@ if "--suite=bench-smoke" in sys.argv:
 if "--suite=command-pan" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bench-command-pan.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=command-pan"])
+# `--suite=startup-baseline`: the p08-startup launch battery (warm, cold, STRESS, traces, queues, App Launch),
+# scripts/cmux-next/startup-baseline.py; its rows go to --out/rows.md.
+if "--suite=startup-baseline" in sys.argv:
+    suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "startup-baseline.py")
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=startup-baseline"])
 # `--suite=open-panel`: click to file picker, light and STRESS (scripts/cmux-next/open-panel-bench.py).
 if "--suite=open-panel" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "open-panel-bench.py")

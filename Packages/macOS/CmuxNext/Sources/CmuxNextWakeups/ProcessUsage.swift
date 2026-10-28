@@ -6,8 +6,11 @@ import Foundation
 /// and the idle benchmark. Cumulative since the process started: callers
 /// diff two samples for rates.
 public struct ProcessUsage: Sendable, Equatable {
+    /// The process.
     public var pid: pid_t
+    /// Its parent process; 0 when it could not be read.
     public var parent: pid_t
+    /// Its executable's path; empty when it could not be read.
     public var path: String
     /// User plus system CPU time.
     public var cpuNanos: UInt64
@@ -27,9 +30,12 @@ public struct ProcessUsage: Sendable, Equatable {
     public var packageIdleWakeups: UInt64
     /// CPU energy (`ri_energy_nj`); work billed to the render server is not in it.
     public var energyNanojoules: UInt64
+    /// Its physical memory footprint in bytes (`ri_phys_footprint`, Activity Monitor's Memory).
     public var physFootprint: UInt64
+    /// When it was sampled (`CLOCK_UPTIME_RAW` nanoseconds).
     public var uptimeNanos: UInt64
 
+    /// The executable's file name.
     public var name: String { (path as NSString).lastPathComponent }
 
     /// A usage from its counters (``sample(_:)`` reads them; tests build them).
@@ -85,6 +91,7 @@ public struct ProcessUsage: Sendable, Equatable {
         return Double(cpuNanos - earlier.cpuNanos) / wall
     }
 
+    /// The executable path of `pid` (`proc_pidpath`); nil when it is gone or not ours. A blocking syscall.
     public static func path(of pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         let length = proc_pidpath(pid, &buffer, UInt32(buffer.count))
@@ -156,9 +163,12 @@ extension ProcessUsage {
     /// as the App's helper classification (`ChromiumHelperProcess`) reads it. Extension renderers are not
     /// tab renderers.
     public struct Renderer: Sendable, Hashable {
+        /// The renderer process's pid.
         public var pid: pid_t
+        /// Its renderer client id in the browser process.
         public var clientID: Int32
 
+        /// A renderer by its pid and client id.
         public init(pid: pid_t, clientID: Int32) {
             self.pid = pid
             self.clientID = clientID
@@ -169,12 +179,14 @@ extension ProcessUsage {
     public struct TabRenderers: Sendable, Equatable {
         /// The tab's id.
         public var tab: String
+        /// The tab's title.
         public var title: String
         /// The renderer of its main frame, from the fork (`cmux_cef_browser_renderer_pid`); nil without it.
         public var pid: pid_t?
         /// The renderer client ids of all its frames (main frame and out-of-process iframes).
         public var rendererClients: [Int32]
 
+        /// A tab's renderers: its main frame's `pid` and all its frames' `rendererClients`.
         public init(tab: String, title: String, pid: pid_t?, rendererClients: [Int32]) {
             self.tab = tab
             self.title = title
@@ -191,11 +203,14 @@ extension ProcessUsage {
 
     /// One renderer that serves a tab, with every tab it serves (same-site tabs can share one).
     public struct SharedRenderer: Sendable, Equatable {
+        /// The renderer.
         public var renderer: Renderer
+        /// Its usage.
         public var usage: ProcessUsage
         /// The ids of the tabs it serves, in the order the tabs were given.
         public var tabs: [String]
 
+        /// A renderer, its usage and the tabs it serves.
         public init(renderer: Renderer, usage: ProcessUsage, tabs: [String]) {
             self.renderer = renderer
             self.usage = usage
@@ -205,10 +220,14 @@ extension ProcessUsage {
 
     /// One tab with the usage of each renderer that serves it.
     public struct TabUsage: Sendable, Equatable {
+        /// The tab's id.
         public var tab: String
+        /// The tab's title.
         public var title: String
+        /// The renderers that serve it.
         public var renderers: [SharedRenderer]
 
+        /// A tab and the renderers that serve it.
         public init(tab: String, title: String, renderers: [SharedRenderer]) {
             self.tab = tab
             self.title = title
@@ -218,8 +237,11 @@ extension ProcessUsage {
         /// Its renderers' CPU time, summed. A renderer it shares counts in full here and in each other tab
         /// it serves (its ``SharedRenderer/tabs``), so sums over tabs count it more than once.
         public var cpuNanos: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.cpuNanos } }
+        /// Its renderers' interrupt wakeups, summed (a shared renderer counts in full, as in ``cpuNanos``).
         public var interruptWakeups: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.interruptWakeups } }
+        /// Its renderers' package idle wakeups, summed (a shared renderer counts in full, as in ``cpuNanos``).
         public var packageIdleWakeups: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.packageIdleWakeups } }
+        /// Its renderers' energy, in nanojoules, summed (a shared renderer counts in full, as in ``cpuNanos``).
         public var energyNanojoules: UInt64 { renderers.reduce(0) { $0 &+ $1.usage.energyNanojoules } }
     }
 

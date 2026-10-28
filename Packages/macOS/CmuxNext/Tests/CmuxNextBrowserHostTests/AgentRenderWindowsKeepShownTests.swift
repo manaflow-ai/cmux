@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowserHost
+import CmuxNextWakeups
 import Testing
 
 /// p14-energy-059: a tab parked in an agent's render window is told to keep its page shown while it is parked
@@ -12,7 +13,7 @@ import Testing
 
     @Test func aParkedChromeKeepsItsPageShownUntilItsRenderWindowGoes() {
         _ = NSApplication.shared
-        let windows = AgentRenderWindows()
+        let windows = AgentRenderWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let chrome = NSView()
         let told = Told()
         let tell: @MainActor (Bool) -> Void = { told.values.append($0) }
@@ -28,7 +29,7 @@ import Testing
 
     @Test func aNewParkEndsTheOldOneFirst() {
         _ = NSApplication.shared
-        let windows = AgentRenderWindows()
+        let windows = AgentRenderWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let chrome = NSView()
         let told = Told()
         let tell: @MainActor (Bool) -> Void = { told.values.append($0) }

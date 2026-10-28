@@ -170,6 +170,8 @@ MARKS = [
     ("main.delegate", "main: launch order and delegate"),
     ("main.nsapp", "main: NSApp set up"),
     ("main.run", "main: run()"),
+    # p08-startup-039: the launch thread's icon pack and catalog decode; the first tab or sidebar icon reads both.
+    ("icons_decoded", "launch thread: icon pack and catalog decoded"),
     ("run_loop_start", "main run loop started"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
@@ -259,9 +261,6 @@ MARKS = [
     # p08-startup-012: StartupScheduler's refs are all released (or its 10 s failsafe fired); --startup-complete
     # waits for it after the first content.
     ("startup_complete", "startup complete (StartupScheduler)"),
-    # p02-threads-114: the best-effort fence's 3 s cap lowered it before startup completed (LaunchOrder.fenceCappedMark);
-    # outside the `startup_complete.` namespace, so it is never read as a completion reason.
-    ("launch.best_effort_fence_capped", "best-effort fence lowered by its 3 s cap, before startup complete"),
 ]
 # Chrome's startup milestones (components/startup_metric_utils/browser/startup_metric_utils.h): --milestones
 # requires each in every run, and each pair below (the ones every launch orders the same way) when both landed.

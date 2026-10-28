@@ -276,6 +276,32 @@ extension HistogramID {
         case oom = 3
     }
 
+    /// The engines of the `stability.renderer` families: whose page process an event is about.
+    public enum RendererEngine: String, Sendable, CaseIterable {
+        /// A WebKit WebContent process.
+        case webkit
+        /// A Chromium renderer.
+        case chromium
+    }
+
+    /// The renderer events of the `stability.renderer` families.
+    public enum RendererEvent: String, Sendable, CaseIterable {
+        /// The content process ended under a page (each page it served counts).
+        case contentEnd = "content_end"
+        /// A page started showing "Page unresponsive".
+        case unresponsive
+    }
+
+    /// The kind of view that showed the page (`stability.renderer.<event>.<engine>` values).
+    public enum RendererSurface: Int64, Sendable, CaseIterable {
+        /// A browser tab.
+        case browserTab = 0
+        /// A cmux page (Home, Settings, the agent chat), in either engine.
+        case page = 1
+        /// The agent pages' WebKit warm-up page.
+        case warmup = 2
+    }
+
     /// The Chromium histograms read from `base::StatisticsRecorder` (task 107's allowlist), by Chromium's
     /// own names.
     public enum Chromium: String, Sendable, CaseIterable {

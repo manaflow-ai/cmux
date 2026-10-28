@@ -79,7 +79,7 @@ impl Hub {
             if let Some(nonce) = &b.start_nonce
                 && agent_host::liveness(&dir, &b.session_id, nonce) == Liveness::Dead
             {
-                let _ = std::fs::remove_file(&b.path);
+                let _ = cmux_blocking::fs::remove_file(&b.path);
                 continue;
             }
             live.insert(b.session_id);
@@ -227,7 +227,9 @@ impl Hub {
     /// (a host this build cannot adopt, or one whose link was lost).
     pub(super) async fn end_unadopted_host(&self, session: &Session) {
         let dir = agent_host::hosts_dir();
-        let Ok((good, bad)) = agent_host::load_records(&dir) else { return };
+        let listed = dir.clone();
+        let loaded = cmux_blocking::spawn_blocking(move || agent_host::load_records(&listed)).await;
+        let Ok(Ok((good, bad))) = loaded else { return };
         let record = good.iter().find(|(_, r)| r.session_id == session.id).map(|(_, r)| r.clone());
         let host = record
             .as_ref()
@@ -239,10 +241,18 @@ impl Hub {
             });
         let Some((nonce, host_pid)) = host else { return };
         if end_host_blocking(dir.clone(), session.id.clone(), nonce, host_pid).await {
-            if let Some(record) = record {
-                agent_host::remove_artifacts(&dir, &record);
-            } else if let Some(b) = bad.iter().find(|b| b.session_id == session.id) {
-                let _ = std::fs::remove_file(&b.path);
+            let unreadable =
+                bad.iter().find(|b| b.session_id == session.id).map(|b| b.path.clone());
+            let removed = cmux_blocking::spawn_blocking(move || {
+                if let Some(record) = record {
+                    agent_host::remove_artifacts(&dir, &record);
+                } else if let Some(path) = unreadable {
+                    let _ = cmux_blocking::fs::remove_file(path);
+                }
+            })
+            .await;
+            if let Err(e) = removed {
+                tracing::warn!(session = %session.id, "removing its agent host record: {e}");
             }
             self.append(session, "mux", "host_ended", json!({}));
         } else {

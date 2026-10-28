@@ -47,6 +47,9 @@ public final class DaemonSideEvents {
         subscribers[token] = nil
     }
 
+    /// The subscribers now (tests prove a finished stream left none behind).
+    var subscriberCount: Int { subscribers.count }
+
     /// An event of the app supervisor (capability `apps-v1`): `apps-changed`,
     /// `apps-scene`, `apps-provider-request` and the rest. This module does not
     /// model them (`DaemonEvent.unknown`); the apps client reads them.

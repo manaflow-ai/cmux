@@ -88,8 +88,9 @@ extension PageWebView {
 
     /// Binds a page made parked to the open that took it from the preload slot, in the open's turn:
     /// its routes, route, theme surface and dynamic resources, then the claim of its document (at
-    /// once when it has loaded, else at its load). Only the first call binds; a page not made parked
-    /// is left as it is.
+    /// once when it has loaded, else at its load). A page parked across a change of the served web
+    /// files (``bundleStale``) reloads from the new files instead and is claimed at that load. Only the
+    /// first call binds; a page not made parked is left as it is.
     ///
     /// - Parameters:
     ///   - routes: The open's op routes.
@@ -108,6 +109,9 @@ extension PageWebView {
         // Live attributes: set on this document at its claim and again on every later one.
         for (name, value) in documentAttributes { liveDocumentAttributes[name] = value }
         claimState.claimed = true
+        // Parked before the served web files changed (``bundleStale``), it holds the old build: the claim
+        // loads the files served now, and that document boots parked and gets the claim at its load.
+        if bundleStale { return reloadForBundle() }
         // A document still loading boots parked and gets the claim at its load (``claimLoadedDocument()``).
         guard loaded else { return }
         // Its parked frame was the parking's size: shown at once in another pane size, it drew its

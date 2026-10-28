@@ -22,7 +22,7 @@ import Testing
         let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
             managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
-        let page = SettingsPageProvider(settings: settings)
+        let page = SettingsPageProvider(settings: settings, on: linklessMainWork())
         let recorder = Recorder()
         page.setDeviceFullAccess = { id, on in recorder.sets.append("\(id) \(on)"); return nil }
         return (page, recorder, directory)

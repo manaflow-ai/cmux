@@ -105,7 +105,7 @@ extension TabStripView {
 
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     public override func mouseEntered(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         if closingWatch.trackingEvent(event, entered: true) { return }
         buttonReveal.pointerInStrip = true
         closingWatch.pointerReturned()
@@ -115,8 +115,8 @@ extension TabStripView {
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move
     /// hovers at once and the rest once at its frame, at the latest point. Nil: each move hovers at once.
     public var hoverFrameInput: FrameInputCoalescers? {
-        get { hoverMoves.frames }
-        set { hoverMoves.frames = newValue }
+        get { frameInputHover.frames }
+        set { frameInputHover.frames = newValue }
     }
 
     /// The windows' frame-aligned wheels (feature `tabStripScrollFrames`): a frame's wheel and trackpad
@@ -130,21 +130,30 @@ extension TabStripView {
     /// at the latest point, as Chromium delivers rAF-aligned mouse moves
     /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`); without it, at once.
     public override func mouseMoved(with event: NSEvent) {
-        buttonReveal.pointerInStrip = true
-        hoverMoves.moved(event)
+        frameInputHover.moved(event)
     }
 
     /// One hover delivery: the point is converted now, so a strip that scrolled since the move
-    /// hit-tests its tabs where they show now (`TabStripScroller.shownFrame`).
+    /// hit-tests its tabs where they show now (`TabStripScroller.shownFrame`). The pointer is in the strip, so its plus shows.
     func hoverMoved(toWindowPoint point: CGPoint) {
+        buttonReveal.pointerInStrip = true
         updateHover(at: convert(point, from: nil), moved: true)
     }
 
     public override func mouseExited(with event: NSEvent) {
-        hoverMoves.flush()
+        frameInputHover.flush()
         if closingWatch.trackingEvent(event, entered: false) { return }
         pointerLeft()
         hoverCards.pointerMoved(to: window.map { $0.convertPoint(toScreen: event.locationInWindow) })
+    }
+
+    /// cmux resigned active while the pointer was in the strip (`TabStripRevealController`): the
+    /// strip's `.activeForHover` area hears no exit then, so its hover ends here. Mouse closing mode
+    /// keeps its own exit watch, which hears the leave while cmux is inactive (`TabClosingModeWatch`).
+    func endHoverOnDeactivation() {
+        buttonReveal.pointerInStrip = false
+        clearHover()
+        newTabButton.isHovered = false
     }
 
     /// An exit, or the strip moved away under a still pointer (`geometryDidChange`).
@@ -161,7 +170,7 @@ extension TabStripView {
     public override func mouseDown(with event: NSEvent) {
         // The frame's pending scroll and hover land first, so the press acts on the tab under its own point.
         scroller.landForInput()
-        hoverMoves.flush()
+        frameInputHover.flush()
         dragMoves.began()
         hoverCards.dismiss(.action)
         let point = convert(event.locationInWindow, from: nil)
@@ -212,6 +221,7 @@ extension TabStripView {
         // (`TitlebarDragPolicy`).
     }
 
+    // local-monitor-allow: a drag is delivered unbuffered until its mouse-up (p06-scheduler.md section E, FrameInputCoalescer); each move moves the dragged tab or a pressed button's state
     public override func mouseDragged(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         if let id = pressedCloseID {
@@ -272,7 +282,7 @@ extension TabStripView {
             }
         }
         groups.press = nil
-        groups.holdTask?.cancel()
+        chipHold.cancel()
         // A click is not a pointer move: the card stays dismissed (quiet).
         updateHover(at: point, moved: false)
     }
@@ -319,6 +329,7 @@ extension TabStripView {
     }
 
     /// An overflowing strip scrolls (`TabStripScroller`); one whose tabs fit passes the event up.
+    // local-monitor-allow: the deltas go through the window's FrameInputCoalescer (TabStripScroller, feature tabStripScrollFrames); an event it does not take is forwarded up unchanged
     public override func scrollWheel(with event: NSEvent) {
         if !scroller.scrollWheel(event) { super.scrollWheel(with: event) }
     }

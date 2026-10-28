@@ -1297,6 +1297,35 @@
         "required": true
       }
     },
+    "event:input-failed": {
+      "/bytes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/event": {
+        "ty": "literal",
+        "required": true,
+        "values": [
+          "\"input-failed\""
+        ]
+      },
+      "/reason": {
+        "ty": "enum",
+        "required": true,
+        "values": [
+          "attach_failed",
+          "daemon_handoff",
+          "not_a_terminal",
+          "overflow",
+          "terminal_ended",
+          "write_failed"
+        ]
+      },
+      "/stream": {
+        "ty": "uint16",
+        "required": true
+      }
+    },
     "event:keybindings-changed": {
       "/cause": {
         "ty": "enum",
@@ -20127,6 +20156,13 @@
           "1"
         ]
       },
+      "/data/framed_methods": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/data/framed_methods/*": {
+        "ty": "uint16"
+      },
       "/data/generation": {
         "ty": "string",
         "required": true
@@ -20184,6 +20220,10 @@
       "/data/registry_id": {
         "ty": "string",
         "required": true
+      },
+      "/data/sdk_schema_digest": {
+        "ty": "string",
+        "nullable": true
       },
       "/data/session": {
         "ty": "string",

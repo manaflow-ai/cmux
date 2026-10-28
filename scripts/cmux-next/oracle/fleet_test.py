@@ -259,6 +259,23 @@ class DiffTests(FleetHarness):
         self.assertEqual(record["comparison"]["exit"], code)
         self.assertEqual(code, 3, self.output)
 
+    def test_engine_parity_runs_one_arm_per_engine_of_one_build(self) -> None:
+        out = self.tmp / "out"
+        code = self.fleet("diff", "--engine", "webkit,chromium", "--ref", SHA, "--shards", "2", "--out", str(out),
+                          "--run-id", "e1")
+        self.assertEqual(code, 3, self.output)  # dry runs: both arms merge, nothing to compare
+        record = self.record(out)
+        self.assertEqual({side: record["sides"][side]["args"] for side in ("webkit", "chromium")},
+                         {"webkit": {"engine": "webkit"}, "chromium": {"engine": "chromium"}})
+        self.assertEqual({record["sides"][side]["sha"] for side in ("webkit", "chromium")}, {SHA})
+        for side in ("webkit", "chromium"):
+            self.assertEqual(json.loads((out / side / "receipt.json").read_text())["config"]["engine"], side)
+        with redirect_stderr(io.StringIO()):
+            for argv in (["--engine", "webkit,webkit", "--ref", SHA], ["--engine", "webkit,gecko", "--ref", SHA],
+                         ["--engine", "webkit,chromium"], ["--engine", "webkit,chromium", "--ref", SHA, "--switch", "x"],
+                         ["--engine", "webkit,chromium", "--base", SHA, "--head", OTHER_SHA]):
+                self.assertEqual(fleet.main(["diff", *argv, "--out", str(self.tmp / "refused")]), fleet.EXIT_USAGE, argv)
+
     def test_a_cross_host_pair_is_refused(self) -> None:
         os.environ["FAKE_IGNORE_TARGET"] = "1"
         out = self.tmp / "out"

@@ -112,6 +112,7 @@ public struct EnergyPolicy: Sendable, Equatable {
 /// thread right after a change, outside the lock, so an observer may read the source or update its
 /// own locked state; one that needs the main actor hops there itself.
 public final class EnergyPolicySource: Sendable {
+    /// Called with the new policy after each change, on the writer's thread.
     public typealias Observer = @Sendable (EnergyPolicy) -> Void
 
     private struct State {

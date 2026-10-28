@@ -172,6 +172,7 @@ extension BrowserHibernation {
         // The live page now; a later sleep takes a new picture.
         snapshots.remove(key)
         restoredCount += 1
+        noteDiscard(.woke(key))
         cache.applyLifecycle(cache.lifecycle.send(.mounted(key, token)))
         if let latency = wakeLog.mounted(key, visible: cache.lifecycle.phase(key) == .mountedVisible) { onWakeMounted(latency) }
         timeLoad(key, page: page)

@@ -4,7 +4,7 @@ use std::io;
 use std::thread::{Builder, JoinHandle};
 
 use crate::qos::ThreadQos;
-use crate::registry;
+use crate::registry::{self, DesiredQos};
 
 /// Starts thread `name` at `qos`: it registers itself, sets its QoS before
 /// `f` runs, and removes its row when `f` returns or panics, so the row is
@@ -37,13 +37,47 @@ where
     start(Builder::new().stack_size(stack_size), name.into(), qos, f)
 }
 
+/// [`spawn`] for a thread that follows `desired`: it starts at `qos` and
+/// runs at the class last requested through `desired` from its first
+/// [`registry::apply_pending_qos`] on (a terminal's threads follow the
+/// terminal's visibility).
+pub fn spawn_following<F, T>(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    desired: DesiredQos,
+    f: F,
+) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    start_following(Builder::new(), name.into(), qos, Some(desired), f)
+}
+
 fn start<F, T>(builder: Builder, name: String, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
+    start_following(builder, name, qos, None, f)
+}
+
+fn start_following<F, T>(
+    builder: Builder,
+    name: String,
+    qos: ThreadQos,
+    desired: Option<DesiredQos>,
+    f: F,
+) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
     builder.name(name.clone()).spawn(move || {
-        registry::register_current(name, qos);
+        match desired {
+            Some(desired) => registry::register_current_following(name, qos, desired),
+            None => registry::register_current(name, qos),
+        };
         let _deregister = Deregister;
         f()
     })

@@ -6,14 +6,17 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <iterator>
+#include <memory>
 #include <utility>
 
 #include "chromium_host_input_ring.h"
 #include "chromium_host_mint.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_hang_watcher.h"
 
 namespace cmux_host {
 
@@ -59,6 +62,9 @@ constexpr size_t kMaxHeldPerBrowser = 16;
 // Browsers whose page visibility the host keeps (one per pane cmux shows; a
 // browser's entry goes at its BEFORE_CLOSE).
 constexpr size_t kMaxPageVisibilities = 65536;
+// Password reveals the shim has not answered. Past it a reveal is answered as
+// not found: cmux is trusted, and a stalled profile store must not end the host.
+constexpr size_t kMaxPendingReveals = 64;
 
 bool IsMirrorOp(uint16_t op) {
   for (const MirrorRefresh& row : kMirrorRefreshes) {
@@ -139,6 +145,10 @@ HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Re
   }
 }
 
+HostContext::~HostContext() {
+  for (PasswordReveal* reveal : reveals_) reveal->host = nullptr;
+}
+
 void HostContext::Attach() {
   ProduceAttach(true);
   std::vector<const char*> exports;
@@ -148,6 +158,8 @@ void HostContext::Attach() {
   // Not an export: the host acks every wheel of a gesture (OnWheelAck), so cmux asks the page nothing.
   if (set_wheel_ack_handler_) exports.push_back(kWheelAcksHelloName);
   if (energy_saver_) exports.push_back(kEnergySaverHelloName);
+  // Not an export: the host acks dispatched input and reports its UI hangs (host_hang_watcher.h).
+  if (hang_watch_) exports.push_back(hang::kHangWatchHelloName);
   if (set_lock_handler_) exports.push_back(kLocksHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
@@ -669,6 +681,7 @@ void HostContext::ForwardChooserEvent(choosers::Handler handler, int event, int 
 }
 
 void HostContext::Dispatch(const control::Message& message) {
+  if (message.op == kOpPasswordReveal) return RevealPassword(message);  // local class: no generated case
   if (message.op == kOpShutdown) {
     // CefShutdown runs once the loop has ended (browser_host_main.mm), never inside a task.
     Ack(message.token);
@@ -736,6 +749,49 @@ void HostContext::Dispatch(const control::Message& message) {
   for (int32_t client : created) RunHeldForCreation(client);
 }
 
+// cmux_shim_password_reveal for cmux's local client (remote_shim_local.mm),
+// which keeps the done and ctx it was given: the host's own done answers the
+// token. As Chrome's PasswordsPrivateDelegate answers a plaintext request
+// through its callback, never through a broadcast (chrome/browser/extensions/
+// api/passwords_private/passwords_private_delegate_impl.cc).
+void HostContext::RevealPassword(const control::Message& message) {
+  TlvReader r(message.fields);
+  const std::optional<std::string> path = r.Str();
+  const std::optional<std::string> id = r.Str();
+  if (!r.ok() || !r.AtEnd() || message.token == 0) return Bad("a malformed password reveal");
+  if (state_ != State::kRunning) return SendRevealed(message.token, nullptr, 0);  // the shim's 0: not started
+  if (reveals_.size() >= kMaxPendingReveals) return SendRevealed(message.token, nullptr, 0);
+  auto reveal = std::make_unique<PasswordReveal>(PasswordReveal{this, message.token});
+  PasswordReveal* pending = reveal.get();
+  reveals_.insert(pending);
+  // done runs exactly once when this returns 1, and never when it returns 0.
+  const int started = cmux_shim_password_reveal(path ? path->c_str() : nullptr, id ? id->c_str() : nullptr,
+                                                &HostContext::OnPasswordRevealed, reveal.release());
+  if (started == 1) return;
+  reveals_.erase(pending);
+  delete pending;
+  SendRevealed(message.token, nullptr, 0);
+}
+
+void HostContext::OnPasswordRevealed(void* ctx, const char* password, size_t length) {
+  const std::unique_ptr<PasswordReveal> reveal(static_cast<PasswordReveal*>(ctx));
+  if (reveal == nullptr || reveal->host == nullptr) return;
+  reveal->host->reveals_.erase(reveal.get());
+  reveal->host->SendRevealed(reveal->token, password, length);
+}
+
+// Sent at once, never held behind an op's events: the answer refreshes no
+// mirror. The shim zeroes its own buffer after done; the frame is a plain one
+// (remote_shim_runtime.h, PostPasswordReveal).
+void HostContext::SendRevealed(uint32_t token, const char* password, size_t length) {
+  if (state_ == State::kEnded) return;
+  TlvWriter answer;
+  if (password != nullptr && length > 0) answer.Bytes(password, length);
+  if (!send_(MessageOf(kOpReply, true, token, answer.Take()))) {
+    fprintf(stderr, "cmux-chromium-host: a password reveal's answer was not sent\n");
+  }
+}
+
 void HostContext::Watch(uint16_t op, const std::vector<control::Field>& key) {
   std::vector<std::vector<control::Field>>& keys = watched_[op];
   bool known = false;
@@ -786,8 +842,26 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
                                      payload ? std::optional<std::string>(*payload) : std::nullopt});
     return;
   }
+  // Chromium's counter reaching the minted range would make one id name two browsers.
+  const int64_t new_browser = kind == CMUX_SHIM_AFTER_CREATED ? browser_id : kind == CMUX_SHIM_DEVTOOLS_OPENED ? a : 0;
+  if (mint::IsMintedBrowser(new_browser)) return Bad("Chromium named a new browser by an id of the minted range");
   int32_t client = ClientOf(browser_id);
   int32_t out_request = request;
+  int64_t out_a = a;
+  int64_t out_b = b;
+  if (kind == CMUX_SHIM_WINDOW_REQUEST_RESULT) {
+    // a = the anchor whose window (request) gets the new tab; an INSERT's b carries the id minted for
+    // that tab, which its AFTER_CREATED binds below (task 031).
+    if (a > 0 && a <= INT32_MAX) out_a = ClientOf(static_cast<int>(a));
+    out_b = window_request_tabs_.Result(request, browser_id, b);
+  } else if (kind == CMUX_SHIM_AFTER_CREATED) {
+    // b = opener << 32 | flags: the opener in cmux's id.
+    const int opener = static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(b) >> 32));
+    if (opener > 0) {
+      out_b = static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(ClientOf(opener))) << 32 |
+                                   (static_cast<uint64_t>(b) & 0xffffffffu));
+    }
+  }
   MirrorEvent mirror_event{kind, request, client, a, b, std::nullopt};
   auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
   const bool created = pending != pending_binds_.end();
@@ -803,6 +877,20 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
     mirror_event.browser = client;
     mirror_event.profile = std::move(pending->second.profile);
     pending_binds_.erase(pending);
+  } else if (kind == CMUX_SHIM_AFTER_CREATED && request == 0 && browser_id > 0 && !client_of_.count(browser_id)) {
+    // A tab Chromium opened for a window request: the id its WINDOW_REQUEST_RESULT carried.
+    const int opener = static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(b) >> 32));
+    if (const int32_t minted = window_request_tabs_.Take(static_cast<int>(a), opener)) {
+      Bind(minted, browser_id);
+      // The ring may have sent the minted id's geometry before this creation (PlaceFrame held it).
+      if (auto geometry = geometry_awaiting_.find(minted); geometry != geometry_awaiting_.end()) {
+        const PageGeometry newest = geometry->second;
+        geometry_awaiting_.erase(geometry);
+        PlaceBrowser(browser_id, newest);
+      }
+      client = minted;
+      mirror_event.browser = client;
+    }
   } else if (kind == CMUX_SHIM_DEVTOOLS_RESULT) {
     auto minted = devtools_ids_.find(DevToolsKey(browser_id, request));
     if (minted != devtools_ids_.end()) {
@@ -815,9 +903,9 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   FollowPageWindows(client, window_before, kind == CMUX_SHIM_TAB_EVENT ? a : 0);
   TlvWriter event;
   if (payload) {
-    choosers::EncodePayloadEvent(event, kind, client, out_request, a, b, *payload);
+    choosers::EncodePayloadEvent(event, kind, client, out_request, out_a, out_b, *payload);
   } else {
-    EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
+    EncodeEvent(event, kind, client, out_request, out_a, out_b, s1, s2);
   }
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
   if (created && replaying_held_events_) {
@@ -1029,26 +1117,21 @@ void HostContext::Bad(const std::string& what) {
 }
 
 // Chromium never opens a window of its own in the host (it would be a
-// visible host window): a tab, window or popup request becomes a tab in the
-// window of the tab that asked, which cmux adopts from AFTER_CREATED, until
-// cmux pushes its WindowRequestPolicy (task 031). Incognito and app windows
-// open nothing.
-int HostContext::OnWindowRequest(void*, int kind, int, int source_browser_id, int, int, int, int, int, int,
-                                 const char*, const char*) {
-  return kind <= 2 ? source_browser_id : 0;
-}
-
-// No focus handler: the shim grants a focus request only for a page cmux
-// marked embedder-active (task p01-process-032, CEFShim/src/
-// embedder_focus_policy.h), so the focused pane's page keeps Chromium's
-// focus after its own loads and a background pane's load takes none.
+// visible host window), and no one is asked inside its navigation: with no
+// window request handler the shim decides each request with the policy cmux
+// pushed (cmux_shim_set_window_request_policy) and reports it as
+// CMUX_SHIM_WINDOW_REQUEST_RESULT, with the id the host mints for an
+// INSERT's tab (task 031). No focus handler: the shim grants a focus request
+// only for a page cmux marked embedder-active (task p01-process-032,
+// CEFShim/src/embedder_focus_policy.h), so the focused pane's page keeps
+// Chromium's focus after its own loads and a background pane's load takes none.
 void HostContext::InstallHostPolicies() {
   cmux_shim_set_focus_request_handler(nullptr);
-  cmux_shim_set_window_request_handler(&HostContext::OnWindowRequest);
+  cmux_shim_set_window_request_handler(nullptr);
 }
 
 // The host's own policies stay in place whatever cmux installs: the shim's
-// embedder-active rule decides focus and the host decides windows (above).
+// embedder-active rule decides focus and cmux's pushed policy windows (above).
 // cmux routes keys first in its own process: with no unhandled-key handler,
 // a chord the page leaves unhandled goes back as KEY_UNHANDLED with its
 // frame's input seq (SendHostKeyEvent and OnKeyEvent in shim_client.mm,

@@ -659,12 +659,14 @@ class Census:
         }
 
     # Q1 ------------------------------------------------------------------------------------
-    Q1_PATTERN = r'static (let|var) command(: String)? = "'
+    # A DaemonRequest names its command `static let commandName: DaemonCommandName = "..."`; older
+    # types still say `static let command = "..."`. Both are a hand-written command.
+    Q1_PATTERN = r'static (let|var) command(Name)?(: (String|DaemonCommandName))? = "'
     Q1_PATHS = (APP, ":!*.generated.swift")
 
     def q1(self) -> Result:
         def key(path, number, line):
-            found = re.search(r'command(?:: String)? = "([^"]*)"', line)
+            found = re.search(r'command(?:Name)?(?:: (?:String|DaemonCommandName))? = "([^"]*)"', line)
             return found.group(1) if found else line.strip()
 
         def group(path):

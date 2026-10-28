@@ -69,6 +69,7 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
         "$.input_latency[].entrypoint": HangReportBuilder.inputEntrypoints,
         "$.input_latency[].presentation_source": HangReportBuilder.presentationSources,
         "$.scroll_jank.histograms[].name": HangReportBuilder.scrollJankNames,
+        "$.interaction_latency.kind_of_worst": HangReport.InteractionLatency.kinds,
     ]
 
     /// The fields that hold only a catalog member, by schema path: schema 3's histogram names (this build's

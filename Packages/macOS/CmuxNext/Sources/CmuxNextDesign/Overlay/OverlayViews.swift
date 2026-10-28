@@ -80,6 +80,7 @@ final class OverlayScrimView: NSView {
         layer?.backgroundColor = NSColor.black.withAlphaComponent(alpha).cgColor
     }
 
+    // visibility-walk-allow: one invalidation; AppKit draws only views on screen, so a hidden scrim pays nothing
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         needsDisplay = true // invalidate: the appearance changed; the colors resolve again.

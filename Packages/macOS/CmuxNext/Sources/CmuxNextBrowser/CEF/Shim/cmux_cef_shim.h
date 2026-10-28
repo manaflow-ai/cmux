@@ -69,10 +69,12 @@ typedef enum {
   CMUX_SHIM_DEVTOOLS_OPENED = 21, // a = DevTools browser id, b = 1 docked
   CMUX_SHIM_DEVTOOLS_CLOSED = 22, // a = DevTools browser id
   // The tab's renderer process ended unexpectedly (Chromium's "Aw, Snap!").
-  // a = cef_termination_status_t, b = error code (exit code or signal),
-  // s1 = Chromium's error string. request = 1 for the first browser of the
-  // renderer's end, 2 for each other browser it hosted (Chromium tells them
-  // all in one task), 0 when the shim cannot name the process.
+  // a = cef_termination_status_t, b = error code (exit code or signal) in
+  // the low 32 bits | the renderer's client id (its --renderer-client-id,
+  // 0 when the shim cannot name it) << 32, s1 = Chromium's error string.
+  // request = 1 for the first browser of the renderer's end, 2 for each
+  // other browser it hosted (Chromium tells them all in one task), 0 when
+  // the shim cannot name the process.
   CMUX_SHIM_RENDER_TERMINATED = 23,
   // The renderer stopped processing input for 15 s (hang monitor). The host
   // answers with cmux_shim_unresponsive_reply; until then Chromium waits.
@@ -204,7 +206,7 @@ typedef enum {
   // the drag's destination returns the last one (Chrome's WebDragDest
   // -setCurrentOperation:).
   CMUX_SHIM_DRAG_OPERATION = 55,
-  // 56 is kept for the window-request event (p01-process-031).
+  // 56 is the Chromium Host's CMUX_SHIM_WHEEL_ACK (HOST/src/host_wheel_ack.h).
   // The page's tooltip changed (CefDisplayHandler::OnTooltip), only after
   // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
   // Chromium shows no tooltip of its own then.
@@ -264,6 +266,20 @@ typedef enum {
   // cmux_shim_lock_event_t, a = its detail. The remote shim calls cmux's
   // lock fn with them; cmux's event fn never sees this kind.
   CMUX_SHIM_LOCK = 65,
+  // A window request the shim decided with the policy cmux pushed
+  // (cmux_shim_set_window_request_policy), while no window_request_fn is
+  // installed: the Chromium Host decides inside Chromium's navigation and
+  // cmux applies the result. browser_id = the requesting tab, or 0;
+  // request = the Chromium window of the anchor (INSERT), else 0; a = the
+  // anchor whose window gets the new tab (INSERT), else 0; b's low 32 bits =
+  // cmux_shim_window_outcome_t | cmux_shim_new_tab_t << 8 | the request's
+  // kind << 16 | its cef_window_open_disposition_t (7 bits) << 24 |
+  // user_gesture << 31, and its high 32 bits the id the Chromium Host minted
+  // for an INSERT's tab (0: none; the shim leaves them 0); s1 = the URL;
+  // s2 = "x,y,width,height" (or nothing), ";", the request's store (the
+  // source pane's, else the normalized profile directory). An INSERT's tab
+  // comes in its own AFTER_CREATED, which names it by that minted id.
+  CMUX_SHIM_WINDOW_REQUEST_RESULT = 66,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -928,9 +944,89 @@ CMUX_SHIM_EXPORT int cmux_shim_omnibox_input(int browser_id, const char* extensi
                                              const char* text, int value);
 
 // Chromium never shows a window of its own (fork API 8). The handler
-// chooses where each window request goes; without one the fork uses the
-// requesting tab's window. No-op on older forks.
+// chooses where each window request goes; without one the shim decides
+// with the policy of cmux_shim_set_window_request_policy and reports each
+// decision as CMUX_SHIM_WINDOW_REQUEST_RESULT. No-op on older forks.
 CMUX_SHIM_EXPORT void cmux_shim_set_window_request_handler(cmux_shim_window_request_fn handler);
+// The policy the shim decides window requests with while no
+// window_request_fn is installed (the Chromium Host, where cmux cannot
+// answer inside Chromium's navigation), by the rule CEFWindowPolicy follows
+// in process (CEFShim/src/window_request_policy.h). Until the first call
+// no window has a store, so nothing opens in Chromium.
+typedef enum {
+  CMUX_SHIM_WINDOW_INSERT = 1,              // Chromium adds the tab to the anchor's window
+  CMUX_SHIM_WINDOW_OPEN_IN_NEW_TAB = 2,     // no window of the store: cmux opens the URL
+  CMUX_SHIM_WINDOW_LOAD_IN_SOURCE = 3,      // the requesting tab loads the URL
+  CMUX_SHIM_WINDOW_DOWNLOAD_IN_SOURCE = 4,  // the requesting tab downloads the URL
+  CMUX_SHIM_WINDOW_OFF_THE_RECORD = 5,      // cmux opens the URL in an incognito window
+  CMUX_SHIM_WINDOW_REFUSE_NO_WINDOW = 6,    // an off-the-record store with no window: nothing opens
+} cmux_shim_window_outcome_t;
+// BrowserNewTabDisposition.
+typedef enum {
+  CMUX_SHIM_NEW_TAB_FOREGROUND = 0,
+  CMUX_SHIM_NEW_TAB_BACKGROUND = 1,
+  CMUX_SHIM_NEW_TAB_LINK_PLACEMENT = 2,
+  CMUX_SHIM_NEW_TAB_POPUP = 3,
+  CMUX_SHIM_NEW_TAB_NEW_WINDOW = 4,
+} cmux_shim_new_tab_t;
+// BrowserLinkAction: what a modified link click does.
+typedef enum {
+  CMUX_SHIM_LINK_CURRENT_TAB = 0,
+  CMUX_SHIM_LINK_BACKGROUND_TAB = 1,
+  CMUX_SHIM_LINK_FOREGROUND_TAB = 2,
+  CMUX_SHIM_LINK_PLACEMENT = 3,
+  CMUX_SHIM_LINK_NEW_WINDOW = 4,
+  CMUX_SHIM_LINK_DOWNLOAD = 5,
+} cmux_shim_link_action_t;
+// BrowserLinkGesture.
+typedef enum {
+  CMUX_SHIM_GESTURE_PLAIN = 0,
+  CMUX_SHIM_GESTURE_CMD = 1,
+  CMUX_SHIM_GESTURE_CMD_SHIFT = 2,
+  CMUX_SHIM_GESTURE_SHIFT = 3,
+  CMUX_SHIM_GESTURE_OPTION = 4,
+  CMUX_SHIM_GESTURE_MIDDLE = 5,
+  CMUX_SHIM_GESTURE_MIDDLE_SHIFT = 6,
+} cmux_shim_link_gesture_t;
+// cmux_shim_window_policy_window.flags bits.
+typedef enum {
+  CMUX_SHIM_WINDOW_CANDIDATE = 1,             // a live pane window a request may go to (no popup panel, no spare)
+  CMUX_SHIM_WINDOW_LAST_SHOWN = 2,            // the pane that showed a Chromium tab most recently
+  CMUX_SHIM_WINDOW_VISIBLE = 4,               // the pane is on screen
+  CMUX_SHIM_WINDOW_OFF_THE_RECORD_STORE = 8,  // the store is in memory only
+} cmux_shim_window_flag_t;
+// One pane window, by one of its tabs (the anchor). A popup panel names the
+// anchor of its opener's pane (its requests go to that window), else 0.
+// Swift writes the rows at these offsets: anchor_browser_id 0,
+// opener_browser_id 8, flags 16, store 24, store_length 32 (40 bytes).
+typedef struct {
+  int64_t anchor_browser_id;
+  int64_t opener_browser_id;
+  int64_t flags;      // cmux_shim_window_flag_t bits
+  const char* store;  // the pane's store as cmux compares it (CEFRuntime.storeKey)
+  size_t store_length;
+} cmux_shim_window_policy_window;
+// The last left or middle mouse-up on a page: Chromium's dispositions do not
+// carry the click's modifiers. uptime_ms is NSEvent.timestamp in ms
+// (CLOCK_UPTIME_RAW). Offsets: browser_id 0, gesture 8, uptime_ms 16 (24 bytes).
+typedef struct {
+  int64_t browser_id;
+  int64_t gesture;  // cmux_shim_link_gesture_t
+  int64_t uptime_ms;
+} cmux_shim_window_policy_click;
+// windows sorted by anchor; profile_root = the normalized directory of
+// cmux's persistent Profile-* stores; the five actions are cmux.json
+// browser.links.* (cmux_shim_link_action_t). Replaces the previous policy.
+CMUX_SHIM_EXPORT void cmux_shim_set_window_request_policy(const cmux_shim_window_policy_window* windows,
+                                                          int window_count,
+                                                          const cmux_shim_window_policy_click* clicks,
+                                                          int click_count,
+                                                          const char* profile_root,
+                                                          int cmd_click,
+                                                          int cmd_shift_click,
+                                                          int shift_click,
+                                                          int option_click,
+                                                          int middle_click);
 // Browsers (windows) Chromium created outside cmux and never showed since
 // start (fork API 8); -1 on older forks.
 CMUX_SHIM_EXPORT int cmux_shim_foreign_browser_count(void);

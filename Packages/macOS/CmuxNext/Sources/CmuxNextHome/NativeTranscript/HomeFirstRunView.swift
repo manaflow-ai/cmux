@@ -392,6 +392,7 @@ final class HomeFirstRunRow: NSView {
     }
 
     override func keyDown(with event: NSEvent) {
+        // visibility-walk-allow: the key's own input check: a hidden row can still be first responder (AppKit does not resign it on hide), once per key
         guard !isHiddenOrHasHiddenAncestor else { return super.keyDown(with: event) }
         // Return only: Home sends printable keys, Space included, to the message box first.
         switch event.keyCode {
@@ -404,6 +405,7 @@ final class HomeFirstRunRow: NSView {
 
     /// Moves keyboard focus to the previous or next first-run row in the same column.
     private func focusSibling(by step: Int) {
+        // visibility-walk-allow: keyboard focus moves only to the rows AppKit draws (its key-view rule), once per arrow key
         let rows = superview?.subviews.compactMap { $0 as? HomeFirstRunRow }.filter { !$0.isHiddenOrHasHiddenAncestor } ?? []
         guard let index = rows.firstIndex(where: { $0 === self }), rows.indices.contains(index + step) else { return }
         window?.makeFirstResponder(rows[index + step])

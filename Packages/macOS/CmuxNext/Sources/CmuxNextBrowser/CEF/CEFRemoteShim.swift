@@ -30,6 +30,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///   clears it. A detach cmux asks for is never reported.
 /// - `uint32_t cmux_remote_shim_last_reply_token(void)`: the REPLY token of the async call this turn
 ///   just made; 0 when it sent nothing (task 018).
+/// - `void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch)`: where the host
+///   watch goes, `watch(ctx, event, a, b)` on the main thread: input waiting for the host's dispatch,
+///   its progress and its end, and the host's UI hangs (task p01-process-084). Optional: a remote shim
+///   without it has no busy banner.
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.
 @safe
@@ -41,6 +45,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias ReplyFn = @convention(c) (UnsafeMutableRawPointer?, UInt32, UnsafeRawPointer?, Int) -> Void
     typealias SetReplyFn = @convention(c) (UnsafeMutableRawPointer?, ReplyFn?) -> Void
     typealias LastReplyTokenFn = @convention(c) () -> UInt32
+    typealias HostWatchFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int64, Int64) -> Void
+    typealias SetHostWatchFn = @convention(c) (UnsafeMutableRawPointer?, HostWatchFn?) -> Void
     typealias EndedFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void
     typealias SetEndedFn = @convention(c) (UnsafeMutableRawPointer?, EndedFn?) -> Void
 
@@ -51,6 +57,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     private let setReplyFn: SetReplyFn
     private let setEndedFn: SetEndedFn
     private let lastReplyTokenFn: LastReplyTokenFn
+    /// `cmux_remote_shim_set_host_watch`, nil for a remote shim without it.
+    private let setHostWatchFn: SetHostWatchFn?
 
     /// Checks the dylib's ABI identity against `expected`, as ``CEFShimLibrary/open(_:expected:)``
     /// checks the in-process shim, and that it exports the wire entry points and every required
@@ -69,7 +77,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         return try unsafe CEFRemoteShim(symbol: symbol, attachFn: resolve("cmux_remote_shim_attach"),
                                         detachFn: resolve("cmux_remote_shim_detach"), setReplyFn: resolve("cmux_remote_shim_set_reply"),
                                         setEndedFn: resolve("cmux_remote_shim_set_ended"),
-                                        lastReplyTokenFn: resolve("cmux_remote_shim_last_reply_token"))
+                                        lastReplyTokenFn: resolve("cmux_remote_shim_last_reply_token"),
+                                        setHostWatchFn: symbol("cmux_remote_shim_set_host_watch").map { unsafe unsafeBitCast($0, to: SetHostWatchFn.self) })
     }
 
     /// Opens the remote dylib the attachment names (off the main thread: `dlopen` holds dyld's lock).
@@ -91,10 +100,24 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// Releases the host's wire that ``attach(_:replies:helloDeadline:clock:)`` gave the shim, and
     /// its reply and end sinks.
     func detach() {
+        // The host watch hears the detach (input that waited went with the host) before it is cleared.
         detachFn()
         // SAFETY: NULL context and callback clear the reply and end sinks; nothing is read through them.
         unsafe setReplyFn(nil, nil)
         unsafe setEndedFn(nil, nil)
+        // SAFETY: as above, for the host watch.
+        if let setHostWatchFn { unsafe setHostWatchFn(nil, nil) }
+    }
+
+    /// The host watch goes to `monitor` until ``detach()``: false when this remote shim has no host watch.
+    @MainActor
+    func watchHost(_ monitor: ChromiumHostHangMonitor) -> Bool {
+        guard let setHostWatchFn, let token = try? monitor.token() else { return false }
+        // SAFETY: the context is the monitor's registry token, never its address: a frame after the monitor is
+        // gone finds nothing (ChromiumHostHangMonitorRegistration); the callback is a C function of
+        // `cmux_remote_host_watch_fn`.
+        unsafe setHostWatchFn(token.context, ChromiumHostHangMonitor.hostWatchCallback)
+        return true
     }
 
     /// The REPLY token of the async shim call this turn just made (0: it sent nothing).

@@ -20,7 +20,7 @@ use sha2::{Digest, Sha256};
 
 use crate::event::EventKind;
 use crate::ids::Principal;
-use crate::model::{LEDGER_RETENTION_MS, LedgerEntry, State, ledger_key};
+use crate::model::{Category, LEDGER_RETENTION_MS, LedgerEntry, State, Task, ledger_key};
 use crate::op::{Envelope, Op};
 
 /// Inputs from the owner that are not part of the op. Logged with every
@@ -222,6 +222,16 @@ impl Tx<'_> {
     /// Resolve a live task reference or reject `not_found`.
     pub(crate) fn task_id(&self, reference: &str) -> Result<String, Reject> {
         self.state.resolve_task(reference).ok_or_else(|| not_found("task", reference))
+    }
+
+    /// The task with the resolved id `id`, or `not_found`.
+    pub(crate) fn task(&self, id: &str) -> Result<&Task, Reject> {
+        self.state.tasks.get(id).ok_or_else(|| not_found("task", id))
+    }
+
+    /// The category of the status with the resolved id `status`, or `not_found`.
+    pub(crate) fn status_category(&self, status: &str) -> Result<Category, Reject> {
+        self.state.status_category(status).ok_or_else(|| not_found("status", status))
     }
 
     pub(crate) fn result_for_task(&self, id: &str) -> OpResult {

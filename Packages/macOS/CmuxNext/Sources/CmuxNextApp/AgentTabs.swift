@@ -137,6 +137,8 @@ final class AgentTabStore {
     var takeSpare: (() -> AgentPaneView?)?
     /// Closed pages leave the view tree at once; the page host's one retirer ends them later (`AgentPaneView.retire(on:closed:)`).
     var retirer: PageRetirer { webUI.retirer }
+    /// The New Tab pages' open tabs and workspaces, kept current while any page is open (``NewTabPlacesFeed``).
+    var placesFeed: NewTabPlacesFeed?
     /// The session each tab's page reported, ahead of the store's echo of the bind and across a
     /// web content crash or a view rebuilt after the tab was released.
     var sessions: [String: String] = [:]

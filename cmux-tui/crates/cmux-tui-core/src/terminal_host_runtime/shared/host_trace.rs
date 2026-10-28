@@ -54,7 +54,8 @@ pub(crate) fn decode_request(payload: &[u8]) -> Option<ControlOp> {
         return None;
     }
     let categories = wire_u64(payload, 1)?;
-    match payload[0] {
+    let [code, ..] = *payload else { return None };
+    match code {
         OP_START => Some(ControlOp::Start { categories }),
         OP_STOP if categories == 0 => Some(ControlOp::Stop),
         OP_STATUS if categories == 0 => Some(ControlOp::Status),
@@ -89,11 +90,12 @@ pub(crate) fn decode_ack(payload: &[u8]) -> Option<TraceReport> {
         return None;
     }
     let pid = wire_u32(payload, 2)?;
-    let state = match payload[0] {
+    let [outcome, recording, ..] = *payload else { return None };
+    let state = match outcome {
         OUTCOME_TRACED => {
-            let path = std::str::from_utf8(&payload[ACK_HEADER_LEN..]).ok()?;
+            let path = std::str::from_utf8(payload.get(ACK_HEADER_LEN..)?).ok()?;
             Ok(TracedState {
-                recording: match payload[1] {
+                recording: match recording {
                     0 => false,
                     1 => true,
                     _ => return None,

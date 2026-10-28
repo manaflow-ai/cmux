@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextPalette
@@ -7,10 +8,12 @@ import CmuxNextPalette
 /// workspace it shows, the active window last so another window is the
 /// first choice.
 final class WindowTargetSource: PaletteTargetSource {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
 
     init(services: AppServices) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
     }
 
     func targets(of kind: ActionTargetKind) -> [PaletteTargetOption] {
@@ -25,12 +28,13 @@ final class WindowTargetSource: PaletteTargetSource {
     /// A workspace's description (Edit Workspace Description… starts from it).
     func currentDescription(of target: ActionTargetRef) -> String? {
         guard target.kind == .workspace else { return nil }
-        return services.workspace(id: target.id)?.workspaceDescription
+        return services?.workspace(id: target.id)?.workspaceDescription
     }
 
     /// Every workspace in the active window's sidebar order, the shown one
     /// last (Merge Workspace Into…).
     private func workspaces() -> [PaletteTargetOption] {
+        guard let services else { return [] }
         let shown = services.windows.active?.state.workspaceID
         let order = services.windows.active?.sidebar.model.allWorkspaces.map(\.id.rawValue) ?? []
         let listed = Set(order)
@@ -43,6 +47,7 @@ final class WindowTargetSource: PaletteTargetSource {
 
     /// Connected machines: this Mac, then each Cloud machine (New Workspace on Machine…).
     private func machines() -> [PaletteTargetOption] {
+        guard let services else { return [] }
         let machines = services.machines
         let local = Self.symbol(machines.icon(machine: MachineRegistry.localID), or: "laptopcomputer")
         var options = [PaletteTargetOption(id: MachineRegistry.localID, title: WorkspaceVerbStrings.thisMac, symbol: local)]
@@ -61,6 +66,7 @@ final class WindowTargetSource: PaletteTargetSource {
     }
 
     private func windows() -> [PaletteTargetOption] {
+        guard let services else { return [] }
         let windows = services.windows
         let active = windows.active?.state.id
         let options = windows.controllers.enumerated().map { index, controller in

@@ -17,19 +17,20 @@ nonisolated private struct Ran: Sendable {
 }
 
 /// The launch's design-mode cleanup and CLI pointer write are files-lane posts (p08-startup-083, Q12):
-/// the cleanup is held behind the launch's best-effort fence until startup completes, then runs at
+/// the cleanup is held behind the launch's best-effort fence until the reveal (p06-scheduler-204), then runs at
 /// `.background`; the pointer is not held (a script that opens the app and runs `cmux` at once gets this
 /// app's CLI) and survives a quit during startup.
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct LaunchFileJobsTests {
-    @Test func theCleanupWaitsForStartupCompleteAndThePointerIsWrittenAtOnce() async throws {
+    @Test func theCleanupWaitsForTheRevealAndThePointerIsWrittenAtOnce() async throws {
         let (queued, queue) = AsyncStream.makeStream(of: WorkPriority.self)
         let background = BackgroundWork(label: "test.launchfiles", onQueued: { lane, priority in
             if lane == .files { queue.yield(priority) }
         })
-        let s = StartupTestScheduler(background: background)
-        let order = LaunchOrder(fence: LaunchOrder.BestEffortFence(raisingOn: background, clock: ManualClock()),
+        let s = StartupTestScheduler(phase: StartupPhase(clock: ManualClock(), ledger: WakeupLedger()), background: background)
+        let order = LaunchOrder(fence: LaunchOrder.BestEffortFence(raisingOn: background),
                                 mainWork: s.mainWork, startup: s.startup) { _ in }
+        s.mainWork.startup.noteLaunch(.window)
         let (runs, run) = AsyncStream.makeStream(of: Ran.self)
         LaunchFileJobs(removeDesignModeTempFiles: { run.yield(.here("cleanup")) },
                        publishCLIPointer: { run.yield(.here("pointer")) }).post(on: background)
@@ -37,12 +38,12 @@ nonisolated private struct Ran: Sendable {
         queue.finish()
         var levels: [WorkPriority] = []
         for await priority in queued { levels.append(priority) }
-        #expect(levels == [.idle], "the CLI pointer waited for startup complete")
+        #expect(levels == [.idle], "the CLI pointer waited for the reveal")
         var iterator = runs.makeAsyncIterator()
         let pointer = try #require(await iterator.next())
-        #expect(pointer.job == "pointer", "the cleanup ran before startup completed")
+        #expect(pointer.job == "pointer", "the cleanup ran before the reveal")
         #expect(pointer.queue.hasPrefix("test.launchfiles.files.userVisible."), "ran on \(pointer.queue)")
-        s.complete()
+        s.mainWork.startup.noteFirstFrame() // the reveal lowers the fence
         let cleanup = try #require(await iterator.next())
         #expect(cleanup.job == "cleanup")
         #expect(cleanup.queue.hasPrefix("test.launchfiles.files.idle."), "ran on \(cleanup.queue)")

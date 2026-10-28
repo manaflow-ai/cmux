@@ -5,7 +5,7 @@ import Foundation
 extension TerminalEventQueue {
     /// What the queue holds and where it is in a resync; read and changed only under the queue's lock.
     struct State {
-        var items: [TerminalChannelEvent] = []
+        var items: [Item] = []
         var head = 0
         /// Bulk bytes queued: output and snapshot history (the parking bound).
         var outputBytes = 0
@@ -35,22 +35,22 @@ extension TerminalEventQueue {
         var resyncRequests = 0
         var droppedEvents = 0
 
-        mutating func append(_ event: TerminalChannelEvent) {
-            items.append(event)
-            outputBytes += TerminalEventQueue.outputSize(event)
-            liveOutputBytes += TerminalEventQueue.liveOutputSize(event)
-            if TerminalEventQueue.startsFreshState(event) { queuedFreshStates += 1 }
+        mutating func append(_ item: Item) {
+            items.append(item)
+            outputBytes += item.outputSize
+            liveOutputBytes += item.liveOutputSize
+            if item.startsFreshState { queuedFreshStates += 1 }
         }
 
-        /// Replaces the queued events with `kept`, counting the rest as dropped.
-        mutating func replacePending(with kept: [TerminalChannelEvent]) {
+        /// Replaces the queued items with `kept`, counting the rest as dropped.
+        mutating func replacePending(with kept: [Item]) {
             droppedEvents += items.count - head - kept.count
             items = []
             head = 0
             outputBytes = 0
             liveOutputBytes = 0
             queuedFreshStates = 0
-            for event in kept { append(event) }
+            for item in kept { append(item) }
         }
 
         /// Whether the reader must wait now (not finished, and the lane or a marker holds it or the queue is armed
@@ -67,18 +67,16 @@ extension TerminalEventQueue {
             return readerParked
         }
 
-        /// Whether `event` is dropped because a fresh state will replace it. Any fresh state (the
+        /// Whether `item` is dropped because a fresh state will replace it. Any fresh state (the
         /// requested READY, or one the daemon sent on its own) covers the dropped output, ends the
         /// resync and is queued. While deferred, the queued READY's history still goes through.
-        mutating func dropWhileResyncing(_ event: TerminalChannelEvent) -> Bool {
+        mutating func dropWhileResyncing(_ item: Item) -> Bool {
             guard resync != .idle else { return false }
-            if TerminalEventQueue.startsFreshState(event) {
+            if item.startsFreshState {
                 resync = .idle
                 return false
             }
-            let drops = resync == .deferred
-                ? TerminalEventQueue.isLiveContent(event)
-                : TerminalEventQueue.isSupersededByReady(event)
+            let drops = resync == .deferred ? item.isLiveContent : item.isSupersededByReady
             if drops { droppedEvents += 1 }
             return drops
         }
@@ -91,7 +89,7 @@ extension TerminalEventQueue {
 
         /// Drops every queued event a fresh READY supersedes; size, color and scroll states stay in order.
         mutating func dropSuperseded() {
-            replacePending(with: items.dropFirst(head).filter { !TerminalEventQueue.isSupersededByReady($0) })
+            replacePending(with: items.dropFirst(head).filter { !$0.isSupersededByReady })
         }
 
         /// Keeps the newest queued fresh state, its history and every size, color and scroll state. Drops
@@ -99,12 +97,12 @@ extension TerminalEventQueue {
         /// once a chunk is lost.
         mutating func keepNewestFreshState() {
             let pending = Array(items.dropFirst(head))
-            guard let newest = pending.lastIndex(where: TerminalEventQueue.startsFreshState) else { return }
-            let kept = pending.enumerated().compactMap { offset, event -> TerminalChannelEvent? in
+            guard let newest = pending.lastIndex(where: \.startsFreshState) else { return }
+            let kept = pending.enumerated().compactMap { offset, item -> Item? in
                 let keep = offset < newest
-                    ? !TerminalEventQueue.isSupersededByReady(event)
-                    : offset == newest || !TerminalEventQueue.isLiveContent(event)
-                return keep ? event : nil
+                    ? !item.isSupersededByReady
+                    : offset == newest || !item.isLiveContent
+                return keep ? item : nil
             }
             replacePending(with: kept)
         }
@@ -130,12 +128,40 @@ extension TerminalEventQueue {
         }
 
         /// Next event, merging consecutive plain output chunks up to `mergeLimit`; nil when none is queued.
+        /// Spans merge only with spans that continue them in the PTY stream, decoded chunks only with
+        /// decoded chunks; nothing merges across any other event.
         mutating func popMerged(mergeLimit: Int, recorder: DaemonWireStats.Recorder?) -> TerminalChannelEvent? {
-            guard var event = items[checked: head] else { return nil }
+            guard let item = items[checked: head] else { return nil }
             head += 1
-            if case .output(var data, nil) = event {
+            let event: TerminalChannelEvent
+            switch item {
+            case .span(let first):
+                var joined: TerminalOutputSpan? = first  // the merged bytes while they are one slice of one buffer
+                var copied = Data()  // the merged bytes once they are not
+                var end = first.end
+                var count = first.bytes.count
+                while count < mergeLimit, case .span(let next)? = items[checked: head], next.offset == end {
+                    if let wider = joined?.joined(with: next) {
+                        joined = wider
+                    } else {
+                        if let run = joined.take() { copied.append(run.bytes.data) }
+                        copied.append(next.bytes.data)
+                    }
+                    end = next.end
+                    count += next.bytes.count
+                    head += 1
+                }
+                if let joined {
+                    event = .output(joined.bytes.data, colors: nil)  // one wider slice, no copy
+                } else {
+                    recorder?.outputCopied(copied.count)  // a merge that writes every byte of the result
+                    event = .output(copied, colors: nil)
+                }
+                outputBytes -= count
+                liveOutputBytes -= count
+            case .event(.output(var data, nil)):
                 var merged = false
-                while data.count < mergeLimit, case .output(let more, nil)? = items[checked: head] {
+                while data.count < mergeLimit, case .event(.output(let more, nil))? = items[checked: head] {
                     data.append(more)
                     head += 1
                     merged = true
@@ -145,10 +171,11 @@ extension TerminalEventQueue {
                 event = .output(data, colors: nil)
                 outputBytes -= data.count
                 liveOutputBytes -= data.count
-            } else {
-                outputBytes -= TerminalEventQueue.outputSize(event)
-                liveOutputBytes -= TerminalEventQueue.liveOutputSize(event)
-                if TerminalEventQueue.startsFreshState(event) { queuedFreshStates -= 1 }
+            case .event(let other):
+                event = other
+                outputBytes -= TerminalEventQueue.outputSize(other)
+                liveOutputBytes -= TerminalEventQueue.liveOutputSize(other)
+                if TerminalEventQueue.startsFreshState(other) { queuedFreshStates -= 1 }
             }
             if head > 256, head * 2 > items.count {
                 items.removeFirst(head)

@@ -244,7 +244,7 @@ final class WebPopupRows: NSView {
         super.init(frame: .zero)
         // The whole menu's edge: leaving it is discrete, so the pending move lands now (`ShouldFlushQueue`).
         // The rows' own edges are not; they post like moves (PopupRowView).
-        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)

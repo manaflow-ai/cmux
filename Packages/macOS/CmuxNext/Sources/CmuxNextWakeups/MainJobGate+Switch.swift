@@ -17,6 +17,7 @@ import os
 public final class MainJobGateSwitch {
     /// The word the hook reads.
     public var state: InputPendingState { gate.state }
+    /// The gate it turns on and off.
     public let gate: MainJobGate
     /// Input and frame tasks the gate passes.
     public let work: MainWork

@@ -10,8 +10,10 @@ TRAP,SEGV,ABRT,KILL). Per row:
                hop bound this number, not the app
   back         Reload (pressed through page_status, as a click) brings the page back: the crash page is gone and the
                page answers a script again, under a new host (`back_ms` from the signal)
+  crash_record with `record` (the bench passes chromium_host_crash_records.row, p01-process-085): `debug.crashes`
+               lists the signalled host's end with that signal, its fork API and its log's last lines without URLs
 
-A row passes when all three hold. Without the host backend no row runs and the mode fails: it could not run.
+A row passes when all of them hold. Without the host backend no row runs and the mode fails: it could not run.
 """
 import os
 import signal
@@ -46,9 +48,10 @@ def crash_page_shown(status):
     return len(lines) == 3 and all(lines)
 
 
-def run(rpc, wait, url, signals, host_pid, app_pid, alive, send=os.kill, clock=time.monotonic):
+def run(rpc, wait, url, signals, host_pid, app_pid, alive, send=os.kill, clock=time.monotonic, record=None):
     """Every row; returns (rows, ok). `host_pid()` reads the running host's pid, `alive(pid)` whether a pid runs,
-    `send(pid, number)` signals it."""
+    `send(pid, number)` signals it, `record(pid, number)` (optional) checks the crash record of that end: a dict
+    with `pass`, kept as the row's `crash_record`."""
     backend = (rpc("debug.cef") or {}).get("backend")
     if backend != "host":
         reason = f"the Chromium backend is {backend!r}, not the Chromium Host (a Release build, or browserHost.helper off)"
@@ -85,11 +88,14 @@ def run(rpc, wait, url, signals, host_pid, app_pid, alive, send=os.kill, clock=t
         row = {"host_pid": host, "cmux_alive": alive(app_pid), "crash_page": bool(shown),
                "crash_page_ms": round((clock() - sent) * 1000, 1) if shown else None,
                "gone_text": status().get("gone_text")}
+        if record is not None:
+            row["crash_record"] = record(host, number)
         pressed = bool(shown) and status(press="reload").get("pressed") == "1"
         back = pressed and wait(lambda: status().get("gone") == "0" and answers(), BACK_S, 0.1)
         fresh = host_pid()
         row.update({"back": bool(back), "back_ms": round((clock() - sent) * 1000, 1) if back else None, "new_host_pid": fresh,
                     "new_host": fresh is not None and fresh != host})
-        row["pass"] = row["cmux_alive"] and row["crash_page"] and row["back"] and row["new_host"]
+        row["pass"] = (row["cmux_alive"] and row["crash_page"] and row["back"] and row["new_host"]
+                       and (record is None or bool(row["crash_record"].get("pass"))))
         rows[name] = row
     return rows, all(row.get("pass") for row in rows.values())

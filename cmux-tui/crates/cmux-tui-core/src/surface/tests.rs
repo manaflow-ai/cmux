@@ -15,6 +15,8 @@ mod directory_publication;
 #[cfg(unix)]
 mod echo_flow;
 mod hosted;
+#[cfg(unix)]
+mod hosted_input_outage;
 mod input;
 mod lifecycle;
 #[cfg(unix)]

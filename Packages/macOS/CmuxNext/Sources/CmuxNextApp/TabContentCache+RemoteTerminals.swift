@@ -25,12 +25,13 @@ extension TabContentCache {
                                   hangWatch: daemon.hangWatch, endpoint: { try await daemon.endpoint() })
         let session = TerminalSession(io: io, ownsGeometry: true, hangWatch: daemon.hangWatch, modifiers: terminalModifiers,
                                       pointerFrames: terminalPointerFrames,
-                                      mainWork: mainWork, node: node(for: key), gpuResidency: gpuResidency)
+                                      mainWork: mainWork, node: node(for: key), gpuResidency: gpuResidency,
+                                      externalCursor: terminalExternalCursor)
         // It lays out after a Ghostty config change only while its tab is visible (p06-scheduler-044).
         session.view.followConfig(node(for: key), on: mainWork)
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
-                                  store: daemon.store, surface: TerminalAttachment.unresolvedSurface)
+                                  store: daemon.store, surface: TerminalAttachment.unresolvedSurface, mainWork: mainWork)
         terminals[key] = entry
         session.delegate = sessionDelegate
         session.isRenderingSuspended = !render
