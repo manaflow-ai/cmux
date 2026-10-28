@@ -412,8 +412,7 @@ final class WindowBrowserHostView: NSView {
             return hitView === self ? nil : hitView
         }
 
-        let dividerHit = splitDividerHit(at: point)
-        let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
+        let (dividerHit, hostedInspectorHit) = dividerHits(at: point)
         updateDividerCursor(at: point, dividerHit: dividerHit, hostedInspectorHit: hostedInspectorHit)
 
         let eventType = routingContext.eventType
@@ -736,8 +735,7 @@ final class WindowBrowserHostView: NSView {
     /// pass-through and a sidebar pass-through both return nil from `hitTest`,
     /// so only this tells them apart.
     func shouldPassThroughToSidebarResizer(at point: NSPoint) -> Bool {
-        let dividerHit = splitDividerHit(at: point)
-        let hostedInspectorHit = dividerHit == nil ? hostedInspectorDividerHit(at: point) : nil
+        let (dividerHit, hostedInspectorHit) = dividerHits(at: point)
         return shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: dividerHit,
@@ -899,8 +897,9 @@ final class WindowBrowserHostView: NSView {
         dividerHit: DividerHit? = nil,
         hostedInspectorHit: HostedInspectorDividerHit? = nil
     ) {
-        let resolvedDividerHit = dividerHit ?? splitDividerHit(at: point)
-        let resolvedHostedInspectorHit = resolvedDividerHit == nil ? (hostedInspectorHit ?? hostedInspectorDividerHit(at: point)) : nil
+        let (resolvedDividerHit, resolvedHostedInspectorHit) = dividerHit != nil || hostedInspectorHit != nil
+            ? (dividerHit, hostedInspectorHit)
+            : dividerHits(at: point)
         if shouldPassThroughToSidebarResizer(
             at: point,
             dividerHit: resolvedDividerHit,
@@ -950,6 +949,22 @@ final class WindowBrowserHostView: NSView {
         if restoreArrow {
             NSCursor.arrow.set()
         }
+    }
+
+    /// The divider that owns `point`, as at most one of a split hit or a hosted
+    /// Web Inspector hit. A split inside hosted content wins as before. An app
+    /// split's grab band can reach into a browser slot whose docked inspector
+    /// divider sits at that slot edge; the inspector divider wins there, since
+    /// the app split can still be grabbed from the pane on its other side.
+    private func dividerHits(at point: NSPoint) -> (DividerHit?, HostedInspectorDividerHit?) {
+        let dividerHit = splitDividerHit(at: point)
+        if dividerHit?.isInHostedContent == true {
+            return (dividerHit, nil)
+        }
+        if let hostedInspectorHit = hostedInspectorDividerHit(at: point) {
+            return (nil, hostedInspectorHit)
+        }
+        return (dividerHit, nil)
     }
 
     /// The split divider whose grab band (the divider plus
