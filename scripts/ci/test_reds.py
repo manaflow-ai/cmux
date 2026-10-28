@@ -87,6 +87,11 @@ TRUNCATED = re.compile(r"^(?:##\[error\]|::error[^:]*::)\s*(?:no \"Test run with
                        # the hang watchdog (hung_test_watchdog.py) and run_with_timeout.py
                        r".*\b(?:timed out after|made no progress|stopped by SIG[A-Z]+|stalled|[Hh]ung test|"
                        r"[Cc]ancelled test|[Tt]imeout))|^This log was truncated", re.I)
+# scripts/ci/run-webviews-tests.sh: one `START file` and one `PASS|FAIL|TIMEOUT file ...` line per Bun test file.
+# A TIMEOUT is a file the wrapper killed at its hard limit: cut short. Bun's own panic is a crash.
+BUN_STARTED = re.compile(r"^START (\S+\.(?:test|spec)\.[cm]?[jt]sx?) \(hard limit")
+BUN_RESULT = re.compile(r"^(PASS|FAIL|TIMEOUT) (\S+\.(?:test|spec)\.[cm]?[jt]sx?)\b")
+BUN_PANIC = re.compile(r"^(?:panic\((?:main thread|thread \d+)\)|oh no: Bun has crashed)")
 RUN_STARTED = re.compile(r"^◇ Test run started\.")
 RUN_ENDED = re.compile(r"^[✔✘━] Test run with \d+ tests?")
 RUN_COUNT = re.compile(r"^[✔✘━] Test run with (\d{1,9}) tests?")
@@ -254,8 +259,12 @@ def read(log: str | None) -> Result:
     named: list[str] = []
     crashed = False
     for text in lines:
-        if RAN.search(text) or UNITTEST_LINE.match(text):
+        if RAN.search(text) or UNITTEST_LINE.match(text) or BUN_STARTED.match(text) or BUN_RESULT.match(text):
             result.ran = True
+        if (match := BUN_RESULT.match(text)) and match.group(1) == "TIMEOUT":
+            result.truncated.append(f"{match.group(2)} timed out (killed at the wrapper's hard limit)")
+        if BUN_PANIC.match(text):
+            crashed = True
         for pattern in FAILED:
             if match := pattern.search(text):
                 result.failed.add(match.group(1))
