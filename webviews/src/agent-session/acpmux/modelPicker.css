@@ -400,7 +400,6 @@
   padding: 0;
   overflow-y: auto;
   scroll-padding-block: 0;
-  overscroll-behavior: contain;
 }
 .acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
 .acpmux-quick-list { display: flex; flex-direction: column; min-height: 0; }

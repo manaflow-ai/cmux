@@ -136,7 +136,8 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
         return { top: rect.top, bottom: rect.bottom, height: rect.height };
       };
       // The model menu first, then the submenu that lists the profiles.
-      const lists = (menu: HTMLElement) => Number(menu.querySelector(".acpmux-quick-search, .acpmux-quick-rail") === null);
+      const lists = (menu: HTMLElement) =>
+        Number(menu.querySelector(".acpmux-quick-search, .acpmux-quick-rail") === null);
       const menus = [...document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
       menus.sort((a, b) => lists(a) - lists(b));
       /** A node of `menu` itself, not of a submenu inside it. */
@@ -165,7 +166,7 @@ await requireBrowserLane("model-menu-bounded-height.test.ts", async () => {
             searchPresent: search !== null,
             footerPresent: footer !== null,
           },
-          profiles: lists(menu) ? Math.max(0, menu.querySelectorAll("[role^=\"menuitem\"]").length - 1) : 0,
+          profiles: lists(menu) ? Math.max(0, menu.querySelectorAll('[role^="menuitem"]').length - 1) : 0,
         };
       });
       return menus.map((menu, index) => {

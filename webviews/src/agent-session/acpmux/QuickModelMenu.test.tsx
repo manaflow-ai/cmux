@@ -168,7 +168,8 @@ test("on New Tab More models adds only the chosen tab's visible model rows", asy
   expect(initial).not.toContain("Claude old x");
   await act(async () => disclosure()!.click());
   await settle();
-  expect(labels(list())).toEqual([...initial.slice(0, -1), "Claude old x", "Claude old y", initial.at(-1)]);
+  const expected: string[] = [...initial.slice(0, -1), "Claude old x", "Claude old y", initial.at(-1)!];
+  expect(labels(list())).toEqual(expected);
   await act(async () => disclosure()!.click());
   await settle();
   expect(labels(list())).toEqual(initial);
