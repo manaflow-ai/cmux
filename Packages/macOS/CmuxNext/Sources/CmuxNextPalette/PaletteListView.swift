@@ -15,8 +15,12 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
     /// The pointer moved over the list (hover after a real mouse move, not a scroll).
     var onPointerMove: ((String?) -> Void)?
     var onActivate: ((String) -> Void)?
+    /// A middle-click on a row: close it, as Cmd-W does (Tab Search: the row's tab).
+    var onMiddleClick: ((String) -> Void)?
 
     private let table = PaletteTableView()
+    /// The row a middle press went down on (`onMiddleClick`).
+    private var middlePressID: String?
     private var rows: [DisplayRow] = []
     private var rowIndexByID: [String: Int] = [:]
     private var selectedID: String?
@@ -45,6 +49,14 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.onMouseMoved = { [weak self] point in self?.updateHover(at: point, pointerMoved: true) }
         table.onMouseExited = { [weak self] in self?.onHover?(nil) }
         table.onClick = { [weak self] row in self?.activate(row: row) }
+        // The press holds the row's id, not its index: a search that lands before the release may put another
+        // row at that index, and the release then closes nothing.
+        table.onMiddleDown = { [weak self] row in self?.middlePressID = self?.itemID(at: row) }
+        table.onMiddleClick = { [weak self] row in
+            guard let self, let id = itemID(at: row), id == middlePressID else { return }
+            middlePressID = nil
+            onMiddleClick?(id)
+        }
         documentView = table
         contentView.postsBoundsChangedNotifications = true
         // queue: .main runs inline for the clip view's post on main (scroll order kept).
@@ -142,6 +154,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         if pointerMoved, let onPointerMove { onPointerMove(id) } else { onHover?(id) }
     }
 
+    private func itemID(at row: Int) -> String? {
+        guard rows.indices.contains(row), case .item(let item) = rows[row] else { return nil }
+        return item.id
+    }
+
     private func activate(row: Int) {
         guard rows.indices.contains(row), case .item(let item) = rows[row], item.item.isEnabled else { return }
         onActivate?(item.id)
@@ -192,11 +209,17 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 }
 
 /// Table that never takes keyboard focus (the search field keeps it) and
-/// reports pointer movement and clicks by row. A click runs its row on the press.
+/// reports pointer movement and clicks by row. A click runs its row on the press;
+/// a middle-click closes its row on the release over the row it went down on, as
+/// the tab strip's does.
 final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
+    var onMiddleDown: ((Int) -> Void)?
+    var onMiddleClick: ((Int) -> Void)?
+    /// The row a middle press went down on.
+    private var middlePressRow: Int?
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
@@ -228,6 +251,26 @@ final class PaletteTableView: NSTableView {
         let rect = rect(ofRow: index)
         onMouseMoved?(NSPoint(x: rect.midX, y: rect.midY))
         onClick?(index)
+    }
+
+    override func otherMouseDown(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseDown(with: event) }
+        middlePressRow = visibleRow(at: event)
+        if let middlePressRow { onMiddleDown?(middlePressRow) }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        guard event.buttonNumber == 2 else { return super.otherMouseUp(with: event) }
+        defer { middlePressRow = nil }
+        if let index = visibleRow(at: event), index == middlePressRow { onMiddleClick?(index) }
+    }
+
+    /// The visible row under `event`'s pointer, nil off every visible row.
+    private func visibleRow(at event: NSEvent) -> Int? {
+        let point = convert(event.locationInWindow, from: nil)
+        guard visibleRect.contains(point) else { return nil }
+        let index = row(at: point)
+        return index >= 0 ? index : nil
     }
 }
 

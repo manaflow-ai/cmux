@@ -226,7 +226,7 @@ pub(crate) async fn peer_step(
             settle(io.rpc("_acpmux/peer_add", add_params(name, text(p, "url"), true)).await)
         }
         Some(_) => settle(
-            io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true})).await,
+            io.rpc("_acpmux/peer_reconnect", json!({"name": name, "wait": true, "force": true})).await,
         ),
         None if !fix => fail(format!("no peer named {name}"))
             .with_fix(format!("Check again with --fix to add {name} at {url}.")),
