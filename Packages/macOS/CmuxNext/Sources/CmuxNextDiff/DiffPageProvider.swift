@@ -385,6 +385,7 @@ public final class DiffPageProvider: PageProvider {
         guard patch.contains("@@") else { return nil }
         var old = "", new = ""
         var inHunk = false
+        var oldExists: Bool?, newExists: Bool?
         var expectedOld = 0, expectedNew = 0
         var seenOld = 0, seenNew = 0
         var leadingContext = 0, trailingContext = 0
@@ -406,7 +407,13 @@ public final class DiffPageProvider: PageProvider {
                 inHunk = true
                 continue
             }
-            guard inHunk else { continue }
+            guard inHunk else {
+                // The captured patch owns its side identity. The overview's
+                // status may precede this capture (for example deleted -> modified).
+                if text.hasPrefix("--- ") { oldExists = text != "--- /dev/null" }
+                if text.hasPrefix("+++ ") { newExists = text != "+++ /dev/null" }
+                continue
+            }
             guard let first = line.first else { continue }
             if first == "\\" { continue }
             guard first == " " || first == "-" || first == "+" else { return nil }
@@ -424,8 +431,8 @@ public final class DiffPageProvider: PageProvider {
         }
         guard inHunk, seenOld == expectedOld, seenNew == expectedNew,
               leadingContext < contextLimit, trailingContext < contextLimit else { return nil }
-        return (status == "added" || status == "untracked" ? nil : old,
-                status == "deleted" ? nil : new)
+        return ((oldExists ?? (status != "added" && status != "untracked")) ? old : nil,
+                (newExists ?? (status != "deleted")) ? new : nil)
     }
 
     nonisolated private static func hunkCounts(_ header: String) -> (old: Int, new: Int)? {
