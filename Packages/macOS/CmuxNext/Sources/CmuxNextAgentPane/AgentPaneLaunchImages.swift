@@ -92,8 +92,9 @@ public final class AgentPaneLaunchImages {
     }
 
     /// The saved pages in `state`, the tag's state directory (beside its launch snapshot).
-    public convenience init(state: URL?) {
-        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory))
+    /// `reader`: reads the saved pages; the app's skips every one in a crash streak's safe launch (`LaunchSafeMode`).
+    public convenience init(state: URL?, reader: LaunchFileReader = LaunchFileReader()) {
+        self.init(directory: state?.appending(path: Self.directoryName, directoryHint: .isDirectory), reader: reader)
     }
 
     /// Starts reading and decoding every saved page on `work`'s files lane at once; a later call does nothing.

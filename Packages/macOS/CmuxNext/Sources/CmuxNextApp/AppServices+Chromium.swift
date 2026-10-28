@@ -169,7 +169,8 @@ extension AppServices {
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures,
                                            disabledChromiumFeatures = features.disabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
-                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
+                                           attachedPages = features.isEnabled(.cefAttachedPages), resizeFence = features.isEnabled(.cefResizeFence),
+                                           memoryCoordinator,
                                            everyPage = Self.hostsEveryPage(features),
                                            rendererCaps = Self.sharedRendererMemoryCaps(.forThisMac(gpuResidentAvailable: false))] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
@@ -182,7 +183,7 @@ extension AppServices {
                                                        prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
                                           .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator).mergingEvents(on: mergeWork)
-                                          .cappingSharedRendererMemory(rendererCaps)
+                                          .cappingSharedRendererMemory(rendererCaps).usingResizeFence(resizeFence)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   stability: rendererStability,
