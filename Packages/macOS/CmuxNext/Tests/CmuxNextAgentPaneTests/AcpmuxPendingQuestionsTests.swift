@@ -32,9 +32,16 @@ struct AcpmuxPendingQuestionsTests {
         return ["result": watch ? ["sessions": [detail]] : ["session": detail]]
     }
 
-    func ledger() -> AcpmuxPendingQuestions {
+    func enableWatch(_ ledger: AcpmuxPendingQuestions, connection: Int = 1, token: Int = 900) {
+        ledger.request(method: "_acpmux/watch", session: nil, watchEnabled: true, token: token, connection: connection)
+        ledger.observe(["result": ["sessions": []]], replyTo: "_acpmux/watch",
+                       connection: connection, snapshotRequestToken: token)
+    }
+
+    func ledger(watching: Bool = true) -> AcpmuxPendingQuestions {
         let ledger = AcpmuxPendingQuestions()
         ledger.reset(connection: 1)
+        if watching { enableWatch(ledger) }
         return ledger
     }
 
@@ -214,6 +221,7 @@ struct AcpmuxPendingQuestionsTests {
         ledger.observe(Self.snapshot([Self.prompt()], seq: 12), replyTo: "_acpmux/attach",
                        connection: 1, snapshotRequestToken: 1)
         #expect(ledger.questions(connection: 1).isEmpty)
+        if method == "_acpmux/watch" { enableWatch(ledger) }
         read(ledger, Self.snapshot([Self.prompt()], seq: 13))
         #expect(ledger.question(session: "s", permission: "p", connection: 1) != nil)
     }
@@ -285,6 +293,7 @@ struct AcpmuxPendingQuestionsTests {
         #expect(!ledger.isCurrent(resumed))
         ledger.observe(Self.live(seq: 13), replyTo: nil, connection: 1)
         #expect(ledger.question(session: "s", permission: "p", connection: 2) == nil)
+        enableWatch(ledger, connection: 2)
         ledger.observe(Self.live(seq: 13), replyTo: nil, connection: 2)
         let reconnected = try #require(ledger.question(session: "s", permission: "p", connection: 2))
         #expect(reconnected.generation != resumed.generation)
@@ -313,12 +322,89 @@ struct AcpmuxPendingQuestionsTests {
         read(ledger, Self.snapshot([Self.prompt()], seq: 10), method: "_acpmux/attach")
         #expect(!ledger.isCurrent(first))
         ledger.reset(connection: 2)
+        enableWatch(ledger, connection: 2)
         ledger.observe(Self.live(), replyTo: nil, connection: 2)
         let second = try #require(ledger.question(session: "s", permission: "p", connection: 2))
         ledger.end(connection: 1)
         #expect(ledger.isCurrent(second))
         ledger.end(connection: 2)
         #expect(!ledger.isCurrent(second))
+    }
+
+    @Test func attachmentCannotSupplyUnfilteredLifecycleCoverage() throws {
+        let ledger = ledger(watching: false)
+        func attach(kinds: [String], token: Int) {
+            let box = AgentPaneTransport.FrameBox(["method": "_acpmux/attach",
+                "params": ["sessionId": "s", "eventStream": true, "kinds": kinds]])
+            let fields = box.questionLifecycle()
+            ledger.request(method: fields.method, session: fields.session, watchEnabled: fields.watchEnabled,
+                           token: token, connection: 1)
+            ledger.observe(Self.snapshot([Self.prompt()], seq: token), replyTo: fields.method,
+                           connection: 1, snapshotRequestToken: token)
+            ledger.observe(Self.live(seq: token + 1), replyTo: nil, connection: 1)
+        }
+        attach(kinds: [], token: 10)
+        #expect(ledger.questions(connection: 1).isEmpty)
+        // Neither an unfiltered attachment nor replacing it with an empty filter owns coverage.
+        attach(kinds: ["all"], token: 12)
+        attach(kinds: [], token: 14)
+        #expect(ledger.questions(connection: 1).isEmpty)
+        enableWatch(ledger)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 16))
+        let question = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        ledger.request(method: "_acpmux/watch", session: nil, watchEnabled: false, token: 17, connection: 1)
+        attach(kinds: [], token: 18)
+        #expect(!ledger.isCurrent(question))
+        #expect(ledger.questions(connection: 1).isEmpty)
+    }
+
+    @Test func watchNeedsCurrentNativeAckAndContinuesAcrossNewQuestions() throws {
+        let ledger = ledger(watching: false)
+        ledger.request(method: "_acpmux/watch", session: nil, watchEnabled: true, token: 1, connection: 1)
+        ledger.observe(Self.live(), replyTo: nil, connection: 1)
+        #expect(ledger.questions(connection: 1).isEmpty) // A sent request is not an ACK.
+        ledger.request(method: "_acpmux/watch", session: nil, watchEnabled: false, token: 2, connection: 1)
+        ledger.observe(["result": ["sessions": []]], replyTo: "_acpmux/watch",
+                       connection: 1, snapshotRequestToken: 1)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 11))
+        #expect(ledger.questions(connection: 1).isEmpty) // The old enable cannot outlive watch-off.
+        enableWatch(ledger)
+        read(ledger, Self.snapshot([Self.prompt()], seq: 12))
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        ledger.observe(["method": "_acpmux/session_changed", "params": ["seq": 13,
+            "recordKind": "permission_decision", "session": ["sessionId": "s", "pendingPermissions": 0]]],
+                       replyTo: nil, connection: 1)
+        #expect(!ledger.isCurrent(first))
+        ledger.observe(Self.live(Self.prompt("next"), seq: 14), replyTo: nil, connection: 1)
+        let next = try #require(ledger.question(session: "s", permission: "next", connection: 1))
+        #expect(ledger.isCurrent(next)) // No watch toggle or new attachment between A and B.
+    }
+
+    @Test(arguments: ["purged", "stale"])
+    func zeroSequencePeerInvalidationCannotBeDismissedAsOldHistory(notice: String) throws {
+        let ledger = ledger()
+        ledger.observe(Self.live(), replyTo: nil, connection: 1)
+        let first = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        ledger.request(method: "_acpmux/attach", session: "s", watchEnabled: nil, token: 1, connection: 1)
+        ledger.observe(["method": "_acpmux/session_changed", "params": ["seq": 0, "peer": "peer",
+            "kind": notice == "purged" ? "purged" : "status",
+            "session": ["sessionId": "s", "stale": notice == "stale"]]],
+                       replyTo: nil, connection: 1)
+        #expect(!ledger.isCurrent(first))
+        ledger.observe(Self.snapshot([Self.prompt()], seq: 11), replyTo: "_acpmux/attach",
+                       connection: 1, snapshotRequestToken: 1)
+        ledger.observe(["method": "_acpmux/session_changed", "params": ["seq": 0,
+            "kind": "status", "session": ["sessionId": "s", "stale": false]]],
+                       replyTo: nil, connection: 1)
+        ledger.observe(Self.live(seq: 11), replyTo: nil, connection: 1)
+        #expect(ledger.questions(connection: 1).isEmpty)
+        read(ledger, ["result": ["session": ["sessionId": "s", "lastSeq": 12,
+                                            "stale": true, "pending": [Self.prompt()]]]])
+        #expect(ledger.questions(connection: 1).isEmpty)
+        read(ledger, Self.snapshot([Self.prompt(nonce: String(repeating: "d", count: 64))], seq: 13))
+        let recovered = try #require(ledger.question(session: "s", permission: "p", connection: 1))
+        #expect(recovered.generation != first.generation)
+        #expect(!ledger.isCurrent(first))
     }
 
     @Test func malformedUnknownAndModelContentCannotGrantMembership() {
