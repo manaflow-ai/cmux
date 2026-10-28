@@ -14,29 +14,32 @@ struct LaunchPolishVisibilityTests {
         #expect(hidden.firstItem(with: .app("cmux/app-store")) == nil)
         #expect(SidebarRows.visibleLayout(stored, showAppStore: true) == stored.withoutChats)
     }
-    @Test func whatsNewSettingDefaultsOffSoTheCardIsRemovedUnlessTurnedOnAgain() {
-        // Konsti review (2026-10-27): "Remove what's new?". Default picked: the setting starts off.
-        #expect(UpdatesSettings.showWhatsNewDefault == false)
-        #expect(UpdatesSettings().showWhatsNew == false)
+    @Test func whatsNewCardShowsAfterAnUpdateWithPreviewsOffByDefault() async throws {
+        // User 13935: What's New shows after every update, no Labs gate; a Settings toggle turns it off.
+        let suite = "launch-polish-visibility-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
+        let settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
+        #expect(!settings.previewFeatures)
+        #expect(settings.updates.showWhatsNew == true)
+        center.isItemEnabled = settings.updates.showWhatsNew
+        await center.load().value
+        #expect(center.debugPretendUpdated(from: "0.9.0"))
+        #expect(center.showsUpdatedCard)
     }
-    @Test func whatsNewCardRemainsHiddenByDefaultAndReturnsWhenPreviewsAreEnabled() async throws {
+
+    @Test func whatsNewCardHidesWhenTheSettingIsTurnedOffAndKeepsTheUpdate() async throws {
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let center = WhatsNewCenter(currentVersion: "1.0.0", defaults: defaults, sources: [])
         var settings = CmuxConfigSnapshot.parse(.object([:]), validDensities: [], validMetrics: [])
-        #expect(!settings.previewFeatures)
-        center.isItemEnabled = settings.previewFeatures && settings.updates.showWhatsNew
+        settings.updates.showWhatsNew = false
+        center.isItemEnabled = settings.updates.showWhatsNew
         await center.load().value
         #expect(center.debugPretendUpdated(from: "0.9.0"))
         #expect(!center.showsUpdatedCard)
-
-        settings.previewFeatures = true
-        center.isItemEnabled = settings.previewFeatures && settings.updates.showWhatsNew
-        #expect(center.showsUpdatedCard)
-        settings.previewFeatures = false
-        center.isItemEnabled = settings.previewFeatures && settings.updates.showWhatsNew
-        #expect(!center.showsUpdatedCard)
-        #expect(center.isUpdated, "hiding the card preserves the update for when previews are enabled")
+        #expect(center.isUpdated, "hiding the card preserves the update")
     }
 }

@@ -1,10 +1,11 @@
 import React, { Fragment, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { AgentMark } from "../shared/AgentMark";
+import { AgentMark, hasAgentMark } from "../shared/AgentMark";
 import type { ChatAccountList, ChatAccounts } from "./chatAccounts";
 import { SearchIcon, type Choice } from "./ComposerPickers";
 import { isDefaultChoice } from "./defaultChoice";
 import { EffortTrack } from "./EffortTrack";
-import type { ReasoningSliderStyle } from "./composerSettings";
+import { useComposerSettings, type ReasoningSliderStyle, type HarnessPlacement } from "./composerSettings";
+import { harnessIcon } from "../shared/harnessIcons";
 import { useT } from "./i18n";
 import { CHAT_COLUMN } from "./modelPickerLayout";
 import { useOpenSide } from "../../ui/openSide";
@@ -64,6 +65,7 @@ export type QuickMenu = {
   /// running one, `submenu` makes its row a submenu of providers, `expanded` lists its providers
   /// under its name.
   providers?: QuickProviderLook;
+  harnessPlacement?: HarnessPlacement;
 };
 
 export type QuickSearchField = "always" | "typed" | "long";
@@ -105,16 +107,11 @@ export type QuickFamily = {
   note?: string;
   /// Runs a signed-out harness's login (its Log In row).
   logIn?(): void;
-  /// The launch configurations shown in its Profile submenu.
-  profiles?: QuickProfile[];
-  /// The launch profile the tab runs or starts on.
-  profile?: string;
+  /// A distinctly named launch configuration; choosing it changes the harness.
+  launch?: boolean;
   /// A started chat's other harness: offer Fork to it in place of models.
   fork?: boolean;
 };
-
-/// One launch configuration of a harness, by profile id.
-export type QuickProfile = { id: string; name: string; disabled?: boolean };
 
 export type QuickFamilies = {
   list: QuickFamily[];
@@ -123,12 +120,12 @@ export type QuickFamilies = {
   onPick(model: QuickModel): void;
   /// Add harness…, the last row of More models.
   onAddHarness?(): void;
-  onProfile?(id: string): void;
+  onLaunch?(id: string): void;
   onFork?(id: string): void;
   forkReady?: boolean;
 };
 
-/// How many rows a list shows at once (keys 1 to 9 pick a tab's rows).
+/// Keys 1 to 9 pick a tab's first rows; this does not limit the visible model list.
 const FILTER_ROWS = 9;
 const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
@@ -137,31 +134,6 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// provider's than the row lands, when the running one is unavailable.
 const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
   !!model.offers?.some((offer) => offer.id === current);
-
-/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
-/// submenu (a chevron), shows a number key, or shows the chosen model's check (wider: it has its own
-/// leading padding).
-export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean; check?: boolean };
-
-/// Invisible width probes keep tab changes from resizing the surface horizontally. They never
-/// reserve height: the visible models and controls alone determine how tall the menu is.
-function QuickMenuSpacer({ widths }: { widths: ProbeRow[] }) {
-  return (
-    <div className="acpmux-quick-spacer" aria-hidden="true" inert>
-      <div className="acpmux-quick-probe">
-        {widths.map((row, index) => (
-          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
-            <span className="acpmux-menu-label">{row.label}</span>
-            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
-            {row.check && <span className="ui-menu-check">✓</span>}
-            {row.sub && <span className="ui-submenu-chevron" />}
-            {row.shortcut && <span className="ui-menu-shortcut">9</span>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField" | "providers">;
@@ -189,6 +161,8 @@ export function QuickModelMenu({
   children: React.ReactNode;
 }) {
   const t = useT();
+  const settings = useComposerSettings();
+  const placement = menu.harnessPlacement ?? settings.harnessPlacement;
   // On New Tab the menu opens down, shows no key hints and opens More models in place (newTabComposer.ts).
   const newTab = useContext(OnNewTab);
   // Choose once for the compact menu's possible height; shorter tabs then stay by the same edge
@@ -277,15 +251,13 @@ export function QuickModelMenu({
   const forkTab = !query && shown?.fork ? shown : undefined;
   const inlineMore = newTab && families !== undefined;
   const moreShown = inlineMore && !query && moreFor !== undefined && moreFor === tab;
-  const profiles = families?.onProfile && (shown?.profiles?.length ?? 0) > 1 ? shown?.profiles : undefined;
-  const profile = shown?.profile ?? shown?.id;
   // What the list draws: the search's matches, else the tab's top models.
   const rows: QuickModel[] =
     query && search
-      ? search.find(query).slice(0, FILTER_ROWS)
+      ? search.find(query)
       : !families
         ? models.map((model) => ({ ...model, family: "" }))
-        : (shown?.models.slice(0, FILTER_ROWS) ?? []);
+        : (shown?.models ?? []);
   const providerLook = menu.providers ?? "row";
   // The running model's row when several providers serve it: the Provider row switches among them.
   const runningRow = onChatTab
@@ -317,7 +289,7 @@ export function QuickModelMenu({
   /// them. Digits on an empty field still pick a row, and Left and Right move along the rail.
   const fieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.nativeEvent.isComposing) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) {
       event.stopPropagation();
       return;
     }
@@ -333,14 +305,15 @@ export function QuickModelMenu({
       ? (activeAccount?.name ?? t("picker.harnessLogin"))
       : undefined;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
+      return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
     if (!event.currentTarget.contains(event.target as Node)) return;
     popup.current = event.currentTarget;
     // Left and Right move along the rail (its tabs are not rows, so Up and Down stay in the list).
     // In the search field they move along the rail only while it is empty (fieldKeyDown).
     if (families && !query && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-      const tabs = families.list;
+      const tabs = families.list.filter((family) => !family.launch || families.forkReady !== false);
       const at = tabs.findIndex((family) => family.id === tab);
       const next = tabs[(at + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
       if (next) {
@@ -361,6 +334,12 @@ export function QuickModelMenu({
       // The field edits its own text (fieldKeyDown). Enter there picks the highlighted row (the
       // pointer's or the arrows'), else the first match.
       if (event.key !== "Enter") return;
+      if (!query && shown?.launch && !shown.note && families?.forkReady !== false) {
+        event.preventDefault();
+        onOpenChange(false);
+        families?.onLaunch?.(shown.id);
+        return;
+      }
       const highlighted = event.currentTarget.querySelector<HTMLElement>('[role^="menuitem"][data-highlighted]');
       if (highlighted) {
         event.preventDefault();
@@ -385,48 +364,6 @@ export function QuickModelMenu({
       }
     }
   };
-  // Every tab's unfiltered rows, for the width the menu holds while open.
-  const widths: ProbeRow[] = families
-    ? [
-        ...families.list.flatMap((family): ProbeRow[] => [
-          ...family.models.slice(0, FILTER_ROWS).flatMap((model): ProbeRow[] => {
-            // The tag and the provider take the row's width too.
-            const label = model.tag ? `${model.name} ${model.tag}` : model.name;
-            const value = model.provider ? { value: model.provider } : {};
-            return [
-              family.id === families.current && model.id === current
-                ? { label, ...value, check: true }
-                : { label, ...value, shortcut: true },
-              ...(family.id === families.current && runsOffers(model, current)
-                ? [
-                    {
-                      label: t("picker.provider"),
-                      value: model.offers?.find((offer) => offer.id === current)?.provider,
-                      sub: true,
-                    },
-                  ]
-                : []),
-            ];
-          }),
-          ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
-          ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
-          ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
-          ...(families.onProfile && family.profiles && family.profiles.length > 1
-            ? [
-                {
-                  label: t("picker.profile"),
-                  value: family.profiles.find((choice) => choice.id === family.profile)?.name,
-                  sub: true,
-                },
-              ]
-            : []),
-        ]),
-        ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
-        { label: t("picker.moreModels"), sub: true },
-        ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
-        ...(fast ? [{ label: t("picker.fastMode") }] : []),
-      ]
-    : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   // Keep the model menu's normal state as a compact list. A typed query remains labelled so the
   // filtered context is visible, while the static "Model · this session" caption adds no
@@ -637,9 +574,10 @@ export function QuickModelMenu({
           </MenuRadioGroup>
         </Submenu>
       )}
-      {!query && !(forkTab && !profiles) && (!inlineMore || (onChatTab && account) || profiles) && <MenuSeparator />}
+      {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
       {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
+          align="start"
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu acpmux-quick-more"
           label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
@@ -680,36 +618,6 @@ export function QuickModelMenu({
           <span className="acpmux-menu-label">{t("picker.moreModels")}</span>
           <span className="ui-submenu-chevron" aria-hidden="true" />
         </MenuItem>
-      )}
-      {!query && profiles && (
-        <Submenu
-          className="acpmux-quick-item acpmux-quick-sub"
-          popupClassName="acpmux-quick-menu"
-          label={
-            <QuickRowLabel label={t("picker.profile")} value={profiles.find((choice) => choice.id === profile)?.name} />
-          }
-        >
-          <MenuRadioGroup
-            value={profile ?? ""}
-            onValueChange={(id) => {
-              if (id === profile) return;
-              onOpenChange(false);
-              families?.onProfile?.(id);
-            }}
-          >
-            {profiles.map((choice) => (
-              <MenuRadioItem
-                key={choice.id}
-                value={choice.id}
-                closeOnClick
-                disabled={choice.disabled}
-                className="acpmux-quick-item acpmux-quick-profile"
-              >
-                <span className="acpmux-menu-label">{choice.name}</span>
-              </MenuRadioItem>
-            ))}
-          </MenuRadioGroup>
-        </Submenu>
       )}
       {!query && onChatTab && account && (
         <Submenu
@@ -755,7 +663,7 @@ export function QuickModelMenu({
         flip={false}
         align="start"
         label={t("picker.model")}
-        className={`acpmux-quick-menu${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
+        className={`acpmux-quick-menu acpmux-quick-placement-${placement}${families ? " acpmux-quick-railed" : ""}${newTab ? " acpmux-quick-newtab" : ""}`}
         boundary={CHAT_COLUMN}
         // A native menu panel cannot draw the harness strip or the More models scroll area.
         // Keep this combined surface inside the window in both directions.
@@ -792,6 +700,7 @@ export function QuickModelMenu({
                   type="button"
                   aria-label={family.name}
                   aria-pressed={family.id === tab}
+                  disabled={family.launch && families.forkReady === false}
                   // tooltip-allow: the rail tab draws only a meaningful harness mark, never a
                   // machine/session initial; its accessible name and title identify the harness.
                   title={family.note ? `${family.name} · ${family.note}` : family.name}
@@ -799,6 +708,11 @@ export function QuickModelMenu({
                   // ui-allow: the rail is no row of the menu; ArrowLeft and ArrowRight move along it, so Up and Down stay in the list.
                   tabIndex={-1}
                   onClick={() => {
+                    if (family.launch && !family.note) {
+                      onOpenChange(false);
+                      families.onLaunch?.(family.id);
+                      return;
+                    }
                     setTab(family.id);
                     setQuery("");
                     toTop();
@@ -806,11 +720,10 @@ export function QuickModelMenu({
                 >
                   {family.starred ? (
                     <StarIcon />
-                  ) : family.mark ? (
+                  ) : family.mark && hasAgentMark(family.mark) && harnessIcon(family.mark)?.kind !== "monogram" ? (
                     <AgentMark agent={family.mark} size={16} />
-                  ) : (
-                    <AgentMark agent={undefined} size={16} reserve />
-                  )}
+                  ) : null}
+                  <span className="acpmux-quick-harness-name">{family.name}</span>
                 </button>
               ))}
             </fieldset>
@@ -821,7 +734,6 @@ export function QuickModelMenu({
               onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
             >
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer widths={widths} />
             </div>
           </div>
         ) : (

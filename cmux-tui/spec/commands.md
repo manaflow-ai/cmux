@@ -7036,15 +7036,15 @@ poster?:DerivedImage, preview?:DerivedImage}`. An upload belongs to the
 connection that began it, ends with that connection, and expires after 15
 minutes. At most 32 uploads are open at once. A record no message references
 is removed after 24 hours, with its bytes when no other record names them.
-The store holds at most 10 GB (decimal) across every conversation, uploads in
-flight included: a `begin` that does not fit first removes the oldest records
-no message references, and is refused with `storage_full` when only bytes
-that messages reference are left.
+The store has an advisory 10 GB (decimal) budget across every conversation,
+including uploads in flight. A `begin` above that budget logs a warning and
+continues. Budget pressure never removes fresh unsent or referenced attachments;
+the normal 24-hour sweep still removes abandoned uploads. Filesystem failures,
+including a full disk, remain errors when creating, writing or syncing bytes.
 Refusals have `error_code` `attachment_rejected` and one of the reasons
 `validation_invalid`, `type_refused`, `too_large`, `poster_refused`,
 `preview_refused`, `unknown_upload`, `unknown_piece`, `bad_offset`,
-`chunk_too_large`, `incomplete`, `hash_mismatch`, `too_many_uploads` or
-`storage_full`;
+`chunk_too_large`, `incomplete`, `hash_mismatch` or `too_many_uploads`;
 `unknown_conversation` and `not_participant` are `conversation_rejected`.
 
 A `message.send` or `message.edit` with an `attachment` part commits only
