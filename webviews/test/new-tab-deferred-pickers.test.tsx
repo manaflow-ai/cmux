@@ -265,7 +265,13 @@ async function mountNewTab({
     await act(async () => {
       dom.window.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true }));
     });
-    const search = host.querySelector<HTMLInputElement>(".acpmux-quick-search input");
+    let search = host.querySelector<HTMLInputElement>(".acpmux-quick-search input");
+    if (!search) {
+      const trigger = host.querySelector<HTMLElement>("[data-menu=Model]");
+      expect(trigger).not.toBeNull();
+      await act(async () => trigger!.click());
+      search = host.querySelector<HTMLInputElement>(".acpmux-quick-search input");
+    }
     expect(search).not.toBeNull();
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!;
     await act(async () => {
