@@ -95,6 +95,7 @@ struct Inner {
     snapshot: Snapshot,
     node: Option<Arc<Node>>,
     starting: bool,
+    generation: u64,
 }
 
 /// Owns one embedded node per daemon install. The controller is cheap to
@@ -104,6 +105,7 @@ pub struct Controller {
     hostname: String,
     inner: Mutex<Inner>,
     changes: broadcast::Sender<Snapshot>,
+    lifecycle: tokio::sync::Mutex<()>,
 }
 
 impl Controller {
@@ -116,8 +118,10 @@ impl Controller {
                 snapshot: Snapshot { state: "not_started", ..Snapshot::default() },
                 node: None,
                 starting: false,
+                generation: 0,
             }),
             changes,
+            lifecycle: tokio::sync::Mutex::new(()),
         })
     }
 
@@ -138,11 +142,15 @@ impl Controller {
     /// Start the node without waiting for login. A saved login resumes; an
     /// unsigned node reports `needs_login` and its URL through `state`.
     pub async fn start(self: &Arc<Self>) -> Result<Snapshot, String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        let generation;
         {
             let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
             if inner.node.is_some() || inner.starting {
                 return Ok(inner.snapshot.clone());
             }
+            inner.generation = inner.generation.wrapping_add(1);
+            generation = inner.generation;
             inner.starting = true;
             inner.snapshot.state = "starting";
             self.publish_locked(&inner.snapshot);
@@ -173,7 +181,7 @@ impl Controller {
         let this = Arc::clone(self);
         if let Err(error) = std::thread::Builder::new()
             .name("acpmux-tailnet-watch".into())
-            .spawn(move || this.watch(node))
+            .spawn(move || this.watch(node, generation))
         {
             self.clear_node("error");
             self.update(|snapshot| snapshot.error = Some(error.to_string()));
@@ -184,6 +192,7 @@ impl Controller {
 
     /// Request an explicit browser sign-in URL for a running unsigned node.
     pub async fn login(&self) -> Result<Snapshot, String> {
+        let _lifecycle = self.lifecycle.lock().await;
         let node = self.node().ok_or_else(|| "tailnet is not started".to_owned())?;
         let result = tokio::task::spawn_blocking(move || node.login_interactive().map_err(|e| e.0))
             .await
@@ -194,6 +203,11 @@ impl Controller {
 
     /// Sign out and close all ingress listeners that hold this node.
     pub async fn logout(&self) -> Result<Snapshot, String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            inner.generation = inner.generation.wrapping_add(1);
+        }
         let node = self.node();
         if let Some(node) = node {
             tokio::task::spawn_blocking(move || {
@@ -209,6 +223,11 @@ impl Controller {
 
     /// Close without deleting the saved login, used by daemon shutdown.
     pub async fn shutdown(&self) -> Result<(), String> {
+        let _lifecycle = self.lifecycle.lock().await;
+        {
+            let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+            inner.generation = inner.generation.wrapping_add(1);
+        }
         if let Some(node) = self.node() {
             tokio::task::spawn_blocking(move || node.close().map_err(|e| e.0))
                 .await
@@ -218,21 +237,23 @@ impl Controller {
         Ok(())
     }
 
-    fn watch(self: Arc<Self>, node: Arc<Node>) {
+    fn watch(self: Arc<Self>, node: Arc<Node>, generation: u64) {
         let result = node.watch();
         match result {
             Ok(watch) => {
                 for notify in watch {
-                    self.update(|snapshot| snapshot.apply_notify(&notify, Some(&node)));
+                    self.update_if_current(generation, |snapshot| {
+                        snapshot.apply_notify(&notify, Some(&node))
+                    });
                 }
-                self.clear_if_same(&node, "stopped");
+                self.clear_if_same(&node, generation, "stopped");
             }
             Err(error) => {
-                self.update(|snapshot| {
+                self.update_if_current(generation, |snapshot| {
                     snapshot.state = "error";
                     snapshot.error = Some(error.0);
                 });
-                self.clear_if_same(&node, "error");
+                self.clear_if_same(&node, generation, "error");
             }
         }
     }
@@ -248,9 +269,11 @@ impl Controller {
         self.publish_locked(&inner.snapshot);
     }
 
-    fn clear_if_same(&self, node: &Arc<Node>, state: &'static str) {
+    fn clear_if_same(&self, node: &Arc<Node>, generation: u64, state: &'static str) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
-        if inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node)) {
+        if inner.generation == generation
+            && inner.node.as_ref().is_some_and(|current| Arc::ptr_eq(current, node))
+        {
             inner.node = None;
             inner.snapshot.state = state;
             self.publish_locked(&inner.snapshot);
@@ -259,6 +282,15 @@ impl Controller {
 
     fn update(&self, change: impl FnOnce(&mut Snapshot)) {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        change(&mut inner.snapshot);
+        self.publish_locked(&inner.snapshot);
+    }
+
+    fn update_if_current(&self, generation: u64, change: impl FnOnce(&mut Snapshot)) {
+        let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
+        if inner.generation != generation {
+            return;
+        }
         change(&mut inner.snapshot);
         self.publish_locked(&inner.snapshot);
     }
