@@ -422,8 +422,10 @@ export function recordedMessageBodyChanges(line: string): RecordedMessageBodyCha
 
 // Tool rows are immutable snapshots but the enclosing turn is rebuilt as streamed calls arrive.
 // Keep parsing by tool snapshot identity plus command revision so appending a later call does not
-// reparse earlier shell lines. WeakMap lifetime follows row snapshots and cannot grow across turns.
-const recordedBodyCache = new WeakMap<object, { command: string; changes: readonly RecordedMessageBodyChange[] }>();
+// reparse earlier shell lines. The LRU is bounded so a long transcript cannot retain one entry per
+// row; identity avoids stale reuse when a harness recycles a tool id for a new snapshot.
+const RECORDED_BODY_CACHE_LIMIT = 64;
+const recordedBodyCache = new Map<object, { command: string; changes: readonly RecordedMessageBodyChange[] }>();
 let recordedBodyParseCount = 0;
 
 export function recordedMessageBodyChangesForTool(tool: {
@@ -432,10 +434,17 @@ export function recordedMessageBodyChangesForTool(tool: {
 }): readonly RecordedMessageBodyChange[] {
   if (!tool.command) return [];
   const cached = recordedBodyCache.get(tool);
-  if (cached?.command === tool.command) return cached.changes;
+  if (cached?.command === tool.command) {
+    recordedBodyCache.delete(tool);
+    recordedBodyCache.set(tool, cached);
+    return cached.changes;
+  }
   recordedBodyParseCount += 1;
   const changes = recordedMessageBodyChanges(tool.command);
+  recordedBodyCache.delete(tool);
   recordedBodyCache.set(tool, { command: tool.command, changes });
+  while (recordedBodyCache.size > RECORDED_BODY_CACHE_LIMIT)
+    recordedBodyCache.delete(recordedBodyCache.keys().next().value!);
   return changes;
 }
 
@@ -452,6 +461,7 @@ function applyRecordedMessageBodyChange(command: ShellCommand, files: Map<string
 
 /** Test-only observability for the bounded revision cache. */
 export function resetRecordedMessageBodyCacheForTests(): void {
+  recordedBodyCache.clear();
   recordedBodyParseCount = 0;
 }
 

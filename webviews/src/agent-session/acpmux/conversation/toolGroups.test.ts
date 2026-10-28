@@ -210,6 +210,27 @@ test("producer cache remains bounded across many completed writer replays", () =
   expect(recordedMessageBodyParseCountForTests()).toBe(65);
 });
 
+test("parser cache evicts old immutable snapshots and can be reset", () => {
+  resetRecordedMessageBodyCacheForTests();
+  const rows = Array.from({ length: 65 }, (_, index) =>
+    item({
+      title: "Bash",
+      kind: "execute",
+      command: `cat > /tmp/eviction-${index}.md <<'EOF'\nbody ${index}\nEOF`,
+      startedAt: index * 2 + 1,
+      endedAt: index * 2 + 2,
+    }),
+  );
+  toolGroups(rows);
+  expect(recordedMessageBodyParseCountForTests()).toBe(65);
+  // The 65th revision evicts the oldest entry from the 64-entry parser cache.
+  toolGroups([rows[0]!]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(66);
+  resetRecordedMessageBodyCacheForTests();
+  toolGroups([rows[0]!]);
+  expect(recordedMessageBodyParseCountForTests()).toBe(1);
+});
+
 test("unchanged streamed tool revisions reuse the bounded body parser cache", () => {
   resetRecordedMessageBodyCacheForTests();
   const writer = item({
