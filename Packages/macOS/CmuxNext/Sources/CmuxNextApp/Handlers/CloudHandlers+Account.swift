@@ -132,7 +132,22 @@ extension CloudHandlers {
                   cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else { return }
             try await wizard.offerCredentialSetup(machine: session.machine.title,
                 account: cloud.auth.activeTeam.team?.displayName ?? CloudWorkspaceSetupWizard.personalAccountTitle, present: present) { provider in
-                let transfer = CloudCredentialTransfer(provider: provider == .claude ? .claude : .codex,
+                try Task.checkCancellation()
+                guard !creation.isTornDown, cloud.auth.user?.id == userID, cloud.auth.teamID == teamID else {
+                    throw CancellationError()
+                }
+                if provider == .codex {
+                    guard let windowID = window?.id, let originalWindow = services.windows.controller(for: windowID)?.window else {
+                        throw CancellationError()
+                    }
+                    try await cloud.codexBroker.run(machineID: session.machineID,
+                        scope: .init(userID: userID, teamID: teamID), confirmed: true,
+                        presentDeviceCode: { prompt in
+                            await CloudPresenter.presentCodexDeviceCode(prompt, in: .window(originalWindow))
+                        })
+                    return
+                }
+                let transfer = CloudCredentialTransfer(provider: .claude,
                     machineID: session.machineID, teamID: teamID, userID: userID, openTerminal: { [weak services] line in
                         await services?.openLocalProviderLogin(line) ?? false
                     })
@@ -360,9 +375,8 @@ extension CloudHandlers {
                 let shown = CloudPresenter.offerPro(refusal.message, in: windows.active?.window) { upgraded in
                     cloud.proOfferOpen = false
                     guard upgraded else { return }
-                    do { try context.open(refusal.upgradeURL ?? UpgradeToPro.pricingURL) } catch {
-                        cloud.logger.error("cmux Pro upgrade did not open: \(String(describing: error), privacy: .public)")
-                    }
+                    // The one paid-plan path: Checkout that returns here, else the refusal's link, else pricing.
+                    Task { await context.services.paidPlanUpgrade().start(plan: refusal.plan, source: .cloudRefusal, fallback: refusal.upgradeURL) }
                 }
                 if shown { cloud.proOfferOpen = true }
             },

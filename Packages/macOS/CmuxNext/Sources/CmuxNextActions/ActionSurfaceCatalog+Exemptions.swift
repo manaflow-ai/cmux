@@ -13,6 +13,10 @@ nonisolated extension ActionSurfaceCatalog {
     /// terminal and headless appearance verbs were added here.
     static let cliNamed: Set<ActionID> = [
         "palette.computerUse.restart",
+        // Docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md).
+        "workspace.dockLeft", "workspace.dockRight", "workspace.dockTop", "workspace.dockBottom", "workspace.undock",
+        "workspace.toggleDockFloating", "window.toggleDockLeft", "window.toggleDockRight", "window.toggleDockTop",
+        "window.toggleDockBottom", "window.toggleDockOrientation",
         "help.showCrashLogs", "palette.mobileConnect", "newWindow", "newIncognitoWindow", "closeWindow", "tab.focus", "pane.focus", "screen.focus", "quit", "quitKeepSessions", "quitEndSessions",
         "quitEndEverything", "keepMacAwake", "newBrowserWorkspace", "openFolder",
         "palette.openFolderInVSCodeInline", "reopenPreviousSession", "workspace.importClassic", "reopenClosedWorkspace", "moveWorkspaceUp",
@@ -43,7 +47,7 @@ nonisolated extension ActionSurfaceCatalog {
         "fileEditor.importEditorSettings",
         "space.newWindow", "space.newWorkspace", "space.newGroup", "space.rename", "space.setColor", "space.clearColor",
         "space.setIcon", "space.clearIcon", "space.setDefaults", "space.clearDefaults", "space.delete", "space.moveLeft",
-        "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
+        "space.moveRight", "space.moveToStart", "space.moveToEnd", "space.move", "space.switch", "workspace.moveToSpace", "workspace.duplicateToSpace",
         "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         "space.newWindow", "space.newWorkspace", "space.rename", "space.setColor",
         "space.clearColor", "space.setIcon", "space.clearIcon", "space.setDefaults", "space.delete",

@@ -540,7 +540,7 @@ button.acpmux-attachment-pasted-open:hover {
   cursor: grabbing;
   opacity: 0.85;
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px color-mix(in srgb, #000 30%, transparent);
+  box-shadow: var(--elevation-2);
 }
 
 /* One file body in the composer and transcript. The name yields before its extension or size. */

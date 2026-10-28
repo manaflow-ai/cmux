@@ -8087,6 +8087,268 @@
         }
       }
     },
+    "settings.browser.openSignInPages": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Sign-In Pages in cmux Browser"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "فتح صفحات تسجيل الدخول في متصفح cmux"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvaraj stranice za prijavu u cmux pregledniku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn login-sider i cmux-browser"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anmeldeseiten im cmux-Browser öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir páginas de inicio de sesión en el navegador de cmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrir les pages de connexion dans le navigateur cmux"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri le pagine di accesso nel browser cmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "サインインページをcmuxブラウザで開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកទំព័រចូលក្នុងកម្មវិធីរុករក cmux"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "로그인 페이지를 cmux 브라우저에서 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne påloggingssider i cmux-nettleseren"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwieraj strony logowania w przeglądarce cmux"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abrir páginas de login no navegador do cmux"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Открывать страницы входа в браузере cmux"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดหน้าลงชื่อเข้าใช้ในเบราว์เซอร์ cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Oturum açma sayfalarını cmux tarayıcısında aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкривати сторінки входу в браузері cmux"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở trang đăng nhập trong trình duyệt cmux"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 浏览器中打开登录页面"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在 cmux 瀏覽器中開啟登入頁面"
+          }
+        }
+      }
+    },
+    "settings.browser.openSignInPages.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تُفتح صفحات تسجيل الدخول ورموز الأجهزة، مثل صفحة الأجهزة في GitHub أو صفحة يفتحها gh أو aws أو وكيل لتسجيل الدخول، في علامة تبويب متصفح cmux حتى عندما تُفتح الروابط الأخرى في متصفحك الافتراضي. تظل الأولوية لعناوين URL التي تُفتح دائمًا خارجيًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranice za prijavu i kodove uređaja, kao što je GitHubova stranica za uređaje ili stranica koju gh, aws ili agent otvori za prijavu, otvaraju se u kartici cmux preglednika čak i kada se ostali linkovi otvaraju u vašem zadanom pregledniku. URL-ovi koji se uvijek otvaraju vanjski i dalje imaju prednost."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Login- og enhedskodesider, såsom GitHubs enhedsside eller en side, som gh, aws eller en agent åbner for at logge ind, åbnes i en cmux-browserfane, selv når andre links åbnes i din standardbrowser. URL'er, der altid åbnes eksternt, vinder stadig."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anmelde- und Gerätecode-Seiten, etwa die Geräteseite von GitHub oder eine Seite, die gh, aws oder ein Agent zur Anmeldung öffnet, öffnen sich in einem cmux-Browser-Tab, auch wenn andere Links in deinem Standardbrowser geöffnet werden. „Immer extern zu öffnende URLs“ haben weiterhin Vorrang."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las páginas de inicio de sesión y de código de dispositivo, como la página de dispositivos de GitHub o una página que gh, aws o un agente abre para iniciar sesión, se abren en una pestaña del navegador de cmux aunque los demás enlaces se abran en tu navegador predeterminado. Las URL que siempre se abren externamente siguen teniendo prioridad."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les pages de connexion et de code d'appareil, comme la page d'appareil de GitHub ou une page que gh, aws ou un agent ouvre pour se connecter, s'ouvrent dans un onglet du navigateur cmux même lorsque les autres liens s'ouvrent dans votre navigateur par défaut. Les URL à toujours ouvrir à l'extérieur restent prioritaires."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le pagine di accesso e dei codici dispositivo, come la pagina dei dispositivi di GitHub o una pagina che gh, aws o un agente apre per accedere, si aprono in una scheda del browser cmux anche quando gli altri link si aprono nel browser predefinito. Gli URL da aprire sempre esternamente hanno comunque la precedenza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHubのデバイスページや、gh・aws・エージェントがサインインのために開くページなどのサインインページやデバイスコードページは、ほかのリンクがデフォルトブラウザで開く設定でもcmuxブラウザのタブで開きます。「常に外部で開くURL」は引き続き優先されます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រចូល និងទំព័រកូដឧបករណ៍ ដូចជាទំព័រឧបករណ៍របស់ GitHub ឬទំព័រដែល gh, aws ឬភ្នាក់ងារបើកដើម្បីចូល នឹងបើកក្នុងផ្ទាំងកម្មវិធីរុករក cmux ទោះបីតំណផ្សេងទៀតបើកក្នុងកម្មវិធីរុករកលំនាំដើមរបស់អ្នកក៏ដោយ។ URL ដែលបើកខាងក្រៅជានិច្ចនៅតែមានអាទិភាព។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub 기기 페이지나 gh, aws, 에이전트가 로그인하려고 여는 페이지 같은 로그인 및 기기 코드 페이지는 다른 링크가 기본 브라우저에서 열리더라도 cmux 브라우저 탭에서 열립니다. 항상 외부에서 열 URL이 여전히 우선합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Påloggings- og enhetskodesider, som GitHubs enhetsside eller en side gh, aws eller en agent åpner for å logge på, åpnes i en cmux-nettleserfane selv når andre lenker åpnes i standardnettleseren din. URL-er som alltid åpnes eksternt, vinner fortsatt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strony logowania i kodów urządzeń, takie jak strona urządzeń GitHuba lub strona, którą gh, aws albo agent otwiera do logowania, otwierają się w karcie przeglądarki cmux, nawet gdy inne linki otwierają się w domyślnej przeglądarce. Adresy URL zawsze otwierane zewnętrznie nadal mają pierwszeństwo."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Páginas de login e de código de dispositivo, como a página de dispositivos do GitHub ou uma página que gh, aws ou um agente abre para entrar, abrem em uma aba do navegador do cmux mesmo quando outros links abrem no seu navegador padrão. URLs para sempre abrir externamente continuam tendo prioridade."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страницы входа и кодов устройств, например страница устройств GitHub или страница, которую gh, aws или агент открывает для входа, открываются во вкладке браузера cmux, даже если другие ссылки открываются в браузере по умолчанию. Адреса из списка «Всегда открывать во внешнем браузере» по-прежнему имеют приоритет."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าลงชื่อเข้าใช้และหน้ารหัสอุปกรณ์ เช่น หน้าอุปกรณ์ของ GitHub หรือหน้าที่ gh, aws หรือเอเจนต์เปิดเพื่อลงชื่อเข้าใช้ จะเปิดในแท็บเบราว์เซอร์ cmux แม้ลิงก์อื่นจะเปิดในเบราว์เซอร์เริ่มต้นของคุณ URL ที่เปิดภายนอกเสมอยังคงมีสิทธิ์เหนือกว่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "GitHub'ın cihaz sayfası ya da gh, aws veya bir ajanın oturum açmak için açtığı sayfa gibi oturum açma ve cihaz kodu sayfaları, diğer bağlantılar varsayılan tarayıcınızda açılsa bile bir cmux tarayıcı sekmesinde açılır. Her Zaman Harici Açılacak URL'ler yine önceliklidir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінки входу та кодів пристроїв, як-от сторінка пристроїв GitHub або сторінка, яку gh, aws чи агент відкриває для входу, відкриваються у вкладці браузера cmux, навіть коли інші посилання відкриваються в браузері за замовчуванням. Адреси зі списку «Завжди відкривати зовні» й надалі мають пріоритет."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang đăng nhập và trang mã thiết bị, chẳng hạn trang thiết bị của GitHub hoặc trang mà gh, aws hay một tác tử mở để đăng nhập, sẽ mở trong một thẻ trình duyệt cmux ngay cả khi các liên kết khác mở trong trình duyệt mặc định của bạn. Các URL luôn mở bên ngoài vẫn được ưu tiên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登录页面和设备代码页面（例如 GitHub 的设备页面，或 gh、aws、智能体为登录而打开的页面）会在 cmux 浏览器标签页中打开，即使其他链接在默认浏览器中打开。“始终在外部打开的 URL”仍然优先。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "登入頁面和裝置代碼頁面（例如 GitHub 的裝置頁面，或 gh、aws、代理程式為登入而開啟的頁面）會在 cmux 瀏覽器分頁中開啟，即使其他連結在預設瀏覽器中開啟。「一律在外部開啟的 URL」仍然優先。"
+          }
+        }
+      }
+    },
     "settings.browser.openLinks": {
       "extractionState": "manual",
       "localizations": {
@@ -22757,6 +23019,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "視窗"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoom": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غرفة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Glasovna soba"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmerum"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachraum"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Room"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sala de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Salle vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stanza vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទប់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Talerom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokój głosowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sala de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосовая комната"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ห้องเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odası"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Голосова кімната"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phòng thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音房间"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音房間"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoom.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غرفة غير رسمية تتحدث فيها مع الآخرين ومع Chief. أثناء فتح الغرفة، يحوّل cmux صوت الميكروفون إلى نص ويقرأ نص شاشتك على هذا الـMac، ثم يرسل ذلك النص إلى الغرفة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neslužbena soba u kojoj razgovarate s ljudima i Chiefom. Dok je soba otvorena, cmux na ovom Macu pretvara vaš mikrofon u tekst i čita tekst s ekrana, zatim taj tekst šalje u sobu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et uofficielt rum, hvor du taler med folk og Chief. Mens et rum er åbent, transskriberer cmux din mikrofon og læser skærmens tekst på denne Mac og sender teksten til rummet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein inoffizieller Raum, in dem du mit Menschen und Chief sprichst. Solange ein Raum offen ist, transkribiert cmux dein Mikrofon und liest den Text deines Bildschirms auf diesem Mac und sendet diesen Text an den Raum."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An unofficial room where you talk with people and Chief. While a room is open, cmux transcribes your mic and reads your screen's text on this Mac, then sends that text to the room."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una sala no oficial donde hablas con personas y con Chief. Mientras la sala está abierta, cmux transcribe tu micrófono y lee el texto de tu pantalla en este Mac, y envía ese texto a la sala."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une salle non officielle où vous parlez avec des personnes et avec Chief. Tant qu’une salle est ouverte, cmux transcrit votre micro et lit le texte de votre écran sur ce Mac, puis envoie ce texte à la salle."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una stanza non ufficiale dove parli con le persone e con Chief. Mentre una stanza è aperta, cmux trascrive il microfono e legge il testo dello schermo su questo Mac, poi invia quel testo alla stanza."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "人や Chief と話す非公式のルームです。ルームを開いている間、cmux はこの Mac 上でマイクを文字に起こし、画面のテキストを読み取って、そのテキストをルームに送ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បន្ទប់មិនផ្លូវការដែលអ្នកនិយាយជាមួយមនុស្ស និង Chief។ ពេលបន្ទប់បើក cmux បំលែងសំឡេងមីក្រូហ្វូនជាអត្ថបទ និងអានអត្ថបទលើអេក្រង់នៅលើ Mac នេះ រួចផ្ញើអត្ថបទនោះទៅបន្ទប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "사람들, Chief와 대화하는 비공식 룸입니다. 룸이 열려 있는 동안 cmux는 이 Mac에서 마이크를 받아쓰고 화면의 텍스트를 읽은 다음 그 텍스트를 룸으로 보냅니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Et uoffisielt rom der du snakker med folk og Chief. Mens et rom er åpent, transkriberer cmux mikrofonen din og leser skjermteksten på denne Macen, og sender teksten til rommet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nieoficjalny pokój, w którym rozmawiasz z ludźmi i z Chiefem. Gdy pokój jest otwarty, cmux na tym Macu transkrybuje mikrofon i odczytuje tekst z ekranu, a potem wysyła ten tekst do pokoju."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma sala não oficial onde você conversa com pessoas e com o Chief. Enquanto a sala está aberta, o cmux transcreve seu microfone e lê o texto da sua tela neste Mac, depois envia esse texto para a sala."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неофициальная комната, где вы говорите с людьми и с Chief. Пока комната открыта, cmux на этом Mac расшифровывает микрофон и читает текст с экрана, а затем отправляет этот текст в комнату."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ห้องที่ไม่เป็นทางการสำหรับคุยกับผู้คนและ Chief ขณะที่ห้องเปิดอยู่ cmux จะถอดเสียงจากไมค์และอ่านข้อความบนหน้าจอใน Mac เครื่องนี้ แล้วส่งข้อความนั้นไปยังห้อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İnsanlarla ve Chief ile konuştuğunuz resmî olmayan bir oda. Oda açıkken cmux bu Mac'te mikrofonunuzu yazıya döker ve ekranınızdaki metni okur, sonra bu metni odaya gönderir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Неофіційна кімната, де ви розмовляєте з людьми та з Chief. Поки кімната відкрита, cmux на цьому Mac розшифровує мікрофон і читає текст з екрана, а потім надсилає цей текст у кімнату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Một phòng không chính thức để bạn nói chuyện với mọi người và Chief. Khi phòng đang mở, cmux chép lời micrô và đọc chữ trên màn hình của bạn ngay trên máy Mac này, rồi gửi văn bản đó vào phòng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一个非官方房间，你可以在其中与他人和 Chief 交谈。房间打开期间，cmux 会在这台 Mac 上转写你的麦克风并读取屏幕上的文字，然后把这些文字发送到房间。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "一個非官方房間，你可以在其中與他人和 Chief 交談。房間開啟期間，cmux 會在這台 Mac 上轉寫你的麥克風並讀取螢幕上的文字，然後把這些文字傳送到房間。"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoomURL": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان غرفة الصوت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresa glasovne sobe"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stemmerummets adresse"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sprachraum-Adresse"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Voice Room Address"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dirección de la sala de voz"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adresse de la salle vocale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Indirizzo della stanza vocale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ボイスルームのアドレス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានបន្ទប់សំឡេង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "음성 룸 주소"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Taleromadresse"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres pokoju głosowego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Endereço da sala de voz"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адрес голосовой комнаты"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่ห้องเสียง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ses Odası Adresi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Адреса голосової кімнати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ phòng thoại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "语音房间地址"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "語音房間位址"
+          }
+        }
+      }
+    },
+    "settings.labs.voiceRoomURL.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عنوان الويب للغرفة. إذا كان فارغًا يُستخدم خادم الغرفة على هذا الـMac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web adresa sobe. Prazno koristi server sobe na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rummets webadresse. Tom bruger rumserveren på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Webadresse des Raums. Leer nutzt den Raumserver auf diesem Mac."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The room's web address. Empty uses the room server on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La dirección web de la sala. Vacío usa el servidor de salas de este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’adresse web de la salle. Vide utilise le serveur de salle de ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’indirizzo web della stanza. Vuoto usa il server delle stanze di questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ルームの Web アドレス。空欄のときはこの Mac のルームサーバーを使います。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អាសយដ្ឋានវេបរបស់បន្ទប់។ ទុកទទេ ប្រើម៉ាស៊ីនមេបន្ទប់នៅលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "룸의 웹 주소입니다. 비워 두면 이 Mac의 룸 서버를 사용합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rommets nettadresse. Tom bruker romserveren på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres internetowy pokoju. Puste używa serwera pokoju na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O endereço da web da sala. Vazio usa o servidor de salas deste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-адрес комнаты. Если пусто, используется сервер комнаты на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ที่อยู่เว็บของห้อง ถ้าเว้นว่างจะใช้เซิร์ฟเวอร์ห้องบน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odanın web adresi. Boş bırakılırsa bu Mac'teki oda sunucusu kullanılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Веб-адреса кімнати. Якщо порожньо, використовується сервер кімнати на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Địa chỉ web của phòng. Để trống sẽ dùng máy chủ phòng trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "房间的网址。留空则使用这台 Mac 上的房间服务器。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "房間的網址。留空則使用這台 Mac 上的房間伺服器。"
           }
         }
       }
@@ -82445,132 +83231,27 @@
     "settings.sidebar.spacesVisibility.help": {
       "extractionState": "manual",
       "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「ポインタを置いたとき」を選ぶと、ポインタがサイドバー上にあるときだけ、ほかのボタンと同じようにスペースを表示します。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يعرض خيار «عند التمرير» المساحات فقط أثناء وجود المؤشر فوق الشريط الجانبي، مثل أزراره الأخرى."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Pri prelasku prikazuje prostore samo dok je pokazivač iznad bočne trake, kao i njena ostala dugmad."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ved markør viser rummene kun, mens markøren er over sidepanelet, ligesom dets andre knapper."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "„Beim Darüberfahren“ zeigt die Bereiche nur, solange der Zeiger über der Seitenleiste ist, wie ihre anderen Tasten."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Al pasar el puntero muestra los espacios solo mientras el puntero está sobre la barra lateral, como sus otros botones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Au survol affiche les espaces uniquement lorsque le pointeur est sur la barre latérale, comme ses autres boutons."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Al passaggio mostra gli spazi solo mentre il puntatore è sulla barra laterale, come gli altri pulsanti."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "នៅពេលដាក់ទស្សន៍ទ្រនិច បង្ហាញលំហតែពេលទស្សន៍ទ្រនិចនៅលើរបារចំហៀងប៉ុណ្ណោះ ដូចប៊ូតុងផ្សេងទៀតរបស់វា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "마우스를 올렸을 때를 선택하면 다른 버튼처럼 포인터가 사이드바 위에 있을 때만 스페이스를 표시합니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ved peker viser områdene bare mens pekeren er over sidefeltet, som de andre knappene."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Po najechaniu pokazuje przestrzenie tylko wtedy, gdy wskaźnik jest nad paskiem bocznym, tak jak jego pozostałe przyciski."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Ao passar o cursor mostra os espaços apenas enquanto o ponteiro está sobre a barra lateral, como os outros botões."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«При наведении» показывает пространства только когда указатель над боковой панелью, как и её другие кнопки."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมื่อวางเมาส์จะแสดงสเปซเฉพาะขณะที่ตัวชี้อยู่เหนือแถบด้านข้าง เหมือนปุ่มอื่นๆ ของแถบ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Üzerine gelince seçeneği, alanları yalnızca işaretçi kenar çubuğunun üzerindeyken, diğer düğmeleri gibi gösterir."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "«При наведенні» показує простори лише тоді, коли вказівник над бічною панеллю, як і її інші кнопки."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Khi di chuột chỉ hiện các không gian khi con trỏ ở trên thanh bên, giống các nút khác của nó."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "“悬停时”仅在指针位于边栏上方时显示空间，与边栏的其他按钮一样。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "「懸停時」僅在指標位於側邊欄上方時顯示空間，與側邊欄的其他按鈕一樣。"
-          }
-        }
+        "ar": {"stringUnit": {"state": "needs_review", "value": "«دائمًا» يُبقي المساحات ظاهرة، حتى عندما تظهر عناصر تحكم الشريط الجانبي عند التمرير فقط. «عند التمرير» يتيح إخفاءها حينئذٍ مع عناصر التحكم الأخرى."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Uvijek drži prostore vidljivim, i kad se kontrole bočne trake prikazuju samo pri prelasku. Pri prelasku ih tada skriva zajedno s ostalim kontrolama."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Altid holder rummene synlige, også når sidepanelets knapper kun vises ved markør. Ved markør lader dem så skjules med de andre knapper."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "„Immer“ zeigt die Bereiche stets an, auch wenn die Steuerelemente der Seitenleiste nur beim Überfahren erscheinen. „Beim Überfahren“ blendet sie dann mit den anderen Steuerelementen aus."}},
+        "en": {"stringUnit": {"state": "translated", "value": "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Siempre mantiene los espacios visibles, también cuando los controles de la barra lateral solo se muestran al pasar el puntero. Al pasar el puntero deja que se oculten entonces con los demás controles."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Toujours garde les espaces affichés, même quand les commandes de la barre latérale n'apparaissent qu'au survol. Au survol les masque alors avec les autres commandes."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Sempre mantiene visibili gli spazi, anche quando i controlli della barra laterale appaiono solo al passaggio. Al passaggio li nasconde allora con gli altri controlli."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "「常に」は、サイドバーのコントロールをポインタを置いたときだけ表示する場合もスペースを表示したままにします。「ポインタを置いたとき」は、その場合ほかのコントロールと一緒に非表示にします。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ជានិច្ច រក្សាចន្លោះឱ្យបង្ហាញ សូម្បីតែពេលការគ្រប់គ្រងរបារចំហៀងបង្ហាញតែពេលដាក់ទស្សន៍ទ្រនិច។ ពេលដាក់ទស្សន៍ទ្រនិច អនុញ្ញាតឱ្យវាលាក់ជាមួយការគ្រប់គ្រងផ្សេងទៀត។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "항상은 사이드바 컨트롤이 호버할 때만 표시될 때도 스페이스를 계속 표시합니다. 호버 시는 그때 다른 컨트롤과 함께 숨깁니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Alltid holder rommene synlige, også når sidepanelkontrollene bare vises ved peker. Ved peker lar dem da skjules med de andre kontrollene."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zawsze pozostawia przestrzenie widoczne, także gdy elementy paska bocznego pojawiają się tylko po najechaniu. Po najechaniu ukrywa je wtedy razem z innymi elementami."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Sempre mantém os espaços visíveis, também quando os controles da barra lateral só aparecem ao passar o ponteiro. Ao passar o ponteiro deixa que se ocultem então com os outros controles."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "«Всегда» оставляет пространства видимыми, даже когда элементы боковой панели видны только при наведении. «При наведении» тогда скрывает их вместе с другими элементами."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เสมอ จะแสดงสเปซตลอด แม้ตัวควบคุมแถบด้านข้างจะแสดงเฉพาะเมื่อวางเมาส์ เมื่อวางเมาส์ จะซ่อนพร้อมตัวควบคุมอื่นในกรณีนั้น"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Her Zaman, kenar çubuğu denetimleri yalnızca üzerine gelince görünse de alanları görünür tutar. Üzerine Gelince, o durumda onları diğer denetimlerle birlikte gizler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "«Завжди» залишає простори видимими, навіть коли елементи бічної панелі видно лише при наведенні. «При наведенні» тоді ховає їх разом з іншими елементами."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Luôn luôn giữ các không gian hiển thị, cả khi điều khiển thanh bên chỉ hiện khi di chuột. Khi di chuột cho phép ẩn chúng cùng các điều khiển khác."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "“始终”会让空间保持显示，即使侧边栏控件仅在悬停时显示。“悬停时”会让它们届时与其他控件一起隐藏。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "「一律」會讓空間保持顯示，即使側邊欄控制項僅在懸停時顯示。「懸停時」會讓它們屆時與其他控制項一起隱藏。"}}
       }
     },
     "settings.workspaces.newPlacement": {
@@ -180068,6 +180749,58 @@
         "vi": {"stringUnit": {"state": "needs_review", "value": "Mép thanh bên không còn mờ dần và toàn bộ danh sách hiển thị. Thanh hồ sơ và tìm kiếm ở dưới cũng bị ẩn. Tắt: mép mờ dần và thanh hiển thị."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏边缘不再渐隐，整个列表全部显示。同时隐藏底部的个人资料和搜索栏。关闭时边缘渐隐，并显示该栏。"}},
         "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄邊緣不再漸隱，整個列表全部顯示。同時隱藏底部的個人資料和搜尋列。關閉時邊緣漸隱，並顯示該列。"}}
+      }
+    },
+    "settings.sidebar.controlsOnHover": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار عناصر تحكم الشريط الجانبي عند التمرير فقط"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži kontrole bočne trake samo pri prelasku"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis kun sidepanelets knapper ved markør"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Seitenleisten-Steuerelemente nur beim Überfahren zeigen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Sidebar Controls Only on Hover"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar los controles de la barra lateral solo al pasar el puntero"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher les commandes de la barre latérale uniquement au survol"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra i controlli della barra laterale solo al passaggio"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのコントロールをポインタを置いたときだけ表示"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញការគ្រប់គ្រងរបារចំហៀងតែពេលដាក់ទស្សន៍ទ្រនិច"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "호버할 때만 사이드바 컨트롤 표시"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis sidepanelkontroller bare ved peker"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokazuj elementy paska bocznego tylko po najechaniu"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar os controles da barra lateral só ao passar o ponteiro"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показывать элементы боковой панели только при наведении"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงตัวควบคุมแถบด้านข้างเฉพาะเมื่อวางเมาส์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu denetimlerini yalnızca üzerine gelince göster"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показувати елементи бічної панелі лише при наведенні"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Chỉ hiện điều khiển thanh bên khi di chuột"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仅在悬停时显示侧边栏控件"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "僅在懸停時顯示側邊欄控制項"}}
+      }
+    },
+    "settings.sidebar.controlsOnHover.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يظهر زر مساحة عمل جديدة والمساحات وزر الملف الشخصي وزر البحث في الشريط الجانبي فقط عندما يكون المؤشر فوق الشريط الجانبي. عند الإيقاف، تظهر دائمًا."}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Dugme Novi radni prostor, prostori, dugme profila i dugme Pretraga na bočnoj traci prikazuju se samo dok je pokazivač iznad bočne trake. Isključeno: uvijek se prikazuju."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets knap Nyt arbejdsområde, rum, profilknap og søgeknap vises kun, mens markøren er over sidepanelet. Fra: de vises altid."}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Schaltfläche „Neuer Arbeitsbereich“, die Bereiche, die Profiltaste und die Suchtaste der Seitenleiste erscheinen nur, während der Zeiger über der Seitenleiste ist. Aus: Sie werden immer angezeigt."}},
+        "en": {"stringUnit": {"state": "translated", "value": "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "El botón Nuevo espacio de trabajo, los espacios, el botón de perfil y el botón Buscar de la barra lateral solo se muestran mientras el puntero está sobre la barra lateral. Desactivado: siempre se muestran."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Le bouton Nouvel espace de travail, les espaces, le bouton de profil et le bouton Rechercher de la barre latérale n'apparaissent que lorsque le pointeur survole la barre latérale. Désactivé : ils sont toujours affichés."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il pulsante Nuovo spazio di lavoro, gli spazi, il pulsante del profilo e il pulsante Cerca della barra laterale appaiono solo mentre il puntatore è sopra la barra laterale. Disattivato: sono sempre visibili."}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーの「新規ワークスペース」ボタン、スペース、プロフィールボタン、検索ボタンは、ポインタがサイドバー上にあるときだけ表示されます。オフの場合は常に表示されます。"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ប៊ូតុងកន្លែងធ្វើការថ្មី ចន្លោះ ប៊ូតុងប្រវត្តិរូប និងប៊ូតុងស្វែងរក របស់របារចំហៀង បង្ហាញតែនៅពេលទស្សន៍ទ្រនិចនៅលើរបារចំហៀងប៉ុណ្ណោះ។ បិទ៖ វាតែងតែបង្ហាញ។"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바의 새 워크스페이스 버튼, 스페이스, 프로필 버튼, 검색 버튼이 포인터가 사이드바 위에 있을 때만 표시됩니다. 끄면 항상 표시됩니다."}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Sidepanelets knapp for nytt arbeidsområde, rom, profilknapp og søkeknapp vises bare mens pekeren er over sidepanelet. Av: de vises alltid."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przycisk Nowy obszar roboczy, przestrzenie, przycisk profilu i przycisk Szukaj na pasku bocznym pojawiają się tylko, gdy wskaźnik jest nad paskiem bocznym. Wyłączone: są zawsze widoczne."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O botão Novo espaço de trabalho, os espaços, o botão de perfil e o botão Buscar da barra lateral só aparecem enquanto o ponteiro está sobre a barra lateral. Desativado: sempre aparecem."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новое рабочее пространство», пространства, кнопка профиля и кнопка поиска на боковой панели видны, только пока указатель над боковой панелью. Выкл.: они видны всегда."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ปุ่มพื้นที่ทำงานใหม่ สเปซ ปุ่มโปรไฟล์ และปุ่มค้นหาของแถบด้านข้างจะแสดงเฉพาะเมื่อตัวชี้อยู่เหนือแถบด้านข้าง ปิด: แสดงตลอดเวลา"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun Yeni Çalışma Alanı düğmesi, alanlar, profil düğmesi ve Ara düğmesi yalnızca işaretçi kenar çubuğunun üzerindeyken görünür. Kapalı: her zaman görünürler."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Кнопка «Новий робочий простір», простори, кнопка профілю та кнопка пошуку на бічній панелі видно лише, поки вказівник над бічною панеллю. Вимк.: їх видно завжди."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Nút Không gian làm việc mới, các không gian, nút hồ sơ và nút Tìm kiếm của thanh bên chỉ hiện khi con trỏ ở trên thanh bên. Tắt: chúng luôn hiện."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "侧边栏的“新建工作区”按钮、空间、个人资料按钮和搜索按钮仅在指针位于侧边栏上方时显示。关闭时始终显示。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "側邊欄的「新增工作區」按鈕、空間、個人檔案按鈕和搜尋按鈕僅在指標位於側邊欄上方時顯示。關閉時一律顯示。"}}
       }
     }
   },

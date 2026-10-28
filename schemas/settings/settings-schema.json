@@ -18,7 +18,8 @@
               "window.titlebarButtons",
               "app.globalHotKey",
               "app.startAgentGlobalHotKey",
-              "app.hideDockIconWithoutWindows"
+              "app.hideDockIconWithoutWindows",
+              "app.showMenuBarIcon"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -498,6 +499,7 @@
               "sidebar.showProfileControl",
               "sidebar.showSearchButton",
               "sidebar.noFade",
+              "sidebar.controlsOnHover",
               "sidebar.minimal",
               "sidebar.style",
               "sidebar.density",
@@ -1218,6 +1220,7 @@
               "terminal.linkOpener.rules",
               "browser.enabled",
               "browser.openLinksInCmuxBrowser",
+              "browser.openSignInPagesInCmux",
               "browser.hostsToOpenInEmbeddedBrowser",
               "browser.urlsToAlwaysOpenExternally"
             ],
@@ -2347,6 +2350,58 @@
       "title" : {
         "key" : "settings.app.hideDockIconWithoutWindows",
         "text" : "Hide Dock Icon When No Windows Are Open"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.showMenuBarIcon.help",
+        "text" : "A cmux item in the menu bar: open cmux, your account, working agents, help, Discord, updates, logs and Quit."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.showMenuBarIcon",
+      "keywords" : [
+        "menu bar",
+        "status item",
+        "menubar",
+        "tray",
+        "icon",
+        "raycast",
+        "extra",
+        "discord",
+        "logs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "showMenuBarIcon"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.showMenuBarIcon",
+        "text" : "Show Menu Bar Icon"
       },
       "validation" : "portable"
     },
@@ -23033,6 +23088,61 @@
         false
       ],
       "agent_refusal" : null,
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.controlsOnHover.help",
+        "text" : "The sidebar's New Workspace button, spaces, profile button and Search button show only while the pointer is over the sidebar. Off, they always show."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.controlsOnHover",
+      "keywords" : [
+        "sidebar",
+        "minimal",
+        "hover",
+        "hide",
+        "show",
+        "controls",
+        "buttons",
+        "search",
+        "profile",
+        "spaces",
+        "footer",
+        "clean"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "controlsOnHover"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.controlsOnHover",
+        "text" : "Show Sidebar Controls Only on Hover"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
       "agent_settable" : true,
       "consumers" : [
         "cmux-next"
@@ -23953,7 +24063,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.spacesVisibility.help",
-        "text" : "On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons."
+        "text" : "Always keeps the spaces shown, also when the sidebar's controls show only on hover. On Hover lets them hide with the other controls then."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.spacesVisibility",
@@ -33110,6 +33220,57 @@
       "title" : {
         "key" : "settings.browser.openLinks",
         "text" : "Open Links in cmux Browser"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.openingLinks",
+        "text" : "Opening Links"
+      },
+      "help" : {
+        "key" : "settings.browser.openSignInPages.help",
+        "text" : "Sign-in and device-code pages, such as GitHub's device page or a page gh, aws or an agent opens to sign in, open in a cmux browser tab even when other links open in your default browser. URLs to Always Open Externally still win."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.openSignInPagesInCmux",
+      "keywords" : [
+        "sign in",
+        "login",
+        "device code",
+        "oauth",
+        "auth",
+        "passkey",
+        "default browser",
+        "gh auth login"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "openSignInPagesInCmux"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.openSignInPages",
+        "text" : "Open Sign-In Pages in cmux Browser"
       },
       "validation" : "portable"
     },
