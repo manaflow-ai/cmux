@@ -169,7 +169,6 @@ export const intervalCleanup = {
         function inspect(called) {
           if (visited.has(called)) return;
           visited.add(called);
-          if (called.async) starts = true;
           walk(called.body, (child) => {
             if (child.type !== "CallExpression") return;
             if (isTimer(child.callee, "setInterval")) starts = true;

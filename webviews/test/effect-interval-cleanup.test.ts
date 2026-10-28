@@ -10,6 +10,11 @@ const vp = resolve(import.meta.dir, "../node_modules/.bin/vp");
 const prefix = 'import React, { useEffect, useEffect as effect, useLayoutEffect } from "react";\n';
 const cases = [
   [
+    "unrelated async work after cleanup",
+    "async function flush() { await Promise.resolve(); recordFlush(); } useEffect(() => { const id = setInterval(tick, 1000); return () => { clearInterval(id); void flush(); }; }, []);",
+    0,
+  ],
+  [
     "chained cleanup helper restart",
     "useEffect(() => { let id = setInterval(tick, 1000); function restart() { clearInterval(id); id = setInterval(tick, 1000); } function stop() { restart(); } return () => stop(); }, []);",
     2,
