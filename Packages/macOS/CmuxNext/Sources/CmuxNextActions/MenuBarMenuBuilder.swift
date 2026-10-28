@@ -78,8 +78,9 @@ public import AppKit
     }
 
     private static func symbol(_ name: String, label: String) -> NSImage? {
-        // A template at the menu font's size, as the profile menu's rows (`ProfileMenuBuilder`).
-        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .regular, scale: .medium)
+        // A template at the menu font's size, large scale and medium weight: Raycast's menu icons
+        // stand about 1.35 cap heights tall with a heavier stroke than a medium-scale regular symbol.
+        let configuration = NSImage.SymbolConfiguration(pointSize: NSFont.menuFont(ofSize: 0).pointSize, weight: .medium, scale: .large)
         let image = NSImage(systemSymbolName: name, accessibilityDescription: label)?.withSymbolConfiguration(configuration)
         image?.isTemplate = true
         return image
