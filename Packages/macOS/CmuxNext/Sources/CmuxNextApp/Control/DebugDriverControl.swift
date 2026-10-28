@@ -323,7 +323,9 @@ enum DebugDriverControl {
 
     /// `debug.scroll_frames {target: sidebar|palette, duration_ms, scale, scroll_to}`: ``ScrollFrameProbe`` on the
     /// active window's workspace list or the open palette's results.
-    @MainActor private static func scrollFrames(_ params: [String: JSONValue], _ services: AppServices) async -> JSONValue {
+    @MainActor private static func scrollFrames(
+        _ params: [String: CmuxNextSettings.JSONValue], _ services: AppServices
+    ) async -> CmuxNextSettings.JSONValue {
         let probe: ScrollFrameProbe?
         if params["target"]?.stringValue == "palette" {
             let palette = services.palette
@@ -333,7 +335,7 @@ enum DebugDriverControl {
         }
         let report = await probe?.run(scrollTo: params["scroll_to"]?.doubleValue, duration: params["duration_ms"]?.doubleValue ?? 1500,
                                       scale: params["scale"]?.doubleValue ?? 0.5, work: services.work)
-        return report.flatMap { JSONValue(foundation: $0) } ?? .object(["error": .string("no such list on screen")])
+        return report.flatMap { CmuxNextSettings.JSONValue(foundation: $0) } ?? .object(["error": .string("no such list on screen")])
     }
 }
 #endif
