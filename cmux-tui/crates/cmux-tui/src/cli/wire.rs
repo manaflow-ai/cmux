@@ -14,6 +14,7 @@ use serde_json::{Value, json};
 
 use super::command::{RequestPlan, WireOperation, random_prefixed};
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 
 const RESPONSE_LIMIT: usize = 16 * 1024 * 1024;
 pub(super) const SERVER_PREFLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -78,8 +79,12 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         Ok(encoded) => encoded,
         Err(code) => return code,
     };
+    #[allow(
+        clippy::expect_used,
+        reason = "INVARIANT: request_value always sets a string id from random_request_id"
+    )]
     let request_id =
-        request["id"].as_str().expect("locally built request IDs are strings").to_string();
+        request.field("id").as_str().expect("locally built request IDs are strings").to_string();
     let key_report = KeyReport::new(request.get("idempotency_key").and_then(Value::as_str));
 
     let (socket, socket_is_derived) = match resolve_socket_or_report(global) {
@@ -147,7 +152,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
             }
             return failure.report(global.output);
         }
-        request["params"] = plan.params.clone();
+        request.insert("params", plan.params.clone());
         encoded = match encode_request(&request) {
             Ok(encoded) => encoded,
             Err(code) => return code,
@@ -234,15 +239,13 @@ impl KeyReport {
         if !matches!(output, OutputMode::Json | OutputMode::JsonLines) || !error.is_object() {
             return;
         }
-        let details = &mut error["details"];
+        let Some(details) = error.field_mut("details") else { return };
         if !details.is_object() {
             *details = json!({});
         }
-        details
-            .as_object_mut()
-            .expect("details is an object")
-            .entry("idempotency_key")
-            .or_insert(Value::String(key.to_owned()));
+        if let Some(details) = details.as_object_mut() {
+            details.entry("idempotency_key").or_insert(Value::String(key.to_owned()));
+        }
         self.done.set(true);
     }
 
@@ -451,8 +454,11 @@ pub(super) fn request_value(plan: &RequestPlan) -> Result<Value, UsageError> {
     });
     match class {
         OperationClass::Mutation => {
-            request["idempotency_key"] = Value::String(
-                plan.idempotency_key.clone().map(Ok).unwrap_or_else(random_idempotency_key)?,
+            request.insert(
+                "idempotency_key",
+                Value::String(
+                    plan.idempotency_key.clone().map(Ok).unwrap_or_else(random_idempotency_key)?,
+                ),
             );
         }
         _ if plan.idempotency_key.is_some() => {
@@ -537,8 +543,12 @@ fn run_response(
                     continue;
                 }
                 if !response.ok {
-                    let mut error = serde_json::to_value(response.error.expect("validated error"))
-                        .expect("resource errors serialize");
+                    let Some(Ok(mut error)) = response.error.map(serde_json::to_value) else {
+                        return protocol_failure(
+                            global.output,
+                            "protocol error: failed response has no error",
+                        );
+                    };
                     // A browser the cmux app draws: the app runs the verb.
                     #[cfg(unix)]
                     if let Some(routed) =
@@ -564,7 +574,12 @@ fn run_response(
                     }
                     return print_operation_error(&error, global.output);
                 }
-                let result = response.result.expect("validated result");
+                let Some(result) = response.result else {
+                    return protocol_failure(
+                        global.output,
+                        "protocol error: response has no result",
+                    );
+                };
                 key_report.succeeded();
                 if !plan.stream {
                     // Focus in a session a cmux app owns is the app's (app_focus).
@@ -663,7 +678,12 @@ fn run_response(
                     return 0;
                 }
                 if let Some(error) = end.error {
-                    let error = serde_json::to_value(error).expect("resource errors serialize");
+                    let Ok(error) = serde_json::to_value(error) else {
+                        return protocol_failure(
+                            global.output,
+                            "protocol error: unreadable stream error",
+                        );
+                    };
                     return print_operation_error(&error, global.output);
                 }
                 let message = end.recovery.unwrap_or_else(|| "stream ended with an error".into());
@@ -792,7 +812,9 @@ fn success_exit_code(plan: &RequestPlan, result: &Value) -> i32 {
     use cmux_tui_core::resource::ResourceOperation as Op;
     i32::from(match &plan.operation {
         WireOperation::Typed(Op::TerminalWait) => result["matched"] == false,
-        WireOperation::Typed(Op::AgentMessageUnsend) => result["value"]["outcome"] == "failed",
+        WireOperation::Typed(Op::AgentMessageUnsend) => {
+            result.field("value").field("outcome") == "failed"
+        }
         _ => false,
     })
 }
@@ -872,7 +894,7 @@ fn localize_operation_error_with_catalog(
         )
     ) && error["code"] == "operation.failed"
     {
-        let message = match error["details"]["reason"].as_str() {
+        let message = match error.field("details").field("reason").as_str() {
             Some("terminal_input_too_large") => Some(catalog.terminal_input.too_large),
             Some("terminal_input_unavailable") => Some(catalog.terminal_input.unavailable),
             Some("terminal_input_confirmation_unsupported") => {
@@ -888,7 +910,7 @@ fn localize_operation_error_with_catalog(
 
     // A browser the cmux app draws, with no app method for the verb (or no
     // app owning the session): name the tab verbs that work.
-    let extra = &error["details"]["extra"];
+    let extra = &error.field("details").field("extra");
     if error["code"] == "operation.failed" && extra["code"] == "browser_rendered_by_app" {
         let tab = extra["tab_id"].as_str().unwrap_or("tab_…").to_owned();
         error["message"] = Value::String(catalog.browser.rendered_by_app.replace("{tab}", &tab));
@@ -902,7 +924,7 @@ fn localize_operation_error_with_catalog(
         )
     );
     if is_lifecycle_operation && error["code"] == "operation.failed" {
-        let message = match error["details"]["reason"].as_str() {
+        let message = match error.field("details").field("reason").as_str() {
             Some("lifecycle_not_ready") => Some(catalog.local_server.starting),
             Some("owner_stopped") => Some(catalog.local_server.reload_owner_stopped),
             _ => None,

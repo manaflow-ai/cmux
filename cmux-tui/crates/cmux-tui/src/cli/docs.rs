@@ -8,6 +8,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use super::{GlobalArgs, OutputMode, UsageError};
+use crate::cli::json_fields::JsonFields;
 
 const CATALOG_JSON: &str =
     include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../spec/resource-operations-v2.json"));
@@ -26,10 +27,11 @@ pub(super) fn command(
     if args.first().map(String::as_str) != Some("docs") {
         return Ok(None);
     }
-    if args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+    let words = args.get(1..).unwrap_or_default();
+    if words.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
         return Ok(Some(super::command::ParsedCommand::Help(Some("docs".to_owned()))));
     }
-    Ok(Some(super::command::ParsedCommand::Docs(parse(&args[1..], global.output)?)))
+    Ok(Some(super::command::ParsedCommand::Docs(parse(words, global.output)?)))
 }
 
 pub(super) fn append_scope_help(scope: &str, text: Cow<'static, str>) -> Cow<'static, str> {
@@ -228,6 +230,10 @@ struct SearchResponse {
     results: Vec<SearchResult>,
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: CATALOG_JSON is a checked-in spec file compiled in with include_str!; its tests parse it"
+)]
 fn catalog() -> &'static Value {
     static CATALOG: OnceLock<Value> = OnceLock::new();
     CATALOG.get_or_init(|| {
@@ -238,7 +244,7 @@ fn catalog() -> &'static Value {
 pub(super) fn parse(args: &[String], output: OutputMode) -> Result<Plan, UsageError> {
     match args.first().map(String::as_str) {
         Some("search") => {
-            let query = args[1..].join(" ").trim().to_owned();
+            let query = args.get(1..).unwrap_or_default().join(" ").trim().to_owned();
             if query.is_empty() {
                 return Err(UsageError::new("docs search needs a query"));
             }
@@ -300,7 +306,7 @@ pub(super) fn run(plan: Plan) -> i32 {
 
 fn search(query: &str) -> Vec<SearchResult> {
     let terms = query.split_whitespace().map(|term| term.to_ascii_lowercase()).collect::<Vec<_>>();
-    let operations = catalog()["operations"].as_object().expect("catalog operations object");
+    let operations = catalog_operations();
     let mut matches = operations
         .iter()
         .filter_map(|(name, descriptor)| {
@@ -363,11 +369,18 @@ pub(super) fn has_scope_operations(scope: &str) -> bool {
     })
 }
 
+/// The catalog's `operations` object.
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: the checked-in catalog's top level has an operations object; its tests read it"
+)]
+fn catalog_operations() -> &'static serde_json::Map<String, Value> {
+    catalog().field("operations").as_object().expect("catalog operations object")
+}
+
 pub(super) fn scope_help(scope: &str) -> String {
     let target = catalog_target(scope);
-    let operations = catalog()["operations"]
-        .as_object()
-        .expect("catalog operations object")
+    let operations = catalog_operations()
         .iter()
         .filter(|(_, descriptor)| descriptor["target"] == target)
         .map(|(name, descriptor)| (name, descriptor["class"].as_str().unwrap_or("unknown")))

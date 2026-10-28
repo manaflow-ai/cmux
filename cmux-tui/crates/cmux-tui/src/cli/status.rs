@@ -119,7 +119,9 @@ struct RunPlan {
     label: String,
     target: Vec<String>,
     badge_ttl: String,
-    argv: Vec<String>,
+    /// The command to run and its arguments.
+    program: String,
+    args: Vec<String>,
 }
 
 fn caller_terminal() -> Option<String> {
@@ -139,10 +141,13 @@ fn split_options(words: &[String]) -> SplitWords {
     let mut positional = Vec::new();
     let mut options = Vec::new();
     let mut index = 0;
-    while index < words.len() {
-        let word = &words[index];
+    while let Some(word) = words.get(index) {
         if word == "--" {
-            return (positional, options, Some(words[index + 1..].to_vec()));
+            return (
+                positional,
+                options,
+                Some(words.get(index + 1..).unwrap_or_default().to_vec()),
+            );
         }
         if let Some(name) = word.strip_prefix("--") {
             if let Some((name, value)) = name.split_once('=') {
@@ -245,16 +250,26 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
         (["run"], Some(_)) if !passthrough.is_empty() => {
             Err(UsageError::new("status run takes only --label, --target and --badge-ttl"))
         }
-        (["run"], Some(argv)) if !argv.is_empty() => {
+        (["run"], argv) => {
+            let mut argv = argv.unwrap_or_default().into_iter();
+            let Some(program) = argv.next() else {
+                return Err(UsageError::new("status run needs a command after --"));
+            };
             let label = label.unwrap_or_else(|| {
-                std::path::Path::new(&argv[0])
+                std::path::Path::new(&program)
                     .file_name()
-                    .map_or_else(|| argv[0].clone(), |name| name.to_string_lossy().into_owned())
+                    .map_or_else(|| program.clone(), |name| name.to_string_lossy().into_owned())
             });
             let key = format!("run:{}", std::process::id());
-            Ok(Status::Run(RunPlan { key, label, target, badge_ttl, argv }))
+            Ok(Status::Run(RunPlan {
+                key,
+                label,
+                target,
+                badge_ttl,
+                program,
+                args: argv.collect(),
+            }))
         }
-        (["run"], _) => Err(UsageError::new("status run needs a command after --")),
         _ => Err(UsageError::new("status takes set, clear, list, run or wait")),
     }
 }
@@ -360,12 +375,11 @@ fn run_command(global: &GlobalArgs, run: RunPlan) -> i32 {
     }
     let previous = install_forwarding();
     let started = Instant::now();
-    let mut child = match Command::new(&run.argv[0]).args(&run.argv[1..]).inherit_like_std().spawn()
-    {
+    let mut child = match Command::new(&run.program).args(&run.args).inherit_like_std().spawn() {
         Ok(child) => child,
         Err(error) => {
             restore_forwarding(&previous);
-            eprintln!("cmux: cannot run {}: {error}", run.argv[0]);
+            eprintln!("cmux: cannot run {}: {error}", run.program);
             if marked {
                 set(
                     "final",
@@ -383,7 +397,7 @@ fn run_command(global: &GlobalArgs, run: RunPlan) -> i32 {
     let (code, signal) = match status {
         Ok(status) => (exit_code(status), terminating_signal(status)),
         Err(error) => {
-            eprintln!("cmux: waiting for {} failed: {error}", run.argv[0]);
+            eprintln!("cmux: waiting for {} failed: {error}", run.program);
             (1, None)
         }
     };

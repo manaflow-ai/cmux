@@ -346,23 +346,24 @@ fn wrapped_message_lines(message: &str, width: usize, limit: usize) -> Vec<Strin
     let mut lines = Vec::new();
     let mut remaining = sanitized.as_str();
     while !remaining.is_empty() && lines.len() < limit {
-        let end = grapheme_prefix_end(remaining, width);
-        if end == 0 {
+        let prefix = grapheme_prefix(remaining, width);
+        if prefix.is_empty() {
             break;
         }
-        let split = if end < remaining.len() {
-            remaining[..end]
+        let split = if prefix.len() < remaining.len() {
+            prefix
                 .grapheme_indices(true)
                 .rev()
                 .find(|(_, grapheme)| grapheme_is_whitespace(grapheme))
                 .map(|(index, _)| index)
                 .filter(|index| *index > 0)
-                .unwrap_or(end)
+                .unwrap_or(prefix.len())
         } else {
-            end
+            prefix.len()
         };
-        lines.push(trim_grapheme_whitespace(&remaining[..split]).to_string());
-        remaining = trim_grapheme_whitespace_start(&remaining[split..]);
+        let Some((line, rest)) = remaining.split_at_checked(split) else { break };
+        lines.push(trim_grapheme_whitespace(line).to_string());
+        remaining = trim_grapheme_whitespace_start(rest);
     }
     if !remaining.is_empty()
         && let Some(last) = lines.last_mut()
@@ -388,13 +389,12 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
         .fg(chrome.menu_selected_fg)
         .add_modifier(Modifier::BOLD);
     for depth in 0..menu.levels.len() {
-        menu.levels[depth].fit_to_rows(screen.height.saturating_sub(2) as usize);
-        let width = menu.levels[depth].rect.width.min(screen.width);
-        let height = menu.levels[depth].rect.height.min(screen.height);
-        let (desired_x, desired_y) = if depth == 0 {
-            (menu.levels[depth].rect.x, menu.levels[depth].rect.y)
-        } else {
-            let parent = &menu.levels[depth - 1];
+        let Some((parents, levels)) = menu.levels.split_at_mut_checked(depth) else { break };
+        let Some(level) = levels.first_mut() else { break };
+        level.fit_to_rows(screen.height.saturating_sub(2) as usize);
+        let width = level.rect.width.min(screen.width);
+        let height = level.rect.height.min(screen.height);
+        let (desired_x, desired_y) = if let Some(parent) = parents.last() {
             let right_x = parent.rect.x.saturating_add(parent.rect.width.saturating_sub(1));
             let x = if right_x.saturating_add(width) <= screen.x.saturating_add(screen.width) {
                 right_x
@@ -409,16 +409,18 @@ pub fn draw_menu(app: &mut App, frame: &mut Frame) {
                     .saturating_add(1)
                     .saturating_add(parent.selected.saturating_sub(parent.scroll_offset) as u16),
             )
+        } else {
+            (level.rect.x, level.rect.y)
         };
         let x = desired_x.min(screen.width.saturating_sub(width));
         let y = desired_y.min(screen.height.saturating_sub(height));
-        menu.levels[depth].rect = Rect { x, y, width, height };
+        level.rect = Rect { x, y, width, height };
         if width < 2 || height < 2 {
             continue;
         }
 
         let scrollbar_dragging = menu.scrollbar_dragging(depth);
-        let level = &menu.levels[depth];
+        let Some(level) = menu.levels.get(depth) else { break };
         let scrollbar = level.scrollbar();
         let scrollbar_track = scrollbar.map(|(track, _)| track);
         let buf = frame.buffer_mut();
@@ -716,18 +718,20 @@ fn label_width(label: &str) -> u16 {
     label.cell_width()
 }
 
-fn grapheme_prefix_end(input: &str, max_width: usize) -> usize {
+/// The longest grapheme prefix of `input` that fits in `max_width` cells.
+fn grapheme_prefix(input: &str, max_width: usize) -> &str {
     let mut width: usize = 0;
-    let mut end = 0;
+    let mut prefix = "";
     for (index, grapheme) in input.grapheme_indices(true) {
         let grapheme_width = usize::from(grapheme.cell_width());
         if width.saturating_add(grapheme_width) > max_width {
             break;
         }
         width += grapheme_width;
-        end = index + grapheme.len();
+        let Some((fitting, _)) = input.split_at_checked(index + grapheme.len()) else { break };
+        prefix = fitting;
     }
-    end
+    prefix
 }
 
 fn grapheme_is_whitespace(grapheme: &str) -> bool {
@@ -739,7 +743,7 @@ fn trim_grapheme_whitespace_start(input: &str) -> &str {
         .grapheme_indices(true)
         .find(|(_, grapheme)| !grapheme_is_whitespace(grapheme))
         .map_or(input.len(), |(index, _)| index);
-    &input[start..]
+    input.split_at_checked(start).map_or("", |(_, rest)| rest)
 }
 
 fn trim_grapheme_whitespace_end(input: &str) -> &str {
@@ -748,7 +752,7 @@ fn trim_grapheme_whitespace_end(input: &str) -> &str {
         .rev()
         .find(|(_, grapheme)| !grapheme_is_whitespace(grapheme))
         .map_or(0, |(index, grapheme)| index + grapheme.len());
-    &input[..end]
+    input.split_at_checked(end).map_or("", |(kept, _)| kept)
 }
 
 fn trim_grapheme_whitespace(input: &str) -> &str {

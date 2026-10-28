@@ -33,11 +33,15 @@ pub(super) struct SurfaceAttachClaim {
 
 impl SurfaceAttachClaim {
     pub(super) fn snapshot(&self) -> Option<SurfaceAttachClaimState> {
-        self.claims.lock().unwrap().get(&self.surface).copied()
+        self.claims
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&self.surface)
+            .copied()
     }
 
     pub(super) fn complete_if_revision(&mut self, revision: u64) -> bool {
-        let mut claims = self.claims.lock().unwrap();
+        let mut claims = self.claims.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if claims.get(&self.surface).is_none_or(|claim| claim.revision != revision) {
             return false;
         }
@@ -50,7 +54,10 @@ impl SurfaceAttachClaim {
 impl Drop for SurfaceAttachClaim {
     fn drop(&mut self) {
         if self.active {
-            self.claims.lock().unwrap().remove(&self.surface);
+            self.claims
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .remove(&self.surface);
         }
     }
 }
@@ -139,12 +146,14 @@ pub(super) fn retire_missing_surface_attach(
     id: SurfaceId,
 ) {
     {
-        retired_surfaces.lock().unwrap().insert(id);
-        if let Some(claim) = attach_claims.lock().unwrap().get_mut(&id) {
+        retired_surfaces.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(id);
+        if let Some(claim) =
+            attach_claims.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get_mut(&id)
+        {
             claim.retired = true;
         }
     }
-    attach_failures.lock().unwrap().remove(&id);
+    attach_failures.lock().unwrap_or_else(std::sync::PoisonError::into_inner).remove(&id);
     session.forget_surface(id);
     session.invalidate_remote_tree();
 }
@@ -175,7 +184,7 @@ pub(super) fn sidebar_plugin_status_settles_passive_claim(status: &SidebarPlugin
 
 impl SidebarPluginSyncClaim {
     pub(super) fn mark_applied(&mut self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.epoch != self.desired.2 {
             self.applied = true;
             return;
@@ -193,7 +202,7 @@ impl Drop for SidebarPluginSyncClaim {
         if self.applied {
             return;
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if state.claimed == Some(self.desired) {
             state.claimed = None;
         }
@@ -202,7 +211,7 @@ impl Drop for SidebarPluginSyncClaim {
 
 impl Drop for SurfaceResizeClaim {
     fn drop(&mut self) {
-        let mut claims = self.claims.lock().unwrap();
+        let mut claims = self.claims.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if claims.get(&self.surface).is_some_and(|claim| claim.token == self.token) {
             claims.remove(&self.surface);
         }
@@ -216,7 +225,7 @@ pub(super) fn record_surface_resize_dispatch_result(
     reservation_id: Option<u64>,
 ) {
     if let Some(reservation_id) = reservation_id {
-        ownership.lock().unwrap().insert(
+        ownership.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(
             surface,
             SurfaceResizeOwnership { desired, reservation_id: Some(reservation_id) },
         );

@@ -12,6 +12,7 @@ use serde_json::{Map, Value, json};
 
 use super::super::OutputMode;
 use super::{AppCommand, Options, READ_TIMEOUT, UsageError, WAITING_RUN_TIMEOUT, failure};
+use crate::cli::json_fields::JsonFields;
 
 /// `browser.page.wait` answers by its own timeout (default 5 s, the old
 /// `cmux browser wait`); the CLI waits that long plus this margin.
@@ -265,8 +266,7 @@ pub(super) fn takes_caller(method: &str) -> bool {
 pub(super) fn take_agent(args: &[String]) -> Option<(Vec<String>, Option<String>)> {
     let (mut kept, mut agent) = (Vec::with_capacity(args.len()), None);
     let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
+    while let Some(arg) = args.get(index) {
         if arg == "--agent" {
             let name = args.get(index + 1)?;
             agent = Some(name.clone());
@@ -314,13 +314,14 @@ fn words_and_options(
 ) -> Result<(Vec<String>, Options), UsageError> {
     let (mut words, mut options) = (Vec::new(), Vec::new());
     let mut index = 0;
-    while index < args.len() {
-        let arg = &args[index];
+    while let Some(arg) = args.get(index) {
         match arg.strip_prefix("--") {
             Some(name) => {
                 options.push(arg.clone());
-                if valued.contains(&name) && index + 1 < args.len() {
-                    options.push(args[index + 1].clone());
+                if valued.contains(&name)
+                    && let Some(value) = args.get(index + 1)
+                {
+                    options.push(value.clone());
                     index += 1;
                 }
             }
@@ -487,7 +488,7 @@ pub(super) fn save_screenshot(mut result: Value, out: Option<&str>, output: Outp
     match output {
         OutputMode::Human => super::super::wire::print_local_success(&Value::String(path), output),
         _ => {
-            result["path"] = json!(path);
+            result.insert("path", json!(path));
             super::super::wire::print_local_success(&result, output)
         }
     }
