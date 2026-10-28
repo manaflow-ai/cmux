@@ -239,6 +239,26 @@ test("the card waits Codex's 250 ms, follows the pointer at once while warm, and
   }
 });
 
+test("the tall initial rail does not make empty space a hit target", async () => {
+  const view = await mount(4);
+  jest.useFakeTimers();
+  try {
+    await enter(1);
+    await advance(260);
+    expect(card()?.textContent).toContain("Question 1");
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    // Four rows occupy the first 40 px; the rest of the initial rail is intentionally empty.
+    await pointer("pointermove", list, { clientY: 100 });
+    expect(card()).toBeNull();
+    await pointer("pointerdown", list, { clientY: 100, pointerId: 1 });
+    await pointer("pointermove", list, { clientY: 100, pointerId: 1 });
+    expect(list.closest("nav")!.hasAttribute("data-scrubbing")).toBe(false);
+    await pointer("pointerup", list, { clientY: 100, pointerId: 1 });
+  } finally {
+    await view.unmount();
+  }
+});
+
 test("keyboard focus grows its row alone and opens the card at once; Escape closes it; Return jumps", async () => {
   const view = await mount(12);
   try {
@@ -287,13 +307,19 @@ test("focus in the card keeps it; Escape there or focus leaving rail and card cl
 });
 
 test("the rail never outgrows a short transcript", async () => {
-  const { railHeight } = await import("../src/agent-session/acpmux/threadMinimap/model");
+  const { railHeight, RAIL_HEIGHTS } = await import("../src/agent-session/acpmux/threadMinimap/model");
   // 60 prompts in an 820 px window over a 400 px transcript: the rail fits the transcript, less the
   // mask's bands (18 and 56 px) and 4 px past each.
   expect(railHeight(60, 820, 400)).toBe(400 - 22 - 60);
-  expect(railHeight(60, 820, 820)).toBe(Math.min(600, Math.floor(820 * 0.7)));
+  expect(railHeight(60, 820, 820)).toBe(600);
   // Not measured yet: the window caps it alone.
   expect(railHeight(60, 820, 0)).toBe(railHeight(60, 820));
+  // The selected height arm starts a short thread tall and grows toward the cleared pane room.
+  expect(railHeight(4, 720, 720)).toBe(320);
+  expect(railHeight(70, 720, 720)).toBe(720 - 22 - 60);
+  // The visible transcript band no longer controls the rail's initial height.
+  expect(railHeight(18, 720, 720, 720, 1)).toBe(railHeight(18, 720, 720, 720, 4));
+  expect(railHeight(18, 720, 720, 720, 4, RAIL_HEIGHTS["initial-240-max-80"])).toBe(240);
 });
 
 test("a clicked row takes focus, as a clicked button does in Codex, so Tab goes on from the rail; the click does not hold the card open", async () => {

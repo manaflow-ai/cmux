@@ -758,7 +758,8 @@ impl State {
             if let Some(kind) = crate::codex_app_server::tap_kind(&raw) {
                 self.push(Entry::Tap {
                     dir: TapDir::In,
-                    msg: Message::notification(&kind, raw.clone()).to_value(),
+                    msg: Message::notification(&kind, crate::codex_app_server::redact(&raw))
+                        .to_value(),
                 });
             }
             self.codex_out(cx.from_server(&raw));
@@ -815,8 +816,11 @@ impl State {
     fn write_codex_line(&mut self, line: Value) {
         self.push(Entry::Tap {
             dir: TapDir::Out,
-            msg: Message::notification(crate::codex_app_server::STDIN_KIND, line.clone())
-                .to_value(),
+            msg: Message::notification(
+                crate::codex_app_server::STDIN_KIND,
+                crate::codex_app_server::redact(&line),
+            )
+            .to_value(),
         });
         let _ = self.stdin_tx.send(Stdin::Line(crate::codex_app_server::line(&line)));
     }
@@ -849,7 +853,10 @@ impl State {
             self.max_out_id = self.max_out_id.max(n);
         }
         if let Some(cx) = self.codex.clone() {
-            self.push(Entry::Tap { dir: TapDir::Out, msg: message.to_value() });
+            self.push(Entry::Tap {
+                dir: TapDir::Out,
+                msg: crate::codex_app_server::redact(&message.to_value()),
+            });
             // Answers and updates the translator gives itself go out as if Codex sent them.
             self.codex_out(cx.from_client(&message.to_value()));
             return;
@@ -947,6 +954,15 @@ impl State {
                 c.resumed = true;
             }
             ControllerFrame::Line { msg, receipt } => {
+                // Logged before any line of it is queued, so a log that has one of its lines has
+                // this too, and a next daemon knows the line is fenced (`QUEUED_METHOD`).
+                if let Some(receipt) = receipt {
+                    let note = serde_json::json!({"receipt": receipt});
+                    self.push(Entry::Tap {
+                        dir: TapDir::Out,
+                        msg: Message::notification(super::QUEUED_METHOD, note).to_value(),
+                    });
+                }
                 self.on_line(msg).await;
                 // Behind every line of it: the writer answers once they are written.
                 // Its stdin writer stopped (the harness's stdin closed): never written.
