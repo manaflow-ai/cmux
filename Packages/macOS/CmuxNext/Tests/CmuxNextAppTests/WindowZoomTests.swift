@@ -39,7 +39,12 @@ import Testing
             + "isZoomed \(window.isZoomed), inLiveResize \(window.inLiveResize), visible \(window.screen?.visibleFrame ?? .zero)")
     }
 
-    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host")) func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
+    /// The resize animation lands only on a display that advances frames: on a runner whose virtual display
+    /// shows but draws no frames the window stays in live resize and the wait below would only time out
+    /// (`GUIAnimationTestSupport`).
+    @Test(.enabled(if: NSScreen.main != nil, "zooming needs a screen: run on a GUI host"),
+          .enabled("the resize animation lands only on a display that advances frames") { await GUIAnimationTestSupport.animatesHere() })
+    func aZoomReturnsBeforeTheWindowResizesAndLandsOnTheRunLoop() throws {
         let (window, start) = try shownWindow()
         defer { window.close() }
         try #require(!window.isZoomed)
