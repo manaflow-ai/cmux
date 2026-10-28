@@ -11,7 +11,7 @@
   },
   "expect": {
    "acpmux": 5,
-   "chatmux-relay": 81,
+   "chatmux-relay": 1,
    "cmux-app-host": 2,
    "cmux-browser-host": 1,
    "cmux-mux2": 42,
@@ -27,14 +27,12 @@
   },
   "panic_macro": {
    "acpmux": 2,
-   "chatmux-relay": 1,
    "cmux-remote": 11,
    "cmux-tui": 33,
    "cmux-tui-core": 26
   },
   "unwrap": {
    "acpmux": 139,
-   "chatmux-relay": 7,
    "cmux-remote": 4,
    "cmux-terminal-client": 30,
    "cmux-tui": 429,
