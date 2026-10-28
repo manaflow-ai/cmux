@@ -19,7 +19,7 @@ import { refused, type PlatformCall, type PlatformReply } from "./cloud-platform
  */
 export class PlatformMachines extends WorkerEntrypoint<Env> {
   boot(caller: PlatformCaller, name: string, snapshot?: string | null): Promise<PlatformReply<{ id: string }>> {
-    if (snapshot !== undefined && snapshot !== null && !SNAPSHOT.test(String(snapshot))) return invalid("snapshot")
+    if (snapshot !== undefined && snapshot !== null && !matches(SNAPSHOT, snapshot)) return invalid("snapshot")
     return this.call(caller, { op: "boot", name, ...(snapshot ? { snapshot } : {}) }) as Promise<PlatformReply<{ id: string }>>
   }
 
@@ -30,7 +30,7 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
   exec(caller: PlatformCaller, machine: string, command: string, stdin: string | null, timeoutMs: number): Promise<PlatformReply<{ exitCode: number; stdout: string; stderr: string }>> {
     if (typeof command !== "string" || command.length === 0 || command.length > MAX_COMMAND) return invalid("command")
     if (stdin !== null && (typeof stdin !== "string" || stdin.length > MAX_STDIN)) return invalid("stdin")
-    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return invalid("timeoutMs")
+    if (typeof timeoutMs !== "number" || !Number.isFinite(timeoutMs) || timeoutMs <= 0) return invalid("timeoutMs")
     return this.call(caller, { op: "exec", machine, command, stdin, timeoutMs }) as Promise<PlatformReply<{ exitCode: number; stdout: string; stderr: string }>>
   }
 
@@ -46,8 +46,8 @@ export class PlatformMachines extends WorkerEntrypoint<Env> {
     if (this.env.PLATFORM_MACHINES !== "on") return refused("platform.machines_off", "platform machines are not enabled on this deployment", false)
     const team = caller?.team, user = caller?.user
     if (typeof team !== "string" || !TEAM.test(team) || typeof user !== "string" || !USER.test(user)) return refused("validation.invalid", "invalid caller", false)
-    if ("name" in call && !NAME.test(String(call.name))) return refused("validation.invalid", "invalid name", false)
-    if ("machine" in call && !MACHINE.test(String(call.machine))) return refused("validation.invalid", "invalid machine", false)
+    if ("name" in call && !matches(NAME, call.name)) return refused("validation.invalid", "invalid name", false)
+    if ("machine" in call && !matches(MACHINE, call.machine)) return refused("validation.invalid", "invalid machine", false)
     const stub = this.env.CLOUD_DO.get(this.env.CLOUD_DO.idFromName(team)) as unknown as { platformMachine(e: string, u: string, c: PlatformCall): Promise<PlatformReply> }
     try {
       return await stub.platformMachine(team, user, call)
@@ -71,4 +71,6 @@ const MACHINE = /^vm_[a-z0-9]{20}$/
 const SNAPSHOT = /^snap_[a-z0-9]{20}$/
 const MAX_COMMAND = 64 * 1024
 const MAX_STDIN = 64 * 1024
+/** Only a string matches: an RPC caller can pass any structured value. */
+const matches = (re: RegExp, v: unknown): v is string => typeof v === "string" && re.test(v)
 const invalid = (what: string) => Promise.resolve(refused("validation.invalid", `invalid ${what}`, false))

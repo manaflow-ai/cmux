@@ -88,6 +88,9 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(((await stub.fakeControl({})) as any).snapshots).toHaveLength(1)
     expect(await rpc.destroy(c, machine)).toEqual({ ok: true, value: { deleted: true } })
     expect(await rpc.destroy(c, machine)).toEqual({ ok: true, value: { deleted: true } })
+    // The snapshot outlives its machine: the same name still answers it, and no second one is taken.
+    expect(await rpc.snapshot(c, machine, name)).toEqual(s)
+    expect(await rpc.snapshot(c, machine, nameOf())).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
     expect(((await stub.fakeControl({})) as any).deletes).toBe(1)
     // A warm boot from the team's snapshot: a new machine, booted from it.
     const warm = await rpc.boot(c, nameOf(), s.value.id)
@@ -113,6 +116,11 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(await rpc.boot(c, nameOf(), "snap_bad")).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.exec(c, "vm_x", "true", null, 1000)).toMatchObject({ ok: false, code: "validation.invalid" })
     expect(await rpc.exec(c, `vm_${"a".repeat(20)}`, "", null, 1000)).toMatchObject({ ok: false, code: "validation.invalid" })
+    // Only strings: an omitted or structured name never becomes "undefined" or "[object Object]".
+    expect(await (rpc.boot as (...a: Array<unknown>) => Promise<Reply>)(c)).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.boot(c, { toString: null } as never)).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(await rpc.exec(c, `vm_${"a".repeat(20)}`, "true", null, "5" as never)).toMatchObject({ ok: false, code: "validation.invalid" })
+    expect(((await cloudStub(c.team).fakeControl({})) as any).creates).toBe(0)
   })
 
   it("refuses every call where PLATFORM_MACHINES is not on", async () => {

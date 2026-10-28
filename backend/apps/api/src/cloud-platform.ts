@@ -64,6 +64,13 @@ const notRunning = (m: MachineRow): PlatformReply<never> =>
     ? refused("cloud.machine.failed", m.error?.message ?? `the machine is ${m.status}`, false)
     : refused("cloud.machine.not_running", `the machine is ${m.status}`, true)
 
+const snapshotReply = (s: SnapshotRow | undefined): PlatformReply<{ id: string }> =>
+  s?.status === "ready"
+    ? ok({ id: s.id })
+    : s?.status === "creating"
+      ? refused("mutation.indeterminate", "the snapshot is still being taken; retry with the same name", true)
+      : refused("cloud.snapshot.failed", "the snapshot failed", false)
+
 export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall): Promise<PlatformReply> => {
   if (!(await host.mayUse(user).catch(() => false))) return refused("auth.forbidden", "this user may not use the team's machines", false)
   const p = platformPrincipal(host.team, user)
@@ -100,16 +107,18 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
       return r ? ok({ exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr }) : refused("cloud.provider.unavailable", "the machine did not answer", true)
     }
     case "snapshot": {
+      const k = key("snapshot", call.name)
       const m = own(call.machine)
-      if ("ok" in m) return m
-      const r = await submit("cloud.snapshot.create", { machine: m.id, name: PLATFORM_MACHINE_LABEL }, key("snapshot", call.name))
+      if ("ok" in m) {
+        // Its machine may be gone since the snapshot was taken: the snapshot's own ledger row still answers.
+        const l = host.ledger(ledgerKey(p.identity, k))
+        return l?.op === "snapshot" && l.machine === call.machine && l.snapshot ? snapshotReply(host.snapshot(l.snapshot)) : m
+      }
+      const r = await submit("cloud.snapshot.create", { machine: m.id, name: PLATFORM_MACHINE_LABEL }, k)
       if (r?.t !== "result") return fromReject(r)
       const id = r.value?.snapshot?.id as string | undefined
       // The answer is the intent's (creating); the row says where the provider call got to.
-      const s = id ? host.snapshot(id) : undefined
-      if (s?.status === "ready") return ok({ id: s.id })
-      if (s?.status === "creating") return refused("mutation.indeterminate", "the snapshot is still being taken; retry with the same name", true)
-      return refused("cloud.snapshot.failed", "the snapshot failed", false)
+      return snapshotReply(id ? host.snapshot(id) : undefined)
     }
     case "destroy": {
       if (host.tombstoned(call.machine)) return ok({ deleted: true })
