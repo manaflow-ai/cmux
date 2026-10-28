@@ -1318,6 +1318,23 @@ export const onlyQuietThoughts = (row: AcpmuxRow) =>
   (row.items?.length ?? 0) > 0 &&
   mergeThoughts(row.items!).every((item) => isThought(item) && isQuietThought(item));
 
+/**
+ * UserBubble renders this narrow class as literal spans. Keep the fast path deliberately
+ * conservative: anything whose Markdown meaning could differ from its source stays on the
+ * parser-backed estimator until the DOM can measure it.
+ */
+const PLAIN_MARKDOWN_CHARS = "\\`*_~<>[]{}#|&/";
+
+function isPlainUserPrompt(text: string): boolean {
+  return (
+    text.length > 0 &&
+    text.trim() === text &&
+    !/[\r\n\t]/.test(text) &&
+    !PLAIN_MARKDOWN_CHARS.split("").some((character) => text.includes(character)) &&
+    !/^(?:[-+*]\s|\d+[.)]\s|!\s?)/.test(text)
+  );
+}
+
 function measuredRowHeight(
   row: AcpmuxRow,
   width: number,
@@ -1380,26 +1397,39 @@ function measuredRowHeight(
     cache.set(row.id, entry);
   }
   const pasted = row.kind === "user" && Boolean(row.pasted?.length);
-  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
-    lexIncrementally(entry, row.text);
-  }
+  const plainUser =
+    row.kind === "user" &&
+    !pasted &&
+    !row.images?.length &&
+    !row.retryAttachments?.length &&
+    !row.from &&
+    !chiefEnvelope(row.text) &&
+    isPlainUserPrompt(row.text);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
   const usedPrepared = new Set<string>();
   let contentHeight: number;
-  if (pasted) {
-    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
-    // however long it is (conversation/UserBubble.tsx).
-    const { lineHeight } = metrics();
-    contentHeight = 0;
-    for (const part of promptParts(row.text, row.pasted!))
-      contentHeight +=
-        part.kind === "paste"
-          ? PASTE_CHIP_HEIGHT
-          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+  if (plainUser) {
+    // UserBubble -> PromptText draws this as literal spans, so avoid preparing Markdown tokens.
+    contentHeight = textHeight(row.text, Math.min(contentWidth, chatColumn().prose), entry.prepared, usedPrepared);
   } else {
-    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
-    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+    if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
+      lexIncrementally(entry, row.text);
+    }
+    if (pasted) {
+      // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+      // however long it is (conversation/UserBubble.tsx).
+      const { lineHeight } = metrics();
+      contentHeight = 0;
+      for (const part of promptParts(row.text, row.pasted!))
+        contentHeight +=
+          part.kind === "paste"
+            ? PASTE_CHIP_HEIGHT
+            : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared, usedPrepared));
+    } else {
+      if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastTurn);
+      contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+      for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared, usedPrepared);
+    }
   }
   // A stream changes only its tail block. Preserve prepared entries for the unchanged blocks and
   // trim stale revisions once per row, never once per token or across the transcript. `usedPrepared`
