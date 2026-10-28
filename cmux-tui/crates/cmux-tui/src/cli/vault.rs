@@ -439,7 +439,7 @@ impl Masker {
     pub(super) fn new(secrets: Vec<(Vec<u8>, String)>) -> Self {
         let mut secrets: Vec<(Vec<u8>, String)> = secrets.into_iter().filter(|(value, _)| value.len() >= 4).collect();
         // The longest first: a value that contains another is replaced whole.
-        secrets.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+        secrets.sort_by_key(|(value, _)| std::cmp::Reverse(value.len()));
         Self { secrets, pending: Vec::new() }
     }
 
