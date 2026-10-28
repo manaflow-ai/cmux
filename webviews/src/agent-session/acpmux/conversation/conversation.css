@@ -2479,14 +2479,20 @@ a.cv-sha:focus-visible {
   max-height: calc(8 * 18px + 8px + var(--cv-lane));
 }
 /* A result whose text is Markdown (toolResult.ts) reads as a reply does, a little smaller, and
-   scrolls past the height a plain output stops at. */
+   scrolls internally once it is long. The preview cap is applied only while `data-preview="cut"`,
+   so Show all removes both the cap and its fade while retaining the card's scroll surface. */
 .cv-tool-output__markdown {
-  max-height: 320px;
   overflow: auto;
   padding: 6px 12px;
   color: var(--cv-text-muted);
   font-size: var(--text-detail);
   letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-tool-output__markdown[data-preview="cut"] {
+  max-height: calc(8 * var(--text-detail--line-height) + 12px);
+  --cv-fade-bottom: 28px;
+  -webkit-mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-fade-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, currentColor calc(100% - var(--cv-fade-bottom)), transparent);
 }
 /* Wrap lines (and the hover-actions experiment's Copy) in its corner, on hover or focus. */
 .cv-tool-output__actions {
@@ -2587,6 +2593,30 @@ a.cv-sha:focus-visible {
   color: var(--cv-text);
 }
 .cv-output-more:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
+.cv-tool-output__raw {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 4px 0 0;
+  color: var(--cv-text-muted);
+  cursor: pointer;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.cv-tool-output__raw:hover,
+.cv-tool-output__raw:focus-visible {
+  color: var(--cv-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.cv-tool-output__raw:focus-visible {
   outline: 2px solid var(--agent-accent-soft);
   outline-offset: 1px;
   border-radius: 4px;

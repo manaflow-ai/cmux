@@ -16,6 +16,12 @@ export type ToolResult = {
   lang: "json" | "markdown" | "text";
 };
 
+export type ToolResultOptions = {
+  /// A web reader may return prose without Markdown punctuation. It still gets the readable
+  /// renderer; JSON and line-oriented logs remain mono even when the caller opts in.
+  markdown?: boolean;
+};
+
 /// Outputs longer than this are shown as they are: parsing them would stall the pane.
 const MAX_PARSE_CHARS = 2_000_000;
 /// Envelopes inside envelopes (JSON text in a text block that is itself a result) are peeled this deep.
@@ -307,8 +313,11 @@ export function losesNumbers(printed: string): boolean {
   return false;
 }
 
-/// Markdown structure in a result's text: a heading, a fence, a list, a table or a quote line.
-const MARKDOWN = /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S)/m;
+/// Markdown structure in a result's text: a heading, a fence, a list, a table, a quote line or
+/// clear emphasis. Shell and log output never reaches this classifier; ToolRow keeps those mono.
+const MARKDOWN =
+  /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*).*)/m;
+const LOG_LINE = /^\s*(?:line|row|chunk|step|test|pass|fail)\s+\d+\b/i;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
 
@@ -316,9 +325,16 @@ const MAX_MARKDOWN_CHARS = 20_000;
 /// (chatFind.ts), so both see one text. `clean` drops what a host injected into the result's text
 /// (mcpCalls.ts `cleanText`), once it is out of its envelope. `strip`: whether the call's strip
 /// shows its envelope's images (toolImages.ts `stripsEnvelopeImages`), so its text leaves them out.
-export function toolResult(output: string, clean: (text: string) => string = identity, strip = false): ToolResult {
+export function toolResult(
+  output: string,
+  clean: (text: string) => string = identity,
+  strip = false,
+  options: ToolResultOptions = {},
+): ToolResult {
   const { text, lang } = read(output, clean, strip);
-  return { text, lang };
+  const lines = text.split("\n").filter(Boolean);
+  const log = lines.length > 1 && lines.every((line) => LOG_LINE.test(line));
+  return { text, lang: options.markdown && lang === "text" && !log ? "markdown" : lang };
 }
 
 const identity = (text: string) => text;

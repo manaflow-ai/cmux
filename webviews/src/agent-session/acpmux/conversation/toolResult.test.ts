@@ -46,6 +46,20 @@ test("Markdown text reads as Markdown", () => {
   expect(toolResult(JSON.stringify([{ type: "text", text }]))).toEqual({ text, lang: "markdown" });
 });
 
+test("clear emphasis is Markdown, and a web reader can opt prose into the renderer", () => {
+  const emphasis = "The **service** is healthy.";
+  expect(toolResult(JSON.stringify([{ type: "text", text: emphasis }])).lang).toBe("markdown");
+  expect(
+    toolResult(JSON.stringify([{ type: "text", text: "The service is healthy." }]), undefined, false, {
+      markdown: true,
+    }),
+  ).toEqual({ text: "The service is healthy.", lang: "markdown" });
+  expect(
+    toolResult(JSON.stringify([{ type: "text", text: "row 0\nrow 1" }]), undefined, false, { markdown: true }).lang,
+  ).toBe("text");
+  expect(toolResult(JSON.stringify({ ok: true }), undefined, false, { markdown: true }).lang).toBe("json");
+});
+
 const PNG = "iVBORw0KGgo=";
 const pretty = (value: unknown) => JSON.stringify(value, null, 2);
 

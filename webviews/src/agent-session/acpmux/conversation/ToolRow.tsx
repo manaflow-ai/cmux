@@ -105,10 +105,13 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   // the call is open: a closed row parses nothing.
   // A finished call's envelope images show in its strip instead of its text (toolImages.ts).
   const strip = stripsEnvelopeImages(tool);
-  const result = useMemo(
-    () => (shell || !tool.output || !fold.present ? undefined : toolResult(tool.output, cleanText, strip)),
-    [shell, tool.output, fold.present, strip],
-  );
+  const result = useMemo(() => {
+    if (shell || !tool.output || !fold.present) return undefined;
+    const webRead =
+      /^(?:fetch|web[\s._:-]*read)(?:\s|$)/i.test(tool.title.trim()) ||
+      /\bweb[\s._:-]*read\b/i.test(`${tool.title} ${tool.description ?? ""}`);
+    return toolResult(tool.output, cleanText, strip, { markdown: webRead });
+  }, [shell, tool.description, tool.output, tool.title, fold.present, strip]);
   const body = shell ? tool.output?.replace(/\n$/, "") : result?.text;
   // Whether a closed call has anything to open, read once per output, not on every render.
   const hasOutput = useMemo(() => Boolean(tool.output && cleanText(tool.output).trim()), [tool.output]);
@@ -199,20 +202,56 @@ function ToolOutput({ id, result, reveal }: { id: string; result: ToolResult; re
   const t = useT();
   const raw = useOutput(result.text, reveal);
   const [wrap] = useBlockWrap("output");
+  const [rawShown, setRawShown] = useState(false);
   // All the output's lines, though a long one draws only its end until opened.
   const preview = usePreview(lineCount(raw.text), reveal);
   const shown = previewedOutput(raw, preview);
   const body = useSidewaysRef<HTMLPreElement>();
-  // A result's own Markdown (an MCP tool's text reply) reads as Markdown, as a reply does.
-  if (result.lang === "markdown")
+  // A result's own Markdown (an MCP tool's text reply) reads as Markdown, as a reply does. It uses
+  // the same full-read preview and internal scroll as mono output; Raw lets a reader inspect the
+  // exact source when a renderer's spacing or emphasis is not useful.
+  if (result.lang === "markdown") {
+    const text = shown.shown ?? "";
     return (
       <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: result.text })}>
-        <div className="cv-tool-output__box cv-tool-output__markdown selectable">
-          {/* Fences stay code: a tool's text never runs a render card or draws a diagram. */}
-          <Markdown plainCode>{result.text}</Markdown>
+        <div className="cv-tool-output__box">
+          {rawShown ? (
+            <pre
+              ref={body}
+              className="cv-tool-output selectable"
+              data-wrap={wrap}
+              data-preview={preview.attribute}
+              {...SIDEWAYS_SCROLLER}
+            >
+              {shown.cut && (
+                <span className="cv-output-cut" aria-hidden="true">
+                  …{"\n"}
+                </span>
+              )}
+              {text && <Lines text={text} />}
+            </pre>
+          ) : (
+            <div className="cv-tool-output__markdown selectable" data-preview={preview.attribute}>
+              {/* Fences stay code: a tool's text never runs a render card or draws a diagram. */}
+              {text && <Markdown plainCode>{text}</Markdown>}
+            </div>
+          )}
         </div>
+        <button
+          type="button"
+          className="cv-tool-output__raw"
+          aria-expanded={rawShown}
+          aria-controls={id}
+          onClick={() => setRawShown((value) => !value)}
+        >
+          {t("subsession.raw")}
+          <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${rawShown ? " is-open" : ""}`} />
+        </button>
+        <PreviewMore preview={preview} />
+        {!preview.long && <OutputMore output={shown} />}
       </div>
     );
+  }
   return (
     <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
       <div className="cv-tool-output__box">

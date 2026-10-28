@@ -113,9 +113,9 @@ const call = (kind: string, output: string, command?: string, title = "Tool") =>
     tool: { id: `${kind}-call`, kind, title, status: "completed", command, output },
   }) as never;
 
-async function openRow(kind: string, output: string, command?: string) {
+async function openRow(kind: string, output: string, command?: string, title = "Tool") {
   const { ToolRow } = await import("../src/agent-session/acpmux/conversation/ToolRow");
-  await render(<ToolRow item={call(kind, output, command)} />);
+  await render(<ToolRow item={call(kind, output, command, title)} />);
   await click(host.querySelector("button.cv-tool") ?? undefined);
 }
 
@@ -126,18 +126,18 @@ test("an opened call shows its output without terminal colour codes", async () =
 });
 
 test("a fetch result with prose Markdown renders it and keeps JSON mono", async () => {
-  await openRow("fetch", "# Status\n\nThe **service** is healthy.");
+  await openRow("fetch", "# Status\n\nThe **service** is healthy.", undefined, "Fetch https://example.com");
   expect(host.querySelector(".cv-tool-output__markdown h1")?.textContent).toBe("Status");
   expect(host.querySelector(".cv-tool-output__markdown strong")?.textContent).toBe("service");
 
-  await openRow("fetch", JSON.stringify({ ok: true }));
+  await openRow("fetch", JSON.stringify({ ok: true }), undefined, "Fetch https://example.com/api");
   expect(host.querySelector(".cv-tool-output__markdown")).toBeNull();
   expect(host.querySelector(".cv-tool-output")).not.toBeNull();
 });
 
 test("a long Markdown result can show every line and toggle to Raw", async () => {
   const lines = Array.from({ length: 20 }, (_, index) => `## Result ${index}`);
-  await openRow("fetch", lines.join("\n"));
+  await openRow("fetch", lines.join("\n"), undefined, "Fetch https://example.com/report");
   const showAll = [...host.querySelectorAll("button")].find((node) => node.textContent === "Show all 20 lines");
   expect(showAll).toBeDefined();
   expect(host.querySelector(".cv-tool-output__markdown")?.getAttribute("data-preview")).toBe("cut");
