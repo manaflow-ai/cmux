@@ -38,10 +38,22 @@ def schema() -> dict:
     return json.loads(SCHEMA.read_text())
 
 
-def any_branch(document: dict) -> dict | None:
-    """The `$defs.shortcutBinding` branch that takes `{"any": [...]}`."""
-    branches = document["$defs"]["shortcutBinding"]["oneOf"]
-    for branch in branches:
+# Every $defs an entry of `shortcuts.bindings` can resolve to. The bare-stroke
+# variants back the 16 actions with an explicit `properties` entry (the diff
+# viewer's scroll keys and the file explorer's open actions), which accept a
+# bare first stroke; `shortcutBinding` backs additionalProperties, i.e. the
+# rest. Each must accept the alternates form, or a schema-aware editor flags a
+# config the app honours.
+BINDING_DEFS = (
+    "shortcutBinding",
+    "singleBareFirstStrokeShortcutBinding",
+    "bareFirstStrokeShortcutBinding",
+)
+
+
+def any_branch(document: dict, name: str = "shortcutBinding") -> dict | None:
+    """The branch of `$defs.<name>` that takes `{"any": [...]}`."""
+    for branch in document["$defs"][name]["oneOf"]:
         if branch.get("required") == ["any"]:
             return branch
     return None
@@ -64,14 +76,37 @@ def names_the_any_form(text: str) -> bool:
 class SchemaAcceptsAlternatesTests(unittest.TestCase):
     """The premise of every other test here."""
 
-    def test_schema_has_exactly_one_any_branch(self):
+    def test_every_binding_def_has_exactly_one_any_branch(self):
         document = schema()
-        branches = document["$defs"]["shortcutBinding"]["oneOf"]
-        matches = [branch for branch in branches if branch.get("required") == ["any"]]
+        for name in BINDING_DEFS:
+            with self.subTest(definition=name):
+                branches = document["$defs"][name]["oneOf"]
+                matches = [branch for branch in branches if branch.get("required") == ["any"]]
+                self.assertEqual(
+                    len(matches), 1,
+                    f"$defs.{name} backs entries of shortcuts.bindings, so it must accept the "
+                    f"alternates form in exactly one branch; found {len(matches)}. Without it a "
+                    "schema-aware editor flags a config the app honours.",
+                )
+
+    def test_every_binding_def_resolves_from_shortcuts_bindings(self):
+        """The defs above really are the ones an entry can resolve to."""
+        document = schema()
+        bindings = document["properties"]["shortcuts"]["properties"]["bindings"]
+        refs = {bindings["additionalProperties"]["$ref"]}
+        refs.update(entry["$ref"] for entry in bindings.get("properties", {}).values())
+        # Each is the `Nullable` wrapper around one of the defs under test.
+        resolved = set()
+        for ref in refs:
+            name = ref.rsplit("/", 1)[-1]
+            branches = document["$defs"][name]["oneOf"]
+            resolved.update(
+                branch["$ref"].rsplit("/", 1)[-1] for branch in branches if "$ref" in branch
+            )
         self.assertEqual(
-            len(matches), 1,
-            "web/data/cmux.schema.json should accept the alternates form in exactly one "
-            f"$defs.shortcutBinding branch; found {len(matches)}",
+            resolved, set(BINDING_DEFS),
+            "the binding definitions reachable from shortcuts.bindings changed; update "
+            "BINDING_DEFS so the alternates requirement still covers all of them",
         )
 
     def test_any_items_accept_a_key_and_a_chord(self):
@@ -83,6 +118,78 @@ class SchemaAcceptsAlternatesTests(unittest.TestCase):
             kinds, {"stroke", "array"},
             "each `any` item should be a key string or a two-item chord array",
         )
+
+    def test_a_chord_capable_def_takes_chord_alternates(self):
+        """A def that accepts a chord accepts a chord as an alternate too."""
+        document = schema()
+        for name in BINDING_DEFS:
+            takes_chord = any(
+                branch.get("type") == "array" for branch in document["$defs"][name]["oneOf"]
+            )
+            branch = any_branch(document, name)
+            self.assertIsNotNone(branch, name)
+            items = branch["properties"]["any"]["items"]
+            has_chord_item = any(
+                item.get("type") == "array" for item in items.get("oneOf", [items])
+            )
+            with self.subTest(definition=name):
+                self.assertEqual(
+                    has_chord_item, takes_chord,
+                    f"$defs.{name} accepts a chord as a whole binding but not as an `any` item "
+                    "(or the other way round); the forms an item takes must match the forms the "
+                    "binding takes",
+                )
+
+
+class AlternatesValidateTests(unittest.TestCase):
+    """The accepted forms, against the schema a JSON editor actually runs.
+
+    Skipped where jsonschema is absent; the structural tests above still run.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            import jsonschema
+        except ImportError:  # pragma: no cover - depends on the runner's packages
+            raise unittest.SkipTest("jsonschema is not installed")
+        cls.validator = jsonschema.Draft202012Validator(schema())
+        cls.validator.check_schema(schema())
+
+    def assertBinding(self, action: str, value, *, valid: bool):
+        document = {"shortcuts": {"bindings": {action: value}}}
+        self.assertEqual(
+            self.validator.is_valid(document), valid,
+            f"shortcuts.bindings.{action} = {json.dumps(value)} should be "
+            f"{'accepted' if valid else 'rejected'}",
+        )
+
+    def test_alternates_are_accepted_for_every_kind_of_action(self):
+        # additionalProperties: a key, and a chord among the keys.
+        self.assertBinding("nextSurface", {"any": ["ctrl+tab", "cmd+]"]}, valid=True)
+        self.assertBinding("nextSurface", {"any": ["cmd+]", ["ctrl+b", "n"]]}, valid=True)
+        # A bare-first-stroke action that also takes chords.
+        self.assertBinding("diffViewerScrollDown", {"any": ["j", "ctrl+n"]}, valid=True)
+        self.assertBinding("diffViewerScrollDown", {"any": ["j", ["g", "g"]]}, valid=True)
+        # A bare-first-stroke action that takes a single stroke only.
+        self.assertBinding("fileExplorerOpenSelection", {"any": ["return", "o"]}, valid=True)
+        # An empty list unbinds (docs/configuration.md).
+        self.assertBinding("nextSurface", {"any": []}, valid=True)
+
+    def test_the_existing_forms_keep_their_meaning(self):
+        """#25564 asks for alternates without disturbing the chord syntax."""
+        self.assertBinding("nextSurface", ["ctrl+b", "c"], valid=True)
+        self.assertBinding("nextSurface", "cmd+]", valid=True)
+        self.assertBinding("nextSurface", None, valid=True)
+        self.assertBinding("nextSurface", "none", valid=True)
+        self.assertBinding("diffViewerScrollDown", ["g", "g"], valid=True)
+
+    def test_malformed_alternates_are_rejected(self):
+        self.assertBinding("nextSurface", {"any": ["cmd+]"], "first": {"key": "p"}}, valid=False)
+        # An item of `any` is held to the same modifier rule as the binding itself.
+        self.assertBinding("nextSurface", {"any": ["j"]}, valid=False)
+        self.assertBinding("fileExplorerOpenSelection", {"any": [["g", "g"]]}, valid=False)
+        self.assertBinding("nextSurface", {"any": [["ctrl+b", "n", "x"]]}, valid=False)
 
 
 class AlternatesDocumentedTests(unittest.TestCase):

@@ -2873,6 +2873,22 @@
         {
           "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke",
           "description": "Single-stroke shortcut. Bare first strokes are accepted for this action."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a single stroke. Bare first strokes are accepted for this action. Example: {\"any\": [\"return\", \"o\"]}."
         }
       ]
     },
@@ -2910,6 +2926,39 @@
             }
           ],
           "description": "Chorded shortcut. Bare first strokes are accepted for this action. Example: [\"g\", \"g\"]."
+        },
+        {
+          "type": "object",
+          "required": [
+            "any"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "any": {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                  },
+                  {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 2,
+                    "prefixItems": [
+                      {
+                        "$ref": "#/$defs/bareFirstStrokeShortcutFirstStroke"
+                      },
+                      {
+                        "$ref": "#/$defs/shortcutStroke"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "description": "Several shortcuts for one action, each a single stroke or a chord. Bare first strokes are accepted for this action. Example: {\"any\": [\"j\", \"ctrl+n\"]}."
         }
       ]
     },
