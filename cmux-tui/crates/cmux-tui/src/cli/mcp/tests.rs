@@ -1429,11 +1429,13 @@ fn code_mode_lists_only_cmux_exec_and_a_script_reaches_every_tool() {
     assert!(all.len() > 100, "the full list stays the API");
     assert!(tools[0]["description"].as_str().unwrap().contains("app (3)"));
 
-    // Docs returns a matching tool's schema, best match first.
+    // Docs returns a matching tool's schema, best match first: the daemon's
+    // tool before the app action that does the same.
     let found = call(&mut server, "cmux_docs", json!({"query": "workspace rename"}));
-    let first = &found["structuredContent"]["tools"][0];
-    assert_eq!(first["name"], "app_workspace_rename", "{found}");
-    assert_eq!(first["inputSchema"]["required"], json!(["name"]));
+    let tools = found["structuredContent"]["tools"].as_array().cloned().unwrap_or_default();
+    assert_eq!(tools[0]["name"], "workspace_rename", "{found}");
+    let app = tools.iter().find(|tool| tool["name"] == "app_workspace_rename").expect("app twin");
+    assert_eq!(app["inputSchema"]["required"], json!(["name"]));
     let index = call(&mut server, "cmux_docs", json!({}));
     assert!(index["structuredContent"]["families"]["workspace"].is_array(), "{index}");
     let exact = call(&mut server, "cmux_docs", json!({"names": ["window_list", "nope"]}));

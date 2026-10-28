@@ -12,7 +12,8 @@ import { CHECKS, CHECK_CATEGORY } from "../agent-evals/grade.mjs";
  * two words joined (`pane_split` for `cmux pane split`), ids skipped.
  */
 export function cliTool(argv) {
-  const words = argv.filter((a) => !a.startsWith("-") && !/^(ws|pane|tab|term|screen|win|tg|wg)_[0-9a-f]/.test(a) && !a.includes(":"));
+  const SELECTORS = new Set(["current", "focused", "caller", "right", "left", "page"]);
+  const words = argv.filter((a) => !a.startsWith("-") && !/^(ws|pane|tab|term|screen|win|tg|wg|browser)_[0-9a-f]/.test(a) && !a.includes(":") && !SELECTORS.has(a));
   return words.slice(0, 2).join("_");
 }
 
@@ -33,7 +34,9 @@ export function matches(expected, actual) {
 
 const callMatches = (spec, call) => {
   const tools = Array.isArray(spec.tool) ? spec.tool : [spec.tool];
-  if (!tools.some((t) => (t.endsWith("*") ? call.tool.startsWith(t.slice(0, -1)) : call.tool === t))) return false;
+  const named = (t) =>
+    t.startsWith("*") && t.endsWith("*") ? call.tool.includes(t.slice(1, -1)) : t.endsWith("*") ? call.tool.startsWith(t.slice(0, -1)) : call.tool === t;
+  if (!tools.some(named)) return false;
   if (spec.ok !== undefined && call.ok !== spec.ok) return false;
   return !spec.args || (call.input !== undefined && matches(spec.args, call.input));
 };
@@ -73,12 +76,42 @@ export function gradeCalls(expect, run) {
   return out;
 }
 
+const lower = (s) => String(s ?? "").toLowerCase();
+const newWorkspaces = (ctx) => ctx.after.workspaces.filter((w) => !ctx.before.workspaces.some((b) => b.id === w.id));
+
+/** State checks of tool evals, over the same context as agent-evals' checks. */
+export const LOCAL_CHECKS = {
+  /** One new workspace whose name has one of `words` and is not a default or the prompt. */
+  new_workspace_named(ctx, { words, maxWords = 6 }) {
+    const extra = newWorkspaces(ctx);
+    const ok = extra.length === 1 && words.some((w) => lower(extra[0].name).includes(lower(w))) && extra[0].name.trim().split(/\s+/).length <= maxWords;
+    return { ok, detail: extra.map((w) => w.name).join(", ") || "none", category: extra.length ? "bad_name" : "not_done" };
+  },
+  workspace_named(ctx, { workspace, name }) {
+    const id = workspace === "origin" ? ctx.origin.workspace_id : workspace;
+    const w = ctx.after.workspaces.find((x) => x.id === id);
+    return { ok: lower(w?.name).trim() === lower(name), detail: w?.name ?? "missing", category: "not_done" };
+  },
+  tab_absent(ctx, { label }) {
+    const left = ctx.after.tabs.filter((t) => lower(t.label) === lower(label));
+    return { ok: left.length === 0, detail: `${left.length} left`, category: "not_done" };
+  },
+  tab_present(ctx, { label }) {
+    const found = ctx.after.tabs.some((t) => lower(t.label) === lower(label));
+    return { ok: found, detail: ctx.after.tabs.map((t) => t.label).join(", "), category: "closed_user_tab" };
+  },
+  workspace_first(ctx, { name }) {
+    const sorted = [...ctx.after.workspaces].sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+    return { ok: lower(sorted[0]?.name) === lower(name), detail: sorted.map((w) => w.name).join(", "), category: "not_done" };
+  },
+};
+
 /** State checks from agent-evals, by name; `ctx` is the agent-evals grading context. */
 export function gradeState(specs, ctx) {
   return (specs ?? []).map((spec) => {
     const required = spec.required !== false;
     try {
-      const fn = CHECKS[spec.check];
+      const fn = LOCAL_CHECKS[spec.check] ?? CHECKS[spec.check];
       if (!fn) throw new Error(`unknown check ${spec.check}`);
       const r = fn(ctx, spec.params ?? {});
       return { name: spec.check, ok: r.ok, detail: r.detail ?? "", category: r.category ?? CHECK_CATEGORY[spec.check], required, weight: 1 };
