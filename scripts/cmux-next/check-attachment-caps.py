@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Reject user attachment size-cap constants in attachment/upload code.
 
+A file is attachment/upload code when its path names attachments or uploads,
+or when it calls an attachment upload (UPLOAD_CALLS).
+
 Preview budgets and transport chunk sizes remain valid; this guard specifically catches the
 MAX_*BYTES naming pattern that historically represented a hard user-file rejection.
 """
@@ -12,12 +15,19 @@ import os
 import re
 from pathlib import Path
 
-# Protocol frames/ranges, filename validation and terminal ACK buffers do not reject an
-# original: transfer loops split files at these boundaries. Never exempt a file/total cap.
-TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_PENDING_INPUT_ACK_BYTES"}
+# Protocol frames/ranges, filename and link URL validation and terminal ACK buffers do not
+# reject an original: transfer loops split files at these boundaries. Never exempt a file/total cap.
+TRANSPORT_BOUNDS = {"MAX_CHUNK_BYTES", "MAX_RANGE_BYTES", "MAX_MESSAGE_BYTES", "MAX_NAME_BYTES", "MAX_LINK_URL_BYTES",
+                    "MAX_PENDING_INPUT_ACK_BYTES"}
 FORBIDDEN = re.compile(r"\bMAX_[A-Z0-9_]*BYTES\b")
 EXCLUDED = {".git", ".build", "node_modules", "dist", "fixtures", "generated", "tests", "test", "__tests__", "vendor", "target", "build", "third_party"}
 SOURCE_SUFFIXES = {".swift", ".rs", ".ts", ".tsx", ".js", ".mjs"}
+# A file that calls an attachment upload is a send path whatever it is named
+# (optchat-chief's brain/media.rs capped the Chief's sends at 50 MB unseen).
+UPLOAD_CALLS = re.compile(
+    r"\bupload_attachment\b|\buploadAttachment\b|\bconversation_attachment_upload\b"
+    r"|\bconversation-attachment-upload\b|\bcloud-attachment-upload\b|\battachment_put\b"
+)
 
 
 def files(root: Path) -> list[Path]:
@@ -30,6 +40,8 @@ def files(root: Path) -> list[Path]:
             if path.suffix not in SOURCE_SUFFIXES or ".test." in name or ".spec." in name:
                 continue
             if any("attachment" in part.lower() or "upload" in part.lower() for part in relative.parts):
+                found.append(path)
+            elif UPLOAD_CALLS.search(path.read_text(encoding="utf-8", errors="replace")):
                 found.append(path)
     return sorted(found)
 

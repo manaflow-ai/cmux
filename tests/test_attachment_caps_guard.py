@@ -25,6 +25,21 @@ class AttachmentCapsGuardTests(unittest.TestCase):
                 source.write_text("let MAX_ATTACHMENT_BYTES = 100\n", encoding="utf-8")
                 self.assertEqual(guard.violations(root), [f"{relative}:1: MAX_ATTACHMENT_BYTES"])
 
+    def test_a_file_that_calls_an_upload_is_checked_whatever_its_name(self):
+        # optchat-chief's brain/media.rs capped the Chief's sends at 50 MB in a path the
+        # name rule never saw.
+        source = "pub const MAX_MEDIA_BYTES: u64 = 50_000_000;\nport.upload_attachment(conversation, path);\n"
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            media = root / "Native/OptChat/optchat-chief/src/brain/media.rs"
+            media.parent.mkdir(parents=True)
+            media.write_text(source, encoding="utf-8")
+            (root / "src/brain").mkdir(parents=True)
+            (root / "src/brain/state.rs").write_text("const MAX_STATE_BYTES: u64 = 1;\n", encoding="utf-8")
+            self.assertEqual(
+                guard.violations(root), ["Native/OptChat/optchat-chief/src/brain/media.rs:1: MAX_MEDIA_BYTES"]
+            )
+
     def test_excludes_fixtures_dependencies_and_test_sources(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder)
