@@ -379,6 +379,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/github_action",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/bookmark_get",
       "params": true,
       "result": true
