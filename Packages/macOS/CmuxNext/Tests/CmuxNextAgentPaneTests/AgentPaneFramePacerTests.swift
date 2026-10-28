@@ -13,6 +13,8 @@ import Testing
 struct AgentPaneFramePacerTests {
     final class Ticks: AgentPaneFrameTicks {
         var onTick: (@MainActor () -> Void)?
+        /// The display's frame interval the fake reports (nil: unknown).
+        var frameInterval: TimeInterval?
         var activations = 0
         var active = false
         func activate() {
