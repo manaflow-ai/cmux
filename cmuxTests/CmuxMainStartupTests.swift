@@ -13,7 +13,7 @@ struct CmuxMainStartupTests {
     @Test
     func exceptionCrashPolicyDefaultsToFatalAndPreservesExplicitOverrides() throws {
         let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(RecordingCrashPolicyDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         CmuxMain.installCrashOnExceptionsPolicy(
@@ -34,7 +34,7 @@ struct CmuxMainStartupTests {
     @Test
     func macOS27DisablesTheFatalExceptionDefault() throws {
         let suiteName = "CmuxMainStartupTests.\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let defaults = try #require(RecordingCrashPolicyDefaults(suiteName: suiteName))
         defer { defaults.removePersistentDomain(forName: suiteName) }
 
         CmuxMain.installCrashOnExceptionsPolicy(
