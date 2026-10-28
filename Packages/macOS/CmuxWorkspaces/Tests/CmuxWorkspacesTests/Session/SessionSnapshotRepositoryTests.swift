@@ -420,9 +420,10 @@ struct SessionSnapshotRepositoryTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let repository = makeRepository(appSupport: dir)
         let fileURL = dir.appendingPathComponent("utf16.json")
-        let utf8 = snapshotData(structuralTokens: 1_000_001)
-        let baseText = try #require(String(data: utf8, encoding: .utf8))
-        let text = baseText.replacingOccurrences(of: "\"w\"", with: "\"Ģ\"")
+        // U+0122 contains a quote byte in UTF-16LE. The former byte scanner
+        // entered string mode for the whole oversized array between these fields.
+        let text = "{\"a\":\"Ģ\",\"pad\":[" + String(repeating: "0,", count: 1_000_001)
+            + "0],\"b\":\"Ģ\",\"version\":1,\"windows\":[{\"name\":\"w\"}]}"
         var encoded = Data()
         for scalar in text.utf16 {
             encoded.append(UInt8(scalar & 0x00FF))
