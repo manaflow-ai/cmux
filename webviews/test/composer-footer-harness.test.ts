@@ -126,7 +126,7 @@ await requireBrowserLane("composer-footer-harness.test.ts", async () => {
     const foot = await page.$eval(".acpmux-composer-foot", (element) => ({
       harness: element.querySelectorAll(".acpmux-foot-harness").length,
       modes: element.querySelectorAll(".acpmux-mode, .acpmux-access").length,
-      text: element.textContent?.trim(),
+      text: element.querySelector(".acpmux-add-harness")?.textContent?.trim(),
     }));
     expect(foot).toEqual({ harness: 0, modes: 0, text: "Add harness" });
     await page.close();

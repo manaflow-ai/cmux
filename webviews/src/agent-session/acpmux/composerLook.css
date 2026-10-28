@@ -197,6 +197,12 @@
   bottom: 0;
   z-index: calc(var(--layer-raised, 1) + 1);
 }
+/* The shared model footer adds its 28px row, 8px margins and 20px composer gutter. Keep Codex's dots
+   overlay on the box's dead-space edge, instead of at the bottom of that footer. */
+.acpmux-composer[data-composer-look="codex"]:has(.acpmux-composer-foot) > .acpmux-composer-under {
+  bottom: 64px;
+  height: 16px;
+}
 .acpmux-composer-under:not([data-beside-foot]) .acpmux-look-slot {
   height: 16px;
 }
