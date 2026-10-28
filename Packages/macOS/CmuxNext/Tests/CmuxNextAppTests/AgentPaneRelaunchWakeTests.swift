@@ -225,6 +225,39 @@ struct AgentPaneRelaunchWakeTests {
         #expect(await store.take(on: Self.work) == inline, "a save the last build wrote did not come back")
     }
 
+    /// Leo 2026-10-26: attachments take arbitrarily large files of any type, with no size cap. A tab
+    /// whose chips held more than 128 MB, or whose text chip passed a tab's 4 MB of JSON, lost its
+    /// whole composer at a relaunch. Every chip's contents, bytes and text alike, are files of their
+    /// own now, so the JSON keeps only the chips' names and kinds.
+    @Test func chipsPastTheOldBudgetsComeBackAfterARelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "relaunch-wake-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appending(path: AgentPaneRelaunchWake.fileName)
+        let folder = directory.appending(path: AgentPaneRelaunchWake.attachmentsDirectoryName)
+        // A 129 MB recording: past the 128 MB every tab's chips used to share.
+        let recording = Data(repeating: 7, count: 129 * 1024 * 1024)
+        let big = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "rec", kind: "audio", name: "Recording.m4a", mimeType: "audio/mp4",
+                                          size: Double(recording.count), data: recording.base64EncodedString()),
+        ])
+        // A 6 MB log as a text chip: past a tab's 4 MB of JSON when its text went inline.
+        let log = String(repeating: "build log line\n", count: 400_000)
+        let text = AgentPaneWakeState(attachments: [
+            AgentPaneWakeState.Attachment(id: "log", kind: "text", name: "build.log", mimeType: "text/plain",
+                                          size: Double(log.utf8.count), text: log),
+        ], shell: true, shellText: "make")
+        let store = AgentPaneRelaunchWake(file: file)
+        await store.save(["tab_big": big, "tab_text": text])
+        let size = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize
+        #expect(size.map { $0 < 16 * 1024 } == true, "the quit saved no composer, or a chip's contents went into the JSON (\(String(describing: size)) bytes)")
+
+        let restored = await store.take(on: Self.work)
+        #expect(restored["tab_big"] == big, "the recording's tab came back without its composer")
+        #expect(restored["tab_text"] == text, "the text chip's tab came back without its composer")
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "the launch left the chips' files behind")
+    }
+
     /// Slice (c) of the main-thread sweep: the launch read the states (up to 8 MB) and their attachments'
     /// files (up to 128 MB) on the main thread as it made the tab store.
     @Test func theSavedStatesAreReadOffTheMainThread() async throws {

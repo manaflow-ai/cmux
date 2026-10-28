@@ -156,6 +156,31 @@ struct ChatDraftAttachmentsTests {
         #expect(kept.first?.data.flatMap { Data(base64Encoded: $0) } == Self.screenshot(2))
     }
 
+    /// Leo 2026-10-26: attachments take arbitrarily large files of any type, with no size cap. A
+    /// chat whose chips held more than 64 MB together kept none of them, so after a quit, a reopen
+    /// or a restore from the archive the composer came back empty.
+    @Test func chipsPastTheOldBudgetAreKept() async throws {
+        let directory = try Self.directory()
+        defer {
+            AgentPaneDraftAttachments.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        // Two 33 MB recordings: 66 MB together, past the 64 MB a chat used to keep.
+        let chips = (1...2).map { index in
+            let bytes = Data(repeating: UInt8(index), count: 33 * 1024 * 1024)
+            return Chip(id: "big-\(index)", kind: "audio", name: "Recording \(index).m4a", mimeType: "audio/mp4",
+                        size: Double(bytes.count), data: bytes.base64EncodedString())
+        }
+        #expect(try await Self.keep(chips, for: "s-big") == ["big-1", "big-2"], "the chat's chips were not kept")
+
+        // The next run's store reads them back whole.
+        AgentPaneDraftAttachments.shared = AgentPaneDraftAttachments(directory: directory)
+        let kept = try await Self.kept("s-big")
+        #expect(kept.map(\.id) == chips.map(\.id))
+        #expect(kept.map(\.data) == chips.map(\.data), "a chip came back without its bytes")
+    }
+
     @Test func aChatPastItsCapKeepsNothingAndBadCallsAreRefused() async throws {
         let directory = try Self.directory()
         defer {
