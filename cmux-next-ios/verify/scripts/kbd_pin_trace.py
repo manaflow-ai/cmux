@@ -7,9 +7,11 @@ Per frame: kb is the keyboard's top as drawn (window points), fb the field's
 bottom. Docked means a full-width keyboard whose top is above the field's
 resting bottom plus the docked gap, so the field must ride it.
 
-  gap      kb - fb while docked; it should stay at the docked gap on every
-           frame of a show, hide or drag (no lag, no gap, no overlap).
-  overlap  frames where the keyboard covers the field (fb > kb).
+  gap      kb - fb once the keyboard is still (the docked gap).
+  lag      per keyboard transition (show, hide, a drag's settle): the
+           composer's progress minus the keyboard's, times the composer's
+           travel; 0 = the composer moves on the keyboard's own curve.
+  overlap  frames where a docked keyboard covers the field (fb > kb).
   jump     the field moved more than 1 pt in a frame while the keyboard did
            not move at all (a composer that moves on its own timeline).
   drift    while the transcript follows the newest content and no finger is
@@ -57,11 +59,21 @@ def parse(path):
         f["trk"] = kv.get("trk") == "1"
         frames.append(f)
     # The keyboard during interactive dismissals: see the docstring.
+    # The placeholder reports its final frame for one frame before its show
+    # animation attaches (verify/keyboard.md, "placeholder spikes"); drop it.
+    for i in range(1, len(frames) - 1):
+        a, b, c = frames[i - 1], frames[i], frames[i + 1]
+        if a["kb"] is None and b["kb"] is not None and c["kb"] is not None and c["kb"] > b["kb"] + 50:
+            b["kb"] = None
+            b["spike"] = True
+    rest_kg = [f["kg"] for f in frames if f["kb"] is None and f["kg"] is not None]
+    kg_rest = statistics.median(rest_kg) if rest_kg else None
     raw = [f["kb"] for f in frames]
     for i in range(1, len(frames)):
         b = frames[i]
         if (raw[i] is not None and raw[i - 1] is not None and abs(raw[i] - raw[i - 1]) < 0.01
-                and b["kg"] is not None and (b["kgh"] or 0) > 0.5 and abs(b["kg"] - b["kb"]) > 0.5):
+                and b["kg"] is not None and (b["kgh"] or 0) > 0.5 and abs(b["kg"] - b["kb"]) > 0.5
+                and (kg_rest is None or b["kg"] < kg_rest - 0.5)):
             b["kb"] = b["kg"]
             b["kbh"] = b["kgh"]
     return frames, events
@@ -87,6 +99,26 @@ def docked(f):
     return f["kb"] is not None and f["kbw"] >= f["winw"] - 1 and f["kb"] < f["winh"] - 1
 
 
+def kb_top(f):
+    return f["kb"] if f["kb"] is not None else f["winh"]
+
+
+def transitions(fs):
+    """Runs of frames where the keyboard moves on its own (no finger down),
+    with one still frame on each side."""
+    runs, cur = [], None
+    for i in range(1, len(fs)):
+        moving = abs(kb_top(fs[i]) - kb_top(fs[i - 1])) > 0.01 and not fs[i]["trk"]
+        if moving:
+            cur = cur or [i - 1]
+            cur.append(i)
+        elif cur:
+            cur.append(i)
+            runs.append(cur)
+            cur = None
+    return runs
+
+
 def analyze_size(fs):
     r = {"frames": len(fs)}
     rest = [f["fb"] for f in fs if f["kb"] is None or not docked(f)]
@@ -98,35 +130,42 @@ def analyze_size(fs):
         if docked(a) and docked(b) and abs(a["kb"] - b["kb"]) < 0.01 and abs(a["fb"] - b["fb"]) < 0.01 and b["fr"]:
             still.append(b["kb"] - b["fb"])
     r["docked_gap"] = statistics.median(still) if still else None
-    dg = r["docked_gap"]
-    rest_fb = r["rest_fb"]
-    overlaps, jumps, lags, drifts = [], [], [], []
+    overlaps, jumps, drifts = [], [], []
     for a, b in zip(fs, fs[1:]):
-        kb_a = a["kb"] if a["kb"] is not None else a["winh"]
-        kb_b = b["kb"] if b["kb"] is not None else b["winh"]
         if docked(b) and b["fb"] > b["kb"] + 0.5:
             overlaps.append((round(b["t"], 3), round(b["fb"] - b["kb"], 2)))
         dfb = b["fb"] - a["fb"]
-        if abs(kb_b - kb_a) < 0.01 and abs(dfb) > 1.0 and a["field"] == b["field"] and not b["trk"]:
+        if abs(kb_top(b) - kb_top(a)) < 0.01 and abs(dfb) > 1.0 and a["field"] == b["field"] and not b["trk"] and not a["trk"]:
             jumps.append((round(b["t"], 3), round(dfb, 2)))
-        if dg is not None and rest_fb is not None and docked(b) and b["kb"] < rest_fb + dg - 0.5:
-            dev = (b["kb"] - b["fb"]) - dg
-            if abs(dev) > 0.75:
-                lags.append((round(b["t"], 3), round(dev, 2), round(b["kb"], 1)))
-        if (a["cb"] is not None and b["cb"] is not None and not b["trk"] and not a["trk"]
-                and a["fy"] - a["cb"] < 60 and b["fy"] - b["cb"] < 60):
+        on = lambda f: f["cb"] is not None and -5 <= f["fy"] - f["cb"] <= 60
+        if on(a) and on(b) and not a["trk"] and not b["trk"]:
             d = (b["cb"] - a["cb"]) - (b["fy"] - a["fy"])
             if abs(d) > 1.0:
                 drifts.append((round(b["t"], 3), round(d, 2)))
+    # Lag: the composer's progress through a keyboard transition against the
+    # keyboard's, times the composer's travel (0 = the same curve).
+    lags, runs = [], transitions(fs)
+    for run in runs:
+        k0, k1 = kb_top(fs[run[0]]), kb_top(fs[run[-1]])
+        f0, f1 = fs[run[0]]["fb"], fs[run[-1]]["fb"]
+        if abs(k1 - k0) < 1 or abs(f1 - f0) < 1:
+            continue
+        worst = 0.0
+        for i in run:
+            pk = (kb_top(fs[i]) - k0) / (k1 - k0)
+            pf = (fs[i]["fb"] - f0) / (f1 - f0)
+            worst = max(worst, abs(pk - pf) * abs(f1 - f0))
+        lags.append((round(fs[run[0]]["t"], 3), round(worst, 2), round(f1 - f0, 1)))
+    r["transitions"] = len(lags)
     r["overlap_frames"] = len(overlaps)
     r["overlap_max"] = max((o[1] for o in overlaps), default=0)
     r["jump_frames"] = len(jumps)
     r["jump_max"] = max((abs(j[1]) for j in jumps), default=0)
-    r["lag_frames"] = len(lags)
-    r["lag_max"] = max((abs(l[1]) for l in lags), default=0)
+    r["lag_max"] = max((l[1] for l in lags), default=0)
     r["drift_frames"] = len(drifts)
     r["drift_max"] = max((abs(d[1]) for d in drifts), default=0)
-    r["examples"] = {"overlap": overlaps[:6], "jump": jumps[:6], "lag": lags[:6], "drift": drifts[:6]}
+    r["spikes_dropped"] = sum(1 for f in fs if f.get("spike"))
+    r["examples"] = {"overlap": overlaps[:6], "jump": jumps[:6], "lag (start, max pt, travel)": lags[:8], "drift": drifts[:6]}
     return r
 
 
@@ -148,7 +187,8 @@ def main():
     for size, r in result["sizes"].items():
         print(f"  window {size}: {r['frames']} frames, rest fb {r['rest_fb']}, docked gap {r['docked_gap']}")
         print(f"    overlap {r['overlap_frames']} (max {r['overlap_max']}), jump {r['jump_frames']} (max {r['jump_max']}), "
-              f"lag {r['lag_frames']} (max {r['lag_max']}), drift {r['drift_frames']} (max {r['drift_max']})")
+              f"lag max {r['lag_max']} over {r['transitions']} transitions, drift {r['drift_frames']} (max {r['drift_max']}), "
+              f"spikes dropped {r['spikes_dropped']}")
         for k, ex in r["examples"].items():
             if ex:
                 print(f"    {k} e.g. {ex}")
