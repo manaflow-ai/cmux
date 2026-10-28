@@ -725,7 +725,7 @@ export async function decide({
 // REQUEST_TITLE and that expression in step. QUEUE_EVICTED is the annotation
 // GitHub leaves on an evicted job; a request a person cancelled gets a
 // different one and stays cancelled.
-const REQUEST_TITLE = /^Promote nightly-next to ([0-9a-f]{40})$/;
+const REQUEST_TITLE = /^Promote nightly-next to (tick:)?([0-9a-f]{40})$/;
 const QUEUE_EVICTED = 'Canceling since a higher priority waiting request for nightly-next-promote exists';
 const PROMOTE_JOB = 'promote-nightly-next';
 const EVICTED_MAX_AGE_MS = 24 * 3_600_000;
@@ -739,8 +739,11 @@ export async function evictedPromotions({ github, owner, repo, runId, now = () =
   });
   const evicted = [];
   for (const run of data.workflow_runs || []) {
-    const sha = REQUEST_TITLE.exec(run.display_title || '')?.[1];
+    const title = REQUEST_TITLE.exec(run.display_title || '');
+    const sha = title?.[2];
     if (!sha || run.id === runId || evicted.some((other) => other.sha === sha)) continue;
+    // A landing's evicted request is no more admitted than the request itself.
+    if (!onCadence({ tick: Boolean(title[1]), actor: run.triggering_actor?.login })) continue;
     if (now() - Date.parse(run.created_at) > EVICTED_MAX_AGE_MS) continue;
     const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
       owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
@@ -811,6 +814,49 @@ async function evictedCandidates({ github, core, owner, repo, sha, runId, now })
     containing.splice(at, 0, request);
   }
   return { containing: containing.map((request) => request.sha), diverged };
+}
+
+// The nightly-next cadence: only the 30-minute tick (nightly-next-tick.yml)
+// promotes, so a burst of landings starts one build. The tick's dispatch
+// carries TICK_PREFIX on the SHA (the dispatch has its maximum of inputs). A
+// request without it from LANDING_ACTOR, the GITHUB_TOKEN a feat-cmux-next
+// workflow dispatches with, is a landing's: older revisions of
+// request-nightly-next.sh (each cmux-tui artifacts run checks out its own
+// commit) still send one on every landing, and it is skipped here. A person's
+// dispatch (any other actor) is decided as before. The promote job's `if:` in
+// nightly.yml applies the same rule first, so a landing's request never joins
+// the promote queue, where it would evict the tick's waiting request.
+export const TICK_PREFIX = 'tick:';
+export const LANDING_ACTOR = 'github-actions[bot]';
+
+export function onCadence({ tick, actor }) {
+  return tick || actor !== LANDING_ACTOR;
+}
+
+// promote_nightly_next_sha: [dry-run:][tick:]<sha>, the prefixes in either order.
+export function parseRequest(requested) {
+  let rest = (requested || '').trim();
+  let dryRun = false;
+  let tick = false;
+  for (;;) {
+    if (rest.startsWith('dry-run:')) { dryRun = true; rest = rest.slice('dry-run:'.length).trim(); }
+    else if (rest.startsWith(TICK_PREFIX)) { tick = true; rest = rest.slice(TICK_PREFIX.length).trim(); }
+    else break;
+  }
+  return { sha: rest, dryRun, tick };
+}
+
+// The promote job's decision for one dispatch: the cadence gate, then
+// decideNewest().
+export async function decideRequest({ requested, actor, ...rest }) {
+  const { sha, dryRun, tick } = parseRequest(requested);
+  if (!onCadence({ tick, actor })) {
+    return {
+      decision: { action: 'skip', reason: `per-landing request for ${sha}; the 30-minute nightly-next tick (nightly-next-tick.yml) promotes`, sha },
+      requested: sha, scanFailed: false, dryRun, tick,
+    };
+  }
+  return { ...(await decideNewest({ ...rest, sha })), dryRun, tick };
 }
 
 export async function decideNewest({ github, core, owner, repo, sha, runId, ...rest }) {

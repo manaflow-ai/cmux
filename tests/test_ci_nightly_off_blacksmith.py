@@ -154,32 +154,22 @@ class NightlyOffBlacksmithTests(unittest.TestCase):
                 self.assertNotRegex(runs_on, SHARED_RUNNER_VARIABLES)
 
     @unittest.skipUnless((WORKFLOWS / "cmux-next.yml").exists(), "no cmux-next on this branch")
-    def test_finished_push_runs_start_a_nightly_next_with_a_thirty_minute_catch_up(self) -> None:
-        """Every finished feat-cmux-next push run asks for a NEXT nightly.
+    def test_the_thirty_minute_tick_is_the_nightly_next_cadence(self) -> None:
+        """nightly-next is promoted on a 30-minute tick, not on every landing.
 
-        A push whose own request was cancelled by the next push, or whose
-        request waited on a stalled pool, asked for nothing. The tick closes
-        that gap from events, not a clock (user decision 2026-10-20: no GitHub
-        cron on the nightly path; the dedicated builder is cmux22,
-        plans/cmux-next/nightly-builder-DESIGN.md). It starts when a
-        cmux-next or cmux-tui artifacts push run on feat-cmux-next completes,
-        whatever its conclusion, and can be started by hand. GitHub runs
-        `workflow_run` only from the default branch, so the file must exist
-        on main too.
+        Until 2026-10-28 the tick also ran whenever a cmux-next or cmux-tui
+        artifacts push run on feat-cmux-next completed (workflow_run), so each
+        landing promoted and started a full nightly build: six ran at once.
+        Leo: "every 30 mins or so you do it / within 30min you replace". It
+        runs on its cron and by hand only. A schedule runs only from the
+        default branch, so the file must exist on main.
         """
         path = WORKFLOWS / "nightly-next-tick.yml"
         self.assertTrue(path.exists(), "nightly-next-tick.yml must exist")
         text = path.read_text(encoding="utf-8")
         self.assertRegex(text, r"(?m)^\s+schedule:\s*$")
         self.assertRegex(text, r'(?m)^\s+- cron: "7,37 \* \* \* \*"$')
-        self.assertIn("workflow_run:", text)
-        workflows = re.search(r"(?m)^\s+workflows: \[(.+)\]$", text)
-        self.assertIsNotNone(workflows, "workflow_run must name its workflows")
-        self.assertIn('"cmux-next"', workflows.group(1))
-        self.assertIn('"cmux-tui artifacts"', workflows.group(1))
-        self.assertRegex(text, r"(?m)^\s+branches: \[feat-cmux-next\]$")
-        self.assertRegex(text, r"(?m)^\s+types: \[completed\]$")
-        self.assertIn("github.event.workflow_run.event == 'push'", text)
+        self.assertNotIn("workflow_run:", text)
         self.assertIn("workflow_dispatch:", text)
         self.assertIn("scripts/cmux-next/request-nightly-next.sh --tree-ready", text)
         self.assertIn("cancel-in-progress: false", text)
