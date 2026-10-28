@@ -41,7 +41,7 @@ nonisolated struct SidebarSnapshotFile: Sendable {
         if let state = launch.build.daemonStateDirectory(appSupport: cmux) {
             roots.append(state.deletingLastPathComponent())
         }
-        let fm = FileManager.default
+        let fm = FileManager.checked
         let parent = cmux.appending(path: "builds", directoryHint: .isDirectory)
         if let entries = try? fm.contentsOfDirectory(at: parent, includingPropertiesForKeys: [.isDirectoryKey]) {
             roots.append(contentsOf: entries.filter { $0.lastPathComponent.hasPrefix(launch.build.key) })

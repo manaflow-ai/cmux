@@ -1,33 +1,55 @@
-import Foundation
+import CmuxNextCompat
+public import CmuxNextWakeups
+public import Foundation
 
-public final class AgentPaneDraftTexts: @unchecked Sendable {
+/// The app-owned fallback for session text. Reads and writes share one ordered files queue.
+@MainActor
+public final class AgentPaneDraftTexts {
     public static let fileName = "agent-composer-drafts.json"
-    public static var shared: AgentPaneDraftTexts?
     private let file: URL?
-    private let lock = NSLock()
-    private var drafts: [String: String]
+    private let background: BackgroundWork
+    private var tail: Task<Void, Never>?
 
-    public init(directory: URL?) {
+    public init(directory: URL?, work: BackgroundWork) {
         file = directory?.appending(path: Self.fileName)
-        if let file, let data = try? Data(contentsOf: file),
-           let decoded = try? JSONDecoder().decode([String: String].self, from: data) { drafts = decoded }
-        else { drafts = [:] }
+        background = work
     }
-    public func get(_ sessionId: String) -> String? { lock.lock(); defer { lock.unlock() }; return drafts[sessionId] }
-    public func set(_ text: String, for sessionId: String) {
-        lock.lock(); defer { lock.unlock() }
-        let value = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : text
-        if drafts[sessionId] == value { return }
-        drafts[sessionId] = value
-        guard let file else { return }
-        do {
-            if drafts.isEmpty { try FileManager.default.removeItem(at: file) }
-            else {
-                let parent = file.deletingLastPathComponent()
-                try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
-                try JSONEncoder().encode(drafts).write(to: file, options: [.atomic])
-                try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
-            }
-        } catch { }
+
+    public func get(_ sessionId: String) async throws -> String? {
+        try await queued { file in try Self.load(file)[sessionId] }
+    }
+
+    public func set(_ text: String, for sessionId: String) async throws {
+        try await queued { file in
+            var drafts = try Self.load(file)
+            guard drafts[sessionId] != text else { return }
+            // Empty text is a tombstone: migration must never resurrect an older draft.
+            drafts[sessionId] = text
+            guard let file else { return }
+            let manager = FileManager.checked
+            try manager.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                        attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(drafts).blockingWrite(to: file, options: .atomic)
+            try manager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        }
+    }
+
+    private func queued<T: Sendable>(_ work: @escaping @Sendable (URL?) throws -> T) async throws -> T {
+        let previous = tail, file = file, background = background
+        // task-owner: the request awaits task; tail orders every later request after it.
+        let task = Task(priority: .medium) {
+            await previous?.value
+            return try await background.run(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { try work(file) }
+        }
+        let done = Task(priority: .medium) { _ = try? await task.value }
+        tail = done
+        defer { if tail == done { tail = nil } }
+        return try await task.value
+    }
+
+    private nonisolated static func load(_ file: URL?) throws -> [String: String] {
+        guard let file, FileManager.checked.fileExists(atPath: file.path) else { return [:] }
+        // concurrency-allow: queued reads run on the injected background files lane.
+        return try JSONDecoder().decode([String: String].self, from: Data(blockingContentsOf: file))
     }
 }

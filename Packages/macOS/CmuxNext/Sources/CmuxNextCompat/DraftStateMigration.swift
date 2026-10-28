@@ -8,12 +8,14 @@ public enum DraftStateMigration {
         "agent-pane-wake-attachments",
         "agent-unsent-drafts.json",
         "agent-composer-drafts.json",
+        "agent-queued-edits.json",
+        "quick-composer-draft.json",
     ]
 
-    /// Copies each draft artifact from the newest prior build root. Existing destination
-    /// artifacts are never overwritten; source roots remain intact for rollback.
+    /// Adopts each draft artifact from the newest prior build root. Draft dictionaries merge
+    /// missing keys only; other existing artifacts and all source roots remain intact.
     public static func adopt(from roots: [URL], to destination: URL,
-                             fileManager: FileManager = .default) {
+                             fileManager: CheckedFileManager = FileManager.checked) {
         try? fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
                                          attributes: [.posixPermissions: 0o700])
         let marker = destination.appending(path: ".adopted-v1")
@@ -28,7 +30,11 @@ public enum DraftStateMigration {
                 .max { modificationDate($0, fileManager: fileManager) < modificationDate($1, fileManager: fileManager) }
             guard let source else { continue }
             do {
-                try copyMissing(from: source, to: target, fileManager: fileManager)
+                if artifact == "agent-unsent-drafts.json" || artifact == "agent-composer-drafts.json" {
+                    try mergeDrafts(from: source, to: target, unsent: artifact == "agent-unsent-drafts.json", fileManager: fileManager)
+                } else if artifact != "quick-composer-draft.json" || !fileManager.fileExists(atPath: target.path) {
+                    try copyMissing(from: source, to: target, fileManager: fileManager)
+                }
             } catch {
                 failed = true
                 // A broken source never blocks launch; the next launch can retry it.
@@ -36,7 +42,7 @@ public enum DraftStateMigration {
         }
 
         if !failed {
-            try? Data("1".utf8).write(to: marker, options: [.atomic])
+            try? Data("1".utf8).blockingWrite(to: marker, options: [.atomic])
             try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
         }
     }
@@ -44,12 +50,21 @@ public enum DraftStateMigration {
     /// Recovers only composer_draft fields from old daemon session metadata. It does
     /// not move, rewrite or adopt any daemon state.
     public static func adoptComposerDrafts(from homes: [URL], to destination: URL,
-                                           fileManager: FileManager = .default) {
+                                           fileManager: CheckedFileManager = FileManager.checked) {
         let file = destination.appending(path: "agent-composer-drafts.json")
         var drafts: [String: String] = [:]
-        if let data = try? Data(contentsOf: file),
-           let existing = try? JSONDecoder().decode([String: String].self, from: data) {
+        if fileManager.fileExists(atPath: file.path) {
+            guard let data = try? Data(blockingContentsOf: file),
+                  let existing = try? JSONDecoder().decode([String: String].self, from: data) else { return }
             drafts = existing
+        }
+        var changed = false
+        // The former Quick store was one JSON string. Its fixed key now shares this store.
+        if drafts["quick-composer-v1"] == nil,
+           let data = try? Data(blockingContentsOf: destination.appending(path: "quick-composer-draft.json")),
+           let text = try? JSONDecoder().decode(String.self, from: data) {
+            drafts["quick-composer-v1"] = text
+            changed = true
         }
         var latest: [String: (date: Date, text: String?)] = [:]
         for home in homes {
@@ -57,7 +72,7 @@ public enum DraftStateMigration {
                 at: home.appending(path: "sessions"), includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
             for session in sessions {
                 let metadata = session.appending(path: "session.json")
-                guard let data = try? Data(contentsOf: metadata),
+                guard let data = try? Data(blockingContentsOf: metadata),
                       let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
                       let id = object["id"] as? String else { continue }
                 let date = (try? fileManager.attributesOfItem(atPath: metadata.path)[.modificationDate] as? Date) ?? .distantPast
@@ -68,18 +83,51 @@ public enum DraftStateMigration {
         for (id, (_, text)) in latest where drafts[id] == nil {
             guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
             drafts[id] = text
+            changed = true
         }
-        guard !drafts.isEmpty else { return }
+        guard changed else { return }
         do {
             try fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
                                             attributes: [.posixPermissions: 0o700])
-            try JSONEncoder().encode(drafts).write(to: file, options: [.atomic])
+            try JSONEncoder().encode(drafts).blockingWrite(to: file, options: [.atomic])
             try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
         } catch { }
     }
 
-    private static func copyMissing(from source: URL, to target: URL, fileManager: FileManager) throws {
-        let sourceIsDirectory = (try? source.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+    private enum MigrationError: Error { case invalidDraftDictionary }
+
+    /// Unsent drafts were strings before attachment records. Keep pure legacy files in that
+    /// format; if records are present, promote strings so the record decoder can read every key.
+    private static func mergeDrafts(from source: URL, to target: URL, unsent: Bool, fileManager: CheckedFileManager) throws {
+        var drafts = try draftDictionary(at: source, unsent: unsent)
+        if fileManager.fileExists(atPath: target.path) {
+            let existing = try draftDictionary(at: target, unsent: unsent)
+            drafts.merge(existing) { _, current in current }
+            if drafts.count == existing.count { return }
+        }
+        if unsent, drafts.values.contains(where: { $0 is [String: Any] }) {
+            drafts = drafts.mapValues { value in
+                if let text = value as? String { return ["text": text, "attachments": []] as [String: Any] }
+                return value
+            }
+        }
+        try JSONSerialization.data(withJSONObject: drafts, options: [.sortedKeys]).blockingWrite(to: target, options: [.atomic])
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
+    }
+
+    private static func draftDictionary(at file: URL, unsent: Bool) throws -> [String: Any] {
+        let data = try Data(blockingContentsOf: file)
+        guard let drafts = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              drafts.values.allSatisfy({ value in
+                  if value is String { return true }
+                  guard unsent, let record = value as? [String: Any] else { return false }
+                  return record["text"] is String && record["attachments"] is [Any]
+              }) else { throw MigrationError.invalidDraftDictionary }
+        return drafts
+    }
+
+    private static func copyMissing(from source: URL, to target: URL, fileManager: CheckedFileManager) throws {
+        let sourceIsDirectory = (try? source.blockingResourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
         if sourceIsDirectory {
             try fileManager.createDirectory(at: target, withIntermediateDirectories: true,
                                             attributes: [.posixPermissions: 0o700])
@@ -96,8 +144,8 @@ public enum DraftStateMigration {
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: target.path)
     }
 
-    private static func isNonEmpty(_ url: URL, fileManager: FileManager) -> Bool {
-        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]),
+    private static func isNonEmpty(_ url: URL, fileManager: CheckedFileManager) -> Bool {
+        guard let values = try? url.blockingResourceValues(forKeys: [.isDirectoryKey, .fileSizeKey]),
               fileManager.fileExists(atPath: url.path) else { return false }
         if values.isDirectory == true {
             return (try? fileManager.contentsOfDirectory(atPath: url.path).isEmpty) == false
@@ -105,7 +153,7 @@ public enum DraftStateMigration {
         return (values.fileSize ?? 0) > 0
     }
 
-    private static func modificationDate(_ url: URL, fileManager: FileManager) -> Date {
+    private static func modificationDate(_ url: URL, fileManager: CheckedFileManager) -> Date {
         (try? fileManager.attributesOfItem(atPath: url.path)[.modificationDate] as? Date) ?? .distantPast
     }
 }

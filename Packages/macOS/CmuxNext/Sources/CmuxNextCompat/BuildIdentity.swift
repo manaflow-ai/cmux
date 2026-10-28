@@ -169,13 +169,13 @@ public nonisolated struct BuildIdentity: Sendable, Equatable {
     /// Candidate daemon homes for draft-only recovery. This never adopts sessions or
     /// daemon configuration; callers read only composer_draft from session metadata.
     public func legacyAcpmuxDraftHomes(userHome: URL) -> [URL] {
-        let root = userHome.appendingPathComponent(".acpmux", isDirectory: true)
+        let root = Self(bundleID: nil, bundledTag: nil).acpmuxHome(userHome: userHome)
         var homes = [acpmuxHome(root: root)]
         if draftIdentityKey == "channel-cmux-next" {
             homes.append(root.appendingPathComponent("tags/cmux-next", isDirectory: true))
         }
         let builds = root.appendingPathComponent("builds", isDirectory: true)
-        if let entries = try? FileManager.default.contentsOfDirectory(at: builds, includingPropertiesForKeys: [.isDirectoryKey]) {
+        if let entries = try? FileManager.checked.contentsOfDirectory(at: builds, includingPropertiesForKeys: [.isDirectoryKey]) {
             homes.append(contentsOf: entries.filter { $0.lastPathComponent.hasPrefix(key) })
         }
         var seen = Set<String>()

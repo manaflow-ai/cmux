@@ -31,9 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
     private let launchCleanup: LaunchCleanup
     /// The app's blocking-work lanes and the last quit's pages and composers, read on them since `main`.
-    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake)
+    private let launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, migration: LaunchRead<Void>)
     /// Set in applicationDidFinishLaunching; nil before it (no IUO).
     private var services: AppServices?
+    /// Owns the launch continuation until draft adoption finishes off the main thread.
+    private var draftLaunch: Task<Void, Never>?
     /// A second quit signal's exit (`QuitSignal`): the Home cache's last write, bounded, then the end.
     private lazy var forcedQuitExit = ForcedQuitExit(prepare: { [weak self] in
         self?.services?.crashRecovery.applicationWillTerminate()
@@ -61,7 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app")
 
     init(environment: AppEnvironment, daemonPrestart: DaemonPrestart?,
-         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake), launchCleanup: LaunchCleanup = LaunchCleanup()) {
+         launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake, migration: LaunchRead<Void>), launchCleanup: LaunchCleanup = LaunchCleanup()) {
         self.environment = environment
         self.launchReads = launchReads
         self.daemonPrestart = daemonPrestart
@@ -73,8 +75,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
-        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         // SIGTERM, SIGINT and SIGHUP (dev tooling, `kill`, Ctrl-C) are
         // "Quit, keep sessions" with no alert.
         QuitSignal.install(quit: { [weak self] in
@@ -84,6 +84,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.forcedQuitExit.start()
         })
         control.startWatchdog()
+        // task-owner: the delegate holds launch until migration finishes; no draft reader starts before it.
+        draftLaunch = Task { [weak self] in
+            guard let self else { return }
+            await launchReads.migration.finished()
+            launchReads.wake.begin(on: launchReads.work)
+            finishLaunching()
+            draftLaunch = nil
+        }
+    }
+
+    private func finishLaunching() {
+        // Design mode files a crash left (BrowserDesignModeTempFiles); off the main thread.
+        Task.detached(priority: .background) { BrowserDesignModeController.tempFiles.removeAll() }
         DebugTimings.markLaunch("did_finish_launching_start")
         DebugTimings.install()
         defer { DebugTimings.markLaunch("did_finish_launching_end") }
@@ -177,11 +190,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
                 Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
             }
-            CATransaction.setCompletionBlock { [weak self] in
-                MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                    DebugTimings.markLaunch("first_window_frame_committed")
-                    self?.firstFrame.open()
-                }
+            CATransaction.setMainCompletion { [weak self] in
+                DebugTimings.markLaunch("first_window_frame_committed")
+                self?.firstFrame.open()
             }
         }
         // Once the first terminal frame is drawn, the palette panel is made
