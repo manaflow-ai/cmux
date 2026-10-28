@@ -16,24 +16,39 @@ pub const HOOK_ARG: &str = "__bg-hook";
 /// How the chat reaches `bg_start`, from its Claude Code MCP config.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Route {
-    /// `mcp__acpmux__bg_start`.
+    /// `mcp__acpmux__bg_start`: the server stands on its own.
     Direct,
-    /// `cmux.acpmux_bg_start` in a `cmux_exec` script (code mode, `agent_tools::folded`).
+    /// `mcp__cmux__acpmux_bg_start`: folded behind `cmux`, which lists every tool
+    /// (`--all-tools`) or the ones a preset allows ([`crate::agent_tools::MCP_TOOLS_ENV`]).
+    Listed,
+    /// `cmux.acpmux_bg_start` in a `cmux_exec` script: folded behind `cmux`'s code mode.
     CodeMode,
 }
+
+/// The cmux server's name for `bg_start` behind it (`cmux mcp serve`'s upstream prefix).
+const FOLDED_TOOL: &str = "acpmux_bg_start";
 
 pub fn route(config: &Value) -> Option<Route> {
     let servers = config.get("mcpServers")?;
     if servers.get(crate::acpmux_mcp::SERVER_NAME).is_some() {
         return Some(Route::Direct);
     }
-    let upstreams = servers.pointer("/cmux/env")?.get(crate::agent_tools::UPSTREAMS_ENV)?;
-    let upstreams: Value = serde_json::from_str(upstreams.as_str()?).ok()?;
+    let cmux = servers.get("cmux")?;
+    let env = |k: &str| cmux.pointer("/env")?.get(k)?.as_str();
+    let upstreams: Value = serde_json::from_str(env(crate::agent_tools::UPSTREAMS_ENV)?).ok()?;
     let folded = upstreams
         .as_array()?
         .iter()
         .any(|s| s["name"].as_str() == Some(crate::acpmux_mcp::SERVER_NAME));
-    folded.then_some(Route::CodeMode)
+    if !folded {
+        return None;
+    }
+    // A preset's allowlist: cmux lists only those tools and refuses every other call.
+    if let Some(allowed) = env(crate::agent_tools::MCP_TOOLS_ENV) {
+        return allowed.split(',').any(|t| t.trim() == FOLDED_TOOL).then_some(Route::Listed);
+    }
+    let all = cmux["args"].as_array().is_some_and(|a| a.iter().any(|a| a == "--all-tools"));
+    Some(if all { Route::Listed } else { Route::CodeMode })
 }
 
 /// The hook's answer to one PreToolUse `input`, or None to let the call run.
@@ -51,6 +66,7 @@ pub fn decide(input: &Value, route: Option<Route>) -> Option<Value> {
     }
     let call = match route {
         Route::Direct => format!("mcp__acpmux__bg_start {args}"),
+        Route::Listed => format!("mcp__cmux__{FOLDED_TOOL} {args}"),
         Route::CodeMode => format!("cmux_exec with: return await cmux.acpmux_bg_start({args});"),
     };
     let reason = format!(
@@ -83,28 +99,25 @@ pub fn main() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent_tools::{MCP_TOOLS_ENV, UPSTREAMS_ENV};
 
     fn call(background: bool) -> Value {
         json!({"tool_name": "Bash", "cwd": "/work/app",
             "tool_input": {"command": "npm run dev", "run_in_background": background}})
     }
 
+    fn reason(route: Route) -> String {
+        let deny = decide(&call(true), Some(route)).unwrap();
+        assert_eq!(deny["hookSpecificOutput"]["permissionDecision"], "deny");
+        deny["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap().to_owned()
+    }
+
     #[test]
     fn a_background_shell_is_turned_to_bg_start_with_the_same_command_and_folder() {
-        let deny = decide(&call(true), Some(Route::Direct)).unwrap();
-        let out = &deny["hookSpecificOutput"];
-        assert_eq!(out["permissionDecision"], "deny");
-        let reason = out["permissionDecisionReason"].as_str().unwrap();
-        assert!(
-            reason
-                .ends_with(r#"mcp__acpmux__bg_start {"command":"npm run dev","cwd":"/work/app"}"#),
-            "{reason}"
-        );
-        let deny = decide(&call(true), Some(Route::CodeMode)).unwrap();
-        let reason = deny["hookSpecificOutput"]["permissionDecisionReason"].as_str().unwrap();
-        assert!(
-            reason.contains(r#"cmux.acpmux_bg_start({"command":"npm run dev","cwd":"/work/app"})"#)
-        );
+        let args = r#"{"command":"npm run dev","cwd":"/work/app"}"#;
+        assert!(reason(Route::Direct).ends_with(&format!("mcp__acpmux__bg_start {args}")));
+        assert!(reason(Route::Listed).ends_with(&format!("mcp__cmux__acpmux_bg_start {args}")));
+        assert!(reason(Route::CodeMode).contains(&format!("cmux.acpmux_bg_start({args})")));
     }
 
     #[test]
@@ -115,17 +128,24 @@ mod tests {
         assert_eq!(decide(&read, Some(Route::Direct)), None);
     }
 
+    /// The route is the one the chat's cmux server really offers: code mode, every tool, or a
+    /// preset's allowlist, which may leave bg_start out (then nothing replaces the shell).
     #[test]
     fn the_route_comes_from_the_chats_mcp_config() {
         let direct = json!({"mcpServers": {"acpmux": {"command": "acpmux"}}});
         assert_eq!(route(&direct), Some(Route::Direct));
         let ups = json!([{"name": "acpmux"}]).to_string();
-        let folded =
-            json!({"mcpServers": {"cmux": {"env": {crate::agent_tools::UPSTREAMS_ENV: ups}}}});
-        assert_eq!(route(&folded), Some(Route::CodeMode));
-        let off =
-            json!({"mcpServers": {"cmux": {"env": {crate::agent_tools::UPSTREAMS_ENV: "[]"}}}});
-        assert_eq!(route(&off), None);
+        let cmux =
+            |args: Value, env: Value| json!({"mcpServers": {"cmux": {"args": args, "env": env}}});
+        let serve = json!(["mcp", "serve"]);
+        assert_eq!(route(&cmux(serve.clone(), json!({UPSTREAMS_ENV: ups}))), Some(Route::CodeMode));
+        let all = json!(["mcp", "serve", "--all-tools"]);
+        assert_eq!(route(&cmux(all, json!({UPSTREAMS_ENV: ups}))), Some(Route::Listed));
+        let allowed =
+            |tools: &str| cmux(serve.clone(), json!({UPSTREAMS_ENV: ups, MCP_TOOLS_ENV: tools}));
+        assert_eq!(route(&allowed("render, acpmux_bg_start")), Some(Route::Listed));
+        assert_eq!(route(&allowed("render,agents_snapshot")), None);
+        assert_eq!(route(&cmux(serve.clone(), json!({UPSTREAMS_ENV: "[]"}))), None);
         assert_eq!(route(&json!({})), None);
     }
 }
