@@ -152,6 +152,19 @@ struct ProjectionDowngradeTests {
         }
     }
 
+    /// An older schema has no migration: it reads as empty and a save replaces it (a later schema bump must
+    /// not strand the person's window state as unwritable forever).
+    @Test func aWindowDocumentOfAnOlderSchemaIsReplacedBySaves() async throws {
+        let seeded = Stored(schemaVersion: WindowStateDocument.schemaVersion - 1, revision: 2, projection: #"{"legacy":true}"#)
+        try await Self.withDaemon(["windows": seeded]) { connection in
+            let store = WindowStateStore(connection: connection)
+            #expect(try await store.load().windows.isEmpty)
+            try await store.save(window: WindowRecord(id: "w3"))
+            let reloaded = WindowStateStore(connection: connection)
+            #expect(try await reloaded.load().windows.map(\.id) == ["w3"])
+        }
+    }
+
     @Test func savedHostsOfANewerSchemaAreNeverOverwritten() async throws {
         let seeded = Stored(schemaVersion: SavedHostsDocument.schemaVersion + 1, revision: 5,
                             projection: #"{"hosts":[{"id":"h1","transport":{"route":"ssh"},"added_ms":1}],"groups":["g"]}"#)

@@ -41,6 +41,9 @@ final class WindowRecordSaver {
     static let afterCommitDeadline: Duration = .milliseconds(100)
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
+    /// Whether the refusal to write over a window-state document a newer build saved (``UnreadableProjection``)
+    /// was logged: once per launch, not once per focus or tab change.
+    private var loggedUnreadable = false
     /// The daemon's window records of this install (`window-records-v1`).
     private let recordMirror = WindowRecordMirror()
     private var selectedTabsCache: [String: (key: SelectedTabsKey, tabs: [String: String])] = [:]
@@ -172,6 +175,15 @@ final class WindowRecordSaver {
             try await windowState.update { document in
                 document.windows = records
                 document.prune(liveWorkspaces: live)
+            }
+            await mirror(records)
+            return nil
+        } catch let refusal as UnreadableProjection {
+            // A newer build's window state (after a downgrade): this build keeps it intact and stores nothing,
+            // which is this save's correct outcome, so the action that asked for it did not fail.
+            if !loggedUnreadable {
+                loggedUnreadable = true
+                services.daemon.logger.notice("window state is kept as a newer build saved it (schema \(refusal.schemaVersion), this build reads \(refusal.readableSchemaVersion)); window positions are not saved")
             }
             await mirror(records)
             return nil

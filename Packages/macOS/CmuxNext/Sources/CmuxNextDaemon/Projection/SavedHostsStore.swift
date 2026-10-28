@@ -26,6 +26,9 @@ public actor SavedHostsStore {
         unreadable = nil
         document = SavedHostsDocument()
         guard projection.projection != .null else { return document }
+        // An older schema has no migration: it reads as empty and the next write replaces it, as before.
+        // Only a newer schema, or a document this build cannot decode, is kept from being written over.
+        if projection.schemaVersion < SavedHostsDocument.schemaVersion { return document }
         guard projection.schemaVersion == SavedHostsDocument.schemaVersion,
               let stored = try? SavedHostsDocument(jsonValue: projection.projection) else {
             unreadable = UnreadableProjection(subject: Self.subject, schemaVersion: projection.schemaVersion,

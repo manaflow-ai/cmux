@@ -27,6 +27,9 @@ public actor WindowStateStore {
         unreadable = nil
         document = WindowStateDocument()
         guard projection.projection != .null else { return document }
+        // An older schema has no migration: it reads as empty and the next write replaces it, as before.
+        // Only a newer schema, or a document this build cannot decode, is kept from being written over.
+        if projection.schemaVersion < WindowStateDocument.schemaVersion { return document }
         guard projection.schemaVersion == WindowStateDocument.schemaVersion,
               let stored = try? WindowStateDocument(jsonValue: projection.projection) else {
             unreadable = UnreadableProjection(subject: subject, schemaVersion: projection.schemaVersion,
