@@ -108,6 +108,7 @@ async function mount({
   machines = false,
   runMode,
   reconnects = [],
+  devboxDown = false,
 }: {
   previews?: boolean;
   worktree?: "ok" | "refused";
@@ -118,6 +119,8 @@ async function mount({
   runMode?: { mode: "persistent" | "sandboxed"; onMode(mode: "persistent" | "sandboxed"): void };
   /// The machines the widget asked to reconnect.
   reconnects?: string[];
+  /// acpmux lists devbox as down (offline) rather than connected.
+  devboxDown?: boolean;
 } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
@@ -164,7 +167,7 @@ async function mount({
         snapshot={noChat([], {
           peers: ["devbox", "cloud-1"],
           peerKinds: { devbox: "ssh", "cloud-1": "cloud" },
-          peerStates: { devbox: "offline", "cloud-1": "connected" },
+          peerStates: { devbox: devboxDown ? "offline" : "connected", "cloud-1": "connected" },
         })}
         {...(machines ? { pageWidgets: new Set(["machines"] as const) } : {})}
         {...(runMode ? { runMode, onSandbox: () => true } : {})}
@@ -483,7 +486,7 @@ const machineButton = (id: string) => host.querySelector<HTMLButtonElement>(`.nt
 
 test("a down machine's button reconnects it and the chat starts there", async () => {
   const reconnects: string[] = [];
-  const calls = await mount({ machines: true, reconnects });
+  const calls = await mount({ machines: true, reconnects, devboxDown: true });
   expect(machineButton("devbox")?.getAttribute("data-link")).toBe("offline");
   expect(machineButton("local")?.getAttribute("aria-pressed")).toBe("true");
   await click(machineButton("devbox"));
