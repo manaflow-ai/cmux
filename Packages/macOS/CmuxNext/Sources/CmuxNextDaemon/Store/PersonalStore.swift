@@ -15,7 +15,9 @@ public final class PersonalStore {
     }
     /// Sessions each room follows.
     public internal(set) var follows: [ProfileID: Set<String>] = [:]
-    public internal(set) var pins: [WorkspacePin] = []
+    public internal(set) var pins: [WorkspacePin] = [] {
+        didSet { pinIndex = personalPinIndex(pins) }
+    }
     /// Personal workspace groups in order, each in one room.
     public internal(set) var groups: [WorkspaceGroupModel] = []
     /// Room of each personal group.
@@ -38,6 +40,9 @@ public final class PersonalStore {
     @ObservationIgnored private var workspaceIndex: [String: [String: PersonalWorkspace]] = [:]
     /// `sessions` by id, rebuilt when the list is set.
     @ObservationIgnored private var sessionIndex: [String: SessionRecord] = [:]
+    /// `pins` as session, then workspace key, to room, rebuilt when the list is set: a room lookup per switch or per
+    /// row is O(1), never a pass over every pin (switch-scale: each workspace select and space switch built it).
+    @ObservationIgnored private var pinIndex: [String: [String: ProfileID]] = [:]
 
     public init() {}
 
@@ -60,6 +65,13 @@ public final class PersonalStore {
         item.hasPrefix("itm_g_") ? WorkspaceGroupID(rawValue: String(item.dropFirst(6))) : nil
     }
 
+    /// Every pin as session, then workspace key, to its one room. Reads `pins` (observed as before), then returns the
+    /// index kept with it: no work per call.
+    public var pinnedRooms: [String: [String: ProfileID]] {
+        _ = pins
+        return pinIndex
+    }
+
     public func workspace(session: String, key: String) -> PersonalWorkspace? {
         _ = workspaces
         return workspaceIndex[session]?[key]
@@ -72,6 +84,13 @@ private func personalWorkspaceIndex(_ workspaces: [PersonalWorkspace]) -> [Strin
     for workspace in workspaces where index[workspace.sessionID]?[workspace.workspaceKey.rawValue] == nil {
         index[workspace.sessionID, default: [:]][workspace.workspaceKey.rawValue] = workspace
     }
+    return index
+}
+
+/// `pins` by session then key; the last pin of a workspace wins, as building a dictionary from the list did.
+private func personalPinIndex(_ pins: [WorkspacePin]) -> [String: [String: ProfileID]] {
+    var index: [String: [String: ProfileID]] = [:]
+    for pin in pins { index[pin.sessionID, default: [:]][pin.workspaceKey.rawValue] = pin.profile }
     return index
 }
 
