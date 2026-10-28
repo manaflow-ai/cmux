@@ -136,16 +136,46 @@ test("wrapped sends retain a prior same-turn recorded message body", () => {
     endedAt: 2,
   });
   for (const command of [
-    "reach box 'acpmux send lane - < /tmp/wrapped.md'",
     "reach box acpmux send lane - < /tmp/wrapped.md",
     "bash -c 'acpmux send lane - < /tmp/wrapped.md'",
     "bash -c 'acpmux send lane -' < /tmp/wrapped.md",
-    `reach box "bash -c 'acpmux send lane - < /tmp/wrapped.md'"`,
+    `reach box "bash -c 'acpmux send lane -'" < /tmp/wrapped.md`,
   ]) {
     const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
     const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
     expect(group?.type).toBe("send");
     if (group?.type === "send") expect(group.send.text).toBe("wrapped body\n");
+  }
+});
+
+test("reach keeps remote file paths separate from locally opened recorded stdin", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/shared.md <<'EOF'\nlocal body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  for (const command of [
+    "reach box 'acpmux send lane - < /tmp/shared.md'",
+    `reach box "bash -c 'acpmux send lane - < /tmp/shared.md'"`,
+    "reach box 'acpmux send lane - < /tmp/shared.md' < /tmp/shared.md",
+    `bash -c "reach box 'acpmux send lane - < /tmp/shared.md'"`,
+  ]) {
+    const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
+    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    if (group?.type === "send") expect(group.send.text).toBeUndefined();
+  }
+  for (const [command, text] of [
+    ["reach box 'acpmux send lane -' < /tmp/shared.md", "local body\n"],
+    ["reach box 'acpmux send lane -' <<'EOF'\nlocal stream\nEOF", "local stream\n"],
+    ["reach box \"acpmux send lane - <<'EOF'\nremote literal\nEOF\"", "remote literal\n"],
+  ]) {
+    const send = item({ title: "Bash", kind: "execute", command, startedAt: 3, endedAt: 4 });
+    const group = toolGroups([writer, send]).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    if (group?.type === "send") expect(group.send.text).toBe(text);
   }
 });
 
@@ -226,7 +256,7 @@ test("successive sends retain a recorded body until a later uncertain mutation",
   const sends = [
     "acpmux send first - < /tmp/reused.md",
     "bash -c 'acpmux send second - < /tmp/reused.md'",
-    "reach box 'acpmux send third - < /tmp/reused.md'",
+    "reach box 'acpmux send third -' < /tmp/reused.md",
     "acpmux send fourth - < /tmp/reused.md",
   ].map((command, index) =>
     item({ title: "Bash", kind: "execute", command, startedAt: index * 2 + 3, endedAt: index * 2 + 4 }),
@@ -295,6 +325,46 @@ test("a later accepted writer replaces all prior path spellings, and unknown tim
   ]).find((entry) => entry.type === "send");
   expect(overlap?.type).toBe("send");
   if (overlap?.type === "send") expect(overlap.send.text).toBeUndefined();
+});
+
+test("overlapping writer intervals invalidate bodies until a later ordered overwrite", () => {
+  for (const first of [
+    { endedAt: 10 },
+    { endedAt: 2, background: { state: "completed", endedAt: 10 } },
+    { endedAt: undefined },
+  ] as const) {
+    const slow = item({
+      title: "Bash",
+      kind: "execute",
+      command: "cat > /tmp/overlap.md <<'EOF'\nslow\nEOF",
+      startedAt: 1,
+      ...first,
+    });
+    const fast = item({
+      title: "Bash",
+      kind: "execute",
+      command: "cat > /tmp/overlap.md <<'EOF'\nfast\nEOF",
+      startedAt: 3,
+      endedAt: 4,
+    });
+    const send = item({
+      title: "Bash",
+      kind: "execute",
+      command: "acpmux send lane - < /tmp/overlap.md",
+      startedAt: 5,
+      endedAt: 6,
+    });
+    const group = toolGroups([slow, fast, send]).find((entry) => entry.type === "send");
+    expect(group?.type).toBe("send");
+    if (group?.type === "send") expect(group.send.text).toBeUndefined();
+    if (first.endedAt !== undefined) {
+      const ordered = { ...fast, tool: { ...fast.tool!, startedAt: 11, endedAt: 12 } };
+      const after = { ...send, tool: { ...send.tool!, startedAt: 13, endedAt: 14 } };
+      const recovered = toolGroups([slow, fast, ordered, after]).find((entry) => entry.type === "send");
+      expect(recovered?.type).toBe("send");
+      if (recovered?.type === "send") expect(recovered.send.text).toBe("fast\n");
+    }
+  }
 });
 
 test("background writers use their completion time for send provenance", () => {
