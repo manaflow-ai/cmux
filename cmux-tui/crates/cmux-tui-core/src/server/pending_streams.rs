@@ -454,6 +454,10 @@ impl StreamEndpoint {
         if !self.writer.is_open() {
             return;
         }
+        // SCRATCH RED (audit 8, never merged): the stream item waits its
+        // turn behind the connection's control sequence.
+        #[cfg(test)]
+        will_block(|| self.scheduler.wait_for_lines());
         match item {
             StreamItem::Input { bytes, flow, cause } => {
                 self.write_input(mux, surface, &bytes, flow, cause);
