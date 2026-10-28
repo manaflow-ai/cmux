@@ -122,7 +122,7 @@ extension SessionTransferService {
         var first = stat(), second = stat()
         // SAFETY: each stat reads the NUL-terminated copy of its path made for the call and writes one struct
         // stat into a local live for the call.
-        guard unsafe stat(a, &first) == 0, unsafe stat(b, &second) == 0 else { return a == b }
+        guard unsafe blockingStat(a, &first) == 0, unsafe blockingStat(b, &second) == 0 else { return a == b }
         return first.st_dev == second.st_dev && first.st_ino == second.st_ino
     }
 

@@ -52,7 +52,7 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     public static func start(owner: String, caches: URL, on work: BackgroundWork,
                              reads: @escaping @Sendable () -> Bool = { true }) -> HomeListLaunchRead {
         let conversations = HomeCache.standard(owner: owner, caches: caches)
-        let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches)
+        let sidebar = HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: work)
         return HomeListLaunchRead(owner: owner, caches: caches, conversations: conversations, sidebar: sidebar, on: work) {
             reads() ? Value(conversations: conversations.load(), sidebar: sidebar.read()) : Value()
         }
@@ -64,10 +64,11 @@ public nonisolated struct HomeListLaunchRead: Sendable {
     /// - Parameters:
     ///   - owner: The Chief owner (`ChiefHome.session`).
     ///   - caches: The new folder of the Home caches.
+    ///   - work: The app's blocking-work lanes, which write the list's launch cache.
     /// - Returns: The ended read.
-    public static func nothingToRead(owner: String, caches: URL) -> HomeListLaunchRead {
+    public static func nothingToRead(owner: String, caches: URL, on work: BackgroundWork) -> HomeListLaunchRead {
         HomeListLaunchRead(owner: owner, caches: caches, conversations: HomeCache.standard(owner: owner, caches: caches),
-                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches), read: nil)
+                           sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: work), read: nil)
     }
 
     private init(owner: String, caches: URL, conversations: HomeCache, sidebar: HomeSidebarLaunchCache, read: LaunchRead<Value>?) {

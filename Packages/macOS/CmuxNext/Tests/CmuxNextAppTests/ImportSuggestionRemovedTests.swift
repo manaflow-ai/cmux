@@ -53,6 +53,8 @@ import Testing
                                                            importedProfiles: { [] },
                                                            openSettings: { routes.append($0) },
                                                            importClassic: { _ in nil },
+                                                           work: BackgroundWork(label: "test.import-cards"),
+                                                           mainWork: MainWorkScheduler(budget: MainFrameBudget()),
                                                            appEvents: AppEvents(center: NotificationCenter())))
         #expect(registry.isBound("import.open"))
         #expect(registry.perform("import.open", invocation: ActionInvocation(origin: .user)))

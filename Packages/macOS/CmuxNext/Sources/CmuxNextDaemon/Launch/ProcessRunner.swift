@@ -47,7 +47,7 @@ public struct ProcessRunner {
             // child's stdin, which clears the flag there only).
             _ = fcntl(input.fileHandleForReading.fileDescriptor, F_SETFD, FD_CLOEXEC)
             _ = fcntl(input.fileHandleForWriting.fileDescriptor, F_SETFD, FD_CLOEXEC)
-            try input.fileHandleForWriting.write(contentsOf: stdin)
+            try input.fileHandleForWriting.blockingWrite(contentsOf: stdin)
             try input.fileHandleForWriting.close()
             process.standardInput = input
         } else {

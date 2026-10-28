@@ -144,7 +144,7 @@ struct FileTransferJob: Sendable {
         case .move:
             if sameVolume(source, folder) {
                 // SAFETY: rename reads the NUL-terminated copies of both paths made for the call.
-                guard unsafe Darwin.rename(source.path, target.path) == 0 else {
+                guard unsafe blockingRename(source.path, target.path) == 0 else {
                     throw FileBrowserError.posix(errno)
                 }
             } else {
@@ -177,7 +177,7 @@ struct FileTransferJob: Sendable {
         var info = stat()
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local live for the call.
-        guard unsafe lstat(url.path, &info) == 0 else { return 0 }
+        guard unsafe blockingLstat(url.path, &info) == 0 else { return 0 }
         if info.st_mode & S_IFMT != S_IFDIR { return Int64(info.st_size) }
         var total: Int64 = 0
         let keys: [URLResourceKey] = [.fileSizeKey, .isRegularFileKey]
@@ -194,7 +194,7 @@ struct FileTransferJob: Sendable {
         var sa = stat(), sb = stat()
         // SAFETY: lstat and stat read the NUL-terminated copies of the paths made for each call and write one struct
         // stat each into `sa` and `sb`, locals live for the calls.
-        guard unsafe lstat(a.path, &sa) == 0, unsafe stat(b.path, &sb) == 0 else { return false }
+        guard unsafe blockingLstat(a.path, &sa) == 0, unsafe blockingStat(b.path, &sb) == 0 else { return false }
         return sa.st_dev == sb.st_dev
     }
 }

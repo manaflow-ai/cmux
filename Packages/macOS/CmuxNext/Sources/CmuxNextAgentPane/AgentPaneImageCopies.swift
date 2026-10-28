@@ -199,7 +199,7 @@ extension AgentPaneImageCopies {
         var info = stat()
         // SAFETY: fstat writes one struct stat into `info`, a local.
         guard unsafe fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= limit,
-              let data = try? handle.read(upToCount: limit + 1), data.count <= limit else { return nil }
+              let data = try? handle.blockingRead(upToCount: limit + 1), data.count <= limit else { return nil }
         return data
     }
 
