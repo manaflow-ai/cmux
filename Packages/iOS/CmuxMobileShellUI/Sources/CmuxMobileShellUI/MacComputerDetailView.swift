@@ -298,7 +298,9 @@ struct MacComputerDetailView: View {
                 ) { draft in
                     let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
                     if saved, pairedMac == nil {
-                        _ = await store.connectDiscoveredIrohMac(using: draft)
+                        if draft.isEnabled {
+                            return await store.connectDiscoveredIrohMac(using: draft)
+                        }
                     }
                     return saved
                 }

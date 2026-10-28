@@ -3,7 +3,7 @@ import CmuxMobileShellModel
 import Foundation
 
 @MainActor
-private final class FirstReadSuspendedIrohDiscovery: MobileIrohMacDiscovering {
+final class FirstReadSuspendedIrohDiscovery: MobileIrohMacDiscovering {
     let pending: SuspendedIrohDiscovery
     private var didRead = false
 

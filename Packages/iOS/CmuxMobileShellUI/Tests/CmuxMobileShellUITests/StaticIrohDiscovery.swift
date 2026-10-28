@@ -2,7 +2,7 @@ import CMUXMobileCore
 import CmuxMobileShell
 
 @MainActor
-private final class StaticIrohDiscovery: MobileIrohMacDiscovering {
+final class StaticIrohDiscovery: MobileIrohMacDiscovering {
     let candidates: [MobileDiscoveredIrohMac]
 
     init(candidates: [MobileDiscoveredIrohMac]) {

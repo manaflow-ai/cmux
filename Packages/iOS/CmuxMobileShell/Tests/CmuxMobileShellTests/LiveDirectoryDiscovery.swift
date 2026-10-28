@@ -2,7 +2,7 @@ import CMUXMobileCore
 import CmuxMobileShellModel
 
 @MainActor
-private final class LiveDirectoryDiscovery: MobileIrohMacDiscovering {
+final class LiveDirectoryDiscovery: MobileIrohMacDiscovering {
     private var candidates: [MobileDiscoveredIrohMac]
     private let stream: AsyncStream<Void>
     private let continuation: AsyncStream<Void>.Continuation

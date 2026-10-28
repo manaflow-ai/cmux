@@ -3,7 +3,7 @@ import CmuxMobileShellModel
 import Foundation
 
 @MainActor
-private final class PendingDirectoryDiscovery: MobileIrohMacDiscovering {
+final class PendingDirectoryDiscovery: MobileIrohMacDiscovering {
     private var requestCount = 0
     private var pending: [Int: CheckedContinuation<[MobileDiscoveredIrohMac], Never>] = [:]
     private var waiters: [Int: CheckedContinuation<Void, Never>] = [:]
