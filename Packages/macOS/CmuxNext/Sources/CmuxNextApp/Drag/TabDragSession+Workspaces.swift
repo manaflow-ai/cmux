@@ -41,9 +41,11 @@ extension TabDragSession {
 
     // MARK: Hit testing
 
-    func updateWorkspaces(_ point: CGPoint, drag: Drag) {
-        guard case let .workspaces(ids, group) = drag.source.item else { return }
-        let controller = window(at: point)
+    /// The workspace drop target at `point`, with `order` the pointer event's window order; returns the window
+    /// under it. The caller presents the ghost and wakes the frame clock.
+    func updateWorkspaces(_ point: CGPoint, drag: Drag, order: [TabDragWindowPick.Candidate]) -> WindowController? {
+        guard case let .workspaces(ids, group) = drag.source.item else { return nil }
+        let controller = window(at: point, in: order)
         var sidebarHit: WorkspaceDropTarget?
         var highlight: CGRect?
         var sidebar: SidebarTabDropTarget?
@@ -83,8 +85,7 @@ extension TabDragSession {
             highlight = controller?.window?.frame
         } else if case .window(_, .beside(let edge)) = drag.workspaceOutcome { highlight = controller?.besideHighlight(edge, at: point) ?? highlight }
         drag.workspaceHighlight = drag.workspaceOutcome == .cancel ? nil : highlight
-        present(drag)
-        wake(drag)
+        return controller
     }
 
     // MARK: Commit
@@ -111,7 +112,7 @@ extension TabDragSession {
                 services.windows.bringToFront(controller)
             }
         case let .window(id, target):
-            guard let controller = services.windows.controller(for: id) else { break }
+            guard let controller = services.windows.controllerBuildingIfWaiting(for: id) else { break }
             switch target {
             case let .position(position): controller.sidebar.accept(workspaceIDs, at: position)
             case let .intoGroup(group): controller.sidebar.accept(workspaceIDs, intoGroup: group)

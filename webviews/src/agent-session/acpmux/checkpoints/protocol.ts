@@ -6,6 +6,14 @@ export const CHECKPOINT_OPS = {
   pin: "git.checkpoint.pin",
   unpin: "git.checkpoint.unpin",
 } as const;
+/** The host's checkpoint support (`{ checkpoints: true }`), read on mount and reconnect (controller.tsx). */
+export const CHECKPOINT_CAPABILITY_OP = "git.capabilities";
+export type CheckpointMethod = typeof CHECKPOINT_CAPABILITY_OP | (typeof CHECKPOINT_OPS)[keyof typeof CHECKPOINT_OPS];
+/** Every request the checkpoint feature sends to its owner (the native host; mock mode's in-page daemon). */
+export const CHECKPOINT_METHODS: readonly CheckpointMethod[] = [
+  CHECKPOINT_CAPABILITY_OP,
+  ...Object.values(CHECKPOINT_OPS),
+];
 
 export type CheckpointTarget = {
   cwd: string;

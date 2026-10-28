@@ -379,6 +379,8 @@ impl Hub {
                 host_seq: None,
             }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
+            update_line: Default::default(),
+            summary: Default::default(),
         });
     }
 
@@ -400,7 +402,7 @@ impl Hub {
         }
     }
 
-    pub(super) fn apply_peer_notice(
+    pub(crate) fn apply_peer_notice(
         &self,
         peer: &str,
         generation: u64,
@@ -530,6 +532,8 @@ impl Hub {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
                             }),
+                            update_line: Default::default(),
+                            summary: Default::default(),
                         });
                         return;
                     }
@@ -568,6 +572,8 @@ impl Hub {
                             host_seq: None,
                         }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        update_line: Default::default(),
+                        summary: Default::default(),
                     });
                 }
                 // A prompt this daemon forwarded was taken (`outbox.rs` `PeerAccepts`).
@@ -600,6 +606,8 @@ impl Hub {
                                 host_seq: None,
                             }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                            update_line: Default::default(),
+                            summary: Default::default(),
                         });
                     }
                 }
@@ -692,6 +700,8 @@ impl Hub {
                         session_id: id,
                         record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
+                        update_line: Default::default(),
+                        summary: Default::default(),
                     });
                 }
             }
@@ -806,28 +816,21 @@ impl Hub {
         Some((peer, id, summary))
     }
 
-    /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
-    /// reconnect. `generation` is the one the row named when the purge was asked: a session
-    /// recreated since keeps its row, and only that generation's event snapshot goes. None (a row
-    /// that names no generation) removes only such a row, never one of a generation. `instance`
-    /// is the peer the purge went to: one replaced since (another machine under the name) keeps
-    /// its rows and copies.
-    pub fn forget_remote(&self, (peer, instance): (&str, u64), mux: &str, generation: Option<u64>) {
-        let mut map = self.remote_sessions.lock().unwrap();
-        if !self.is_current(peer, instance) {
-            return;
-        }
-        let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
-        let key = map
-            .iter()
-            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
-            .filter(|(_, r)| created(r) == generation)
-            .map(|(key, _)| key.clone());
-        let removed = key.and_then(|key| map.remove(&key));
-        // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does. A purge that
-        // names no generation and found no such row removes no copy of another.
-        if generation.is_some() || removed.is_some() {
-            self.peer_snapshots.gone(peer, mux, generation);
+    /// A remote session was deleted through us: drop it now rather than at
+    /// the next reconnect, and tell watchers and pending waits it left: a row
+    /// changes only with an event (`server/wait.rs` reads no row on a timer).
+    pub fn forget_remote(&self, id: &str) {
+        let removed = {
+            let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+            let key = if map.contains_key(id) {
+                Some(id.to_owned())
+            } else {
+                map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone())
+            };
+            key.and_then(|key| map.remove(&key))
+        };
+        if let Some(r) = removed {
+            self.announce_remote(&r.peer, r.summary, "purged");
         }
     }
 

@@ -79,7 +79,7 @@ impl Hub {
     pub(super) fn load_peer_cache(&self, peer: &crate::peer::Peer) {
         let Some(dir) = self.store.peer_cache_dir() else { return };
         let Some(path) = cache_path(&dir, &peer.name) else { return };
-        let Ok(bytes) = std::fs::read(&path) else { return };
+        let Ok(bytes) = cmux_blocking::fs::read(&path) else { return };
         let Ok(saved) = serde_json::from_slice::<Saved>(&bytes) else { return };
         peer.seed_last_seen(saved.last_seen);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
@@ -106,7 +106,7 @@ impl Hub {
     /// `forget_peer_cache` with the rows lock held by the caller (`remove_peer`).
     pub(super) fn forget_peer_files(&self, peer: &str) {
         if let Some(path) = self.store.peer_cache_dir().and_then(|d| cache_path(&d, peer)) {
-            let _ = std::fs::remove_file(path);
+            let _ = cmux_blocking::fs::remove_file(path);
         }
         // And its sessions' event snapshots (`peer_snapshot.rs`), under the rows lock once the
         // peer has left the registry (`remove_peer`): a listing or capture of it that found it

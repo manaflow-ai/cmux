@@ -80,21 +80,8 @@ nonisolated final class CuaHelperManifestReader: Sendable {
     /// The `capabilities` strings of a manifest, plus `serve.motion` for a
     /// `binary_version` from `motionSinceVersion` on; nil when it is not a JSON object.
     static func parse(_ data: Data) -> Set<String>? {
-        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        var capabilities = Set((object["capabilities"] as? [Any] ?? []).compactMap { $0 as? String })
-        if let version = object["binary_version"] as? String, isAtLeast(version, motionSinceVersion) {
-            capabilities.insert(motionCapability)
-        }
-        return capabilities
-    }
-
-    /// Whether dotted `version` ("0.8.12", "1.0.0-rc.1") is at least `minimum`; false when unreadable.
-    static func isAtLeast(_ version: String, _ minimum: [Int]) -> Bool {
-        let core = version.split(separator: "-", maxSplits: 1).first.map(String.init) ?? version
-        let parts = core.split(separator: ".").map { Int($0) }
-        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return false }
-        let numbers = parts.compactMap(\.self) + Array(repeating: 0, count: max(0, minimum.count - parts.count))
-        return numbers.lexicographicallyPrecedes(minimum) == false
+        guard let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
+        return Set((object["capabilities"] as? [Any] ?? []).compactMap { $0 as? String })
     }
 
     /// Called only from `capabilities(of:)`, which runs off the main actor.

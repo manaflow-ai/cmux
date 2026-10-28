@@ -314,6 +314,10 @@ impl Backend for Fake {
         }
     }
 
+    fn daemon_line(&self, cmd: &str) -> Result<Value, String> {
+        energy::daemon_line(self, cmd)
+    }
+
     fn browser(
         &self,
         request: browser_tools::Request,
@@ -1402,6 +1406,7 @@ mod agent_wait;
 
 mod caller_scope;
 mod catalog;
+mod energy;
 mod machine_catalog;
 
 fn code_mode_server(fake: Fake) -> Server<Fake> {

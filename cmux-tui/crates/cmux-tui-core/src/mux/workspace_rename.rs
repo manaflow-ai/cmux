@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub fn rename_workspace_at_revision_as(
         &self,
         actor: &Actor,
@@ -23,6 +24,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn rename_workspace_with_mutation(
         &self,
         target: Option<WorkspaceId>,
@@ -47,6 +49,7 @@ impl Mux {
     /// (`source: auto`) never replaces a user name and loses to any rename
     /// after the name revision it read.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn rename_workspace_with_name_authority(
         &self,
         target: Option<WorkspaceId>,
@@ -74,6 +77,7 @@ impl Mux {
         result
     }
 
+    #[track_caller]
     pub fn rename_provider_managed_workspace_as(
         &self,
         actor: &Actor,
@@ -93,6 +97,7 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    #[track_caller]
     pub(crate) fn rename_provider_managed_workspace_authorized(
         &self,
         actor: &Actor,
@@ -113,6 +118,7 @@ impl Mux {
             .map(|(_, _, revision)| revision))
     }
 
+    #[track_caller]
     pub(super) fn rename_workspace_selector_with_authority(
         &self,
         actor: &Actor,
@@ -147,6 +153,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(super) fn rename_workspace_with_mutation_inner(
         &self,
         target: Option<WorkspaceId>,

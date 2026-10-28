@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// A4 (276b617df95): one key tracker per window decides the inactive wash. Before it, each
@@ -14,13 +15,15 @@ import Testing
     @MainActor
     final class Keyboard {
         let center = NotificationCenter()
+        /// The app's events every window's tracker shares, as the composition root injects them.
+        private(set) lazy var events = AppEvents(center: center)
         var key: NSWindow?
         var active = true
         var pending: [@MainActor () -> Void] = []
 
         var environment: WindowKeyEnvironment {
-            WindowKeyEnvironment(center: center, keyWindow: { [unowned self] in self.key }, isAppActive: { [unowned self] in self.active },
-                                 nextTurn: { [unowned self] check in self.pending.append(check) })
+            WindowKeyEnvironment(events: events, keyWindow: { [unowned self] in self.key }, isAppActive: { [unowned self] in self.active },
+                                 beforeCommit: { [unowned self] check in self.pending.append(check) })
         }
 
         /// Posts `name` and returns how many checks it scheduled; runs them (the next turn).

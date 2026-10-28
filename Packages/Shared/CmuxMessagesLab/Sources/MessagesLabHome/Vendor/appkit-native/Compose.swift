@@ -40,6 +40,9 @@ final class FieldTextView: NSTextView {
     var onPress: (NSEvent) -> Void = { _ in }
     /// The release of that press (the mouse-up that ended the text view's tracking).
     var onRelease: (NSEvent) -> Void = { _ in }
+    /// cmux: runs the text view's own key handling (the input method call) inside the host's text input
+    /// stage, which stamps it in the key's latency slot. Nil: the key handling runs alone.
+    var textInputScope: (@MainActor @Sendable (NSEvent, () -> Void) -> Void)?
     override func mouseDown(with event: NSEvent) {
         pickerAnchor = nil  // cmux
         onPress(event)
@@ -85,7 +88,7 @@ final class FieldTextView: NSTextView {
         pickerAnchor = nil  // cmux
         defer { if Self.caretLog { Self.log("key done") } }
         // Marked text (IME composition) owns Return and Esc.
-        if hasMarkedText() { super.keyDown(with: event); return }
+        if hasMarkedText() { interpret(event); return }
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
         if event.keyCode == 36 || event.keyCode == 76 {
             if flags.contains(.option) || flags.contains(.shift) { insertText("\n", replacementRange: selectedRange()); return }
@@ -94,7 +97,13 @@ final class FieldTextView: NSTextView {
         // cmux: Ctrl+J (keyCode 38) is a newline, as in a terminal.
         if event.keyCode == 38, flags == .control { insertText("\n", replacementRange: selectedRange()); return }
         if event.keyCode == 53 { onEscape(); return }
-        super.keyDown(with: event)
+        interpret(event)
+    }
+
+    /// cmux: the text view's key handling, inside ``textInputScope`` when the host gave one.
+    private func interpret(_ event: NSEvent) {
+        guard let textInputScope else { return super.keyDown(with: event) }
+        textInputScope(event) { super.keyDown(with: event) }
     }
 
     // MARK: Caret (UIKit's, as Messages draws it)
@@ -179,7 +188,8 @@ final class FieldTextView: NSTextView {
                 local = CGRect(x: r.minX + Self.caretDX, y: r.minY, width: Self.caretWidth, height: 17)
             } else {
                 // cmux: AppKit's own rect, never the emoji picker's anchor (`pickerAnchor`).
-                let screen = super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
+                // SAFETY: the actual-range pointer is nil, so AppKit writes no range.
+                let screen = unsafe super.firstRect(forCharacterRange: NSRange(location: sel.location, length: 0), actualRange: nil)
                 let r = convert(window.convertFromScreen(screen), from: nil)
                 local = CGRect(x: r.minX + Self.caretDX, y: r.midY + Self.caretDY, width: Self.caretWidth, height: 17)
             }
@@ -268,6 +278,10 @@ final class FieldTextView: NSTextView {
     /// Spell checking while typing, off the keystroke frame (SpellCheck.swift); the Edit
     /// menu's "Check Spelling While Typing" switches it.
     lazy var spell = DeferredSpellChecker(view: self)
+    /// cmux: the compose bar replaced the text (no `didChangeText`): the spell check follows.
+    func textReplaced() {
+        if !DeferredSpellChecker.useAppKit { spell.textDidChange() }
+    }
     /// Enables the host's opt-in composer spell checking without changing the system-wide setting.
     func setSpellCheckingEnabled(_ enabled: Bool) {
         if DeferredSpellChecker.useAppKit {
@@ -302,11 +316,8 @@ final class FieldTextView: NSTextView {
     }
     // Block observers on queue: .main (inline for AppKit's post on main), not selectors: a selector
     // into this main-actor view traps on a post off main (cmux-next's objc_observer rule).
-    private var keyObservers: [NSObjectProtocol] = []
-    deinit {
-        keyObservers.forEach { NotificationCenter.default.removeObserver($0) }
-        storageObserver.map(NotificationCenter.default.removeObserver)
-    }
+    // cmux: MainQueueObservation, main-actor handlers; each removes itself when it goes.
+    private var keyObservers: [MainQueueObservation] = []
     /// The text storage's edits (its `didProcessEditing` posts), the container's width and the layout
     /// objects when `caretRect` last laid out the whole text.
     private struct LayoutState: Equatable { var edits: Int; var width: CGFloat; var manager: ObjectIdentifier; var container: ObjectIdentifier? }
@@ -339,7 +350,7 @@ final class FieldTextView: NSTextView {
         didSet { if !NSDictionary(dictionary: typingAttributes).isEqual(to: oldValue) { inputChanges &+= 1 } }
     }
     private var storageEdits = 0
-    private var storageObserver: NSObjectProtocol?
+    private var storageObserver: MainQueueObservation?  // cmux
     private var observedStorage: ObjectIdentifier?
     /// cmux: the field's typing undo is on the window's undo stack, which does not retain its
     /// targets; NSTextView registers it with the text storage as the target, not itself. A field
@@ -356,12 +367,10 @@ final class FieldTextView: NSTextView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyScale()
-        let nc = NotificationCenter.default
-        keyObservers.forEach { nc.removeObserver($0) }
         keyObservers = []
         guard let window else { return }
-        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
-            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
+        keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map {  // cmux
+            MainQueueObservation($0, object: window) { [weak self] _ in self?.updateCaret() }
         }
     }
     override func setFrameSize(_ newSize: NSSize) {
@@ -413,11 +422,9 @@ final class FieldTextView: NSTextView {
         // call, 2 to 3 calls per key; arrow keys edit nothing).
         let storage = textStorage.map(ObjectIdentifier.init)
         if observedStorage != storage {
-            storageObserver.map(NotificationCenter.default.removeObserver)
+            storageObserver = nil  // cmux: the old storage's observer goes first
             storageObserver = textStorage.map {
-                NotificationCenter.default.addObserver(forName: NSTextStorage.didProcessEditingNotification, object: $0, queue: .main) { [weak self] _ in
-                    self?.storageEdits += 1
-                }
+                MainQueueObservation(NSTextStorage.didProcessEditingNotification, object: $0) { [weak self] _ in self?.storageEdits += 1 }
             }
             observedStorage = storage
             laidOut = nil
@@ -455,7 +462,7 @@ final class FieldTextView: NSTextView {
         let storageText = textStorage
         func picture(_ i: Int) -> Bool {
             guard let s = storageText, i >= 0, i < s.length else { return false }
-            return s.attribute(.attachment, at: i, effectiveRange: nil) is ComposeInlineAttachment
+            return s.attribute(.attachment, at: i) is ComposeInlineAttachment
         }
         let length = storageText?.length ?? 0
         let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
@@ -520,8 +527,10 @@ final class FieldTextView: NSTextView {
         super.flagsChanged(with: event)
     }
     override func firstRect(forCharacterRange range: NSRange, actualRange: NSRangePointer?) -> NSRect {
-        if let pickerAnchor { actualRange?.pointee = range; return pickerAnchor }  // cmux
-        return super.firstRect(forCharacterRange: range, actualRange: actualRange)
+        // SAFETY: AppKit passes nil or a pointer to one NSRange it owns for this call; one range is written to it,
+        // during the call only, and the same pointer goes on to super under the same contract.
+        if let pickerAnchor { unsafe actualRange?.pointee = range; return pickerAnchor }  // cmux
+        return unsafe super.firstRect(forCharacterRange: range, actualRange: actualRange)
     }
 
     /// The pasteboard Paste reads (a check injects its own).
@@ -643,7 +652,7 @@ final class ComposeTextView {
     var onSend: () -> Void { get { view.onSend } set { view.onSend = newValue } }
     var onEscape: () -> Void { get { view.onEscape } set { view.onEscape = newValue } }
     var text: String { view.string }
-    private var scrolled: NSObjectProtocol?
+    private var scrolled: MainQueueObservation?  // cmux
     init() {
         // TextKit 2, as UITextView on Catalyst.
         view = FieldTextView(usingTextLayoutManager: true)
@@ -664,7 +673,8 @@ final class ComposeTextView {
         clip.addSubview(scrollView)
         // The caret follows the text when the field scrolls (a trackpad scroll over the field).
         scrollView.contentView.postsBoundsChangedNotifications = true
-        scrolled = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil) { [weak view] _ in
+        // cmux: on queue .main (inline for the clip's post on main; it was nil, the posting thread), main-actor handler.
+        scrolled = MainQueueObservation(NSView.boundsDidChangeNotification, object: scrollView.contentView) { [weak view] _ in
             view?.updateCaret(reset: false)
         }
         view.onEndLiveResize = { [weak self] in
@@ -674,7 +684,6 @@ final class ComposeTextView {
             DispatchQueue.main.async { self?.placeWaitingWidth() }
         }
     }
-    deinit { scrolled.map(NotificationCenter.default.removeObserver) }
 
     /// The field's frame whose width waits for the end of a live resize (nil: none waits).
     private(set) var widthWaiting: CGRect?
@@ -1165,8 +1174,8 @@ final class ComposeView: UIView {
             let space = CGColorSpace(name: CGColorSpace.sRGB)
             for (stops, fromTop) in [(top, true), (bottom, false)] {
                 // an optional gradient draws nothing when it fails (CrashSafeGraphics).
-                let g = CGGradient(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor } as CFArray,
-                                   locations: stops.map { $0.0 / cap })
+                let g = CGGradient.checked(colorsSpace: space, colors: stops.map { grey.withAlphaComponent($0.1).cgColor },
+                                           locations: stops.map { $0.0 / cap })
                 c.drawLinearGradient(g, start: CGPoint(x: 0, y: fromTop ? 0 : h), end: CGPoint(x: 0, y: fromTop ? cap : h - cap), options: [])
             }
             c.restoreGState()
@@ -1224,7 +1233,8 @@ final class ComposeView: UIView {
         guard let storage = tv.textStorage else { return }
         var range: NSRange?
         storage.enumerateAttribute(.attachment, in: NSRange(location: 0, length: storage.length)) { v, r, stop in
-            if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; stop.pointee = true }
+            // SAFETY: `stop` is Foundation's flag for this enumeration, valid during the block only.
+            if (v as? ComposeInlineAttachment)?.attachmentID == id { range = r; unsafe stop.pointee = true }
         }
         guard let range, tv.shouldChangeText(in: range, replacementString: "") else { return }
         storage.replaceCharacters(in: range, with: "")
@@ -1292,7 +1302,7 @@ final class ComposeView: UIView {
                 inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
                                                                   added: ComposeView.addedMark(d, before: chips)))
-                if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
+                tv.textReplaced()  // cmux: the spell check is the field's (main actor)
             }
         }
         let newPlaceholder = state.ui.openThread != nil ? ComposeView.placeholders.reply : ComposeView.placeholders.field
@@ -1385,7 +1395,7 @@ final class ComposeView: UIView {
         // no trap on a NaN or huge size (crash ratchet)
         let wide = CrashGuard.int((size.width * scale).rounded(.up), in: 0...1 << 16), high = CrashGuard.int((size.height * scale).rounded(.up), in: 0...1 << 16)
         if rep.pixelsWide != wide || rep.pixelsHigh != high,
-           let scaled = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: wide, pixelsHigh: high,
+           let scaled = NSBitmapImageRep.owned(pixelsWide: wide, pixelsHigh: high,
                                          bitsPerSample: rep.bitsPerSample, samplesPerPixel: rep.samplesPerPixel,
                                          hasAlpha: rep.hasAlpha, isPlanar: rep.isPlanar, colorSpaceName: rep.colorSpaceName,
                                          bitmapFormat: rep.bitmapFormat, bytesPerRow: 0, bitsPerPixel: rep.bitsPerPixel)?

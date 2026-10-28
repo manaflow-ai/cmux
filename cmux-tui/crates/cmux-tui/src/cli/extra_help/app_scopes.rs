@@ -17,7 +17,7 @@ pub(in crate::cli) fn print(args: &[String]) -> Option<i32> {
     Some(0)
 }
 
-/// `help acp|mcp|coderouter|link` runs that command's own `--help`, so the
+/// `help acp|mcp|coderouter|billing|trace|energy|metrics|link` runs that command's own `--help`, so the
 /// two spellings print the same text.
 fn process_help(args: &[String]) -> Option<i32> {
     let [help, scope] = args else { return None };
@@ -31,6 +31,11 @@ fn process_help(args: &[String]) -> Option<i32> {
         "mcp" => super::super::mcp::run_if_requested(&flag()),
         "coderouter" => super::super::coderouter::run_if_requested(&flag()),
         "billing" => super::super::billing::run_if_requested(&flag()),
+        "trace" => super::super::trace::run_if_requested(&flag()),
+        #[cfg(unix)]
+        "energy" => super::super::energy::run_if_requested(&flag()),
+        #[cfg(unix)]
+        "metrics" => super::super::metrics::run_if_requested(&flag()),
         _ => None,
     }
 }

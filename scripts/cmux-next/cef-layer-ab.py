@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Chromium page window vs layer hosting (fork API 26), A/B in a real window (plans/cmux-next/cef-layer-hosting-DESIGN.md).
 
-Runs the existing benches twice on one tagged build: once with `browserResize.layerHosting` off (the page is a child
-window over its pane) and once on (the page's pixels in the cmux window's layer tree). Before each mode's benches,
-cef-layer-verify.py --checks hosted --tunables build launches the build the way the benches do, sets the tunable in
-the build's own debug-tunables.json (the path the app reports, which every bench launch reads) and checks that the
-mode is real: the page is Chromium (no `unavailable`, no `fallback`), fork_api >= 26 in mode on, and
-tracker.hosted_pages > 0 in mode on, == 0 in mode off, and debug.layers' CALayerHost counts show the fork moved the
+Runs the existing benches twice on one tagged build: once with layer hosting off (the page is a child window over its
+pane) and once on (the page's pixels in the cmux window's layer tree). Mode on is the bench-only feature
+`cefLayerHostingEveryPage` (tunable `browserResize.layerHostingEveryPage`): every page window hosts from fork API 26,
+DevTools and popups too. It is not the shipping feature `cefLayerHosting` (tunable `browserResize.layerHosting`),
+which hosts a pane's page only with every Track A call and never DevTools or popups: measure that one with
+--modes off,default. Before each mode's benches, cef-layer-verify.py --checks hosted --tunables build launches the
+build the way the benches do, sets the mode's tunables in the build's own debug-tunables.json (the path the app
+reports, which every bench launch reads, before the launch: features resolve once, at launch) and checks that the
+mode is real: features.list resolves the mode's features (`arm`), the page is Chromium (no `unavailable`, no
+`fallback`), fork_api >= 26 in mode on, and
+tracker.hosted_pages > 0 in modes on and default, == 0 in mode off, and debug.layers' CALayerHost counts show the fork moved the
 page's pixels out of its page window in mode on and left them there in mode off (`hosted.fork`: in mode on the hosted
 context holds Chromium's CALayerHost; the app-side count alone says only that cmux made its view), and a page shown
 again after a workspace switch shows its last frame at once (`show.again`). A mode that fails runs no benches and fails the run, so two
@@ -31,13 +36,16 @@ launch failure or a crash exits 1 too, so the exit code alone does not tell a bu
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KEY = "browserResize.layerHosting"
+# The tunables cef-layer-verify.py sets per mode (features' local overrides), removed from the build's file at the end.
+KEYS = ("browserResize.layerHosting", "browserResize.layerHostingEveryPage")
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
 parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
-parser.add_argument("--modes", default="off,on", help="off = page child windows, on = layer hosting")
+parser.add_argument("--modes", default="off,on",
+                    help="off = page child windows, on = every page window hosted (bench arm), "
+                         "default = feature cefLayerHosting (pane pages with every Track A call)")
 parser.add_argument("--benches", default="switch,tabs,light,stress")
 parser.add_argument("--workspaces", type=int, default=60)
 parser.add_argument("--rounds", type=int, default=3)
@@ -128,7 +136,8 @@ if tunables_file:
     try:
         with open(tunables_file) as f:
             data = json.load(f)
-        data.setdefault("values", {}).pop(KEY, None)
+        for key in KEYS:
+            data.setdefault("values", {}).pop(key, None)
         with open(tunables_file, "w") as f:
             json.dump(data, f, indent=2, sort_keys=True)
     except (OSError, ValueError):

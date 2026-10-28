@@ -31,14 +31,13 @@ final class HomeChiefAvatarButton: NSButton {
         NSLayoutConstraint.activate([widthAnchor.constraint(equalToConstant: size), heightAnchor.constraint(equalToConstant: size)])
         font = Typography.system(size: TypeScale.heading, weight: TypeScale.emphasis)
         applyTheme()
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     /// The one picture file a drag carries; nil for none, several, or another type.
     private func picture(in drag: any NSDraggingInfo) -> URL? {
@@ -86,6 +85,7 @@ final class HomeChiefAvatarButton: NSButton {
         applyTheme()
     }
 
+    // visibility-walk-allow: color stores only (the disc's layer fill and the tint) on a control of the settings card, which is on screen only while its popover shows; deferring them would draw a frame in the old theme
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTheme()
@@ -111,7 +111,6 @@ final class HomeChiefLinkButton: NSButton {
     var textFont: NSFont = Typography.caption { didSet { applyTitle() } }
     private var text = ""
     private var isHovering = false { didSet { applyTitle() } }
-    private var tracking: NSTrackingArea?
 
     init(title: String, target: AnyObject, action: Selector) {
         super.init(frame: .zero)
@@ -122,23 +121,16 @@ final class HomeChiefLinkButton: NSButton {
         bezelStyle = .regularSquare
         setButtonType(.momentaryChange)
         setAccessibilityLabel(title)
+        // Hover in the active app; the pointing hand has its own area (below).
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
         applyTitle()
+        addCursorUpdateArea()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    override func resetCursorRects() {
-        addCursorRect(bounds, cursor: .pointingHand)
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
+    override func cursorUpdate(with event: NSEvent) { NSCursor.pointingHand.set() }
 
     override func mouseEntered(with event: NSEvent) { isHovering = true }
     override func mouseExited(with event: NSEvent) { isHovering = false }
@@ -148,6 +140,7 @@ final class HomeChiefLinkButton: NSButton {
         applyTitle()
     }
 
+    // visibility-walk-allow: one short title's color (an attributed string) on a link of the settings card, which is on screen only while its popover shows; deferring it would draw a frame in the old theme
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyTitle()

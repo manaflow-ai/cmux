@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextActions
 public import CmuxNextDevices
+public import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -34,8 +35,14 @@ public final class MacScreenHubHost {
     @ObservationIgnored public let share: MacScreenShareHost
     @ObservationIgnored private var host: ScreenStreamHost?
     @ObservationIgnored private var serveTask: Task<Void, Never>?
-    @ObservationIgnored private var eventTask: Task<Void, Never>?
+    /// The app's main-thread scheduler: the stream host's events and the hub's answers land as its tasks.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private let indicator = MacScreenShareIndicator()
+    /// The app's node in the visibility tree (the app sets it). A connected session votes on it, so
+    /// the windows the shared screen may show render while their own nodes read covered or the
+    /// displays sleep, and their pages still read hidden (a capture vote that stays hidden).
+    @ObservationIgnored public var sharedScreenNode: VisibilityNode?
+    @ObservationIgnored private var shareVote: VisibilityCaptureVote?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "mac-screen-hub-host")
     /// Makes the host for one session; tests replace it.
     @ObservationIgnored var makeHost: (_ name: String, _ viewOnly: Bool) -> ScreenStreamHost = { name, viewOnly in
@@ -53,8 +60,9 @@ public final class MacScreenHubHost {
     /// Makes a session's signaling from its ticket; tests replace it.
     @ObservationIgnored var makeSignaling: @MainActor (SessionTicket, DeviceHub) throws -> any ScreenSignaling = MacScreenHubViewer.ticketSignaling
 
-    init(share: MacScreenShareHost) {
+    init(share: MacScreenShareHost, mainWork: MainWorkScheduler) {
         self.share = share
+        self.mainWork = mainWork
     }
 
     /// Whether this Mac allows Mac Screen (the hub's record of this device).
@@ -102,21 +110,22 @@ public final class MacScreenHubHost {
             return
         }
         let host = makeHost(MacScreenShareHost.computerName, ticket.scope == .view)
-        let (events, sink) = AsyncStream.makeStream(of: ScreenStreamHost.Event.self, bufferingPolicy: .bufferingNewest(64))
-        host.onEvent = { event in sink.yield(event) }
-        self.host = host
-        session = Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewerName: ticket.peer.name, scope: ticket.scope,
-                          connected: false)
-        let id = ticket.sessionId
-        eventTask = Task { [weak self, weak host] in
-            for await event in events {
+        let id = ticket.sessionId, work = mainWork
+        // Each event (WebRTC's threads) is one posted task, in arrival order: `visible`, the viewer's own
+        // connect or leave changes the menu bar item and the share's vote, which no input here caused.
+        host.onEvent = { [weak self, weak host] event in
+            work.postFromAnyThread(.visible, owner: "mac-screen.hub-host.event") { [weak self, weak host] in
                 guard let self, let host, self.host === host else { return }
                 handle(event, session: id)
             }
         }
+        self.host = host
+        session = Session(id: ticket.sessionId, viewerID: ticket.peer.id, viewerName: ticket.peer.name, scope: ticket.scope,
+                          connected: false)
         serveTask = Task.detached { [weak self] in
             try? await host.serve(signaling)
-            await self?.served(host, session: id)
+            // After the stream's events: one more task of the same class, in the same order.
+            work.postFromAnyThread(.visible, owner: "mac-screen.hub-host.served") { [weak self] in self?.served(host, session: id) }
         }
         logger.info("serving a device hub session (\(ticket.scope.rawValue, privacy: .public))")
     }
@@ -133,6 +142,7 @@ public final class MacScreenHubHost {
         case .viewerConnected:
             session?.connected = true
             updateIndicator()
+            updateShareVote()
         case .viewerEnded:
             closeLocal()
         case let .sourceFailed(message):
@@ -164,12 +174,15 @@ public final class MacScreenHubHost {
             if let hub = hub() { end(current.id, reason: reason, hub: hub) }
             return nil
         }
-        let end = endSession
-        // task-owner: one /end, then this session's stream closes (its revocation push may close it first)
-        return Task { [weak self] in
-            await end(hub, current.id, reason.rawValue)
-            guard let self, session?.id == current.id else { return }
-            closeLocal()
+        let end = endSession, work = mainWork, why = reason.rawValue
+        // task-owner: one /end, then this session's stream closes (its revocation push may close it first). The
+        // call is the hub's own main-actor request; the close is the rest of the person's Stop Sharing.
+        return Task { @concurrent [weak self] in
+            await end(hub, current.id, why)
+            await work.apply(.userBlocking, owner: "mac-screen.hub-host.stop") { [weak self] () -> Void in
+                guard let self, session?.id == current.id else { return }
+                closeLocal()
+            }
         }
     }
 
@@ -180,11 +193,15 @@ public final class MacScreenHubHost {
     @discardableResult
     public func revokeViewer() -> Task<Void, Never>? {
         guard let current = session, let hub = hub() else { return nil }
-        let revoke = revokePermission
-        // task-owner: one permission write; the hub's revocation push closes the session
-        return Task { [weak self] in
-            do { try await revoke(hub, current.viewerID) } catch {
-                await self?.stopSession(reason: .hostStopped)?.value
+        let revoke = revokePermission, work = mainWork, viewer = current.viewerID
+        // task-owner: one permission write; the hub's revocation push closes the session. Only a failed write
+        // stops the session here, as the rest of the person's Revoke.
+        return Task { @concurrent [weak self] in
+            do { try await revoke(hub, viewer) } catch {
+                let stop = await work.apply(.userBlocking, owner: "mac-screen.hub-host.revoke") { [weak self] () -> Task<Void, Never>? in
+                    self?.stopSession(reason: .hostStopped)
+                }
+                await stop?.value
             }
         }
     }
@@ -201,15 +218,27 @@ public final class MacScreenHubHost {
         // Closing the peer connection waits on WebRTC's threads: never on the main actor.
         if let host { Task.detached { host.disconnectViewer() } }
         serveTask = nil
-        eventTask?.cancel()
-        eventTask = nil
         session = nil
         updateIndicator()
+        updateShareVote()
     }
 
     private func end(_ id: String, reason: MacScreenHubReason, hub: DeviceHub) {
-        // task-owner: one /end call; the hub pushes the end to both Macs
-        Task { try? await hub.endSession(id, reason: reason.rawValue) }
+        let why = reason.rawValue
+        // task-owner: one /end call; the hub pushes the end to both Macs. Off main: the call is the hub's own
+        // main-actor request.
+        Task { @concurrent in try? await hub.endSession(id, reason: why) }
+    }
+
+    /// A connected viewer holds one capture vote on ``sharedScreenNode``; the session's end releases it.
+    private func updateShareVote() {
+        if session?.connected == true {
+            guard shareVote == nil else { return }
+            shareVote = sharedScreenNode?.captureVote(reason: "mac-screen.share", stayHidden: true)
+        } else {
+            shareVote?.release()
+            shareVote = nil
+        }
     }
 
     private func updateIndicator() {

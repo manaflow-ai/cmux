@@ -216,181 +216,76 @@ fn instructions_in_both_modes_tell_the_agent_never_to_ask_for_permission() {
     }
 }
 
-/// The app's Computer Use Setup with both grants on, or not set up.
-fn setup_status(ready: bool) -> Value {
-    if ready {
-        json!({"phase": "ready", "accessibility": true, "screen_recording": true,
-               "helper": "cmux Computer Use", "driver": "legacy"})
-    } else {
-        json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null,
-               "driver": "legacy"})
-    }
-}
+/// A stand-in acpmux daemon serving one agent tool set on a unix socket: it
+/// answers only a first `initialize` that names the server and a caller, the
+/// way `server/agent_mcp.rs` does, then lists and calls `whoami`.
+#[cfg(unix)]
+const DAEMON_TOOLS: &str = r#"
+import json, os, socket, sys
+path = sys.argv[1]
+server = socket.socket(socket.AF_UNIX)
+server.bind(path)
+server.listen(1)
+open(path + ".ready", "w").close()
+conn, _ = server.accept()
+reader = conn.makefile("r")
+caller = None
+for line in reader:
+    m = json.loads(line)
+    if "id" not in m:
+        continue
+    meta = m.get("params", {}).get("_meta", {}).get("acpmux", {})
+    if m["method"] == "initialize":
+        caller = meta.get("callerSession", {}).get("sessionId")
+        if meta.get("mcpServer") != "cmux-subsessions" or caller is None:
+            reply = {"error": {"code": -32000, "message": "no caller"}}
+        else:
+            reply = {"result": {"protocolVersion": "2025-06-18", "capabilities": {"tools": {}},
+                                "serverInfo": {"name": "cmux-subsessions"}}}
+    elif m["method"] == "tools/list":
+        reply = {"result": {"tools": [{"name": "whoami", "inputSchema": {"type": "object"}}]}}
+    else:
+        reply = {"result": {"content": [{"type": "text", "text": caller}]}}
+    conn.sendall((json.dumps(dict(reply, jsonrpc="2.0", id=m["id"])) + "\n").encode())
+"#;
 
-/// The `permissions.request` params among the app caller's requests.
-fn card_requests(fake_calls: &std::sync::Arc<std::sync::Mutex<Vec<Value>>>) -> Vec<Value> {
-    let calls = fake_calls.lock().unwrap();
-    calls
-        .iter()
-        .filter(|c| c["method"] == "permissions.request")
-        .map(|c| c["params"].clone())
-        .collect()
-}
-
-fn computer_use_server(fake: Fake) -> Server<Fake> {
-    let mut server = Server::new(fake, None);
-    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
-    server
-}
-
-/// A computer use call made before setup used to wait 55 s inside the helper
-/// proxy with nothing on screen, then fail. Now it shows the app's card and
-/// runs once the person finished setup.
+/// An upstream with a `socket` (a tool set the acpmux daemon serves itself,
+/// p07-memory-092) is the daemon's own connection: no process starts (its
+/// command does not exist here), its first `initialize` carries the entry's
+/// `initializeMeta`, and its tools list and call like any other server's.
+#[cfg(unix)]
 #[test]
-fn a_computer_use_call_before_setup_shows_the_card_then_runs() {
-    let fake = Fake {
-        computer_use: Some(setup_status(false)),
-        setup_outcome: Some(json!({"kind": "computer_use", "outcome": "granted"})),
-        ..Fake::default()
-    };
-    let calls = fake.app_calls.clone();
-    let mut server = computer_use_server(fake);
-    let result = call(&mut server, "cua_look", json!({"x": 1}));
-    assert_ne!(result["isError"], true, "{result}");
-    assert_eq!(result["content"][0]["text"], "saw {\"x\": 1}", "{result}");
-    let requests = card_requests(&calls);
-    assert_eq!(requests.len(), 1, "{requests:?}");
-    assert_eq!(requests[0]["kind"], "computer_use");
-    assert_eq!(requests[0]["reason"], "It wants to use apps on this Mac.", "{requests:?}");
-    let timeout = requests[0]["timeout_seconds"].as_u64().unwrap();
-    assert!((1..=300).contains(&timeout), "{timeout}");
-}
-
-#[test]
-fn a_ready_setup_runs_the_call_without_a_card() {
-    let fake = Fake {
-        computer_use: Some(setup_status(true)),
-        setup_outcome: Some(json!({"outcome": "denied"})),
-        ..Fake::default()
-    };
-    let calls = fake.app_calls.clone();
-    let mut server = computer_use_server(fake);
-    let result = call(&mut server, "cua_look", json!({}));
-    assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
-    assert!(card_requests(&calls).is_empty());
-    assert!(calls.lock().unwrap().iter().any(|c| c["method"] == "computer_use.status"));
-}
-
-/// In the stdio server (`run`), the setup read and the card wait run on the
-/// call's own thread, never on the dispatch thread that reads stdin: a card
-/// that waits for the person must not hold up the other tools.
-#[test]
-fn the_setup_read_runs_off_the_dispatch_thread() {
-    let fake = Fake {
-        computer_use: Some(setup_status(false)),
-        setup_outcome: Some(json!({"outcome": "granted"})),
-        ..Fake::default()
-    };
-    let calls = fake.app_calls.clone();
-    let mut server = computer_use_server(fake);
-    let input = format!(
-        "{}\n",
-        json!({"jsonrpc": "2.0", "id": "cu", "method": "tools/call",
-               "params": {"name": "cua_look", "arguments": {}}}),
-    );
-    let buffer = SharedBuffer::default();
-    assert_eq!(server.run(input.as_bytes(), &watch::Output::new(buffer.clone())), 0);
+fn a_socket_upstream_dials_the_daemon_instead_of_starting_a_process() {
+    let dir = std::env::temp_dir().join(format!("cmux-mcp-sock-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let script = dir.join("daemon.py");
+    std::fs::write(&script, DAEMON_TOOLS).unwrap();
+    let socket = dir.join("d.sock");
+    let _ = std::fs::remove_file(&socket);
+    let mut daemon =
+        std::process::Command::new("python3").arg(&script).arg(&socket).spawn().unwrap();
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !buffer.text().contains("\"cu\"") && Instant::now() < deadline {
+    while !dir.join("d.sock.ready").exists() && Instant::now() < deadline {
         std::thread::yield_now();
     }
-    assert!(buffer.text().contains("saw {}"), "{}", buffer.text());
-    let dispatch = format!("{:?}", std::thread::current().id());
-    let calls = calls.lock().unwrap().clone();
-    let methods: Vec<_> = calls.iter().map(|c| c["method"].clone()).collect();
-    assert_eq!(methods, ["computer_use.status", "permissions.request"], "{calls:?}");
-    for app_call in &calls {
-        assert_ne!(app_call["thread"], dispatch.as_str(), "ran on the dispatch thread: {app_call}");
-    }
-}
-
-/// Deny and an unfinished setup end the call with what to do next; the
-/// helper never runs.
-#[test]
-fn a_denied_or_unfinished_setup_answers_without_running_the_helper() {
-    for (outcome, code) in [
-        ("denied", "computer_use.denied"),
-        ("timed_out", "computer_use.setup_pending"),
-        ("unavailable", "computer_use.unavailable"),
-    ] {
-        let fake = Fake {
-            computer_use: Some(setup_status(false)),
-            setup_outcome: Some(json!({"outcome": outcome})),
-            ..Fake::default()
-        };
-        let mut server = computer_use_server(fake);
-        let result = call(&mut server, "cua_look", json!({}));
-        assert_eq!(result["isError"], true, "{result}");
-        assert_eq!(result["structuredContent"]["error"]["code"], code, "{result}");
-        assert_eq!(result["structuredContent"]["state"], "not_run", "{result}");
-        assert!(!result.to_string().contains("saw"), "the helper ran: {result}");
-    }
-}
-
-/// Inside a script the card waits too, and the script goes on after it.
-#[test]
-fn a_script_waits_for_setup_and_goes_on() {
-    let fake = Fake {
-        computer_use: Some(setup_status(false)),
-        setup_outcome: Some(json!({"outcome": "granted"})),
-        ..Fake::with_actions()
-    };
-    let calls = fake.app_calls.clone();
-    let mut server = code_mode_server(fake);
-    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
-    let ran =
-        call(&mut server, "cmux_exec", json!({"script": "return await cmux.cua_look({x: 2});"}));
-    assert_eq!(ran["isError"], false, "{ran}");
-    assert_eq!(ran["structuredContent"]["result"]["content"][0]["text"], "saw {\"x\": 2}", "{ran}");
-    // The script's own limit bounds the wait.
-    let timeout = card_requests(&calls)[0]["timeout_seconds"].as_u64().unwrap();
-    assert!(timeout <= 300, "{timeout}");
-}
-
-/// The card waits only for the time the script has left, not its whole
-/// limit: a script that already ran 2 s of its 120 s offers at most 117 s
-/// (whole seconds), so the call ends before the script's limit does.
-#[test]
-fn a_script_waits_only_for_its_time_left() {
-    let fake = Fake {
-        computer_use: Some(setup_status(false)),
-        setup_outcome: Some(json!({"outcome": "granted"})),
-        ..Fake::with_actions()
-    };
-    let calls = fake.app_calls.clone();
-    let mut server = code_mode_server(fake);
-    server.script_limits.total = Duration::from_secs(120);
-    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-cua"))];
-    let script = "const end = Date.now() + 2100; while (Date.now() < end) {} \
-                  return await cmux.cua_look({x: 3});";
-    let ran = call(&mut server, "cmux_exec", json!({ "script": script }));
-    assert_eq!(ran["isError"], false, "{ran}");
-    let timeout = card_requests(&calls)[0]["timeout_seconds"].as_u64().unwrap();
-    assert!((100..=117).contains(&timeout), "{timeout}");
-}
-
-/// Another chat server's tools never read the setup.
-#[test]
-fn other_servers_never_wait_for_computer_use_setup() {
-    let fake = Fake {
-        computer_use: Some(setup_status(false)),
-        setup_outcome: Some(json!({"outcome": "denied"})),
-        ..Fake::default()
-    };
-    let calls = fake.app_calls.clone();
-    let mut server = Server::new(fake, None);
-    server.upstreams = vec![upstream::Proxied::new(upstream_server("cmux-secrets"))];
-    let result = call(&mut server, "secrets_look", json!({}));
-    assert_eq!(result["content"][0]["text"], "saw {}", "{result}");
-    assert!(calls.lock().unwrap().is_empty(), "another server read the setup");
+    let meta = json!({"acpmux": {"mcpServer": "cmux-subsessions",
+        "callerSession": {"sessionId": "s-1", "token": "t"}}});
+    let specs = upstream::specs(Some(
+        json!([{"name": "cmux-subsessions", "command": "/nonexistent/relay", "args": [],
+                "env": {}, "socket": socket, "initializeMeta": meta}])
+        .to_string()
+        .into(),
+    ));
+    assert_eq!(specs[0].socket.as_deref(), Some(socket.as_path()));
+    let mut server = code_mode_server(Fake::with_actions());
+    server.code_mode = false;
+    server.upstreams =
+        specs.into_iter().map(|s| upstream::Proxied::new(upstream::Upstream::new(s))).collect();
+    let all = server.list();
+    assert!(all.iter().any(|t| t["name"] == "subsessions_whoami"), "{all:?}");
+    let ran = call(&mut server, "subsessions_whoami", json!({}));
+    assert_eq!(ran["content"][0]["text"], "s-1", "{ran}");
+    let _ = daemon.kill();
+    let _ = daemon.wait();
+    let _ = std::fs::remove_dir_all(&dir);
 }

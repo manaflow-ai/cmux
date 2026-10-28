@@ -57,25 +57,23 @@ public final class ChildPageFocus {
         setFocus(next, true)
     }
 
-    /// `window` (the cmux window) took the keys back while a page has focus, and no click put them
-    /// there: the page's window lost them (a new tab's page moved from its provisional pane to its
-    /// real one, which presents its window again). The page loses focus with no key change, so the
-    /// next ``focus(_:)`` of it grants it again; until now that call found it focused and did nothing,
-    /// and typing went to the cmux window.
+    /// `next` takes the keys of `window`, then focus (``focus(_:)``): no other responder in
+    /// `window` keeps them.
     ///
-    /// Nothing happens inside a grant (AppKit's key changes there are the grant's own), when
-    /// `window` is not key (an inactive app has no key window), or during a click (the click
-    /// decides where the keys go).
+    /// A terminal or a field editor that stayed first responder would keep the keys and the caret
+    /// while the page has focus. The same for a Chromium page in either backend: in process its
+    /// page window takes the keys; in host mode the page is embedder-active and, with a view input
+    /// target, its own view in `window` is the responder, which `isPageResponder` names.
     ///
     /// - Parameters:
-    ///   - window: The cmux window.
-    ///   - event: The event being handled (AppKit's current event in the app).
-    /// - Returns: Whether a page lost focus; the caller then re-applies its target.
-    public func keysReturned(to window: NSWindow, during event: NSEvent? = NSApplication.shared.currentEvent) -> Bool {
-        let clicks: [NSEvent.EventType] = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        guard !granting, page != nil, keys.isKey(window), !clicks.contains(where: { $0 == event?.type }) else { return false }
-        blurPage()
-        return true
+    ///   - next: The page that takes focus.
+    ///   - window: The cmux window that shows `next`.
+    ///   - isPageResponder: Whether `window`'s first responder is `next`'s own view, which keeps it.
+    public func focus(_ next: AnyObject, in window: NSWindow, isPageResponder: (NSResponder) -> Bool) {
+        if let responder = window.firstResponder, responder !== window, !isPageResponder(responder) {
+            window.makeFirstResponder(nil)
+        }
+        focus(next)
     }
 
     /// The focused page loses focus. The key window does not change.

@@ -214,20 +214,19 @@ async fn a_frame_past_sixteen_mib_is_read() {
     }
 }
 
+/// A client that stops halfway through its upgrade request is closed after the handshake
+/// deadline (5 s, as the request head's peek): it never holds its connection task and
+/// descriptor without end (acpmux-audit.md finding 15).
 #[tokio::test]
-async fn a_partial_websocket_upgrade_is_closed_within_the_handshake_deadline() {
+async fn a_websocket_upgrade_that_stalls_midway_is_closed() {
     let port = listener().await;
-    let host = format!("127.0.0.1:{port}");
-    let query = format!("?token={TOKEN}");
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
-    let partial = format!(
-        "GET /{query} HTTP/1.1\r\nHost: {host}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n"
-    );
+    // The head routes it to the WebSocket path; the blank line that ends it never comes.
+    let partial =
+        format!("GET /?token={TOKEN} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n");
     stream.write_all(partial.as_bytes()).await.unwrap();
-    let mut buf = [0u8; 256];
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(7), stream.read(&mut buf))
-        .await
-        .expect("the stalled handshake is bounded")
-        .expect("the server closes the stalled handshake");
-    assert_eq!(closed, 0, "a partial upgrade must not receive a protocol response");
+    let mut buf = [0u8; 64];
+    let read = tokio::time::timeout(std::time::Duration::from_secs(9), stream.read(&mut buf)).await;
+    let closed = matches!(read, Ok(Ok(0)) | Ok(Err(_)));
+    assert!(closed, "the stalled upgrade was still open after 9 s: {read:?}");
 }

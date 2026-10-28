@@ -52,16 +52,17 @@ import Testing
 
         content.contentView.isHidden = true
         content.park(serial: 1)
-        // This controller's own counts: the process-wide ones also count the workspaces of tests that
-        // run while this one yields (`settle`).
-        let applies = content.debugApplies, topologies = content.debugTopologySends
+        let applies = DebugLayoutCounters.workspaceApplies, topologies = DebugLayoutCounters.topologySends
+        let hiddenApplies = services.hiddenLayoutWork.applies
         // A script splits the parked workspace three times.
         for panes in 2...4 {
             store.apply(snapshot: Self.tree(panes: panes))
             await Self.settle()
         }
-        #expect(content.debugApplies - applies == 0, "a parked workspace laid out a change nobody sees")
-        #expect(content.debugTopologySends - topologies == 0, "a parked workspace sent a focus topology")
+        #expect(DebugLayoutCounters.workspaceApplies - applies == 0, "a parked workspace laid out a change nobody sees")
+        #expect(DebugLayoutCounters.topologySends - topologies == 0, "a parked workspace sent a focus topology")
+        #expect(services.hiddenLayoutWork.applies > hiddenApplies,
+                "the deferred changes were not counted (hidden_workspace_applies)")
         #expect(content.layoutModel.screens.first?.layout.panes.count == 1, "the parked layout moved while off screen")
 
         content.unpark()

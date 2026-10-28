@@ -5,6 +5,7 @@
 //! terminals that the tab JSON reports.
 
 use super::*;
+use crate::panic_free::{JsonFields, RecoverPoison};
 
 impl Mux {
     /// Terminals whose tabs must not read as dead while they have no runtime
@@ -12,7 +13,7 @@ impl Mux {
     pub(crate) fn pending_terminals_snapshot(&self) -> HashMap<String, PendingTerminal> {
         self.pending_terminals
             .lock()
-            .unwrap()
+            .recover_poison()
             .iter()
             .map(|(public_id, (_, pending))| (public_id.clone(), pending.clone()))
             .collect()
@@ -20,7 +21,7 @@ impl Mux {
 
     /// Typed ends of surfaceless ended terminals, keyed by public terminal id.
     pub(crate) fn terminal_ends_snapshot(&self) -> HashMap<String, Value> {
-        self.terminal_ends.lock().unwrap().clone()
+        self.terminal_ends.lock().recover_poison().clone()
     }
 
     /// A terminal's typed end as its tab JSON shows it, with the cause of a
@@ -35,7 +36,7 @@ impl Mux {
 
     /// Whether a terminal's host may run while it has no runtime here.
     pub(crate) fn terminal_is_pending(&self, terminal_id: &str) -> bool {
-        self.pending_terminals.lock().unwrap().values().any(|(id, _)| id == terminal_id)
+        self.pending_terminals.lock().recover_poison().values().any(|(id, _)| id == terminal_id)
     }
 
     /// Whether a pending terminal may be closed. An adopting host speaks this
@@ -67,13 +68,13 @@ impl Mux {
     pub(super) fn clear_adopting_marker(&self, terminal_id: &str) {
         self.pending_terminals
             .lock()
-            .unwrap()
+            .recover_poison()
             .retain(|_, (id, pending)| id != terminal_id || *pending != PendingTerminal::Adopting);
     }
 
     /// Forget the recorded end of a terminal that is gone (closed).
     pub(crate) fn forget_terminal_end(&self, public_id: &str) {
-        self.terminal_ends.lock().unwrap().remove(public_id);
+        self.terminal_ends.lock().recover_poison().remove(public_id);
         self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).forget(public_id);
     }
 
@@ -95,8 +96,10 @@ impl Mux {
     /// its public id; the caller must not hold the registry or state lock.
     #[cfg(any(unix, windows))]
     /// Returns whether the marker was set (false: the public id is unknown).
+    #[track_caller]
     pub(super) fn set_pending_terminal(&self, terminal_id: &str, pending: PendingTerminal) -> bool {
-        let public_id = self.workspace_registry.lock().unwrap().terminal_resource_id(terminal_id);
+        let public_id =
+            self.workspace_registry.lock().recover_poison().terminal_resource_id(terminal_id);
         let Ok(Some(public_id)) = public_id else { return false };
         self.set_pending_terminal_as(public_id, terminal_id, pending);
         true
@@ -112,7 +115,7 @@ impl Mux {
     ) {
         self.pending_terminals
             .lock()
-            .unwrap()
+            .recover_poison()
             .insert(public_id.as_str().to_string(), (terminal_id.to_string(), pending));
     }
 
@@ -120,7 +123,7 @@ impl Mux {
     /// marker stays: only its worker clears it.
     #[cfg(any(unix, windows))]
     pub(super) fn clear_pending_terminal(&self, terminal_id: &str) -> bool {
-        let mut pending = self.pending_terminals.lock().unwrap();
+        let mut pending = self.pending_terminals.lock().recover_poison();
         let before = pending.len();
         pending
             .retain(|_, (id, marker)| id != terminal_id || *marker == PendingTerminal::Respawning);
@@ -140,9 +143,10 @@ impl Mux {
     /// Remember the typed end of an ended terminal from its durable receipt,
     /// for tabs that keep showing it without a runtime surface (R41).
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn record_terminal_end(&self, terminal_id: &str) {
         let (terminal, public_id) = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry = self.workspace_registry.lock().recover_poison();
             (registry.terminal_record(terminal_id), registry.terminal_resource_id(terminal_id))
         };
         let (Ok(Some(terminal)), Ok(Some(public_id))) = (terminal, public_id) else { return };
@@ -150,7 +154,7 @@ impl Mux {
             return;
         }
         let end = TerminalEnd::from_receipt(terminal.exit.as_ref()).wire_json();
-        if end["kind"] == "host_lost" {
+        if end.field("kind") == "host_lost" {
             let root = self.surface_options.lock().unwrap_or_else(PoisonError::into_inner);
             let root = root.terminal_host_root.clone();
             self.terminal_loss_causes.lock().unwrap_or_else(PoisonError::into_inner).restore(
@@ -159,13 +163,14 @@ impl Mux {
                 public_id.as_str(),
             );
         }
-        self.terminal_ends.lock().unwrap().insert(public_id.as_str().to_string(), end);
+        self.terminal_ends.lock().recover_poison().insert(public_id.as_str().to_string(), end);
     }
 
     /// Watch an unadoptable host: when its live marker frees (the host
     /// exited, by itself or by a close), end the terminal with the host's
     /// exit sidecar when it left one, and remove its artifacts.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     fn watch_unadoptable_terminal_host(
         self: &Arc<Self>,
         options: SurfaceOptions,
@@ -220,6 +225,7 @@ impl Mux {
     ///
     /// Returns whether the terminal is now unadoptable, so adoption must stop.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn refused_all<T>(
         self: &Arc<Self>,
         streak: &mut RefusalStreak,
@@ -264,6 +270,7 @@ impl Mux {
     /// its shell (a newer record version after a rollback). Never report that
     /// terminal ended: keep it visible as unadoptable and watch its host.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn mark_unadoptable_terminal_hosts(
         self: &Arc<Self>,
         options: &SurfaceOptions,
@@ -282,7 +289,7 @@ impl Mux {
             let lifecycle = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .recover_poison()
                 .terminal_record(&record.terminal_id)?
                 .map(|terminal| terminal.lifecycle);
             if matches!(

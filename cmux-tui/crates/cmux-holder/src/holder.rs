@@ -15,8 +15,16 @@
 //! as on a direct PTY. Terminals share the link fairly: each pump starts at
 //! the next terminal in turn and gives each one an equal share, and a small
 //! frame (an echo) goes ahead of queued bulk output. No timers: `poll`
-//! waits forever unless a CLOSE grace, a handshake deadline or the idle
-//! exit is pending.
+//! waits forever unless a CLOSE grace, a handshake deadline, the idle exit
+//! or a ring turning cold (`cold_rings`) is pending. Each pass of the work
+//! after `poll` is one hang scope ([`HangWatch`], on its own watcher
+//! thread); the wait is not.
+//!
+//! The loop thread is also registered with the process hang watch
+//! (p09-observability section 3E): it registers as [`POLL_THREAD`] and each
+//! turn's work, never its `poll` wait, runs in one scope with the
+//! [`TURN_DEADLINE`] (Chrome's `WatchHangsInScope` around a task, not around
+//! the message pump's wait, base/threading/hang_watcher.h).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io;
@@ -27,15 +35,30 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::time::{Duration, Instant};
 
+use cmux_hang_watch::ThreadKind;
+
 use crate::ring::Ring;
 use crate::wire::{self, Frame, In, Kind, Out};
-use crate::{ExitStatus, Listed, SpawnRequest, pty};
+use crate::{ExitStatus, SpawnRequest, pty};
 
-/// Output kept per terminal for a daemon that reconnects.
-pub const RING_BYTES: usize = 1 << 20;
+mod cold_rings;
+mod handshake;
+mod hang;
+mod input_flow;
+mod trace;
+
+use cold_rings::RingBudget;
+pub use hang::{HOLDER_LOOP, HangWatch};
+use input_flow::InputFlow;
+pub use trace::{ProcessTrace, TraceControl};
+
+/// The largest ring a holder makes (it makes the budget's
+/// `holder_ring_bytes` of this Mac, at least `cold_rings::MIN_RING_BYTES`);
+/// a daemon makes a fresh segment this size.
+pub const RING_BYTES: usize = cmux_memory::budget::HOLDER_RING_BYTES_MAX;
 /// Output queued on the link before the holder stops making DATA frames
 /// (the rest waits in the rings).
-const LINK_QUEUE_BYTES: usize = 1 << 20;
+const LINK_QUEUE_BYTES: usize = cmux_memory::budget::HOLDER_LINK_QUEUE_BYTES;
 /// Largest DATA payload.
 const DATA_CHUNK: usize = 256 * 1024;
 /// A frame this small goes ahead of queued bulk output (unless its own
@@ -55,6 +78,13 @@ const READ_PER_TURN: usize = 256 * 1024;
 const HANDSHAKE: Duration = Duration::from_secs(5);
 /// Connections waiting to authenticate at once; the oldest goes first.
 const MAX_PENDING: usize = 8;
+/// The loop thread's name in a hang record.
+pub const POLL_THREAD: &str = "cmux-holder-poll";
+/// How long one turn's work may take before the hang watch reports the
+/// loop: its reads and writes are nonblocking and bounded per turn, so only
+/// a stuck system call or a runaway loop runs this long. The 2 s of a write
+/// lane (p09-observability task 069).
+pub const TURN_DEADLINE: Duration = Duration::from_secs(2);
 /// A holder with no terminal and no daemon link exits after this long: it
 /// keeps nothing, and the next daemon starts a holder of its own build.
 pub const IDLE_EXIT: Duration = Duration::from_secs(30);
@@ -89,13 +119,9 @@ pub mod error_code {
     pub const CHAN_IN_USE: u16 = 9;
     /// Another daemon authenticated and took this link's place.
     pub const SUPERSEDED: u16 = 10;
-    /// The holder is out of descriptors (request kind
-    /// [`crate::wire::STREAM_FAULT`]): it could not take the descriptors
-    /// the daemon's frame passed, and ends that link. Passing descriptors
-    /// to a daemon (a WELCOME's listing, a SPAWNED) costs the holder none
-    /// ([`Terminal::descriptors`]), so nothing else is refused for want of
-    /// them.
-    pub const NO_DESCRIPTORS: u16 = 11;
+    /// A [`super::Kind::TraceStart`] or [`super::Kind::TraceStop`] changed
+    /// nothing; the message says why.
+    pub const TRACE_FAILED: u16 = 11;
 }
 
 struct Terminal {
@@ -142,6 +168,11 @@ struct Terminal {
     /// When daemon links ended without DETACH while they streamed this
     /// terminal (the poison-pill count).
     strikes: Vec<Instant>,
+    /// The flow of the newest WRITE with [`wire::FLAG_FLOW`]: the master
+    /// read after its input reached the PTY carries it.
+    flow: InputFlow,
+    /// When the holder last read output from the master (`cold_rings`).
+    last_output: Instant,
 }
 
 /// A terminal whose child was forked and has not reported its start
@@ -179,6 +210,8 @@ struct Link {
     rings: bool,
     /// The wire version the link settled on.
     version: u16,
+    /// [`wire::capability`] bits this holder granted the link.
+    granted: u32,
     /// The frame the socket took part of: it finishes first.
     current: Option<OutFrame>,
     /// Small frames, written before `bulk`.
@@ -364,6 +397,15 @@ pub struct Holder {
     /// Terminals and no daemon link since this time.
     orphan_since: Option<Instant>,
     sigchld: OwnedFd,
+    /// Where a granted TRACE_START and TRACE_STOP go.
+    trace: Box<dyn TraceControl>,
+    /// The current link started the recording: it stops when the link ends.
+    link_recording: bool,
+    ring_budget: RingBudget,
+    /// Watches each pass of the loop's work ([`HangWatch`]); `None`: unwatched.
+    hangs: Option<HangWatch>,
+    /// The process hang-watch deadline of one turn's work ([`TURN_DEADLINE`]).
+    turn_deadline: Duration,
 }
 
 static SIGNAL_WRITE: AtomicI32 = AtomicI32::new(-1);
@@ -459,6 +501,11 @@ impl Holder {
             orphan_grace: None,
             orphan_since: None,
             sigchld,
+            trace: Box::new(ProcessTrace::new(wake_loop)),
+            link_recording: false,
+            ring_budget: RingBudget::for_host(),
+            hangs: None,
+            turn_deadline: TURN_DEADLINE,
         })
     }
 
@@ -480,9 +527,17 @@ impl Holder {
         self.orphan_grace = grace;
     }
 
+    /// Report a turn whose work takes longer than `deadline` (default
+    /// [`TURN_DEADLINE`]) as a hang of the loop thread.
+    pub fn set_turn_deadline(&mut self, deadline: Duration) {
+        self.turn_deadline = deadline;
+    }
+
     /// Serve until launchd ends the holder or it has been idle for its idle
-    /// exit, then remove the socket file.
+    /// exit, then remove the socket file. The calling thread is the loop:
+    /// it is registered with the process's hang watch while it serves.
     pub fn run(&mut self) -> io::Result<()> {
+        let _hang_watch = cmux_hang_watch::register_thread(ThreadKind::Io, POLL_THREAD);
         loop {
             self.turn()?;
             let idle_over = self.idle_since.is_some_and(|since| since.elapsed() >= self.idle_exit);
@@ -560,8 +615,17 @@ impl Holder {
             let error = io::Error::last_os_error();
             return if error.kind() == io::ErrorKind::Interrupted { Ok(()) } else { Err(error) };
         }
+        // The turn's work, not its wait (Chrome's `ThreadController` active slice): recording
+        // only (`task`), so an idle holder writes nothing.
+        let _turn = cmux_trace::trace_scope!(task, "task.holder_poll", ready, fds.len());
+        // The same work is one hang scope; the poll above is not.
+        let watcher = self.pass_watcher();
+        let _pass = watcher.as_deref().map(|watcher| watcher.scope(&HOLDER_LOOP));
+        // The same turn, watched by the process hang watch: the wait above stays outside.
+        let _watched = cmux_hang_watch::watch(self.turn_deadline);
         if fds[1].revents != 0 {
             self.reap();
+            self.poll_trace();
         }
         // From the back, before anything adds to `retiring`: swap_remove
         // moves only entries already handled.
@@ -609,6 +673,8 @@ impl Holder {
             self.accept();
         }
         self.kill_overdue();
+        self.release_cold_rings(now);
+        self.send_hang_reports();
         self.pump();
         self.retire_closed();
         self.end_orphans(now);
@@ -662,7 +728,8 @@ impl Holder {
             .zip(self.orphan_grace)
             .filter(|_| self.terminals.values().any(|terminal| !terminal.closing))
             .map(|(since, grace)| since + grace);
-        kill.into_iter().chain(handshake).chain(idle).chain(orphan).min()
+        let cold = self.cold_ring_deadline();
+        kill.into_iter().chain(handshake).chain(idle).chain(orphan).chain(cold).min()
     }
 
     /// Take new connections. They wait in `pending` until they authenticate;
@@ -678,20 +745,8 @@ impl Holder {
     /// dropped), so it takes the connection on the first turn after one
     /// did, with no timer and no wakeup of its own.
     fn accept(&mut self) {
-        self.accept_stalled = false;
-        loop {
-            let stream = match self.listener.accept() {
-                Ok((stream, _)) => stream,
-                Err(error) => match error.kind() {
-                    io::ErrorKind::WouldBlock => return,
-                    io::ErrorKind::Interrupted | io::ErrorKind::ConnectionAborted => continue,
-                    _ => {
-                        self.accept_stalled = true;
-                        return;
-                    }
-                },
-            };
-            if !same_user(&stream) {
+        while let Ok((stream, _)) = self.listener.accept() {
+            if !handshake::same_user(&stream) {
                 continue;
             }
             if stream.set_nonblocking(true).is_err() {
@@ -735,10 +790,13 @@ impl Holder {
         if Kind::from_u16(frame.kind) != Some(Kind::Hello) {
             return;
         }
-        let code = match self.check_hello(&frame.payload) {
-            Ok(version) => {
-                let listing = self.listing(version >= wire::RING_VERSION);
-                return self.promote(pending, version, listing);
+        match self.check_hello(&frame.payload) {
+            Ok((version, wanted)) => self.promote(pending, version, wanted),
+            Err(code) => {
+                // Best effort: the refused peer may already be gone.
+                let payload = Out::default().u16(Kind::Hello as u16).u16(code).0;
+                let frame = wire::encode(Kind::Error, 0, &payload);
+                let _ = wire::send_with_fds(pending.stream.as_raw_fd(), &frame, &[]);
             }
             Err(code) => code,
         };
@@ -750,9 +808,9 @@ impl Holder {
     }
 
     /// Make an authenticated connection the daemon link. The daemon it
-    /// replaces always hears SUPERSEDED, however much was queued for it
-    /// ([`Retiring`]), so it does not take the holder back.
-    fn promote(&mut self, pending: Pending, version: u16, listing: Listing) {
+    /// replaces hears SUPERSEDED (when its queue lets that through) so it
+    /// does not take the holder back.
+    fn promote(&mut self, pending: Pending, version: u16, wanted: u32) {
         // A daemon that died with frames still unread (its last ACKs) ended
         // before this one connected: its end is a lost link (a strike, the
         // poison pill), not a takeover. A restart after a parser crash
@@ -765,7 +823,8 @@ impl Holder {
             let message = "another daemon took this holder";
             self.retire(Retiring::new(old, Kind::Hello as u16, error_code::SUPERSEDED, message));
         }
-        self.links += 1;
+        self.drop_link(LinkDrop::Superseded);
+        let granted = wanted & self.served_capabilities();
         self.link = Some(Link {
             id: self.links,
             stream: pending.stream,
@@ -773,13 +832,14 @@ impl Holder {
             credit: version >= 2,
             rings: version >= wire::RING_VERSION,
             version,
+            granted,
             current: None,
             urgent: VecDeque::new(),
             bulk: VecDeque::new(),
             bulk_per_chan: HashMap::new(),
             out_bytes: 0,
         });
-        self.welcome(version, listing);
+        self.welcome(version, granted);
         // Frames the daemon sent right behind its HELLO.
         if let Err(why) = self.drain_link_frames() {
             self.break_link(why);
@@ -791,37 +851,7 @@ impl Holder {
         if !retiring.write() {
             self.retiring.push(retiring);
         }
-    }
-
-    /// End the link reading it found broken. A daemon that is still there
-    /// (a [`LinkBreak::Fault`]) hears why: ERROR `NO_DESCRIPTORS` when the
-    /// holder could not take the descriptors it passed, `BAD_PAYLOAD` when
-    /// its bytes were not frames of the wire, on channel 0 with request
-    /// kind [`wire::STREAM_FAULT`], after the frame its socket had taken
-    /// part of. Only a lost link counts a strike.
-    fn break_link(&mut self, why: LinkBreak) {
-        match why {
-            LinkBreak::Lost => {
-                self.drop_link(LinkDrop::Lost);
-            }
-            LinkBreak::Fault(fault, message) => {
-                let code = match fault {
-                    wire::Fault::Descriptors => error_code::NO_DESCRIPTORS,
-                    wire::Fault::Malformed => error_code::BAD_PAYLOAD,
-                };
-                if let Some(link) = self.drop_link(LinkDrop::Faulted) {
-                    self.retire(Retiring::new(link, wire::STREAM_FAULT, code, &message));
-                }
-            }
-        }
-    }
-
-    /// Forget the link and return it (dropping it closes it). A link that
-    /// was lost counts a strike against each terminal it was streaming (the
-    /// poison pill); a DETACH before it ended, another daemon taking the
-    /// holder, or a stream the holder could not read on, does not.
-    fn drop_link(&mut self, why: LinkDrop) -> Option<Link> {
-        let link = self.link.take()?;
+        self.end_link_recording();
         let now = Instant::now();
         for terminal in self.terminals.values_mut() {
             if why == LinkDrop::Lost && terminal.sent.is_some() {
@@ -894,9 +924,7 @@ impl Holder {
             Some(Kind::Spawn) => self.spawn(frame.chan, &frame.payload),
             Some(Kind::Adopt) => self.adopt(frame),
             Some(Kind::Attach) => self.attach(frame.chan, frame.flags, &frame.payload),
-            Some(Kind::Write) => self.terminal(frame.chan).map(|terminal| {
-                terminal.input.extend(&frame.payload);
-            }),
+            Some(Kind::Write) => self.queue_input(frame.chan, frame.flags, &frame.payload),
             Some(Kind::Resize) => self.resize(frame.chan, &frame.payload),
             Some(Kind::Signal) => self.signal(frame.chan, &frame.payload),
             Some(Kind::Close) => self.close(frame.chan, &frame.payload),
@@ -919,62 +947,25 @@ impl Holder {
                 self.queue(Kind::Pong, 0, &frame.payload, Vec::new());
                 Ok(())
             }
+            Some(kind @ (Kind::TraceStart | Kind::TraceStop))
+                if self.granted(wire::capability::TRACE_CONTROL) =>
+            {
+                self.trace_frame(kind, &frame.payload)
+            }
+            // A kind of a capability this link was not granted is unknown
+            // to it, as to a holder that predates the capability.
             _ => Err((error_code::UNKNOWN_KIND, "unknown kind".to_string())),
         };
         if let Err((code, message)) = result {
-            let payload = Out::default().u16(raw_kind).u16(code).bytes(message.as_bytes()).0;
-            self.queue(Kind::Error, chan, &payload, Vec::new());
+            self.refuse(raw_kind, chan, code, &message);
         }
         Ok(())
     }
 
-    /// The wire version both peers speak, or the error code that refuses
-    /// the HELLO.
-    fn check_hello(&self, payload: &[u8]) -> Result<u16, u16> {
-        let mut input = In(payload);
-        let (Ok(version), Ok(token)) = (input.u16(), input.array::<32>()) else {
-            return Err(error_code::BAD_PAYLOAD);
-        };
-        if !constant_time_eq(&token, &self.token) {
-            return Err(error_code::BAD_TOKEN);
-        }
-        if version < wire::MIN_VERSION {
-            return Err(error_code::NO_COMMON_VERSION);
-        }
-        Ok(version.min(wire::VERSION))
-    }
-
-    /// Every terminal for a new link's WELCOME, with its master and
-    /// (`rings`: a daemon of [`wire::RING_VERSION`]) its ring segment; an
-    /// older daemon gets no segment (it could hand a layout 2 segment to a
-    /// holder that knows only layout 1). No dup ([`Terminal::descriptors`]),
-    /// so a holder short of descriptors still lists every terminal with both.
-    fn listing(&self, rings: bool) -> Listing {
-        self.terminals
-            .iter()
-            .map(|(chan, terminal)| {
-                let listed = Listed {
-                    chan: *chan,
-                    id: terminal.id,
-                    pid: terminal.pid,
-                    oldest: terminal.ring.oldest(),
-                    end: terminal.ring.end(),
-                    exited: terminal.ended(),
-                    master: None,
-                    ring: None,
-                };
-                (*chan, listed.encode(), terminal.descriptors(rings))
-            })
-            .collect()
-    }
-
-    /// WELCOME the new link with `listing` ([`Self::listing`]).
-    fn welcome(&mut self, version: u16, listing: Listing) {
-        let welcome = Out::default().u16(version).u32(listing.len() as u32).0;
-        self.queue(Kind::Welcome, 0, &welcome, Vec::new());
-        for (chan, payload, fds) in listing {
-            self.queue_flagged(Kind::Listed, ring_flag(&fds), chan, &payload, fds);
-        }
+    /// Queue the ERROR that refuses a frame of kind `raw_kind`.
+    fn refuse(&mut self, raw_kind: u16, chan: u32, code: u16, message: &str) {
+        let payload = Out::default().u16(raw_kind).u16(code).bytes(message.as_bytes()).0;
+        self.queue(Kind::Error, chan, &payload, Vec::new());
     }
 
     fn spawn(&mut self, chan: u32, payload: &[u8]) -> Result<(), (u16, String)> {
@@ -985,7 +976,8 @@ impl Holder {
             .map_err(|error| (error_code::BAD_PAYLOAD, error.to_string()))?;
         let spawned = pty::spawn(&request, self.child_open_file_limit)
             .map_err(|error| (error_code::SPAWN_FAILED, error.to_string()))?;
-        let mut terminal = Terminal::new(request.id, spawned.master, spawned.pid, true, 0);
+        let ring = Ring::new(0, self.ring_budget.ring_bytes);
+        let mut terminal = Terminal::with_ring(request.id, spawned.master, spawned.pid, true, ring);
         // Until the daemon's ATTACH (from 0) arrives, read no more than an
         // attached stream would.
         terminal.held = Some(terminal.ring.end());
@@ -1086,7 +1078,7 @@ impl Holder {
             .flatten()
             .and_then(|segment| Ring::adopt(segment).ok())
             .filter(|ring| ring.end() >= resume)
-            .unwrap_or_else(|| Ring::new(resume, RING_BYTES));
+            .unwrap_or_else(|| Ring::new(resume, self.ring_budget.ring_bytes));
         let version = self.link.as_ref().map_or(0, |link| link.version);
         if version >= wire::RING_VERSION {
             // Only a holder of this version continues it from here on.
@@ -1286,7 +1278,14 @@ impl Holder {
             });
             if n > 0 {
                 read += n as usize;
-                cmux_flow_trace::hop_id("holder.pty.read", 0, &terminal.id);
+                terminal.last_output = Instant::now();
+                cmux_flow_trace::hop_id("holder.pty.read", terminal.flow.take(), &terminal.id);
+                cmux_trace::trace_instant!(
+                    task,
+                    "task.holder_pty_read",
+                    cmux_trace::terminal_hash(&terminal.id),
+                    n
+                );
                 if (n as usize) < offered && !readable_now(master) {
                     return ReadEnd::Drained;
                 }
@@ -1346,7 +1345,14 @@ impl Holder {
                 libc::write(terminal.master.as_raw_fd(), head.as_ptr().cast(), head.len())
             };
             if n > 0 {
+                cmux_trace::trace_instant!(
+                    task,
+                    "task.holder_pty_write",
+                    cmux_trace::terminal_hash(&terminal.id),
+                    n
+                );
                 terminal.input.drain(..n as usize);
+                terminal.flow.written(n as usize);
                 continue;
             }
             match io::Error::last_os_error().kind() {
@@ -1356,6 +1362,7 @@ impl Holder {
                 // EIO: nobody reads this PTY any more; its input goes nowhere.
                 _ => {
                     terminal.input.clear();
+                    terminal.flow.discarded();
                     return;
                 }
             }
@@ -1523,10 +1530,6 @@ impl Holder {
 }
 
 impl Terminal {
-    fn new(id: [u8; 16], master: OwnedFd, pid: libc::pid_t, own_child: bool, base: u64) -> Self {
-        Self::with_ring(id, master, pid, own_child, Ring::new(base, RING_BYTES))
-    }
-
     /// A terminal whose output continues `ring` (a dead holder's segment).
     fn with_ring(
         id: [u8; 16],
@@ -1555,6 +1558,8 @@ impl Terminal {
             prologue: Vec::new(),
             prologue_base: base,
             strikes: Vec::new(),
+            flow: InputFlow::default(),
+            last_output: Instant::now(),
         }
     }
 
@@ -1671,41 +1676,4 @@ fn readable_now(master: RawFd) -> bool {
             return true;
         }
     }
-}
-
-fn constant_time_eq(a: &[u8; 32], b: &[u8; 32]) -> bool {
-    a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
-}
-
-/// The peer runs as this process's user (the threat model: other users only).
-fn same_user(stream: &UnixStream) -> bool {
-    peer_uid(stream.as_raw_fd()).is_some_and(|uid| {
-        // SAFETY: getuid has no failure mode.
-        uid == unsafe { libc::getuid() }
-    })
-}
-
-#[cfg(any(target_os = "macos", target_os = "freebsd"))]
-fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
-    let (mut uid, mut gid) = (0, 0);
-    // SAFETY: out-pointers to live locals.
-    (unsafe { libc::getpeereid(fd, &mut uid, &mut gid) } == 0).then_some(uid)
-}
-
-#[cfg(target_os = "linux")]
-fn peer_uid(fd: RawFd) -> Option<libc::uid_t> {
-    // SAFETY: zeroed ucred is a valid out-buffer.
-    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
-    let mut len = size_of::<libc::ucred>() as libc::socklen_t;
-    // SAFETY: SO_PEERCRED fills one ucred.
-    let ok = unsafe {
-        libc::getsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_PEERCRED,
-            (&mut cred as *mut libc::ucred).cast(),
-            &mut len,
-        )
-    } == 0;
-    ok.then_some(cred.uid)
 }

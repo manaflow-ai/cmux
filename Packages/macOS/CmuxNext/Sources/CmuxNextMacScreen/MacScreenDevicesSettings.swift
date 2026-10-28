@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDevices
+import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 public import Observation
@@ -39,13 +40,24 @@ public final class MacScreenDevicesSettings {
     }
     @ObservationIgnored var now: () -> Date = { Date() }
     @ObservationIgnored private var watchers = 0
-    @ObservationIgnored private var auditWatch: Task<Void, Never>?
+    /// Follows the hub's pushes while a Settings page shows the card.
+    @ObservationIgnored private var auditWatch: ServiceObservation<Int>?
+    /// The audit read in flight: one at a time, so an older answer never lands last.
+    @ObservationIgnored private var auditRead: Task<Void, Never>?
+    /// Which read `auditRead` is: one that ends after `endWatching` (or after a newer read began) changes nothing.
+    @ObservationIgnored private var auditReadID: UInt64 = 0
+    /// A push came while a read was out: one more read follows it, however many pushes came.
+    @ObservationIgnored private var auditDirty = false
+    /// Reads the hub's audit log; tests replace it.
+    @ObservationIgnored var refreshAudit: @MainActor (DeviceHub) async -> Void = { await $0.refreshAudit() }
+    @ObservationIgnored private let mainWork: MainWorkScheduler
 
     public init(pages: MacScreenPages) {
         box = pages.hubBox
         hubHost = pages.hubHost
         share = pages.host
         store = pages.store
+        mainWork = pages.mainWork
     }
 
     var hub: DeviceHub? { box.hub }
@@ -57,11 +69,12 @@ public final class MacScreenDevicesSettings {
         watchers += 1
         guard watchers == 1 else { return }
         let box = box
-        auditWatch = Task { [weak self] in
-            // Every push (and a new hub) may have added audit entries: read them again.
-            for await _ in ObservationStream({ box.hub?.pushCount ?? -1 }) {
-                await self?.hub?.refreshAudit()
-            }
+        // Every push (and a new hub) may have added audit entries: read them again. `background`: the card's
+        // History is the only reader, and a hub push is no input of the person's.
+        auditWatch = ServiceObservation(.background, owner: "MacScreenDevicesSettings.audit", on: mainWork) {
+            box.hub?.pushCount ?? -1
+        } apply: { [weak self] _ in
+            self?.readAudit()
         }
     }
 
@@ -70,6 +83,38 @@ public final class MacScreenDevicesSettings {
         guard watchers == 0 else { return }
         auditWatch?.cancel()
         auditWatch = nil
+        auditRead?.cancel()
+        auditRead = nil
+        auditReadID &+= 1
+        auditDirty = false
+    }
+
+    /// The hub pushed (tests call it directly): reads the audit log now, or once more after the read in flight.
+    /// Off main: the read is the hub's own main-actor request.
+    func readAudit() {
+        guard auditRead == nil else {
+            auditDirty = true
+            return
+        }
+        guard let hub else { return }
+        auditDirty = false
+        auditReadID &+= 1
+        let id = auditReadID, refresh = refreshAudit, work = mainWork
+        // task-owner: auditRead: one read at a time while the card shows; endWatching cancels it. Its end lands
+        // in one background task (the card's History is the only reader).
+        auditRead = Task { @concurrent [weak self] in
+            await refresh(hub)
+            await work.apply(.background, owner: "MacScreenDevicesSettings.auditRead") { [weak self] () -> Void in
+                self?.auditReadEnded(id)
+            }
+        }
+    }
+
+    /// The read `id` ended: a push that came meanwhile reads once more while a card still shows.
+    private func auditReadEnded(_ id: UInt64) {
+        guard id == auditReadID else { return }
+        auditRead = nil
+        if auditDirty, watchers > 0 { readAudit() }
     }
 
     // MARK: State
@@ -416,9 +461,10 @@ public final class MacScreenDevicesSettings {
         }
     }
 
-    /// "22m 27s", "1h 4m", "8s".
+    /// "22m 27s", "1h 4m", "8s"; empty for a value that is not whole seconds in `0...Int.max` (an entry
+    /// decodes only `0...AuditEntry.maximumDuration`, so that is a caller's mistake, shown as no duration).
     static func durationText(_ seconds: Double) -> String {
-        let total = max(0, Int(seconds.rounded()))
+        guard let total = Int(exactly: seconds.rounded()), total >= 0 else { return "" }
         let hours = total / 3600, minutes = (total % 3600) / 60, rest = total % 60
         if hours > 0 { return "\(hours)h \(minutes)m" }
         if minutes > 0 { return "\(minutes)m \(rest)s" }

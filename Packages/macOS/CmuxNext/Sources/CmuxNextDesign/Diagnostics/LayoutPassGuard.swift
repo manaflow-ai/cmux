@@ -17,7 +17,7 @@ import os
 /// the same way: `-[NSView layout]` calls per view inside one
 /// `layoutIfNeeded` of its window (an override that calls `super.layout()`
 /// counts; one that does not is invisible). A view laid out outside a
-/// window layout (an explicit `layoutSubtreeIfNeeded`) does not count, as
+/// window layout (a subtree forced on its own) does not count, as
 /// it does not count for AppKit. A normal window layout lays a view out
 /// once, twice when a layout converges in a second pass. When one view
 /// passes its window's limit (``limit(viewCount:)``: ``bound``, lower in a
@@ -70,6 +70,10 @@ public final class LayoutPassGuard {
     /// DEBUG builds only; a release build always reads 0.
     public private(set) var viewLayoutCalls = 0
     public private(set) var windowLayoutPasses = 0
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// An armed ``RenderStats`` (set by its `arm()`): it counts each layout call per view class.
+    weak var renderStats: RenderStats?
+    #endif
 
     /// One `layoutIfNeeded` of a window in progress: its nesting depth, the
     /// layout calls per view in it (the weak reference tells a reused
@@ -86,7 +90,7 @@ public final class LayoutPassGuard {
     private var classCounts: [ObjectIdentifier: (type: AnyClass, count: Int)] = [:]
     private var reportedClasses: Set<ObjectIdentifier> = []
     private var observer: CFRunLoopObserver?
-    private static let log = Logger(subsystem: "com.cmuxterm.next", category: "layout-pass-guard")
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "layout-pass-guard")
 
     private init() {}
 
@@ -175,6 +179,9 @@ public final class LayoutPassGuard {
         viewLayoutCalls &+= 1
         #endif
         let type: AnyClass = Swift.type(of: view)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        renderStats?.recordLayout(of: type)
+        #endif
         let typeID = ObjectIdentifier(type)
         if let entry = classCounts[typeID] {
             classCounts[typeID] = (entry.type, entry.count + 1)
@@ -227,16 +234,20 @@ public final class LayoutPassGuard {
 
     private static func swizzleLayout() {
         let selector = #selector(NSView.layout)
-        guard let method = class_getInstanceMethod(NSView.self, selector) else { return }
-        let original = unsafeBitCast(method_getImplementation(method), to: Layout.self)
-        method_setImplementation(method, imp_implementationWithBlock(override(calling: original, selector)))
+        // SAFETY: `method` is the runtime's record of -[NSView layout], which lives as long as the class; its
+        // implementation is a `-(void)layout`, called with that C type (self, _cmd), and the block that replaces it
+        // takes the same arguments.
+        guard let method = unsafe class_getInstanceMethod(NSView.self, selector) else { return }
+        let original = unsafe unsafeBitCast(method_getImplementation(method), to: Layout.self)
+        unsafe method_setImplementation(method, imp_implementationWithBlock(override(calling: original, selector)))
     }
 
     private static func swizzleWindowLayout() {
         let selector = #selector(NSWindow.layoutIfNeeded)
-        guard let method = class_getInstanceMethod(NSWindow.self, selector) else { return }
-        let original = unsafeBitCast(method_getImplementation(method), to: WindowLayoutIMP.self)
-        method_setImplementation(method, imp_implementationWithBlock(windowOverride(calling: original, selector)))
+        // SAFETY: as in swizzleLayout, for -[NSWindow layoutIfNeeded], a `-(void)` method with no argument.
+        guard let method = unsafe class_getInstanceMethod(NSWindow.self, selector) else { return }
+        let original = unsafe unsafeBitCast(method_getImplementation(method), to: WindowLayoutIMP.self)
+        unsafe method_setImplementation(method, imp_implementationWithBlock(windowOverride(calling: original, selector)))
     }
 
     /// Built outside the main actor so the block carries no isolation

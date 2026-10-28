@@ -12,6 +12,7 @@ impl WorkspaceRegistry {
 
     /// The stored subtrees of `workspaces` only; see
     /// [`load_resource_topology_scoped`].
+    #[track_caller]
     pub(crate) fn resource_topology_scoped(
         &self,
         workspaces: &[WorkspacePublicId],
@@ -26,6 +27,7 @@ impl WorkspaceRegistry {
 
     /// One terminal's durable record unless it is tombstoned, as
     /// [`Self::terminal_snapshot`] lists it.
+    #[track_caller]
     pub(crate) fn live_terminal_record(
         &self,
         terminal_id: &str,
@@ -37,6 +39,7 @@ impl WorkspaceRegistry {
 
     /// The host of every active stored terminal row that a live tab of
     /// `panes` shows, keyed by terminal public id.
+    #[track_caller]
     pub(crate) fn active_terminal_hosts_of_panes(
         &self,
         panes: &[PanePublicId],
@@ -63,6 +66,7 @@ impl WorkspaceRegistry {
     }
 
     /// One live browser row, or `None` when it is gone.
+    #[track_caller]
     pub(crate) fn live_browser(
         &self,
         browser_id: &BrowserPublicId,
@@ -72,6 +76,7 @@ impl WorkspaceRegistry {
     }
 
     /// The live tab rows that show `content_id`, in no particular order.
+    #[track_caller]
     pub(crate) fn resource_tabs_of_content(
         &self,
         content_id: &str,
@@ -81,6 +86,7 @@ impl WorkspaceRegistry {
 
     /// Whether a live `resource` row ("screen", "pane" or "tab") has this
     /// public id.
+    #[track_caller]
     pub(crate) fn resource_is_live(&self, resource: &str, public_id: &str) -> anyhow::Result<bool> {
         let table = match resource {
             "screen" => "resource_screens",

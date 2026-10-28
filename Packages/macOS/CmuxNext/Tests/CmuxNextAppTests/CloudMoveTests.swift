@@ -546,9 +546,9 @@ struct CloudMoveTests {
         let environment: @Sendable () -> [String: String] = {
             ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"]
         }
-        let mac = DaemonLauncher(configuration: .init(binary: binary, session: "cn-move-mac-\(UUID().uuidString.prefix(6).lowercased())",
+        let mac = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-move-mac-\(UUID().uuidString.prefix(6).lowercased())",
                                                       stateDirectory: root.appendingPathComponent("mac-state")), environment: environment)
-        let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-move-vm-\(UUID().uuidString.prefix(6).lowercased())",
+        let vm = DaemonLauncher(work: BackgroundWork(label: "test.daemon-launcher"), configuration: .init(binary: binary, session: "cn-move-vm-\(UUID().uuidString.prefix(6).lowercased())",
                                                      stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
         _ = NSApplication.shared
         // The app's own defaults, as the app keeps them, for this run only.
@@ -675,9 +675,11 @@ struct CloudMoveTests {
         let paths = CloudPaths(root: root.appendingPathComponent("cloud", isDirectory: true))
         let api = services.cloud.api
         let hub = CloudTunnelHub(api: api, paths: paths, binary: cli, deviceName: "cn-move-test")
-        let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: cli, deviceName: "cn-move-test")
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget())
+        let link = CloudMachineLink(machineID: "vm-move", api: api, hub: hub, paths: paths, binary: cli, deviceName: "cn-move-test",
+                                    mainWork: mainWork)
         return CloudMachineSession(machine: CloudMachine(id: "vm-move", displayName: "Move VM"), link: link,
-                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+                                   mainWork: mainWork, work: services.work)
     }
 
     /// Ends `daemon`'s connection and its daemon with its terminals, so no host outlives the test.

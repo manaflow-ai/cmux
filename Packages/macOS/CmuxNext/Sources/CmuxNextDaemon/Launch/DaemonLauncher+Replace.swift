@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextWakeups
 import Foundation
 
 /// "Restart cmux-tui" (cx-jniyz.1): `server ensure --replace-unresponsive`
@@ -89,9 +90,15 @@ extension DaemonLauncher {
 public final class EnsureOutcome: Sendable {
     private struct State {
         var ownerLooksStuck = false
-        var observer: (@MainActor @Sendable () -> Void)?
-        /// Gets every ensure's outcome (the automatic restart, ``UnresponsiveOwnerWatch``).
-        var watch: UnresponsiveOwnerWatch?
+        /// The observer, the scheduler its call is posted on, and the call's class and owner.
+        var observer: Observer?
+    }
+
+    private struct Observer {
+        let work: MainWorkScheduler
+        let workClass: BudgetedWorkClass
+        let owner: String
+        let call: @MainActor @Sendable () -> Void
     }
 
     private let state = Mutex(State())
@@ -101,9 +108,12 @@ public final class EnsureOutcome: Sendable {
     /// The last ensure failed as a stuck owner makes it fail; false after one that succeeded.
     public var ownerLooksStuck: Bool { state.withLock { $0.ownerLooksStuck } }
 
-    /// Calls `observer` on the main actor after each change of ``ownerLooksStuck``.
-    public func observe(_ observer: @escaping @MainActor @Sendable () -> Void) {
-        state.withLock { $0.observer = observer }
+    /// Calls `observer` after each change of ``ownerLooksStuck``: one task in `workClass` on `work`, posted from
+    /// the thread the ensure ended on (recipe R-hop; Chrome posts a reply to the UI thread's typed runner,
+    /// `PostTaskAndReply`, base/task/task_runner.h).
+    public func observe(on work: MainWorkScheduler, _ workClass: BudgetedWorkClass, owner: String,
+                        _ observer: @escaping @MainActor @Sendable () -> Void) {
+        state.withLock { $0.observer = Observer(work: work, workClass: workClass, owner: owner, call: observer) }
     }
 
     /// Feeds every ensure's outcome to `watch`, which restarts an owner that stays stuck.
@@ -114,14 +124,14 @@ public final class EnsureOutcome: Sendable {
     /// Records how an ensure ended (nil: it succeeded, finding or starting the owner `pid`).
     func note(_ error: (any Error)?, pid: Int32? = nil) {
         let stuck = error.map(DaemonLauncher.isStuckOwnerFailure) ?? false
-        let (observer, watch) = state.withLock { state -> ((@MainActor @Sendable () -> Void)?, UnresponsiveOwnerWatch?) in
-            guard state.ownerLooksStuck != stuck else { return (nil, state.watch) }
+        let observer = state.withLock { state -> Observer? in
+            guard state.ownerLooksStuck != stuck else { return nil }
             state.ownerLooksStuck = stuck
             return (state.observer, state.watch)
         }
         watch?.note(UnresponsiveOwnerWatch.Ensure(error, pid: pid))
         guard let observer else { return }
-        // task-owner: one main-actor hop per change; the observer reads the current value
-        Task { @MainActor in observer() }
+        // One classed task per change; the observer reads the current value.
+        observer.work.postFromAnyThread(observer.workClass, owner: observer.owner, observer.call)
     }
 }

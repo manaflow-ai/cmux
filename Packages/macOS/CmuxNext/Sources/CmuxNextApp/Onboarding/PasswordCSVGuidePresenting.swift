@@ -1,7 +1,11 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import UniformTypeIdentifiers
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// The native steps of the guided CSV import. The live presenter shows cmux
 /// dialogs and the open panel; tests answer with a script.
@@ -21,6 +25,8 @@ protocol PasswordCSVGuidePresenting {
 @MainActor
 struct LivePasswordCSVGuidePresenter: PasswordCSVGuidePresenting {
     private static let sourceField = "source"
+    /// Finds the exporting app (Launch Services, on the system lane).
+    let queries: WorkspaceQueries
 
     private var scope: CmuxDialogScope { (NSApp.keyWindow ?? NSApp.mainWindow).map { .window($0) } ?? .app }
 
@@ -55,9 +61,13 @@ struct LivePasswordCSVGuidePresenter: PasswordCSVGuidePresenting {
     /// The Passwords app (macOS 15 and later), else Safari, which exports passwords on older macOS.
     func openApp(_ source: PasswordCSVSource) {
         guard source == .apple else { return }
-        let app = ["com.apple.Passwords", "com.apple.Safari"].lazy.compactMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }.first
-        guard let app else { return }
-        NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+        let query = WorkspaceQuery<URL?>(id: "passwords.exportApp", refreshes: true) { system in
+            ["com.apple.Passwords", "com.apple.Safari"].lazy.compactMap { system.application(withBundleIdentifier: $0) }.first
+        }
+        queries.value(query, priority: .userBlocking) { app in
+            guard let app else { return }
+            NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+        }
     }
 
     func chooseFile(_ source: PasswordCSVSource) async -> URL? {
@@ -65,7 +75,8 @@ struct LivePasswordCSVGuidePresenter: PasswordCSVGuidePresenting {
         panel.allowedContentTypes = [.commaSeparatedText]
         panel.allowsMultipleSelection = false
         panel.message = PasswordCSVStrings.prompt
-        return await withCheckedContinuation { continuation in
+        // A panel that drops its reply chose nothing.
+        return try? await withOnceContinuation { (continuation: OnceContinuation<URL?, OnceContinuationError>) in
             panel.beginForCmux { continuation.resume(returning: $0) }
         }
     }

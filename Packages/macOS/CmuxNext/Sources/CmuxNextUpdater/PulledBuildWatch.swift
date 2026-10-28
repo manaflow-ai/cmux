@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxUpdater
 public import Foundation
 import Observation
@@ -20,7 +21,7 @@ nonisolated public struct PulledBuild: Equatable, Sendable, Decodable {
 
     /// The entries of a `pulled.json` body; an unreadable body or entry is skipped, never fatal.
     public static func decode(_ data: Data) -> [PulledBuild] {
-        guard let items = try? JSONSerialization.jsonObject(with: data) as? [Any] else { return [] }
+        guard let items = try? JSONSerialization.blockingJSONObject(with: data) as? [Any] else { return [] }
         return items.compactMap { item in
             guard let entry = item as? [String: Any], let build = entry["build"] as? String else { return nil }
             return PulledBuild(build: build, reason: entry["reason"] as? String ?? "",
@@ -126,6 +127,8 @@ public final class PulledBuildWatch {
     public func refresh() -> Task<Void, Never> {
         if let refreshTask { return refreshTask }
         let urls = PulledBuild.listURLs(feedURL: feedURL()), fetch = fetch, build = build
+        // main-hop-allow: between the list's read (URLSession, off main) and the banner runs the rollback check, the
+        // main-actor async UpdateDropBack read; once at launch and per Sparkle cycle, never per frame
         let task = Task { [weak self] in
             var entry: PulledBuild?
             var all: [String] = []
@@ -187,6 +190,8 @@ public final class PulledBuildWatch {
         rollbackFailure = nil
         rollingBack = true
         let directories = stateDirectories(), rollBack = rollBack
+        // main-hop-allow: a confirmed Roll Back starts UpdateDropBack's main-actor async swap (success relaunches);
+        // once per confirmation, and only a failure's message comes back
         Task { [weak self] in
             // Success relaunches into the kept build; only a failure comes back.
             let failure = await rollBack(target.build, directories)

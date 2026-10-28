@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Computer use: one `PermissionRow` per grant. Allow opens that list in
 /// System Settings and floats `HelperDragPanel` over it; the row turns Done
@@ -9,7 +10,8 @@ final class ComputerUseStepView: NSView {
     private var rows: [ComputerUsePermissionPane: PermissionRow] = [:]
     private var panel: HelperDragPanel?
     private var panelPane: ComputerUsePermissionPane?
-    private var loop: RenderLoop?
+    private var loop: ObservationLoop?
+    private let mainWork: MainWorkScheduler
     /// Shown after Allow when this build has no signed helper.
     private let unavailableLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperUnavailable,
                                                         font: OnboardingMetrics.captionFont,
@@ -23,14 +25,9 @@ final class ComputerUseStepView: NSView {
                                                      font: OnboardingMetrics.captionFont,
                                                      color: Palette.textSecondary, lines: 2)
 
-    private let failedLabel = OnboardingLabel.make(OnboardingStrings.computerUseHelperFailed,
-                                                    font: OnboardingMetrics.captionFont,
-                                                    color: Palette.textSecondary, lines: 3)
-    private lazy var restartButton = OnboardingControl.button(OnboardingStrings.computerUseRestart,
-                                                               target: self, action: #selector(restartHelper))
-
-    init(model: ComputerUseStepModel) {
+    init(model: ComputerUseStepModel, mainWork: MainWorkScheduler) {
         self.model = model
+        self.mainWork = mainWork
         super.init(frame: .zero)
         let stack = NSStackView()
         stack.orientation = .vertical
@@ -65,7 +62,8 @@ final class ComputerUseStepView: NSView {
             stack.leadingAnchor.constraint(equalTo: leadingAnchor), stack.trailingAnchor.constraint(equalTo: trailingAnchor),
             stack.topAnchor.constraint(equalTo: topAnchor), stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
         ])
-        loop = RenderLoop { [weak self] in self?.render() }
+        // node-free: the onboarding tool window, in no tab
+        loop = ObservationLoop(owner: "onboarding.computerUse", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
     }
 
     @available(*, unavailable)
@@ -102,7 +100,7 @@ final class ComputerUseStepView: NSView {
         panel?.orderOut(nil)
         panel = nil
         guard helping != nil, window != nil, let url = model.helperAppURL else { return }
-        let next = HelperDragPanel(appURL: url) { [weak model] in model?.dismissHelper() }
+        let next = HelperDragPanel(appURL: url, icon: model.helperAppIcon) { [weak model] in model?.dismissHelper() }
         next.show(on: window?.screen)
         panel = next
     }

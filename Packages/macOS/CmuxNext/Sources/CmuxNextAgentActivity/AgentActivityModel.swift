@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import Observation
 
 /// Where the pane's data comes from. The App fills it from the local CUA host
@@ -11,10 +12,16 @@ public protocol AgentActivitySource: AnyObject {
     /// Asks for the events of `session` (pushed as `.events`) while the
     /// pane shows it; `false` stops them.
     func follow(session: String, _ on: Bool)
+    /// Stops every push (the pane closed or was discarded). Default: nothing to stop.
+    func stop()
     /// Decoded pixels of a frame, or nil when unavailable.
     func image(for frame: AgentActivityFrameRef) async -> NSImage?
     /// Sends a user operation to the owning host.
     func perform(_ op: AgentActivityUserOp) async throws
+}
+
+extension AgentActivitySource {
+    public func stop() {}
 }
 
 /// One machine's group in the session list.
@@ -56,15 +63,30 @@ public final class AgentActivityModel {
     @ObservationIgnored public var onChange: (() -> Void)?
 
     @ObservationIgnored private let source: any AgentActivitySource
+    /// Where an operation's answer lands: the rest of the person's action, one `userBlocking` task.
+    @ObservationIgnored private let mainWork: MainWorkScheduler
     @ObservationIgnored private var followed: [String] = []
     @ObservationIgnored private var extraFollowed: Set<String> = []
 
-    public init(source: any AgentActivitySource) {
+    /// - Parameters:
+    ///   - source: Where the sessions and events come from and the operations go.
+    ///   - mainWork: The app's one main-thread scheduler.
+    public init(source: any AgentActivitySource, mainWork: MainWorkScheduler) {
         self.source = source
+        self.mainWork = mainWork
     }
 
     public func start() {
         source.start { [weak self] update in self?.apply(update) }
+    }
+
+    /// Stops the pushes: unfollows every session and ends the source's subscription (the pane
+    /// closed, or its tab was discarded: the rebuilt page starts a new model).
+    public func stop() {
+        for id in followed { source.follow(session: id, false) }
+        followed = []
+        extraFollowed = []
+        source.stop()
     }
 
     // MARK: Updates from the host
@@ -190,16 +212,16 @@ public final class AgentActivityModel {
     // MARK: User operations (sent to the host; no optimistic change)
 
     public func perform(_ op: AgentActivityUserOp) {
-        Task { try? await performAndWait(op) }
-    }
-
-    /// Reports the host's result to page callers as well as native controls.
-    public func performAndWait(_ op: AgentActivityUserOp) async throws {
-        do {
-            try await source.perform(op)
-            lastOperationError = nil
-            if case let .watch(session, on) = op {
-                if on { watching.insert(session) } else { watching.remove(session) }
+        if case let .watch(session, on) = op {
+            if on { watching.insert(session) } else { watching.remove(session) }
+            notifyChange()
+        }
+        let mainWork = mainWork
+        // The host's answer is the rest of the person's operation: one userBlocking task (Chrome kUserBlocking).
+        Task { @concurrent [weak self] in
+            guard let result = await self?.send(op) else { return }
+            await mainWork.apply(.userBlocking, owner: "AgentActivityModel.operation") { [weak self] () -> Void in
+                self?.operationEnded(result)
             }
             notifyChange()
         } catch {
@@ -207,6 +229,21 @@ public final class AgentActivityModel {
             notifyChange()
             throw error
         }
+    }
+
+    /// Sends `op` to its host; the failure, if any.
+    private func send(_ op: AgentActivityUserOp) async -> Result<Void, any Error> {
+        do {
+            try await source.perform(op)
+            return .success(())
+        } catch {
+            return .failure(error)
+        }
+    }
+
+    private func operationEnded(_ result: Result<Void, any Error>) {
+        if case .failure(let error) = result { lastOperationError = String(describing: error) } else { lastOperationError = nil }
+        notifyChange()
     }
 
     public func image(for frame: AgentActivityFrameRef) async -> NSImage? {

@@ -77,6 +77,9 @@ final class MobilePairingPageProvider: PageProvider {
             invite: { [weak services] macName in services?.iphone.pairInvite(macName: macName) })
     }
 
+    /// The person's own steps from the page (Phone Access on or off) that have not answered.
+    private(set) var personCallsInFlight = 0
+
     func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case Self.statusOp:
@@ -98,6 +101,9 @@ final class MobilePairingPageProvider: PageProvider {
             guard dependencies.host.answerPairRequest(id: id, allow: allow) else {
                 throw PageError.invalidParams("no request from that phone is waiting")
             }
+            personCallsInFlight += 1
+            defer { personCallsInFlight -= 1 }
+            try await settings.setSetting(at: SessionSettings.allowConnectionsPath, to: .bool(on), by: .user)
             return .object([:])
         default:
             throw PageError.unknownOp(op)
@@ -119,7 +125,9 @@ final class MobilePairingPageProvider: PageProvider {
                 last = fingerprint
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event is an empty "status changed" signal the page answers with one `status` read:
+        // the newest one says all the dropped ones did.
+        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
     }
 
     /// Everything `status` reads that can change while the page is open.

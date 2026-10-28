@@ -1,5 +1,6 @@
 import CmuxNextCompat
 @testable import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -30,7 +31,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: root) }
         FileManager.default.createFile(atPath: pictures.appendingPathComponent("Dunes.heic").path, contents: Data([0]))
         let store = BackdropCatalogStore(systemDirectory: pictures, userImages: BackdropUserImages(folder: images),
-                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [])
+                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [],
+                                         mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         store.start()
         defer { store.stop() }
         await waitForBuilds(store, atLeast: 1)
@@ -46,26 +48,25 @@ import Testing
         #expect(store.catalog.choices.contains { $0.id.contains("mine.png") })
     }
 
-    @Test func downloadingAnAerialRefreshesItsPendingState() async throws {
-        let (pictures, _, root) = try folders()
+    /// Rule 9 (p06-scheduler.md): a build lands on main as one `visible` task of the app's scheduler, attributed to
+    /// `BackdropCatalogStore.build` and its posting site in the owners ledger. A build that resumed the store's own
+    /// main-actor task landed as an unattributed job: no ledger row.
+    @Test func eachBuildLandsAsOneVisibleTaskOnTheScheduler() async throws {
+        let (pictures, images, root) = try folders()
         defer { try? FileManager.default.removeItem(at: root) }
-        let aerials = root.appendingPathComponent("aerials", isDirectory: true)
-        let movies = aerials.appendingPathComponent("4KSDR240FPS", isDirectory: true)
-        try FileManager.default.createDirectory(at: movies, withIntermediateDirectories: true)
-        try Data(#"{"assets":[{"id":"B2","accessibilityLabel":"Iceland Dusk"}]}"#.utf8)
-            .write(to: aerials.appendingPathComponent("entries.json"))
-        let downloaded = movies.appendingPathComponent("B2.mov")
-        let store = BackdropCatalogStore(systemDirectory: pictures, userImages: nil, aerials: aerials, assetFolders: [])
+        let board = MainTaskBoard(ledger: MainOwnerLedger(capacity: 64, folding: .manual))
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(board: board))
+        let store = BackdropCatalogStore(systemDirectory: pictures, userImages: BackdropUserImages(folder: images),
+                                         aerials: root.appendingPathComponent("aerials"), assetFolders: [], mainWork: mainWork)
+        #expect(store.builds == 0, "the store built on the main thread before start()")
         store.start()
         defer { store.stop() }
         await waitForBuilds(store, atLeast: 1)
-        #expect(store.catalog.pendingVideoPaths.contains(downloaded.path))
-
-        // Only the movie subfolder changes; its parent and entries.json stay untouched.
-        try Data().write(to: downloaded)
-        // wakeup-allow: await the catalog update caused by this download, never poll.
-        for await paths in ObservationStream({ store.catalog.pendingVideoPaths }) where !paths.contains(downloaded.path) { break }
-        #expect(store.catalog.choices.contains(.system(path: downloaded.path)))
-        #expect(!store.catalog.pendingVideoPaths.contains(downloaded.path))
+        #expect(store.builds == 1)
+        let row = try #require(board.ownerSnapshot().owners.first { $0.owner == "BackdropCatalogStore.build" },
+                               "the build landed outside the scheduler: no owner row")
+        #expect(row.workClass == .visible)
+        #expect(row.tasks == 1, "one build landed as \(row.tasks) tasks")
+        #expect(row.sites.first?.location.contains("BackdropCatalogStore.swift") == true, "\(row.sites)")
     }
 }

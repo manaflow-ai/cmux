@@ -5,6 +5,7 @@
 use std::sync::PoisonError;
 
 use super::*;
+use crate::panic_free::JsonFields;
 use crate::workspace_registry::DETACHED_TERMINAL_WORKSPACE_KEY;
 
 /// Whether a durable `workspace_key` is a detached terminal's sentinel.
@@ -24,6 +25,7 @@ pub(super) fn names_a_workspace(workspace_key: &str) -> bool {
 /// projection persists, instead of being given a placement in a workspace its
 /// sentinel key cannot name.
 #[cfg(any(unix, windows))]
+#[track_caller]
 pub(super) fn detached_adoption_binding(
     registry: &WorkspaceRegistry,
     terminal_id: &str,
@@ -57,6 +59,7 @@ impl Mux {
     /// other. The caller commits the resource projection, which gives it the
     /// resource-terminal row that a later attach or `terminal.project`
     /// selects by its public id.
+    #[track_caller]
     pub(crate) fn create_detached_terminal_with_mutation(
         self: &Arc<Self>,
         spawn: DetachedTerminalSpawn,
@@ -83,7 +86,10 @@ impl Mux {
             None,
         )?;
         // Marks a detached receipt explicitly, beyond its sentinel key.
-        fingerprint["detached"] = Value::Bool(true);
+        fingerprint
+            .as_object_mut()
+            .context("terminal create fingerprint is not an object")?
+            .insert("detached".to_owned(), Value::Bool(true));
         let replay = {
             self.workspace_registry
                 .lock()
@@ -91,9 +97,10 @@ impl Mux {
                 .replay_terminal(mutation, &fingerprint)?
         };
         if let Some(replay) = replay {
-            let terminal_id = replay.result["terminal_id"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("stored terminal create result is missing id"))?;
+            let terminal_id =
+                replay.result.field("terminal_id").as_str().ok_or_else(|| {
+                    anyhow::anyhow!("stored terminal create result is missing id")
+                })?;
             return self.detached_terminal_result(terminal_id, true);
         }
         let terminal_id = match requested_terminal_id {
@@ -130,6 +137,7 @@ impl Mux {
     /// projection committed. Nothing else would end it (it is kept and has no
     /// tab), and the caller was told the creation failed. It has no resource
     /// row yet, so its exit commits to the terminal registry alone.
+    #[track_caller]
     pub(crate) fn end_unpublished_detached_terminal(
         &self,
         terminal_id: &str,
@@ -155,6 +163,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     fn detached_terminal_result(
         &self,
         terminal_id: &str,
@@ -202,6 +211,7 @@ impl Mux {
     /// died before the creating projection committed. A failure leaves it for
     /// the next projection to persist.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn publish_adopted_detached_terminal(&self, terminal_id: &str) {
         let unpublished = {
             let registry = self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner);

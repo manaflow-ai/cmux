@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// What macOS Now Playing reports for the app that plays (Spotify, Music, a
@@ -45,7 +46,7 @@ public nonisolated struct SystemNowPlayingFeed: Equatable, Sendable {
 
         /// The update a stream line carries; nil for a line that is not a data line.
         public static func decode(_ line: Data) -> Update? {
-            guard let decoded = try? JSONDecoder().decode(Line.self, from: line), decoded.type == "data",
+            guard let decoded = try? JSONDecoder().blockingDecode(Line.self, from: line), decoded.type == "data",
                   let payload = decoded.payload else { return nil }
             return Update(diff: decoded.diff == true, payload: payload)
         }

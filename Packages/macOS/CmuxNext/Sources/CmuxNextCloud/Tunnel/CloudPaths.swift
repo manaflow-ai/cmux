@@ -123,24 +123,50 @@ public struct CloudPaths: Sendable {
         return id
     }
 
-    /// The id in `device-id`, or nil when there is no file or it is empty.
-    private func readDeviceID() -> String? {
-        guard let text = try? String(blockingContentsOf: deviceIDFile, encoding: .utf8) else { return nil }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
+    /// ``loadOrCreateDeviceID()`` as a value a launch read gives the main thread (p08-startup-076). It blocks:
+    /// run it on a `BackgroundWork` files lane.
+    public func deviceIDResult() -> Result<String, CloudDeviceIDError> {
+        do {
+            return .success(try loadOrCreateDeviceID())
+        } catch {
+            return .failure(.unwritable(String(describing: error)))
+        }
+    }
+}
+
+/// Why this Mac's install id (`device-id`) is not known.
+public enum CloudDeviceIDError: Error, Equatable, Sendable {
+    /// Its launch read has not ended yet (or quit dropped it): the main thread never reads the file itself.
+    case notReadYet
+    /// There was no id and a new one could not be written; the file error's description.
+    case unwritable(String)
+}
+
+/// This Mac's install id as the launch's read of it has it (p08-startup-076): `main` reads (or makes) `device-id` on a
+/// launch lane with ``CloudPaths/deviceIDResult()``, and the main thread asks this, which never touches the disk.
+///
+/// ```swift
+/// let read = LaunchRead(in: sequence, dropped: .failure(.notReadYet)) { paths.deviceIDResult() }  // main()
+/// let source = CloudDeviceIDSource(paths: paths) { read.value }
+/// let id = source.result(for: paths)?.get()                                                     // never waits
+/// ```
+public nonisolated struct CloudDeviceIDSource: Sendable {
+    /// The Cloud state whose id the read reads.
+    public let paths: CloudPaths
+    private let ended: @Sendable () -> Result<String, CloudDeviceIDError>?
+
+    /// - Parameters:
+    ///   - paths: The Cloud state whose id the read reads.
+    ///   - ended: The read's result once it ended, else nil; it must not block.
+    public init(paths: CloudPaths, ended: @escaping @Sendable () -> Result<String, CloudDeviceIDError>?) {
+        self.paths = paths
+        self.ended = ended
     }
 
-    /// Writes `text` with mode 0600 at `url` unless a file is already there: a hard link to a complete
-    /// temporary file (its own name per call), so a reader never sees a part of it and a second writer
-    /// never replaces the first one's file.
-    func createSecretIfAbsent(_ text: String, at url: URL) throws {
-        let temporary = url.appendingPathExtension("\(UUID().uuidString).tmp")
-        guard FileManager.checked.createFile(atPath: temporary.path, contents: Data(text.utf8), attributes: [.posixPermissions: 0o600]) else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: temporary.path])
-        }
-        defer { unlink(temporary.path) }
-        guard link(temporary.path, url.path) == 0 || errno == EEXIST else {
-            throw CocoaError(.fileWriteUnknown, userInfo: [NSFilePathErrorKey: url.path])
-        }
+    /// The id of `paths` as the read has it: ``CloudDeviceIDError/notReadYet`` while it runs; nil when the read is
+    /// of other paths (the caller reads its own).
+    public func result(for paths: CloudPaths) -> Result<String, CloudDeviceIDError>? {
+        guard paths.root == self.paths.root else { return nil }
+        return ended() ?? .failure(.notReadYet)
     }
 }

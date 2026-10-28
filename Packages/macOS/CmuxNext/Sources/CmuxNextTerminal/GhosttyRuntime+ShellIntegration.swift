@@ -1,3 +1,4 @@
+public import CmuxNextCompat
 public import Foundation
 import GhosttyNextKit
 
@@ -26,7 +27,8 @@ extension GhosttyRuntime {
     /// nil when libghostty failed to load a config.
     public var shellIntegrationSettings: GhosttyShellIntegrationSettings? {
         guard let config else { return nil }
-        return Self.shellIntegrationSettings(config)
+        // SAFETY: `config` is the live applied config (GhosttyRuntime's note), held for this call.
+        return unsafe Self.shellIntegrationSettings(config)
     }
 
     /// Shell-integration settings of the file at `path` loaded alone, with
@@ -34,21 +36,28 @@ extension GhosttyRuntime {
     /// oracle for the daemon's own reader (schemas/ghostty-shell-features).
     /// Nil when libghostty cannot make a config.
     public static func shellIntegrationSettings(configFile path: String) -> GhosttyShellIntegrationSettings? {
-        guard let config = ghostty_config_new() else { return nil }
-        defer { ghostty_config_free(config) }
-        ghostty_config_load_file(config, path)
-        ghostty_config_load_recursive_files(config)
-        ghostty_config_finalize(config)
-        return shellIntegrationSettings(config)
+        // SAFETY: withScratchConfig's handle is live for each closure's call and stays in it.
+        unsafe withScratchConfig(load: { config in
+            // SAFETY: as above; Swift passes a NUL-terminated copy of `path` for the call.
+            unsafe ghostty_config_load_file(config, path)
+            // SAFETY: as above.
+            unsafe ghostty_config_load_recursive_files(config)
+        }, read: {
+            // SAFETY: as above.
+            unsafe shellIntegrationSettings($0)
+        })
     }
 
+    /// `config` is a live handle the caller holds for the call.
     private static func shellIntegrationSettings(_ config: ghostty_config_t) -> GhosttyShellIntegrationSettings {
-        var mode: UnsafePointer<CChar>?
-        let modeName = configGet(config, &mode, key: "shell-integration") ? mode.map { String(cString: $0) } : nil
+        // SAFETY: the caller's live config; shell-integration is a string (the enum's name).
+        let modeName = unsafe configString(config, key: "shell-integration")
         var features: UInt32 = 0
-        _ = configGet(config, &features, key: "shell-integration-features")
+        // SAFETY: the caller's live config; shell-integration-features is a uint32 bit set.
+        _ = unsafe configGet(config, &features, key: "shell-integration-features")
         var blink = false
-        let hasBlink = configGet(config, &blink, key: "cursor-style-blink")
+        // SAFETY: the caller's live config; cursor-style-blink is a C bool.
+        let hasBlink = unsafe configGet(config, &blink, key: "cursor-style-blink")
         return GhosttyShellIntegrationSettings(mode: modeName ?? "detect", features: features, cursorBlink: hasBlink ? blink : nil)
     }
 
@@ -56,10 +65,12 @@ extension GhosttyRuntime {
     /// cursor a fresh surface starts with. nil when no config loaded.
     public var cursorDefaults: (style: String, blink: Bool?)? {
         guard let config else { return nil }
-        var style: UnsafePointer<CChar>?
-        let name = Self.configGet(config, &style, key: "cursor-style") ? style.map { String(cString: $0) } : nil
+        // SAFETY: the runtime's live applied config (GhosttyRuntime.config); cursor-style is a
+        // string (the enum's name).
+        let name = unsafe Self.configString(config, key: "cursor-style")
         var blink = false
-        let hasBlink = Self.configGet(config, &blink, key: "cursor-style-blink")
+        // SAFETY: as above; cursor-style-blink is a C bool.
+        let hasBlink = unsafe Self.configGet(config, &blink, key: "cursor-style-blink")
         return (name ?? "block", hasBlink ? blink : nil)
     }
 
@@ -68,15 +79,16 @@ extension GhosttyRuntime {
     public var desktopNotificationsEnabled: Bool {
         guard let config else { return true }
         var enabled = true
-        return Self.configGet(config, &enabled, key: "desktop-notifications") ? enabled : true
+        // SAFETY: the runtime's live applied config (GhosttyRuntime.config); a C bool.
+        return unsafe Self.configGet(config, &enabled, key: "desktop-notifications") ? enabled : true
     }
 
     /// The Ghostty CLI helper bundled at `<Resources>/bin/ghostty`, which
     /// Ghostty's `ssh` wrapper runs as `$GHOSTTY_BIN +ssh`. Nil when this
-    /// build does not ship it.
-    public nonisolated static func cliHelperPath(bundle: Bundle = .main) -> String? {
-        guard let path = bundle.resourceURL?.appendingPathComponent("bin/ghostty").path,
-              FileManager.default.isExecutableFile(atPath: path) else { return nil }
+    /// build does not ship it. `isExecutable` is the disk check (a test's own).
+    public nonisolated static func cliHelperPath(bundle: Bundle = .main,
+                                                 isExecutable: (String) -> Bool = { FileManager.checked.isExecutableFile(atPath: $0) }) -> String? {
+        guard let path = bundle.resourceURL?.appendingPathComponent("bin/ghostty").path, isExecutable(path) else { return nil }
         return path
     }
 }

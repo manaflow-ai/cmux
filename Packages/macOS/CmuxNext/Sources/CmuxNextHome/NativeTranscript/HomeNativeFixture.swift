@@ -2,6 +2,7 @@
 public import AppKit
 import CmuxHomeCore
 public import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// DEBUG ONLY. A fixture for screenshots and dogfood: the real
 /// `HomeNativeTranscriptView` (MessagesLab's code) over a
@@ -30,12 +31,19 @@ public final class HomeNativeFixture {
     private let attachments: Bool
     /// The app's made-ahead file picker for the fixture's "+"; nil opens none.
     private let openPanel: MadeAheadOpenPanel?
+    /// The app's one deadline placer, for the transcript's live settings and engine wakes.
+    private let deadlines: MainDeadlineScheduler
+    /// The app's lanes: the attachment files are written on its files lane.
+    private let work: BackgroundWork
 
-    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil) {
+    public init(attachments: Bool = false, openPanel: MadeAheadOpenPanel? = nil, deadlines: MainDeadlineScheduler, work: BackgroundWork) {
         self.attachments = attachments
         self.openPanel = openPanel
+        self.deadlines = deadlines
+        self.work = work
         store = HomeStore(source: source)
         store.start()
+        // main-hop-allow: DEBUG fixture: the load builds the view on main between the main-actor HomeStore's opened and send awaits; this task only starts it
         loading = Task { [weak self] in await self?.load() }
     }
 
@@ -52,7 +60,7 @@ public final class HomeNativeFixture {
               let id = (inbox.conversations.first { $0.participants.contains { $0.id == chief } && $0.participants.count == 2 }
                   ?? inbox.conversations.first)?.id else { return }
         let me = inbox.me.id
-        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel)
+        let view = HomeNativeTranscriptView(store: store, conversation: id, me: me, openPanel: openPanel, deadlines: deadlines)
         view.frame = container.bounds
         view.autoresizingMask = [.width, .height]
         container.addSubview(view)
@@ -75,8 +83,8 @@ public final class HomeNativeFixture {
         let update = HomeDraftUpdate(conversation: shown.conversation, participant: shown.chief, turn: turn, segment: 0,
                                      seq: streamSeq, isTalk: true, text: text, fresh: true, done: done)
         let source = self.source
-        // task-owner: one owner event, ends when the mock source has published it
-        Task {
+        // task-owner: one owner event, ends when the mock source has published it; off main, the source is an actor
+        Task { @concurrent in
             await source.streamDraft(update)
             if done { await source.receive(text, from: shown.chief, in: shown.conversation) }
         }
@@ -94,7 +102,7 @@ public final class HomeNativeFixture {
     }
 
     private func addAttachments(in id: ConversationID) async {
-        guard let files = try? await HomeFixtureMedia.make(), !Task.isCancelled else { return }
+        guard let files = try? await HomeFixtureMedia.make(on: work), !Task.isCancelled else { return }
         for file in files {
             guard let prepared = try? await store.prepareAttachment(fileURL: file, keepLocation: false) else { continue }
             try? await store.send(conversation: id, text: "", attachments: [prepared])

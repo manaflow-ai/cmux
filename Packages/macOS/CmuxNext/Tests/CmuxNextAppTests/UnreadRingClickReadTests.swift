@@ -37,6 +37,7 @@ struct UnreadRingClickReadTests {
     private static func open() async throws -> Fixture {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
+        services.notifications.start()  // the app's launch post (p08-startup-031); init only wires it
         AppActions.bind(services)
         services.windows.ordersWindowsIn = false
         // No real mouse: the press under test holds the button down until its mouse-up.

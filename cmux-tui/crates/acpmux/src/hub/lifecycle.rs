@@ -120,13 +120,17 @@ impl Hub {
         // A gone recorded folder may be remapped: git runs to compare repositories.
         let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
         let fam = family.clone();
+        // The remap's git children make it a WILL_BLOCK item, unwatched (`daemon/hang_watch.rs`).
         let (cwd, adopted_cwd, git) =
             tokio::task::spawn_blocking(move || start_folder(cwd, recorded, &fam, &cwd_map))
                 .await
                 .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
-            && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
+            && !tokio::fs::canonicalize(&cwd)
+                .await
+                .unwrap_or_else(|_| cwd.clone())
+                .starts_with(root)
         {
             return Err(RpcError::invalid_params(format!(
                 "harness {agent} is a folder profile of {}; the chat folder must be inside it",
@@ -227,12 +231,10 @@ impl Hub {
             super::admission::claim(&id);
             (session, stops)
         };
-        let (session, created_stops) = session;
-        if let Err(e) = self.store.save(&session.meta()) {
-            self.sessions.lock().unwrap().remove(&id);
-            self.child_tags.forget(&id);
-            return Err(RpcError::internal(e.to_string()));
-        }
+        // On the record writer's thread (`meta_writer.rs`): two fsyncs no longer stand between
+        // the request and its reply. It is written well before the reply, which follows the
+        // agent's start; a disk error is logged there instead of failing the create.
+        self.save_meta(&session);
         // The chat's route is bound once the session exists and before its
         // harness starts, so its first spawn already runs on it (route_switch.rs).
         if let Some(route_id) = &route {
@@ -1237,12 +1239,13 @@ impl Hub {
         wait: bool,
         only: Option<std::collections::BTreeSet<String>>,
     ) {
-        // A probe starts the agent: none while launches are off (cx-9ettq).
-        if crate::launch_policy::agent_launch_disabled() {
+        // A probe starts the agent: only one the launch policy allows (cx-9ettq).
+        if crate::launch_policy::every_launch_denied() {
             tracing::info!("agent launch is disabled; model probes skipped");
             return;
         }
-        let picked = |n: &str| only.as_ref().is_none_or(|o| o.contains(n));
+        let policy = crate::launch_policy::LaunchPolicy::current();
+        let picked = |n: &str| policy.allows(n) && only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
             let known = self.known_models.lock().unwrap();
@@ -1313,28 +1316,9 @@ impl Hub {
         // too (reviews 71 and 73 of #23322).
         let latch = self.off_latch();
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
-        // #23322). The tap sees each line before its answer is handed back, so none sent before
-        // that answer is missed.
-        let reports =
-            Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
-        // Notified on each report of full access: a probe ends on one under MDM's off (review 71).
-        let reported = Arc::new(tokio::sync::Notify::new());
-        let (seen, notify) = (reports.clone(), reported.clone());
-        let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
-            if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
-                (dir, msg)
-                && m == method::SESSION_UPDATE
-            {
-                seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
-                if super::full_access_bound::StartReports::reports_full_access(params) {
-                    notify.notify_one();
-                }
-            }
-            true
-        });
+        let tap: crate::agent::Tap = Arc::new(|_, _, _| Some(crate::agent::WriteTicket::done()));
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
-        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+        let cwd = crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
         // MDM forces full access off (#23322): a profile pinning it is never started to probe,
@@ -1389,7 +1373,7 @@ impl Hub {
         drain.abort();
         // The probe's session leaves no transcript behind (it listed as an empty chat).
         let folder = cwd.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = crate::daemon::spawn_blocking(move || {
             crate::probe_cleanup::remove_probe_transcripts(&folder)
         })
         .await;

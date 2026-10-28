@@ -277,9 +277,9 @@ fn session_workspace_keys(global: &GlobalArgs) -> Result<HashSet<String>, CallFa
 
 /// The caller's own chat: the acpmux session acpmux started it in.
 fn own_chat() -> Option<String> {
-    ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"]
-        .into_iter()
-        .find_map(|name| std::env::var(name).ok().filter(|value| !value.trim().is_empty()))
+    ["CMUX_AGENT_SESSION", "ACPMUX_SESSION_ID"].into_iter().find_map(|name| {
+        super::super::caller_env::var(name).filter(|value| !value.trim().is_empty())
+    })
 }
 
 /// Refuses `chat` when it is the caller's own: a chat never prompts or
@@ -717,7 +717,8 @@ pub(super) mod acp {
         socket: Option<&Path>,
     ) -> Result<(String, Value), String> {
         block_on(async {
-            let client = client(socket).await?;
+            let client =
+                acpmux::deliver::connect_as(crate::cli::caller_env::acpmux_caller()).await?;
             let (id, _name) = acpmux::deliver::resolve_session(&client, key).await?;
             let info =
                 client.request(acpmux::rpc::method::MUX_INFO, json!({"sessionId": id})).await?;
@@ -733,68 +734,9 @@ pub(super) mod acp {
         socket: Option<&Path>,
     ) -> Result<Value, String> {
         block_on(async {
-            client(socket)
-                .await?
-                .request(
-                    acpmux::rpc::method::SESSION_NEW,
-                    json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
-                )
-                .await
-        })
-    }
-
-    /// Queues `text` as a prompt of `session` and returns once acpmux accepted it (started, or
-    /// queued behind a running turn), as `acpmux send --no-wait` does. With no `provenance` it
-    /// is the chat's own prompt, as a person types it; with one, another agent's message
-    /// (`prompt_provenance.rs`). `id` is the prompt id: a resend with it runs once.
-    pub(in crate::cli) fn prompt(
-        session: &str,
-        text: &str,
-        id: &str,
-        provenance: Option<&Value>,
-        socket: Option<&Path>,
-    ) -> Result<Value, String> {
-        block_on(async {
-            let client = client(socket).await?;
-            acpmux::deliver::deliver(client, session, text, id, false, provenance).await
-        })
-    }
-
-    /// Ends the session and deletes its record (`_acpmux/kill` with purge).
-    pub(in crate::cli) fn kill(session: &str, socket: Option<&Path>) -> Result<(), String> {
-        block_on(async {
-            client(socket)
-                .await?
-                .request(
-                    acpmux::rpc::method::MUX_KILL,
-                    json!({"sessionId": session, "purge": true}),
-                )
-                .await?;
-            Ok(())
-        })
-    }
-
-    /// Cancels the session's running turn (`session/cancel`).
-    pub(in crate::cli) fn cancel(session: &str, socket: Option<&Path>) -> Result<(), String> {
-        block_on(async {
-            client(socket)
-                .await?
-                .request(acpmux::rpc::method::SESSION_CANCEL, json!({"sessionId": session}))
-                .await?;
-            Ok(())
-        })
-    }
-
-    /// One page of the session's events after `after_seq`.
-    pub(super) fn events(
-        session: &str,
-        after_seq: u64,
-        limit: u64,
-        socket: Option<&Path>,
-    ) -> Result<Value, String> {
-        block_on(async {
-            client(socket)
-                .await?
+            let client =
+                acpmux::deliver::connect_as(crate::cli::caller_env::acpmux_caller()).await?;
+            client
                 .request(
                     acpmux::rpc::method::MUX_EVENTS,
                     json!({"sessionId": session, "afterSeq": after_seq, "limit": limit,

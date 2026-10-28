@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextSignposts
 
 extension PaletteModel {
     /// Asks every provider of a list page for items: immediate items land
@@ -31,6 +32,7 @@ extension PaletteModel {
         if state === current { isLoading = !pending.isEmpty }
         for provider in page.providers where pending.contains(provider.id) {
             let providerID = provider.id
+            // main-hop-allow: a provider's items() is main-actor async (any reads run off main inside it); the rows merge in its one resume, and leaving the page cancels it
             state.tasks.append(Task { [weak self, weak state] in
                 let items = await provider.items()
                 guard !Task.isCancelled, let self, let state else { return }
@@ -66,6 +68,7 @@ extension PaletteModel {
                 }
                 let providerID = provider.id
                 state.pendingProviders.insert(providerID)
+                // main-hop-allow: a deferred provider's items() is main-actor async; the rows merge in its one resume, and leaving the page cancels it
                 state.tasks.append(Task { [weak self, weak state] in
                     let items = await provider.items()
                     guard !Task.isCancelled, let self, let state else { return }
@@ -107,6 +110,8 @@ extension PaletteModel {
     /// unranked rows at once (`searchEmpty`); for a real query the rows on
     /// screen stay until its result lands.
     func search(_ state: PageState) { // perf-hot: 4ms palette-key (every query key; ranking stays off main)
+        let slice = keySignposter.begin(.keyPaletteSearch, searchPass: .query)
+        defer { keySignposter.end(.keyPaletteSearch, slice, results: Self.rowCount(state.lastSections ?? [])) }
         let generation = state.generation
         switch state.kind {
         case .textInput(let spec):
@@ -156,6 +161,7 @@ extension PaletteModel {
             let queryItems = page.queryItems
             // The superseded search ranks nothing if it has not started (its result is stale anyway).
             searchTask?.cancel()
+            // main-hop-allow: the person's query (p06 rule 2): the rank runs on the searcher actor, off main; this task only awaits it and delivers the rows in its one resume, and the next key supersedes it
             searchTask = Task { [weak self, weak state] in
                 let result = await searcher.search(
                     entries: request.entries, version: request.version,
@@ -165,8 +171,10 @@ extension PaletteModel {
                 )
                 guard let self, let state, result.generation == self.searchGeneration else { return }
                 self.searchTask = nil
-                self.deliver(Self.leading(queryItems?(request.query), state.resolve(result.sections)), to: state,
-                             generation: generation)
+                let slice = self.keySignposter.begin(.keyPaletteSearch, searchPass: .results)
+                let sections = Self.leading(queryItems?(request.query), state.resolve(result.sections))
+                self.deliver(sections, to: state, generation: generation)
+                self.keySignposter.end(.keyPaletteSearch, slice, results: Self.rowCount(state.lastSections ?? []))
                 if self.pendingClose {
                     self.pendingClose = false
                     self.handle(.closeItem)
@@ -188,7 +196,7 @@ extension PaletteModel {
         // The search field's spinner while the page looks (Search All Windows reads every terminal first).
         state.answeringSearch = searchID
         if state === current { isLoading = true }
-        let answers = results(query)
+        // main-hop-allow: the person's query (p06 rule 2): the page's results(query) is main-actor async (terminal reads run off main); the rows land in its one resume, and the next key cancels it
         searchTask = Task { [weak self, weak state] in
             // However this search ends, it no longer answers the page (a newer one may).
             defer { if state?.answeringSearch == searchID { state?.answeringSearch = nil } }
@@ -202,9 +210,21 @@ extension PaletteModel {
             }
             guard !Task.isCancelled, let self, let state, searchID == self.searchGeneration else { return }
             self.searchTask = nil
-            state.answeringSearch = nil
+            let slice = self.keySignposter.begin(.keyPaletteSearch, searchPass: .results)
+            let words = query.split(whereSeparator: \.isWhitespace).map(String.init)
+            // One block per section, in the order the sections first appear (linear: a search
+            // can return thousands of terminal lines, and copying a section per row was quadratic).
+            var order: [PaletteSection] = []
+            var rowsBySection: [PaletteSection: [PaletteRow]] = [:]
+            for item in items {
+                let row = PaletteRow(item: item, highlights: Self.wordHighlights(in: item.title, words: words), score: 0)
+                if rowsBySection[item.section] == nil { order.append(item.section) }
+                rowsBySection[item.section, default: []].append(row)
+            }
+            let sections = order.map { PaletteResultSection(section: $0, rows: rowsBySection[$0] ?? []) }
             if state === self.current { self.isLoading = false }
-            self.deliver(last ?? [], to: state, generation: generation)
+            self.deliver(sections, to: state, generation: generation)
+            self.keySignposter.end(.keyPaletteSearch, slice, results: Self.rowCount(state.lastSections ?? []))
             if self.pendingClose {
                 self.pendingClose = false
                 self.handle(.closeItem)
@@ -246,6 +266,12 @@ extension PaletteModel {
             }
         }
         return marked.sorted()
+    }
+
+    /// The rows of `sections` (a `key.palette_search` end's result count: the page's `lastSections`, which a
+    /// dropped delivery leaves as the rows still shown).
+    static func rowCount(_ sections: [PaletteResultSection]) -> Int {
+        sections.reduce(0) { $0 + $1.rows.count }
     }
 
     /// `sections` after the page's rows made from the query, if any.

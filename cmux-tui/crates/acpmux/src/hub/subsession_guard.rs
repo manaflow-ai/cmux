@@ -251,14 +251,12 @@ impl std::ops::Deref for CheckedFolder {
     fn deref(&self) -> &Path {
         &self.path
     }
-}
-
-impl CheckedFolder {
-    /// `asked`, an absolute path, resolved to a folder on this machine and held.
-    pub(super) fn resolve(asked: &Path) -> Result<Self, RpcError> {
-        if !asked.is_absolute() {
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} must be an absolute path to an existing folder",
+    let folder = cmux_blocking::fs::canonicalize(asked).ok();
+    folder.filter(|f| cmux_blocking::fs::metadata(f).is_ok_and(|m| m.is_dir())).ok_or_else(|| {
+        refusal(
+            "subsessions.cwd_unresolved",
+            format!(
+                "start_session refused: {} does not resolve to a folder on this machine",
                 asked.display()
             )));
         }
@@ -410,7 +408,7 @@ impl Hub {
         }
         self.save_meta(probe);
         let cm = probe.meta();
-        if std::fs::canonicalize(&cm.cwd).ok().as_deref() != Some(cwd) {
+        if tokio::fs::canonicalize(&cm.cwd).await.ok().as_deref() != Some(cwd) {
             return Err(refusal(
                 "subsessions.cwd_moved",
                 format!(
@@ -702,10 +700,12 @@ impl Hub {
             ));
         };
         let folder = folder.to_path_buf();
-        let mine = std::fs::canonicalize(&pm.cwd).ok();
+        let mine = tokio::fs::canonicalize(&pm.cwd).await.ok();
         let full = self.caller_access(pm) == Access::Full;
         let allowed = move || folder_allowed(&paths, &folder, mine.as_deref(), full, walk);
-        tokio::task::spawn_blocking(allowed).await.map_err(|e| RpcError::internal(e.to_string()))?
+        crate::daemon::spawn_blocking(allowed)
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?
     }
 
     /// Before anything starts: harness `harness` in `cwd`, for a caller with

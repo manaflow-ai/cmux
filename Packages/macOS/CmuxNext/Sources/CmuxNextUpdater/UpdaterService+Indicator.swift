@@ -1,6 +1,5 @@
 public import CmuxUpdater
 public import Foundation
-@preconcurrency import Sparkle
 
 /// The rail's update circle over this service: what it shows, what a
 /// click does, and the release notes its menu links.
@@ -33,7 +32,7 @@ extension UpdaterService {
     /// unknown and not offered.
     func offersStagedUpdate(version: String?) -> Bool {
         if let build = stagedBuild(), !build.isEmpty {
-            return SUStandardVersionComparator.default.compareVersion(build, toVersion: identity.build) == .orderedDescending
+            return SparkleVersionComparator().compare(build, identity.build) == .orderedDescending
         }
         guard let version, !version.isEmpty else { return false }
         return version != identity.shortVersion

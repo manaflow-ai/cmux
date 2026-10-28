@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
 extension SidebarListViewComponents {
@@ -7,9 +8,12 @@ extension SidebarListViewComponents {
     typealias Press = SidebarPress
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
+        // The frame's pending hover lands first, so the press hit-tests from the row under its own point.
+        frameInputHover.flush()
         // A drag or press whose release never came here (the app or window lost focus mid-drag, a menu took the
         // mouse-up) ends now: its rows come back where they were, and this press starts clean.
         endPointerGesture()
+        dragMoves.began()
         hoverCards.dismiss(.click)
         if inlineRename.isActive { inlineRename.end(commit: true) }
         // A click in the list closes the group editor, like a click outside it.
@@ -89,6 +93,7 @@ extension SidebarListViewComponents {
             break
         }
         self.press = press
+        onPressRow?((press.clickOnRelease ?? press.deferredClick).map(SidebarRowKey.workspace))
     }
     override func mouseDragged(with event: NSEvent) {
         guard let press, !press.cancelled else { return }
@@ -102,7 +107,7 @@ extension SidebarListViewComponents {
             beginDrag(press)
             guard drag != nil else { return }
         }
-        updateDrag(windowPoint: event.locationInWindow)
+        dragMoves.dragged(event)
     }
     /// Folds or opens workspace `id`'s listed tabs, on the move spring: the chevron and a click on the shown row.
     func foldTabs(_ id: WorkspaceID) {
@@ -110,6 +115,7 @@ extension SidebarListViewComponents {
         reload(animated: true)
     }
     override func mouseUp(with event: NSEvent) {
+        dragMoves.ended() // the frame's pending point lands before the drop
         defer { press = nil }
         if drag != nil {
             finishDrag()

@@ -1,7 +1,13 @@
 //! `_acpmux/wait`: block until sessions reach a state, server side. The
-//! state sequence is read before the first check, every hub event
-//! re-evaluates, and peer sessions are re-read once a second, so a change
-//! between "list" and "subscribe" cannot be missed.
+//! state sequence is read before the first check, and every state record of
+//! a waited-for session re-evaluates, so a change between "list" and
+//! "subscribe" cannot be missed. Only the waited-for sessions are read, and
+//! an agent's own traffic (each streamed token) wakes nothing: it changes no
+//! state a wait reads, and it re-read every session's summary per token.
+//! A peer session's row changes only with a hub event (`hub/peers.rs`), so a
+//! pending wait sets no timer but its own deadline: an idle wait costs
+//! nothing (plans/cmux-next/idle-wakeups.md; Chromium's idle renderer waits
+//! on its message pipes, `base/message_loop/message_pump.h`).
 
 use super::*;
 use crate::no_panic::JsonExt;
@@ -161,20 +167,26 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
     // Counted from its subscription until it answers or its request ends.
     let _open = OpenWait::new(&hub.open_waits);
     let deadline = timeout.map(|t| tokio::time::Instant::now() + t);
-    // Only the chats it waits on: summarizing every chat on every record any chat logs
-    // kept huge-blue's daemon at 6 to 8 cores and 4.5 GB with 13 waits open (2026-10-22).
-    // Since when each chat's row has said its failed turn's retry is being decided.
-    let mut deciding: HashMap<String, tokio::time::Instant> = HashMap::new();
-    let mut evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
-        let now = tokio::time::Instant::now();
-        let summaries = hub.session_summaries_of(&ids);
+    let local: std::collections::HashSet<String> =
+        ids.iter().filter(|id| hub.resolve(id).is_ok_and(|s| &s.id == *id)).cloned().collect();
+    let remote = ids.iter().any(|id| !local.contains(id));
+    let evaluate = |hub: &Hub| -> (Vec<Value>, Vec<Value>) {
+        let remote_summaries = if remote { hub.remote_sessions() } else { Vec::new() };
         let mut rows = Vec::new();
         let mut resolved = Vec::new();
         for id in &ids {
-            // `get`, not `remove`: two keys can name one chat (its name and its id).
-            let s = summaries
-                .get(id)
-                .cloned()
+            let local_summary = local
+                .contains(id)
+                .then(|| hub.resolve(id).ok().filter(|s| &s.id == id))
+                .flatten()
+                .map(|s| hub.session_summary(&s));
+            let s = local_summary
+                .or_else(|| {
+                    remote_summaries
+                        .iter()
+                        .find(|s| s.get("sessionId").and_then(Value::as_str) == Some(id))
+                        .cloned()
+                })
                 .unwrap_or_else(|| json!({"sessionId": id, "status": "closed", "missing": true}));
             let seq_ok = after
                 .get(id)
@@ -211,29 +223,10 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
         if finished {
             return Ok(json!({"sessions": rows, "resolved": resolved, "timedOut": false}));
         }
-        let poll = tokio::time::sleep(std::time::Duration::from_millis(1000));
-        tokio::pin!(poll);
-        let wake = async {
-            loop {
-                tokio::select! {
-                    _ = &mut poll => break,
-                    r = events.recv() => match r {
-                        // Another chat's record changes none of these: the poll still
-                        // catches a change that logs no record.
-                        Ok(ev) if !concerns(&ev, &ids) => continue,
-                        Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => break,
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            // Daemon shutting down.
-                            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-                            break;
-                        }
-                    },
-                }
-            }
-        };
         match deadline {
-            Some(d) => {
-                if tokio::time::timeout_at(d, wake).await.is_err() {
+            Some(d) => match tokio::time::timeout_at(d, next_change(&mut events, &ids)).await {
+                Ok(changed) => changed?,
+                Err(_elapsed) => {
                     let (rows, resolved) = evaluate(hub);
                     let finished =
                         if all { resolved.len() == ids.len() } else { !resolved.is_empty() };
@@ -241,129 +234,38 @@ pub(super) async fn wait(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcErr
                         json!({"sessions": rows, "resolved": resolved, "timedOut": !finished}),
                     );
                 }
+            },
+            None => next_change(&mut events, &ids).await?,
+        }
+    }
+}
+
+/// Waits for the next hub event that may change what a wait for `ids` reads. A lag may have
+/// dropped a state record, so it counts as a change. The hub owns the sender and `wait` holds
+/// the hub, so a closed channel means the daemon is going away: the wait ends with an error.
+async fn next_change(
+    events: &mut tokio::sync::broadcast::Receiver<crate::hub::HubEvent>,
+    ids: &[String],
+) -> Result<(), RpcError> {
+    use tokio::sync::broadcast::error::RecvError;
+    loop {
+        match events.recv().await {
+            Ok(ev) if !changes_a_wait(&ev, ids) => continue,
+            Ok(_) | Err(RecvError::Lagged(_)) => return Ok(()),
+            Err(RecvError::Closed) => {
+                return Err(RpcError::internal("the daemon is shutting down"));
             }
-            None => wake.await,
         }
     }
 }
 
-/// Longest a wait holds its answer for a row whose failed turn's retry is being decided. It is
-/// settled within moments (`Hub::retry_row`), and its settling is recorded either way
-/// (`auto_resume_scheduled`, `auto_resume_settled`), so a peer's row hears it too; this bounds
-/// only a row nothing refreshes (a record its peer link lost).
-const RETRY_DECIDING_MAX: Duration = Duration::from_secs(5);
-
-/// Whether the row `s` holds the wait's answer: no turn runs and its failed turn's retry is
-/// being decided (`retryDeciding`), for at most [`RETRY_DECIDING_MAX`] from when this wait
-/// first saw it so (`since`, kept per chat). A closed, gone or unreachable chat holds nothing.
-fn holds_for_retry(
-    s: &Value,
-    since: std::collections::hash_map::Entry<'_, String, tokio::time::Instant>,
-    now: tokio::time::Instant,
-) -> bool {
-    let deciding = s["retryDeciding"] == true
-        && s["turn"].is_null()
-        && s["status"] != "closed"
-        && s["missing"] != true
-        && s["stale"] != true;
-    if !deciding {
-        if let std::collections::hash_map::Entry::Occupied(seen) = since {
-            seen.remove();
-        }
-        return false;
-    }
-    now.duration_since(*since.or_insert(now)) < RETRY_DECIDING_MAX
-}
-
-/// Whether `ev` is a record of one of the chats `ids` names, a peer's by its id or its row's.
-fn concerns(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
-    let row = ev.remote.as_ref().and_then(|r| r.summary.get("sessionId")).and_then(Value::as_str);
-    ids.iter().any(|id| *id == ev.session_id || Some(id.as_str()) == row)
-}
-
-/// One `_acpmux/wait` in `Hub::open_waits` while it lives.
-struct OpenWait<'a>(&'a std::sync::atomic::AtomicUsize);
-
-impl<'a> OpenWait<'a> {
-    fn new(count: &'a std::sync::atomic::AtomicUsize) -> Self {
-        count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Self(count)
-    }
-}
-
-impl Drop for OpenWait<'_> {
-    fn drop(&mut self) {
-        self.0.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
-    }
+/// Whether hub event `ev` may change what a wait for `ids` reads: a record of one of them that
+/// is not the agent's own wire traffic (`in`/`out`: tokens, tool output). A peer session's
+/// events carry its id too (`hub/peers.rs`: its row changed, it left, its peer went down).
+fn changes_a_wait(ev: &crate::hub::HubEvent, ids: &[String]) -> bool {
+    ids.contains(&ev.session_id) && !matches!(ev.record.dir.as_str(), "in" | "out")
 }
 
 #[cfg(test)]
-mod retry_deciding_tests {
-    use super::*;
-
-    /// A row whose failed turn's retry is being decided holds a wait's answer, for at most
-    /// `RETRY_DECIDING_MAX` from when the wait first saw it so; any other row holds nothing.
-    #[test]
-    fn a_row_deciding_its_retry_holds_a_wait_for_a_bounded_time() {
-        let mut since = HashMap::new();
-        let t0 = tokio::time::Instant::now();
-        let deciding = json!({"status": "ready", "turn": null, "retryDeciding": true});
-        let mut holds = |s: &Value, at| holds_for_retry(s, since.entry("s".to_owned()), at);
-        assert!(holds(&deciding, t0));
-        assert!(holds(&deciding, t0 + Duration::from_secs(4)));
-        assert!(!holds(&deciding, t0 + RETRY_DECIDING_MAX), "bounded");
-        // Settled, then deciding again (its retry failed too): counted afresh.
-        let settled = json!({"status": "ready", "turn": null, "retry": {"attempt": 1}});
-        assert!(!holds(&settled, t0 + Duration::from_secs(6)));
-        assert!(holds(&deciding, t0 + Duration::from_secs(7)));
-        for s in [
-            json!({"status": "running", "turn": {"turnId": "t2"}, "retryDeciding": true}),
-            json!({"status": "closed", "turn": null, "retryDeciding": true}),
-            json!({"status": "closed", "missing": true, "retryDeciding": true}),
-            json!({"status": "unreachable", "stale": true, "turn": null, "retryDeciding": true}),
-            json!({"status": "ready", "turn": null}),
-        ] {
-            let mut since = HashMap::new();
-            assert!(!holds_for_retry(&s, since.entry("s".to_owned()), t0), "{s}");
-        }
-    }
-}
-
-#[cfg(test)]
-mod turn_ended_tests {
-    use super::*;
-
-    fn ended(s: Value) -> bool {
-        let t = TurnEnded::parse(Some(&json!({"turnId": "t1", "startedAt": 100}))).unwrap();
-        t.matches(&s)
-    }
-
-    #[test]
-    fn a_turn_has_ended_once_its_end_is_recorded_or_the_session_cannot_end_it() {
-        let running = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": {"turnId": "t0", "endedAt": 90}});
-        assert!(!ended(running), "still running");
-        // Taken out of the session, its end not recorded yet: not yet.
-        let between =
-            json!({"status": "running", "turn": null, "lastTurn": {"turnId": "t0", "endedAt": 90}});
-        assert!(!ended(between), "its end is not recorded yet");
-        // The turn before it ended in the millisecond it started.
-        let last = json!({"turnId": "t0", "endedAt": 100});
-        let tie = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": last.clone()});
-        assert!(!ended(tie), "it runs");
-        let tie = json!({"status": "running", "turn": null, "lastTurn": last});
-        assert!(!ended(tie), "its end is not recorded yet, in the same millisecond");
-        let recorded = json!({"status": "waiting", "turn": null, "lastTurn": {"turnId": "t1", "endedAt": 120}});
-        assert!(ended(recorded), "recorded, while a background ask waits");
-        let later =
-            json!({"status": "ready", "turn": null, "lastTurn": {"turnId": "t2", "endedAt": 150}});
-        assert!(ended(later), "a later turn ended since");
-        let next = json!({"status": "running", "turn": {"turnId": "t2"}, "lastTurn": null});
-        assert!(ended(next), "another turn runs");
-        assert!(ended(json!({"status": "closed", "turn": null})));
-        assert!(ended(json!({"sessionId": "s", "status": "closed", "missing": true})));
-        let lost = json!({"status": "unreachable", "stale": true, "turn": {"turnId": "t1"}});
-        assert!(ended(lost), "its machine is unreachable");
-        assert!(TurnEnded::parse(Some(&json!({"turnId": ""}))).is_none());
-        assert!(TurnEnded::parse(None).is_none());
-    }
-}
+#[path = "wait_tests.rs"]
+mod tests;

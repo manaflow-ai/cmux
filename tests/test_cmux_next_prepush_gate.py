@@ -85,11 +85,12 @@ struct Fresh {
 }
 """
 # Clean for the scanners and the guardrails: the read goes through the checked seam (CmuxNextCompat/Threading)
-# off the main thread.
+# on a BackgroundWork files lane, off the main thread and the cooperative pool.
 NEW_CLEAN = """import Foundation
 struct Fresh {
+    let work: BackgroundWork
     func load(_ url: URL) async throws -> Data {
-        try await Task.detached(priority: .utility) { try Data(blockingContentsOf: url) }.value
+        try await work.run(.userVisible, mayBlock: .files) { try Data(blockingContentsOf: url) }
     }
 }
 """

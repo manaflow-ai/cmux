@@ -1,4 +1,5 @@
 import Foundation
+import CmuxNextWakeups
 
 /// A cross-process step of the handshake missed its deadline
 /// (architecture.md 5a: every cross-process call is async with a deadline).
@@ -8,33 +9,20 @@ nonisolated struct AgentPaneDeadlineExceeded: Error, Equatable, CustomStringConv
 }
 
 /// Runs `operation`, cancelling it and throwing `AgentPaneDeadlineExceeded`
-/// when it outlives `duration`. `onTimeout` then tears down work that does not
-/// observe cancellation (a socket, a pipe read), before the group waits for it.
+/// when it outlives `duration`. `onTimeout` runs first so work that does not
+/// observe cancellation (a socket, a pipe read) can be torn down.
 ///
-/// `onTimeout` runs only once the deadline is the group's first result: the
-/// teardown makes the operation fail (a cancelled socket reads as closed), and
-/// run from the deadline's own task that failure could reach the group first
-/// on a loaded machine, so a call that missed its deadline said `closed`
-/// (job 122240111475: a hung acpmux's missed status call was not counted).
+/// The race is ``Deadline``: the limit sleeps on `clock` with ``WakeLeeway``'s tolerance (a
+/// flexible, no-sooner deadline, Chromium's `kFlexibleNoSooner`, base/task/delay_policy.h), and a
+/// loser that ignores cancellation is dropped instead of awaited.
 nonisolated func withAgentPaneDeadline<T: Sendable>(
-    _ duration: Duration, label: String, onTimeout: @escaping @Sendable () -> Void = {},
+    _ duration: Duration, label: String, clock: any Clock<Duration> = ContinuousClock(),
+    onTimeout: @escaping @Sendable () -> Void = {},
     _ operation: @escaping @Sendable () async throws -> T
 ) async throws -> T {
-    // concurrency-allow: operations are cancellation-aware or torn down by onTimeout (socket cancel, pipe close)
-    try await withThrowingTaskGroup(of: T.self) { group in
-        group.addTask { try await operation() }
-        group.addTask {
-            // wakeup-allow: one-shot deadline (acpmux handshake)
-            try await Task.sleep(for: duration)
-            throw AgentPaneDeadlineExceeded(label: label)
-        }
-        defer { group.cancelAll() }
-        do {
-            guard let first = try await group.next() else { throw AgentPaneDeadlineExceeded(label: label) }
-            return first
-        } catch let exceeded as AgentPaneDeadlineExceeded {
-            onTimeout()
-            throw exceeded
-        }
+    do {
+        return try await Deadline(duration, clock: clock).run(label, onTimeout: onTimeout, operation)
+    } catch is Deadline.Exceeded {
+        throw AgentPaneDeadlineExceeded(label: label)
     }
 }

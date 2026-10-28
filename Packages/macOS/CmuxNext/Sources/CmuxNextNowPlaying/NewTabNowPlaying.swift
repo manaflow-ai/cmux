@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 import os
 
@@ -83,10 +84,12 @@ enum NewTabNowPlaying {
     /// The App's page actions: the setting written as the page (`tabs.newTabNowPlaying` is agent
     /// settable; Undo removes the key, back to the default), Settings… through `openSettings`
     /// with the row's key, and the app opened off the main thread (a Launch Services call).
-    static func liveActions(settings: @escaping @MainActor () -> SettingsController?, registry: ActionRegistry?) -> Page {
+    static func liveActions(settings: @escaping @MainActor () -> SettingsController?, registry: ActionRegistry?,
+                            queries: WorkspaceQueries?) -> Page {
         Page(
             setShown: { shown in
                 guard let settings = settings() else { return }
+                // main-hop-allow: the write is SettingsController's own main-actor async write (its file write runs off main); the task only starts it and logs a refusal
                 Task {
                     do {
                         try await settings.setSetting(at: NowPlayingSettings.newTabPath, to: shown ? nil : .bool(false), by: .caller("page"))
@@ -101,8 +104,9 @@ enum NewTabNowPlaying {
                 _ = registry?.perform("openSettings", invocation: ActionInvocation(arguments: ["section": .string("general"), "setting": .string(key)]))
             },
             openApp: { bundleIdentifier in
-                Task.detached(priority: .userInitiated) {
-                    guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else { return }
+                // Launch Services finds the app on the system lane; the launch itself is asynchronous.
+                queries?.value(WorkspaceQuery<URL?>.application(withBundleIdentifier: bundleIdentifier), priority: .userBlocking) { url in
+                    guard let url else { return }
                     NSWorkspace.shared.openApplication(at: url, configuration: NSWorkspace.OpenConfiguration()) { _, _ in }
                 }
             })

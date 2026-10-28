@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Split, new column, docked column and minimum pane size settings
 /// (plans/cmux-next/column-sizing.md), in the General section's Columns group.

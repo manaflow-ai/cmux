@@ -7,11 +7,6 @@ public import CmuxNextDesignTokens
 /// sits on a 2 pt grid with consistent optical rhythm so it still reads as
 /// designed. `Density.comfortable` exists for users who opt in; modules read
 /// metrics through `Metrics` so a density switch changes every surface.
-public enum Density: String, Sendable, CaseIterable, Codable {
-    case compact
-    case comfortable
-}
-
 public struct Metrics {
     public init() {}
     /// Applies the one live chrome multiplier (when `interfaceScaleEnabled`) to every metric token.

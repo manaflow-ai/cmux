@@ -65,14 +65,31 @@ export type GhosttyDiagnostic = {
   replacement: string | null;
 };
 
-/** A color the Ghostty config sets itself, which no theme changes (Ghostty applies the config over the theme). */
-export type ThemeOverride = {
-  /** The Ghostty key: `background`, `foreground`, `palette`, … */
-  key: string;
-  /** The file, with `~` for home. */
-  file: string;
-  /** The 1-based line of the assignment in effect. */
-  line: number;
+/** The input that decided a feature (`features.list`): policy, env, local, remote, trial or default. */
+export type FeatureSource = "policy" | "env" | "local" | "remote" | "trial" | "default";
+
+/** One feature of `features.list` as the Feature Flags card reads it. */
+export type FeatureFlag = {
+  name: string;
+  state: "on" | "off";
+  source: FeatureSource;
+  /** The channel default. */
+  default: boolean;
+  kind: "perfPath" | "killSwitch" | "labs";
+  description: string;
+};
+
+/** Experimental > Feature Flags (`features` in the host lists): the socket's `features.list` plus the next launch's
+ * local choices. Null while feature `featureFlagsCard` is off. */
+export type FeatureFlagsState = {
+  channel: string;
+  /** Whether local choices apply on this channel (DEV and NIGHTLY). */
+  local_overrides: boolean;
+  safe_mode: { level: "regular" | "last-known-good" | "no-remote" | "overridden" } | null;
+  unknown_names: string[];
+  features: FeatureFlag[];
+  /** The local choices the next launch applies, by name. */
+  next_local: Record<string, boolean>;
 };
 
 /** One space or machine row (`cmux.settings.host.lists`). */
@@ -137,10 +154,23 @@ export type DevicesHostState = {
   activity: Array<{ time: string; what: string; subject: string }>;
 };
 
+/**
+ * What the page leaves out on this Mac now (Swift `SettingsAvailability`): rows whose feature is off
+ * and choices this Mac cannot use (Energy Saver's On Battery on a Mac with no battery).
+ */
+export type HostAvailability = {
+  /** Setting keys the page does not show. */
+  hidden_rows?: string[];
+  /** Choice values a row does not offer, by setting key. */
+  hidden_choices?: Record<string, string[]>;
+};
+
 /** The lists the host shows beside the schema rows; `rooms` is null when spaces are unsupported. */
 export type HostLists = {
   /** The app is a DEV build: the Development category shows (Settings > Development). */
   dev_build?: boolean;
+  /** Rows and choices the page leaves out now; absent shows every row and choice. */
+  availability?: HostAvailability | null;
   rooms: HostListRow[] | null;
   machines: HostListRow[];
   browser_profiles: BrowserProfile[];
@@ -159,8 +189,8 @@ export type HostLists = {
   terminal?: { ghostty_config: string; shell_integration: string | null };
   /** R92: the Ghostty lines cmux does not apply (the socket's `ghostty.diagnostics` list). */
   ghostty_diagnostics?: GhosttyDiagnostic[] | null;
-  /** The Theme section's notice: colors the Ghostty config sets itself, which no theme changes. */
-  theme_overrides?: ThemeOverride[];
+  /** Experimental > Feature Flags: every feature's state and source; null while feature `featureFlagsCard` is off. */
+  features?: FeatureFlagsState | null;
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
@@ -827,6 +857,9 @@ export type SettingsOps = {
   "cmux.settings.web_updates.rollback": [Record<string, never>, Record<string, never>];
   /** Native: Settings > Chief > Voice input's switch writes home.voiceInput (the person's gesture only). */
   "cmux.settings.voice_input.set": [{ on: boolean }, Record<string, never>];
+  /** Native: Experimental > Feature Flags sets a feature on, off or back to no choice (null) for the next launch
+   * (DEV and NIGHTLY; the person's gesture only). */
+  "cmux.settings.features.set": [{ name: string; on: boolean | null }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */
@@ -901,6 +934,9 @@ export type SettingsOps = {
   "cmux.settings.preview": [{ key: string; value: unknown }, unknown];
   /** Native: drop the live preview of `key`. */
   "cmux.settings.preview.end": [{ key: string }, unknown];
+  /** Native: the form `form` holds typed values not saved yet (`editing`), or no longer does; the
+   * host keeps the page while any form does. */
+  "cmux.settings.editing": [{ form: string; editing: boolean }, unknown];
   /** Native: play a notification sound. */
   "cmux.settings.sound.play": [{ name: string }, unknown];
   /** Native: a catalog action, run with origin user (react-pages.md 1.3). */
@@ -940,9 +976,18 @@ export type SettingsStreamName = keyof SettingsStreams;
  * rejects with an error that has `code`, `message` and optional `details` (the protocol's
  * ProtocolError). Any object with this shape works, so the page does not import the adapter.
  */
+/** An event's envelope fields beyond its data (the page client's `PageEventMeta`). */
+export type SettingsEventMeta = {
+  /** Decision 31: the opid of the call that caused the event. */
+  opid?: string;
+  /** Decision 32: the host dropped events of this stream before this one while the page was
+   * hidden or frozen; the page reads its state again instead of applying the event. */
+  gap?: true;
+};
+
 export interface SettingsClient {
   call<R>(op: string, params: unknown, opts?: { signal?: AbortSignal }): Promise<R>;
-  subscribe<E>(stream: string, onEvent: (data: E, seq: number) => void): Promise<() => void>;
+  subscribe<E>(stream: string, onEvent: (data: E, seq: number, meta?: SettingsEventMeta) => void): Promise<() => void>;
 }
 
 export type WireError = { code: string; message: string; details?: Record<string, unknown> };

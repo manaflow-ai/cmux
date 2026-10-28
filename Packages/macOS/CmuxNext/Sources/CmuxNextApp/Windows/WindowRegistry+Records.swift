@@ -14,18 +14,12 @@ extension WindowRegistry {
     /// empty record from an older build or another client never shows.
     init(records: [WindowRecord]) {
         self.init()
-        let ordered = records.sorted { $0.order < $1.order }
-        var owned = Set<String>()
-        for record in ordered {
-            var ids = record.workspaceKeys.map(\.rawValue)
-            if ids.isEmpty, let shown = record.workspaceKey?.rawValue { ids = [shown] }
-            ids = ids.filter { owned.insert($0).inserted }
-            guard !ids.isEmpty else { continue }
-            appendRestored(Window(id: record.id, workspaceIDs: ids, frame: record.frame?.rect, display: record.display))
+        for window in WindowStateDocument.restoredWindows(records) {
+            appendRestored(Window(id: window.id, workspaceIDs: window.workspaceIDs, frame: window.frame?.rect, display: window.display))
             // A window the user closed stays closed, with its workspaces (Cmd-Shift-T reopens it).
-            if record.isClosed { setRestored(record.id, open: false) }
+            if window.isClosed { setRestored(window.id, open: false) }
         }
-        // Front window most recent.
+        // Front window most recent: `recency` is `restoredWindows(records)`'s order, which the launch's front follows.
         for window in windows.reversed() { activate(window.id) }
         // With every window closed (the last one closed, then quit), the front one opens, as before.
         if !windows.contains(where: \.isOpen), let front = recency.first { setRestored(front, open: true) }

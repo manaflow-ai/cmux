@@ -1072,7 +1072,7 @@ public final class ConversationViewController: UIViewController {
         var metrics: [RowMetrics]?
         if rowMetrics.count == rows.count {
             let changed = Set(updated.map(\.item))
-            var carried = [RowMetrics](repeating: RowMetrics(), count: start)
+            var carried = [RowMetrics](repeating: RowMetrics(), count: max(0, start))
             var previousOld: Int?
             for (index, id) in prefixIDs.enumerated() {
                 let old = oldPrefix[id]

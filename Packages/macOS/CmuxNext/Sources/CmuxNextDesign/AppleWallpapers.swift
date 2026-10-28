@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CmuxNextCompat
 
@@ -134,12 +135,9 @@ public nonisolated struct AppleWallpapers: Sendable {
                   let name = asset["accessibilityLabel"] as? String, !name.isEmpty, names[id] == nil else { continue }
             names[id] = name
         }
-        return names
-    }
-
-    /// An aerial id that is safe to name a file with: 1 to 64 letters, digits or dashes.
-    static func isSafeAerialID(_ id: String) -> Bool {
-        (1...64).contains(id.count) && id.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
+        guard let data = try? Data(contentsOf: aerials.appendingPathComponent("entries.json")),
+              let entries = try? JSONDecoder().blockingDecode(Entries.self, from: data) else { return [:] }
+        return Dictionary(entries.assets.compactMap { asset in asset.accessibilityLabel.map { (asset.id, $0) } }) { first, _ in first }
     }
 
     /// Whether `path` names a video.

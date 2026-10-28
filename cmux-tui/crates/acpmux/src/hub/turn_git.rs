@@ -21,7 +21,7 @@ const GIT_READ_LIMIT: Duration = Duration::from_secs(2);
 /// worktree it is in is kept on the session (`worktree_care/revive.rs`).
 pub(super) async fn turn_git(session: &Session) -> Map<String, Value> {
     let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
-    let read = tokio::task::spawn_blocking(move || {
+    let read = crate::daemon::spawn_blocking(move || {
         let git = GitState::read(&cwd);
         let worktree = super::worktree_care::revive::origin_of(&cwd, &git);
         (git, worktree)

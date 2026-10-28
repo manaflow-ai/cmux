@@ -143,8 +143,11 @@ impl Hub {
     }
 
     async fn care_if_due(&self, why: &'static str) {
-        let Some(_running) = Running::claim(&CARE.running) else { return };
-        let claim = tokio::task::spawn_blocking(move || {
+        let last = CARE.last_started_ms.load(Ordering::Relaxed);
+        if CARE.running.load(Ordering::SeqCst) {
+            return;
+        }
+        let due = crate::daemon::spawn_blocking(move || {
             if !auto_cleanup_enabled() {
                 return None;
             }
@@ -368,7 +371,7 @@ impl Hub {
         let _one = CARE.restoring.lock().await;
         let restored = tokio::task::spawn_blocking(move || {
             // Another session's start may have brought it back meanwhile.
-            if cwd.exists() {
+            if cmux_blocking::fs::metadata(&cwd).is_ok() {
                 return None;
             }
             let store = archive_store().ok()?;

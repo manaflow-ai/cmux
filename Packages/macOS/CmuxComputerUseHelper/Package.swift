@@ -27,11 +27,15 @@ let package = Package(
         .executable(name: "cmux-cua-helper", targets: ["cmux-cua-helper"]),
         .library(name: "CmuxCuaHelperCore", targets: ["CmuxCuaHelperCore"]),
     ],
+    dependencies: [
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
+    ],
     targets: [
         .target(name: "CCuaDriverABI"),
         .target(
             name: "CmuxCuaHelperCore",
-            dependencies: ["CCuaDriverABI"],
+            dependencies: ["CCuaDriverABI", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("ApplicationServices")]
         ),

@@ -21,10 +21,9 @@ extension DaemonConnection {
     /// `send` must repeat one change: a request with a fixed mutation identity (the daemon replays
     /// it), or one whose effect repeats harmlessly (a pin). Any other error, and a timeout past the
     /// budget, is thrown. Each pass waits out a whole deadline, so it never spins.
-    public static func retryingLateReplies<T>(_ what: String, until giveUp: ContinuousClock.Instant? = nil,
-                                              _ send: () async throws -> T) async throws -> T {
-        let giveUp = giveUp ?? lateReplyDeadline()
-        // wakeup-allow: each pass waits for one reply or its deadline; the retry ends at the budget, on a reply, or on another error
+    public static func retryingLateReplies<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
+        let giveUp = ContinuousClock.now + NewFrontendBrowserTabRequest.lateReplyBudget
+        // wakeup-allow: bounded: each pass waits for one reply or its deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
                 return try await send()
@@ -49,7 +48,7 @@ extension DaemonConnection {
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
         let request = await createTerminalRequest(in: key, cwd: cwd)
         let giveUp = ContinuousClock.now + Self.lateTerminalStartBudget
-        // wakeup-allow: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
+        // wakeup-allow: bounded: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
                 return try await self.request(request)

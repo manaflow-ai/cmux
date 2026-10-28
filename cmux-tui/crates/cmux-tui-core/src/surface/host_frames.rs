@@ -42,6 +42,7 @@
 //! out, so a mint sent just before a reconnect replaced the connection is
 //! not lost to the drop's own shutdown.
 
+use crate::panic_free::RecoverPoison;
 use std::collections::VecDeque;
 use std::io::Read;
 use std::sync::{Arc, Condvar, Mutex};
@@ -93,7 +94,10 @@ impl EarlyResponses {
     /// Whether the reader thread resolves responses of `kind`.
     pub(super) fn resolves(self, kind: MessageKind) -> bool {
         match kind {
-            MessageKind::InputAck | MessageKind::TerminateAck | MessageKind::Capability => true,
+            MessageKind::InputAck
+            | MessageKind::TerminateAck
+            | MessageKind::Capability
+            | MessageKind::TraceControlAck => true,
             MessageKind::KittyGraphicsLimitsAck => self.smart_renderer,
             _ => false,
         }
@@ -132,6 +136,7 @@ impl HostFrames {
         control_responses: Arc<ControlResponses>,
         protocol_version: u16,
         smart_renderer: bool,
+        thread_qos: cmux_threads::DesiredQos,
     ) -> std::io::Result<Self> {
         let early = EarlyResponses::new(smart_renderer);
         let shutdown = stream.try_clone()?;
@@ -139,15 +144,20 @@ impl HostFrames {
             Arc::new(Queue { state: Mutex::new(QueueState::default()), changed: Condvar::new() });
         let thread_queue = queue.clone();
         let thread_responses = control_responses.clone();
-        std::thread::Builder::new().name(name).spawn(move || {
-            read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
-        })?;
+        crate::echo_thread::spawn_host_stream_reader_following(
+            name,
+            stream,
+            thread_qos,
+            move |stream| {
+                read_stream(stream, &thread_responses, protocol_version, early, &thread_queue);
+            },
+        )?;
         Ok(Self { queue, control_responses, early, shutdown })
     }
 
     /// The next frame in stream order; blocks until one arrives.
     pub(super) fn recv(&self) -> HostFrame {
-        let mut state = self.queue.state.lock().unwrap();
+        let mut state = self.queue.state.lock().recover_poison();
         loop {
             if let Some(frame) = state.frames.pop_front() {
                 if let HostFrame::Frame(frame) = &frame {
@@ -159,7 +169,7 @@ impl HostFrames {
             if state.ended {
                 return HostFrame::End;
             }
-            state = self.queue.changed.wait(state).unwrap();
+            state = self.queue.changed.wait(state).recover_poison();
         }
     }
 
@@ -172,7 +182,7 @@ impl HostFrames {
     /// waiter when the stream ends.
     pub(super) fn abandon(&self) {
         let ended = {
-            let mut state = self.queue.state.lock().unwrap();
+            let mut state = self.queue.state.lock().recover_poison();
             state.abandoned = true;
             state.queued_payload = 0;
             // A clear-history acknowledgement already queued behind the frame
@@ -210,7 +220,7 @@ impl Drop for HostFrames {
         self.abandon();
         let early = self.early;
         let owed = {
-            let mut state = self.queue.state.lock().unwrap();
+            let mut state = self.queue.state.lock().recover_poison();
             let owed = !state.ended
                 && self
                     .control_responses
@@ -240,6 +250,7 @@ pub(super) fn is_targeted_host_response(kind: MessageKind) -> bool {
             | MessageKind::TerminateAck
             | MessageKind::DetachAck
             | MessageKind::InputAck
+            | MessageKind::TraceControlAck
     )
 }
 
@@ -259,7 +270,7 @@ fn read_stream(
     queue: &Queue,
 ) {
     loop {
-        let draining = queue.state.lock().unwrap().draining;
+        let draining = queue.state.lock().recover_poison().draining;
         if draining.is_some_and(|deadline| {
             std::time::Instant::now() >= deadline
                 || !control_responses.has_waiter_where(|kind| early.resolves_after_abandon(kind))
@@ -267,6 +278,7 @@ fn read_stream(
             break;
         }
         let Ok(Some(frame)) = read_frame(&mut stream, MAX_FRAME_PAYLOAD) else { break };
+        cmux_threads::apply_pending_qos();
         // A host-originated clipboard read is outside the live sequence and
         // waits for the user, so it never enters the ordered queue.
         if frame.kind == MessageKind::ClipboardReadRequest {
@@ -282,11 +294,14 @@ fn read_stream(
             break;
         }
         if resolves_early(&frame, protocol_version, early) {
-            // A Kitty limits acknowledgement that arrives after its
+            // A Kitty limits or trace acknowledgement that arrives after its
             // requester's deadline is advisory: the requester already
-            // degraded graphics and must not tear down a healthy connection.
-            if frame.kind == MessageKind::KittyGraphicsLimitsAck
-                && !control_responses.has_waiter(frame.request_id)
+            // degraded graphics or reported the host unanswered, and must not
+            // tear down a healthy connection.
+            if matches!(
+                frame.kind,
+                MessageKind::KittyGraphicsLimitsAck | MessageKind::TraceControlAck
+            ) && !control_responses.has_waiter(frame.request_id)
             {
                 continue;
             }
@@ -298,12 +313,12 @@ fn read_stream(
             // did when the surface's reader resolved it inline.
             break;
         }
-        let mut state = queue.state.lock().unwrap();
+        let mut state = queue.state.lock().recover_poison();
         while !state.abandoned
             && !state.frames.is_empty()
             && state.queued_payload + frame.payload.len() > QUEUED_PAYLOAD_BUDGET
         {
-            state = queue.changed.wait(state).unwrap();
+            state = queue.changed.wait(state).recover_poison();
         }
         if state.abandoned {
             if frame.kind == MessageKind::ClearHistoryAck {
@@ -317,7 +332,7 @@ fn read_stream(
         queue.changed.notify_all();
     }
     control_responses.end_clipboard_reads();
-    let mut state = queue.state.lock().unwrap();
+    let mut state = queue.state.lock().recover_poison();
     if state.abandoned {
         drop(state);
         control_responses.fail_all();

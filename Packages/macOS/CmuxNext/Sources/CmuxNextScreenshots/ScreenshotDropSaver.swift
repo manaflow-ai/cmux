@@ -70,8 +70,8 @@ public struct ScreenshotDropSaver {
     }
 
     private static func pngData(_ image: NSImage) -> Data? {
-        guard let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff) else { return nil }
-        return rep.representation(using: .png, properties: [:])
+        guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
     }
 
     /// Writes `data` under the first free name from `name`: file system work, off the main actor.

@@ -692,6 +692,29 @@ impl Hub {
                 cfg.default_permission_mode.clone(),
             )
         };
+        // A pick from before acpmux counted changes (an upgrade): it wins
+        // until the next change, so record the count now. An older build's
+        // record of the setting at the pick that is not the setting now means
+        // the setting changed after the pick: the pick is spent.
+        if picked.is_some() && picked_at.is_none() {
+            let spent = legacy.is_some_and(|then| then != setting_snapshot().unwrap_or_default());
+            let mut cfg = self.config.write().await;
+            let path = super::start_mode_state::state_file(&cfg);
+            state = self.update_start_mode_state(path.as_deref(), |_| {}).1;
+            if cfg.last_permission_mode == picked && cfg.last_permission_mode_change.is_none() {
+                if spent {
+                    cfg.last_permission_mode = None;
+                } else {
+                    cfg.last_permission_mode_change = Some(state.mark());
+                }
+                cfg.last_permission_mode_setting = None;
+                if let Err(e) = self.save_config(&cfg) {
+                    tracing::warn!("permission pick's change count not saved to config.json: {e}");
+                }
+            }
+            picked = cfg.last_permission_mode.clone();
+            picked_at = cfg.last_permission_mode_change.clone();
+        }
         start_level(
             state.managed.as_deref(),
             configured.as_deref(),
@@ -808,6 +831,60 @@ impl Hub {
                 Vec::new()
             }
         })
+    }
+
+    /// `session/set_mode` from a client. From the app pane (`pick`), once
+    /// the harness takes it, its level is the start mode of every new chat.
+    pub async fn client_set_mode(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        mode: &str,
+        pick: bool,
+    ) -> Result<Value, RpcError> {
+        let r = self.set_mode(session, mode).await?;
+        if pick {
+            self.note_mode_pick(session, mode).await;
+        }
+        Ok(r)
+    }
+
+    /// Saves the level of a mode pick on `session` as the start mode of
+    /// every new chat (config.json `lastPermissionMode`). Not for a preset's
+    /// chat, a remote-origin chat, a toggle such as Plan, or a profile that
+    /// pins its mode.
+    pub(super) async fn note_mode_pick(&self, session: &Session, mode: &str) {
+        let meta = session.meta();
+        if meta.preset.is_some()
+            || meta.remote_origin
+            || mode.is_empty()
+            || mode.len() > MAX_MODE
+            || TOGGLE_MODES.contains(&mode)
+        {
+            return;
+        }
+        let family = crate::web_modes::family_of(&meta);
+        let level = level_of(mode, &family, self.web_modes().modes(&family)).as_str();
+        let mut cfg = self.config.write().await;
+        if cfg.harnesses.get(&meta.harness).is_some_and(profile_sets_mode) {
+            return;
+        }
+        // The setting's change count now, read under the config lock so a
+        // push counted before this pick is saved never spends it.
+        let path = super::start_mode_state::state_file(&cfg);
+        let changes = Some(self.update_start_mode_state(path.as_deref(), |_| {}).1.mark());
+        if cfg.last_permission_mode.as_deref() == Some(level)
+            && cfg.last_permission_mode_change == changes
+        {
+            return;
+        }
+        cfg.last_permission_mode = Some(level.to_owned());
+        cfg.last_permission_mode_change = changes;
+        cfg.last_permission_mode_setting = None;
+        if let Err(e) = self.save_config(&cfg) {
+            tracing::warn!("mode pick not saved to config.json: {e}");
+        }
+        drop(cfg);
+        self.start_mode_changed();
     }
 
     /// Tells local watchers a new chat's start mode may have changed

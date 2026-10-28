@@ -28,6 +28,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         /// Settings > Server: each server's status, version line, Restart Recommended, socket and tailnet
         /// address (plans/cmux-next/server-updates-DESIGN.md section 10).
         case server
+        /// Experimental > Feature Flags: every feature's state and source (`features.list`), and the next launch's
+        /// local choices in DEV and NIGHTLY; the host sends it only while feature `featureFlagsCard` is on.
+        case featureFlags
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -108,8 +111,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
                 group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
-                group("settings.group.columns"), group("settings.group.autoArchive"),
-                group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
+                group("settings.group.columns"),
+                group("settings.group.history"), group("settings.group.quit"),
+                // Energy Saver (energy.saver), while the energySaver feature is on (SettingsAvailability).
+                group("settings.group.energy"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
                 group("settings.group.files"), group("settings.group.screenshots"),
@@ -279,7 +284,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
                 group("settings.group.appearanceTuning"),
-            ]),
+            ], trail: [.featureFlags]),
         CategorySpec(
             id: "development", title: section(.development), symbol: "hammer",
             groups: [group("settings.group.macScreen"), group("settings.group.deviceHub")], aliases: [.development], devOnly: true),

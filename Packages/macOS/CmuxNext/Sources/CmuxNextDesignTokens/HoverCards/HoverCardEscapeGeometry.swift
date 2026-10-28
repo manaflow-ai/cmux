@@ -1,4 +1,4 @@
-public import CoreGraphics
+public import Foundation
 
 /// Where a sidebar row's hover card sits, and which part of the screen keeps it
 /// (`HoverCardPlacement.besideRow`). Pure: no window, no view.

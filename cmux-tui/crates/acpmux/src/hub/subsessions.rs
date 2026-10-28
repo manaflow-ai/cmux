@@ -677,10 +677,10 @@ impl Hub {
             folder.still_here()?;
             let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
             kept.source_decided = decided;
-            let start = super::subsession_guard::CheckedFolder::resolve(&kept.made.cwd)?;
-            // The folder resolved is in the worktree just made, not one that took its place.
-            super::subsession_guard::verify_worktree(&folder, &kept.made, &start).await?;
-            (start, Some(kept))
+            cwd = tokio::fs::canonicalize(&kept.made.cwd)
+                .await
+                .unwrap_or_else(|_| kept.made.cwd.clone());
+            Some(kept)
         } else {
             (folder, None)
         };

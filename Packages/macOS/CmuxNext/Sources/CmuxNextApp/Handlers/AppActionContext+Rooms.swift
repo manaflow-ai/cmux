@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -105,6 +106,14 @@ enum RoomDefaultsArguments {
               object.values.allSatisfy({ $0 is String }) else {
             throw ActionFailure.invalidTarget(RoomStrings.envMustBeObject)
         }
-        return object.compactMapValues { $0 as? String }
+        if let text = invocation["env"]?.stringValue?.trimmingCharacters(in: .whitespaces), !text.isEmpty {
+            guard let data = text.data(using: .utf8),
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
+                  object.values.allSatisfy({ $0 is String }) else {
+                throw ActionFailure.invalidTarget(RoomStrings.envMustBeObject)
+            }
+            defaults.env = object.compactMapValues { $0 as? String }
+        }
+        return defaults
     }
 }

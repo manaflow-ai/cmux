@@ -2,6 +2,9 @@ public import Foundation
 public import Observation
 import os
 import StackAuth
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// macOS hosted-browser sign-in flow, including external URL callbacks and
 /// attempt/sign-out race guards.
@@ -49,7 +52,7 @@ public final class HostBrowserSignInFlow {
     private let log = AuthDebugLog()
 
     @ObservationIgnored private var activeSession: (any HostBrowserAuthSession)?
-    @ObservationIgnored private var activeSessionContinuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>?
+    @ObservationIgnored private var activeSessionContinuation: OnceContinuation<HostBrowserAuthSessionResult?, OnceContinuationError>?
     @ObservationIgnored private var activeSessionContinuationAttemptID: UInt64?
     @ObservationIgnored private var activeAttemptTimeoutTask: Task<Void, Never>?
     @ObservationIgnored private var activeAttemptTask: Task<Bool, Never>?
@@ -369,9 +372,10 @@ public final class HostBrowserSignInFlow {
         return task
     }
 
+    /// nil (no result, as a cancel answers) when the attempt's continuation is dropped without a resume.
     private func runBrowserSession(attemptID: UInt64, inDefaultBrowser: Bool) async -> HostBrowserAuthSessionResult? {
-        await withCheckedContinuation {
-            (continuation: CheckedContinuation<HostBrowserAuthSessionResult?, Never>) in
+        try? await withOnceContinuation {
+            (continuation: OnceContinuation<HostBrowserAuthSessionResult?, OnceContinuationError>) in
             activeSessionContinuation = continuation
             activeSessionContinuationAttemptID = attemptID
             if inDefaultBrowser {
@@ -526,9 +530,11 @@ public final class HostBrowserSignInFlow {
             activeAttemptTimeoutTask = nil
             return
         }
+        let timeout = Duration.seconds(browserAttemptTimeout)
         let clock = self.clock
         activeAttemptTimeoutTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: .seconds(timeout))
+            // wakeup-allow: deadline the attempt's one timeout; replaced or cancelled with the attempt
+            try? await clock.sleep(for: timeout, tolerance: timeout.authWakeLeeway)
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.timeout id=\(attemptID) timeoutSeconds=\(Int(timeout))")
             // A retryable browser failure: the UI names the browser step, and the
@@ -550,10 +556,11 @@ public final class HostBrowserSignInFlow {
             slowSignInHintTask = nil
             return
         }
-        let threshold = slowSignInThreshold
+        let threshold = Duration.seconds(slowSignInThreshold)
         let clock = self.clock
         slowSignInHintTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: .seconds(threshold))
+            // wakeup-allow: deadline the attempt's one slow-popup hint; replaced or cancelled with the attempt
+            try? await clock.sleep(for: threshold, tolerance: threshold.authWakeLeeway)
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.slow id=\(attemptID)")
             self.signInIsSlow = true
@@ -636,6 +643,7 @@ public final class HostBrowserSignInFlow {
         var rateLimitRetries = 0
         var ownedRateLimitEpoch: UInt64?
         defer { endRateLimitWait(ownedRateLimitEpoch) }
+        // wakeup-allow: bounded only a 429 goes around again, at most AuthRateLimit.maximumRetries times
         while true {
             do {
                 log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries)")
@@ -672,7 +680,10 @@ public final class HostBrowserSignInFlow {
                     ownedRateLimitEpoch = rateLimitEpoch
                     let clock = self.clock
                     let epoch = rateLimitEpoch
-                    let wait = Task<Void, Never> { _ = try? await clock.sleep(for: delay) }
+                    let wait = Task<Void, Never> {
+                        // wakeup-allow: backoff the server's Retry-After or a jittered doubling, after a 429
+                        _ = try? await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
+                    }
                     rateLimitWaits[epoch] = wait
                     await wait.value
                     rateLimitWaits[epoch] = nil

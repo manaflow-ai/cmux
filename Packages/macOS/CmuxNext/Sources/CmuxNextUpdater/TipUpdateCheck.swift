@@ -31,14 +31,13 @@ import Foundation
 /// holds, and is cancelled when the phase moves on (checking, downloading, staged, installing), when automatic checks go off, when the managed channel moves, and at a
 /// deadline that finds the updater disabled or the sheet open (``UpdaterService/applyDownloadPolicy()``,
 /// run on every download and managed policy change, and ``UpdaterService/updateSheetClosed()`` arm
-/// it again). One probe runs at a time and the next waits a whole interval. The timer cancels its
-/// sleep when this object goes; a probe in flight ends with its 15-second fetch deadline.
+/// it again). One probe runs at a time and the next waits a whole interval. A released timer never
+/// fires; a probe in flight ends with its 15-second fetch deadline.
 ///
-/// A cmux NEXT NIGHTLY (track ``UpdateTrack/nightly``, not the tip app) runs the same check every
-/// ``nightlyInterval`` (Leo 2026-10-26: "am I on the latest nightly here, or not? ... why is the
-/// last nightly, like, four fucking hours away?"). nightly-next ships every 20 to 40 minutes, and
-/// the hourly Sparkle schedule left a NIGHTLY an hour or more behind. A newer build is asked for at
-/// once, whether or not its deltas are listed yet: the full update is never held back for them.
+/// Nobody waits on the read: the ``timer`` is a `background` ``MainDeadline`` on the app's deadline
+/// scheduler, aligned to the app's hidden wakes (whole seconds, then one a minute after 5 hidden
+/// minutes: Blink's hidden-page wake-up throttling, page_scheduler_impl.h), and the probe's answer
+/// comes back with its landing (``UpdaterService/probe(_:then:)``).
 @MainActor
 final class TipUpdateCheck {
     /// How often the tip app reads its feed while nothing waits (an internal constant, not a setting).
@@ -55,13 +54,15 @@ final class TipUpdateCheck {
     /// `updates.checkAutomatically` (``reschedule(automatic:updater:)``).
     private(set) var automatic = true
     /// The probe in flight, if any.
-    private(set) var task: Task<Void, Never>?
+    private(set) var task: Task<String?, Never>?
     /// The newest build this check asked the driver for.
     private(set) var asked: String?
-    let timer: DemandTimer
+    let timer: MainDeadline
 
-    init(clock: any Clock<Duration>) {
-        timer = DemandTimer(owner: "UpdaterService.tipCheck", clock: clock)
+    /// `checkNode` is the app's visibility node (nil: the reads are only flexible).
+    init(deadlines: MainDeadlineScheduler, checkNode: VisibilityNode?) {
+        timer = MainDeadline(owner: "UpdaterService.tipCheck", workClass: .background,
+                             alignment: checkNode.map(TimerAlignment.whenHidden) ?? .flexible, scheduler: deadlines)
     }
 
     /// A changed `updates.checkAutomatically`: off ends the pending deadline, on arms one an interval from now.
@@ -77,8 +78,8 @@ final class TipUpdateCheck {
     /// Called when the phase, the schedule, the download or managed policy moves, and when the sheet closes.
     func refresh(_ updater: UpdaterService) {
         guard mayCheck(updater) else { return timer.cancel() }
-        guard task == nil, !timer.isScheduled, let interval = Self.interval(for: updater.identity) else { return }
-        timer.schedule(after: .seconds(interval)) { @MainActor [weak self, weak updater] in
+        guard task == nil, !timer.isScheduled else { return }
+        timer.schedule(after: .seconds(Self.interval)) { [weak self, weak updater] in
             guard let self, let updater else { return }
             self.run(updater)
         }
@@ -112,9 +113,7 @@ final class TipUpdateCheck {
 
     private func run(_ updater: UpdaterService) {
         guard task == nil, mayCheck(updater) else { return }
-        let probe = updater.probe()
-        task = Task { [weak self, weak updater] in
-            let failure = await probe.value
+        task = updater.probe(.visible) { [weak self, weak updater] failure in
             guard let self, let updater else { return }
             self.task = nil
             self.finish(failure: failure, updater: updater)

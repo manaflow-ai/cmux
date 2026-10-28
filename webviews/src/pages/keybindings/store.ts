@@ -4,6 +4,7 @@
 // provider confirms. React reads it through `useSyncExternalStore` (no effects).
 import { isPageError, type PageClient } from "../shared/pageClient";
 import { LINK_CLOSED, subscribePageStreams } from "../shared/pageStreams";
+import { restoredPageInputs } from "../shared/pageState";
 import {
   canEditWhen,
   filterBindings,
@@ -91,6 +92,29 @@ export interface KeybindingsSnapshot {
   connection: Connection;
 }
 
+/** The page name its saved state carries (pageState.ts). */
+export const KEYBINDINGS_PAGE = "keybindings";
+
+/** What the page keeps across a discard: the search and its filters. */
+export interface KeybindingsInputs {
+  text: string;
+  keyFilter?: KeyFilter;
+  conflictsOnly: boolean;
+}
+
+/** The valid fields of the inputs a discarded document saved; the rest keep their defaults. */
+export function restoredKeybindingsInputs(state: unknown): Partial<KeybindingsInputs> {
+  if (!state || typeof state !== "object") return {};
+  const saved = state as Record<string, unknown>;
+  const inputs: Partial<KeybindingsInputs> = {};
+  if (typeof saved.text === "string") inputs.text = saved.text;
+  if (typeof saved.conflictsOnly === "boolean") inputs.conflictsOnly = saved.conflictsOnly;
+  const filter = saved.keyFilter as Partial<KeyFilter> | null | undefined;
+  if (filter && typeof filter.key === "string" && typeof filter.exact === "boolean")
+    inputs.keyFilter = { key: filter.key, exact: filter.exact };
+  return inputs;
+}
+
 export interface KeybindingsStoreOptions {
   newKey?: () => string;
 }
@@ -113,6 +137,7 @@ export class KeybindingsStore {
       rows: [],
       text: "",
       conflictsOnly: false,
+      ...restoredKeybindingsInputs(restoredPageInputs(client, KEYBINDINGS_PAGE)),
       resettable: new Set(),
       loading: client !== null,
       connection: client ? "connecting" : "disconnected",
@@ -120,6 +145,12 @@ export class KeybindingsStore {
   }
 
   getSnapshot = (): KeybindingsSnapshot => this.snapshot;
+
+  /** What the page keeps when it hides (pageState.ts `keep`); `restoredKeybindingsInputs` reads it back. */
+  pageInputs(): KeybindingsInputs {
+    const { text, keyFilter, conflictsOnly } = this.snapshot;
+    return keyFilter ? { text, keyFilter, conflictsOnly } : { text, conflictsOnly };
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);

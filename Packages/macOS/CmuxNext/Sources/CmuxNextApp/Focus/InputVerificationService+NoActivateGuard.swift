@@ -1,44 +1,31 @@
-@preconcurrency import AppKit
+import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextUpdater
+import CmuxNextInput
 import CmuxNextWakeups
 import os
 
-private enum NoActivateApplicationResolver {
-    /// Resolves the PID off the main actor. AppKit's `processIdentifier`
-    /// property can synchronously ask LaunchServices for dynamic properties.
-    static func resolve(_ application: NSRunningApplication,
-                        completion: @escaping @MainActor (NSRunningApplication, pid_t) -> Void) {
-        let reference = NoActivateApplicationReference(application)
-        DispatchQueue.global(qos: .utility).async {
-            let pid = reference.application.processIdentifier
-            DispatchQueue.main.async {
-                completion(reference.application, pid)
-            }
-        }
-    }
+/// Resolves an application's PID off the main thread and replies on it. AppKit's `processIdentifier`
+/// property can synchronously ask LaunchServices for dynamic properties.
+private struct NoActivateApplicationResolver {
+    let work: BackgroundWork
+    let mainWork: MainWorkScheduler
 
-    /// The frontmost app, or with `relaunch` the app that was frontmost when the update relaunch
-    /// began (by its pid; nil when it quit since, and the front then goes to the next app in line).
-    static func resolveFrontmost(relaunch: UpdateRelaunchFocus? = nil,
-                                 completion: @escaping @MainActor (NSRunningApplication?, pid_t?) -> Void) {
-        let recorded = relaunch != nil, recordedPID = relaunch?.frontmostPID
-        DispatchQueue.global(qos: .utility).async {
-            let me = ProcessInfo.processInfo.processIdentifier
-            let application = if !recorded { NSWorkspace.shared.frontmostApplication } else {
-                recordedPID.flatMap { $0 == me ? nil : NSRunningApplication(processIdentifier: $0) }
-            }
-            let reference = application.map(NoActivateApplicationReference.init)
-            let pid = reference?.application.processIdentifier
-            DispatchQueue.main.async {
-                completion(reference?.application, pid)
-            }
+    /// `application`'s PID; a nil `application` reads the frontmost one there.
+    func resolve(_ application: NSRunningApplication?,
+                 completion: @escaping @MainActor @Sendable (NSRunningApplication?, pid_t?) -> Void) {
+        let given = application.map(NoActivateApplicationReference.init)
+        work.run(.userVisible, mayBlock: .system) { () -> (NoActivateApplicationReference?, pid_t?) in
+            let reference = given ?? NSWorkspace.shared.frontmostApplication.map(NoActivateApplicationReference.init)
+            return (reference, reference?.application.processIdentifier)
+        }.reply(on: mainWork, class: .visible, owner: "NoActivateKeyboardGuard.resolve") { resolved in
+            completion(resolved.0?.application, resolved.1)
         }
     }
 }
 
 // Wires NoActivateKeyboardGuard under CMUX_NEXT_NO_ACTIVATE=1: activation,
-// key-window and other-app changes in, input from the app-wide event tap,
+// key-window and other-app changes in, key and mouse presses from the input tap,
 // each give-back into the input journal and `debug.focus`.
 //
 // The same guard runs for the startup of an update relaunch nobody clicked, in an app the user
@@ -50,79 +37,60 @@ private enum NoActivateApplicationResolver {
 // end it, nor count as intent: typing meant for the user's app may land in cmux in the moment
 // before the front goes back.
 extension InputVerificationService {
-    /// How long after launch an activation counts as the update relaunch's, not the user's.
-    static let relaunchBehindWindow: Duration = .seconds(8)
-
-    func startNoActivateGuard(relaunch: UpdateRelaunchFocus? = nil) {
-        guard WindowPlacement.noActivate || relaunch != nil else { return }
-        let relaunchOnly = !WindowPlacement.noActivate
+    /// Installs the guard in the launch turn (`AppServices.init`), before the app activates and its first
+    /// window becomes key, so it sees both and resolves the app the person had in front. Once.
+    ///
+    /// - Parameters:
+    ///   - tap: The app's input tap: the person's key and mouse presses.
+    ///   - appEvents: The app's notices (`AppServices.appEvents`): activation and key-window changes.
+    ///   - mainWork: The app's main-thread scheduler: the PID replies and the activation handoff.
+    ///   - work: The app's off-main lanes: the PID reads.
+    func startNoActivateGuard(tap: InputEventTap, appEvents: AppEvents, mainWork: MainWorkScheduler, work: BackgroundWork) {
+        guard WindowPlacement.noActivate, keyboardGuard == nil else { return }
         let me = ProcessInfo.processInfo.processIdentifier
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
-        let host = AppKitKeyboardGuardHost()
-        let guardian = NoActivateKeyboardGuard(host: host, frontmost: nil,
+        let guardian = NoActivateKeyboardGuard(host: AppKitKeyboardGuardHost(mainWork: mainWork), frontmost: nil,
                                                onGiveBack: { giveBack in
             logger.notice("keyboard given back: \(giveBack.trigger.rawValue, privacy: .public), \(giveBack.cause, privacy: .public)")
             InputJournal.shared.append(window: nil, .keyboardGivenBack(trigger: giveBack.trigger.rawValue, cause: giveBack.cause,
                                                                         restoredTo: giveBack.restoredTo))
         })
         keyboardGuard = guardian
-        host.stopped = { [weak guardian] in guardian?.isEnabled == false }
-        if relaunchOnly {
-            logger.notice("update relaunch: staying behind \(relaunch?.frontmostBundleID ?? "the frontmost app", privacy: .public)")
-            guardian.onUserChose = { [weak self] in self?.endRelaunchBehind("user activated") }
-            guardian.ignoresHeldInputUntil = .now + NoActivateKeyboardGuard.launchActivationGrace
-            let end = DemandTimer(owner: "InputVerificationService.relaunchBehind")
-            relaunchBehindEnd = end
-            end.schedule(after: Self.relaunchBehindWindow) { @MainActor [weak self] in self?.endRelaunchBehind("window ended") }
-        }
-        let center = NotificationCenter.default
-        keyboardGuardObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak guardian] note in
-            guard let guardian else { return }
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-            let sequence = guardian.beginOtherAppActivation()
-            NoActivateApplicationResolver.resolve(app) { [weak self, weak guardian] app, pid in
+        let resolver = NoActivateApplicationResolver(work: work, mainWork: mainWork)
+        // An activated app (nil: the frontmost one) is where the keyboard goes back, unless it is this one.
+        // A later activation begins a newer sequence; the guard drops a reply of an older one.
+        let resolveActivated: @MainActor (NSRunningApplication?, UInt64) -> Void = { [weak self, weak guardian] app, sequence in
+            resolver.resolve(app) { [weak self, weak guardian] app, pid in
                 guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
-                guard pid != me else { return }
+                guard let app, let pid, pid != me else { return }
                 guardian.otherAppActivated(app, processIdentifier: pid, sequence: sequence)
                 guardian.appDidBecomeActive()
             }
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
-        })
+        }
+        // raw-observer-allow: the guard needs the notice's userInfo (the app that activated); an AppEvents call carries no payload
+        keyboardGuardActivation = MainActorObservation(NSWorkspace.didActivateApplicationNotification, center: NSWorkspace.shared.notificationCenter,
+                                                       read: { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }) { [weak guardian] app in
+            guard let guardian, let app else { return }
+            resolveActivated(app, guardian.beginOtherAppActivation())
+        }
+        let owner = "NoActivateKeyboardGuard"
+        keyboardGuardSubscriptions = [
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: owner) { guardian.appDidBecomeActive() },
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: owner) { guardian.appDidResignActive() },
+            appEvents.subscribe(NSWindow.didBecomeKeyNotification, owner: owner) { guardian.windowDidBecomeKey() },
+        ]
         let application = NSApp as? CmuxApplication
-        let journalObserver = application?.inputObserver
-        application?.inputObserver = { [weak self] event in
-            switch event.type {
-            case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
-                guard application?.currentEventIsSynthetic != true else { break }
-                if !relaunchOnly {
-                    guardian.userInput()
-                } else if event.type != .keyDown {
-                    self?.endRelaunchBehind("user click")
-                }
-            default: break
-            }
-            journalObserver?(event)
+        // A person's key or mouse press; the app's own synthetic input is not one.
+        keyboardGuardSubscription = tap.subscribePresses([.keyDown, .mouseDown],
+                                                         while: { application?.currentEventIsSynthetic != true }) { _ in
+            guardian.userInput()
         }
         // Keep the no-activate invariant immediate. The previous app is
-        // populated asynchronously below so this path never waits on
+        // resolved off the main thread so this path never waits on
         // LaunchServices while installing observers.
         let initialApplicationSequence = guardian.beginOtherAppActivation()
         guardian.start()
-        NoActivateApplicationResolver.resolveFrontmost(relaunch: relaunch) { [weak self, weak guardian] app, pid in
-            guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
-            guard let app, let pid, pid != me else { return }
-            guardian.otherAppActivated(app, processIdentifier: pid, sequence: initialApplicationSequence)
-            guardian.appDidBecomeActive()
-        }
+        resolveActivated(nil, initialApplicationSequence)
     }
 
     /// Ends an update relaunch's startup behind the user's app: the guard stops and the app

@@ -17,21 +17,16 @@ pub struct Spawned {
 
 /// Open a PTY sized `cols` x `rows` and fork `request.argv` on it with
 /// exactly `request.env` and `request.cwd`, as the leader of a new session
-/// whose controlling terminal is the PTY. Returns as soon as the child is
-/// forked: the holder's one loop serves every terminal, so it never waits
-/// for the child and never touches a path the request names (a directory
-/// or a `PATH` entry on a network mount that stopped answering would stop
-/// every terminal's output). The child enters the directory and finds the
-/// program itself: a bare name is tried in each entry of the request's
-/// `PATH`, as `execvp` does, a relative entry relative to that directory. A
-/// directory or program the child cannot enter or run fails the spawn
-/// through [`Spawned::start`] (the child reports its errno on a
-/// close-on-exec pipe and exits 127) instead of starting a shell elsewhere.
-/// `open_file_limit` is the soft `RLIMIT_NOFILE` the child gets back (the
-/// one cmux started with, before the daemon raised its own: programs that
-/// use `select(2)` break above 1024). The holder is single threaded, so
-/// `fork` is safe here; the child only calls async-signal-safe functions
-/// before `execve`.
+/// whose controlling terminal is the PTY. A bare program name is looked up
+/// in the request's `PATH`, as `Command::new` does on the local path. A
+/// directory or program the child cannot enter or run fails the spawn (the
+/// child reports its errno on a close-on-exec pipe) instead of starting a
+/// shell elsewhere or exiting 127. `open_file_limit` is the soft
+/// `RLIMIT_NOFILE` the child gets back (the one cmux started with, before
+/// the daemon raised its own: programs that use `select(2)` break above
+/// 1024). Only the loop's thread forks; the child only calls
+/// async-signal-safe functions before `execve`, so the holder's other
+/// threads (`mux-hang-watch`, the trace map thread) cannot leave it a lock.
 pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result<Spawned> {
     let argv = c_strings(&request.argv)?;
     if argv.is_empty() {
@@ -75,8 +70,8 @@ pub fn spawn(request: &SpawnRequest, open_file_limit: Option<u64>) -> io::Result
     set_cloexec(slave.as_raw_fd());
     let (report_read, report_write) = cloexec_pipe()?;
 
-    // SAFETY: single-threaded process; the child path below calls only
-    // async-signal-safe functions and ends in execve or _exit.
+    // SAFETY: the child path below calls only async-signal-safe functions
+    // and ends in execve or _exit.
     let pid = unsafe { libc::fork() };
     if pid < 0 {
         return Err(io::Error::last_os_error());
@@ -185,11 +180,11 @@ impl Start {
 
 /// The child after `fork`: new session, the PTY as controlling terminal and
 /// stdio, default signal dispositions, the open-file limit cmux started
-/// with, its directory, then `execve` of each of `programs` in turn (the
-/// `PATH` search, [`program_candidates`]). Every other descriptor of the
-/// holder is close-on-exec ([`mark_inherited_close_on_exec`] at startup,
-/// and each one it opens later), so the program gets only its PTY. A
-/// failure writes `stage u8, errno i32` to `report` and exits 127.
+/// with, QOS_CLASS_DEFAULT (macOS, [`reset_qos`]), its directory, then
+/// `execve`. Every other descriptor of the holder is close-on-exec
+/// ([`mark_inherited_close_on_exec`] at startup, and each one it opens
+/// later), so the program gets only its PTY. A failure writes `stage u8,
+/// errno i32` to `error` and exits 127.
 unsafe fn child(
     (slave, report): (libc::c_int, libc::c_int),
     open_file_limit: Option<u64>,
@@ -219,6 +214,7 @@ unsafe fn child(
                 libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
             }
         }
+        reset_qos();
         if libc::chdir(cwd.as_ptr()) != 0 {
             report_and_exit(report, STAGE_CHDIR, errno())
         }
@@ -240,12 +236,21 @@ unsafe fn child(
     }
 }
 
-/// The calling thread's errno. Async-signal-safe.
-fn errno() -> i32 {
-    io::Error::last_os_error().raw_os_error().unwrap_or(libc::EIO)
+/// macOS: start the shell at QOS_CLASS_DEFAULT, the class of a user child
+/// (`cmux_threads::process`), not the holder thread's class,
+/// which a forked child keeps across `execve` (p02-threads task 223). One
+/// system call on the calling thread, with no lock: safe after `fork`.
+/// Linux children keep the holder's nice value, as before.
+#[cfg(target_vendor = "apple")]
+fn reset_qos() {
+    // SAFETY: plain FFI call on the calling thread.
+    unsafe { libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_DEFAULT, 0) };
 }
 
-/// Write `stage` and `errno` to the parent's report pipe, then
+#[cfg(not(target_vendor = "apple"))]
+fn reset_qos() {}
+
+/// Write `stage` and the current errno to the parent's error pipe, then
 /// `_exit(127)`. Async-signal-safe.
 unsafe fn report_and_exit(report: libc::c_int, stage: u8, errno: i32) -> ! {
     let mut bytes = [stage, 0, 0, 0, 0];
@@ -386,21 +391,5 @@ pub fn resize(master: libc::c_int, cols: u16, rows: u16, px_w: u16, px_h: u16) -
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_bare_program_name_is_tried_in_each_path_entry_and_a_path_as_it_is() {
-        let env = vec![b"HOME=/".to_vec(), b"PATH=/nonexistent-cmux-dir::bin:/usr/bin".to_vec()];
-        let tried = program_candidates(b"sh", &env).unwrap();
-        let tried: Vec<&[u8]> = tried.iter().map(|path| path.to_bytes()).collect();
-        assert_eq!(tried, [&b"/nonexistent-cmux-dir/sh"[..], b"./sh", b"bin/sh", b"/usr/bin/sh"]);
-        let default = program_candidates(b"sh", &[]).unwrap();
-        let default: Vec<&[u8]> = default.iter().map(|path| path.to_bytes()).collect();
-        assert_eq!(default, [&b"/usr/bin/sh"[..], b"/bin/sh"]);
-        let named = program_candidates(b"/bin/sh", &env).unwrap();
-        assert_eq!(named.len(), 1);
-        assert_eq!(named[0].to_bytes(), b"/bin/sh");
-        assert!(program_candidates(b"", &env).is_err());
-    }
-}
+#[path = "pty_tests.rs"]
+mod tests;

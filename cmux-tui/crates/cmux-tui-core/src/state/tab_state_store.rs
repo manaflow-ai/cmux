@@ -212,6 +212,7 @@ impl TabStateUpdate {
     }
 }
 
+#[track_caller]
 pub(crate) fn update_tab_state(
     transaction: &Transaction<'_>,
     tab_id: &str,
@@ -361,6 +362,7 @@ pub(crate) fn clear_closed_tab_attention(
 }
 
 /// Replace every tab group row in the caller's transaction.
+#[track_caller]
 pub(crate) fn write_tab_groups(
     transaction: &Transaction<'_>,
     groups: &TabGroupState,
@@ -517,6 +519,7 @@ pub(crate) fn saved_tab_group(
     Ok(read_saved_tab_groups(connection)?.into_iter().find(|record| record.id == saved_id))
 }
 
+#[track_caller]
 pub(crate) fn put_saved_tab_group(
     transaction: &Transaction<'_>,
     record: &SavedTabGroupRecord,

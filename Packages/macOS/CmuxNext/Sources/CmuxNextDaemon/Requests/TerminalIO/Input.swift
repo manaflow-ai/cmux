@@ -3,7 +3,7 @@ public import Foundation
 /// Writes to a PTY. `bytes` travels as standard base64.
 public struct SendInputRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "send"
+    public static let commandName: DaemonCommandName = "send"
     public var surface: SurfaceID
     public var text: String?
     public var bytes: Data?
@@ -13,8 +13,9 @@ public struct SendInputRequest: DaemonRequest {
     /// right before the write, and fails the request otherwise. A daemon without the capability
     /// ignores it, so a caller keeps its own check first.
     public var expectForeground: String?
-    /// The key press this input carries (`CMUX_NEXT_TRACE_FLOWS`, `TypingLatencyProbe.openFlow(for:)`): the daemon
-    /// only records it in its flow marks. Nil (left out of the line) otherwise; an older daemon ignores it.
+    /// The key press this input carries, while the typing probe records (`TypingLatencyProbe.openFlow`): the
+    /// daemon marks it and names it on the echo's `output`. Nil (left out of the line) otherwise; an older
+    /// daemon ignores it.
     public var flow: UInt64?
     public init(surface: SurfaceID, text: String? = nil, bytes: Data? = nil, paste: Bool? = nil,
                 expectForeground: String? = nil, flow: UInt64? = nil) {
@@ -24,6 +25,10 @@ public struct SendInputRequest: DaemonRequest {
         self.paste = paste
         self.expectForeground = expectForeground
         self.flow = flow
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, text, bytes, paste, expectForeground = "expect_foreground", flow
     }
 }
 
@@ -36,12 +41,16 @@ public struct SendTerminalInputRequest: DaemonRequest {
         /// True when the terminal was still being created: the bytes wait in the daemon.
         public var queued: Bool?
     }
-    public static let command = "send"
+    public static let commandName: DaemonCommandName = "send"
     public var terminalID: String
     public var bytes: Data
     public init(terminalID: String, bytes: Data) {
         self.terminalID = terminalID
         self.bytes = bytes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case terminalID = "terminal_id", bytes
     }
 }
 
@@ -72,7 +81,7 @@ public struct TerminalInputUnclaimed: Decodable, Sendable, Equatable {
 
 public struct SendKeyRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "send-key"
+    public static let commandName: DaemonCommandName = "send-key"
     public var surface: SurfaceID
     public var keys: [String]
     public init(surface: SurfaceID, keys: [String]) {
@@ -93,7 +102,7 @@ public struct AttachSurfaceRequest: DaemonRequest {
             case sizeState = "size_state"
         }
     }
-    public static let command = "attach-surface"
+    public static let commandName: DaemonCommandName = "attach-surface"
     public var surface: SurfaceID?
     public var expectedGeneration: DaemonGeneration?
     /// The public terminal id `term_…` (a tab's `terminal_resource_id`).
@@ -111,12 +120,15 @@ public struct AttachSurfaceRequest: DaemonRequest {
     public var snapshotLocalHistory: Bool?
     /// The view applies Kitty image replays (`terminal-snapshot-images-v1`).
     public var snapshotImages: Bool?
+    /// The id this side minted for the view (`attach-streams-v1`): every item of the view carries it. Nil
+    /// attaches the connection itself, untagged.
+    public var stream: UInt16?
 
     /// - Parameter snapshotVersion: the viewer's GHOSTSNP version, or nil for
     ///   a byte replay.
     public init(surface: SurfaceID?, expectedGeneration: DaemonGeneration? = nil, expectedTerminalID: ResourceID? = nil,
                 size: CellSize?, snapshotVersion: UInt16? = nil, snapshotLocalHistory: Bool = false,
-                snapshotImages: Bool = false) {
+                snapshotImages: Bool = false, stream: UInt16? = nil) {
         self.surface = surface
         self.expectedGeneration = expectedGeneration
         self.expectedTerminalID = expectedTerminalID
@@ -127,5 +139,12 @@ public struct AttachSurfaceRequest: DaemonRequest {
         self.snapshotVersion = snapshotVersion
         self.snapshotLocalHistory = snapshotVersion != nil && snapshotLocalHistory ? true : nil
         self.snapshotImages = snapshotVersion != nil && snapshotImages ? true : nil
+        self.stream = stream
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case surface, expectedGeneration = "expected_generation", expectedTerminalID = "expected_terminal_id", mode
+        case cols, rows, snapshot, snapshotVersion = "snapshot_version", snapshotLocalHistory = "snapshot_local_history"
+        case snapshotImages = "snapshot_images", stream
     }
 }

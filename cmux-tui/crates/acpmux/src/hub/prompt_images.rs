@@ -141,16 +141,12 @@ pub(super) fn keep(blocks: &[Value]) -> Vec<Value> {
         .filter_map(|(bytes, named)| {
             let id = named["id"].as_str()?;
             let path = dir().join(id);
-            if !path.is_file() {
-                let written = std::fs::create_dir_all(dir()).and_then(|()| {
+            if !cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+                let written = cmux_blocking::fs::create_dir_all(dir()).and_then(|()| {
                     // Written aside and renamed, so a reader never sees half an image.
                     let partial = dir().join(format!("{id}.{}.partial", uuid::Uuid::now_v7()));
-                    let written = write_owner_only(&partial, &bytes)
-                        .and_then(|()| std::fs::rename(&partial, &path));
-                    if written.is_err() {
-                        let _ = std::fs::remove_file(&partial);
-                    }
-                    written
+                    cmux_blocking::fs::write(&partial, &bytes)?;
+                    cmux_blocking::fs::rename(&partial, &path)
                 });
                 if let Err(e) = written {
                     tracing::warn!("cannot keep a prompt image: {e}");
@@ -470,7 +466,7 @@ impl Hub {
     pub fn prompt_image(&self, session: &str, id: &str) -> Result<Value, RpcError> {
         let missing = || RpcError::not_found(format!("no image {id} in this chat"));
         let path = dir().join(id);
-        if !valid_id(id) || !path.is_file() {
+        if !valid_id(id) || !cmux_blocking::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
             return Err(missing());
         }
         let filter = EventFilter::parse(Some(&json!(NAMING_KINDS)))?;
@@ -495,7 +491,7 @@ impl Hub {
             })
             .map_err(|e| RpcError::internal(e.to_string()))?;
         let named = named.ok_or_else(missing)?;
-        let bytes = std::fs::read(path).map_err(|_| missing())?;
+        let bytes = cmux_blocking::fs::read(path).map_err(|_| missing())?;
         use base64::Engine;
         let mime = sniffed_type(&bytes)
             .map(|known| json!(known))

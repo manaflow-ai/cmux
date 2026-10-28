@@ -52,22 +52,29 @@ nonisolated struct ChromiumNetError {
     /// address, which HSTS never covers (RFC 6797), otherwise left to
     /// Chromium's interstitial, which knows the host's HSTS state (the shim
     /// then marks that load error `chromiumInterstitial`). Then loads the
-    /// page again.
+    /// page again. Both are one-way and go in this order, so Chromium has the
+    /// answer before the load's error, as Chrome's interstitial proceeds: it
+    /// allows the certificate for the host (`SSLHostStateDelegate::AllowCert`,
+    /// content/public/browser/ssl_host_state_delegate.h), then reloads.
     @MainActor
     static func proceed(on tab: CEFTab) {
-        guard let browser = tab.browserID, let error = tab.state.loadError, let url = error.failingURL, let host = url.host(),
-              proceed(code: error.code, host: host, browser: browser, shim: tab.runtime.shim) else { return }
+        guard let browser = tab.browserID, let shim = tab.runtime.shim, let error = tab.state.loadError,
+              let url = error.failingURL, let host = url.host() else { return }
+        allowNextError(code: error.code, host: host, browser: browser, shim: shim)
         tab.load(url)
     }
 
     @MainActor
-    private static func proceed(code: Int, host: String, browser: Int32, shim: CEFShimLibrary?) -> Bool {
+    private static func allowNextError(code: Int, host: String, browser: Int32, shim: CEFShimLibrary) {
         var v4 = in_addr(), v6 = in6_addr()
-        let isAddress = inet_pton(AF_INET, host, &v4) == 1 || inet_pton(AF_INET6, host, &v6) == 1
+        // SAFETY: inet_pton writes at most one in_addr into `v4` for AF_INET and one in6_addr into `v6` for AF_INET6,
+        // during the call; Swift passes `host` as a NUL-terminated copy.
+        let isV4 = unsafe inet_pton(AF_INET, host, &v4) == 1
+        let isV6 = unsafe inet_pton(AF_INET6, host, &v6) == 1
+        let isAddress = isV4 || isV6
         let chromiumDecides = !(isAddress && overridableCertificateCodes.contains(code))
         // Chromium's host keeps an IPv6 address in brackets.
         let chromiumHost = host.contains(":") ? "[\(host)]" : host
-        let answered = chromiumHost.withCString { shim?.certificateProceed(browser, $0, Int32(code), chromiumDecides ? 1 : 0) }
-        return answered == 1
+        _ = shim.certificateProceed(browser, chromiumHost, Int32(code), chromiumDecides ? 1 : 0)
     }
 }

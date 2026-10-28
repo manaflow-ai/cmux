@@ -16,6 +16,7 @@ struct SpaceSwitchCostTests {
         defer { bench.close() }
         let samples = try await bench.run(rounds: rounds)
         print(SpaceSwitchBench.summary(total, samples) + " | panes=\(panes) mounted=\(bench.mounted)")
+        try SpaceSwitchBench.record(total, parked: parked, samples)
         return samples
     }
 

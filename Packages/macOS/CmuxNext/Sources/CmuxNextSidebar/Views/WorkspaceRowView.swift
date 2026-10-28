@@ -89,6 +89,7 @@ final class WorkspaceRowView: SidebarRowView {
         didSet {
             guard isSecondarySelected != oldValue else { return }
             updateAccessibilitySelection()
+            // invalidate: the secondary selection changed (the guard above).
             needsDisplay = true
         }
     }
@@ -342,10 +343,9 @@ final class WorkspaceRowView: SidebarRowView {
         for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
-        setAccessibilityLabel(accessibilityText(ws, content: shown,
-                                                title: ws.spokenRowTitle(content.rowTitle, inheritsSingleChat: content.rowTitleSingleChat)))
-        needsLayout = true
-        needsDisplay = true
+        setAccessibilityLabel(accessibilityText(ws, content: shown))
+        // invalidate: the content changed (`needsConfigure` above).
+        needsLayout = true; needsDisplay = true
     }
 
     /// Applies a title-only transition after the row's content has been set.

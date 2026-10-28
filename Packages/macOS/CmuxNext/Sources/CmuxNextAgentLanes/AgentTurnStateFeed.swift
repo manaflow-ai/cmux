@@ -1,6 +1,7 @@
 public import CmuxNextAgentActivity
 public import CmuxNextBridge
-import CmuxNextWakeups
+import CmuxNextCompat
+public import CmuxNextWakeups
 import Foundation
 import os
 
@@ -42,7 +43,11 @@ public final class AgentTurnStateFeed {
     private var subscription: AgentActivityLineConnection?
     private var directoryWatch: (any DispatchSourceFileSystemObject)?
     private var watchedDirectory: String?
-    private var reconnect: Task<Void, Never>?
+    /// One backoff wait after a lost connection. `background`: nobody waits on the reconnect; the
+    /// indicators show no live state meanwhile.
+    private let reconnect: MainDeadline
+    /// Where the socket folder's notices reach the main thread (``watchForSocket()``).
+    private let mainWork: MainWorkScheduler
     private var backoff = Backoff(initial: .milliseconds(250), maximum: .seconds(30))
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-turn-states")
 
@@ -53,9 +58,13 @@ public final class AgentTurnStateFeed {
     ///     store, since a page replaces every lane.
     ///   - mirroring: Nil for this Mac's own acpmux; else the host (`chief:<id>`) of another
     ///     acpmux on this Mac whose chats the store also mirrors.
+    ///   - deadlines: The app's one deadline scheduler: the reconnect backoff and the socket folder's
+    ///     notices run on its main-thread scheduler.
     public init(socketPath: String, turns: AgentTurnStateStore = .shared, lanes: AgentLaneStore = .shared,
-                mirroring host: String? = nil) {
+                mirroring host: String? = nil, deadlines: MainDeadlineScheduler) {
         socket = socketPath
+        mainWork = deadlines.work
+        reconnect = MainDeadline(owner: "AgentTurnStateFeed.reconnect", workClass: .background, scheduler: deadlines)
         self.turns = turns
         self.lanes = lanes
         lanes.socketPath = socketPath
@@ -70,14 +79,14 @@ public final class AgentTurnStateFeed {
     /// `install:<id>`: only its chat tabs read these states.
     public func start(localHost: @autoclosure () -> String?) {
         if !isMirror, turns.localHost == nil { turns.localHost = localHost() }
-        if subscription == nil, directoryWatch == nil, reconnect == nil { connect() }
+        if subscription == nil, directoryWatch == nil, !reconnect.isScheduled { connect() }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
-            reconnect?.cancel()
+            reconnect.cancel()
             subscription?.cancel()
             directoryWatch?.cancel()
         }
@@ -86,7 +95,7 @@ public final class AgentTurnStateFeed {
     // MARK: Watch
 
     private func connect() {
-        reconnect = nil
+        reconnect.cancel()
         guard FileManager.default.fileExists(atPath: socket) else { return watchForSocket() }
         directoryWatch?.cancel()
         directoryWatch = nil
@@ -137,7 +146,7 @@ public final class AgentTurnStateFeed {
                     deleted: Bool = false, peer: (name: String, stale: Bool)? = nil)
 
         init?(line: Data) {
-            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
             if (message["id"] as? NSNumber)?.intValue == 2, let result = message["result"] as? [String: Any] {
                 var states = AgentTurnStates()
                 states.reset(result)
@@ -206,14 +215,14 @@ public final class AgentTurnStateFeed {
         lanes.lanes = [:]
         lanes.live = false
         logger.info("agent turn states: watch closed")
-        reconnect?.cancel()
-        reconnect = Task { [weak self] in
-            guard var backoff = self?.backoff else { return }
-            // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
-            do { try await backoff.wait(owner: "agent-turn-states.reconnect") } catch { return }
-            self?.backoff = backoff
-            self?.connect()
-        }
+        reconnect.schedule(after: backoff.next()) { [weak self] in self?.connect() }
+    }
+
+    /// A notice of the socket folder: connects unless a connection or a reconnect already exists (a
+    /// notice posted before an earlier one connected).
+    private func connectIfIdle() {
+        guard subscription == nil, !reconnect.isScheduled else { return }
+        connect()
     }
 
     /// Waits for the socket to appear: watches the nearest directory on its
@@ -230,9 +239,12 @@ public final class AgentTurnStateFeed {
         directoryWatch = nil
         let fd = open(directory, O_EVTONLY)
         guard fd >= 0 else { return }
-        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete], queue: .main)
+        // The notices arrive off main; each posts one background task (the socket appearing is no one's input).
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: [.write, .rename, .delete],
+                                                               queue: .global(qos: .utility))
+        let work = mainWork
         source.setEventHandler { [weak self] in
-            Task { @MainActor in self?.connect() }
+            work.postFromAnyThread(.background, owner: "AgentTurnStateFeed.socketFolder") { [weak self] in self?.connectIfIdle() }
         }
         source.setCancelHandler { close(fd) }
         directoryWatch = source

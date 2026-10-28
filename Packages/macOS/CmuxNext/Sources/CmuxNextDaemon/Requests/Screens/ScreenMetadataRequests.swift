@@ -15,7 +15,7 @@ public struct ScreenMetadataResult: Decodable, Sendable, Equatable {
 /// omitted field keeps its value.
 public struct SetScreenMetadataRequest: DaemonRequest {
     public typealias Response = ScreenMetadataResult
-    public static let command = "set-screen-metadata"
+    public static let commandName: DaemonCommandName = "set-screen-metadata"
     public static let requiredCapability: String? = DaemonCapability.screenMetadata.rawValue
     public var screen: ScreenID
     /// Palette token `[a-z][a-z0-9-]{0,31}` or `#RRGGBB[AA]`; frontends offer the nine group colors.
@@ -46,7 +46,7 @@ public struct SetScreenPinnedRequest: DaemonRequest {
         public var index: Int
         public var changed: Bool
     }
-    public static let command = "set-screen-pinned"
+    public static let commandName: DaemonCommandName = "set-screen-pinned"
     public static let requiredCapability: String? = DaemonCapability.screenMetadata.rawValue
     public var screen: ScreenID
     public var pinned: Bool

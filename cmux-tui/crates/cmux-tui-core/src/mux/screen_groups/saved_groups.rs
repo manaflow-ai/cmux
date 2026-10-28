@@ -4,6 +4,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(super) fn saved_members(&self, members: &[ScreenId]) -> Vec<SavedScreenMember> {
         let presentation = self.presentation_snapshot();
         self.with_state(|state| {
@@ -34,6 +35,7 @@ impl Mux {
         })
     }
 
+    #[track_caller]
     pub(super) fn sync_saved_screen_group(&self, group: &str) -> anyhow::Result<()> {
         let outcome = self.screen_group_outcome(group);
         let Some(record) = outcome.group else { return Ok(()) };
@@ -59,6 +61,7 @@ impl Mux {
     }
 
     /// Save a group: a session-wide record linked to the live group.
+    #[track_caller]
     pub fn save_screen_group_as(&self, actor: &Actor, group: &str) -> anyhow::Result<String> {
         let saved_id = self.commit_screen_metadata(actor, |_, screens| {
             let record = screens
@@ -73,6 +76,7 @@ impl Mux {
     }
 
     /// Unsave a live group: delete its saved record and unlink it.
+    #[track_caller]
     pub fn unsave_screen_group(&self, group: &str) -> anyhow::Result<()> {
         let saved = self
             .presentation_snapshot()
@@ -87,6 +91,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub fn delete_saved_screen_group(&self, saved: &str) -> anyhow::Result<bool> {
         let removed = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -104,6 +109,7 @@ impl Mux {
     /// the member's directory, with its name, color, and icon, grouped (with
     /// the saved group's icon) and linked to the saved record. An open group
     /// is returned as it is.
+    #[track_caller]
     pub fn reopen_saved_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,

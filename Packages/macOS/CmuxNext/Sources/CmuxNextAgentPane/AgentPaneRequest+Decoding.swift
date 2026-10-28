@@ -160,6 +160,12 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "pane.keyToPaint":
+            if let report = AgentPaneKeyToPaint(params: params) {
+                self = .keyToPaint(report)
+            } else {
+                self = .unsupported(method)
+            }
         case "tab.open":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
@@ -262,7 +268,8 @@ extension AgentPaneRequest {
         case "tab.jump":
             if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
                let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
-                self = .jump(target, id: id)
+                let inputAt = (params?["inputAt"] as? NSNumber)?.doubleValue
+                self = .jump(target, id: id, inputAt: inputAt.flatMap { $0.isFinite && $0 > 0 ? $0 : nil })
             } else {
                 self = .unsupported(method)
             }

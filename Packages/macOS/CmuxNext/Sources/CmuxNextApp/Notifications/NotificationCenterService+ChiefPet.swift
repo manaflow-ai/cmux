@@ -10,11 +10,10 @@ extension NotificationCenterService {
     /// Showcase captures draw the app's own windows only, so they never start the pet.
     func followChiefPet(_ settings: SettingsController) {
         guard desktopPostingEnabled, let services, chiefPet == nil else { return }
-        let pet = ChiefPetRoutes(services: services).makePet()
+        let pet = ChiefPetRoutes(services: services).makePet(appEvents: services.appEvents)
         chiefPet = pet
-        pet.start(enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
-                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" },
-                  upload: { [weak services] in services?.wornUpload(of: nil)?.file })
+        pet.start(on: services.mainWork, enabled: { [weak settings] in settings?.snapshot.homeChiefPetEnabled ?? false },
+                  mascot: { [weak settings] in settings?.snapshot.homeChiefPetMascot ?? "" })
     }
 
     /// An arrival that stays unread goes to the Chief pet when it would alert here, by a banner's

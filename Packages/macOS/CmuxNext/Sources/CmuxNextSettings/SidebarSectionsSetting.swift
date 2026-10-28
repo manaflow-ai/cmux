@@ -1,4 +1,4 @@
-public import CmuxNextDesign
+public import CmuxNextDesignTokens
 
 /// Parses the sidebar section settings (`sidebar.*` in cmux.json). A
 /// missing key is its default; a bad value is the default plus a diagnostic.

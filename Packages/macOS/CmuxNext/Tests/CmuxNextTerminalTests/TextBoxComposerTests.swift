@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import Testing
 
 /// The TextBox composer (inventory row 23): a multi-line input under a terminal. Return sends its
@@ -38,8 +39,9 @@ struct TextBoxComposerTests {
 
     static func harness() throws -> Harness {
         _ = NSApplication.shared
+        GhosttyRuntime.startedForTests()
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -210,6 +212,21 @@ struct TextBoxComposerTests {
         #expect(harness.textBox.model.text == draft, "the model did not follow the undo")
         #expect(harness.window.tryToPerform(Selector(("undo:")), with: nil))
         #expect(view.string.isEmpty, "the second Undo did not take back the typing")
+    }
+
+    /// p03-rendering-069: a box shown without the keyboard lays out in the window's next pass; only a
+    /// focus reads the editor's frame in the turn.
+    @Test func aBoxShownWithoutTheKeyboardLaysOutInTheWindowsPass() throws {
+        let harness = try Self.harness()
+        defer { harness.close() }
+        let host = harness.session.view
+        harness.textBox.show(focus: false)
+        #expect(host.needsLayout, "showing the box forced a layout of the terminal in its own turn")
+        // sync-layout: the test reads the frames the window's pass would place.
+        host.layoutSubtreeIfNeeded()
+        #expect(harness.textBox.view.frame.height > 0)
+        #expect(harness.session.surfaceView.frame.minY >= harness.textBox.view.frame.maxY, "the terminal draws under the TextBox")
+        #expect(harness.window.firstResponder !== harness.textBox.textView, "a show without focus took the keyboard")
     }
 
     @Test func attachedFilesGoInAsShellQuotedPaths() {

@@ -1,8 +1,8 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextWakeups
 
-/// `debug.motion` `trace_*` (DEBUG builds): one window's animated geometry, sampled on each
+/// `debug.motion` `trace_*` (DEBUG and `CMUX_BENCH_HOOKS` builds, so the perf lab measures it): one window's animated geometry, sampled on each
 /// tick of that window's display link, for the golden-interactions motion guard
 /// (scripts/ci/frame-pacing/golden.py). A guard starts it, drives an interaction through the
 /// socket and stops it: an animation that ran shows as values that move over many frames;
@@ -31,6 +31,7 @@ final class MotionFrameTrace {
     }
 
     private var client: FrameClient?
+    // timer-class-allow: a debug trace's one 30 s backstop, made by Motion's static debug handler, which has no deadline scheduler seam
     private let expiry = DemandTimer(owner: "debug.motion.trace.expiry")
     private weak var window: NSWindow?
     private var views: [Traced] = []
@@ -56,7 +57,7 @@ final class MotionFrameTrace {
             }
             self.client = client
             client.activate()
-            expiry.schedule(after: Self.maximumRun) { @MainActor [weak self] in self?.stop() }
+            expiry.scheduleOnMain(after: Self.maximumRun) { [weak self] in self?.stop() }
             return ["running": true, "views": views.count]
         case "stop":
             let report = self.report(looping: true)

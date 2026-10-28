@@ -61,6 +61,7 @@ import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setNowPlaying } from "./newtab/nowPlaying";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
 import { HistoryScreen } from "./newtab/HistoryScreen";
+import { jumpParams } from "./newtab/inputAt";
 import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
@@ -432,6 +433,7 @@ import { continueTargets, mergedCommands, resolveHarnessTarget, type CmuxCommand
 import { canContinueIn, reviewingHandoff } from "./handoff/continueIn";
 import { importedPrompt, parseImportedSession } from "./importSession";
 import { useCheckpoints } from "./checkpoints/controller";
+import { CHECKPOINT_METHODS } from "./checkpoints/protocol";
 import { PermissionPanel } from "./permissions/Panel";
 import { groupAskedCalls, withoutAskedCalls } from "./permissions/askRows";
 import { withoutQuietThoughts } from "./conversation/thoughts";
@@ -476,8 +478,7 @@ import { setSessionStatus, useSessionStatus } from "./sessionStatus";
 import { MOTION_MS } from "../../motion/scale.generated";
 import { SHOWN_SCROLLER_ATTRIBUTE, followShownScrollerFade } from "../../scrollers";
 import { holdWebSwap, WEB_SWAP_KEPT_SCROLL } from "../../pages/shared/webSwap";
-import { SandboxTab, sandboxAgent, sandboxPageRefusal, sandboxRetryable, type RunMode } from "./sandboxRun";
-import { SandboxRunView } from "./SandboxRunView";
+import { RetryBackoff } from "../../pages/shared/retryBackoff";
 
 /// The changes view comes in its own chunk (bd cx-z9kz0): it carries the diff and file-tree
 /// packages, which a New Tab page never shows, so the page's first script parses without them.
@@ -6995,8 +6996,9 @@ function AcpmuxPane() {
     // behind it, never sent, is discarded.
     const discardUnsent = () => harnessSwitch.cancelDeferred();
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
-    let retryTimer: number | undefined;
-    let retryDelay = 250;
+    // The handshake's backoff rests while the page is hidden and tries once on show
+    // (retryBackoff.ts, p13-webui-069): a hidden pane asks Swift nothing.
+    const handshakeRetry = new RetryBackoff({ firstMs: 250, maxMs: 30_000 });
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
@@ -7227,9 +7229,7 @@ function AcpmuxPane() {
             setStartModeSource(undefined);
             directClient.current = undefined;
             delete window.cmuxAcpmuxActions;
-            setHostRetrying(true);
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+            handshakeRetry.schedule(() => void connectHost(), reconnect ? RECONNECT_MAX_DELAY_MS : undefined);
           },
           mock
             ? () => new MockAcpmuxSocket(undefined, window.cmuxAcpmuxMockScript) as unknown as WebSocket
@@ -7262,7 +7262,7 @@ function AcpmuxPane() {
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
         followHarnessChanges(client, queryClient, catalogClientId.current);
-        retryDelay = 250;
+        handshakeRetry.reset();
         // A mock session is not one the host can reopen.
         const persistSession = (sessionId?: string) =>
           sessionId && !mock
@@ -7774,6 +7774,12 @@ function AcpmuxPane() {
           "git.checkpoint.diff": ({ from, to }) => client.gitCheckpointDiff(String(from), String(to)),
           "git.commit": (params) => client.gitCommit(params),
           "git.push": (params) => client.gitPush(params),
+          ...Object.fromEntries(
+            CHECKPOINT_METHODS.map((method) => [
+              method,
+              (params: Record<string, unknown>) => client.gitCheckpoint(method, params),
+            ]),
+          ),
           "git.stage": ({ paths, unstage }) =>
             client.gitStage(Array.isArray(paths) ? paths.map(String) : [], unstage === true),
           "git.stageHunk": ({ paths, hunk, unstage }) =>
@@ -7805,6 +7811,8 @@ function AcpmuxPane() {
             return {
               ...composerHandle.current?.wakeState(),
               ...(anchor ? { scrollAnchor: anchor } : anchor === null ? { atLatest: true } : {}),
+              // A chat a pick started behind the page, no prompt sent: the host keeps the page.
+              ...(harnessSwitch.holdsDeferred ? { pendingChat: true } : {}),
             };
           },
         };
@@ -7919,14 +7927,8 @@ function AcpmuxPane() {
           setHostRetrying(hostIsReconnecting(error));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
-          // Another binary's daemon on this app's socket: the card offers Restart acpmux.
-          setAcpmuxRestartOffered(offersAcpmuxRestart(error));
-          // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
-          // in flight asks again itself when it ends.
-          if (restartGate.mayAsk()) {
-            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
-          }
+          // Back off so a host without a daemon is not asked four times a second.
+          handshakeRetry.schedule(() => void connectHost(), reconnect ? RECONNECT_MAX_DELAY_MS : undefined);
         }
       } finally {
         connecting = false;
@@ -7941,11 +7943,9 @@ function AcpmuxPane() {
     };
     // The user asked: try now, and let the host start a daemon even after one was lost.
     const retryNow = () => {
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
-      retryTimer = undefined;
+      handshakeRetry.cancel();
       reconnect = false;
-      retryDelay = 250;
-      setHostRetrying(true);
+      handshakeRetry.reset();
       void connectHost();
     };
     cancelRetry.current = () => {
@@ -7969,9 +7969,7 @@ function AcpmuxPane() {
       harnessSwitch.disconnect();
       setStartModeSource(undefined);
       retryHost.current = undefined;
-      cancelRetry.current = undefined;
-      setHostRetrying(false);
-      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      handshakeRetry.cancel();
       directClient.current?.close();
       directClient.current = undefined;
       setBookmarkTransport(undefined);
@@ -9880,7 +9878,7 @@ function AcpmuxPane() {
               {...(newTab.lastAgent ? { lastAgent: newTab.lastAgent } : {})}
               // A terminal or browser tab opens at once; a chat waits for acpmux (cx-hnpxh).
               onSubmit={newTabPageSubmit({ callNative, whenHandshaken, startChat: chatFromNewTab })}
-              onJump={(target, id) => void callNative("tab.jump", { target, id })}
+              onJump={(target, id, at) => void callNative("tab.jump", jumpParams(target, id, at))}
               onOpenSession={selectSession}
               onShowAll={showAllChats}
               onBrowseProject={() =>

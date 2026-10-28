@@ -11,13 +11,7 @@ import Testing
 @MainActor
 struct ThemedDialogControlsTests {
     @Test func newMessageDrawsTheThemeNotTheAccent() throws {
-        let list = HomeRecipientSuggestionsView(frame: NSRect(x: 0, y: 0, width: 380, height: 120))
-        // The list draws in its own neutral (no accent) theme: the app theme is process-wide, and a
-        // suite that applies an accent theme to it (the sidebar galleries' Soft Blue) left this
-        // check reading that theme's blue selection, which is the theme's fill, not the system's.
-        let scope = ThemeScope(level: .room)
-        scope.setOverride(ThemeSpec("neutral"), input: .ghosttyDefault, animated: false)
-        scope.root(list)
+        let list = HomeRecipientSuggestionsView(pictures: .testing(), frame: NSRect(x: 0, y: 0, width: 380, height: 120))
         list.show([.contact(HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team))])
         #expect(list.table.numberOfRows == 1)
         #expect(list.highlighted == 0)

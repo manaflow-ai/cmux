@@ -32,6 +32,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case framePacing([Double])
     /// Applies the page's adaptive rate decision; fixed-rate panes ignore it.
     case renderRate(Bool)
+    /// The page probe's key-to-paint histogram (`pane.keyToPaint`), sent only while the host has it on.
+    case keyToPaint(AgentPaneKeyToPaint)
     /// The new tab page chose a terminal or browser: replace the tab with
     /// one, running or opening `text` (a command, a URL or a search), a
     /// terminal in `cwd` when the page picked a folder.
@@ -81,8 +83,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// A local page's newest chats as JSON text (`newTab.warm {warm}`): the next New Tab page's
     /// context carries it (``AgentPaneNewTab/warm``), so its first frame lists them.
     case newTabWarm(String)
-    /// The location bar picked an open tab or workspace: go there.
-    case jump(AgentPaneJumpTarget, id: String)
+    /// The location bar picked an open tab or workspace: go there. `inputAt` is the page's click or Return that picked
+    /// it (`performance.timeOrigin + event.timeStamp`, Unix milliseconds), nil when the page sent none.
+    case jump(AgentPaneJumpTarget, id: String, inputAt: Double? = nil)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
     /// The new tab page asked the app to run a user facing action.

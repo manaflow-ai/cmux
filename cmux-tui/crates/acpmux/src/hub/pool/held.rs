@@ -34,15 +34,7 @@ pub(super) fn holding_tap(
                 if held.len() < HELD_CAP || !is_stderr_note(msg) {
                     held.push((dir, msg.clone(), host_seq));
                 }
-                drop(guard);
-                if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
-                    (dir, msg)
-                    && m == crate::rpc::method::SESSION_UPDATE
-                    && crate::hub::full_access_bound::StartReports::reports_full_access(params)
-                {
-                    reported();
-                }
-                true
+                Some(crate::agent::WriteTicket::done())
             }
             TapSlot::Live(live) => {
                 let live = live.clone();

@@ -1,0 +1,307 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/perf/result-v1",
+  "title": "cmux-perf-result/v1",
+  "description": "One perf-lab result: the raw samples of one metric of one story run, with the build, host, engine, session, resolved features and attachments that produced it (plans/cmux-next/chrome-parity/p12-perf-process.md section 3.4). Results are stored one JSON object per line in .ndjson files; scripts/perf-lab/perf_result.py writes and reads them. Every key is required so a writer states 'unknown' as null instead of leaving it out. The series key is (story, metric, engine, host.class, macOS major, build.config); features_hash, host.macos_build and safe_mode are point metadata only. run names the run that measured the samples, so two runs with equal samples stay two results (catapult's BENCHMARK_START / LABEL diagnostics, tracing/tracing/value/diagnostics/reserved_infos.py).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "run",
+    "story",
+    "metric",
+    "unit",
+    "better",
+    "samples",
+    "target_ref",
+    "build",
+    "host",
+    "engine",
+    "session",
+    "features",
+    "features_hash",
+    "safe_mode",
+    "attachments"
+  ],
+  "properties": {
+    "schema": {
+      "const": "cmux-perf-result/v1"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "started_at"
+      ],
+      "description": "The run that measured the samples. Every result of one run carries the same run; a retry of the same write (same id) is idempotent, a new run is a new result.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+          "description": "uuid4 hex by default, or the caller's stable attempt id (for example a controller job and attempt)."
+        },
+        "started_at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:([0-5][0-9]|60)(\\.[0-9]{1,9})?Z$",
+          "description": "RFC 3339 UTC start time of the run, for example 2026-10-25T12:00:00.123456Z."
+        }
+      }
+    },
+    "story": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "description": "Story id, the stem of scripts/perf-lab/stories.d/<id>.json."
+    },
+    "metric": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+      "description": "Metric row inside the story, for example cmd_w.light.key_to_frame. Existing report keys keep their names."
+    },
+    "unit": {
+      "description": "Export to catapult's histogram units (third_party/catapult/tracing/tracing/value/histogram.py UNIT_NAMES), as unit -> catapult unit x factor: ms -> ms, us -> ms x 1e-3, ns -> ms x 1e-6, s -> ms x 1e3, count -> count, ratio -> unitless, percent -> n% x 1e-2, bytes -> sizeInBytes, bytes_per_s -> bytesPerSecond, mW -> W x 1e-3, J -> J, Hz -> Hz, fps -> Hz, per_s -> Hz, score -> unitless, unitless -> unitless (perf_result.CATAPULT_UNITS).",
+      "enum": [
+        "ms",
+        "us",
+        "ns",
+        "s",
+        "count",
+        "ratio",
+        "percent",
+        "bytes",
+        "bytes_per_s",
+        "mW",
+        "J",
+        "Hz",
+        "fps",
+        "per_s",
+        "score",
+        "unitless"
+      ]
+    },
+    "better": {
+      "description": "catapult's improvement_direction: lower -> smallerIsBetter, higher -> biggerIsBetter.",
+      "enum": [
+        "lower",
+        "higher"
+      ]
+    },
+    "samples": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "number",
+        "minimum": -1.7976931348623157e+308,
+        "maximum": 1.7976931348623157e+308
+      },
+      "description": "Raw samples in run order, never pre-aggregated percentiles. Each fits a finite float64."
+    },
+    "target_ref": {
+      "description": "The target this metric is judged against: a targets.json id, or a key in an existing threshold file (floors are referenced, never copied; spec R4). null when the metric has no target.",
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "target"
+          ],
+          "properties": {
+            "target": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "key"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "pattern": "^(?!/)(?!.*(^|/)\\.\\.(/|$))[A-Za-z0-9._/-]+$",
+              "description": "Repository-relative path of the existing threshold file."
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha",
+        "config",
+        "measure_version"
+      ],
+      "properties": {
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "config": {
+          "enum": [
+            "debug",
+            "bench",
+            "bench-checks",
+            "release"
+          ],
+          "description": "Debug results are never compared with bench results: config is part of the series key."
+        },
+        "measure_version": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "PERF_LAB_MEASURE_VERSION of the harness that measured the build. As in 2020-12, 1.0 is an integer; the reader turns it into 1."
+        }
+      }
+    },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "fingerprint",
+        "class",
+        "chip",
+        "macos",
+        "macos_build",
+        "display_hz"
+      ],
+      "properties": {
+        "fingerprint": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$",
+          "description": "host_env.py fingerprint: sha256 of chip, macOS build, Hz and memory."
+        },
+        "class": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Host class (chip + memory + display Hz); excludes the macOS build."
+        },
+        "chip": {
+          "type": "string",
+          "minLength": 1
+        },
+        "macos": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]+(\\.[0-9]+){0,2}$",
+          "description": "macOS product version; null on a Linux host."
+        },
+        "macos_build": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[0-9]+[A-Z][0-9]+[a-z]?$",
+          "description": "macOS build, for example 25B78; null on a Linux host."
+        },
+        "display_hz": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0,
+          "maximum": 1.7976931348623157e+308,
+          "description": "Measured refresh rate of the display the story ran on; null for a headless story."
+        }
+      }
+    },
+    "engine": {
+      "enum": [
+        "chromium",
+        "webkit",
+        "none"
+      ]
+    },
+    "session": {
+      "type": "string",
+      "pattern": "^(light|stress|corpus:[A-Za-z0-9][A-Za-z0-9._-]*)$"
+    },
+    "features": {
+      "type": "object",
+      "description": "Resolved features of the measured build, with the source of each state. Empty when the build cannot list its features.",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "source"
+        ],
+        "properties": {
+          "state": {
+            "enum": [
+              "on",
+              "off"
+            ]
+          },
+          "source": {
+            "enum": [
+              "policy",
+              "env",
+              "local",
+              "remote",
+              "study",
+              "default"
+            ],
+            "description": "The resolution step that set the state (spec 3.9, highest first)."
+          }
+        }
+      }
+    },
+    "features_hash": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1,
+      "description": "The build's own features hash (the one hang reports carry); null when the build has no feature registry."
+    },
+    "safe_mode": {
+      "enum": [
+        "off",
+        "inactive",
+        "last_known_good",
+        "no_remote",
+        null
+      ],
+      "description": "off: disabled by CMUX_FEATURES_SAFE_MODE=off; inactive: enabled, not triggered; last_known_good / no_remote: Chrome's safe seed and null seed levels. null when the build does not report it."
+    },
+    "attachments": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "digest",
+          "kind"
+        ],
+        "properties": {
+          "digest": {
+            "type": "string",
+            "pattern": "^sha256:[0-9a-f]{64}$"
+          },
+          "kind": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]*$",
+            "description": "For example trace or histogram."
+          }
+        }
+      }
+    }
+  }
+}

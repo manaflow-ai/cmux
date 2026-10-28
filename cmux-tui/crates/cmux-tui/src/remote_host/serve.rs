@@ -5,11 +5,11 @@ use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, anyhow, bail};
+use cmux_process::{Command, Stdio};
 use serde_json::{Value, json};
 
 use super::admit::{self, Decision};
@@ -121,12 +121,9 @@ fn plain_ip(addr: SocketAddr) -> IpAddr {
 
 pub(crate) fn run(exe: PathBuf) -> anyhow::Result<()> {
     let ready = super::service::take_ready_signal();
-    // One listener per state directory; the OS drops the lock with the
-    // process, so `status` and `stop` never act on a stale pid. Taken before
-    // the config is read: a `config::commit` that saved before this sees the
-    // new config here, and one that saves after finds the lock held and
-    // restarts this listener, so none serves access a write already removed.
-    let _lock = super::service::acquire()?;
+    if let Some(note) = super::service::upgrade_installed_role() {
+        eprintln!("cmux host: {note}");
+    }
     let config = config::load()?;
     if !config.enabled {
         eprintln!("cmux host: remote hosting is disabled (run `cmux host enable`)");
@@ -399,7 +396,6 @@ pub(crate) fn ensure_session(exe: &Path, session: &str) -> anyhow::Result<PathBu
         let _ = (&mut stdout).take(1024 * 1024).read_to_end(&mut buf);
         buf
     });
-    use wait_timeout::ChildExt as _;
     let status = match child.wait_timeout(ENSURE_BOUND)? {
         Some(status) => status,
         None => {

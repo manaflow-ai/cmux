@@ -1,0 +1,9 @@
+kind = "custom-openai"
+openai_base_url = "https://llm.example.com/v1"
+auth = "bearer"
+secret = "env:LLM_TOKEN"
+fallback = ["subrouter"]
+auto_fallback = true
+[headers]
+x-team = "infra"
+authorization = "file:/run/token"

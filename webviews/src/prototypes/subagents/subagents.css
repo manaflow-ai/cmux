@@ -380,6 +380,11 @@
     -webkit-text-fill-color: var(--sa-text-3);
   }
 }
+/* Energy Saver and animations off (WebTheme.swift) hold every loop of this page as Reduce Motion does. */
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) .sa-shimmer {
+  animation: none;
+  -webkit-text-fill-color: var(--sa-text-3);
+}
 
 /* ---------- rows ---------- */
 
@@ -1361,6 +1366,9 @@
     animation: none;
   }
 }
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) .sa-rail-step[data-state="running"] {
+  animation: none;
+}
 .sa-steps {
   list-style: none;
   margin: 0;
@@ -1471,6 +1479,10 @@
     opacity: 0.6;
   }
 }
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) .sa-dots i {
+  animation: none;
+  opacity: 0.6;
+}
 .sa-typing-bubble {
   display: inline-flex;
   align-items: center;
@@ -1515,6 +1527,9 @@
   .sa-caret {
     animation: none;
   }
+}
+:root:is([data-cmux-energy="saver"], [data-cmux-motion="off"]) .sa-caret {
+  animation: none;
 }
 .sa-stream-fade {
   display: inline-block;

@@ -153,9 +153,10 @@ impl Client {
     }
 }
 
-/// config.json's `lastPermissionMode`, where an older build saved the latest
-/// mode pick as every new chat's start mode. Never written now.
-fn last_pick(dir: &Path) -> Value {
+/// The level of the person's latest mode pick, as config.json holds it.
+fn last_pick(daemon: &Hub, dir: &Path) -> Value {
+    // The pick reaches config.json on the config writer's thread.
+    daemon.flush_writes();
     let config: Value =
         serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
     config["lastPermissionMode"].clone()
@@ -184,7 +185,7 @@ async fn a_new_chat_starts_in_each_harness_full_access_mode() {
     let (_, mode) = app.chat(&dir, "plain").await;
     assert_eq!(mode, "normal");
     // The daemon set it: nothing was saved as a pick.
-    assert_eq!(last_pick(&dir), Value::Null);
+    assert_eq!(last_pick(&daemon, &dir), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -204,20 +205,35 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     // asks; the Codex chat and every new chat stay in full access.
     let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(app.mode(&claude).await, "default");
+    assert_eq!(last_pick(&daemon, &dir), json!("ask"));
     assert_eq!(app.mode(&codex).await, "agent-full-access");
-    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
-    assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    assert_eq!(app.chat(&dir, "claude").await.1, "default");
+    // Plan is a toggle, never the start mode.
+    let r = app.call("session/set_mode", json!({"sessionId": claude, "modeId": "plan"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(last_pick(&daemon, &dir), json!("ask"));
+    // The latest pick wins: Codex's own mode (agent) is "standard".
     let r = app.call("session/set_mode", json!({"sessionId": codex, "modeId": "agent"})).await;
     assert!(r.get("error").is_none(), "{r}");
-    assert_eq!(app.mode(&codex).await, "agent");
-    assert_eq!(last_pick(&dir), Value::Null);
+    assert_eq!(last_pick(&daemon, &dir), json!("standard"));
     drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     // After a restart (config.json read again) new chats start in the default too.
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    let (claude, mode) = app.chat(&dir, "claude").await;
+    assert_eq!(mode, "default");
+    // Back to full access: every new chat starts there again.
+    let r = app
+        .call("session/set_mode", json!({"sessionId": claude, "modeId": "bypassPermissions"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(last_pick(&daemon, &dir), json!("fullAccess"));
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     let answer = start_mode(&mut app, &dir, "claude").await;
     assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
@@ -230,9 +246,10 @@ async fn a_pick_in_a_chat_holds_for_that_chat_and_new_chats_start_in_the_default
     let (chat, _) = agent.chat(&dir, "claude").await;
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "default"})).await;
     assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(last_pick(&daemon, &dir), json!("fullAccess"));
     let r = agent.call("session/set_mode", json!({"sessionId": chat, "modeId": "auto"})).await;
     assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{r}");
-    assert_eq!(last_pick(&dir), Value::Null);
+    assert_eq!(last_pick(&daemon, &dir), json!("fullAccess"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -267,6 +284,8 @@ async fn the_setting_chooses_ask_or_the_harness_own_mode() {
     assert_eq!(app.chat(&dir, "claude").await.1, "default");
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     let dir = home("standard", json!({"defaultPermissionMode": "standard"}));
@@ -330,7 +349,7 @@ async fn start_mode_answer_is_the_mode_a_new_chat_then_starts_in() {
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");
 
     // Asking changes nothing.
-    assert_eq!(last_pick(&dir), Value::Null);
+    assert_eq!(last_pick(&daemon, &dir), json!("ask"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -368,7 +387,7 @@ async fn start_mode_answer_ignores_picks_in_preset_and_remote_chats() {
     let r = app.call("session/set_mode", json!({"sessionId": remote, "modeId": "ask"})).await;
     assert!(r.get("error").is_none(), "{r}");
 
-    assert_eq!(last_pick(&dir), Value::Null);
+    assert_eq!(last_pick(&daemon, &dir), Value::Null);
     let answer = start_mode(&mut app, &dir, "claude").await;
     assert_eq!(answer["modeId"], "bypassPermissions", "{answer}");
     assert_eq!(app.chat(&dir, "claude").await.1, "bypassPermissions");

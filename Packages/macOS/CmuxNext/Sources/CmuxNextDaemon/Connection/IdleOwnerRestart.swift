@@ -1,5 +1,8 @@
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A restart of a conversation owner that may run only while the owner is idle
 /// (`OwnerIdleProbe`): a DEV app's one install-key restart of its keyless Chief
@@ -26,10 +29,7 @@ public actor IdleOwnerRestart {
     /// A probe runs now. One attempt that came meanwhile waits here and probes next (its event
     /// may have come after the running probe read the owner); later ones are covered by it.
     private var probing = false
-    private var queued: [CheckedContinuation<Void, Never>] = []
-    /// One attempt when the youngest client without a kind stops counting as a call. One-shot;
-    /// cancelled once the outcome is decided, and with this actor (`DemandTimer.deinit`).
-    private let callEnds = DemandTimer(owner: "idle-owner-restart.call")
+    private var queued: [OnceContinuation<Void, OnceContinuationError>] = []
 
     public init(probe: OwnerIdleProbe, restart: @escaping @Sendable () async -> Bool) {
         self.probe = probe
@@ -46,7 +46,7 @@ public actor IdleOwnerRestart {
         if probing {
             guard queued.isEmpty else { return outcome }
             // The running probe hands over to this one when it ends (`probing` stays true).
-            await withCheckedContinuation { queued.append($0) }
+            _ = try? await withOnceContinuation { (handover: OnceContinuation<Void, OnceContinuationError>) in queued.append(handover) }
             guard outcome == .waiting else {
                 finishProbe()
                 return outcome
@@ -73,7 +73,7 @@ public actor IdleOwnerRestart {
         if queued.isEmpty {
             probing = false
         } else {
-            queued.removeFirst().resume()
+            queued.removeFirst().resume(returning: ())
         }
     }
 

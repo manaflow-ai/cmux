@@ -23,6 +23,7 @@ import {
   type Density,
 } from "../density";
 import { t } from "../strings";
+import { useUnsavedForm } from "../unsavedForm";
 
 const EXACT: ReadonlyArray<keyof typeof PAIRS> = ["sidebarRowHeight", "tabHeight", "itemCornerRadius", "iconSize"];
 
@@ -122,6 +123,9 @@ export function DensityCard() {
   const [importText, setImportText] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const editing = draft ?? customs.find((item) => item.id === current) ?? null;
+  const saved = draft && customs.find((item) => item.id === draft.id);
+  const draftUnsaved = draft !== null && (!saved || JSON.stringify(toJSON(draft)) !== JSON.stringify(toJSON(saved)));
+  useUnsavedForm("density", draftUnsaved || (importing && importText.trim() !== ""));
 
   const choose = (density: Density) => {
     setDraft(null);

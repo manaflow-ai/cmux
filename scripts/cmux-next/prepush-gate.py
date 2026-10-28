@@ -73,6 +73,21 @@ json's own totals; its rule modules (arch_rules/, the layer gate) refuse what th
 starts on a thread before the scanners, so a push pays what is left of it at the guardrails (its cost is the
 Swift files it reads and analyzes; --timings prints the wait). Its one escape is a dated exception in
 arch-ratchet.json; --no-guardrails turns it off for a manual run; it fails open.
+Also local only: "Baseline paths follow renames" (follow-renames.py --check): refuses a push whose own commits leave
+an entry of a path-keyed baseline (crash allowlist, main-actor work, OWNERS.md, the route table and the rest of its
+REGISTRY) naming no tracked file, the trace of a `git mv` that did not run follow-renames.py --from-git or
+move-app-files.py. Entries already stale at the base pass. --no-guardrails turns it off; it fails open (only
+follow-renames' exit 1 with its findings header refuses; its exit 2, any failure, warns).
+Also local only: "p10 settings only through the lander" (apply-stability-settings.py --verify-commits, p10-stability-198):
+refuses a push whose own commits change a closure Package.swift's p10 settings (the generated block, the
+stabilitySwiftSettings literal, the tools version, a lander-only setting or a setting a stability-settings.json row
+names) outside a lander commit, or a lander commit that is not the rewrite of its rows. It fails open.
+These local-only rules (and the perf cron tests and the compile trailer) are the LOCAL_TIER table; local_tier_off()
+is the one switch: never under GITHUB_ACTIONS, --commits or --only, and not with --no-guardrails (p10-stability-199).
+A rule CI must not gate on (p10's new classes) joins that table or guardrails.py, never SCANNERS.
+Renames: the scanners check a renamed file at its old path in the base tree and the crash data that followed a
+rename needs no trailer, so a pure move adds none of their findings. The guardrails do not credit renames yet (they
+diff with --no-renames), so a moved file's existing guardrail debt still reads as new there.
 
 Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
 the app size cap, script tests, Swift and Rust builds and tests.
@@ -104,6 +119,7 @@ import time
 import urllib.request
 import zipfile
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 DEFAULT_BASE_REFS = ("origin/feat-cmux-next",)
 PKG = "Packages/macOS/CmuxNext"
@@ -268,6 +284,32 @@ def changed_files(repo: Path, base: str, head: str) -> list[str]:
     return sorted(n for n in names.split("\0") if n and n.startswith(SCOPES + ("Packages/Shared/", "cmux-next-ios/")))
 
 
+def renamed_files(repo: Path, base: str, head: str, changed: list[str]) -> dict[str, str]:
+    """{new path: old path} for the CHANGED files git sees as renames over BASE (move-app-files.py moves): the base
+    tree checks the old file at its old path, and its findings count as the new path's, so a pure move adds none."""
+    out = git(repo, "diff", "--name-status", "-M", "--diff-filter=R", "-z", base, head).decode().split("\0")
+    wanted, renamed = set(changed), {}
+    for i in range(0, len(out) - 2, 3):
+        if out[i].startswith("R") and out[i + 2] in wanted:
+            renamed[out[i + 2]] = out[i + 1]
+    return renamed
+
+
+def moved_spelling(text: str, renamed: dict[str, str]) -> str:
+    """TEXT (a base finding) with each renamed file's old path spelled as its new one, in every form a check prints:
+    the repository path and the path under the package's Sources/ or Tests/ (which every longer form contains)."""
+    for new, old in renamed.items():
+        for prefix in (PKG + "/Sources/", PKG + "/Tests/"):
+            if old.startswith(prefix) and new.startswith(PKG + "/"):
+                old_tail = old[len(prefix):]
+                new_tail = new[len(PKG + "/Sources/"):] if new.startswith(PKG + "/Sources/") else new[len(PKG + "/Tests/"):]
+                text = re.sub(r"(?<![\w.+@-])" + re.escape(old_tail) + r"(?![\w+@-])", lambda _m, n=new_tail: n, text)
+                break
+        else:
+            text = re.sub(r"(?<![\w.+@/-])" + re.escape(old) + r"(?![\w+@-])", lambda _m, n=new: n, text)
+    return text
+
+
 # ---------------------------------------------------------------- pinned tools
 
 def platform_key() -> str:
@@ -353,7 +395,7 @@ def ls_tree(repo: Path, rev: str, prefix: str) -> list[str]:
 
 
 def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path,
-                trusted_scripts: Path | None = None) -> tuple[Path, Path]:
+                trusted_scripts: Path | None = None, renamed: dict[str, str] | None = None) -> tuple[Path, Path]:
     # The check scripts and their data sit at the top of scripts/cmux-next (plus lint/); its test,
     # release and harness subfolders are not read by any check and would only slow the copy.
     scripts = [] if trusted_scripts else [p for p in ls_tree(repo, head, SCRIPTS + "/")
@@ -369,6 +411,9 @@ def build_trees(repo: Path, base: str, head: str, changed: list[str], work: Path
             files[p] = rev
         for p in changed:
             files[p] = rev
+        if side == "base":
+            for old in (renamed or {}).values():
+                files[old] = rev
         dest = work / side
         write_tree(repo, dest, files)
         if trusted_scripts:
@@ -439,8 +484,11 @@ class Finding(str):
         return finding
 
 
-def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path) -> list[str]:
-    seen = collections.Counter(normalize(r, base_tree) for r in records(base_out))
+def new_records(base_out: str, head_out: str, base_tree: Path, head_tree: Path,
+                renamed: dict[str, str] | None = None) -> list[str]:
+    """HEAD_OUT's findings that BASE_OUT does not have; a renamed file's base findings count under its new path."""
+    # Keyed at the old path (normalize reads the source line from the base tree), then spelled as the new one.
+    seen = collections.Counter(moved_spelling(normalize(r, base_tree), renamed or {}) for r in records(base_out))
     fresh = []
     for record in records(head_out):
         key = normalize(record, head_tree)
@@ -548,9 +596,82 @@ def _rows(data: object, prefix: tuple = ()) -> dict[tuple, int]:
     return {prefix: data} if isinstance(data, int) and not isinstance(data, bool) else {}
 
 
-def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str | None, dict, dict]]:
+def commit_renames(repo: Path, sha: str) -> dict[str, str]:
+    """{new path: old path} for the files commit SHA renames (git's rename detection against its parent)."""
+    out = git(repo, "diff", "--name-status", "-M", "-z", sha + "^", sha, check=False).decode(errors="replace").split("\0")
+    renamed, i = {}, 0
+    while i < len(out) and out[i]:
+        if out[i].startswith(("R", "C")):
+            if out[i].startswith("R"):
+                renamed[out[i + 2]] = out[i + 1]
+            i += 3
+        else:
+            i += 2
+    return renamed
+
+
+class CrashMoves(NamedTuple):
+    """What a commit's renames carried in the crash data, with no raise: baseline row -> change (the source module's
+    row down, the destination's up by as much), and allowlist key at the old path -> key at the new path."""
+    rows: dict[tuple, int]
+    allow: dict[tuple, tuple]
+
+
+def followed_moves(allow: dict[tuple, dict], old: dict[tuple, dict], new: dict[tuple, dict],
+                   renamed: dict[str, str]) -> tuple[dict[tuple, dict], dict[tuple, tuple]]:
+    """(ALLOW less the entries that only followed their file's rename (follow-renames.py, move-app-files.py), {old key:
+    new key} of those): the old path's entry of the same class is gone and the count did not rise. A reviewed
+    allowance moves with its code."""
+    out, moved = {}, {}
+    for (path, cls), entry in allow.items():
+        was = (renamed.get(path), cls)
+        if was[0] and was in old and was not in new and (entry.get("count") or 0) <= (old[was].get("count") or 0):
+            moved[was] = (path, cls)
+            continue
+        out[(path, cls)] = entry
+    return out, moved
+
+
+def swift_module(path: str) -> str | None:
+    """The Swift module of a source path, as crash_ratchet.py keys its rows: the folder under `Sources/`."""
+    parts = path.split("/")
+    return parts[parts.index("Sources") + 1] if "Sources" in parts[:-2] and path.endswith(".swift") else None
+
+
+def followed_rows(rows: dict[tuple, int], old_rows: dict[tuple, int], new_rows: dict[tuple, int],
+                  renamed: dict[str, str]) -> tuple[dict[tuple, int], dict[tuple, int]]:
+    """(ROWS less the rises the commit's renames account for, {row: change} of those carried moves). A raised row
+    (section..., class, module) is carried when files renamed from module S into its module and S's row of the same
+    section and class went down by at least as much (crash_ratchet.py --update-baseline --base: the same lines moved
+    module). Each drop carries one rise only, so the class's total over its modules does not rise."""
+    pairs = sorted({(swift_module(old), swift_module(new)) for new, old in renamed.items()
+                    if swift_module(old) and swift_module(new) and swift_module(old) != swift_module(new)})
+    if not pairs:
+        return rows, {}
+    budget = {k: v - new_rows.get(k, 0) for k, v in old_rows.items() if new_rows.get(k, 0) < v}
+    left, carried = {}, {}
+    for row, value in sorted(rows.items()):
+        need = value - old_rows.get(row, 0)
+        for source, target in pairs:
+            if target != row[-1] or need <= 0:
+                continue
+            source_row = row[:-1] + (source,)
+            take = min(need, budget.get(source_row, 0))
+            if take:
+                budget[source_row] -= take
+                need -= take
+                carried[source_row] = carried.get(source_row, 0) - take
+                carried[row] = carried.get(row, 0) + take
+        if need > 0:
+            left[row] = value
+    return left, carried
+
+
+def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str | None, dict, dict, CrashMoves]]:
     """Per non-merge commit of BASE..HEAD that changes the crash data: (sha, subject, its Crash-allow-OK trailer or
-    None, {allowlist key: entry added or raised}, {baseline row: value raised}), against the commit's own parent."""
+    None, {allowlist key: entry added or raised}, {baseline row: value raised}, what its renames carried), against
+    the commit's own parent. A pure move's allowlist entries and module rows follow its files (followed_moves,
+    followed_rows): they are in neither raise map and need no trailer."""
     out = git(repo, "log", "--reverse", "--no-merges", "--format=%x1e%H%x1f%B", f"{base}..{head}", "--",
               CRASH_ALLOWLIST, CRASH_BASELINE, check=False).decode(errors="replace")
     found = []
@@ -563,17 +684,24 @@ def crash_raises(repo: Path, base: str, head: str) -> list[tuple[str, str, str |
         allow = {k: e for k, e in new.items() if k not in old or (e.get("count") or 0) > (old[k].get("count") or 0)}
         old_rows, new_rows = _rows(_json_at(repo, sha + "^", CRASH_BASELINE)), _rows(_json_at(repo, sha, CRASH_BASELINE))
         rows = {k: v for k, v in new_rows.items() if v > old_rows.get(k, 0)}
+        carried = CrashMoves({}, {})
         if allow or rows:
+            renamed = commit_renames(repo, sha)
+            allow, moved_allow = followed_moves(allow, old, new, renamed)
+            rows, moved_rows = followed_rows(rows, old_rows, new_rows, renamed) if rows else (rows, {})
+            carried = CrashMoves(moved_rows, moved_allow)
+        if allow or rows or carried.rows or carried.allow:
             trailer = CRASH_OK.search(message)
             subject = message.strip().splitlines()[0] if message.strip() else ""
-            found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows))
+            found.append((sha, subject, trailer.group(1).strip() if trailer else None, allow, rows, carried))
     return found
 
 
 def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Path) -> list[str]:
     """Write into SCRIPTS_DIR (the head tree's installed scripts) the crash data raises of the pushed commits that
     carry a Crash-allow-OK trailer, over the installed files; a raise without one stays out, so it is still refused.
-    Returns what was taken, one line each, for the gate to print."""
+    What a commit's renames carried (CrashMoves) is written with or without a trailer: an allowance moves to the new
+    path, a row moves between modules. Returns what was taken, one line each, for the gate to print."""
     taken: list[str] = []
     allow_path, baseline_path = scripts_dir / Path(CRASH_ALLOWLIST).name, scripts_dir / Path(CRASH_BASELINE).name
     try:
@@ -582,7 +710,21 @@ def apply_reviewed_crash_data(repo: Path, base: str, head: str, scripts_dir: Pat
     except (OSError, ValueError):
         return taken
     changed = False
-    for sha, subject, trailer, allow, rows in crash_raises(repo, base, head):
+    for sha, subject, trailer, allow, rows, carried in crash_raises(repo, base, head):
+        # What renames carried applies without a trailer: the same lines changed path or module.
+        for row, change in carried.rows.items():
+            node = baseline
+            for part in row[:-1]:
+                node = node.setdefault(part, {}) if isinstance(node, dict) else None
+            if isinstance(node, dict):
+                node[row[-1]] = max(0, (node.get(row[-1]) or 0) + change)
+                taken.append(f"{sha[:11]} (moved files): baseline {'.'.join(row)} {change:+d}")
+        for was, now in carried.allow.items():
+            for e in allow_data.setdefault("allow", []):
+                if isinstance(e, dict) and (e.get("path"), e.get("class")) == was:
+                    e["path"] = now[0]
+                    taken.append(f"{sha[:11]} (moved files): allow {was[1]} follows {was[0]} to {now[0]}")
+        changed = changed or bool(carried.rows or carried.allow)
         if trailer is None:
             continue
         entries = [e for e in allow_data.setdefault("allow", []) if isinstance(e, dict)]
@@ -609,7 +751,7 @@ def crash_allow_unreviewed(repo: Path, base: str, head: str) -> list[str]:
     return [f"{sha[:11]} {subject[:70]}: adds {', '.join(f'{k[1]} in {k[0]}' for k in list(allow)[:3])}"
             f"{f' and {len(allow) - 3} more' if len(allow) > 3 else ''} to {CRASH_ALLOWLIST} without a "
             "`Crash-allow-OK: <reviewer or review id>` trailer"
-            for sha, subject, trailer, allow, _ in crash_raises(repo, base, head) if allow and trailer is None]
+            for sha, subject, trailer, allow, _, _ in crash_raises(repo, base, head) if allow and trailer is None]
 
 
 def reserved_keys(repo: Path, base: str, head: str, trusted_scripts: Path | None = None) -> list[str]:
@@ -812,7 +954,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
     started = time.monotonic()
     found: list[tuple[str, list[str]]] = list(reserved)
     with tempfile.TemporaryDirectory(prefix="cmux-prepush-") as tmp:
-        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts)
+        renamed = renamed_files(repo, base, head, changed)
+        base_tree, head_tree = build_trees(repo, base, head, changed, Path(tmp), trusted_scripts, renamed)
         # The tool rules and pins come from the head; a commit older than the gate uses the checkout's.
         config_root = head_tree if (head_tree / SCRIPTS / "lint-tools.lock").is_file() else repo
         lint = config_root / SCRIPTS / "lint"
@@ -842,6 +985,8 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                 code, out = run(fill(job[1], tree), tree)
             else:
                 _, fn, binary, config, files = job
+                if tree == base_tree:
+                    files = [renamed.get(f, f) for f in files]
                 out = fn(binary, config, tree, files)
                 code = 1 if out else 0
             return code, out, time.monotonic() - t0
@@ -861,7 +1006,7 @@ def gate(repo: Path, base: str, head: str, only: set[str] | None, timings: bool,
                     log(f"--- {name} (head exit {head_code})\n{head_out}")
                 if head_code == 0:
                     continue  # passing on the head: what it prints is a warning tier, as in CI
-                fresh = new_records(base_out, head_out, base_tree, head_tree)
+                fresh = new_records(base_out, head_out, base_tree, head_tree, renamed)
                 if fresh:
                     found.append((name, fresh))
     if timings:
@@ -1080,12 +1225,179 @@ def perf_cron_tests(repo: Path, ranges: list) -> bool:
     return refused
 
 
+FOLLOW_RENAMES = "follow-renames.py"
+FOLLOW_RENAMES_TIMEOUT = 60
+# follow-renames.py STALE_HEADER: the first line of a --check refusal.
+STALE_HEADER = "follow-renames: these baseline entries name no tracked file"
+
+
+def can_leave_stale_paths(repo: Path, base: str, head: str, script: Path) -> bool:
+    """Whether BASE..HEAD deletes or renames a file, or edits a path-keyed file (follow-renames.py --list): only
+    those leave an entry naming nothing, so every other push skips the scan (it reads every tracked path)."""
+    try:
+        listed = subprocess.run([sys.executable, "-I", str(script), "--list"], capture_output=True, text=True,
+                                timeout=FOLLOW_RENAMES_TIMEOUT, stdin=subprocess.DEVNULL).stdout.split()
+        out = git(repo, "diff", "--name-status", "-M", "-z", base, head, check=False).decode(errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return True
+    fields = out.split("\0")
+    i = 0
+    while i < len(fields) and fields[i]:
+        status = fields[i]
+        width = 3 if status[:1] in ("R", "C") else 2
+        if status[:1] in ("D", "R") or fields[i + 1] in listed or fields[i + width - 1] in listed:
+            return True
+        i += width
+    return False
+
+
+def stale_baseline_paths(repo: Path, ranges: list, trusted_scripts: Path | None) -> bool:
+    """follow-renames.py --check on each pushed head; True when the push's own commits leave a stale baseline path.
+
+    An entry counts only when its head names nothing and neither the base nor any range the push does not own (a
+    merged origin/feat-cmux-next) already had it stale. The hook runs the installed copy, a manual run this
+    checkout's. Local only, like the guardrails; it fails open (a git error or a missing copy warns)."""
+    script = (trusted_scripts or repo / SCRIPTS) / FOLLOW_RENAMES
+    if not script.is_file():
+        log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} is not installed; rerun scripts/install-git-hooks.sh. Baseline "
+            "paths were not checked.")
+        return False
+    refused = False
+    for own in ranges:
+        bases = [own.base, *(a for _, a in own.before)]
+        if not can_leave_stale_paths(repo, own.base, own.head, script):
+            continue
+        cmd = [sys.executable, "-I", str(script), "--repo", str(repo), "--check", "--rev", own.head]
+        for base in bases:
+            cmd += ["--base", base]
+        try:
+            done = subprocess.run(cmd, capture_output=True, text=True, timeout=FOLLOW_RENAMES_TIMEOUT, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check did not run ({type(error).__name__}: {error}); not "
+                "applied to this push.")
+            continue
+        # A refusal is exit 1 with the findings' header; anything else (exit 2, a traceback) is a failure.
+        if done.returncode == 1 and done.stdout.startswith(STALE_HEADER):
+            log(f"prepush-gate: at {own.head[:12]}: {done.stdout.strip()}")
+            refused = True
+        elif done.returncode != 0:
+            log(f"prepush-gate: WARNING: {FOLLOW_RENAMES} --check failed (exit {done.returncode}: "
+                f"{(done.stderr or done.stdout).strip()[-400:]}); not applied to this push.")
+    return refused
+
+
+STABILITY_LANDER = "apply-stability-settings.py"
+STABILITY_LANDER_TIMEOUT = 60
+
+
+def stability_settings(repo: Path, ranges: list, trusted_scripts: Path | None) -> bool:
+    """apply-stability-settings.py --verify-commits on each pushed head's own commits that change a Package.swift;
+    True when one changes p10 settings outside a lander commit (p10-stability-198).
+
+    Rows the lander has not applied yet are the normal state between lander runs, so staleness is not judged. The
+    hook runs the installed copy, a manual run this checkout's. Local only; it fails open (exit 2 or a failure
+    warns)."""
+    script = (trusted_scripts or repo / SCRIPTS) / STABILITY_LANDER
+    if not script.is_file():
+        return False
+    refused = False
+    for own in ranges:
+        try:
+            changed = subprocess.run(["git", "-C", str(repo), "diff", "--name-only", own.base, own.head, "--",
+                                      "*Package.swift"], capture_output=True, text=True, check=True).stdout.strip()
+            if not changed:
+                continue
+            spec = f"{own.base}..{own.head}" + "".join(f" ^{after}" for _, after in own.before)
+            done = subprocess.run([sys.executable, "-I", str(script), "--repo", str(repo), "--rev", own.head,
+                                   "--verify-commits", spec], capture_output=True, text=True,
+                                  timeout=STABILITY_LANDER_TIMEOUT, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.SubprocessError) as error:
+            log(f"prepush-gate: WARNING: {STABILITY_LANDER} --verify-commits did not run ({type(error).__name__}: "
+                f"{error}); not applied to this push.")
+            continue
+        if done.returncode == 1:
+            log(f"prepush-gate: at {own.head[:12]}, p10 Package.swift settings change outside the lander; add a row to "
+                f"scripts/cmux-next/stability-settings.json instead:\n{done.stderr.strip()}")
+            refused = True
+        elif done.returncode != 0:
+            log(f"prepush-gate: WARNING: {STABILITY_LANDER} --verify-commits failed (exit {done.returncode}: "
+                f"{(done.stderr or done.stdout).strip()[-400:]}); not applied to this push.")
+    return refused
+
+
+class LocalContext(NamedTuple):
+    """What a LOCAL_TIER rule reads: the push's own ranges (push_range.OwnRange), the installed checks copy for the
+    hook, the hook's pushed-ref lines and remote (the compile trailer), and start_guardrails()'s result (started
+    before the scanners, so the arch ratchet runs beside them)."""
+    repo: Path
+    ranges: list
+    trusted_scripts: Path | None
+    pushed_lines: list[str]
+    push_range: object
+    remote: str
+    started_guardrails: tuple
+
+
+class LocalRule(NamedTuple):
+    """A rule of the local-only tier: run by the hook and a plain run, never by CI (local_tier_off)."""
+    name: str
+    run: Callable[[LocalContext], bool]  # True: the push is refused
+    note: Callable[[LocalContext], str] = lambda _ctx: ""  # appended to its --timings line
+
+
+def _arch_ratchet_wait(ctx: LocalContext) -> str:
+    waited = getattr(ctx.started_guardrails[1], "waited", None)
+    return f"; of it {waited:.2f}s waiting for the arch ratchet" if isinstance(waited, float) else ""
+
+
+# The local-only tier (plans/cmux-next/chrome-parity/p10-stability.md, implementer rule 1; Lawrence 2026-10-23: no
+# new CI gates). CI runs this script too (--commits, and --base/--head on pull requests and car guards), so a rule
+# that judges debt CI does not gate on goes here and nowhere else; p10's new classes (raw continuations, SAFETY-TODO,
+# target settings, the Rust ast-grep rules) are guardrails.py rules for that reason.
+LOCAL_TIER = (
+    LocalRule("guardrails (line rules, and the arch ratchet's wait left: it ran next to the scanners)",
+              lambda ctx: guardrails(ctx.repo, ctx.ranges, ctx.started_guardrails), _arch_ratchet_wait),
+    LocalRule("perf cron tests", lambda ctx: perf_cron_tests(ctx.repo, ctx.ranges)),
+    LocalRule("baseline paths follow renames", lambda ctx: stale_baseline_paths(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
+    LocalRule("compile trailer", lambda ctx: compile_trailer(
+        ctx.repo, compile_ranges(ctx.repo, ctx.pushed_lines, ctx.push_range, ctx.remote), ctx.trusted_scripts)),
+    LocalRule("p10 settings only through the lander", lambda ctx: stability_settings(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
+)
+
+
+def local_tier_off(args: argparse.Namespace) -> str | None:
+    """Why this run skips LOCAL_TIER, or None when it runs it (the hook and a plain run). CI's runs (GITHUB_ACTIONS,
+    the --commits sweep) never run it, so CI gains no gate; --only names CI's layers, --no-guardrails is a manual
+    run's switch."""
+    if args.commits:
+        return "--commits"
+    if os.environ.get("GITHUB_ACTIONS"):
+        return "GITHUB_ACTIONS"
+    if args.only:
+        return "--only"
+    if args.no_guardrails:
+        return "--no-guardrails"
+    return None
+
+
+def run_local_tier(ctx: LocalContext, timings: bool) -> bool:
+    """Every LOCAL_TIER rule on CTX, in order (each prints its own findings); True when one refuses."""
+    refused = False
+    for rule in LOCAL_TIER:
+        t0 = time.monotonic()
+        refused = rule.run(ctx) or refused
+        if timings:
+            log(f"  {time.monotonic() - t0:5.2f}s  {rule.name}{rule.note(ctx)}")
+    return refused
+
+
 # guardrails.py loads count-swift-code-lines.py (CI's lexer) from the installed copy: an old one counts
-# source lines unlike CI's check-app-size.sh. push_range.py decides which commits are the push's own, for the
+# source lines unlike CI's check-app-size.sh. Its wakeup-ext rule loads wakeup-audit.py and, through it,
+# check-concurrency.sh (the Swift wakeup rules). push_range.py decides which commits are the push's own, for the
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py")
+                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh")
 RULES_SUBDIR = "arch_rules"
 
 
@@ -1213,6 +1525,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1 if fresh else 0
 
     if args.commits:
+        # CI's per-commit sweep: the CI checks only, never LOCAL_TIER (local_tier_off names --commits).
         commits = git(repo, "rev-list", "--reverse", "--no-merges", args.commits).decode().split()
         bad = 0
         for sha in commits:
@@ -1250,36 +1563,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     for own in ranges:
         log(f"prepush-gate: judging {own.describe()}")
-    # Local only: CI runs this script too (--commits, and --base/--head on pull requests), and must gain no gate.
-    local_only = not args.no_guardrails and not os.environ.get("GITHUB_ACTIONS") and only is None
-    started_guardrails = start_guardrails(repo, ranges, trusted_scripts) if local_only else None
+    off = local_tier_off(args)
+    if off:
+        log(f"prepush-gate: the local-only tier does not run here ({off})")
+    local = None if off else LocalContext(repo, ranges, trusted_scripts, pushed_lines, push_range, args.remote,
+                                          start_guardrails(repo, ranges, trusted_scripts))
     found_any = []
     for own in ranges:
         found_any += gate_own(repo, own, only, args.timings, trusted_scripts)
     if args.pre_push and trusted_scripts:
         stale_hook_warning(repo, trusted_scripts)
-    guarded = False
-    if local_only:
-        t0 = time.monotonic()
-        guarded = guardrails(repo, ranges, started_guardrails)
-        if args.timings:
-            ratchet = started_guardrails[1]
-            waited = getattr(ratchet, "waited", None)
-            log(f"  {time.monotonic() - t0:5.2f}s  guardrails (line rules, and the arch ratchet's wait left: it "
-                "ran next to the scanners)"
-                + (f"; of it {waited:.2f}s waiting for the arch ratchet" if isinstance(waited, float) else ""))
-        t0 = time.monotonic()
-        guarded = perf_cron_tests(repo, ranges) or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  perf cron tests")
-        t0 = time.monotonic()
-        guarded = compile_trailer(repo, compile_ranges(repo, pushed_lines, push_range, args.remote), trusted_scripts) or guarded
-        if args.timings:
-            log(f"  {time.monotonic() - t0:5.2f}s  compile trailer")
+    guarded = run_local_tier(local, args.timings) if local is not None else False
     elapsed = time.monotonic() - started
     if not found_any:
         if guarded:
-            print(f"prepush-gate: push refused by the guardrails, the perf cron tests or the compile trailer ({elapsed:.1f}s)")
+            print("prepush-gate: push refused by the guardrails, the perf cron tests, a stale baseline path, the compile "
+                  f"trailer or a p10 setting outside the lander ({elapsed:.1f}s)")
             return 1
         print(f"prepush-gate: no new violations ({elapsed:.1f}s)")
         return 0

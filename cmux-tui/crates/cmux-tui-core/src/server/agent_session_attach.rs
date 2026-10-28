@@ -6,14 +6,17 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
+use crate::server::request_hang_watch::ipc_reply;
+use cmux_threads::checked::sync as waits;
+use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Weak};
 use std::time::Duration;
 
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 #[path = "agent_session_children.rs"]
 pub(super) mod agent_session_children;
@@ -27,7 +30,8 @@ pub(super) mod agent_session_start;
 mod agent_session_trust;
 #[path = "agent_session_inventory_socket.rs"]
 mod inventory_socket;
-use super::{MessageWriter, OutboundStream, Response, SurfaceId, send_response};
+use super::routes::{Route, RouteLine, RouteName};
+use super::{FrameStage, MessageWriter, OutboundStream, Response, SurfaceId, send_response};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
 use agent_session_link::{AcpmuxLink, Inbound, LinkError};
@@ -69,7 +73,6 @@ const MAX_EARLY: usize = 256;
 pub(crate) const MAX_PAGE_BYTES: usize = 8 << 20;
 /// Bytes of notifications held while the attach call waits.
 const MAX_EARLY_BYTES: usize = 16 << 20;
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 // MARK: State
 
@@ -414,12 +417,12 @@ struct PermissionParams {
     /// Which device the person answered on: acpmux records it only with a
     /// proof that counts.
     #[serde(default)]
-    answered_by: Option<AnsweredBy>,
+    answered_by: Option<AgentSessionAnsweredBy>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct AnsweredBy {
+struct AgentSessionAnsweredBy {
     device: String,
     feed_item: String,
 }
@@ -548,58 +551,24 @@ impl Refusal {
     }
 }
 
-/// Handles an `agent-session-*` frame of a local connection; `None` for any
-/// other frame. Remote-relay connections never get here (they take
+/// The `cmd` names this module answers (server/routes.rs).
+/// `agent-session-observe` has its own exact route (agent_session_observe.rs).
+pub(in crate::server) const ROUTES: &[Route] = &[Route {
+    names: &[RouteName::Prefix("agent-session-")],
+    stage: FrameStage::AgentSession,
+    entry: handle,
+}];
+
+/// The route's typed handler for an `agent-session-*` line of a local
+/// connection: the line's `cmd` named this family, so it decodes the line once
+/// and answers it. A line whose full decode fails is left to the `Command`
+/// parse (`None`). Remote-relay connections never get here (they take
 /// `remote_relay::handle_frame` first).
-pub(super) fn try_handle(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-) -> Option<bool> {
-    if !message.contains("\"agent-session-") {
+fn handle(line: &RouteLine<'_>) -> Option<bool> {
+    let RouteLine { mux, client, message, writer, .. } = *line;
+    let mut object = crate::line_parses::parse::<Map<String, Value>>(message).ok()?;
+    let Some(Value::String(cmd)) = object.remove("cmd") else {
         return None;
-    }
-    let Ok(Value::Object(mut object)) = serde_json::from_str::<Value>(message) else {
-        return None;
-    };
-    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-proxy-bind") {
-        return Some(proxy::bind(mux, client, object, writer));
-    }
-    // A peer cannot self-attribute: only the preface's fixed identity is accepted, for the chat
-    // the share pinned.
-    let (author, pinned) = match proxy::check(mux, client, &mut object) {
-        Ok(Some(teammate)) => (Some(teammate.author), teammate.pinned),
-        Ok(None) => (None, None),
-        Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
-    };
-    // A teammate's link reaches the shared chat's own verbs only: never start, trust, media,
-    // children, permission, typing or view, whatever the proxy forwards.
-    if author.is_some()
-        && !matches!(
-            object.get("cmd").and_then(Value::as_str),
-            Some(
-                "agent-session-attach"
-                    | "agent-session-observe"
-                    | "agent-session-events"
-                    | "agent-session-prompt"
-                    | "agent-session-cancel"
-                    | "agent-session-detach"
-            )
-        )
-    {
-        return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
-    }
-    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-of") {
-        return Some(proxy::session_of(mux, client, object, author.is_some(), writer));
-    }
-    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
-        let clean = Value::Object(object).to_string();
-        return agent_session_observe::try_handle(mux, client, &clean, writer, author, pinned);
-    }
-    let cmd = match object.remove("cmd") {
-        Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
-        _ => return None,
     };
     let id = object.remove("id");
     if cmd == "agent-session-start" {
@@ -652,10 +621,12 @@ fn start(
     mux: &Arc<Mux>,
     client: u64,
     id: Option<Value>,
-    params: serde_json::Map<String, Value>,
+    params: Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    let Ok(params) =
+        serde_json::from_value::<agent_session_start::StartParams>(Value::Object(params))
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -672,10 +643,12 @@ fn trust(
     mux: &Arc<Mux>,
     client: u64,
     id: Option<Value>,
-    params: serde_json::Map<String, Value>,
+    params: Map<String, Value>,
     writer: &MessageWriter,
 ) -> bool {
-    let Ok(params) = serde_json::from_value(Value::Object(params)) else {
+    let Ok(params) =
+        serde_json::from_value::<agent_session_trust::TrustParams>(Value::Object(params))
+    else {
         return refuse(writer, id, Refusal::BadRequest);
     };
     if !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
@@ -692,8 +665,8 @@ pub(super) fn routed_trust(
     mux: &Arc<Mux>,
     client: u64,
     operation: &str,
-    params: serde_json::Map<String, Value>,
-) -> Result<Value, crate::resource::ResourceError> {
+    params: Map<String, Value>,
+) -> Result<agent_session_trust::RoutedJob, crate::resource::ResourceError> {
     agent_session_trust::routed(mux, client, operation, params)
 }
 
@@ -834,24 +807,21 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-attach".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            connect_and_attach(
-                worker_mux,
-                client,
-                worker_id,
-                socket,
-                surface,
-                record_session,
-                acpmux_params,
-                read_only,
-                author,
-                worker_writer,
-            );
-        });
-    if spawned.is_err() {
+    // The attach waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        connect_and_attach(
+            worker_mux,
+            client,
+            worker_id,
+            socket,
+            surface,
+            record_session,
+            acpmux_params,
+            read_only,
+            worker_writer,
+        );
+    });
+    if posted.is_err() {
         sessions.lock().reserved.remove(&(client, surface));
         return refuse(writer, id, Refusal::Limit);
     }
@@ -975,22 +945,16 @@ fn run_on_worker(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let worker = attachment.clone();
-    let spawned = std::thread::Builder::new()
-        .name("mux-agent-call".into())
-        .stack_size(THREAD_STACK_BYTES)
-        .spawn(move || {
-            let result = call(&worker, command);
-            worker.calls.fetch_sub(1, Ordering::AcqRel);
-            // A teammate's answer goes out only while its tab still shows the shared chat.
-            let replied = worker.while_shared(|| match result {
-                Ok(data) => ok(&worker_writer, worker_id.clone(), data),
-                Err(refusal) => refuse(&worker_writer, worker_id.clone(), refusal),
-            });
-            if let Err(refusal) = replied {
-                refuse(&worker_writer, worker_id, refusal);
-            }
-        });
-    if spawned.is_err() {
+    // The call waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = call(&worker, command);
+        worker.calls.fetch_sub(1, Ordering::AcqRel);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+        };
+    });
+    if posted.is_err() {
         attachment.calls.fetch_sub(1, Ordering::AcqRel);
         return refuse(writer, id, Refusal::Limit);
     }
@@ -1061,13 +1025,7 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             }
             let mut params =
                 json!({"sessionId": session, "permissionId": permission_id, "optionId": option_id});
-            if let Some(answers) = answers {
-                params["answers"] = answers;
-            }
-            if let Some(annotations) = annotations {
-                params["annotations"] = annotations;
-            }
-            let mut meta = serde_json::Map::new();
+            let mut meta = Map::new();
             if let Some(nonce) = decision_nonce {
                 meta.insert("decisionNonce".into(), Value::String(nonce));
             }
@@ -1226,7 +1184,7 @@ fn prompt(attachment: &Attachment, prompt_id: String, text: String) -> Result<Va
         attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
         return Err(refusal);
     }
-    let accepted = receiver.recv_timeout(CALL_TIMEOUT);
+    let accepted = ipc_reply(|| waits::recv_timeout(&receiver, CALL_TIMEOUT));
     attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(&prompt_id);
     match accepted {
         Ok(accepted) => Ok(json!({

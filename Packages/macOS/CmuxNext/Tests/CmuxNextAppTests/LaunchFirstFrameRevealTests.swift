@@ -18,7 +18,7 @@ import Testing
 
         init() {
             window.isReleasedWhenClosed = false
-            pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A")]), reveal: reveal)
+            pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A")]), reveal: reveal)
             pane.frame = window.contentLayoutRect
             window.contentView = pane
             window.orderFrontRegardless()

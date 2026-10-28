@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextSidebar
 import CmuxNextDesign
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -18,16 +19,24 @@ import Testing
     final class Harness {
         let card: SidebarNowPlayingCardView
         let window: NSWindow
+        /// The window's state as its visibility source reads it (the bars loop only while visible).
+        var windowState: Visibility = .visible
         init() {
             _ = NSApplication.shared
             card = SidebarNowPlayingCardView(frame: NSRect(x: 0, y: 0, width: 216,
                                                            height: SidebarNowPlayingCardView.height(for: NowPlayingLevelsTests.track(playing: true))))
             window = NSWindow(contentRect: card.frame, styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
+            _ = WindowVisibilitySource.of(window, name: "nowPlayingTest") { [unowned self] _ in windowState }
             window.contentView = card
             window.orderFrontRegardless()
         }
         func close() { window.close() }
+        /// Sets the window's state, as an occlusion notice would.
+        func setWindow(_ state: Visibility) {
+            windowState = state
+            WindowVisibilitySource.installed(on: window)?.refresh()
+        }
         /// The bars' running loops.
         var loops: [CAAnimation] {
             (card.levels.layer?.sublayers ?? []).compactMap { $0.animation(forKey: SidebarNowPlayingLevels.levelsKey) }
@@ -70,6 +79,20 @@ import Testing
         h.card.levels.needsLayout = true
         h.card.levels.layoutSubtreeIfNeeded()
         #expect(h.loops.isEmpty, "a hidden card keeps its bars moving")
+    }
+
+    /// An occluded window keeps no bar moving (LoopVisibility, p03-rendering-070); shown again, all three move.
+    @Test func theBarsStopWhileTheWindowIsOccluded() {
+        let h = Harness()
+        defer { h.close() }
+        h.card.levels.reduceMotionOverride = false
+        h.show(playing: true)
+        #expect(h.loops.count == 3)
+        h.setWindow(.occluded)
+        #expect(h.loops.isEmpty, "an occluded window keeps its bars moving")
+        #expect(!h.card.levels.moves)
+        h.setWindow(.visible)
+        #expect(h.loops.count == 3, "the bars do not move again when the window shows")
     }
 
     /// Turning Reduce Motion on mid-track stills the bars at once, and off starts them again.

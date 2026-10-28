@@ -68,17 +68,13 @@ struct BlockingCheckTests {
         }
     }
 
-    @Test func theTrapEnvironmentVariableTurnsTrapModeOn() async {
-        await #expect(processExitsWith: .failure) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"])
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
-            }
-        }
-    }
-
-    @Test func withoutTheVariableADebugBuildRecords() {
-        #expect(BlockingViolationTable(environment: [:]).mode == .record)
+    /// The mode is resolved once, from the environment the table was made with (p02-threads-006): Debug stays
+    /// record during the push, and only `CMUX_BLOCKING_TRAP=1` traps (the flip is p02-threads-021).
+    @Test func theModeIsResolvedFromTheLaunchEnvironmentOnly() {
+        #expect(BlockingMode.resolved(environment: [:]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "0"]) == .record)
+        #expect(BlockingMode.resolved(environment: ["CMUX_BLOCKING_TRAP": "1"]) == .trap)
+        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"], mode: .record).mode == .record)
     }
 
     @Test func theSameCallsOffTheMainThreadDoNotTrap() async {
@@ -98,17 +94,6 @@ struct BlockingCheckTests {
                         _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
                     }
                 }
-            }
-        }
-    }
-    #elseif CMUX_BLOCKING_CHECKS
-    // MARK: Nightly (Release + CMUX_BLOCKING_CHECKS): records, never traps
-
-    @Test func aNightlyNeverTrapsEvenWhenAskedTo() async {
-        await #expect(processExitsWith: .success) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"], mode: .trap)
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
             }
         }
     }
@@ -374,6 +359,21 @@ struct BlockingCheckTests {
         #expect(BlockingDetector(table: table).sites.count == 1)
     }
 
+    // MARK: wall time (Mutex)
+
+    /// A long main-thread `Mutex` wait adds the wait it measured to its site, like a timed call.
+    @MainActor @Test func aLongLockWaitAddsItsWaitToTheSite() async {
+        let wait = BlockingKind.lockWaitLimitNanos * 10
+        let fixture = Self.lockTable(measuredNanos: wait)
+        await Self.waitForAHeldMutex(fixture) { $0.mutex.withLock { $0 += 1 } }
+
+        let sites = BlockingDetector(table: fixture.table).sites
+        #expect(sites.map(\.kind) == [.lockWait])
+        #expect(sites.map(\.count) == [1])
+        #expect(sites.map(\.maxNanos) == [wait])
+        #expect(sites.map(\.totalNanos) == [wait])
+    }
+
     // MARK: helpers
 
     private static func recordingTable() -> (BlockingViolationTable, Recorder) {
@@ -415,6 +415,7 @@ struct BlockingCheckTests {
     @MainActor @Test func releaseBuildsCheckNothing() {
         _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
         _ = FileManager.checked.fileExists(atPath: "/")
+        #expect(blockingCall(.fileIO) { 42 } == 42)
         #expect(!BlockingDetector.forProcess().isCompiledIn)
         #expect(BlockingDetector.forProcess().sites.isEmpty)
     }
@@ -437,14 +438,26 @@ private nonisolated func waitUntilSignaled(_ semaphore: DispatchSemaphore) {
     semaphore.wait()
 }
 
-/// The seams on a thread of the global executor: off the main thread, in the caller's task (so its
-/// task-local table applies, unlike a detached task).
-@concurrent nonisolated
-private func blockingCallsOffTheMainThread() async {
-    #expect(pthread_main_np() == 0)
-    _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
-    _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
-    signaledSemaphore().blockingWait()
+/// The seams on a named serial queue, a thread where blocking is allowed (the cooperative pool and GCD root
+/// queues are not: BlockingPoolContextTests), with the caller's table bound there.
+private nonisolated func blockingCallsOffTheMainThread() async {
+    try? await onNamedQueue {
+        _ = try? Data(blockingContentsOf: URL(fileURLWithPath: "/etc/hosts"))
+        _ = FileManager.checked.fileExists(atPath: "/etc/hosts")
+        signaledSemaphore().blockingWait()
+    }
+}
+
+/// Runs `body` on a named serial queue with the caller's task-local table bound there (a dispatch block does
+/// not inherit task-locals).
+private nonisolated func onNamedQueue(_ body: @escaping @Sendable () throws -> Void) async throws {
+    let table = BlockingViolationTable.scoped
+    let queue = DispatchQueue(label: "com.cmuxterm.tests.blocking-check")
+    try await withCheckedThrowingContinuation { (done: CheckedContinuation<Void, any Error>) in
+        queue.async {
+            done.resume(with: Result { try BlockingViolationTable.$scoped.withValue(table) { try body() } })
+        }
+    }
 }
 
 /// Starts `/usr/bin/true` through the `Process` spawn seam, from the caller's thread.
@@ -465,11 +478,11 @@ private nonisolated func posixSpawnTrue() throws {
     waitpid(pid, &exit, 0)
 }
 
-/// The same spawn on a thread of the global executor, in the caller's task (its task-local table applies).
-@concurrent
+/// The same spawn on a named serial queue, with the caller's table bound there.
 private nonisolated func spawnTrueOffMain() async throws {
-    #expect(pthread_main_np() == 0)
-    try spawnTrue()
+    try await onNamedQueue {
+        try spawnTrue()
+    }
 }
 
 /// A mutex threads can share (a `Mutex` is not copyable, so a closure cannot capture it).

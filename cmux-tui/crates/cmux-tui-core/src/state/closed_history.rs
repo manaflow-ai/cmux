@@ -161,6 +161,7 @@ pub(super) fn note_created(surface: SurfaceId) {
 /// The commit side of a reopen: re-read the group in the transaction, drop
 /// the restored members (by value: members of one group differ at least in
 /// their place), and give the request's result and the public change.
+#[track_caller]
 fn commit_reopen(
     transaction: &rusqlite::Transaction<'_>,
     closed_id: &str,
@@ -278,6 +279,7 @@ fn commit_reopen(
 /// Give the reopened workspace the closed one's personal row: its group,
 /// its place in the personal sidebar order and its theme
 /// (LAST-TAB-CLOSES-WORKSPACE rule 3). Nothing when that row is gone.
+#[track_caller]
 pub(super) fn restore_placement(
     transaction: &rusqlite::Transaction<'_>,
     closed_key: &str,
@@ -314,6 +316,7 @@ pub(super) fn restore_placement(
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn state_reopen_closed(
         self: &Arc<Self>,
         mutation: &WorkspaceMutation,
@@ -428,6 +431,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     fn reopen_member(
         self: &Arc<Self>,
         actor: &Actor,
@@ -457,6 +461,7 @@ impl Mux {
     /// tabs this reopen brought back, which are already in `reopened`. A
     /// live group of that id (an earlier partial reopen formed it) takes
     /// them in.
+    #[track_caller]
     pub(super) fn reopen_tab_group(
         self: &Arc<Self>,
         actor: &Actor,
@@ -553,6 +558,7 @@ impl Mux {
     /// order, in the workspace of the first. A group formed since keeps its
     /// screens. None still open forms nothing; a live group of that id (a
     /// retried reopen) is left as it is.
+    #[track_caller]
     fn reopen_screen_group(
         self: &Arc<Self>,
         actor: &Actor,
@@ -640,6 +646,7 @@ impl Mux {
 
     /// Restore one tab record into `pane`. `reattach` lets a still-running
     /// terminal get a new view instead of a new process.
+    #[track_caller]
     pub(super) fn reopen_tab_record(
         self: &Arc<Self>,
         actor: &Actor,
@@ -749,6 +756,7 @@ impl Mux {
     }
 
     /// The recorded name and pin of a reopened tab.
+    #[track_caller]
     fn restore_tab_details(
         self: &Arc<Self>,
         actor: &Actor,
@@ -768,6 +776,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn reopen_closed_tab(
         self: &Arc<Self>,
         actor: &Actor,
@@ -875,6 +884,7 @@ impl Mux {
     /// a tab is the LAST tab of its pane, so `move_tab`'s insertion index
     /// equals the recorded index (it only subtracts one for an index past
     /// the old position). A pinned tab keeps the place its pin gave it.
+    #[track_caller]
     fn restore_tab_index(
         self: &Arc<Self>,
         actor: &Actor,
@@ -901,6 +911,7 @@ impl Mux {
     /// directory); every other record becomes a new tab, in the splits the
     /// screen had when its record has them, else in order in one pane.
     /// Answers the pane the screen focuses.
+    #[track_caller]
     fn fill_screen(
         self: &Arc<Self>,
         actor: &Actor,
@@ -955,6 +966,7 @@ impl Mux {
     /// How the first terminal of a reopened screen starts: as its first
     /// terminal record (directory, environment, archived screen), which
     /// `fill_screen` then reuses.
+    #[track_caller]
     fn first_terminal_spawn(
         &self,
         screen: &Value,
@@ -971,6 +983,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     fn reopen_closed_screen(
         self: &Arc<Self>,
         actor: &Actor,
@@ -1013,6 +1026,7 @@ impl Mux {
         Ok(())
     }
 
+    #[track_caller]
     pub(super) fn reopen_closed_workspace(
         self: &Arc<Self>,
         actor: &Actor,
@@ -1075,6 +1089,7 @@ impl Mux {
     /// Set the closed workspace's shared color, icon, custom title and pin
     /// (`presentation`, its record's) on the workspace that reopened it.
     /// Its group and sidebar place come back with its personal row.
+    #[track_caller]
     fn restore_workspace_presentation(
         &self,
         actor: &Actor,

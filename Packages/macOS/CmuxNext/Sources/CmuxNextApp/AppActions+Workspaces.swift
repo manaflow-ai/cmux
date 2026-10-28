@@ -7,6 +7,10 @@ import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
+import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension AppActions {
     static func bindWorkspaces(_ services: AppServices) {
@@ -21,16 +25,8 @@ extension AppActions {
                 daemon.send("rename-workspace") { _ = try await $0.renameWorkspace(key, to: name) }
                 return
             }
-            guard let window = renameRowWindow(workspace, services) else {
-                if let reason = renameRowReason(workspace, services) { return services.registry.refuse(reason) }
-                // No list row to edit (a pinned workspace draws as a tile or top row): a Cmd-Shift-P step,
-                // pinned to this workspace, as Rename Screen does off the screen bar.
-                var asking = invocation
-                asking.target = ActionTargetRef(kind: .workspace, id: workspace.id)
-                if !services.registry.ask("renameWorkspace", asking, ActionArgumentAsk(argument: "name", initialText: workspace.displayName)) {
-                    services.registry.refuse(RefusalStrings.workspaceNotInSidebar)
-                }
-                return
+            guard let window = renameRowWindow(workspace, services, builds: true) else {
+                return services.registry.refuse(renameRowReason(workspace, services) ?? RefusalStrings.workspaceNotInSidebar)
             }
             // The name field opens on the row in the window that lists it, which comes forward.
             if window !== services.windows.active { services.windows.bringToFront(window) }
@@ -44,8 +40,9 @@ extension AppActions {
         // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
         // Workspaces as tabs' Cmd-Shift-] / [ pass `scope` (workspaces only, wrapping); the table holds them
         // only while its Debug tunable is on.
-        registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
-        registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
+        // From a key, the item one more step that way prewarms (`directionalPrewarm`, p04-input-044).
+        registry.bindEffect("nextSidebarTab", effect: { SidebarNavigation.stepAction(by: 1, $0, services) })
+        registry.bindEffect("prevSidebarTab", effect: { SidebarNavigation.stepAction(by: -1, $0, services) })
         registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
@@ -59,13 +56,15 @@ extension AppActions {
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG || CMUX_BENCH_HOOKS
-        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel))
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, deadlines: services.mainDeadlines, work: services.work))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
-        HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
+        services.lifetimeFollowers.append(HomeSettingActions().bind(
+            into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, mainWork: services.mainWork,
+            summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) }))
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.
@@ -105,14 +104,17 @@ extension AppActions {
     /// sidebar shows it as its Home item (no row), keeps its name. Any other workspace with no list
     /// row (a pinned tile or top row) is renamed in Cmd-Shift-P instead of its row's field.
     static func renameRowReason(_ workspace: WorkspaceModel, _ services: AppServices) -> String? {
-        guard renameRowWindow(workspace, services) == nil, HomeRules.isHome(workspace) else { return nil }
-        return RefusalStrings.homeKeepsItsName
+        guard renameRowWindow(workspace, services) == nil else { return nil }
+        // A restored window still waiting for its launch build lists the row once built (the rename builds it).
+        if let owner = services.windows.registry.value.owner(of: workspace.id), services.windows.launchWindows?.isWaiting(owner) == true { return nil }
+        return HomeRules.isHome(workspace) ? RefusalStrings.homeKeepsItsName : RefusalStrings.workspaceNotInSidebar
     }
 
     /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
-    static func renameRowWindow(_ workspace: WorkspaceModel, _ services: AppServices) -> WindowController? {
+    /// `builds`: the rename itself, which acts in that window, builds it when it waits for its launch build.
+    static func renameRowWindow(_ workspace: WorkspaceModel, _ services: AppServices, builds: Bool = false) -> WindowController? {
         let windows = services.windows
-        let owner = windows.registry.value.owner(of: workspace.id).flatMap(windows.controller(for:))
+        let owner = windows.registry.value.owner(of: workspace.id).flatMap { builds ? windows.controllerBuildingIfWaiting(for: $0) : windows.controller(for: $0) }
         return [owner, windows.active].compactMap { $0 }.first { $0.sidebar.model.workspace(SidebarWorkspaceID(workspace.id)) != nil }
     }
 
@@ -123,8 +125,11 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
-        SidebarNewRowTimer.shared.pressed() // debug.new_workspace times the row from here
         var spawn = WorkspaceSpawn(invocation)
+        // The press's own key or click (or the stamp a gate carried), so its row's create.workspace reports that age.
+        if invocation.origin == .user {
+            spawn.inputTimestamp = ActionRegistry.inputTimestamp(of: services.registry.dispatchingInputEvent()) ?? invocation.inputTimestamp
+        }
         spawn.followClassicMode(services) // before the key hold below, which waits only for a page
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
@@ -211,10 +216,11 @@ extension AppActions {
                 guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
                 prompt.returnConfirms = false
                 return {
-                    await withCheckedContinuation { answer in
+                    // A question that goes unanswered is a no.
+                    (try? await withOnceContinuation { (answer: OnceContinuation<Bool, OnceContinuationError>) in
                         DestructiveConfirmation.present(prompt, in: controller?.window ?? services.windows.active?.window,
                                                         settings: services.settings) { answer.resume(returning: $0) }
-                    }
+                    }) ?? false
                 }
             },
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
@@ -248,7 +254,7 @@ extension AppActions {
     /// Makes window `id` key and activates the app. A new window still
     /// waiting for its first workspace comes to the front when that shows.
     private static func focusWindow(_ windows: WindowManager, _ id: String) {
-        guard windows.ordersWindowsIn, let controller = windows.controller(for: id) else { return }
+        guard windows.ordersWindowsIn, let controller = windows.controllerBuildingIfWaiting(for: id) else { return }
         if windows.awaitingContent[id] != nil {
             windows.bringToFront(controller)
             WindowActivation.activateApp()

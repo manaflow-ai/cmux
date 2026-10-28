@@ -31,7 +31,9 @@ enum GlobalSearchPage {
     /// title from the start), and again as each terminal and transcript is
     /// read: a slow or unreachable machine never holds back the rest.
     static func page(query: String, tabs: [Tab], reveal: @escaping Reveal) -> PalettePageSpec {
-        let corpus = GlobalSearchReader(tabs.map(\.source))
+        let sources = tabs.map(\.source)
+        // The read runs off main from its first step: nothing in it touches the main actor.
+        let corpus = CorpusHolder(Task { @concurrent in await GlobalSearchCorpus.load(sources) })
         let byTab = Dictionary(tabs.map { ($0.source.tabID, $0) }, uniquingKeysWith: { first, _ in first })
         return PalettePageSpec(
             id: pageID, title: GlobalSearchStrings.title, placeholder: GlobalSearchStrings.placeholder, symbol: "magnifyingglass",

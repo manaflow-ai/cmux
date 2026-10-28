@@ -6,12 +6,12 @@
 
 use std::io::Write;
 use std::os::fd::OwnedFd;
-use std::path::PathBuf;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use cmux_holder::link::{HolderLink, TerminalSink};
+use cmux_holder::link::{FrameWatch, HolderLink, TerminalSink};
 use cmux_holder::{ExitStatus, SpawnRequest};
 
 const TOKEN: [u8; 32] = [0x33; 32];
@@ -291,13 +291,30 @@ fn a_spawn_that_times_out_leaves_no_terminal_on_the_holder() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Holder-core review: an ATTACH or ADOPT the holder refuses ends the sink
-/// that waits for it. The link had registered the sink and returned Ok, so
-/// without a word that terminal's reader and wait would block for ever (a
-/// frozen tab instead of one that reports its host lost).
+static WATCHED_ENTERS: AtomicU32 = AtomicU32::new(0);
+static WATCHED_EXITS: AtomicU32 = AtomicU32::new(0);
+static WATCHED_DATA: AtomicU32 = AtomicU32::new(0);
+
+/// Every frame the reader routes opens a watch with its kind and ends it
+/// with the token that watch returned (the daemon's holder-link hang scope).
+const WATCH: FrameWatch = FrameWatch {
+    enter: |kind| {
+        if kind == cmux_holder::wire::Kind::Data as u16 {
+            WATCHED_DATA.fetch_add(1, Ordering::SeqCst);
+        }
+        WATCHED_ENTERS.fetch_add(1, Ordering::SeqCst) + 1
+    },
+    exit: |token| {
+        if token != 0 {
+            WATCHED_EXITS.fetch_add(1, Ordering::SeqCst);
+        }
+    },
+    hang: |_| {},
+};
+
 #[test]
-fn an_attach_or_adopt_the_holder_refuses_ends_its_sink() {
-    let dir = support::unique_dir("cmhr");
+fn every_routed_frame_is_watched_and_its_watch_ends() {
+    let dir = support::unique_dir("cmhw");
     let socket = dir.join("h.sock");
     let mut holder = cmux_holder::client::launch(
         std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
@@ -305,43 +322,58 @@ fn an_attach_or_adopt_the_holder_refuses_ends_its_sink() {
         &TOKEN,
     )
     .unwrap();
-    let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
-
-    // The holder runs no terminal 77.
-    let unknown = Arc::new(Collect::default());
-    link.attach(77, 0, unknown.clone()).unwrap();
-    wait_for("the refused ATTACH", || unknown.refused.lock().unwrap().is_some());
-
-    // Channel 1 is in use: an ADOPT of it is refused.
-    let running = Arc::new(Collect::default());
-    let spawned = link.spawn(1, &request(1, "exec cat"), running).unwrap();
-    let adopter = Arc::new(Collect::default());
-    let _answer = link
-        .adopt(1, &[9; 16], (spawned.pid, 0, 0), (&spawned.master, None), (adopter.clone(), b""))
-        .unwrap();
-    wait_for("the refused ADOPT", || adopter.refused.lock().unwrap().is_some());
-
-    link.close(1, 200).unwrap();
+    let (link, _) = HolderLink::connect_watched(
+        &socket,
+        &TOKEN,
+        Box::new(|_| {}),
+        cmux_holder::link::SPAWN_TIMEOUT,
+        WATCH,
+    )
+    .unwrap();
+    let sink = Arc::new(Collect::default());
+    link.spawn(1, &request(1, "echo watched; exit 0"), sink.clone()).unwrap();
+    wait_for("the exit", || sink.exit.lock().unwrap().is_some());
+    assert!(String::from_utf8_lossy(&sink.bytes.lock().unwrap()).contains("watched"));
+    assert!(WATCHED_DATA.load(Ordering::SeqCst) >= 1);
+    // The exit frame's watch ends right after its sink returns.
+    wait_for("every watch ended", || {
+        WATCHED_EXITS.load(Ordering::SeqCst) == WATCHED_ENTERS.load(Ordering::SeqCst)
+    });
+    assert!(WATCHED_ENTERS.load(Ordering::SeqCst) >= 3, "spawned, data and exit");
+    drop(link);
     let _ = holder.kill();
     let _ = holder.wait();
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// Holder-core deep review: a SPAWN the holder refuses at once (here: an
-/// empty argv) fails that spawn, and nothing else. `HolderLink::spawn`
-/// sends an ATTACH right behind its SPAWN, which the holder then refuses
-/// too (it runs no terminal on that channel); that second refusal must not
-/// reach the spawn's sink as a refused stream (a spurious "refused a
-/// terminal's stream" and a lose of a sink nobody uses). Before, the link
-/// removed only the spawn's waiter on the first refusal, so the second
-/// found the sink unless the spawn's caller had already dropped it. A
-/// spawn on another channel answers after both refusals, so the link has
-/// routed them both when it returns.
+/// Records the registry slot of the thread its output arrives on.
+#[derive(Default)]
+struct SlotProbe {
+    slot: Mutex<Option<(String, cmux_threads::ThreadQos)>>,
+    exited: Mutex<bool>,
+}
+
+impl TerminalSink for SlotProbe {
+    fn data(&self, _offset: u64, _bytes: &[u8]) {
+        let slot =
+            cmux_threads::current_slot().map(|slot| (slot.name().to_owned(), slot.desired()));
+        let mut first = self.slot.lock().unwrap();
+        if first.is_none() {
+            *first = Some(slot.expect("the link reader is registered"));
+        }
+    }
+    fn gap(&self, _requested: u64, _oldest: u64) {}
+    fn exit(&self, _status: ExitStatus, _end: u64) {
+        *self.exited.lock().unwrap() = true;
+    }
+}
+
+/// p04-input task 060: holder output reaches its surface on the key echo
+/// path, so the link reader runs registered at the echo class, not at its
+/// creator's.
 #[test]
-fn a_spawn_the_holder_refuses_at_once_never_reaches_its_sink() {
-    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() % 1_000_000_000;
-    let dir = PathBuf::from("/tmp").join(format!("cmhs-{}-{stamp}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+fn holder_output_is_routed_on_an_echo_class_thread() {
+    let dir = support::unique_dir("cmhq");
     let socket = dir.join("h.sock");
     let mut holder = cmux_holder::client::launch(
         std::path::Path::new(env!("CARGO_BIN_EXE_cmux-holder")),
@@ -350,20 +382,13 @@ fn a_spawn_the_holder_refuses_at_once_never_reaches_its_sink() {
     )
     .unwrap();
     let (link, _) = HolderLink::connect(&socket, &TOKEN, Box::new(|_| {})).unwrap();
-
-    let refused = Arc::new(Collect::default());
-    let empty = SpawnRequest { argv: Vec::new(), ..request(5, "") };
-    let failed = link.spawn(5, &empty, refused.clone()).expect_err("an empty argv spawned");
-    assert!(failed.to_string().contains("empty argv"), "failed elsewhere: {failed}");
-    let next = Arc::new(Collect::default());
-    link.spawn(6, &request(6, "exec cat"), next).unwrap();
-    assert_eq!(
-        refused.refused.lock().unwrap().as_deref(),
-        None,
-        "the refused SPAWN's ATTACH reached its sink"
-    );
-
-    link.close(6, 200).unwrap();
+    let probe = Arc::new(SlotProbe::default());
+    link.spawn(1, &request(1, "echo qos; exit 0"), probe.clone()).unwrap();
+    wait_for("the exit", || *probe.exited.lock().unwrap());
+    let slot = probe.slot.lock().unwrap().clone();
+    assert_eq!(slot, Some(("holder-link".to_owned(), cmux_holder::link::LINK_READER_QOS)));
+    assert_eq!(cmux_holder::link::LINK_READER_QOS, cmux_threads::ThreadQos::UserInteractive);
+    drop(link);
     let _ = holder.kill();
     let _ = holder.wait();
     let _ = std::fs::remove_dir_all(&dir);

@@ -1,5 +1,6 @@
 import CmuxNextDesign
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Each workspace's own background (cx-t2x.5). The window's backdrop reads its room scope, so the
@@ -34,21 +35,20 @@ extension ThemeCoordinator {
     }
 
     /// Re-applies on a new day (or a clock or time zone change), so a Shuffle Daily workspace
-    /// shows that day's work, like `appearance.background`'s own timer.
-    func observeDayChanges() -> [any NSObjectProtocol] {
+    /// shows that day's work, like `appearance.background`'s own timer. The app's one observer per
+    /// notice (`AppServices.appEvents`) calls it in the notice's turn.
+    func observeDayChanges() -> [EventSubscription] {
         [Notification.Name.NSCalendarDayChanged, .NSSystemTimeZoneDidChange, .NSSystemClockDidChange].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                Task { @MainActor in
-                    guard let self, [self.workspaceBackgrounds, self.appearanceScopes].contains(where: { $0.backgrounds.values.contains(where: BackdropSelectionSetting.shuffles) }) else { return }
-                    self.apply()
-                }
+            appEvents.subscribe(name, owner: "ThemeCoordinator.dayChange") { [weak self] in
+                guard let self, [workspaceBackgrounds, appearanceScopes].contains(where: { $0.backgrounds.values.contains(where: BackdropSelectionSetting.shuffles) }) else { return }
+                apply()
             }
         }
     }
 
     /// The store key of a workspace: its home session and durable key.
     func workspaceBackgroundKey(_ workspaceID: String) -> String? {
-        WindowProfiles.qualified(workspaceID, machines: services.machines)
+        WindowProfiles.qualified(workspaceID, machines: machines)
             .map { WorkspaceBackgroundStore.key(session: $0.session, workspace: $0.key) }
     }
 

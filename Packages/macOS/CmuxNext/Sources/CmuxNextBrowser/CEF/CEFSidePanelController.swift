@@ -12,6 +12,8 @@ final class CEFSidePanelController {
     private(set) var header: SidePanelHeaderView?
     /// The panel state of the last read, while the panel is open.
     private(set) var state: CEFSidePanelState?
+    /// Host mode: where the panel's page (a hosted widget) shows, while the panel is open.
+    private(set) var widgetContainer: SidePanelWidgetContainer?
     private var refreshPending = false
 
     init(tab: CEFTab) { self.tab = tab }
@@ -32,13 +34,21 @@ final class CEFSidePanelController {
     func refresh() {
         guard let tab else { return }
         guard let browserID = tab.browserID, let shim = tab.runtime.shim, tab.runtime.forkAPIVersion >= 13,
-              let state = shim.takeString(shim.sidePanelState(browserID)).flatMap(CEFSidePanelState.init(json:)) else {
+              let state = shim.sidePanelState(browserID).flatMap(CEFSidePanelState.init(json:)) else {
+            if let browserID = tab.browserID { tab.runtime.widgetHost?.place(.sidePanel, owner: browserID, in: nil) }
+            widgetContainer?.removeFromSuperview()
+            widgetContainer = nil
             removeHeader(from: tab)
             return
         }
         let header = header ?? makeHeader(in: tab)
         self.state = state
         header.apply(state)
+        // Host mode: the panel's page is a widget context at its bounds inside the tab's page, in a
+        // view of this tab's own, so it leaves with the tab when another tab of the pane shows.
+        if let widgets = tab.runtime.widgetHost {
+            widgets.place(.sidePanel, owner: browserID, in: widgetContainer ?? makeWidgetContainer(in: tab, below: header))
+        }
         tab.container.layoutContent()
     }
 
@@ -85,12 +95,28 @@ final class CEFSidePanelController {
         return header
     }
 
+    private func makeWidgetContainer(in tab: CEFTab, below header: SidePanelHeaderView) -> SidePanelWidgetContainer {
+        let container = SidePanelWidgetContainer()
+        tab.container.addSubview(container, positioned: .below, relativeTo: header)
+        widgetContainer = container
+        return container
+    }
+
     private func removeHeader(from tab: CEFTab) {
         state = nil
         guard let header else { return }
         self.header = nil
         header.removeFromSuperview()
         tab.container.layoutContent()
+    }
+}
+
+/// Host mode: the view over a tab's page that its side panel's widget shows in. The tab's content
+/// view lays it out at the page's frame, as it lays out the page; only the widget in it takes a click.
+final class SidePanelWidgetContainer: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
     }
 }
 

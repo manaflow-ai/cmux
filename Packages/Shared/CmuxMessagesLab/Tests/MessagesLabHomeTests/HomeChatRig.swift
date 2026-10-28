@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxHomeCore
+import CmuxHomeRender
 import Foundation
 @testable import MessagesLabHome
 
@@ -23,7 +24,7 @@ final class HomeChatRig {
     let me: ParticipantID
     let chief: ParticipantID
 
-    init(history: Int = 40, width: CGFloat = 700) async throws {
+    init(history: Int = 40, width: CGFloat = 700, diagrams: (any HomeDiagramRendering)? = nil) async throws {
         // The mock owner's own answer to a send comes after the test ends.
         source = MockHomeSource(options: MockHomeSource.Options(chiefHistory: history, latency: .zero, replyDelay: .seconds(3600)))
         store = HomeStore(source: source)
@@ -37,7 +38,8 @@ final class HomeChatRig {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 900), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
         // The order, property and stress tests check the stream bubbles (HomeReplyDisplay.streaming).
-        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), replies: .streaming)
+        view = MessagesLabHomeView(store: store, conversation: Self.conversation, me: me, wake: NoWake(), diagrams: diagrams,
+                                   replies: .streaming)
         view.frame = NSRect(x: 0, y: 0, width: width, height: 900)
         window.contentView = view
         view.layoutSubtreeIfNeeded()

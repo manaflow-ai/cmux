@@ -23,12 +23,8 @@ import { formatString, type Strings } from "../../shared/i18n";
 import { useRowState, useStore } from "../context";
 import { rowsByKey } from "../schema";
 import { locale, t } from "../strings";
-import { CHIEF_PET_MASCOT, CHIEF_PET_MASCOTS } from "./ChiefPetCard";
-import { SettingRow } from "./SettingRow";
-
-export const CHIEF_ENGINE = "home.chiefEngine";
-/** The rows this card draws in place of their group. */
-export const CHIEFS_ROWS: ReadonlySet<string> = new Set([CHIEF_ENGINE]);
+import { CHIEF_PET_MASCOT } from "../cardRows";
+import { CHIEF_PET_MASCOTS } from "./ChiefPetCard";
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 

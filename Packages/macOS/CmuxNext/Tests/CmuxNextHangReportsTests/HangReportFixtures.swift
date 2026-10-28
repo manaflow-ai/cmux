@@ -47,8 +47,8 @@ enum HangReportFixtures {
         ImageClassifier(appBundlePath: appBundle, forbiddenTerms: forbiddenTerms, systemImageExists: { systemNames.contains($0) })
     }
 
-    static func builder() -> HangReportBuilder {
-        HangReportBuilder(classifier: classifier(), resolver: FakeResolver())
+    static func builder(wireSchema: HangReport.WireSchema = .v2) -> HangReportBuilder {
+        HangReportBuilder(classifier: classifier(), resolver: FakeResolver(), wireSchema: wireSchema)
     }
 
     static func context(reportId: String = "5f1c7c1e-2b9b-4a8e-9c62-0f0d2b0b8a11") -> HangReportBuilder.Context {

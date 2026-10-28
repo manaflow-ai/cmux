@@ -197,7 +197,8 @@ pub(super) fn endpoint(
 /// (`<home>/.claude/settings.json`; a remote chain never runs with another
 /// `CLAUDE_CONFIG_DIR`, `REFUSED_ENV`).
 pub(super) fn user_settings_endpoint(home: &Path) -> Option<String> {
-    let text = std::fs::read_to_string(home.join(".claude").join("settings.json")).ok()?;
+    let text =
+        cmux_blocking::fs::read_to_string(home.join(".claude").join("settings.json")).ok()?;
     let v: Value = serde_json::from_str(&text).ok()?;
     v.pointer("/env/ANTHROPIC_BASE_URL").and_then(Value::as_str).map(str::to_owned)
 }
@@ -468,13 +469,18 @@ fn refused_folder(cwd: &Path, home: &Path, tmp: &Path, path_dirs: &[PathBuf]) ->
 #[cfg(unix)]
 fn own_dir(dir: &Path, uid: u32) -> Result<(), String> {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
-    match std::fs::symlink_metadata(dir) {
+    match cmux_blocking::fs::symlink_metadata(dir) {
         Ok(m) if m.is_dir() && m.uid() == uid => Ok(()),
         Ok(_) => Err(format!("{} is not a folder this user owns", dir.display())),
-        Err(_) => std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(dir)
-            .map_err(|e| format!("{}: {e}", dir.display())),
+        Err(_) => {
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let made = cmux_blocking::scoped_blocking_call(
+                "fs::create_dir_with",
+                cmux_blocking::BlockingKind::Fs,
+                || std::fs::DirBuilder::new().mode(0o700).create(dir),
+            );
+            made.map_err(|e| format!("{}: {e}", dir.display()))
+        }
     }
 }
 
@@ -521,8 +527,9 @@ impl Bound {
                 "a remote chain runs Claude Code only inside the macOS Seatbelt sandbox, and this platform has none".into(),
             );
         }
-        let canon =
-            |p: &Path| std::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()));
+        let canon = |p: &Path| {
+            cmux_blocking::fs::canonicalize(p).map_err(|e| format!("{}: {e}", p.display()))
+        };
         let home = canon(&dirs::home_dir().ok_or("no home directory")?)?;
         let shared_tmp = canon(&std::env::temp_dir())?;
         #[cfg(target_os = "linux")]
@@ -536,7 +543,7 @@ impl Bound {
             .split(':')
             .filter(|d| d.starts_with('/'))
             // A folder that does not exist yet counts by its text.
-            .map(|d| std::fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d)))
+            .map(|d| cmux_blocking::fs::canonicalize(d).unwrap_or_else(|_| PathBuf::from(d)))
             .collect();
         if let Some(why) = refused_folder(&cwd, &home, &shared_tmp, &path_dirs) {
             return Err(format!("a remote chain does not run here: {why}"));
@@ -551,7 +558,13 @@ impl Bound {
             use std::os::unix::fs::DirBuilderExt;
             let mut b = std::fs::DirBuilder::new();
             b.recursive(true).mode(0o700);
-            b.create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
+            #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+            let made = cmux_blocking::scoped_blocking_call(
+                "fs::create_dir_with",
+                cmux_blocking::BlockingKind::Fs,
+                || b.create(&tmp),
+            );
+            made.map_err(|e| format!("{}: {e}", tmp.display()))?;
         }
         let tmp = canon(&tmp)?;
         // SAFETY: getuid has no preconditions and cannot fail.
@@ -999,18 +1012,21 @@ fn canary_verdict(
 }
 
 /// Run the canary under `exec` with the profile and `bound`; Ok only when
-/// the sandbox held: outside writes, persistence write-opens and renames failed, loopback
-/// connections never arrived, and the temporary write worked.
-pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<(), String> {
-    let listener =
-        std::net::TcpListener::bind("127.0.0.1:0").map_err(|e| format!("listen: {e}"))?;
-    listener.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
+/// the sandbox held: the outside write failed and left no file, the loopback
+/// connection failed and never arrived, and the temporary write worked.
+pub(super) async fn canary(exec: &Path, bound: &Bound) -> Result<(), String> {
+    // Bound by tokio, then plain std listeners in non-blocking mode (`into_std`), so the
+    // check below asks once whether a connection is queued and never waits for one.
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .and_then(tokio::net::TcpListener::into_std)
+        .map_err(|e| format!("listen: {e}"))?;
     let port = listener.local_addr().map_err(|e| format!("listen: {e}"))?.port();
     // ::1 too, where the host has IPv6 loopback.
-    let listener6 = std::net::TcpListener::bind("[::1]:0").ok();
-    if let Some(l) = &listener6 {
-        l.set_nonblocking(true).map_err(|e| format!("listen: {e}"))?;
-    }
+    let listener6 = match tokio::net::TcpListener::bind("[::1]:0").await {
+        Ok(l) => Some(l.into_std().map_err(|e| format!("listen: {e}"))?),
+        Err(_) => None,
+    };
     let port6 = listener6.as_ref().and_then(|l| l.local_addr().ok()).map_or(0, |a| a.port());
     let persistence_probe = canary_persistence_probe(&bound.cwd, linux)?;
     let outside = bound.home.join(format!(".acpmux-sandbox-canary-{}", uuid::Uuid::now_v7()));
@@ -1085,9 +1101,9 @@ pub(super) async fn canary(exec: &Path, bound: &Bound, linux: bool) -> Result<()
     #[cfg(not(target_os = "linux"))]
     let absent_before = true;
     let run = tokio::time::timeout(std::time::Duration::from_secs(20), cmd.output()).await;
-    let landed = std::fs::symlink_metadata(&outside).is_ok();
+    let landed = tokio::fs::symlink_metadata(&outside).await.is_ok();
     if landed {
-        let _ = std::fs::remove_file(&outside);
+        let _ = tokio::fs::remove_file(&outside).await;
     }
     #[cfg(target_os = "linux")]
     let probe_paths_absent =
@@ -1313,46 +1329,20 @@ impl Hub {
     ) -> Result<(String, Vec<String>), RpcError> {
         let exec = self.remote_sandbox_exec.lock().unwrap_or_else(|e| e.into_inner()).clone();
         // The route Claude reaches its API by (`endpoint`).
-        let user_settings = dirs::home_dir().and_then(|home| user_settings_endpoint(&home));
-        let endpoint = endpoint(
-            profile.env.get("ANTHROPIC_BASE_URL").map(String::as_str),
-            user_settings.as_deref(),
-            remote_login_value("ANTHROPIC_BASE_URL").as_deref(),
-        );
-        let linux = cfg!(target_os = "linux");
+        let profile_url = profile.env.get("ANTHROPIC_BASE_URL").cloned();
+        let login_url = remote_login_value("ANTHROPIC_BASE_URL");
+        let (cwd, id) = (session.meta().cwd, session.id.clone());
+        // The settings read and the folder checks and creation, on a blocking thread.
+        let bound = cmux_blocking::spawn_blocking(move || {
+            let user_settings = dirs::home_dir().and_then(|home| user_settings_endpoint(&home));
+            let endpoint =
+                endpoint(profile_url.as_deref(), user_settings.as_deref(), login_url.as_deref());
+            Bound::for_session(&cwd, &id, endpoint)
+        });
         let result = async {
-            #[cfg(target_os = "linux")]
-            if let Some(path) =
-                self.linux_bwrap_probe.lock().unwrap_or_else(|e| e.into_inner()).clone()
-            {
-                crate::linux_sandbox::bwrap::probe(&path)
-                    .map_err(|e| format!("bwrap unavailable: {e}"))?;
-            }
-            let bound = Bound::for_session(&session.meta().cwd, &session.id, endpoint)?;
-            let plan = if linux {
-                #[cfg(target_os = "linux")]
-                {
-                    linux_wrap(&bound, profile, program, args)?
-                }
-                #[cfg(not(target_os = "linux"))]
-                {
-                    return Err("the Linux sandbox is unavailable on this platform".into());
-                }
-            } else {
-                wrap(&exec, &bound, profile, program, args)?
-            };
-            #[cfg(target_os = "linux")]
-            let canary_exec = if linux {
-                // Never use the configurable sandbox-exec test hook on Linux.
-                std::env::current_exe()
-                    .and_then(std::fs::canonicalize)
-                    .map_err(|e| e.to_string())?
-            } else {
-                exec.clone()
-            };
-            #[cfg(not(target_os = "linux"))]
-            let canary_exec = exec.clone();
-            canary(&canary_exec, &bound, linux).await?;
+            let bound = bound.await.map_err(|e| e.to_string())??;
+            let plan = wrap(&exec, &bound, profile, program, args)?;
+            canary(&exec, &bound).await?;
             Ok::<_, String>(plan)
         }
         .await;

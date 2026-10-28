@@ -2,6 +2,7 @@
 // live lists (`cmux.settings.host.lists`, updated by `cmux.settings.host.changed`) and the browser
 // profile editor, whose every edit runs a `browserProfile.*` catalog action (the palette's path).
 import { useState, type ReactNode } from "react";
+import { MACHINE_COLORS_KEY } from "../cardRows";
 import { useRowState, useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import type { BrowserProfile, DevicesHostState, HostListRow, HostLists } from "../ops";
@@ -232,49 +233,6 @@ function DevicesSection({ devices }: { devices: DevicesHostState }) {
     </section>
   );
 }
-
-/**
- * A Cloud machine's "Dedicated agent machine" switch (acpmux vmHost): on (the default), the machine
- * takes the VM boundary when this app's own link asks for it, so chats from this Mac run without the
- * sandbox there; off, they keep it. The host sends it only while the Cloud API says the signed-in
- * caller owns the machine. Turning it on takes the person's click.
- */
-function MachineVmHost({ row }: { row: HostListRow }) {
-  const store = useStore();
-  const [setting, setSetting] = useState(false);
-  const vm = row.vm_host;
-  if (!vm) return null;
-  const label = `machine-vm-host-${row.id}`;
-  return (
-    <div className="row-main device-full-access" data-machine-vm-host={row.id}>
-      <div className="row-label">
-        <div className="row-title" id={label}>
-          {t("settingsWindow.vmHost")}
-        </div>
-        <div className="row-help">{t("settingsWindow.vmHostHelp")}</div>
-        {vm.error && (
-          <div className="row-help" role="alert">
-            {vm.error}
-          </div>
-        )}
-      </div>
-      <div className="row-control">
-        <Switch
-          checked={vm.on}
-          disabled={setting || vm.busy}
-          labelId={label}
-          onToggle={(on) => {
-            setSetting(true);
-            void store.setMachineVmHost(row.id, on).finally(() => setSetting(false));
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-/** `appearance.machineColors`: a machine's color, keyed by its color key. The card draws it, not a map row. */
-export const MACHINE_COLORS_KEY = "appearance.machineColors";
 
 function stringMap(value: unknown): Record<string, string> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return {};

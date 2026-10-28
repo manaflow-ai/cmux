@@ -35,6 +35,14 @@ pub const RESUME_FEATURE: &str = "uploadResume";
 pub const LEGACY_MAX_BYTES: usize = 10 << 20;
 /// The largest decoded chunk. Its base64 form stays below one MiB on the wire.
 pub const CHUNK_BYTES: usize = 512 << 10;
+/// The daily age-cap sweep on the maintenance clock (`maintenance.rs`). Energy Saver does not
+/// stretch it: `uploadsMaxAgeDays` tells the person when a file is gone, and a 4x period would
+/// keep files up to three days past it.
+pub const SWEEP_JOB: crate::maintenance::JobSpec = crate::maintenance::JobSpec {
+    name: "file_uploads.sweep",
+    period: Duration::from_secs(24 * 60 * 60),
+    skippable_in_saver: false,
+};
 
 fn root() -> PathBuf {
     crate::config::home().join("uploads")
@@ -51,7 +59,7 @@ pub(crate) fn session_dir(id: &str) -> Option<PathBuf> {
 pub(crate) fn remove_session(id: &str) {
     let Some(dir) = session_dir(id) else { return };
     // Never follows a symlink: `remove_dir_all` removes the link, not what it names.
-    match std::fs::remove_dir_all(&dir) {
+    match cmux_blocking::fs::remove_dir_all(&dir) {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => tracing::warn!(session = id, "uploads not deleted: {e}"),
@@ -109,48 +117,48 @@ pub(crate) fn sweep(root: &Path, now_ms: u64, max_age: Duration) -> usize {
     let cutoff = now_ms.saturating_sub(u64::try_from(max_age.as_millis()).unwrap_or(u64::MAX));
     let real_dirs =
         |dir: &Path| {
-            std::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
+            cmux_blocking::fs::read_dir(dir).into_iter().flatten().flatten().filter(|entry| {
                 entry.file_type().is_ok_and(|kind| kind.is_dir() && !kind.is_symlink())
             })
         };
     let mut removed = 0;
     for session in real_dirs(root) {
         for upload in real_dirs(&session.path()) {
-            // Made and last used before the cutoff (`used_at`), decided and deleted under `IN_USE`
-            // and the upload's own lock, so no write, status, finish or cancel on it runs between.
-            let _held = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            let _upload = upload.file_name().to_str().map(hold);
-            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff)
-                && used_at(&upload.path()) < cutoff;
-            if old && std::fs::remove_dir_all(upload.path()).is_ok() {
+            let old = upload.file_name().to_str().and_then(made_at).is_some_and(|at| at < cutoff);
+            if old && cmux_blocking::fs::remove_dir_all(upload.path()).is_ok() {
                 removed += 1;
             }
         }
         // Only an empty folder goes (`remove_dir` refuses any other).
-        let _ = std::fs::remove_dir(session.path());
+        #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+        let _ = cmux_blocking::scoped_blocking_call(
+            "fs::remove_dir",
+            cmux_blocking::BlockingKind::Fs,
+            || std::fs::remove_dir(session.path()),
+        );
     }
     removed
 }
 
 impl super::Hub {
-    /// The age cap's sweep (module docs): at the start, then every day. `uploadsMaxAgeDays` is
-    /// read at each sweep, so a config reload applies from the next.
+    /// The age cap's sweep (module docs): at the start, then every day on the maintenance clock
+    /// ([`SWEEP_JOB`]; start it first). `uploadsMaxAgeDays` is read at each sweep, so a config
+    /// reload applies from the next.
     pub fn start_upload_sweep(self: &Arc<Self>) {
-        let hub = self.clone();
-        tokio::spawn(async move {
-            let mut every = tokio::time::interval(Duration::from_secs(24 * 60 * 60));
-            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            loop {
-                every.tick().await;
-                let Some(max_age) = hub.config.read().await.uploads_max_age() else { continue };
-                let now = crate::store::now_ms();
-                match tokio::task::spawn_blocking(move || sweep(&root(), now, max_age)).await {
-                    Ok(0) => {}
-                    Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
-                    Err(e) => tracing::warn!("the upload sweep failed: {e}"),
-                }
-            }
-        });
+        let start = crate::maintenance::Start::Now;
+        if let Err(e) = self.maintenance.register_for(SWEEP_JOB, self, start, Self::sweep_uploads) {
+            tracing::warn!("the daily upload sweep is off: {e}");
+        }
+    }
+
+    async fn sweep_uploads(self: Arc<Self>) {
+        let Some(max_age) = self.config.read().await.uploads_max_age() else { return };
+        let now = crate::store::now_ms();
+        match crate::daemon::spawn_blocking(move || sweep(&root(), now, max_age)).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(uploads = n, "deleted uploads past the age cap"),
+            Err(e) => tracing::warn!("the upload sweep failed: {e}"),
+        }
     }
 }
 
@@ -423,6 +431,15 @@ pub(crate) fn append(
         let _ = file.set_len(current);
         return Err(failed("cannot append upload", &path, &e, Some(current)));
     }
+    file.seek(SeekFrom::End(0)).map_err(|e| RpcError::internal(e.to_string()))?;
+    file.write_all(&bytes).map_err(|e| RpcError::internal(format!("cannot append upload: {e}")))?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let synced = cmux_blocking::scoped_blocking_call(
+        "fs::sync_data",
+        cmux_blocking::BlockingKind::Fs,
+        || file.sync_data(),
+    );
+    synced.map_err(|e| RpcError::internal(format!("cannot sync upload: {e}")))?;
     Ok(json!({"offset": next}))
 }
 
@@ -599,42 +616,21 @@ fn finish(session: &str, params: &Value) -> Result<Value, RpcError> {
     if declared.0 != name || declared.1 != size {
         return Err(RpcError::invalid_params("upload metadata does not match"));
     }
-    let current = match std::fs::metadata(&part) {
-        Ok(m) => m.len(),
-        // Renamed by a finish that stopped before removing `.meta` (a crash): finished.
-        Err(_) if done() => {
-            let answer = again()?;
-            let _ = std::fs::remove_file(&meta);
-            return Ok(answer);
-        }
-        Err(_) => return Err(unknown(upload)),
-    };
+    let current = cmux_blocking::fs::metadata(&part)
+        .map_err(|e| RpcError::invalid_params(format!("unknown upload: {e}")))?
+        .len();
     if current != size {
         return Err(RpcError::invalid_params(format!(
             "upload has {current} bytes, expected {size}"
         ))
         .with_data(json!({"reason": "upload.incomplete", "offset": current})));
     }
-    if let Some(want) = want {
-        let got = sha256_of(&part).map_err(|e| failed("cannot read upload", &part, &e, None))?;
-        if got != want {
-            // The bytes are not the sender's: it begins again.
-            let _ = std::fs::remove_file(&part);
-            let _ = std::fs::remove_file(&meta);
-            return Err(RpcError::invalid_params("the upload's sha256 does not match")
-                .with_data(json!({"reason": "upload.corrupt", "sha256": got})));
-        }
-    }
-    std::fs::rename(&part, &path).map_err(|e| failed("cannot finish upload", &path, &e, None))?;
-    let _ = std::fs::remove_file(meta);
-    Ok(finished(&path, size, upload))
-}
-
-/// A finish's answer: the finished file's path and byte count, and the upload it was, all a
-/// sender needs to call it finished (`docs/prompt-uploads.md` section 1b).
-fn finished(path: &Path, size: u64, upload: &str) -> Value {
-    let id = upload_id(upload).unwrap_or_else(|| upload.to_owned());
-    json!({"path": path.to_string_lossy(), "size": size, "uploadId": id})
+    let dir = part.parent().ok_or_else(|| RpcError::internal("upload has no folder"))?;
+    let path = dir.join(name);
+    cmux_blocking::fs::rename(&part, &path)
+        .map_err(|e| RpcError::internal(format!("cannot finish upload: {e}")))?;
+    let _ = cmux_blocking::fs::remove_file(meta);
+    Ok(json!({"path": path.to_string_lossy()}))
 }
 
 /// The request's `fileName` and `data` (base64) when they keep the contract, before anything is
@@ -686,7 +682,7 @@ fn decoded_len(data: &str) -> usize {
 pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || put(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || put(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))??;
     reject_purged(&session).await?;
@@ -696,7 +692,7 @@ pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> 
 pub async fn handle_begin(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || begin(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || begin(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -708,7 +704,7 @@ pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcE
     if params.get("sessionId").and_then(Value::as_str) != Some(session.id.as_str()) {
         return Err(RpcError::invalid_params("sessionId is required"));
     }
-    let answer = tokio::task::spawn_blocking(move || chunk(&params))
+    let answer = crate::daemon::spawn_blocking(move || chunk(&params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -718,7 +714,7 @@ pub async fn handle_chunk(hub: &super::Hub, params: Value) -> Result<Value, RpcE
 pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || finish(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || finish(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -728,7 +724,7 @@ pub async fn handle_finish(hub: &super::Hub, params: Value) -> Result<Value, Rpc
 pub async fn handle_cancel(hub: &super::Hub, params: Value) -> Result<Value, RpcError> {
     let session = hub.resolve(crate::server::session_key(&params)?)?;
     let id = session.id.clone();
-    let answer = tokio::task::spawn_blocking(move || cancel(&id, &params))
+    let answer = crate::daemon::spawn_blocking(move || cancel(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))?;
     reject_purged(&session).await?;
@@ -768,7 +764,7 @@ async fn reject_purged(session: &std::sync::Arc<super::Session>) -> Result<(), R
         return Ok(());
     }
     let id = session.id.clone();
-    let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
+    let _ = crate::daemon::spawn_blocking(move || remove_session(&id)).await;
     Err(RpcError::invalid_params("no such chat"))
 }
 
@@ -780,22 +776,11 @@ pub fn cancel(id: &str, params: &Value) -> Result<Value, RpcError> {
         .and_then(Value::as_str)
         .and_then(upload_id)
         .ok_or_else(|| RpcError::invalid_params("uploadId is required"))?;
-    let token = params.get("ownerToken").and_then(Value::as_str).unwrap_or_default();
-    // Under the sweep's lock, so a prompt reading it at that moment never sees it half gone.
-    let _in_use = IN_USE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    let _held = hold(&upload);
-    let Some(dir) = upload_dir(id, &upload) else { return Ok(json!({})) };
-    // An upload begun for a prompt goes whole, finished or not, only with its owner token (a
-    // sender that will not send the prompt naming it): nobody else's cancel deletes it. Any
-    // other upload's cancel deletes it while it is unfinished, as before.
-    let owner = dir.join(OWNER);
-    let goes = if owner.exists() {
-        owned_dir(id, &upload, token).is_some()
-    } else {
-        dir.join(".part").exists()
-    };
-    if goes {
-        let _ = std::fs::remove_dir_all(&dir);
+    if let Some(part) = part_path(id, &upload) {
+        let _ = cmux_blocking::fs::remove_file(part);
+    }
+    if let Some(meta) = meta_path(id, &upload) {
+        let _ = cmux_blocking::fs::remove_file(meta);
     }
     Ok(json!({}))
 }

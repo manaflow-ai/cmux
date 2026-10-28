@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// The shape of a tool's settings file the detector reads one key from.
@@ -20,7 +21,7 @@ nonisolated enum ScreenshotSettingsFileFormat: Sendable {
             return nil
         case .json:
             guard let data = text.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return nil }
             return object[key] as? String
         }
     }

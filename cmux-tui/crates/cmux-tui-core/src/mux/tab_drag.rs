@@ -254,6 +254,7 @@ impl Mux {
     /// the same screen) command for a drop on a pane edge. `keep_focus`
     /// leaves the focused pane focused (`tab-split-keep-focus-v1`).
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_tab_to_split_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -305,6 +306,7 @@ impl Mux {
     /// closes the fresh tab again; a daemon that dies between the two commits
     /// keeps both tabs, so no tab is lost.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_tab_to_split_respawning_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -346,6 +348,7 @@ impl Mux {
     /// pane's only tab into a new (optionally docked) column and leave a fresh
     /// tab in its pane, guarded like [`Self::move_tab_to_split_respawning_as`].
     /// Docking a screen's only tab uses it, so the strip keeps a column.
+    #[track_caller]
     pub fn move_tab_to_column_respawning_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -373,6 +376,7 @@ impl Mux {
     /// Creates the fresh tab in `source` first (the pane never empties), then
     /// commits while `source` holds exactly the fresh and the dragged tab. A
     /// failed drag closes the fresh tab again.
+    #[track_caller]
     fn commit_tab_drag_respawning(
         self: &Arc<Self>,
         actor: &Actor,
@@ -408,6 +412,7 @@ impl Mux {
 
     /// Move a tab into a new strip column on the screen containing `pane`.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn move_tab_to_column_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -428,6 +433,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     fn commit_tab_drag(
         self: &Arc<Self>,
         actor: &Actor,
@@ -440,6 +446,7 @@ impl Mux {
 
     /// [`Self::commit_tab_drag`], refused (before anything changes) unless
     /// `guard`'s pane holds exactly its tabs when the commit runs.
+    #[track_caller]
     fn commit_tab_drag_guarded(
         self: &Arc<Self>,
         actor: &Actor,
@@ -531,6 +538,7 @@ impl Mux {
     /// one commit. A move between two panes of one screen whose origin pane
     /// survives records a layout-undo entry that moves the tab back.
     /// Returns whether the tab moved and whether the move is undoable.
+    #[track_caller]
     pub fn move_tab_with_undo_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -577,6 +585,7 @@ impl Mux {
     /// between is in it. The presentation lock is held through the emit (state
     /// first, as commits take them), so a commit's reload waits until this
     /// delta is out and its `tree-changed` comes after it.
+    #[track_caller]
     pub(crate) fn emit_tab_changed_for_transaction(
         &self,
         surface: SurfaceId,

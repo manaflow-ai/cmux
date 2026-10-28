@@ -24,7 +24,9 @@ public struct GoToFolderResolver: Sendable {
     public init(home: URL = FileManager.default.homeDirectoryForCurrentUser,
                 fileExists: @escaping @Sendable (String) -> (exists: Bool, isFolder: Bool) = { path in
                     var isDir: ObjCBool = false
-                    let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+                    // SAFETY: `isDir` is a local that outlives the call; Foundation writes one ObjCBool through the
+                    // pointer and keeps no reference to it after returning.
+                    let exists = unsafe FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
                     return (exists, isDir.boolValue)
                 }) {
         self.home = home

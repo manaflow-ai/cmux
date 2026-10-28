@@ -19,7 +19,8 @@ extension RemoteTerminalService {
     /// Moves `tab` from `source` into `workspace` on `destination` (another
     /// session). `completion` gets whether it moved.
     func move(_ tab: TabModel, from source: DaemonService, to workspace: WorkspaceModel, on destination: DaemonService,
-              completion: @escaping (Bool) -> Void) {
+              completion: @escaping TabMoves.Completion) {
+        guard let services else { return }
         let registry = services.registry
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.
@@ -96,15 +97,9 @@ extension RemoteTerminalService {
     /// `pane` (whose workspace is homed on `home`). The terminal has no tab
     /// on `machine`: `create-terminal {detached}` (`detached-terminals-v1`),
     /// else created in one of the machine's workspaces (a scratch one when
-    /// it has none) and that tab closed. With `direction` the tab lands in a
-    /// new split of `pane` (right or bottom) instead of a tab of it.
-    ///
-    /// `name` is the tab's own name (what `open-remote` finds it by the next time), `command` is typed
-    /// into the new shell, `ratio` is the split's share for the new pane and `keepFocus` leaves the
-    /// user's focus where it was (daemons without `tab-split-keep-focus-v1` take focus anyway).
-    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?,
-                      splitting direction: SplitDirection? = nil, name tabName: String? = nil, command: String? = nil,
-                      ratio: Double? = nil, keepFocus: Bool = false) -> ActionWorkFailure? {
+    /// it has none) and that tab closed.
+    func openTerminal(on machine: DaemonService, in pane: PaneModel, home: DaemonService, cwd: String?) -> ActionWorkFailure? {
+        guard let services else { return ActionWorkFailure(RefusalStrings.appClosing) }
         // Only the tab's session stores the reference; the terminal's session
         // needs no new capability.
         guard home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else {
@@ -159,6 +154,7 @@ extension RemoteTerminalService {
     /// The name stored on a reference (the placeholder label while the
     /// session is away).
     func sessionName(of daemon: DaemonService) -> String {
+        guard let services else { return "" }
         if daemon.isLocal { return daemon.identity?.machineName ?? MacName().hostName() }
         return services.machines.machineName(daemon.machineID) ?? daemon.identity?.machineName ?? daemon.identity?.session ?? daemon.machineID
     }

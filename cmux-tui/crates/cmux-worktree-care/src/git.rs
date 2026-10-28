@@ -133,9 +133,14 @@ pub(crate) fn run_within(
     cmux_git::run::lower_if_background(child.id());
     let (sender, receiver) = std::sync::mpsc::channel();
     let id = child.id();
-    std::thread::spawn(move || {
-        let _ = sender.send(child.wait_with_output());
-    });
+    let waiter =
+        cmux_threads::spawn("worktree-care-git-wait", cmux_threads::HELPER_CHILD, move || {
+            let _ = sender.send(child.wait_with_output());
+        });
+    if let Err(error) = waiter {
+        kill(id);
+        return Err(format!("could not wait: {error}"));
+    }
     match receiver.recv_timeout(limit) {
         Ok(Ok(output)) => Ok(output),
         Ok(Err(error)) => Err(format!("could not run: {error}")),

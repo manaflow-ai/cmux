@@ -12,9 +12,9 @@
 //! as the request's `target`. A command that fails fails the open, so the
 //! bundled `cmux-open-url` falls back to the default browser.
 
+use cmux_process::{Command, Stdio};
 use std::io::Write;
 use std::os::unix::net::UnixStream;
-use std::process::{Command, Stdio};
 
 use serde_json::{Value, json};
 

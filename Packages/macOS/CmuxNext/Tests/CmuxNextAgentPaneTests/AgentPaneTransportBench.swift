@@ -1,9 +1,12 @@
 import AppKit
+import CmuxNextPages
+import CmuxNextTestSupport
 import Darwin
 import Foundation
 import Testing
 import WebKit
 @testable import CmuxNextAgentPane
+import CmuxNextWakeups
 
 private actor BenchHost: AgentPaneHostProviding {
     let url: URL
@@ -19,6 +22,8 @@ private actor BenchHost: AgentPaneHostProviding {
 /// allowlisted notification, so every number is a round trip through the whole path (the host's
 /// allowlist check included). Workloads: `light`, 300 frames at 100 frames/s (no load); `paced`,
 /// 2,000 frames at 2,000 frames/s; `burst`, 2,000 frames back to back. Main-thread CPU is the host main thread's CPU time across the burst.
+/// With CMUX_PERF_RESULT_DIR each mode's raw round trips, burst totals and main CPU are result-v1 (lab story
+/// swift-agent-pane-transport).
 /// CMUX_PANE_TRANSPORT_BENCH_VISIBLE=1 puts the windows on screen (a live Mac).
 @MainActor
 @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH"] == "1"))
@@ -26,12 +31,17 @@ struct AgentPaneTransportBench {
     nonisolated static let rounds = Int(ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH_ROUNDS"] ?? "") ?? 5
     static let visible = ProcessInfo.processInfo.environment["CMUX_PANE_TRANSPORT_BENCH_VISIBLE"] == "1"
 
-    /// The page of the host modes: the same bridge calls as bridgeSocket.ts, without React.
-    static let nativePage = #"""
-    <!doctype html><html><body>bench<script>
-    const post = (method, params = {}) => window.webkit.messageHandlers.agentSession
-      .postMessage({ id: String(Math.random()), method, params })
-      .then((r) => { if (!r.ok) throw new Error(r.error && r.error.code); return r.value; });
+    /// The page of the host modes: its script is a file beside it (`bench.js`), since the agent
+    /// page's policy runs no inline script.
+    static let nativePage = #"<!doctype html><html><body>bench<script src="bench.js"></script></body></html>"#
+
+    /// The host modes' script: the same page host calls as bridgeSocket.ts and pageHost.ts
+    /// (`cmux.agent.*` ops, the host's pushes on `cmux.agent.host.events`), without React.
+    static let nativeScript = #"""
+    let nextId = 1;
+    const envelope = (message) => window.webkit.messageHandlers.cmuxPage.postMessage({ id: nextId++, ...message });
+    const post = (method, params = {}) => envelope({ t: "call", op: "cmux.agent." + method, params })
+      .then((r) => { if (!r || r.t !== "ok") throw new Error(r && r.code); return r.value; });
     let connection, out = [], queued = false, ready = null;
     const send = (text) => {
       out.push(text);
@@ -40,20 +50,23 @@ struct AgentPaneTransportBench {
       queueMicrotask(() => { queued = false; const frames = out; out = []; post("transport.send", { connection, frames }); });
     };
     const ack = (s) => send('{"jsonrpc":"2.0","method":"session/cancel","params":{"sessionId":"a' + s + '"}}');
-    window.cmuxAcpmuxTransport = { receive(event) {
+    const receive = (event) => {
       for (const text of event.frames || []) {
         const m = JSON.parse(text);
         if (m.params && m.params.s !== undefined) ack(m.params.s);
         else if (m.id === 0 && ready) { const r = ready; ready = null; r(); }
       }
-    } };
+    };
+    window.__cmuxPageReceive = (message) => {
+      if (message && message.t === "ev" && message.data && message.data.kind === "transport") receive(message.data.value);
+    };
     window.startBench = async () => {
-      await post("ready");
+      await envelope({ t: "sub", stream: "cmux.agent.host.events" });
+      await post("handshake");
       connection = (await post("transport.open")).connection;
       await new Promise((r) => { ready = r; send(JSON.stringify({ jsonrpc: "2.0", id: 0, method: "initialize", params: {} })); });
       return connection;
     };
-    </script></body></html>
     """#
 
     /// Today's page: the page world opens the socket (`direct`).
@@ -145,20 +158,24 @@ struct AgentPaneTransportBench {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let page = directory.appendingPathComponent("index.html")
             try Self.nativePage.write(to: page, atomically: true, encoding: .utf8)
+            try Self.nativeScript.write(to: directory.appendingPathComponent("bench.js"), atomically: true, encoding: .utf8)
             let model = AgentPaneModel(host: BenchHost(url: server.url))
-            let pane = try #require(AgentPaneView(model: model, source: .bundled(page)))
+            // Run alone (pane-native-transport.sh): the first agent page root of a process is the one it serves.
+            let pane = try #require(AgentPaneView(mainThread: .standalone(), model: model, work: BackgroundWork(label: "test.agent-pane"), source: .bundled(page), webUI: .agentPaneTestHost(), gestures: .testing()))
             pane.frame = window.contentView!.bounds
-            print("PANE-STAGE awake \(Self.keepAwake(pane.webView))")
+            // The bench host shows the page in WebKit: the bench drives that engine directly.
+            let paneWebView = try #require(pane.page.webKitEngine)
+            print("PANE-STAGE awake \(Self.keepAwake(paneWebView))")
             window.contentView!.addSubview(pane)
-            if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer() }
+            if mode == .hostTurns { model.transport.pacer = AgentPaneNextTurnPacer(mainWork: model.transport.mainWork) }
             // The page loads on its own; wait for it, then start.
             let deadline = ContinuousClock.now + .seconds(20)
             while ContinuousClock.now < deadline {
-                if (try? await pane.webView.evaluateJavaScript("typeof startBench") as? String) == "function" { break }
+                if (try? await paneWebView.evaluateJavaScript("typeof startBench") as? String) == "function" { break }
                 try await Task.sleep(for: .milliseconds(20))
             }
-            _ = try await pane.webView.callAsyncJavaScript("return await startBench()", arguments: [:], in: nil, contentWorld: .page)
-            return Rig(mode: mode, window: window, webView: pane.webView, pane: pane, connectionIndex: before)
+            _ = try await paneWebView.callAsyncJavaScript("return await startBench()", arguments: [:], in: nil, contentWorld: .page)
+            return Rig(mode: mode, window: window, webView: paneWebView, pane: pane, connectionIndex: before)
         }
     }
 
@@ -197,8 +214,19 @@ struct AgentPaneTransportBench {
                 flushes[rig.mode, default: []].append((rig.pane?.model.transport.flushes ?? 0) - flushed)
             }
         }
+        let results = try PerfResultWriter()
+        let ms = { (nanos: [UInt64]) in nanos.map { Double($0) / 1e6 } }
         var rows: [[String: Any]] = []
         for mode in Mode.allCases {
+            if let results {
+                let name = "swift.agent_pane_transport.\(mode.rawValue)"
+                try results.record("\(name).light", unit: .ms, samples: ms(light[mode]!))
+                try results.record("\(name).paced", unit: .ms, samples: ms(paced[mode]!))
+                try results.record("\(name).burst", unit: .ms, samples: ms(burst[mode]!))
+                try results.record("\(name).burst_total", unit: .ms, samples: ms(totals[mode]!))
+                try results.record("\(name).main_cpu", unit: .ms, samples: ms(cpu[mode]!))
+                try results.record("\(name).bridge_calls_per_burst", unit: .count, samples: flushes[mode]!)
+            }
             let d = Mode.direct
             var row: [String: Any] = ["mode": mode.rawValue, "rounds": Self.rounds, "visible": Self.visible]
             for (name, values, base) in [("light", light[mode]!, light[d]!), ("paced", paced[mode]!, paced[d]!),

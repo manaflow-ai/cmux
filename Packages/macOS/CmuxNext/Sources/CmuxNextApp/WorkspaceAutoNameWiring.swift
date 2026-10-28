@@ -44,7 +44,7 @@ struct WorkspaceAutoNameWiring {
             },
             selection: { [weak services] workspace, pane in
                 guard let services, let window = services.windows.registry.value.owner(of: workspace.id) else { return nil }
-                return services.windows.controller(for: window)?.state.selection.selection(in: pane.id)
+                return services.windows.states[window]?.selection.selection(in: pane.id) // never builds the window
             },
             rename: { [weak services] target, name, maySend, onFailure in
                 guard let services, target.supportsNameSource, let key = target.workspace.key,
@@ -57,9 +57,15 @@ struct WorkspaceAutoNameWiring {
                 }
                 return true
             })
-        Task { [weak settings] in
+        // task-owner: the namer follows the stores for the app's lifetime; the task itself only awaits the
+        // settings load (off main), then posts the one main step, the follow's start, as a classed visible task.
+        let mainWork = services.mainWork
+        Task { @concurrent [weak settings, weak services] in
             await settings?.waitForLoad(atLeast: 1)
-            await namer.run()
+            mainWork.postFromAnyThread(.visible, owner: "WorkspaceAutoNameWiring.follow") { [weak services] in
+                guard let services else { return }
+                services.lifetimeFollowers.append(namer.follow(on: services.mainWork))
+            }
         }
     }
 }

@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// Control-socket methods for the local handoff protocol. A sibling build can
 /// list records without touching AppKit, then acknowledge each one after it
@@ -8,9 +9,10 @@ import CmuxNextSettings
 enum SessionTransferControl {
     static func methods(services: AppServices) -> [ControlMethod] {
         [
-            .async("session.transfer.list") { [transfer = services.sessionTransfer] call in
-                // This Mac's chats, and the acpmux the taker moves them from.
-                let (chats, acpmux) = await MainActor.run {
+            .async("session.transfer.list") { [transfer = services.sessionTransfer, mainWork = services.mainWork] call in
+                // This Mac's chats, and the acpmux the taker moves them from: one main read in the automation
+                // class (a sibling build asks).
+                let (chats, acpmux) = await mainWork.apply(.automation, owner: "SessionTransfer.list") {
                     (transfer.localChats(), transfer.acpmuxEnvironment().map { (socket: $0.socketPath, home: $0.home.path) })
                 }
                 // The local daemon's workspaces only: `complete` closes on it.

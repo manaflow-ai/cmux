@@ -11,12 +11,30 @@ public struct DaemonEndpoint: Hashable, Sendable {
     /// (``DaemonBridge``: a paired server's owner session through `cmux link
     /// dial`). `socketPath` then only names what to watch for changes.
     public var bridge: DaemonBridge?
+    /// Where the connections opened to this endpoint count their traffic (``DaemonWireStats``):
+    /// the app's composition root puts its recorder on its daemon's endpoints, and every opener
+    /// passes it to its ``LineTransport``. Nil counts nothing (a release build). Not part of the
+    /// endpoint's identity (equality and hash).
+    public var wireStats: DaemonWireStats?
 
-    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil) {
+    public init(socketPath: String, pid: Int32? = nil, generation: DaemonGeneration? = nil, bridge: DaemonBridge? = nil,
+                wireStats: DaemonWireStats? = nil) {
         self.socketPath = socketPath
         self.pid = pid
         self.generation = generation
         self.bridge = bridge
+        self.wireStats = wireStats
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.socketPath == rhs.socketPath && lhs.pid == rhs.pid && lhs.generation == rhs.generation && lhs.bridge == rhs.bridge
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        hasher.combine(socketPath)
+        hasher.combine(pid)
+        hasher.combine(generation)
+        hasher.combine(bridge)
     }
 }
 
@@ -476,6 +494,21 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// `cause` on each `subscribe` event line (cmux-tui/spec/events.md, "Event cause"): what set
+    /// the event off, so the app schedules a person's changes first (``DaemonEvent/cause(wire:recorded:)``).
+    case eventCause = "event-cause-v1"
+    /// `server-diagnostic-site` events on `subscribe`: the daemon's first-seen blocking, inversion and
+    /// slow-request sites, for the app's hang reports (``DaemonConnectionConfiguration/reportsDiagnosticSites``).
+    case diagnosticSites = "diagnostic-sites-v1"
+    /// `energy.set` and `energy.status`: the app's Energy Saver override (`EnergySetRequest.capability`;
+    /// cmux-tui-core server/energy_op.rs).
+    case energy = "energy-v1"
+    /// `energy.set {offForNow}`: "Turn Off for Now", kept by the daemon's own reading
+    /// (`EnergySetRequest.ruleCapability`; cmux-tui-core server/energy_rule.rs).
+    case energyRule = "energy-v2"
+    /// `memory.limit`: the app's memory pressure level, Memory Saver mode and debug override, which the daemon
+    /// votes next to its own level (`MemoryLimitRequest.capability`; cmux-tui-core server/memory_limit.rs).
+    case memoryLimit = "memory-limit-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -526,7 +559,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalColorOverrides, .terminalSnapshotHistory, .terminalSnapshotLocalHistory,
              .terminalSnapshotImages, .terminalClipboardRead, .originClaim, .pageRouter, .sessionJournal,
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
-             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
+             .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk, .eventCause, .energy,
+             .energyRule, .memoryLimit, .diagnosticSites:
             return .optional
         }
     }
@@ -567,16 +601,17 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Echoed through `set-client-info` so the daemon enables additive shapes.
     /// `terminalFrontendShellIntegration` is not in it: only a connection
     /// that resolves the integration echoes it (`handshakeCapabilities`).
-    /// `sharedSizing` is not either: a terminal attachment that names its device adds it
-    /// (`TerminalAttachment.attach(device:)`); other connections only read it from `identify`.
+    /// `sharedSizing` is not either: a terminal attachment that names its device adds it (`attach(device:)`), as does a
+    /// streaming connection with a `sizingDevice`; other connections only read it from `identify`.
     /// `placementShift` only with the sidebar document (`handshakeCapabilities`).
+    /// `diagnosticSites` only on a connection that reports them (`reportsDiagnosticSites`).
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
     }
     /// `agentSessionPresence` only from the connection that draws an attached chat's presence
     /// (`AgentSessionAttachClient`), never from every connection.
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing, .agentSessionPresence]))
+                                                               .sharedSizing, .diagnosticSites]))
 
     /// What a connection echoes in `set-client-info`.
     ///

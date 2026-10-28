@@ -232,39 +232,57 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// A `lastPermissionMode` an older build saved in config.json (the latest
-/// pick it made every new chat's start mode) is ignored: a new chat starts in
-/// the default, at start, after a catalog reload and after a restart.
-#[tokio::test]
-async fn a_last_permission_mode_an_older_build_saved_is_ignored() {
-    let dir = home(
-        "legacy-pick",
-        json!({
-            "lastPermissionMode": "ask",
-            "lastPermissionModeChange": {"epoch": "old", "changes": 0},
-            "lastPermissionModeSetting": "\"standard\"",
-        }),
-    );
-    let settings = dir.join("cmux-next.json");
-    std::fs::write(&settings, r#"{"agents": {}}"#).unwrap();
-    let _env = ENV.lock().await;
-    // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
-    unsafe {
-        std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
-        std::env::set_var("ACPMUX_HOME", &dir);
-    }
+    // A catalog reload reads both: a pick of `standard` saved at the change
+    // count it is at now (another daemon, or the file restored) wins.
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // The picks above reach config.json and start-mode.json on the config writer's thread:
+    // they are on disk before this test reads and edits the files.
+    daemon.flush_writes();
+    let config_path = dir.join("config.json");
+    let read_config =
+        || -> Value { serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap() };
+    let edit = |pick: Value| {
+        let mut config = read_config();
+        for (k, v) in pick.as_object().unwrap() {
+            match v {
+                Value::Null => config.as_object_mut().unwrap().remove(k),
+                v => config.as_object_mut().unwrap().insert(k.clone(), v.clone()),
+            };
+        }
+        std::fs::write(&config_path, serde_json::to_vec_pretty(&config).unwrap()).unwrap();
+    };
+    let state: Value =
+        serde_json::from_slice(&std::fs::read(dir.join("start-mode.json")).unwrap()).unwrap();
+    assert!(state["changes"].is_u64(), "{state}");
+    let now = json!({"epoch": state["epoch"], "changes": state["changes"]});
+    edit(json!({"lastPermissionMode": "standard", "lastPermissionModeChange": now}));
+    daemon.reload_catalog().await.unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "agent");
+    drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
+    drop(daemon);
+
+    // A pick saved before acpmux counted changes (an upgrade) keeps winning,
+    // and the count as it is now is recorded, so a later change to the
+    // setting still wins over it.
+    edit(json!({"lastPermissionMode": "ask", "lastPermissionModeChange": null}));
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
-    assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
-    assert_eq!(app.source(&dir).await, "default");
-    daemon.reload_catalog().await.unwrap();
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
     let daemon = hub(&dir);
     let mut app = Client::app(&daemon).await;
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
-    assert_eq!(app.source(&dir).await, "default");
+    // The chat's pick reaches config.json on the config writer's thread.
+    daemon.flush_writes();
+    assert!(read_config().get("lastPermissionModeSetting").is_none(), "{}", read_config());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -309,6 +327,8 @@ async fn a_managed_value_the_app_pushes_beats_the_file_and_config() {
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     drop(app);
     drop(socket);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     // A restarted daemon keeps the forced value before the app pushes again,
@@ -384,5 +404,68 @@ async fn a_forced_value_acpmux_cannot_read_never_gives_full_access_and_unforced_
     let r = socket.push_raw(json!("a".repeat(65)), false).await;
     assert_eq!(r["result"]["applied"], true, "{r}");
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A pick is spent once the setting changes after it, also when the state
+/// file that counts changes is lost and the count starts again: a pick from
+/// before never comes back when the new count reaches the one saved with it.
+#[tokio::test]
+async fn a_spent_pick_stays_spent_when_the_change_count_is_lost() {
+    let dir = home("lost-count", json!({}));
+    let settings = dir.join("cmux-next.json");
+    std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
+    let _env = ENV.lock().await;
+    // SAFETY: tests in this binary hold `ENV`; set before the daemon starts.
+    unsafe {
+        std::env::set_var("CMUX_NEXT_CONFIG_FILE", &settings);
+        std::env::set_var("ACPMUX_HOME", &dir);
+    }
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    let values = ["standard", "fullAccess"];
+    // A change as the app makes it: the file written, then pushed.
+    let write = |value: &str| {
+        let doc = json!({"agents": {"defaultPermissionMode": value}});
+        std::fs::write(&settings, doc.to_string()).unwrap();
+    };
+    // Some changes, then a pick of `ask` at that count.
+    for value in values.iter().cycle().take(4) {
+        write(value);
+        socket.push(Some(value), false).await;
+    }
+    let (chat, _) = app.chat(&dir, "codex").await;
+    let r = app.call("session/set_mode", json!({"sessionId": chat, "modeId": "ask"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    let state = |dir: &Path| -> Value {
+        serde_json::from_slice(&std::fs::read(dir.join("start-mode.json")).unwrap()).unwrap()
+    };
+    // The pick's count reaches start-mode.json on the config writer's thread.
+    daemon.flush_writes();
+    let picked_at = state(&dir)["changes"].as_u64().unwrap();
+    assert!(picked_at > 0, "{}", state(&dir));
+    drop(app);
+    drop(socket);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
+    drop(daemon);
+
+    // The count is lost; the setting changes until the new count passes the
+    // pick's. New chats follow the setting at every step.
+    std::fs::remove_file(dir.join("start-mode.json")).unwrap();
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let mut socket = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    socket.call("initialize", json!({"protocolVersion": 1})).await;
+    socket.push(Some("fullAccess"), false).await;
+    for value in values.iter().cycle().take(picked_at as usize + 1) {
+        write(value);
+        socket.push(Some(value), false).await;
+        let expected = if *value == "standard" { "agent" } else { "agent-full-access" };
+        assert_eq!(app.chat(&dir, "codex").await.1, expected, "{}", state(&dir));
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }

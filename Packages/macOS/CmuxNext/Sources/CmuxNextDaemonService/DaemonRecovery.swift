@@ -36,15 +36,9 @@ public final class DaemonRecovery {
     /// True once the local daemon's launcher is known (`DaemonService.start(launch:)`).
     public var canRetry: Bool { wake != nil }
 
-    /// Whether an owner that stays unresponsive restarts without asking (default on). Read before
-    /// each automatic restart, off the main actor; the App sets it to its Debug Settings toggle.
-    public nonisolated var restartsUnresponsiveOwner: @Sendable () -> Bool {
-        get { restartsUnresponsive.withLock { $0 } }
-        set { restartsUnresponsive.withLock { $0 = newValue } }
-    }
-
-    /// Follows `launcher`'s ensure outcomes; `wake` is the service's retry wake.
-    func attach(_ launcher: DaemonLauncher, wake: RetryWake) {
+    /// Follows `launcher`'s ensure outcomes, each change one visible task on `work` (the launch window shows the
+    /// offer); `wake` is the service's retry wake.
+    func attach(_ launcher: DaemonLauncher, wake: RetryWake, on work: MainWorkScheduler) {
         self.launcher = launcher
         self.wake = wake
         // The button's restart without its confirm: the terminal hosts are separate processes,
@@ -58,7 +52,7 @@ public final class DaemonRecovery {
         self.watch = watch
         launcher.ensureOutcome.follow(watch)
         let outcome = launcher.ensureOutcome
-        outcome.observe { [weak self] in
+        outcome.observe(on: work, .visible, owner: "DaemonRecovery.offersRestart") { [weak self] in
             guard let self else { return }
             offersRestart = outcome.ownerLooksStuck
             // An ensure that worked (the owner recovered by itself) ends an earlier Restart's failure.

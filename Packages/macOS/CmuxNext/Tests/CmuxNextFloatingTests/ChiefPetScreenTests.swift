@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -20,7 +21,7 @@ import Testing
     static let notifications = NotificationCenter()
 
     static func panel() -> ChiefPetPanel {
-        let panel = ChiefPetPanel(defaults: defaults(), notifications: Self.notifications)
+        let panel = ChiefPetPanel(defaults: defaults(), appEvents: AppEvents(center: Self.notifications))
         panel.visibleFrame = { Self.visible }
         panel.setFrameOrigin(CGPoint(x: 200, y: 200))
         return panel
@@ -28,18 +29,13 @@ import Testing
 
     /// Presses the character at `from` and drags through `path`; `release` false keeps the button down.
     private func drag(_ pet: ChiefPetView, from: CGPoint, path: [CGPoint], release: Bool = true) {
-        var pointer = from
-        pet.pointer = { pointer }
         pet.layoutSubtreeIfNeeded()
-        let spot = CGPoint(x: pet.characterFrame.midX, y: pet.characterFrame.midY)
-        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: pet.convert(spot, to: nil), modifierFlags: [], timestamp: 0,
-                                       windowNumber: pet.window?.windowNumber ?? 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
-        pet.mouseDown(with: event)
+        let down = ChiefPetTests.screenPoint(of: CGPoint(x: pet.characterFrame.midX, y: pet.characterFrame.midY), in: pet)
+        pet.mouseDown(with: ChiefPetTests.event(.leftMouseDown, at: down))
         for point in path {
-            pointer = point
-            pet.mouseDragged(with: event)
+            pet.mouseDragged(with: ChiefPetTests.event(.leftMouseDragged, at: CGPoint(x: down.x + point.x - from.x, y: down.y + point.y - from.y)))
         }
-        if release { pet.mouseUp(with: event) }
+        if release { pet.mouseUp(with: ChiefPetTests.event(.leftMouseUp, at: down)) }
     }
 
     @Test func aDragOverTheScreenEdgeIsNotPulledBackUntilItEnds() {

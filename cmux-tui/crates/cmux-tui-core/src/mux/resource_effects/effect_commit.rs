@@ -28,9 +28,14 @@ impl RegistryIntentSink for MuxIntentSink {
         self.0.upgrade().is_some_and(|mux| mux.journal_ingress.accepts_effects())
     }
 
-    fn send(&self, intent: RegistryIntent) -> EffectSend {
+    #[track_caller]
+    fn send(
+        &self,
+        intent: RegistryIntent,
+        site: &'static std::panic::Location<'static>,
+    ) -> EffectSend {
         match self.0.upgrade() {
-            Some(mux) => mux.journal_ingress.send_effect(intent),
+            Some(mux) => mux.journal_ingress.send_effect(intent, site),
             None => EffectSend::NotQueued(Box::new(intent)),
         }
     }
@@ -44,6 +49,7 @@ impl Mux {
     }
 
     /// Commit a prepared effect intent and finish it under `registry`.
+    #[track_caller]
     pub(crate) fn commit_effect_intent(
         &self,
         registry: &mut WorkspaceRegistry,
@@ -72,6 +78,7 @@ impl Mux {
     /// arrived since (cx-g1fa.3): each one's owed state update, then raise
     /// the in-memory revisions to what the journal committed. The caller
     /// holds the registry and `state`.
+    #[track_caller]
     pub(crate) fn settle_registry_receipts(&self, registry: &WorkspaceRegistry, state: &mut State) {
         let settled = registry.connection.take_settled_receipts();
         if settled.is_empty() {
@@ -86,6 +93,7 @@ impl Mux {
     }
 }
 
+#[track_caller]
 fn settle_one(
     state: &mut State,
     receipt: &RegistryReceipt,

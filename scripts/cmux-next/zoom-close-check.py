@@ -41,7 +41,10 @@ live      (trace, every scenario) each pane whose presented rect moves is laid o
 header    (trace) the zooming pane's tab strip shows whole in every sample (share 1.0), and every
             other moving pane's too.
 work      (work.json) main-thread time per display frame: the layout step and the whole tick,
-            p50 / p95 / max ms (`debug.motion` work: `layout` the layout's step, `clock` the tick).
+            p50 / p95 / max ms as the app summarizes them (`debug.motion` work: `layout` the layout's step,
+            `clock` the tick). `frame_gap_ms`: the gaps between trace samples while anything moves,
+            p50 / p95 / p99 / max from scripts/perf-lab/perf_stats.py (paint_typing_report.frame_gaps), and how
+            many are over 12.5 and 25 ms.
 edges     (trace, split-* scenarios) on every sample the split pane's content edge, its tab
             strip's edge (`strip_edges`, builds that report it) and the new pane's content edge
             keep one distance to the divider between them, within 0.5 pt (1 px at 2x): the left
@@ -58,6 +61,9 @@ import argparse, json, os, subprocess, sys
 
 import numpy as np
 from PIL import Image
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the bench modules, also under `python3 -I`
+from paint_typing_report import frame_gaps  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("dir")
@@ -393,11 +399,9 @@ def check_live(directory, colors, focus_pane=None):
     budget = {name: work[name] for name in ("layout", "clock") if isinstance(work.get(name), dict)}
     result["work"] = budget
     # Frame pacing while anything moves: a main thread over budget skips display frames.
-    times = [s["t"] for s in samples]
-    gaps = sorted(b - a for a, b in zip(times, times[1:]))
+    gaps = frame_gaps([s["t"] for s in samples])
     if gaps:
-        result["frame_gap_ms"] = {"samples": len(times), "p50": round(gaps[len(gaps) // 2], 2), "max": round(gaps[-1], 2),
-                                  "over_12_5": sum(1 for g in gaps if g > 12.5), "over_25": sum(1 for g in gaps if g > 25)}
+        result["frame_gap_ms"] = gaps
     return result, failures
 
 
