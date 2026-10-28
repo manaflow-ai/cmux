@@ -92,7 +92,9 @@ await requireBrowserLane("chat-header-tab-row-surface.test.ts", async () => {
   });
 
   test("floating header tools keep plain icons without background plates", async () => {
-    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join("\n");
+    const shellCss = [read("agent-session/acpmux/styles.css"), read("agent-session/acpmux/header/header.css")].join(
+      "\n",
+    );
     const page = await browser.newPage({ viewport: { width: 320, height: 120 } });
     await page.setContent(`<!doctype html><html><head><style>
       html, body { width: 100%; height: 100%; margin: 0; background: rgb(10, 20, 30); color: white; }
