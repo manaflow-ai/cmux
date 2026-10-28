@@ -1,4 +1,5 @@
 import Foundation
+import CMUXAgentLaunch
 
 @MainActor
 final class SurfaceResumeRunPromptBatch {
@@ -140,8 +141,19 @@ extension SurfaceResumeRunPromptBatch {
     private nonisolated static func hasAgentRestoreIdentity(
         _ restorableAgent: SessionRestorableAgentSnapshot
     ) -> Bool {
-        !restorableAgent.kind.rawValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !restorableAgent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let kind = restorableAgent.kind.rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let sessionID = restorableAgent.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard AgentRestoreCLIArgument(rawValue: kind) != nil, !sessionID.isEmpty else {
+            return false
+        }
+        if AgentRestoreCLIArgument(rawValue: sessionID) != nil {
+            return true
+        }
+        guard kind == "pi" || kind == "omp" else { return false }
+        return ManagedAgentSessionIdentity.canonicalSessionID(
+            kind: kind,
+            sessionID: sessionID
+        ) != sessionID
     }
 
     /// Extracts the executable after a simple cwd guard and shell prefixes.

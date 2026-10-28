@@ -6471,6 +6471,18 @@ extension SessionPersistenceTests {
             )?.kind,
             "pi"
         )
+        let malformedCodex = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: "/tmp/not-a-codex-checkpoint",
+            workingDirectory: "/tmp/identity",
+            launchCommand: nil
+        )
+        XCTAssertNil(
+            SurfaceResumeRunPromptBatch.agentRestoreIdentity(
+                restorableAgent: malformedCodex, agentMayAutoResume: true,
+                resumeBinding: nil, bindingWillLaunch: false
+            )
+        )
 
         let kindlessClaudeInCodexDirectory = legacyCodex
         var claudeCommand = kindlessClaudeInCodexDirectory
