@@ -223,6 +223,13 @@ fn cmux_next_git_diff_pages_a_large_patch_without_losing_bytes() {
     }
     assert_eq!(bytes, expected.stdout);
     assert_eq!(String::from_utf8(bytes.clone()).unwrap().matches("café").count(), 300_000);
+    let missing_revision = client.request(
+        "git.diff",
+        json!({"path": path, "scope": "uncommitted", "include_patch": true,
+        "paths": ["large.txt"], "patch_offset": 1}),
+    );
+    assert_eq!(missing_revision["ok"], false, "continuations require a source revision");
+    assert!(missing_revision.to_string().contains("patch_revision"), "{missing_revision}");
     println!(
         "DIFF_PAGE_BENCH {{\"legacyMs\":{legacy_ms},\"firstPageMs\":{first_page_ms},\"allPagesMs\":{},\"legacyPatchBytes\":{legacy_bytes},\"completePatchBytes\":{},\"maxPageBytes\":{max_page_bytes},\"pages\":{page_count}}}",
         started.elapsed().as_secs_f64() * 1_000.0,

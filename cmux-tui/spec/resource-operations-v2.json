@@ -19526,7 +19526,7 @@
               "min_length": 64,
               "max_length": 64
             },
-            "description": "The first patch_page revision. A different source refuses with repository_changed, so pages from different file states are never joined."
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. A different source refuses with repository_changed, so pages from different file states are never joined."
           }
         },
         "extra": false
@@ -20119,7 +20119,7 @@
               "min_length": 64,
               "max_length": 64
             },
-            "description": "The first patch_page revision. A different source refuses with repository_changed, so pages from different file states are never joined."
+            "description": "The first patch_page revision; required when patch_offset is greater than zero. A different source refuses with repository_changed, so pages from different file states are never joined."
           }
         },
         "extra": false

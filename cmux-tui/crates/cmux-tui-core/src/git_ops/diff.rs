@@ -145,6 +145,14 @@ fn report(
             "a patch page requires include_patch and exactly one file path",
         ));
     }
+    if page_offset.is_some_and(|offset| offset > 0)
+        && fields.get("patch_revision").and_then(Value::as_str).is_none()
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_revision"),
+            "continuing a patch requires the first page's revision",
+        ));
+    }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
     let mut untracked_skipped = 0;
@@ -171,9 +179,9 @@ fn report(
     let files_omitted = page_files - files.len();
     let wants_patch = include_patch && page_offset.is_none() && comparison.revisions.is_some();
     if wants_patch && files.iter().any(|file| file.status != "untracked") {
-        let batches = if files_omitted == 0 {
+        let batches = if files_omitted == 0 && !fields.contains_key("after_path") {
             // Every file is returned: the request's own paths select them.
-            vec![paths]
+            vec![paths.clone()]
         } else {
             returned_paths(&files).chunks(PATCH_BATCH).map(<[String]>::to_vec).collect()
         };
