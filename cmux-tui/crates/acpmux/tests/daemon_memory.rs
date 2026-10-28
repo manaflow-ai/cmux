@@ -229,7 +229,10 @@ fn cpu_ms(pid: u32) -> u64 {
     if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
         let fields: Vec<&str> = stat.rsplit(')').next().unwrap().split_whitespace().collect();
         let ticks: u64 = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
-        return ticks * 1000 / 100;
+        // SAFETY: sysconf reads the clock tick rate and takes no pointers.
+        let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+        assert!(hz > 0);
+        return ticks * 1000 / hz as u64;
     }
     // macOS: `[[dd-]hh:]mm:ss.cc`.
     let out = std::process::Command::new("ps")
@@ -394,4 +397,117 @@ fn a_wait_on_one_chat_by_name_and_by_id_reads_it_twice() {
     );
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Opt-in allocation experiment; the ordinary 400-chat/166 MiB guard stays unchanged.
+/// Run this exact workload on base and fix with --ignored --nocapture --test-threads=1.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "same-host allocation benchmark; run explicitly on hosted Linux"]
+fn retained_session_list_allocation_benchmark() {
+    fn memory(pid: u32) -> (u64, u64) {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap();
+        let kb = |key: &str| {
+            status
+                .lines()
+                .find(|l| l.starts_with(key))
+                .unwrap()
+                .split_whitespace()
+                .nth(1)
+                .unwrap()
+                .parse::<u64>()
+                .unwrap()
+        };
+        (kb("VmRSS:"), kb("VmHWM:"))
+    }
+    for chats in [0u64, 288, 1000] {
+        let dir = scratch(&format!("list-alloc-{chats}"));
+        let home = dir.join("home");
+        private_dir(&home);
+        private_dir(&home.join("sessions"));
+        let id = |i: u64| format!("01a15905-0000-7000-8000-{i:012}");
+        for i in 0..chats {
+            let status = if i % 3 == 0 { "idle" } else { "closed" };
+            write_session(&home, &id(i), status, true);
+            let mut meta = chief_meta(&id(i), status, 1_791_000_000_000);
+            // Many small fields exercise JSON-tree amplification, not one giant string.
+            meta["tools"]["rows"] = json!((0..24).map(|t| json!({
+                "id": format!("mcp__fixture__tool_{t}"), "name": format!("fixture_tool_{t}"),
+                "kind": "mcp", "source": "fixture", "enabled": true, "canToggle": true
+            })).collect::<Vec<_>>());
+            meta["lastPrompt"] = json!("retained prompt ".repeat(64));
+            private_file(
+                &home.join("sessions").join(id(i)).join("session.json"),
+                &meta.to_string(),
+            );
+        }
+        let daemon = Daemon::start(&dir, &home);
+        let pid = daemon.child.id();
+        let mut rpc = Rpc::connect(&daemon.socket);
+        let (ready_rss_kb, startup_peak_kb) = memory(pid);
+        let ready_cpu_ms = cpu_ms(pid);
+        // Ready precedes deferred log loading. Wait for every fixture log through the
+        // supported info request before measuring lists; no full list is built here.
+        for i in 0..chats {
+            assert_eq!(rpc.call("_acpmux/info", json!({"sessionId": id(i)}))["logsLoading"], false);
+        }
+        let (before_rss_kb, prepared_peak_kb) = memory(pid);
+        let prepared_cpu_ms = cpu_ms(pid);
+        std::fs::write(format!("/proc/{pid}/clear_refs"), "5").unwrap();
+        let cpu0 = cpu_ms(pid);
+        let started = std::time::Instant::now();
+        let mut samples = Vec::new();
+        for request in 0..3 {
+            if request > 0 && chats > 0 {
+                // Invalidate the shared snapshot, without omitting any inventory fields.
+                rpc.call(
+                    "_acpmux/tag",
+                    json!({"sessionId": id(0), "set": {"bench": request.to_string()}}),
+                );
+            }
+            let list = rpc.call("_acpmux/sessions", json!({}));
+            let rows = list["sessions"].as_array().unwrap();
+            assert_eq!(rows.len() as u64, chats);
+            let mut seen = std::collections::BTreeSet::new();
+            let mut closed = 0u64;
+            for row in rows {
+                let sid = row["sessionId"].as_str().unwrap();
+                assert!(seen.insert(sid.to_owned()), "duplicate {sid}");
+                let i: u64 = sid.rsplit('-').next().unwrap().parse().unwrap();
+                assert!(i < chats && sid == id(i), "unexpected session {sid}");
+                let expected = if i % 3 == 0 { "idle" } else { "closed" };
+                assert_eq!(row["status"], expected, "status of {sid}");
+                closed += u64::from(expected == "closed");
+                assert_eq!(row["tools"].as_array().unwrap().len(), 24, "tools of {sid}");
+                assert_eq!(row["tools"][23]["id"], "mcp__fixture__tool_23");
+                assert_eq!(row["lastPrompt"], "retained prompt ".repeat(64));
+            }
+            assert_eq!(closed, chats - chats.div_ceil(3));
+            let (rss_kb, peak_kb) = memory(pid);
+            samples.push(json!({"request": request, "rss_kb": rss_kb, "peak_kb": peak_kb,
+                "cpu_ms": cpu_ms(pid).saturating_sub(cpu0), "result_json_bytes": list.to_string().len()}));
+        }
+        let list_cpu_ms = cpu_ms(pid).saturating_sub(cpu0);
+        let list_wall_ms = started.elapsed().as_millis();
+        let (after_rss_kb, list_peak_kb) = memory(pid);
+        // ListGuard's maximum snapshot lifetime is 15 s. One bounded observation
+        // after expiry distinguishes live snapshots from allocator-retained pages.
+        std::thread::sleep(std::time::Duration::from_secs(16));
+        let (settled_rss_kb, _) = memory(pid);
+        println!(
+            "acpmux-list-allocation: {}",
+            json!({
+                "chats": chats, "closed": chats - chats.div_ceil(3), "tools_per_chat": 24,
+                "ready_rss_kb": ready_rss_kb, "startup_peak_kb": startup_peak_kb,
+                "ready_cpu_ms": ready_cpu_ms, "prepared_peak_kb": prepared_peak_kb,
+                "preparation_cpu_ms": prepared_cpu_ms.saturating_sub(ready_cpu_ms),
+                "before_rss_kb": before_rss_kb, "after_rss_kb": after_rss_kb,
+                "list_peak_kb": list_peak_kb, "settled_rss_kb": settled_rss_kb,
+                "list_cpu_ms": list_cpu_ms, "list_wall_ms": list_wall_ms, "samples": samples
+            })
+        );
+        drop(rpc);
+        drop(daemon);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
