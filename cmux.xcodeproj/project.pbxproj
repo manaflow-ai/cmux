@@ -564,7 +564,6 @@
 				"$(SRCROOT)/scripts/cmux-next/bundle-ublock.sh",
 				"$(SRCROOT)/scripts/cmux-next/fetch-ublock.sh",
 				"$(SRCROOT)/scripts/cmux-next/cef-manifest.json",
-				"$(SRCROOT)/scripts/cmux-next/cef-locale-allowlist.sh",
 				"$(SRCROOT)/scripts/cmux-next/ensure-cef.sh",
 				"$(SRCROOT)/scripts/cmux-next/build-cef-shim.sh",
 				"$(SRCROOT)/scripts/cmux-next/merge-cef-universal.sh",

@@ -22,7 +22,7 @@ fail() { echo "FAIL: $*" >&2; exit 1; }
 
 scripts="$TMP/scripts"
 mkdir -p "$scripts" "$TMP/build" "$TMP/cache" "$TMP/bin"
-cp "$ROOT/scripts/cmux-next/embed-cef.sh" "$ROOT/scripts/cmux-next/cef-locale-allowlist.sh" \
+cp "$ROOT/scripts/cmux-next/embed-cef.sh" \
   "$ROOT/scripts/cmux-next/bundle-ublock.sh" "$ROOT/scripts/cmux-next/lipo-dsym.sh" \
   "$ROOT/scripts/cmux-next/chromium-host-crash-reporter.cfg" "$scripts/"
 printf '{"chromium": "1.0", "debug_symbols": "Chromium Embedded Framework.dSYM.tar.xz"}\n' > "$scripts/cef-manifest.json"
