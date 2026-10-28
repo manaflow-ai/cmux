@@ -4,7 +4,7 @@
 //! down posts it to the hub when the relay is on (`Hub::mesh`): text only, `now` when the send
 //! steers and `turn-end` when it does not, the prompt id as the idempotency key (the same send
 //! again is the same message), and as its sender the session the connection proved (its name and
-//! id) and this machine's name. `HOST/NAME` names a session on that host. The delivery id it
+//! id, never a `fromAgent` the request claims) and this machine's name. `HOST/NAME` names a session on that host. The delivery id it
 //! answers is `mesh:<messageId>`; `_acpmux/send_status` of one reads the hub's receipt once, with
 //! no wait. The hub's refusals answer as this daemon's: a name it does not know is `no session`,
 //! and one several hosts have lists them.
@@ -63,12 +63,14 @@ pub(super) async fn send(
         .and_then(Value::as_str)
         .filter(|id| !id.is_empty())
         .map_or_else(|| uuid::Uuid::now_v7().to_string(), str::to_owned);
+    // The proven caller names the sender; `fromAgent` (anything a client writes) only when no
+    // session is proven, as a display name.
     let caller = conn.caller().filter(|_| !conn.is_person());
     let named = field("fromAgent").and_then(Value::as_str).map(str::to_owned);
     let message = OutMessage {
         to: recipient(target),
         from: Sender {
-            name: named.or_else(|| caller.map(|id| hub.session_name(id))),
+            name: caller.map(|id| hub.session_name(id)).or(named),
             session_id: caller.map(str::to_owned),
             host: Some(crate::pairing::machine_name()),
             ..Sender::default()

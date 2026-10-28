@@ -70,10 +70,11 @@ pub(super) async fn handle(
         && hub.resolve_remote(&target).is_none()
         && hub.peer_down_for(&target).is_none()
     {
-        // With the mesh relay on, the team hub may know a name nothing here matches
-        // (`mesh_send.rs`); a name several sessions here match stays this daemon's refusal.
+        // With the mesh relay on, the team hub may know a name nothing here or on a peer matches
+        // (`mesh_send.rs`); a name several sessions here or on peers match stays this daemon's
+        // refusal (`Hub::mesh_may_route`).
         if let Some(mesh) = hub.mesh.get()
-            && hub.resolve(&target).is_err_and(|e| e.code == RpcError::not_found("").code)
+            && hub.mesh_may_route(&target)
         {
             return super::mesh_send::send(hub, conn, mesh, &request, &target).await;
         }
