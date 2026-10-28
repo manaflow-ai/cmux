@@ -691,3 +691,14 @@ pub fn tool_specs(engine: &str, grant_json: &str) -> Result<String, JsError> {
         .map(|v| v.to_string())
         .map_err(|e| JsError::new(&e))
 }
+
+/// The reply and outcome ledgers as a pure fold (chief-kernel
+/// `ledger::ledger_apply`; section 13, export 3): applies one event to the
+/// state at `ctx_json.now_ms` and answers `{state, intents}` as JSON. The
+/// host stores the state and performs each intent (`schedule`, `notice`,
+/// `post`) with its key, in one transaction with its own rows.
+#[wasm_bindgen(js_name = ledgerApply)]
+pub fn ledger_apply(state_json: &str, event_json: &str, ctx_json: &str) -> Result<String, JsError> {
+    chief_kernel::ledger::ledger_apply(state_json, event_json, ctx_json)
+        .map_err(|e| JsError::new(&e))
+}
