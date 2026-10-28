@@ -119,7 +119,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
               };
             });
             expect(anchor.row).toBe("upper");
-            expect(anchor.offset).toBe(anchor.length);
+            expect(anchor.offset).toBe(anchor.length ?? -1);
             // Restart from an existing selection, then a plain gap click must clear it.
             await drag(page, { x, y: box.gapY }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
