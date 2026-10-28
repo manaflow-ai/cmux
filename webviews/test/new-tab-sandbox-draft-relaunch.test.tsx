@@ -87,7 +87,7 @@ for (const route of ["unsent", "sent", "host receipt"] as const) {
     let run: unknown = null;
     let firstState = true;
     let receiveState: ((value: unknown) => void) | undefined;
-    const text = route === "unsent" ? "keep this draft" : "already sent task";
+    const text = route === "sent" ? "already sent task" : "keep this draft";
     const receipt = { status: "succeeded", reply: "done" };
     const restoredDrafts: (string | undefined)[] = [];
     const calls: Call[] = [];
@@ -151,14 +151,15 @@ for (const route of ["unsent", "sent", "host receipt"] as const) {
       expect(calls.filter((call) => call.method === "sandbox.run")).toHaveLength(1);
     } else if (route === "host receipt") {
       expect(receiveState).toBeDefined();
-      run = { task: text, key: "restored-run", reply: { ok: true, value: { receipt } } };
+      run = { task: "earlier task", key: "restored-run", reply: { ok: true, value: { receipt } } };
       await act(async () => receiveState!(run));
+      expect(host.querySelector(".nt-field")).toBeNull();
     }
     await act(async () => root!.unmount());
     root = undefined;
     host.replaceChildren();
     await mount();
-    const expected = route === "unsent" ? text : "";
+    const expected = route === "sent" ? "" : text;
     expect(restoredDrafts.at(-1)).toBe(expected);
     expect(persistedDraft).toBe(expected);
   });
