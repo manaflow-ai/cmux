@@ -1350,7 +1350,7 @@ class FastTierBuildsLibghosttyVt(unittest.TestCase):
         self.assertLess(max(init, zig, rust), tier)
         # The Zig packages come from the deadlined, retried fetch, not from build.rs's
         # single unretried download (a pkg/highway ReadFailed failed the job).
-        fetch = next(i for i, run in enumerate(runs) if "scripts/ci/fetch-ghostty-zig-packages.sh ghostty-next" in run)
+        fetch = next(i for i, step in enumerate(job["steps"]) if step.get("uses") == "./.github/actions/ghostty-zig-packages")
         self.assertLess(zig, fetch)
         self.assertLess(fetch, tier)
 
