@@ -46,20 +46,22 @@ class GlaedaExecutionCLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cmux-cli-usage-") as tmp:
             executable = Path(tmp) / "cmux"
             shutil.copy2(CLI, executable)
-            for args in ([], ["--help"]):
-                with self.subTest(args=args):
-                    result = subprocess.run(
-                        [sandbox, "-p", profile, str(executable), *args],
-                        cwd=tmp,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        timeout=10,
-                        check=False,
-                    )
-                    output = result.stdout + result.stderr
-                    self.assertIn(result.returncode, (0, 2), output.decode(errors="replace"))
-                    self.assertIn(b"usage", output.lower())
-                    self.assertNotIn(b"unable to find bundle", output.lower())
+            for isolated in (False, True):
+                command = [sandbox, "-p", profile] if isolated else []
+                for args in ([], ["--help"]):
+                    with self.subTest(args=args, bundle_inaccessible=isolated):
+                        result = subprocess.run(
+                            [*command, str(executable), *args],
+                            cwd=tmp,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            timeout=10,
+                            check=False,
+                        )
+                        output = result.stdout + result.stderr
+                        self.assertIn(result.returncode, (0, 2), output.decode(errors="replace"))
+                        self.assertIn(b"usage", output.lower())
+                        self.assertNotIn(b"unable to find bundle", output.lower())
 
     def request_args(self) -> list[str]:
         return [
