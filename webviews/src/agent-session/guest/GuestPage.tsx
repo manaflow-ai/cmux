@@ -208,7 +208,8 @@ export function LiveChat({
     .flatMap((person) => participant(person.id, person.name) ?? []);
   return (
     <GuestActionsBoundary>
-      <div className="guest-live">
+      {/* The whole page reports nothing to an owner's context menu (conversation/messageMenu.ts). */}
+      <div className="guest-live" data-read-only-transcript="">
         <header className="guest-live__header">
           <div className="guest-live__titles">
             <h1 className="guest-live__title">{displayName(chat.title) ?? t("guest.live.untitled")}</h1>

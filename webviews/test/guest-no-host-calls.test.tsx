@@ -336,7 +336,8 @@ async function touchEverything(host: HTMLElement) {
     element.dispatchEvent(new Init(type, { bubbles: true, cancelable: true, button: type === "contextmenu" ? 2 : 0 }));
   for (const element of host.querySelectorAll("*")) {
     await act(async () => {
-      for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "focusin"]) fire(element, type);
+      for (const type of ["pointerover", "pointerenter", "mouseover", "mouseenter", "focusin", "contextmenu"])
+        fire(element, type);
     });
   }
   await settle();
