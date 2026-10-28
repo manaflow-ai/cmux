@@ -130,7 +130,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func teardown() {
         stopShortcutHints()
-        (window as? ShellWindow)?.overlayLayer.teardown()
+        if let shell = window as? ShellWindow, shell.madeOverlayLayer { shell.overlayLayer.teardown() }
         focusApplier.teardown()
         workspaceObservation?.cancel()
         sidebarObservation?.cancel()
@@ -447,7 +447,13 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
 
     weak var keyRouter: KeyRouter?
     weak var focus: FocusCoordinator?
-    private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
+    private(set) lazy var overlayLayer: WindowOverlayLayer = {
+        madeOverlayLayer = true
+        return WindowOverlayLayer(window: self)
+    }()
+    /// Whether ``overlayLayer`` was made: a teardown makes none (its host's panel would be made
+    /// while the window closes, after the close that tears hosts down, and never be closed).
+    private(set) var madeOverlayLayer = false
 
     /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
     private var zoomState = WindowZoom()
