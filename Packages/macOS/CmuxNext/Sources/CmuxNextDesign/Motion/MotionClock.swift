@@ -55,7 +55,9 @@ public final class MotionClock {
 
     convenience init(window: NSWindow?) {
         self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
-        if let window { windowGone = { [weak window] in window.map { !$0.isVisible && !$0.isMiniaturized } ?? true } }
+        // Gone: freed, or closed (a closed window leaves the app's window list; a hidden app's or an ordered-out
+        // window stays in it, and its clock resumes and waits for the window to show).
+        if let window { windowGone = { [weak window] in window.map { window in !NSApp.windows.contains { $0 === window } } ?? true } }
     }
 
     /// Whether this clock's window closed or went away (a window-less clock never does).
@@ -191,7 +193,7 @@ public final class MotionClock {
     }
 
     /// The Motion Inspector left pause: a parked clock takes frames again.
-    /// A clock whose window closed (gone, or not visible and not minimized) meanwhile drops its animators (their layers show
+    /// A clock whose window closed or was freed meanwhile drops its animators (their layers show
     /// nothing, as a closed window's clock does when its scheduler drops the client) and goes idle.
     func resumeFromInspector() {
         guard isParkedByInspector else { return }

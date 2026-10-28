@@ -6,9 +6,18 @@ import Testing
 
 /// Slow motion on screen (GUI host): each gate path's animation lands about `slowdown` times later under the
 /// Motion Inspector's time scale than at 1x, is listed with its category, call site and curve, and lands at
-/// its 1x time again once the inspection stops. In the same serialized suite as ``MotionInspectorTests``: both
-/// drive the process's one set of inspector statics.
-extension MotionInspectorTests {
+/// its 1x time again once the inspection stops.
+///
+/// Its own process only: while one of these awaits a landing, an inspector slows every gate of the process
+/// (`DesignSettings.shared`), so a motion suite running beside it in a whole-package `swift test` would see slowed
+/// clocks. It runs when CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS is 901 (the repo's "this suite runs alone" switch,
+/// as AgentPageProviderBridgeGapBench), a `package-test-lane.sh suite` step:
+/// `cmux-ci run --class light --label gui-session-v1 --script scripts/ci/package-test-lane.sh --ref SHA --arg=suite
+/// --arg=Packages/macOS/CmuxNext --arg=MotionInspectorSlowMotionTests --env CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS=901`.
+@MainActor @Suite(.serialized, .enabled(if: ProcessInfo.processInfo.environment["CMUX_SWIFT_TEST_SUITE_TIMEOUT_SECONDS"] == "901"))
+struct MotionInspectorSlowMotionTests {
+    static func release(_ inspector: MotionInspector) { MotionInspectorTests.release(inspector) }
+
     final class Landed {
         var done = false
     }
