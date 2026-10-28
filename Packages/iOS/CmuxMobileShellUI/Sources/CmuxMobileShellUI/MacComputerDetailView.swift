@@ -124,8 +124,10 @@ struct MacComputerDetailView: View {
                listAuthEntry.isOutdated {
                 MacComputerCompatibilitySection(entry: listAuthEntry)
             }
-            connectionMethodSection
-            appearanceSection
+            if !isDirectoryOnly {
+                connectionMethodSection
+                appearanceSection
+            }
             connectionSection
             macPowerSection
             routesSection
@@ -137,7 +139,7 @@ struct MacComputerDetailView: View {
                 privateAddressesSection(irohSettingsModel)
             }
             identitySection
-            actionsSection
+            if !isDirectoryOnly { actionsSection }
         }
         .navigationTitle(displayTitle)
         .navigationBarTitleDisplayMode(.inline)
@@ -295,22 +297,8 @@ struct MacComputerDetailView: View {
                     availableMacs: privatePathEditorMacs
                 ) { draft in
                     let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
-                    if saved, pairedMac == nil, draft.isEnabled {
-                        let directOnlyDialCandidates: [CmxIrohDirectDialCandidate] =
-                            draft.addresses.compactMap { raw in
-                                guard let socket = try? CmxIrohLocalSocketAddress(raw) else {
-                                    return nil
-                                }
-                                return CmxIrohDirectDialCandidate(
-                                    address: socket.address.value,
-                                    port: socket.port
-                                )
-                            }
-                        _ = await store.connectDiscoveredIrohMac(
-                            macDeviceID: macDeviceID,
-                            instanceTag: instanceTag,
-                            directOnlyDialCandidates: directOnlyDialCandidates
-                        )
+                    if saved, pairedMac == nil {
+                        _ = await store.connectDiscoveredIrohMac(using: draft)
                     }
                     return saved
                 }

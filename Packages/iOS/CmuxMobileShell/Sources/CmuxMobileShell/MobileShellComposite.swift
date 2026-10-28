@@ -3247,12 +3247,33 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         }
     }
 
+    /// Pairs a directory Mac using a saved, enabled private path. Disabled or
+    /// malformed drafts never acquire connection ownership or start a dial.
+    @discardableResult
+    public func connectDiscoveredIrohMac(using path: CmxIrohCustomPrivatePathDraft) async -> Bool {
+        guard path.isEnabled, !path.addresses.isEmpty,
+              path.addresses.count <= CmxIrohCustomPrivatePathDraft.maximumAddressCount else { return false }
+        let sockets: [CmxIrohLocalSocketAddress]
+        do {
+            sockets = try path.addresses.map { try CmxIrohLocalSocketAddress($0) }
+        } catch {
+            return false
+        }
+        return await connectDiscoveredIrohMac(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag,
+            directOnlyDialCandidates: sockets.map {
+                CmxIrohDirectDialCandidate(address: $0.address.value, port: $0.port)
+            }
+        )
+    }
+
     /// Connect a directory-only Mac after the user has supplied a private path.
     /// Discovery rows are intentionally not persisted before host admission, so
     /// this is the UI bridge from the Computers detail back into the same
     /// authenticated first-pair path used by automatic recovery.
     @discardableResult
-    public func connectDiscoveredIrohMac(
+    func connectDiscoveredIrohMac(
         macDeviceID: String,
         instanceTag: String?,
         directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil

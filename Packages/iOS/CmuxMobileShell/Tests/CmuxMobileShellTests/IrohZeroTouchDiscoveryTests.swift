@@ -94,6 +94,30 @@ struct IrohZeroTouchDiscoveryTests {
     }
 
     @Test
+    func disabledPrivatePathDoesNotDialOrPersistTheDiscoveredMac() async throws {
+        let mac = try candidate(deviceID: "mac-a", endpointByte: "a")
+        let fixture = try await makeFixture(candidates: [mac], reportedDeviceID: "mac-a")
+        defer { fixture.cleanup() }
+        fixture.shell.discoveredIrohMacs = [mac]
+        let disabled = CmxIrohCustomPrivatePathDraft(
+            macDeviceID: mac.deviceID, instanceTag: mac.instanceTag,
+            macDisplayName: "Test Mac", addresses: ["100.64.0.2:52074"], isEnabled: false
+        )
+
+        #expect(!(await fixture.shell.connectDiscoveredIrohMac(using: disabled)))
+        #expect(fixture.factory.attemptedRouteIDs().isEmpty)
+        #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).isEmpty)
+
+        let enabled = CmxIrohCustomPrivatePathDraft(
+            macDeviceID: mac.deviceID, instanceTag: mac.instanceTag,
+            macDisplayName: "Test Mac", addresses: disabled.addresses, isEnabled: true
+        )
+        #expect(await fixture.shell.connectDiscoveredIrohMac(using: enabled))
+        #expect(fixture.factory.attemptedRouteIDs().contains("iroh-mac-a"))
+        #expect(try await fixture.store.loadAll(stackUserID: "user-1", teamID: nil).map(\.macDeviceID) == ["mac-a"])
+    }
+
+    @Test
     func canonicalUUIDDeviceIDComparisonIgnoresLetterCase() async throws {
         let canonicalID = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
         let fixture = try await makeFixture(
