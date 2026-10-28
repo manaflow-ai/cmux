@@ -29,9 +29,13 @@ export interface FsObject {
   writeHttpMetadata(headers: Headers): void
 }
 
-/** Keys are paths under the root; `..` and absolute paths are refused. */
+/** Open multipart uploads live here, under the root but outside the key space. */
+const MULTIPART_DIR = ".multipart"
+
+/** Keys are paths under the root; `..`, absolute paths and the internal multipart directory are refused. */
 const safeKey = (key: string) => {
-  if (!key || key.startsWith("/") || key.split("/").some((p) => p === ".." || p === "")) throw new Error("invalid object key")
+  const parts = typeof key === "string" ? key.split("/") : []
+  if (!key || key.startsWith("/") || parts[0] === MULTIPART_DIR || parts.some((p) => p === ".." || p === "")) throw new Error("invalid object key")
   return key
 }
 
@@ -124,7 +128,7 @@ export class FsBucket {
   }
 
   private multipartPath(uploadId: string) {
-    return join(this.root, ".multipart", checkUploadId(uploadId))
+    return join(this.root, MULTIPART_DIR, checkUploadId(uploadId))
   }
 
   /** A stored part is `<id>.part.<n>`, with its etag in `<id>.part.<n>.json` once it is whole. */
@@ -170,7 +174,7 @@ export class FsBucket {
   async createMultipartUpload(key: string, options: { httpMetadata?: { contentType?: string } } = {}): Promise<FsMultipartUpload> {
     safeKey(key)
     const uploadId = Array.from(randomBytes(16), (byte) => byte.toString(16).padStart(2, "0")).join("")
-    mkdirSync(join(this.root, ".multipart"), { recursive: true })
+    mkdirSync(join(this.root, MULTIPART_DIR), { recursive: true })
     writeFileSync(this.multipartMetaPath(uploadId), JSON.stringify({ key, ...(options.httpMetadata?.contentType ? { contentType: options.httpMetadata.contentType } : {}) } satisfies MultipartMeta))
     return new FsMultipartUpload(this, uploadId, key)
   }
@@ -256,7 +260,7 @@ export class FsBucket {
   /** Aborting an upload that already closed is a no-op; one minted for another key is refused. */
   async abortMultipart(key: string, uploadId: string): Promise<void> {
     if (!this.readMultipart(key, uploadId)) return
-    const dir = join(this.root, ".multipart")
+    const dir = join(this.root, MULTIPART_DIR)
     // Parts first, then the record, so a crash midway leaves an upload that can still be aborted.
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       if (name.isFile() && name.name.startsWith(uploadId + ".part.")) rmSync(join(dir, name.name), { force: true })
@@ -301,6 +305,8 @@ export class FsBucket {
     const walk = (dir: string) => {
       if (!existsSync(dir)) return
       for (const name of readdirSync(dir)) {
+        // Open uploads and their parts are not objects; skip the directory rather than walk it.
+        if (dir === this.root && name === MULTIPART_DIR) continue
         const p = join(dir, name)
         if (statSync(p).isDirectory()) walk(p)
         else if (!name.endsWith(".meta.json") && !name.includes(".tmp-")) {
