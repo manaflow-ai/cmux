@@ -1,6 +1,7 @@
 @testable import CmuxNextUpdater
 import Foundation
 import Testing
+import CmuxNextWakeupsTestSupport
 
 /// A staged update gives way to a newer build of the followed ring (Leo 2026-10-22: "how are the
 /// dev build hot swaps? like the update ready i want the latest dev builds to be able to show
@@ -108,7 +109,6 @@ import Testing
         updater.cancelStaged = { sparkle.cancels += 1; return true }
         updater.stagedRefresh.replaceable = { replaceable }
         updater.stagedRefresh.startCheck = { sparkle.backgroundChecks += 1 }
-        updater.stagedRefresh.deltaWindow = 45 * 60
         updater.configure(checkAutomatically: checkAutomatically, checkInterval: interval, downloadAutomatically: true, ring: ring)
         updater.start()
         updater.debugIndicatorPhase = .ready(version: "3.0.0")
@@ -195,16 +195,15 @@ import Testing
         #expect(h.sparkle.cancels == 0)
     }
 
-    /// A scheduled swap waits for the deltas nightly-next lists minutes after a build's full
-    /// archive, as Sparkle's scheduled check does; a build that lists them, or a check the person
-    /// asked for, swaps at once.
-    @Test func aFreshDevBuildWithNoDeltasWaitsForTheNextScheduledCheck() async throws {
+    /// A scheduled swap never waits for the deltas nightly-next lists minutes after a build's full
+    /// archive: a newer build replaces the staged one at once, deltas listed or not.
+    @Test func aFreshDevBuildWithNoDeltasSwapsAtOnce() async throws {
         let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: 10))
         try await h.clock.waitForSleeper()
         h.clock.advance(by: .seconds(Self.interval))
         try await settle(h, fetches: 1)
-        #expect(h.sparkle.cancels == 0, "a build whose deltas may still come replaced the staged one")
-        #expect(h.updater.stagedRefresh.timer.isScheduled, "the next scheduled check was not armed")
+        #expect(h.sparkle.cancels == 1, "a newer build was held back for its deltas")
+        #expect(h.sparkle.backgroundChecks == 1)
     }
 
     @Test func aFreshDevBuildThatListsDeltasSwapsAtOnce() async throws {
@@ -266,27 +265,33 @@ import Testing
         #expect(h.sparkle.cancels == 0)
     }
 
-    /// A click on Install while a probe runs: the probe's newer build does not cancel the
-    /// installer the click is using.
-    @Test func anInstallClickedWhileAProbeRunsKeepsItsInstaller() async throws {
+    /// A click on Install while a probe runs joins that probe (a583): the newer Dev build it finds
+    /// replaces the staged one once, and the click carries over to it.
+    @Test func anInstallClickedWhileAProbeRunsTakesTheNewerBuild() async throws {
         let h = Self.make(ring: "dev", held: true)
+        h.updater.preflightOverride = { nil }
         h.updater.checkForUpdates()
         try #require(await eventually { h.feed.fetches == 1 })
         h.updater.installClicked()
         h.feed.release()
-        try #require(await eventually { h.updater.stagedRefresh.task == nil })
-        #expect(h.sparkle.cancels == 0, "the probe cancelled the installer the person clicked")
-        #expect(h.sparkle.backgroundChecks == 0)
+        try #require(await eventually { h.sparkle.cancels == 1 }, "the click installed the staged build though Dev build 500 is out")
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(h.sparkle.cancels == 1, "the probe and the click both cancelled")
+        #expect(h.sparkle.backgroundChecks == 1)
+        #expect(h.updater.installAfterSwap, "the click does not carry over to build 500")
     }
 
-    /// After a click on Install no scheduled probe runs, and none is armed again.
+    /// After a click on Install no scheduled probe runs, and none is armed again; the click's own
+    /// read of the feed is the only one.
     @Test func anInstallClickEndsTheScheduledProbes() async throws {
-        let h = Self.make(ring: "dev")
+        let h = Self.make(ring: "dev", feed: Self.feed(devMinutesAgo: nil))
+        h.updater.preflightOverride = { nil }
         try await h.clock.waitForSleeper()
         h.updater.installClicked()
+        try #require(await eventually { h.feed.fetches == 1 && !h.updater.stagedRefresh.clickWaits }, "the click did not read the feed")
         h.clock.advance(by: .seconds(Self.interval))
         try await Task.sleep(for: .milliseconds(100))
-        #expect(h.feed.fetches == 0, "a scheduled probe ran after the click on Install")
+        #expect(h.feed.fetches == 1, "a scheduled probe ran after the click on Install")
         #expect(!h.updater.stagedRefresh.timer.isScheduled, "a probe was armed again after the click on Install")
         #expect(h.sparkle.cancels == 0)
     }

@@ -7,7 +7,7 @@ extension CEFTab: BrowserSessionRestoring {
     }
 
     public func currentScrollY() async -> Double? {
-        guard case .number(let y)? = try? await evaluate("window.scrollY", world: .isolated) else { return nil }
+        guard case .number(let y)? = try? await evaluate("window.scrollY", world: .isolated, gesture: .cmux) else { return nil }
         return y
     }
 

@@ -94,6 +94,20 @@ function snapshot(
   speed: { options: Option[]; current: string } | undefined,
   run: { harness: string; model: string; catalog?: Snapshot["catalog"] } = { harness: "codex", model: "gpt-6-astra" },
 ): Snapshot {
+  const catalog = run.catalog ?? [
+    {
+      id: run.harness,
+      name: run.harness === "codex" ? "Codex" : "Claude Code",
+      models: [
+        {
+          id: run.model,
+          name: run.harness === "codex" ? "GPT-6 Astra" : "Claude Opus 5.5",
+          fast: true,
+          ...(run.harness === "codex" ? { inlineFast: true } : {}),
+        },
+      ],
+    },
+  ];
   return {
     type: "snapshot",
     protocolVersion: 1,
@@ -103,7 +117,7 @@ function snapshot(
     isWorking: false,
     queue: [],
     canLoadOlder: false,
-    catalog: run.catalog ?? [],
+    catalog,
     summary: {
       sessionId: "s1",
       harness: run.harness,
@@ -228,15 +242,11 @@ test("Claude: the composer draws no bolt; the model button's menu ends on Fast m
   expect(sent).toEqual(["fast-mode=on", "fast-mode=off"]);
 });
 
-test("Codex: the bolt sits just left of the mic, and the model button's menu has no Fast mode row", async () => {
+test("Codex: the bolt sits beside the model name, and the model button's menu has no Fast mode row", async () => {
   sent.length = 0;
   await render(snapshot({ options: twoState, current: "off" }, codex));
-  const actions = host.querySelector<HTMLElement>(".acpmux-composer-actions")!;
   expect(bolt()).not.toBeNull();
-  expect(actions.contains(bolt())).toBe(true);
-  // Left of the mic: the bolt comes before the mic in the box's trailing cluster.
-  const mic = actions.querySelector(".acpmux-mic")!;
-  expect(bolt()!.compareDocumentPosition(mic) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(host.querySelector<HTMLElement>(".acpmux-model")?.contains(bolt())).toBe(true);
   expect(bolt()!.getAttribute("aria-pressed")).toBe("false");
   // A plain outline glyph: no filled bolt, no disc.
   expect(bolt()!.querySelector("svg")!.getAttribute("fill")).toBe("none");
@@ -265,6 +275,14 @@ test("Codex: with a tier past Fast, the bolt steps Fast, Ultrafast, then back to
   expect(bolt()!.dataset.tier).toBe("ultrafast");
   await clickBolt();
   expect(sent).toEqual(["fast-mode=fast", "fast-mode=ultrafast", "fast-mode=standard"]);
+});
+
+test("Codex exposes Fast and Ultrafast from the model-adjacent bolt", async () => {
+  sent.length = 0;
+  await render(snapshot({ options: threeTier, current: "standard" }, codex));
+  expect(bolt()?.textContent).not.toContain("Fast");
+  await clickBolt();
+  expect(sent).toEqual(["fast-mode=fast"]);
 });
 
 test("Claude: with a tier past Fast, any tier on checks the row, and a click goes back to off", async () => {

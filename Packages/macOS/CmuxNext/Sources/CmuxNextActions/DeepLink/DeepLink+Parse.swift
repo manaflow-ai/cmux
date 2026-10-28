@@ -88,7 +88,7 @@ nonisolated extension DeepLink {
             }
             link.hostHint = hint(hostHintKey, isHint)
             link.nameHint = hint(nameHintKey, isHint)
-            link.message = hint(messageKey, isAgentSession)
+            link.message = hint(messageKey, isAgentMessage)
         }
         let known = parameters(of: target)
         ignored += query.map(\.name).filter { !known.contains($0) }

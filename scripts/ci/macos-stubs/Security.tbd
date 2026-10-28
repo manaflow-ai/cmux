@@ -33,6 +33,7 @@ exports:
                        '_SecTrustSetVerifyDate',
                        '_SecTrustSettingsCopyCertificates',
                        '_SecTrustSettingsCopyTrustSettings',
+                       '_SessionGetInfo',
                        '_kSecCodeInfoIdentifier',
                        '_kSecCodeInfoTeamIdentifier',
                        '_kSecCodeInfoUnique',

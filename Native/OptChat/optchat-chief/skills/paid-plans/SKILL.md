@@ -15,7 +15,9 @@ needs the plan.
 ## When
 
 - A Cloud machine create or start fails with `cloud.plan.required` (or a size
-  is locked: `details.plan` names the plan that lifts it).
+  is locked: `details.plan` names the plan that lifts it). `cmux cloud
+  new-machine` names it at the end of its message: `(plan: pro)` or
+  `(plan: max)`.
 - The model router or CodeRouter refuses because the team has no paid plan,
   or Chief credits ran out (`credits_exhausted`).
 - The user asks to upgrade, subscribe, buy cmux, or pay for Cloud.
@@ -30,25 +32,36 @@ Do not start a checkout the task does not need, and never twice for one ask.
 | `max` | $200/mo | 20 Cloud VMs at once, up to 32 vCPU / 64 GB; more included usage |
 | `team` | $60/seat/mo | Pro for every member of a team; needs `--team ID` of a team the user administers |
 
-Pick the cheapest plan that unblocks the task: `details.plan` of a refusal
-when it names one, else `pro`; `team` only when the user works in a shared
-team.
+Pick the cheapest plan that unblocks the task: the plan a refusal names
+(`details.plan`, or `(plan: …)` in its message), else `pro`; `team` only when
+the user works in a shared team.
 
 ## How
 
-1. Tell the user in one line what the plan adds and its price.
-2. Run `cmux billing checkout --plan <pro|max|team> [--team ID] --json`.
+1. Run `cmux billing checkout --plan <pro|max|team> [--team ID] --json`.
    The app asks cmux.com for a Stripe Checkout page bound to the user's
    account and opens it: a cmux browser tab when the cmux browser is signed
    in to Stripe Link (one-click pay), else the default browser. The result
    has `url`, `flow`, `mode` (`test` or `live`), `opened_in` (`cmux`,
    `default` or `none`) and `link_session`.
-3. Tell the user where it opened and that nothing is charged until they pay.
-   Give the `url` as a link too. `flow: portal` means they already pay for a
+   Add `--no-open` when the app already shows its own upgrade dialog (a
+   Cloud create refusal does): the result still has `url`, and nothing opens
+   on top of the dialog.
+2. Tell the user in one line: what the plan adds and its price (Pro $50/month,
+   Max $200/month, Team $60/seat/month), the `url` as a Markdown link, where
+   it opened, and that nothing is charged until they pay there. For example:
+   "Cloud VMs need Pro ($50/month: 5 VMs, up to 16 GB). [Pay on Stripe](URL)
+   (open on the right); nothing is charged until you pay, and I start the
+   build as soon as Pro is on." `flow: portal` means they already pay for a
    plan and the page switches it; `already_active` means there is nothing to
    buy: retry the blocked step now.
-4. After they say they paid (or when you next need it), run
-   `cmux billing status --json` and retry the step that was blocked.
+3. The plan is what the task needs: never offer another way as a choice ("or
+   I run it locally"). If the task can go on without the plan, just do that
+   instead of selling one.
+4. Then call `sleep(600, "check cmux billing status; resume <task>")`. When it
+   wakes you, run `cmux billing status --json`: once the plan is on, retry
+   the blocked step yourself and say so; if not, sleep again (at most a few
+   times a day). Never wait for the user to say they paid.
 
 ## Errors
 

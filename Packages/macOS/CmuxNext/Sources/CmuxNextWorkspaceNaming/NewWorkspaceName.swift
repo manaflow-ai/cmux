@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 /// The name a workspace made from dragged or moved tabs takes (Lawrence,
@@ -73,8 +73,11 @@ public nonisolated struct NewWorkspaceName {
     }
 
     /// `forLastTab` with the tab's name already read (an agent chat's comes from its chat).
-    public static func forLastTab(workspaceName: String, workspaceTitle: String?, tabName: String?) -> String? {
+    public static func forLastTab(workspaceName: String, workspaceTitle: String?, tabName: String?,
+                                  workspaceNameSource: WorkspaceNameSource = .auto, workspaceNameRevision: UInt64 = 0,
+                                  allowsLegacyDefaults: Bool = true) -> String? {
         if let title = clean(workspaceTitle) { return title }
+        if workspaceNameSource == .user && (workspaceNameRevision > 0 || !allowsLegacyDefaults), let name = clean(workspaceName) { return name }
         if !isDefaultWorkspaceName(workspaceName), let name = clean(workspaceName) { return name }
         return tabName
     }
@@ -90,7 +93,7 @@ public nonisolated struct NewWorkspaceName {
 
     /// Shell names a terminal reports as its title while idle; they say
     /// nothing about the work, so the directory names the workspace.
-    private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login"]
+    private static let bareShells: Set<String> = ["zsh", "bash", "fish", "sh", "nu", "dash", "ksh", "tcsh", "pwsh", "login", "~"]
 
     /// The blank page's and the New Tab page's addresses: what a conversation, page or app tab's
     /// record carries as its title, never a name.

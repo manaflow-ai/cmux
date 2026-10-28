@@ -11,37 +11,40 @@
 .cv-link-preview__icon{display:flex;flex:none;align-items:center;justify-content:center;width:16px;height:20px;color:var(--agent-muted)}
 .cv-link-preview__icon .cv-chip__icon{width:14px;height:14px;margin:0}
 .cv-link-preview__titles{display:grid;min-width:0;flex:1;padding-block:max(0px,calc((20px - var(--text-control--line-height)) / 2))}
-.cv-link-preview__site{display:-webkit-box;min-width:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600}
-.cv-link-preview__open{display:inline-flex;align-items:center;gap:3px;flex:none;height:20px;padding:0 6px;border:0;border-radius:5px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer}
+.cv-link-preview__site{display:-webkit-box;min-width:0;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow-wrap:anywhere;font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;letter-spacing:var(--text-control--letter-spacing)}
+.cv-link-preview__open{display:inline-flex;align-items:center;gap:3px;flex:none;height:20px;padding:0 6px;border:0;border-radius:5px;background:transparent;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer;letter-spacing:var(--text-detail--letter-spacing)}
 .cv-link-preview__open:hover,.cv-link-preview .acpmux-open-in:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
 .cv-link-preview .acpmux-open-in{height:20px;padding:0 6px;border-radius:5px;box-shadow:none;color:var(--agent-muted)}
 .cv-link-preview__open:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+.cv-link-preview__target{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
 /* Every link's hover card (chips/LinkHoverCard.tsx; Leo 2026-10-20) is the liquid glass (.ui-glass, ui/glass/glass.css) with the tooltip's shadow: its hairline border keeps its width, clear under the glass rim (desktop.css .ui-card.ui-glass). Plain glass keeps the tooltip's frosted glass (desktop.css --tooltip-*), which Reduce Transparency makes opaque. A pull request's (PullRequestCard.tsx) puts its glyph, in its state's colour, and its title in the head, then owner/repo#N and the author, then an open one's checks as ✓/✗ counts. */
 .cv-link-preview.ui-card{border:var(--cmux-hairline) solid transparent;--glass-elevation:var(--tooltip-shadow,var(--elevation-2))}
 :root:not([data-glass="lens"], [data-glass="spectrum"]) .cv-link-preview.ui-card.ui-glass{--glass-tint:var(--tooltip-tint,var(--surface-popup));--glass-backdrop:var(--tooltip-blur,blur(20px) saturate(1.4))}
-.acpmux-pr-card__body{display:grid;gap:6px;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-.acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere}
+.acpmux-pr-card__body{display:grid;gap:8px;font-size:var(--text-detail);line-height:var(--text-detail--line-height);letter-spacing:var(--text-detail--letter-spacing)}
+.acpmux-pr-card__title{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;color:var(--agent-text);font-size:var(--text-control);line-height:var(--text-control--line-height);font-weight:600;overflow-wrap:anywhere;letter-spacing:var(--text-control--letter-spacing)}
 .acpmux-pr-card__facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted)}
+.acpmux-pr-card__status{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__state{font-weight:600}
+.acpmux-pr-card__status .acpmux-pr-card__checks{display:inline-flex}
 /* The card's owner/repo#N is the pull request's link, drawn as every link in the pane (.cv-link): blue, faintly underlined, solidly on hover. */
 .acpmux-pr-card__ref{color:var(--agent-link);font-variant-numeric:tabular-nums;font-weight:500;text-decoration:underline;text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,currentColor 40%,transparent);text-underline-offset:3px;border-radius:3px}.acpmux-pr-card__ref:hover{text-decoration-color:currentColor}.acpmux-pr-card__ref:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-/* The state is the pull request glyph's colour alone, as Claude draws it: no pill, no word. */
+/* The state is the pull request glyph's colour, as GitHub draws it: merged uses the theme purple. */
 .acpmux-pr-card__glyph{display:inline-flex;flex:none;color:var(--agent-muted)}
-.acpmux-pr-card__glyph[data-state=open]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-ansi-5,#a371f7)}
-.acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-danger)}
+.acpmux-pr-card__glyph[data-state=open]{color:var(--agent-status-success)}
+.acpmux-pr-card__glyph[data-state=merged]{color:var(--agent-status-merged)}
+.acpmux-pr-card__glyph[data-state=closed]{color:var(--agent-status-failure)}
 .acpmux-pr-card__author{min-width:0;overflow-wrap:anywhere}
 .acpmux-pr-card__checks{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 10px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
 .acpmux-pr-card__sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
-.acpmux-pr-card__passed{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-card__failed{color:var(--agent-danger)}
+.acpmux-pr-card__passed{color:var(--agent-status-success)}
+.acpmux-pr-card__failed{color:var(--agent-status-failure)}
 .acpmux-pr-card__pending{color:var(--agent-muted)}
 /* Every red is the base's: the ✗ reads muted, not as this pull request's to fix. */
 .acpmux-pr-card__checks[data-state=failing][data-on-base=all] .acpmux-pr-card__failed{color:var(--agent-muted)}
-/* The rest of the pull request card (Leo 2026-10-20): the author with a monogram and when GitHub last saw the pull request change, base <- head, the review decision and labels, and the files with +/- whose hover breaks the lines down by kind (src/fileKinds.ts, the classifier the diff viewer groups by). */
-.acpmux-pr-card__conflicts{color:var(--agent-danger)}
+/* Secondary pull request context: author, branches, review decision, labels and freshness. */
+.acpmux-pr-card__conflicts{color:var(--agent-status-failure)}
 .acpmux-pr-card__who{display:inline-flex;align-items:center;gap:6px;min-width:0}
-.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1}
+.acpmux-pr-card__monogram{display:inline-flex;flex:none;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:color-mix(in srgb,var(--agent-muted) 22%,transparent);color:var(--agent-text);font-size:var(--text-caption);font-weight:600;line-height:1;letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-pr-card__monogram[data-tone="0"]{background:color-mix(in srgb,var(--agent-ansi-1,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="1"]{background:color-mix(in srgb,var(--agent-ansi-2,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="2"]{background:color-mix(in srgb,var(--agent-ansi-3,var(--agent-muted)) 26%,transparent)}
@@ -49,23 +52,22 @@
 .acpmux-pr-card__monogram[data-tone="4"]{background:color-mix(in srgb,var(--agent-ansi-5,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__monogram[data-tone="5"]{background:color-mix(in srgb,var(--agent-ansi-6,var(--agent-muted)) 26%,transparent)}
 .acpmux-pr-card__when{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__branches{display:flex;align-items:center;gap:5px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
+.acpmux-pr-card__branches{display:flex;align-items:center;gap:4px;min-width:0;color:var(--agent-muted);font-family:var(--cv-code-font,var(--cv-mono,ui-monospace,"SF Mono",Menlo,monospace))}
 .acpmux-pr-card__branch{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .acpmux-pr-card__review{display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;color:var(--agent-muted)}
 .acpmux-pr-card__decision{font-weight:500}
-.acpmux-pr-card__decision[data-review=approved]{color:var(--agent-success,var(--acpmux-add,#3fb950))}
-.acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-danger)}
-.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px}
-.acpmux-pr-card__changes{display:grid;gap:4px}
-.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted)}
-.acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:6px;padding:0;border:0;background:none;color:inherit;font:inherit;font-variant-numeric:tabular-nums;cursor:default}
-.acpmux-pr-card__lines:not(:disabled){cursor:pointer}
-.acpmux-pr-card__lines:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:2px;border-radius:3px}
-.acpmux-pr-card__added{color:var(--acpmux-add,var(--agent-success,#3fb950))}
-.acpmux-pr-card__removed{color:var(--acpmux-del,var(--agent-danger))}
-.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-warning,#d29922) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px}
-.acpmux-pr-card__kinds{display:grid;grid-template-columns:1fr auto auto;gap:1px 10px;margin:1px 0 0;padding:5px 8px;list-style:none;border:var(--cmux-hairline) solid var(--agent-border);border-radius:6px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
-.acpmux-pr-card__kind{display:grid;grid-column:1/-1;grid-template-columns:subgrid;align-items:baseline}
-.acpmux-pr-card__kindName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.acpmux-pr-card__kindPartial{grid-column:1/-1;padding-top:2px;font-size:var(--text-caption)}
-.acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption)}
+.acpmux-pr-card__decision[data-review=approved]{color:var(--agent-status-success)}
+.acpmux-pr-card__decision[data-review=changes_requested]{color:var(--agent-status-failure)}
+.acpmux-pr-card__label{padding:0 6px;border:var(--cmux-hairline) solid var(--agent-border);border-radius:4px;font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__changes{min-width:0}
+.acpmux-pr-card__counts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__lines{display:inline-flex;align-items:center;gap:5px;color:inherit}
+.acpmux-pr-card__breakdown{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px 0;min-width:0;color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-pr-card__kind{display:inline-flex;align-items:baseline;gap:4px;min-width:0}
+.acpmux-pr-card__kindName{color:var(--agent-muted);font-weight:500}
+.acpmux-pr-card__separator{margin-inline:5px;color:var(--agent-border)}
+.acpmux-pr-card__kindPartial{flex-basis:100%;padding-top:2px;color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__added{color:var(--agent-diff-add)}
+.acpmux-pr-card__removed{color:var(--agent-diff-del)}
+.acpmux-pr-card__warning{padding:0 6px;border-radius:4px;background:color-mix(in srgb,var(--agent-status-warning) 20%,transparent);color:var(--agent-text);font-size:var(--text-caption);line-height:16px;letter-spacing:var(--text-caption--letter-spacing)}
+.acpmux-pr-card__age{color:var(--agent-muted);font-size:var(--text-caption);letter-spacing:var(--text-caption--letter-spacing)}

@@ -1,8 +1,6 @@
-// The context ring's hover card (Leo 2026-10-21, after Claude's and Codex's): resting on the ring,
-// or focusing it from the keyboard, shows a glass card with no click. It reads "23% used · 111k /
-// 475k", draws the window as a thin stacked bar (setup, then conversation, over the free track,
-// in the Inspector Context meter's colors) and ends on "Details ›", which opens the Inspector at
-// its Context section. The ring itself never takes a hover pill.
+// The context ring's hover card keeps the shared glass material compact: one left-aligned
+// "used / window · percent" line, a thin usage bar, short category rows when reported, and a
+// Details row when the Inspector can open.
 import { afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -19,7 +17,9 @@ const scope = globalThis as Record<string, unknown>;
 const saved = new Map<string, unknown>();
 
 function installDom(): HTMLElement {
-  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { pretendToBeVisual: true });
+  dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", {
+    pretendToBeVisual: true,
+  });
   for (const key of [
     "window",
     "document",
@@ -98,31 +98,70 @@ test("resting the pointer on the ring shows the card without a click", async () 
   expect(card()).not.toBeNull();
 });
 
-test("keyboard focus opens the card at once, with the context line and a stacked bar", async () => {
+test("keyboard focus opens the compact tooltip at once", async () => {
   const ring = await mount({ used: 111_000, size: 475_000, setup: 20_000 });
   await act(async () => ring.focus());
   await wait();
   const shown = card();
   expect(shown).not.toBeNull();
   expect(shown!.textContent).toContain(translate("context.title"));
-  const line = shown!.querySelector(".acpmux-context-card-line")!.textContent;
+  const line = shown!.querySelector(".acpmux-context-card-line")!.textContent!;
+  expect(line).toContain("111K");
+  expect(line).toContain("475K");
   expect(line).toContain("23%");
-  expect(line).toMatch(/111K/i);
-  expect(line).toMatch(/475K/i);
-  const segments = [...shown!.querySelectorAll<HTMLElement>(".acpmux-context-card-bar [data-segment]")];
-  expect(segments.map((segment) => segment.dataset.segment)).toEqual(["setup", "conversation"]);
-  // 20k and 91k of 475k.
-  expect(parseFloat(segments[0].style.width)).toBeCloseTo(4.2, 1);
-  expect(parseFloat(segments[1].style.width)).toBeCloseTo(19.2, 1);
+  expect(shown!.querySelector(".acpmux-context-card-bar")).not.toBeNull();
+  expect(shown!.querySelector<HTMLProgressElement>(".acpmux-context-card-bar")!.value).toBe(23);
 });
 
-test("without a setup split the bar is one used segment", async () => {
+test("the compact card does not expose an inferred setup split", async () => {
   const ring = await mount({ used: 60_000, size: 200_000 });
   await act(async () => ring.focus());
   await wait();
-  const segments = [...card()!.querySelectorAll<HTMLElement>(".acpmux-context-card-bar [data-segment]")];
-  expect(segments.map((segment) => segment.dataset.segment)).toEqual(["used"]);
-  expect(parseFloat(segments[0].style.width)).toBeCloseTo(30, 1);
+  expect(card()!.querySelector(".acpmux-context-card-parts")).toBeNull();
+});
+
+test("reported breakdowns stay to Messages, Tools and System rows", async () => {
+  const ring = await mount({
+    used: 131_400,
+    size: 1_000_000,
+    breakdown: {
+      maxTokens: 1_000_000,
+      categories: [
+        { name: "Messages", kind: "used", tokens: 92_000 },
+        { name: "MCP tools", kind: "used", tokens: 21_400 },
+        { name: "System tools", kind: "used", tokens: 8_000 },
+        { name: "System prompt", kind: "used", tokens: 10_000 },
+        { name: "Free space", kind: "free", tokens: 868_600 },
+      ],
+    },
+  });
+  await act(async () => ring.focus());
+  await wait();
+  const line = card()!.querySelector(".acpmux-context-card-line")!.textContent!;
+  expect(line).toContain("131.4K");
+  expect(line).toContain("1M");
+  expect(line).toContain("13%");
+  const rows = [...card()!.querySelectorAll(".acpmux-context-card-part")].map((row) =>
+    row.textContent?.replace(/\s+/g, " ").trim(),
+  );
+  expect(rows).toEqual(
+    expect.arrayContaining([
+      expect.stringMatching(/^Messages\s*92K$/),
+      expect.stringMatching(/MCP tools\s*29\.4K$/),
+      expect.stringMatching(/Agent setup\s*10K$/),
+    ]),
+  );
+  expect(rows).toHaveLength(3);
+});
+
+test("the Details action is a full-width row beneath the summary", async () => {
+  const ring = await mount({ used: 131_400, size: 1_000_000, onOpenDetails: () => {} });
+  await act(async () => ring.focus());
+  await wait();
+  const details = card()!.querySelector<HTMLButtonElement>(".acpmux-context-card-details")!;
+  expect(details.textContent).toContain(translate("context.details"));
+  expect(details.textContent).toContain("›");
+  expect(details.closest(".acpmux-context-card-foot")).not.toBeNull();
 });
 
 test("the card shows no plan-limits section when the harness reports none", async () => {
@@ -227,7 +266,12 @@ test("Tab from the ring reaches Details ›, and Tab past it leaves the card", a
   const tab = (target: Element, shiftKey = false) =>
     act(async () => {
       target.dispatchEvent(
-        new window.KeyboardEvent("keydown", { key: "Tab", shiftKey, bubbles: true, cancelable: true }),
+        new window.KeyboardEvent("keydown", {
+          key: "Tab",
+          shiftKey,
+          bubbles: true,
+          cancelable: true,
+        }),
       );
     });
   await tab(ring);

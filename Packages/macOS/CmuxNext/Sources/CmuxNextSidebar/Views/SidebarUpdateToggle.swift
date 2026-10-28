@@ -6,10 +6,10 @@ import QuartzCore
 /// The update card's Automatic Updates control, drawn in theme colors (a
 /// system checkbox or switch would draw the system accent). It shows the
 /// setting and a click asks to change it; the control follows when the
-/// setting changes. By default a compact switch at the end of the row with
-/// the label at the card's text edge (``SidebarUpdateToggleLook``, Leo
-/// 2026-10-20: the filled box read as an unstyled native checkbox); Debug
-/// Settings brings the checkbox back. The switch's centre sits on the
+/// setting changes. By default a compact switch at the card's text edge with
+/// the label after it (``SidebarUpdateToggleLook``, Leo 2026-10-20: the filled
+/// box read as an unstyled native checkbox; 2026-10-22: "he preferred the
+/// checkbox on the left"); Debug Settings brings the checkbox back. The switch's centre sits on the
 /// label's cap-height midline, and the knob slides and the track fills on
 /// the sidebar's motion gate (Leo 2026-10-22: "a toggle is nicer than a
 /// checkbox, just make it look better").
@@ -122,13 +122,13 @@ final class SidebarUpdateToggle: NSView {
         CATransaction.setDisableActions(true)
         switch look {
         case .switchControl:
-            // The label at the card's text edge, the switch at the end of the row (the button's right edge).
+            // The switch at the card's text edge, the label after it (the checkbox's place).
             let track = Self.switchSize
             let labelTop = (b.height - th) / 2
             let midY = Self.switchMidY(labelTop: labelTop, baseline: label.firstBaselineOffsetFromTop, font: Self.font)
             let trackY = (window?.backingScaleFactor).map { scale in ((midY - track.height / 2) * scale).rounded() / scale }
                 ?? (midY - track.height / 2).rounded()
-            let trackFrame = CGRect(x: max(0, b.width - track.width), y: trackY, width: track.width, height: track.height)
+            let trackFrame = CGRect(x: 0, y: trackY, width: track.width, height: track.height)
             box.frame = trackFrame
             hasLaidOutSwitch = !trackFrame.isEmpty
             box.cornerRadius = track.height / 2
@@ -136,7 +136,8 @@ final class SidebarUpdateToggle: NSView {
             knob.cornerRadius = knob.frame.height / 2
             knob.isHidden = false
             mark.isHidden = true
-            label.frame = NSRect(x: 0, y: labelTop, width: max(0, trackFrame.minX - Metrics.space2), height: th)
+            let x = trackFrame.maxX + Metrics.space2
+            label.frame = NSRect(x: x, y: labelTop, width: max(0, b.width - x), height: th)
         case .checkbox:
             let boxFrame = CGRect(x: 0, y: (b.height - side) / 2, width: side, height: side)
             box.frame = boxFrame

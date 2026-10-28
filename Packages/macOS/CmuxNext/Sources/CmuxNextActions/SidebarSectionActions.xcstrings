@@ -1,6 +1,137 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "action.sidebar.item.toggleArchive": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive/Unarchive Item"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أرشفة العنصر/إلغاء أرشفته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arhiviraj/Vrati iz arhive stavku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkivér/Gendan element"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eintrag archivieren/wiederherstellen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivar/Desarchivar elemento"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiver/Désarchiver l’élément"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivia/Ripristina elemento"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "項目をアーカイブ/アーカイブ解除"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទុកក្នុងបណ្ណសារ/ដកចេញពីបណ្ណសារ ធាតុ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "항목 보관/보관 해제"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arkiver/Gjenopprett element"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archiwizuj/Przywróć element"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arquivar/Desarquivar item"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архивировать/разархивировать элемент"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เก็บถาวร/เลิกเก็บถาวรรายการ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öğeyi arşivle/arşivden çıkar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Архівувати/розархівувати елемент"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lưu trữ/Bỏ lưu trữ mục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "归档/取消归档项目"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "封存/取消封存項目"
+          }
+        }
+      }
+    },
     "action.sidebar.priority.markRead": {
       "extractionState": "manual",
       "localizations": {
@@ -10351,6 +10482,58 @@
             "value": "釘選/取消釘選聊天"
           }
         }
+      }
+    },
+    "action.sidebar.noFade.on": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "إظهار الشريط الجانبي كاملا (دون تلاشٍ)"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Prikaži cijelu bočnu traku (bez prelaza)"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet (uden udtoning)"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gesamte Seitenleiste zeigen (ohne Verblassen)"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Show Whole Sidebar (No Fade)"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Mostrar toda la barra lateral (sin desvanecimiento)"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Afficher toute la barre latérale (sans fondu)"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Mostra tutta la barra laterale (senza sfumatura)"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバー全体を表示（フェードなし）"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "បង្ហាញរបារចំហៀងទាំងមូល (គ្មានការស្រអាប់)"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 전체 표시 (페이드 없음)"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Vis hele sidepanelet (uten uttoning)"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Pokaż cały pasek boczny (bez zanikania)"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Mostrar a barra lateral inteira (sem desvanecimento)"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Показать всю боковую панель (без затемнения)"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "แสดงแถบด้านข้างทั้งหมด (ไม่มีการจางหาย)"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğunun tamamını göster (solma yok)"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Показати всю бічну панель (без затухання)"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Hiển thị toàn bộ thanh bên (không mờ dần)"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "显示整个侧边栏（无渐隐）"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "顯示整個側邊欄（無漸隱）"}}
+      }
+    },
+    "action.sidebar.noFade.off": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {"stringUnit": {"state": "needs_review", "value": "استعادة تلاشي الشريط الجانبي"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Vrati prelaz bočne trake"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Gendan sidepanelets udtoning"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Verblassen der Seitenleiste wiederherstellen"}},
+        "en": {"stringUnit": {"state": "translated", "value": "Restore Sidebar Fade"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Restaurar el desvanecimiento de la barra lateral"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Rétablir le fondu de la barre latérale"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Ripristina la sfumatura della barra laterale"}},
+        "ja": {"stringUnit": {"state": "needs_review", "value": "サイドバーのフェードを元に戻す"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ស្តារការស្រអាប់របារចំហៀង"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "사이드바 페이드 복원"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Gjenopprett uttoning av sidepanelet"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Przywróć zanikanie paska bocznego"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Restaurar o desvanecimento da barra lateral"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Вернуть затемнение боковой панели"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คืนค่าการจางหายของแถบด้านข้าง"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Kenar çubuğu solmasını geri yükle"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Повернути затухання бічної панелі"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khôi phục hiệu ứng mờ dần của thanh bên"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "恢复侧边栏渐隐"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "恢復側邊欄漸隱"}}
       }
     }
   },

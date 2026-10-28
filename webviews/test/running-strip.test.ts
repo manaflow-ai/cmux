@@ -118,6 +118,97 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     }
   });
 
+  // Leo 2026-10-25: the collapse at the top "disappears for some reason at the top ... sometimes".
+  // 120px squeezes the list to under three lines; 72px (the tray's 8px margin under it) leaves the
+  // list no room, the two pinned rows only.
+  for (const height of [400, 120, 72]) {
+    test(`with 118 agents the header stays in view while the list scrolls (dock ${height}px)`, async () => {
+      const page = await browser!.newPage({ viewport: { width: 760, height: 600 } });
+      try {
+        const { port } = vite!.httpServer!.address() as { port: number };
+        await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+        await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+        await page.evaluate(
+          (value) => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(value),
+          height,
+        );
+        await page.waitForSelector(".acpmux-running-tray__head");
+        await page.evaluate(() => Promise.all(document.getAnimations().map((animation) => animation.finish())));
+        await page.click(".acpmux-running-tray__finished");
+        await page.waitForFunction(
+          () => document.querySelectorAll(".acpmux-running-tray li[data-finished]").length === 116,
+        );
+        // Scroll everything that can scroll to its end, the tray itself included, as a wheel would.
+        const listHeight = await page.$eval(".acpmux-running-tray__list", (list) => list.clientHeight);
+        await page.hover(listHeight > 0 ? ".acpmux-running-tray__list" : ".acpmux-running-tray__head");
+        for (let step = 0; step < 20; step += 1) await page.mouse.wheel(0, 800);
+        const state = await page.evaluate((h) => {
+          const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+          const list = tray.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
+          const head = tray.querySelector<HTMLElement>(".acpmux-running-tray__head")!;
+          tray.scrollTop = 10_000;
+          const box = tray.getBoundingClientRect();
+          const rect = head.getBoundingClientRect();
+          const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+          const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!.getBoundingClientRect();
+          return {
+            moreInside: more.height > 20 && more.bottom <= box.bottom + 0.5,
+            // The list really scrolls wherever it has room; at the tightest squeeze it may have none.
+            listScrolled:
+              list.scrollHeight > list.clientHeight && (list.clientHeight === 0 ? h === 72 : list.scrollTop > 0),
+            trayScroll: tray.scrollTop,
+            headTop: rect.top - box.top,
+            headHeight: rect.height,
+            headDrawn: !!hit && head.contains(hit),
+          };
+        }, height);
+        expect(state.listScrolled).toBe(true);
+        expect(state.trayScroll).toBe(0);
+        expect(state.headTop).toBeCloseTo(0, 0);
+        expect(state.headHeight).toBeGreaterThan(20);
+        expect(state.headDrawn).toBe(true);
+        // View all stays whole at the tray's foot, even where the list has no room left.
+        expect(state.moreInside).toBe(true);
+      } finally {
+        await page.close();
+      }
+    });
+  }
+
+  test("in a pane under 360px tall View all stays in reach: focus scrolls it into view", async () => {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 300 } });
+    try {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(() => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(34));
+      await page.waitForSelector(".acpmux-running-tray__finished");
+      await page.evaluate(() => {
+        for (const animation of document.getAnimations())
+          if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+      });
+      await page.focus(".acpmux-running-tray__finished");
+      const seen = await page.evaluate(() => {
+        const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!;
+        const box = tray.getBoundingClientRect();
+        const rect = more.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return {
+          inside: rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5,
+          drawn: !!hit && more.contains(hit),
+        };
+      });
+      expect(seen).toEqual({ inside: true, drawn: true });
+      await page.keyboard.press("Enter");
+      expect(await page.$eval(".acpmux-running-tray__finished", (more) => more.getAttribute("aria-expanded"))).toBe(
+        "true",
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a line with nothing to open has no hover and no hand", async () => {
     const page = await open(false);
     try {

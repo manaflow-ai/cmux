@@ -7,6 +7,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -36,8 +37,9 @@ extension LiveCoordinator {
         let pairing = pairing
         let deviceID = identity.link
         let deviceName = deviceName
+        let macID = session.macID
         session.link.prepare = { link, _ in
-            await Self.prepareLink(link, pairing: pairing, deviceID: deviceID, deviceName: deviceName)
+            await Self.prepareLink(link, pairing: pairing, macID: macID, deviceID: deviceID, deviceName: deviceName)
         }
         session.feed.place = { [weak session] sessionID in session?.place(sessionID: sessionID) }
         session.terminalFeed.request = { [weak session] command, params, connection in
@@ -49,11 +51,31 @@ extension LiveCoordinator {
             for (key, value) in params { fields[key] = value }
             return try await client.request(command, params: fields)
         }
+        session.terminalFeed.type = { [weak session] surface, bytes, connection in
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            _ = try WorkspaceSync.check(try await client.request("send", params: ["surface": surface, "bytes": bytes.base64EncodedString()]))
+        }
         session.workspaces.onTree = { [weak self, weak session] tree in
             guard let self, let session else { return }
             self.apply(tree, session: session)
         }
-        session.workspaces.onNotification = { [weak session] in session?.terminalFeed.notificationPosted() }
+        session.terminalFeed.send = { [weak session] surface, text, expectForeground, agentSession, connection in
+            guard let agentSession else { throw LinkError(code: "no-session", message: "The agent session is not known") }
+            // A Feed reply into a terminal agent: this connection's channel only, pasted and
+            // submitted in one write, only while that program is still the terminal's foreground
+            // one and its agent waits at its prompt in that session (the daemon checks both).
+            guard let session, session.workspaces.connectionSerial == connection, let client = session.workspaces.daemon else {
+                throw LinkError(code: "no-link", message: "Not connected to the Mac")
+            }
+            let expectAgent: [String: Any] = ["session": agentSession]
+            return try await client.request("send", params: [
+                "surface": surface, "text": text, "paste": true, "submit": true,
+                "expect_foreground": expectForeground, "expect_agent": expectAgent,
+            ])
+        }
+        session.workspaces.onNotification = { [weak session] post in session?.terminalFeed.notificationPosted(post) }
         session.acpmux.onWatchEvent = { [weak session] event in
             guard let session else { return }
             session.feed.handle(event, sessions: session.acpmux.sessions)
@@ -79,6 +101,11 @@ extension LiveCoordinator {
     /// The session for a Mac id, when it has one.
     func session(macID: String?) -> MacSession? {
         macID.flatMap { sessions[$0] }
+    }
+
+    /// The terminal agents' Feed of the Mac `macID` (a Feed item's own Mac; never another's).
+    public func terminalFeed(macID: String?) -> TerminalFeed? {
+        session(macID: macID)?.terminalFeed
     }
 
     /// The session of the Mac that shows `tabID`: `macID` when given, else the
@@ -129,9 +156,9 @@ extension LiveCoordinator {
         let daemon: Result<WorkspaceSync.Prepared, LinkError>
     }
 
-    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, deviceID: String,
+    nonisolated static func prepareLink(_ link: any MacLink, pairing: LinkPairing?, macID: String? = nil, deviceID: String,
                                         deviceName: String) async -> PreparedLink {
-        let auth = await pairing?.open(link: link)
+        let auth = await pairing?.open(link: link, macID: macID)
         ConnectTimeline.shared.mark("pairing_opened")
         do {
             let channel = try await link.openChannel(service: "daemon", args: [:])
@@ -149,7 +176,7 @@ extension LiveCoordinator {
         // ones opened behind it until it passes. Workspaces, the chats and the Feed open
         // right behind it, without waiting for each other (an open costs no round trip).
         ConnectTimeline.shared.mark("link_served")
-        let auth = await openPairing(link)
+        let auth = await openPairing(link, macID: session.macID)
         guard let passed = startServing(session, link, auth: auth, daemon: nil) else { return }
         await finishServing(session, link, passed: passed)
     }
@@ -222,7 +249,7 @@ extension LiveCoordinator {
 
     /// `session`'s link once its pairing passed, for channels that may overtake
     /// `auth` (the input lane rides another stream).
-    private func pairedLink(_ session: MacSession) async throws -> any MacLink {
+    func pairedLink(_ session: MacSession) async throws -> any MacLink {
         guard let link = session.servedLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
         if let gate = session.pairingGate, gate.link === link, !(await gate.passed.value) {
             throw LinkError(code: "unpaired", message: "This iPhone is not paired with the Mac")
@@ -340,9 +367,9 @@ extension LiveCoordinator {
     }
 
     /// Opens `auth` on `link` (no round trip); nil without pairing keys.
-    private func openPairing(_ link: any MacLink) async -> Result<LinkPairing.Opened, LinkError>? {
+    private func openPairing(_ link: any MacLink, macID: String) async -> Result<LinkPairing.Opened, LinkError>? {
         guard let pairing else { return nil }
-        return await pairing.open(link: link)
+        return await pairing.open(link: link, macID: macID)
     }
 
     /// The pairing state of a Mac's link; the focused Mac's is the shell's.
@@ -362,6 +389,11 @@ extension LiveCoordinator {
         let onWaiting: @MainActor @Sendable () -> Void = { [weak self, weak session] in
             // Only the current link's pairing speaks for the banner (review M1).
             guard let self, let session, session.currentLink === link else { return }
+            // A code for this Mac came in after this link's challenge: a new link presents it.
+            if pairing.invites.pending(mac: macID) != nil {
+                self.redial(session)
+                return
+            }
             self.setPairing(keys.takeReplaced() ? .waitingAfterNewKeys(mac: name) : .waiting(mac: name), for: session)
         }
         let outcome = Task.detached { await pairing.finish(auth, macID: macID, onWaiting: onWaiting) }
@@ -371,6 +403,8 @@ extension LiveCoordinator {
             switch outcome {
             case .paired(let macDevice):
                 self.setPairing(.paired, for: session)
+                // Allowed already: a code for this Mac has nothing left to approve.
+                pairing.invites.drop(mac: macID)
                 session.acpmux.approver = AcpmuxHub.Approver(phoneID: pairing.phoneID, macDevice: macDevice) { reason in
                     try await keys.authorizeApproval(reason: reason)
                 }
@@ -406,6 +440,7 @@ extension LiveCoordinator {
         let hadLinks = sessions.values.contains { $0.link.target != nil }
         for session in sessions.values { session.link.send(.target(nil)) }
         pairing.keys.reset()
+        pairing.push?.reset(user: userID)
         removedFromMacsCount += 1
         if hadLinks { retarget() }
     }
@@ -415,6 +450,7 @@ extension LiveCoordinator {
     public func forgetThisPhone() {
         accountDeleted = true
         pairing?.keys.reset()
+        pairing?.push?.reset(user: userID)
         pairing?.pins.removeAll()
         DeviceIdentity.forget(userID: userID, store: secrets)
     }
@@ -590,6 +626,10 @@ extension LiveCoordinator {
         // Try Again on Chief's unavailable bar opens the channel again on this link.
         session.reconnect = { [weak self] in self?.retryChief() }
         session.macName = owner.name
+        // A file a Chief message links to previews from this Mac (absolute paths only).
+        session.fileSource = LinkFileArtifactSource(macName: owner.name, baseDirectory: nil) { [weak owner] in
+            await owner?.servedLink
+        }
         // Chief's settings show this Mac's last known model until it answers.
         session.macID = owner.macID
         // A newer link (or another focused Mac) took over while this one was opening: leave it be.
@@ -885,6 +925,8 @@ extension LiveCoordinator {
 @MainActor
 final class MultiMacFeedActions: FeedActions {
     private weak var coordinator: LiveCoordinator?
+    /// The coordinator, for the terminal-question answers (`MultiMacFeedActions+Terminal.swift`).
+    var coordinatorForTerminal: LiveCoordinator? { coordinator }
     /// How long an answer waits for its Mac's link and chats to open.
     var linkTimeout: Duration = .seconds(20)
 
@@ -961,10 +1003,12 @@ final class MultiMacFeedActions: FeedActions {
     }
 
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).answer(item, question: question, with: answer) }
         try await owner(item).answer(item, question: question, with: answer)
     }
 
     func decline(_ item: FeedItem, question: AgentQuestion) async throws {
+        if item.opensTerminal { return try await terminalOwner(item).decline(item, question: question) }
         try await owner(item).decline(item, question: question)
     }
 
@@ -974,6 +1018,7 @@ final class MultiMacFeedActions: FeedActions {
 
     func message(for error: any Error) -> String {
         if let unsent = error as? Unsent { return unsent.message }
+        if let refused = error as? TerminalFeed.QuestionRefused { return refused.message }
         return AcpmuxSessionSource.message(error)
     }
 

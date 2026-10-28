@@ -1,6 +1,7 @@
 import CmuxTheme
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// Web pages draw the caret and selected text in the Ghostty config's colors (cx-wqn5): the
 /// caret is the cursor color (else the text color), and selected text takes the config's

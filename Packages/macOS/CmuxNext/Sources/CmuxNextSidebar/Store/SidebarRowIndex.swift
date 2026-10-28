@@ -62,6 +62,7 @@ nonisolated struct SidebarRowIndex: Sendable {
     /// same id (its row state and machine kept). One walk, for a copy of the
     /// rows that has no index (the App's live rows under pending edits).
     static func patching(_ rows: [SidebarWorkspace], in sections: [SidebarSection]) -> [SidebarSection] {
+        guard !rows.isEmpty else { return sections }
         let changed = Dictionary(rows.map { ($0.id, $0) }, uniquingKeysWith: { _, last in last })
         func patched(_ ws: SidebarWorkspace) -> SidebarWorkspace {
             guard var row = changed[ws.id] else { return ws }
@@ -115,12 +116,17 @@ extension SidebarListView {
         for ws in patched {
             // The hover cards show no "Now:" step: a working agent's new step (many a second) rebuilds no card.
             let cardChanged = workspaces[ws.id].map { var old = $0; old.agentStep = ws.agentStep; return old != ws } ?? true
+            let oldFocus = workspaces[ws.id]?.focusedTab
             workspaces[ws.id] = ws
-            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again.
+            // A tab switch changes the workspace row, not its tabs: only a tab whose own content changed is drawn again,
+            // and the tabs that lost and took the focus mark (`SidebarTabRowView`).
             var changedTabs: [TabID] = []
             for tab in ws.tabs where tabs[tab.id] != tab {
                 tabs[tab.id] = tab
                 changedTabs.append(tab.id)
+            }
+            if oldFocus != ws.focusedTab {
+                for id in [oldFocus, ws.focusedTab].compactMap({ $0 }) where !changedTabs.contains(id) { changedTabs.append(id) }
             }
             for path in model.rowIndex?.paths(of: ws.id) ?? [] {
                 let section = model.sections[path.section]
@@ -147,7 +153,7 @@ extension SidebarListView {
             var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
             content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             (content.treeFold, content.rollUp) = (row.content?.treeFold, row.content?.rollUp) // and keeps its chevron and roll-up
-            let m = o.minimal ? metrics.minimal : metrics
+            let m = metrics.resolved(for: o)
             guard m.height(for: content) == row.height else {
                 heightChanged = true
                 continue

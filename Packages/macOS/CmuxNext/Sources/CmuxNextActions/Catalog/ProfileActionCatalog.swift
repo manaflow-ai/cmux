@@ -122,6 +122,12 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 targets: [.profile], cliName: "space set-defaults"
             ),
             ActionDescriptor(
+                id: "space.clearDefaults",
+                title: String(localized: "action.space.clearDefaults", defaultValue: "Clear Space Terminal Defaults…", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "directory", "cwd", "environment", "env", "reset", "clear", "remove"], category: .workspace,
+                symbol: "eraser", surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space clear-defaults", destructive: true
+            ),
+            ActionDescriptor(
                 id: "space.newGroup",
                 title: String(localized: "action.space.newGroup", defaultValue: "New Group in Space", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "group", "folder", "create"], category: .workspace, symbol: "folder.badge.plus",
@@ -146,6 +152,18 @@ nonisolated enum ProfileActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.space.moveRight", defaultValue: "Move Space Right", table: "ProfileActions", bundle: .module),
                 keywords: ["room", "profile", "reorder"], category: .workspace, symbol: "arrow.right",
                 surfaces: [.palette, .contextMenu], targets: [.profile], cliName: "space move-right"
+            ),
+            ActionDescriptor(
+                id: "space.moveToStart",
+                title: String(localized: "action.space.moveToStart", defaultValue: "Move Space to Start", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "reorder", "first", "start", "beginning", "left"], category: .workspace, symbol: "arrow.left.to.line",
+                surfaces: [.palette], targets: [.profile], cliName: "space move-to-start"
+            ),
+            ActionDescriptor(
+                id: "space.moveToEnd",
+                title: String(localized: "action.space.moveToEnd", defaultValue: "Move Space to End", table: "ProfileActions", bundle: .module),
+                keywords: ["room", "profile", "reorder", "last", "end", "right"], category: .workspace, symbol: "arrow.right.to.line",
+                surfaces: [.palette], targets: [.profile], cliName: "space move-to-end"
             ),
             ActionDescriptor(
                 id: "space.move",

@@ -6,6 +6,7 @@ import CmuxMobileChief
 import CmuxMobileDesign
 import CmuxMobileFeed
 import CmuxMobileModel
+import CmuxMobileNotifications
 import CmuxMobileTransport
 import Foundation
 import Observation
@@ -178,6 +179,7 @@ public final class LiveCoordinator {
         secrets: any DeviceSecretStore = KeychainSecretStore(),
         readMarks: FeedReadMarks? = nil,
         pins: MacPins? = nil,
+        push: PushKeys? = nil,
         clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.secrets = secrets
@@ -188,7 +190,9 @@ public final class LiveCoordinator {
         self.identity = identity
         self.userID = userID
         self.deviceName = deviceName
-        pairing = keys.map { LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID)) }
+        pairing = keys.map {
+            LinkPairing(keys: $0, phoneID: identity.link, name: deviceName, pins: pins ?? .forAccount(userID), push: push)
+        }
         self.clock = clock
         self.transport = transport
         self.relayOnly = relayOnly
@@ -371,6 +375,7 @@ public final class LiveCoordinator {
         activeTeamChanged()
         for team in list { loadPrefs(team.id) }
         if discoveryTask == nil { startDiscovery() }
+        steerToInvite()
     }
 
     /// The user chose their personal space (setup's "Choose a space"): it
@@ -542,6 +547,7 @@ public final class LiveCoordinator {
         store.setMacs(macs.map { MacDevice(id: $0.deviceId, name: $0.name, isOnline: $0.online, lastSeenAt: $0.lastSeenDate,
                                            ownerUserID: $0.ownerUserId, machineID: $0.machineId) }, teamID: teamID)
         retarget()
+        steerToInvite()
         scheduleSnapshotSave()
     }
 
@@ -568,10 +574,12 @@ public final class LiveCoordinator {
     /// listed Mac while something names it (a Feed answer or a notification of
     /// that build, `touch`, or a link it still holds until idle), so an ask
     /// from that build is still answered on it.
+    /// A Mac whose pairing code is held is one too, while the code is.
     private func dialableMacs(_ team: Team) -> [MacDevice] {
         let own = team.macs.filter { !othersMacs.contains($0.id) }
         let listed = Set(MacRoster(own).visible.map(\.id))
-        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil }
+        let invited = pairing?.invites.pending()?.mac
+        return own.filter { listed.contains($0.id) || lastShown[$0.id] != nil || $0.id == invited }
     }
 
     /// The focused Mac changed: the last one stays linked while it is recent
@@ -604,7 +612,8 @@ public final class LiveCoordinator {
             live.isOnline = true
             return live
         }
-        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now)
+        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now,
+                                         pinned: pairing?.invites.pending()?.mac)
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
@@ -784,6 +793,7 @@ public final class LiveCoordinator {
         forgetMac(id)
         // Its identity pin goes too: a re-added Mac pins its key again.
         (pairing?.pins ?? .standard).forget(id)
+        pairing?.push?.forget(mac: id)
     }
 
     /// Signs Chief question answers for the linked Mac with this phone's

@@ -82,6 +82,9 @@ tmux-*.log
 # Locally downloaded prebuilt client for Packages/Shared/CmuxTerminalClient
 Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 
+# The settings export stamp is derived, never committed (Leo 2026-10-21):
+# scripts/ci/defaults_guard.py source-stamp --ref REF prints it for any commit.
+/schemas/settings-export/
 # The cmux-next web bundle stamp (scripts/cmux-next/build-web-bundles.sh).
 /.web-bundles.key
 /.web-bundles.key.tmp
@@ -108,3 +111,11 @@ Packages/Shared/CmuxTerminalClient/CmuxTerminalClient.xcframework/
 # nested-groups prototype gallery output
 Packages/macOS/CmuxNext/nested-groups-gallery/
 Packages/macOS/CmuxNext/nested-groups-gallery.tar
+Packages/macOS/CmuxNext/group-line-gallery/
+Packages/macOS/CmuxNext/group-line-gallery.tar
+Packages/macOS/CmuxNext/ws-no-color-gallery/
+Packages/macOS/CmuxNext/ws-no-color-gallery.tar
+Packages/macOS/CmuxNext/group-header-gallery/
+Packages/macOS/CmuxNext/group-header-gallery.tar
+Packages/macOS/CmuxNext/sidebar-look-gallery/
+Packages/macOS/CmuxNext/sidebar-look-gallery.tar

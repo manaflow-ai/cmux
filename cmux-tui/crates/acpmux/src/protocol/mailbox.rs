@@ -14,8 +14,11 @@ use crate::mailbox::{DeliveryReceipt, MailMessage};
 pub struct MailSendParams {
     pub id: String,
     pub sender: String,
-    pub recipient: String,
+    /// Session recipient for ordinary mail. Omit when `target` is supplied.
+    pub recipient: Option<String>,
     pub body: String,
+    /// Quiet reports alias (`reports:<person>`). Omit for session mail.
+    pub target: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schemars(with = "Option<BTreeMap<String, Value>>")]
     pub metadata: Option<BTreeMap<String, Value>>,

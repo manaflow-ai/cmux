@@ -59,13 +59,14 @@ extension AgentPaneImageCopies {
     /// Save Image As…: the system save panel under `name`, then a copy of `file` where the person
     /// chose (an older file there is replaced: the panel asked); a failed write beeps (the panel
     /// only offers folders the person can write, so this is a full disk or a vanished volume).
-    @MainActor static func askToSave(_ file: URL, name: String) {
+    /// `allowed` is checked again when the panel answers (a path menu's: the chat is still local).
+    @MainActor static func askToSave(_ file: URL, name: String, allowed: @escaping @MainActor () -> Bool = { true }) {
         let panel = NSSavePanel()
         panel.nameFieldStringValue = name
         panel.canCreateDirectories = true
         panel.isExtensionHidden = false
         panel.begin { response in
-            guard response == .OK, let destination = panel.url else { return }
+            guard response == .OK, allowed(), let destination = panel.url else { return }
             do {
                 let files = FileManager.default
                 if files.fileExists(atPath: destination.path) {

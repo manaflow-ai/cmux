@@ -41,8 +41,10 @@ export function Tooltip({ label, children, side = "bottom", shortcut, className 
   const host = usePopupHost();
   const [trigger, setTrigger] = useState<HTMLElement | null>(null);
   const [popup, setPopup] = useState<HTMLElement | null>(null);
-  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts).
-  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip" });
+  // No room in the page (a tiny pane): past the window's edge, as a Mac tooltip (popupHost.ts). A
+  // hover card (`ui-card`) wraps its lines, so its width never sends it there.
+  const wraps = /(^|\s)ui-card(\s|$)/.test(className ?? "");
+  useEscapingPopup(host, popup, () => trigger, { side, align: "start", gap: 6, kind: "tooltip", wraps });
   return (
     <BaseTooltip.Root>
       <BaseTooltip.Trigger ref={host ? setTrigger : undefined} render={children} />
@@ -80,7 +82,14 @@ export interface AnchoredCardProps {
   onPointerLeave?: PointerEventHandler<HTMLDivElement>;
   /** The card's own element (its padding included), for a caller's inside/outside checks. */
   popupRef?: Ref<HTMLDivElement>;
+  /** Identifies this portal to a shared hover bridge. */
+  hoverBridgeId?: number;
   children: ReactNode;
+}
+
+/** Data marker shared with useHoverCard while the portal card is in the DOM. */
+export function hoverBridgeMarker(id: number | undefined): { "data-cmux-hover-bridge"?: number } {
+  return id === undefined ? {} : { "data-cmux-hover-bridge": id };
 }
 
 /**
@@ -102,6 +111,7 @@ export function AnchoredCard({
   onPointerEnter,
   onPointerLeave,
   popupRef,
+  hoverBridgeId,
   children,
 }: AnchoredCardProps) {
   const container = usePortalContainer();
@@ -123,6 +133,7 @@ export function AnchoredCard({
             data-instant={instant ? "" : undefined}
             role={interactive ? "dialog" : "tooltip"}
             aria-label={interactive ? ariaLabel : undefined}
+            {...hoverBridgeMarker(hoverBridgeId)}
             onPointerEnter={onPointerEnter}
             onPointerLeave={onPointerLeave}
           >

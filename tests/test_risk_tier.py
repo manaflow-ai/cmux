@@ -61,6 +61,7 @@ class ClassifyTests(unittest.TestCase):
             "Packages/Shared/CmuxAuthRuntime/Sources/CmuxAuthRuntime/TokenStores/FileStackTokenStore.swift",
             "Packages/Shared/CMUXAuthCore/Sources/CMUXAuthCore/Models/Session.swift",
             NEXT + "CmuxNextApp/WebAuth/WebAuthSession.swift",
+            NEXT + "CmuxNextPopups/WebAuth/WebAuthSessionBroker.swift",
             "web/services/auth/hexclave/verify.ts",
             "cmux.nightly.entitlements",
             NEXT + "CmuxNextControl/ControlAuthorizer.swift",
@@ -411,9 +412,22 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(risk.missing_evidence("low"), [])
         self.assertEqual(risk.missing_evidence("normal", body=""), [])
 
-    def test_high_waits_for_a_person_and_nothing_else(self):
-        self.assertEqual(len(risk.missing_evidence("high")), 1)
+    def test_high_is_held_only_by_a_block_on_the_head_and_warns_without_a_verdict(self):
+        # No verdict yet: a warning, not a hold (the check passes and says so).
+        self.assertEqual(risk.missing_evidence("high"), [])
+        self.assertIn("no review verdict", risk.pending_review("high"))
+        # A BLOCK or FIX that is the newest verdict on the head holds it.
+        self.assertEqual(len(risk.missing_evidence("high", blocked=True)), 1)
+        self.assertEqual(risk.pending_review("high", blocked=True), "")
+        # A sign-off clears both; low and normal never warn.
         self.assertEqual(risk.missing_evidence("high", human_ok=True), [])
+        self.assertEqual(risk.pending_review("high", human_ok=True), "")
+        self.assertEqual(risk.pending_review("normal"), "")
+
+    def test_the_evidence_command_fails_only_on_a_block(self):
+        self.assertEqual(risk.main(["evidence", "--tier", "high"]), 0)
+        self.assertEqual(risk.main(["evidence", "--tier", "high", "--blocked"]), 1)
+        self.assertEqual(risk.main(["evidence", "--tier", "high", "--blocked", "--human-ok"]), 0)
 
     def test_a_takeback_holds_any_tier_until_the_description_owns_it(self):
         self.assertEqual(len(risk.missing_evidence("low", taken_back=[21369])), 1)
@@ -499,6 +513,113 @@ class ShipReceiptTests(unittest.TestCase):
         line = f"Review (subagent): SHIP at {HEAD}"
         self.assertIsNone(risk.signed_off([self.comment(line, kind="Bot")], [], HEAD))
         self.assertIsNone(risk.signed_off([self.comment(line, association="CONTRIBUTOR")], [], HEAD))
+
+
+class DescriptionVerdictTests(unittest.TestCase):
+    """A review verdict in the PR description, so a review needs no receipt comment."""
+
+    def pr(self, body, association="MEMBER", kind="User"):
+        return {"body": body, "author_association": association, "head": {"sha": HEAD},
+                "user": {"login": "teamleaderleo", "type": kind}, "labels": []}
+
+    def comment(self, body, at="2026-10-21T20:00:00Z"):
+        return {"body": body, "created_at": at, "author_association": "MEMBER",
+                "user": {"login": "teamleaderleo", "type": "User"}}
+
+    def state(self, body, comments=(), **pr):
+        """(signed off, blocked, warning) as pr_mode grades a high pull request, without the API."""
+        pull = self.pr(body, **pr)
+        found = risk.head_verdicts(list(comments), [], HEAD, "teamleaderleo", pull)
+        who = risk.signed_off(list(comments), [], HEAD, "teamleaderleo", pull) if found else None
+        blocked = bool(found) and who is None
+        return who, blocked, risk.missing_evidence("high", who is not None, body, blocked=blocked), \
+            risk.pending_review("high", who is not None, blocked)
+
+    def test_a_ship_line_at_the_head_in_the_description_signs_off(self):
+        body = f"## Summary\nFixes the gate.\n\nReview (codex gpt-6-astra xhigh): SHIP at {HEAD}\n"
+        who, blocked, missing, pending = self.state(body)
+        self.assertEqual(who, "review (codex gpt-6-astra xhigh) in the description")
+        self.assertEqual((blocked, missing, pending), (False, [], ""))
+        # A list item or quote around it still counts.
+        self.assertIsNotNone(self.state(f"- Review (codex): SHIP at {HEAD}")[0])
+
+    def test_a_ship_at_an_older_head_is_no_verdict_and_only_warns(self):
+        who, blocked, missing, pending = self.state("Review (codex): SHIP at " + "f" * 40)
+        self.assertEqual((who, blocked, missing), (None, False, []))
+        self.assertIn("no review verdict", pending)
+        # Nor does a short sha, a self-review, or a line inside an HTML comment.
+        for body in (f"Review (codex): SHIP at {HEAD[:12]}", f"Review (self): SHIP at {HEAD}",
+                     f"<!--\nReview (codex): SHIP at {HEAD}\n-->"):
+            self.assertEqual(self.state(body)[:3], (None, False, []), body)
+
+    def test_a_fix_or_block_at_the_head_holds(self):
+        for word in ("FIX", "BLOCK"):
+            who, blocked, missing, pending = self.state(f"Review (codex): {word} at {HEAD}: races")
+            self.assertEqual((who, blocked, pending), (None, True, ""), word)
+            self.assertEqual(len(missing), 1, word)
+        # A FIX and a SHIP in the same description: the block wins the tie.
+        self.assertTrue(self.state(f"Review (a): SHIP at {HEAD}\nReview (b): FIX at {HEAD}")[1])
+
+    def test_no_verdict_only_warns(self):
+        self.assertEqual(self.state("## Summary\nNothing about a review here.")[:3], (None, False, []))
+
+    def test_a_comment_ship_still_signs_off_and_a_later_comment_block_beats_the_description(self):
+        ship = self.comment(f"Review (subagent): SHIP at {HEAD}")
+        self.assertEqual(self.state("no verdict here", [ship])[0], "review (subagent)")
+        block = self.comment(f"Review (codex): BLOCK at {HEAD}: races")
+        self.assertTrue(self.state(f"Review (codex): SHIP at {HEAD}", [block])[1])
+        # And a comment SHIP clears a FIX line left in the description.
+        self.assertEqual(self.state(f"Review (codex): FIX at {HEAD}", [ship])[0], "review (subagent)")
+
+    def test_the_description_author_is_trusted_like_a_commenter(self):
+        line = f"Review (codex): SHIP at {HEAD}"
+        self.assertIsNone(self.state(line, association="CONTRIBUTOR")[0])
+        self.assertIsNone(self.state(line, association="NONE")[0])
+        self.assertIsNone(self.state(line, kind="Bot")[0])
+
+    def test_the_grade_passes_with_a_warning_and_holds_on_a_block(self):
+        """pr_mode end to end with the API stubbed: ready is false only for a BLOCK or FIX on the head."""
+        def grade(body, comments=()):
+            pull = dict(self.pr(body), base={"sha": "b" * 40})
+            answers = {
+                "repos/o/r/pulls/7/files?per_page=100": [{"filename": "scripts/ci/risk_tier.py", "patch": ""}],
+                "repos/o/r/issues/7/comments?per_page=100": None if comments is None else list(comments),
+                "repos/o/r/pulls/7/reviews?per_page=100": [],
+                "repos/o/r/issues/7/events?per_page=100": [],
+            }
+            saved = risk.gh_items, risk.gh_json
+
+            def items(endpoint):
+                if answers[endpoint] is None:
+                    raise subprocess.CalledProcessError(1, ["gh", "api", endpoint])
+                return answers[endpoint]
+            risk.gh_items = items
+            risk.gh_json = lambda *args: pull
+            try:
+                with tempfile.TemporaryDirectory() as tmp:
+                    out, summary = Path(tmp) / "out", Path(tmp) / "summary"
+                    risk.main(["pr", "--repo", "o/r", "--number", "7", "--github-output", str(out),
+                               "--summary", str(summary)])
+                    return out.read_text(), summary.read_text()
+            finally:
+                risk.gh_items, risk.gh_json = saved
+
+        out, summary = grade(f"Review (codex): SHIP at {HEAD}")
+        self.assertIn("tier=high", out)
+        self.assertIn("ready=true", out)
+        self.assertIn("Signed off: review (codex) in the description shipped", summary)
+        out, summary = grade("no verdict")
+        self.assertIn("ready=true", out)
+        self.assertIn("Warning: no review verdict", summary)
+        out, summary = grade(f"Review (codex): FIX at {HEAD}")
+        self.assertIn("ready=false", out)
+        out, _ = grade("no verdict", [self.comment(f"Review (subagent): SHIP at {HEAD}")])
+        self.assertIn("ready=true", out)
+        # An unreadable comment read could hide a BLOCK: it holds, and never only warns.
+        out, summary = grade("no verdict", None)
+        self.assertIn("ready=false", out)
+        self.assertIn("could not be read", summary)
+        self.assertNotIn("Warning:", summary)
 
 
 if __name__ == "__main__":

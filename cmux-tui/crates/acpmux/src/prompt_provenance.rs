@@ -17,8 +17,10 @@
 //! offerId, childSessionId, title}` on the prompt that brings a suggested task's first reply
 //! back to the chat that offered it (`hub/offer_results.rs`, cx-lo9yf), `{kind:
 //! "auto_resume", promptId, attempt, turnId}` on the prompt that continues a turn a
-//! connection error cut off (`hub/auto_resume.rs`), and `{kind: "session_message", from,
-//! fromName, to}` on a prompt another session sent with none (`session_message` below).
+//! connection error cut off (`hub/auto_resume.rs`), `{kind: "session_message", from,
+//! fromName, to}` on a prompt another session sent with none (`session_message` below), and
+//! `{kind: "task_result", from, fromName, to, taskId, state}` on the prompt that brings a task's
+//! result to the chat that gave it (`hub/tasks.rs`).
 
 use serde_json::{Map, Value, json};
 
@@ -142,6 +144,33 @@ pub fn offer_result(offer_id: &str, child_session_id: &str, title: &str) -> Valu
 /// itself. `from` is the sender's session id, so the receiver's transcript opens its chat.
 pub fn session_message(from: &str, from_name: &str, to: &str) -> Value {
     json!({"kind": "session_message", "from": from, "fromName": from_name, "to": to})
+}
+
+/// The provenance of a task's result on the prompt that brings it to the chat that gave the task
+/// (`hub/tasks.rs`): from the lane's session, `from` its id as in [`session_message`].
+pub fn task_result(from: &str, from_name: &str, to: &str, task_id: &str, state: &str) -> Value {
+    json!({"kind": "task_result", "from": from, "fromName": from_name, "to": to, "taskId": task_id, "state": state})
+}
+
+/// What `from` says in [`named_sender`]: the sender named itself and is no address here.
+pub const NAMED_SENDER: &str = "fromAgent";
+
+/// The provenance of a prompt whose sender named itself (`_meta.acpmux.fromAgent`) with no
+/// provenance and no caller proof here: `acpmux send --from NAME`, `ACPMUX_FROM`, a peer daemon
+/// forwarding a prompt its own session sent (`server/peer_forward.rs`; `cli/sender.rs`). An
+/// agent's message, never the person's own: the transcript draws its sender's
+/// chip, found by name (`from` opens no chat, as a person at a shell's `cli` does not).
+pub fn named_sender(name: &str, to: &str) -> Value {
+    json!({"kind": "agent_message", "from": NAMED_SENDER, "fromName": name, "to": to})
+}
+
+/// The machine a person's own `acpmux send` ran on (`_meta.acpmux.cliHost`, `cli/sender.rs`), when
+/// it reads as a host name: 1 to 64 letters, digits, `.`, `-` or `_`.
+pub fn cli_host(params: &Value) -> Option<&str> {
+    let host = params.pointer("/_meta/acpmux/cliHost")?.as_str()?;
+    let fits = (1..=MAX_NAME_CHARS).contains(&host.len())
+        && host.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'));
+    fits.then_some(host)
 }
 
 /// `record` with `_meta.provenance` when the prompt has one (a `user_message` or `queued`).

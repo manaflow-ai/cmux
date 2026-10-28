@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// With two windows, a Files row's right-click menu acts on the tree it was opened in, not the
 /// front window's; and Open With with no app asks the person only when the person ran it.

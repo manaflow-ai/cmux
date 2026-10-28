@@ -25,9 +25,11 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
+    public static let noFadePath = ["sidebar", "noFade"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
+    public static let showColorsPath = ["sidebar", "showColors"]
     public static let showLocalMachinePath = ["sidebar", "showLocalMachine"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
@@ -68,6 +70,15 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "With workspaces on more than one computer, a workspace on another computer shows that computer's icon in its color. On, this Mac's workspaces show its icon too."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showLocalMachine),
                           keywords: ["sidebar", "machine", "computer", "this mac", "local", "icon", "color", "remote", "identity"])
+    }
+
+    static func showColorsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showColorsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showColors", "Show Workspace Colors"),
+                          help: SettingsText.keyed("settings.sidebar.showColors.help",
+                                                   "Workspaces and groups draw their colors in the sidebar. Off, the sidebar draws no colors and keeps the colors you set."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showColors),
+                          keywords: ["sidebar", "color", "colors", "colour", "tint", "swatch", "group", "workspace", "hide", "plain"])
     }
 
     static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -182,6 +193,13 @@ public nonisolated enum SidebarSectionsSetting {
                                                        "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSearchButton),
                               keywords: ["sidebar", "search", "find", "magnifying glass", "everything", "footer", "hide", "show"]),
+            // Show Whole Sidebar (No Fade): the list shows with no edge fade and the profile and search bar hides.
+            SettingDescriptor(noFadePath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.noFade", "Show Whole Sidebar Without Fade"),
+                              help: SettingsText.keyed("settings.sidebar.noFade.help",
+                                                       "The sidebar's edges stop fading and the whole list shows. It also hides the bottom profile and search bar. Off, the edges fade and the bar shows."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.noFade),
+                              keywords: ["sidebar", "fade", "whole", "full", "everything", "edges", "profile", "search", "footer", "show", "hide"]),
         ]
     }
 
@@ -264,9 +282,11 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
+        result.noFade = flag(root, noFadePath, fallback: result.noFade, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
+        result.showColors = flag(root, showColorsPath, fallback: result.showColors, &diagnostics)
         result.showLocalMachine = flag(root, showLocalMachinePath, fallback: result.showLocalMachine, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)

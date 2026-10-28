@@ -67,3 +67,50 @@ test("a command given as an argv array reads as the shell command", async () => 
     '<div class="acpmux-permission-command-preview"><code>npm test</code>',
   );
 });
+
+test("an ACP subject's app scope reaches the approval card without broadening its answer", async () => {
+  const { permissionFromMessage } = await import("../src/agent-session/acpmux/direct");
+  const permission = permissionFromMessage(
+    {
+      sessionId: "s1",
+      permissionId: "p-scope",
+      request: {
+        subject: {
+          type: "tool_call",
+          toolCall: {
+            toolCallId: "t1",
+            title: "Open Calculator",
+            kind: "computer_use",
+            rawInput: { app: "Calculator" },
+          },
+        },
+        options: [
+          { optionId: "allow", name: "Allow", kind: "allow_once" },
+          { optionId: "deny", name: "Deny", kind: "reject_once" },
+        ],
+      },
+    },
+    "s1",
+  );
+  expect(permission?.scope).toEqual({ kind: "app", value: "Calculator" });
+  expect(permission?.options.map((option) => option.id)).toEqual(["allow", "deny"]);
+});
+
+test("an ACP command subject keeps its command preview and directory scope", async () => {
+  const { permissionFromMessage } = await import("../src/agent-session/acpmux/direct");
+  const permission = permissionFromMessage(
+    {
+      sessionId: "s1",
+      permissionId: "p-command-scope",
+      request: {
+        title: "Run the check",
+        subject: { type: "command", command: "bun test", cwd: "/workspace/project" },
+        options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+      },
+    },
+    "s1",
+  );
+  expect(permission?.command).toBe("bun test");
+  expect(permission?.kind).toBe("execute");
+  expect(permission?.scope).toEqual({ kind: "directory", value: "/workspace/project" });
+});

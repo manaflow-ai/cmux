@@ -75,7 +75,10 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function renderPage(onSubmit: (kind: "terminal" | "browser" | "agent", text: string, cwd?: string) => unknown) {
+async function renderPage(
+  onSubmit: (kind: "terminal" | "browser" | "agent", text: string, cwd?: string) => unknown,
+  initialKind: "terminal" | "browser" | "agent" = "terminal",
+) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabPage } = await import("../src/agent-session/acpmux/NewTabPage");
   const root: Root = createRoot(host);
@@ -83,7 +86,7 @@ async function renderPage(onSubmit: (kind: "terminal" | "browser" | "agent", tex
     root.render(
       <NewTabPage
         snapshot={noChat()}
-        initialKind="terminal"
+        initialKind={initialKind}
         cwd="/Users/you/src/app"
         onSubmit={onSubmit as never}
         onOpenSession={noop}
@@ -108,6 +111,20 @@ async function renderPage(onSubmit: (kind: "terminal" | "browser" | "agent", tex
   };
   return { root, field, type, submit };
 }
+
+test("the classic New Tab agent field follows the opt-in spell checking setting", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ spellChecking: false });
+  const { root, field } = await renderPage(noop, "agent");
+  try {
+    expect(field.getAttribute("spellcheck")).toBe("false");
+    await act(async () => setComposerSettings({ spellChecking: true }));
+    expect(field.getAttribute("spellcheck")).toBe("true");
+  } finally {
+    await act(async () => setComposerSettings({ spellChecking: false }));
+    await act(async () => root.unmount());
+  }
+});
 
 test("a terminal from the New Tab page opens before the handshake, and a refusal says so", async () => {
   const { newTabPageSubmit } = await import("../src/agent-session/acpmux/newtab/pageSubmit");

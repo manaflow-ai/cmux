@@ -43,6 +43,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { EffortPicker } = await import("../src/agent-session/acpmux/EffortPicker");
+const { effortStopCenterX, effortStopShare } = await import("../src/agent-session/acpmux/EffortTrack");
 const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
 const { readComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
 
@@ -105,6 +106,17 @@ test("the composer setting defaults the slider off and reads the host's flag", (
   expect(readComposerSettings({}).reasoningSliderStyle).toBe("accent");
   expect(readComposerSettings({ reasoningSliderStyle: "minimal" }).reasoningSliderStyle).toBe("minimal");
   expect(readComposerSettings({ reasoningSliderStyle: "unknown" }).reasoningSliderStyle).toBe("accent");
+});
+
+test("the thumb center and every stop share endpoint-inclusive track geometry", () => {
+  const left = 24;
+  const width = 232;
+  const stopCount = 4;
+  const stops = Array.from({ length: stopCount }, (_, index) => effortStopCenterX(left, width, index, stopCount));
+  expect(stops).toEqual([left, left + width / 3, left + (2 * width) / 3, left + width]);
+  for (let index = 0; index < stopCount; index++) {
+    expect(effortStopCenterX(left, width, index, stopCount)).toBe(left + width * effortStopShare(index, stopCount));
+  }
 });
 
 test("off: the reasoning menu is the list of levels, no slider", async () => {

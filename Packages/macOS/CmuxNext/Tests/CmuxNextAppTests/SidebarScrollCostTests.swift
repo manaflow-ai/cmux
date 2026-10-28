@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
@@ -100,8 +101,8 @@ struct SidebarScrollCostTests {
 }
 
 /// Not a check: where a sidebar scroll frame spends its main-thread time (its own suite, so the
-/// sampler has a suite timeout of its own).
-@MainActor @Suite(.serialized)
+/// sampler has a suite timeout of its own). Opt-in with `CMUX_SAMPLE_PROFILE=1` (`SelfSampler`).
+@MainActor @Suite(.serialized, .enabled(if: SelfSampler.enabled, "self-sampling profile; set CMUX_SAMPLE_PROFILE=1"))
 struct SidebarScrollProfile {
     /// Not a check: where a scroll frame spends its main-thread time.
     @Test func profileOfASidebarScroll() async throws {

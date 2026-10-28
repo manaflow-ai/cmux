@@ -48,7 +48,8 @@ struct ChatDraftAttachmentsTests {
     static func chip(_ index: Int, contents: Bool = true) -> Chip {
         let bytes = screenshot(index)
         return Chip(id: "shot-\(index)", kind: "image", name: "Screenshot \(index).png", mimeType: "image/png",
-                    size: Double(bytes.count), data: contents ? bytes.base64EncodedString() : nil)
+                    size: Double(bytes.count), data: contents ? bytes.base64EncodedString() : nil,
+                    originalPath: "/session/original/screenshot-\(index).png", originalName: "Screenshot \(index).png")
     }
 
     static func files(in folder: URL) -> [String] {
@@ -90,6 +91,8 @@ struct ChatDraftAttachmentsTests {
         #expect(back.map(\.name) == ["Screenshot 1.png", "Screenshot 2.png", "Screenshot 3.png", "Screenshot 4.png", "notes"])
         #expect(back.prefix(4).map { $0.data.flatMap { Data(base64Encoded: $0) } } == [1, 2, 3, 4].map(Self.screenshot))
         #expect(back.last?.path == "/tmp/notes")
+        #expect(back.first?.originalPath == "/session/original/screenshot-1.png")
+        #expect(back.first?.originalName == "Screenshot 1.png")
         // Shown again, the chips are still kept: closing that page too loses nothing.
         #expect(try await Self.kept("s-1").count == 5)
         // Another chat gets none of them.

@@ -276,6 +276,11 @@ impl Handoffs {
         self.records.lock().unwrap().get(id).cloned()
     }
 
+    /// Every session a record names as its target (`policy_source.rs`).
+    pub(super) fn target_ids(&self) -> std::collections::HashSet<String> {
+        self.records.lock().unwrap().values().map(|r| r.target.session_id.clone()).collect()
+    }
+
     fn by_key(&self, key: &str) -> Option<Record> {
         self.records.lock().unwrap().values().find(|r| r.handoff_key == key).cloned()
     }

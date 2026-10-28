@@ -1,6 +1,6 @@
 import { Schema } from "effect"
 import { def, mutationErrors, type CloudOpDef } from "./op-def.ts"
-import { DisplayName, TeamId, UserId } from "./schemas.ts"
+import { DisplayName, InstallId, TeamId, UserId } from "./schemas.ts"
 
 /**
  * Integration connections (spec integrations.md). The ConnectionDO of the
@@ -70,7 +70,9 @@ export const TeamIntegrationPolicy = Schema.Struct({
     /** Only an organization admin (or the account owner, for a user installation) may link. */
     require_org_admin: Schema.Boolean,
     /** When set, ops and events are further limited to these repositories. */
-    repo_allowlist: Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500)))
+    repo_allowlist: Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500))),
+    /** POST /v1/integrations/github/token may mint `workflows: write` (absent = false). */
+    allow_workflows: Schema.optionalKey(Schema.Boolean)
   }),
   /** team_policy: TeamDO's TeamPolicy (the single writer, spec/enterprise.md 4) pushed here for enforcement. */
   source: Schema.Literals(["default", "admin", "sso", "mdm", "team_policy"]),
@@ -96,7 +98,8 @@ const PolicyFields = Schema.Struct({
     Schema.Struct({
       scope: Schema.optionalKey(Schema.Literals(["linking_user_repos", "installation"])),
       require_org_admin: Schema.optionalKey(Schema.Boolean),
-      repo_allowlist: Schema.optionalKey(Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500))))
+      repo_allowlist: Schema.optionalKey(Schema.NullOr(Schema.Array(RepoPattern).check(Schema.isMaxLength(500)))),
+      allow_workflows: Schema.optionalKey(Schema.Boolean)
     })
   )
 })
@@ -337,8 +340,40 @@ export const ConnectionStatusParams = Schema.Struct({
   detail: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(300)))
 })
 
+/**
+ * POST /v1/integrations/github/token (gh-app-product contract, shared with the lane broker and
+ * the cmux CLI): one repository and the permissions it needs; the API mints exactly that. The
+ * route requires at least one permission (GitHub reads an empty map as all the installation has).
+ */
+export const GITHUB_TOKEN_PERMISSIONS = ["contents", "pull_requests", "issues", "workflows", "checks", "actions", "statuses", "metadata"] as const
+const Access = Schema.Literals(["read", "write"])
+export const GitHubTokenPermissions = Schema.Struct(Object.fromEntries(GITHUB_TOKEN_PERMISSIONS.map((k) => [k, Schema.optionalKey(Access)])) as { readonly [K in (typeof GITHUB_TOKEN_PERMISSIONS)[number]]: Schema.optionalKey<typeof Access> })
+/** `owner/name` (no `.` or `..` path segments). */
+export const GitHubRepoName = Schema.String.check(Schema.isPattern(/^(?!\.{1,2}\/)[A-Za-z0-9_.-]{1,100}\/(?!\.{1,2}$)[A-Za-z0-9_.-]{1,100}$/))
+const Label = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9._-]{1,64}$/))
+/** `team` is required unless the caller is a vm install (then its machine's team); `label` is logged unverified. */
+export const GitHubTokenRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), repo: GitHubRepoName, permissions: GitHubTokenPermissions, label: Schema.optionalKey(Label) })
+/** `install` defaults to the caller's own (a session: its session tokens); another install needs a team admin. */
+export const GitHubTokenRevokeRequest = Schema.Struct({ team: Schema.optionalKey(TeamId), install: Schema.optionalKey(InstallId) })
+
+/** One mint as the team's audit records it (never the token); principal_kind is session or the install kind. */
+export const GitHubTokenMintedParams = Schema.Struct({
+  at: Schema.Int,
+  team: TeamId,
+  principal_kind: Schema.Literals(["session", "vm", "daemon", "cli", "mac"]),
+  user: UserId,
+  install: Schema.optionalKey(InstallId),
+  machine: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
+  label: Schema.optionalKey(Label),
+  repo: GitHubRepoName,
+  permissions: Schema.Record(Schema.String, Schema.String),
+  token_id: Schema.String.check(Schema.isPattern(/^[0-9a-f]{16}$/)),
+  expires_at: Schema.Int
+})
+
 /** Ops only the ConnectionDO submits for itself (after an external effect). Not exported to the catalog. */
 export const connectionInternalOps: ReadonlyArray<CloudOpDef> = [
+  internal("integration.github.token_minted", GitHubTokenMintedParams, "Internal: a GitHub installation token was minted for a caller (POST /v1/integrations/github/token); its audit record goes to TeamDO."),
   internal("connection.activate", ConnectionActivateParams, "Internal: the provider approved; the credential is stored."),
   internal("connection.status", ConnectionStatusParams, "Internal: a refresh, call or provider event changed the connection's health."),
   internal(

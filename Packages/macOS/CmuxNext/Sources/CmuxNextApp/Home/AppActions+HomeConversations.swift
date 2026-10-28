@@ -43,7 +43,26 @@ extension AppActions {
                 homePage(services)?.presentNewChief()
                 return
             }
-            runHome(services) { await services.home.createChief(named: name) }
+            let backendName = invocation["harness"]?.stringValue
+                ?? invocation["engine"]?.stringValue
+                ?? ChiefBackend.claude.id
+            guard let backend = ChiefBackend(id: backendName) else {
+                return registry.refuse("unknown Chief harness: \(backendName)")
+            }
+            // A headless caller (CLI, MCP, or an agent acting for the person)
+            // needs the created Chief's durable id, not an empty `created` list.
+            registry.track(result: Task { @MainActor in
+                switch await services.home.createChiefForAction(named: name, backend: backend) {
+                case .success(let chief):
+                    return .success([
+                        "id": .string(chief.id),
+                        "name": .string(chief.name),
+                        "conversation": .string(chief.mainConversation ?? ""),
+                    ])
+                case .failure(let outcome):
+                    return .failure(ActionWorkFailure(refusal: .unavailable, reason: outcome.message ?? ""))
+                }
+            })
         })
         registry.bind("home.archiveChief", invoke: { invocation in
             guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
@@ -52,6 +71,17 @@ extension AppActions {
             }
             let work = ActionWork {
                 guard let reason = await services.home.archiveChief(chief) else { return nil }
+                return ActionWorkFailure(refusal: .unavailable, reason: reason)
+            }
+            registry.track(work)
+        })
+        registry.bind("home.deleteChief", invoke: { invocation in
+            guard let chief = invocation["chief"]?.stringValue, !chief.isEmpty else {
+                registry.refuse(HomeStrings.deleteFailed)
+                return
+            }
+            let work = ActionWork {
+                guard let reason = await services.home.deleteChief(chief) else { return nil }
                 return ActionWorkFailure(refusal: .unavailable, reason: reason)
             }
             registry.track(work)

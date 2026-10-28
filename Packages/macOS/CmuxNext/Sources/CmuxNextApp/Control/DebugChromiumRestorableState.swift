@@ -1,7 +1,7 @@
 import AppKit
 import ObjectiveC
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// Counts `-[NSWindow encodeRestorableStateWithCoder:]` calls on Chromium's page windows
 /// (`NativeWidgetMacNSWindow`), for `debug.pane_focus` (perf-gate.py pane_focus). Chromium encodes a
 /// window's restorable state for Chrome's own session restore after each key or order change: a
@@ -19,7 +19,8 @@ enum DebugChromiumRestorableState {
 
     private static func install() {
         guard !installed, let cls = NSClassFromString("NativeWidgetMacNSWindow") else { return }
-        let selector = NSSelectorFromString("encodeRestorableStateWithCoder:")
+        // A typed selector (`encodeRestorableStateWithCoder:`), which NativeWidgetMacNSWindow inherits.
+        let selector = #selector(NSWindow.encodeRestorableState(with:))
         guard let method = class_getInstanceMethod(cls, selector) else { return }
         installed = true
         typealias Encode = @convention(c) (AnyObject, Selector, NSCoder) -> Void

@@ -39,7 +39,11 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
   /** Each line's icon in Subagents, in order: its state, whether it is in the wave, its opacity now. */
   const icons = (page: Page) =>
     page.evaluate(() =>
-      [...document.querySelectorAll(".acpmux-chat-inspector-subagents .acpmux-lineage__icon")].map((icon) => ({
+      [
+        ...document.querySelectorAll(
+          ".acpmux-chat-inspector-subagents .acpmux-lineage__icon, .acpmux-chat-inspector-subagents__avatars .cv-subagent-avatar",
+        ),
+      ].map((icon) => ({
         state: icon.getAttribute("data-state"),
         wave: icon.classList.contains("acpmux-wave-item"),
         opacity: Number(getComputedStyle(icon).opacity),
@@ -72,13 +76,13 @@ await requireBrowserLane("inspector-subagents-wave-hold.test.ts", async () => {
     const first = await icons(page);
     const running = first.filter((icon) => icon.wave);
     const still = first.filter((icon) => !icon.wave);
-    // Several running lines lead the list; the one row of the done and the failed one (its icon the
-    // failed one's) follows, outside the wave.
+    // Several running lines lead the list; the completed summary's failed and done avatars
+    // follow, outside the wave.
     expect(running.length).toBeGreaterThanOrEqual(4);
     expect(running.every((icon) => icon.state === "running")).toBe(true);
     expect(first.slice(0, running.length).every((icon) => icon.wave)).toBe(true);
-    expect(still.map((icon) => icon.state)).toEqual(["failed"]);
-    expect(still.map((icon) => icon.opacity)).toEqual([1]);
+    expect(still.map((icon) => icon.state)).toEqual(["failed", "completed"]);
+    expect(still.map((icon) => icon.opacity)).toEqual([1, 1]);
 
     // Every wave loop is paused at the one shared point, so only its index sets its phase.
     const held = await loops(page);

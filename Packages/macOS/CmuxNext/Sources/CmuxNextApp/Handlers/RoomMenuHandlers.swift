@@ -8,7 +8,7 @@ import CmuxNextSidebar
 /// submenu offers. The other rows are the room and browser profile actions.
 enum RoomMenuHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        registry.bind("space.newGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local, run: { invocation in
+        registry.bind("space.newGroup", requires: DaemonCapability.profiles.rawValue, daemon: context.services.machines.local, run: { invocation in
             try context.requireRooms()
             let room = try context.room(invocation)
             guard let state = context.activeWindow?.state else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }

@@ -1,4 +1,5 @@
 import CmuxNextCompat
+public import CmuxNextDesign
 public import Foundation
 
 /// The Chromium engine: the patched CEF fork (manaflow-ai/cef, Chrome style
@@ -21,6 +22,10 @@ public final class CEFEngine: BrowserEngine {
     /// (``CEFRuntimeSource``). Read on every use, so a pack installed while
     /// the app runs serves the next tab.
     public let runtimeSource: CEFRuntimeSource
+    /// The App's browser stores, shared with the WebKit engine (``BrowserSharedStores``).
+    public let stores: BrowserSharedStores
+    /// The App's sign-in tabs (the sign-in windows register theirs here).
+    public let signInCallbacks: CEFSignInCallbacks
     let lifecycleTrace: BrowserLifecycleTrace
     let contextMenus: BrowserContextMenuBuilder
 
@@ -31,24 +36,33 @@ public final class CEFEngine: BrowserEngine {
     ///
     /// - Parameters:
     ///   - layout: The embedded runtime, or the directory named by `CMUX_NEXT_CEF_RUNTIME`.
+    ///   - stores: The stores both engines share; the App passes its one set.
+    ///   - signInCallbacks: The App's sign-in tabs.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
+                            stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
                             contextMenus: BrowserContextMenuBuilder = .shared) {
-        self.init(source: CEFRuntimeSource(layout: layout), lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
+        self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
+                  lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
     ///
     /// - Parameters:
     ///   - source: The runtime source the App updates as the pack downloads.
+    ///   - stores: The stores both engines share; the App passes its one set, a test ``BrowserSharedStores/inMemory()``.
+    ///   - signInCallbacks: The App's sign-in tabs; the runtime sends the shim's callbacks there.
     ///   - lifecycleTrace: Receives content lifecycle events; disabled by default.
     ///   - contextMenus: Presents menus when no tab delegate handles the request.
     public init(source: CEFRuntimeSource,
+                stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared) {
         runtimeSource = source
+        self.stores = stores
+        self.signInCallbacks = signInCallbacks
         self.lifecycleTrace = lifecycleTrace
         self.contextMenus = contextMenus
     }
@@ -74,6 +88,7 @@ public final class CEFEngine: BrowserEngine {
     public var isRunning: Bool { CEFRuntime.shared.state == .ready }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
+        adoptStores()
         try await CEFRuntime.shared.start(layout: layout)
         return CEFStartSteps.shared.makeTab { makeReadyTab(configuration) }
     }
@@ -93,7 +108,7 @@ public final class CEFEngine: BrowserEngine {
     /// window): writes the last-used record off the main thread, at most once
     /// a day per process, never for an incognito profile.
     public func noteTabOpened(_ configuration: BrowserTabConfiguration) {
-        guard !OffTheRecordProfiles.shared.isOffTheRecord(configuration.profile) else { return }
+        guard !stores.offTheRecord.isOffTheRecord(configuration.profile) else { return }
         let now = Date()
         if let last = Self.lastRecorded, now.timeIntervalSince(last) < 24 * 60 * 60 { return }
         Self.lastRecorded = now
@@ -127,6 +142,7 @@ public final class CEFEngine: BrowserEngine {
     /// entry opens). Does nothing once CEF is loading or running.
     public func preload() {
         guard layout != nil else { return }
+        adoptStores()
         CEFRuntime.shared.preload(layout: layout)
     }
 
@@ -137,6 +153,7 @@ public final class CEFEngine: BrowserEngine {
     /// caller picks. No-op once CEF is running, failed or shut down.
     public func warmStart(reason: String) async {
         guard layout != nil else { return }
+        adoptStores()
         try? await CEFRuntime.shared.start(layout: layout, trigger: reason)
     }
 
@@ -146,7 +163,27 @@ public final class CEFEngine: BrowserEngine {
     /// it started.
     @discardableResult
     public func prepareSpareWindow() -> Bool {
-        CEFSpareWindow.shared.prepare(runtime: .shared)
+        adoptStores()
+        return CEFSpareWindow.shared.prepare(runtime: .shared)
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// The new Chromium tab bench's recorder (`debug.new_tab bench_browser`).
+    public var benchMarks: CEFBenchMarks { CEFRuntime.shared.benchMarks }
+    #endif
+
+    /// Closes the untaken spare Chromium window, if one is up (`debug.cef drop_spare`: what the
+    /// spare costs). The next take-free idle moment does not make another; a warm start or a
+    /// take does.
+    public func dropSpareWindow() {
+        CEFSpareWindow.shared.drop(runtime: .shared)
+    }
+
+    /// Runs when no spare Chromium window is ready (a pane took it, or a tab's own window came
+    /// up first), so the caller can make one at an idle moment (`prepareSpareWindow`). Nil: none.
+    public var onSpareWindowNeeded: (@MainActor () -> Void)? {
+        get { CEFSpareWindow.shared.onNeeded }
+        set { CEFSpareWindow.shared.onNeeded = newValue }
     }
 
     /// Returns once the framework load that `preload` started ended (at once
@@ -190,12 +227,21 @@ public final class CEFEngine: BrowserEngine {
     /// Main-thread time in Chromium's start steps so far (`MainThreadEngineStart`).
     public var engineStartMainThreadTime: Duration { MainThreadEngineStart.shared.total }
 
-    /// The extensions of `profile`, once Chromium runs (nil before).
+    /// The extensions of `profile`, once Chromium runs (nil before). Filled once; Chromium's events
+    /// keep it current, so a read costs no Chromium call (``CEFExtensionStores/readyStore(for:)``).
     public func extensionStore(for profile: BrowserProfileID = .default) -> BrowserExtensionStore? {
         guard isRunning else { return nil }
-        let store = CEFRuntime.shared.extensionStores.store(for: profile)
-        store.refresh()
-        return store
+        return CEFRuntime.shared.extensionStores.readyStore(for: profile)
+    }
+
+    /// Sets `profile`'s proxy (nil: direct, #24432). A page made later uses it from its
+    /// first request; a context Chromium already made takes it now.
+    public func setProxy(_ proxy: BrowserProfileProxy?, for profile: BrowserProfileID) {
+        let runtime = CEFRuntime.shared
+        guard runtime.profileProxies[profile] != proxy else { return }
+        runtime.profileProxies[profile] = proxy
+        runtime.unappliedProfileProxies.insert(profile)
+        if runtime.shim != nil { _ = runtime.applyProfileProxy(profile) }
     }
 
     /// Where Chromium keeps every profile's directory.
@@ -242,6 +288,13 @@ public final class CEFEngine: BrowserEngine {
     public var openURLWithoutWindow: ((URL, BrowserNewTabDisposition, BrowserProfileID?) -> Void)? {
         get { CEFRuntime.shared.openURLWithoutWindow }
         set { CEFRuntime.shared.openURLWithoutWindow = newValue }
+    }
+
+    /// Asks the person for files when a page's chooser reaches the app with no agent offer for its tab
+    /// (`CEFRuntime+FileDialogs`): the App's made-ahead panel.
+    public var fileInput: (any WebFileInputAnswering)? {
+        get { CEFRuntime.shared.fileInput }
+        set { CEFRuntime.shared.fileInput = newValue }
     }
 
     /// cmux.json `browser.builtInAdBlocker`: whether the bundled full uBlock
@@ -296,15 +349,23 @@ public final class CEFEngine: BrowserEngine {
     /// Synchronous tab creation for the debug window: the first call maps
     /// the framework on the main thread. App code uses `makeTab`.
     public func makeCEFTab(_ configuration: BrowserTabConfiguration) throws -> CEFTab {
+        adoptStores()
         try CEFRuntime.shared.startBlocking(layout: layout)
         return makeReadyTab(configuration)
     }
 
+    /// Hands the stores and sign-in tabs to the process's runtime before it starts or makes a tab
+    /// (not in `init`: the runtime is built on Chromium's first use, not at launch).
+    private func adoptStores() {
+        CEFRuntime.shared.adopt(stores: stores, signInCallbacks: signInCallbacks)
+    }
+
     private func makeReadyTab(_ configuration: BrowserTabConfiguration) -> CEFTab {
         let runtime = CEFRuntime.shared
+        runtime.adopt(stores: stores, signInCallbacks: signInCallbacks)
         let pane = configuration.pane ?? BrowserPaneID(rawValue: "tab-" + configuration.id.rawValue)
         let key = CEFPaneKey(pane: pane, profile: configuration.profile, machineKey: configuration.machineStore?.machineKey,
-                             offTheRecord: OffTheRecordProfiles.shared.isOffTheRecord(configuration.profile))
+                             offTheRecord: stores.offTheRecord.isOffTheRecord(configuration.profile))
         let host = runtime.host(for: key, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         let tab = CEFTab(id: configuration.id, profile: configuration.profile, host: host, runtime: runtime)
         tab.machineStore = configuration.machineStore

@@ -62,6 +62,9 @@
          location = "group:CMUXMobileCore">
       </FileRef>
       <FileRef
+         location = "group:CmuxScreenKit">
+      </FileRef>
+      <FileRef
          location = "group:CmuxSentryTelemetry">
       </FileRef>
       <FileRef
@@ -81,6 +84,12 @@
       </FileRef>
       <FileRef
          location = "group:CmuxTheme">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxVNC">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxVNCWebRTC">
       </FileRef>
    </Group>
    <Group

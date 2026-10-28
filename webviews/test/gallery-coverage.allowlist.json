@@ -4,6 +4,7 @@
     "agent-session/acpmux/changes/": "Leo: Sources and Changes (entry agent-pane.sources)"
   },
   "components": [
+    "agent-session/acpmux/App.tsx#ChatComposerChips",
     "agent-session/acpmux/App.tsx#NewTabComposerChips",
     "agent-session/acpmux/ComposerPickers.tsx#ArrowUpIcon",
     "agent-session/acpmux/ComposerPickers.tsx#AtIcon",
@@ -22,7 +23,6 @@
     "agent-session/acpmux/ComposerPickers.tsx#SlashIcon",
     "agent-session/acpmux/ComposerPickers.tsx#StopIcon",
     "agent-session/acpmux/Keycap.tsx#Keycap",
-    "agent-session/acpmux/NewTabImportCards.tsx#NewTabImportCards",
     "agent-session/acpmux/ProjectBadge.tsx#ProjectBadge",
     "agent-session/acpmux/SwitchNotice.tsx#SwitchNotice",
     "agent-session/acpmux/changeIcons.tsx#AlertCircle",

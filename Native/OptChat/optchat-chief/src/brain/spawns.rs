@@ -40,6 +40,11 @@ fn report_requires_approval(policy: Option<&str>) -> bool {
     policy == Some(crate::approval::ASK)
 }
 
+/// A subagent run shorter than this, that left nothing to land, is a short
+/// task: its workspace closes when it finishes (`mark_workspace`). Oct 20-27
+/// on Lawrence's Chief: 42% of runs were under 30 minutes, the median 48.
+pub const SHORT_TASK: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
 impl Brain {
     /// Where a spawn's subagents run: `place` (`cloud`/`local`), else the
     /// saved `control cloud` default, else the env's peer; None: here.
@@ -897,6 +902,19 @@ impl Brain {
                 fleet_wait.join(", ")
             ));
         }
+        // A report that says its code is not landed gets the host's landing
+        // follow-up first (no Chief turn); its next report reaches the Chief.
+        let land_followup = !held
+            && !resuming
+            && !stopped
+            && self
+                .state
+                .sub(id)
+                .is_some_and(|(_, s)| s.land_followups < crate::sub_watch::LAND_FOLLOWUPS)
+            && crate::sub_watch::unlanded(&report);
+        if land_followup {
+            stopped = true;
+        }
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.fleet_wait = fleet_wait;
             sub.status = SubStatus::Done;
@@ -905,6 +923,13 @@ impl Brain {
             sub.continued_ms = 0;
             sub.report = Some(report.clone());
             sub.stopped = stopped;
+            if land_followup {
+                sub.land_followups += 1;
+                sub.inbox.push(crate::state::InboxMessage {
+                    text: crate::sub_watch::LAND_FOLLOWUP.to_owned(),
+                    at_ms: now_ms(),
+                });
+            }
             if let Some(floor) = floor {
                 sub.floor = floor;
             }
@@ -933,6 +958,10 @@ impl Brain {
             }),
         );
         (self.log)(&format!("subagent {id} finished"));
+        if land_followup {
+            (self.log)(&format!("subagent {id}: not landed, followed up"));
+            self.trace.emit("subagent.land_followup", json!({"id": id}));
+        }
         self.mark_workspace(id, true);
         self.deliver(&spawn);
         // A tell that could not reach its run goes as its next prompt.
@@ -1412,24 +1441,53 @@ impl Brain {
     /// checkmark"): the chat tab's own idle state shows that it is done, and
     /// a name the user or the Chief gave it stays.
     fn mark_workspace(&mut self, id: &str, done: bool) {
-        if !(done && self.sub_close_on_finish) {
+        if !done {
             return;
         }
         let (Some(workspaces), Some((_, sub))) = (self.workspaces.clone(), self.state.sub(id))
         else {
             return;
         };
+        // Every finished one under the close setting; else a short task's
+        // (a run under SHORT_TASK whose report left nothing to land), so a
+        // sidebar does not fill with workspaces of one-off asks. Its chat
+        // stays readable (zoom).
+        let short = now_ms().saturating_sub(sub.run_ms) < SHORT_TASK.as_millis() as u64
+            && sub.run_ms > 0
+            && !sub.stopped
+            && !sub
+                .report
+                .as_deref()
+                .is_some_and(crate::sub_watch::unlanded);
+        if !(self.sub_close_on_finish || short) {
+            return;
+        }
         let Some(key) = sub.workspace.clone() else {
             return;
         };
-        if let Some(sub) = self.state.sub_mut(id) {
-            sub.workspace = None;
+        // The close setting closes every finished one and forgets it; a short
+        // task closes only while none of its terminals runs a command, so its
+        // key stays recorded (a later close of a closed one does nothing).
+        let explicit = self.sub_close_on_finish;
+        if explicit {
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.workspace = None;
+            }
+            self.save();
         }
-        self.save();
         let (log, id) = (self.log.clone(), id.to_owned());
         std::thread::spawn(move || {
-            if let Err(e) = workspaces.close(&key) {
-                log(&format!("subagent {id}: closing its workspace: {e}"));
+            let closed = if explicit {
+                workspaces.close(&key).map(|()| true)
+            } else {
+                workspaces.close_idle(&key)
+            };
+            match closed {
+                Ok(true) => {}
+                Ok(false) => log(&format!(
+                    "subagent {id}: its workspace stays: a terminal runs a command"
+                )),
+                Err(e) => log(&format!("subagent {id}: closing its workspace: {e}")),
             }
         });
     }
@@ -1465,6 +1523,10 @@ impl Brain {
             })
             .collect();
         for (id, text, floor, requires_approval, quiet) in done {
+            // A stopped run (the person's own stop) owes no outcome.
+            if !quiet {
+                self.note_finished(&id);
+            }
             let source = Source::Spawn(SpawnRef {
                 spawn: spawn.to_owned(),
                 subs: vec![(id.clone(), floor)],
@@ -1792,7 +1854,16 @@ impl Brain {
             let log = self.log.clone();
             let message = message.to_owned();
             std::thread::spawn(move || {
-                if let Err(e) = agents.steer(&session, blocks.clone(), &prompt_id) {
+                // The Chief's own tell is read now: acpmux stops the agent's current step
+                // for it, as the pane's Send now does (Lawrence 2026-10-26: "interrupt by
+                // default"; a long `cmux-ci wait` no longer holds it). A `queue` tell (a
+                // peer's message, an FYI) waits for the step.
+                let steered = if queue {
+                    agents.steer(&session, blocks.clone(), &prompt_id)
+                } else {
+                    agents.steer_now(&session, blocks.clone(), &prompt_id)
+                };
+                if let Err(e) = steered {
                     if !queue {
                         log(&format!(
                             "subagent {sub_id}: the tell could not be steered ({e}); its turn is interrupted"
@@ -1850,17 +1921,13 @@ impl Brain {
             json!({"id": id, "spawn": spawn, "from": "chief", "steered": steered, "queue": queue, "message": self.trace.text(message)}),
         );
         let answer = if steered && queue {
-            format!(
-                "sent to {id}; it reads it between its tool calls, or after its current turn when its agent cannot take it mid-turn; its report answers it as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read between tool calls or after its turn")
         } else if steered {
             format!(
-                "sent to {id}; it reads it between its tool calls, or, when its agent cannot take it mid-turn, its turn stops now and this is its next prompt; its report answers it as a \"[{id}] ...\" message"
+                "sent to {id}; its current step stops so it reads it now (a running subagent or background shell runs on), else its turn restarts with it"
             )
         } else {
-            format!(
-                "sent to {id}; it reads it after its current step, and its report comes back as a \"[{id}] ...\" message"
-            )
+            format!("sent to {id}; read after its current step")
         };
         Ok(answer)
     }
@@ -2152,10 +2219,21 @@ impl Brain {
     /// `text` with every mention of this Chief's subagents written as its link
     /// (`workspaces::link_subagents`): the user's reply shows them as links
     /// whether or not the model wrote one.
+    ///
+    /// Then the last pass (`reply_links::link_refs`): a bare cmux id (`ws_…`, `tab_…`,
+    /// `pane_…`) and a path that exists on this Mac become their `cmux://` and `file://` links
+    /// (Lawrence 2026-10-26: "reply with links to stuff properly").
     pub(super) fn link_subagents(&self, text: &str) -> String {
-        crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
+        let linked = crate::workspaces::link_subagents(text, &self.settings.parent, |id| {
             self.state.sub(id).and_then(|(_, s)| s.session_id.clone())
-        })
+        });
+        let home = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_default();
+        // Paths only on a Chief host on the person's Mac: a cloud VM's paths are not files
+        // that Home or iOS can open as `file://`.
+        let mac = cfg!(target_os = "macos");
+        crate::reply_links::link_refs(&linked, &home, &|p| mac && p.exists())
     }
 
     /// chief.stop {name}: subagent `name` stops as with chief.stop (its
@@ -2513,9 +2591,14 @@ mod security_tests {
     }
 }
 
+/// What the at-work line adds: their tasks are not finished yet.
+const AT_WORK_NOT_DONE: &str = "Their tasks are not done until each reports: never say they are finished, and keep any reply about them to what is under way.";
+
 impl Brain {
-    /// `Subagents at work now: a1, a3.` when any runs (a turn's line after
-    /// the view); None when none does.
+    /// `Subagents at work now: a1, a3. ...` when any runs (a turn's line
+    /// after the view); None when none does. It also says their work is not
+    /// done yet, so a turn never reports a task finished while the subagent
+    /// doing it still runs (issue 25577).
     pub(super) fn at_work_line(&self) -> Option<String> {
         let ids: Vec<&str> = self
             .state
@@ -2525,7 +2608,12 @@ impl Brain {
             .filter(|s| s.at_work())
             .map(|s| s.id.as_str())
             .collect();
-        (!ids.is_empty()).then(|| format!("Subagents at work now: {}.", ids.join(", ")))
+        (!ids.is_empty()).then(|| {
+            format!(
+                "Subagents at work now: {}. {AT_WORK_NOT_DONE}",
+                ids.join(", ")
+            )
+        })
     }
 
     /// A running subagent spawned under the spawn floor: the floor stays

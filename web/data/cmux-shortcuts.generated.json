@@ -619,6 +619,141 @@
           ]
         },
         {
+          "id": "home.zoomIn",
+          "title": {
+            "en": "Chief: Zoom In",
+            "ar": "Chief: تكبير",
+            "bs": "Chief: uvećaj",
+            "da": "Chief: Zoom ind",
+            "de": "Chief: Vergrößern",
+            "es": "Chief: acercar",
+            "fr": "Chief : zoom avant",
+            "it": "Chief: ingrandisci",
+            "ja": "Chief: 拡大",
+            "km": "Chief៖ ពង្រីក",
+            "ko": "Chief: 확대",
+            "no": "Chief: Zoom inn",
+            "pl": "Chief: Powiększ",
+            "pt-BR": "Chief: Ampliar",
+            "ru": "Chief: увеличить",
+            "th": "Chief: ซูมเข้า",
+            "tr": "Chief: Yakınlaştır",
+            "uk": "Chief: збільшити",
+            "vi": "Chief: Phóng to",
+            "zh-CN": "Chief：放大",
+            "zh-TW": "Chief：放大"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "=",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            },
+            {
+              "keys": [
+                {
+                  "key": "=",
+                  "modifiers": [
+                    "shift",
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.zoomOut",
+          "title": {
+            "en": "Chief: Zoom Out",
+            "ar": "Chief: تصغير",
+            "bs": "Chief: umanji",
+            "da": "Chief: Zoom ud",
+            "de": "Chief: Verkleinern",
+            "es": "Chief: alejar",
+            "fr": "Chief : zoom arrière",
+            "it": "Chief: riduci",
+            "ja": "Chief: 縮小",
+            "km": "Chief៖ បង្រួម",
+            "ko": "Chief: 축소",
+            "no": "Chief: Zoom ut",
+            "pl": "Chief: Pomniejsz",
+            "pt-BR": "Chief: Reduzir",
+            "ru": "Chief: уменьшить",
+            "th": "Chief: ซูมออก",
+            "tr": "Chief: Uzaklaştır",
+            "uk": "Chief: зменшити",
+            "vi": "Chief: Thu nhỏ",
+            "zh-CN": "Chief：缩小",
+            "zh-TW": "Chief：縮小"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "-",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
+          "id": "home.zoomReset",
+          "title": {
+            "en": "Chief: Actual Size",
+            "ar": "Chief: الحجم الفعلي",
+            "bs": "Chief: stvarna veličina",
+            "da": "Chief: Faktisk størrelse",
+            "de": "Chief: Originalgröße",
+            "es": "Chief: tamaño real",
+            "fr": "Chief : taille réelle",
+            "it": "Chief: dimensioni reali",
+            "ja": "Chief: 実寸表示",
+            "km": "Chief៖ ទំហំពិត",
+            "ko": "Chief: 실제 크기",
+            "no": "Chief: Faktisk størrelse",
+            "pl": "Chief: Rzeczywisty rozmiar",
+            "pt-BR": "Chief: Tamanho Real",
+            "ru": "Chief: фактический размер",
+            "th": "Chief: ขนาดจริง",
+            "tr": "Chief: Gerçek Boyut",
+            "uk": "Chief: реальний розмір",
+            "vi": "Chief: Kích thước thực",
+            "zh-CN": "Chief：实际大小",
+            "zh-TW": "Chief：實際大小"
+          },
+          "shortcut": null,
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "0",
+                  "modifiers": [
+                    "cmd"
+                  ]
+                }
+              ],
+              "when": "topPage == home || surfaceKind == home || surfaceKind == home-dock"
+            }
+          ]
+        },
+        {
           "id": "home.previousConversation",
           "title": {
             "en": "Previous Conversation",
@@ -8386,27 +8521,27 @@
         {
           "id": "openTeamPicker",
           "title": {
-            "en": "Team Picker…",
-            "ar": "منتقي الفريق…",
-            "bs": "Odabir tima…",
-            "da": "Teamvælger…",
-            "de": "Team auswählen…",
-            "es": "Selector de equipo…",
-            "fr": "Sélecteur d’équipe…",
-            "it": "Selettore team…",
-            "ja": "チームを選択…",
-            "km": "ជ្រើសក្រុម…",
-            "ko": "팀 선택…",
-            "no": "Teamvelger…",
-            "pl": "Wybór zespołu…",
-            "pt-BR": "Seletor de Equipe…",
-            "ru": "Выбор команды…",
-            "th": "ตัวเลือกทีม…",
-            "tr": "Ekip Seçici…",
-            "uk": "Вибір команди…",
-            "vi": "Chọn nhóm…",
-            "zh-CN": "团队选择器…",
-            "zh-TW": "選擇團隊…"
+            "en": "Switch Active Team…",
+            "ar": "تبديل الفريق النشط…",
+            "bs": "Promijeni aktivni tim…",
+            "da": "Skift aktivt team…",
+            "de": "Aktives Team wechseln…",
+            "es": "Cambiar equipo activo…",
+            "fr": "Changer d’équipe active…",
+            "it": "Cambia team attivo…",
+            "ja": "アクティブなチームを切り替え…",
+            "km": "ប្ដូរក្រុមសកម្ម…",
+            "ko": "활성 팀 전환…",
+            "no": "Bytt aktivt team…",
+            "pl": "Zmień aktywny zespół…",
+            "pt-BR": "Trocar equipe ativa…",
+            "ru": "Сменить активную команду…",
+            "th": "สลับทีมที่ใช้งานอยู่…",
+            "tr": "Etkin ekibi değiştir…",
+            "uk": "Змінити активну команду…",
+            "vi": "Chuyển nhóm đang dùng…",
+            "zh-CN": "切换当前团队…",
+            "zh-TW": "切換目前團隊…"
           },
           "shortcut": {
             "key": "t",

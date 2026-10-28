@@ -38,13 +38,13 @@ nonisolated extension SidebarLayout {
         guard group.parent == nil, !(o.foldsDone && group.workspaces.contains { $0.taskStatus == .done }),
               o.rowLimit == 0 || group.members.count <= o.rowLimit + 1,
               !section.nodes.contains(where: { if case let .group(child) = $0 { child.parent == group.id } else { false } }) else { return false }
-        let m = o.minimal ? base.minimal : base
+        let m = base.resolved(for: o)
         let header = rows[headerIndex]
         guard header.section == section.id else { return false }
         // The group's block: its header and the member rows right after it.
         var end = headerIndex + 1
         while end < rows.count, rows[end].group == group.id, !rows[end].key.isGroupHeader { end += 1 }
-        let oldEnd = Self.blockEnd(header: header, last: end > headerIndex + 1 ? rows[end - 1] : nil, collapsed: header.isCollapsed, metrics: m)
+        let oldEnd = Self.blockEnd(header: header, last: end > headerIndex + 1 ? rows[end - 1] : nil, metrics: m)
 
         let shown = group.workspaces.filter { !o.excludedWorkspaces.contains($0.id) }
         let shownIDs = Set(shown.map(\.id))
@@ -104,7 +104,7 @@ nonisolated extension SidebarLayout {
                 }
             }
         }
-        let newEnd = Self.blockEnd(header: header, last: built.last, collapsed: collapsed, metrics: m)
+        let newEnd = Self.blockEnd(header: header, last: built.last, metrics: m)
         var folded = header
         folded.isCollapsed = collapsed
         setRow(folded, at: headerIndex)
@@ -115,25 +115,26 @@ nonisolated extension SidebarLayout {
     /// The rows of `keys` (and of group `id`'s block and its section header), as a small layout: what a fold's
     /// animation reads of the layout before it (old frames, the folding header) without keeping every row.
     func excerpt(_ keys: some Sequence<SidebarRowKey>, group id: GroupID) -> SidebarLayout {
-        var picked: [SidebarRowKey: SidebarRow] = [:]
-        for key in keys { if let row = row(for: key) { picked[key] = row } }
+        // Positions, not row copies: the rows are already in y order, so sorting the picked positions orders them,
+        // and the group's block (10,000 members in a huge group) is one contiguous range appended once.
+        var positions = Set<Int>()
+        for key in keys { if let at = position(of: key) { positions.insert(at) } }
         if let start = position(of: .group(id)) {
-            picked[rows[start].key] = rows[start]
-            for i in (start + 1)..<rows.count {
-                guard rows[i].group == id, !rows[i].key.isGroupHeader else { break }
-                picked[rows[i].key] = rows[i]
-            }
-            if let section = row(for: .section(rows[start].section)) { picked[section.key] = section }
+            positions.insert(start)
+            var end = start + 1
+            while end < rows.count, rows[end].group == id, !rows[end].key.isGroupHeader { end += 1 }
+            positions.formUnion(start..<end)
+            if let section = position(of: .section(rows[start].section)) { positions.insert(section) }
         }
-        var layout = SidebarLayout(rows: picked.values.sorted { $0.y < $1.y }, totalHeight: totalHeight, gapY: nil, gapHeight: 0, gapShift: 0)
+        var layout = SidebarLayout(rows: positions.sorted().map { rows[$0] }, totalHeight: totalHeight, gapY: nil, gapHeight: 0, gapShift: 0)
         layout.rowSpacing = rowSpacing
         return layout
     }
 
-    /// Where the list goes on after a group's block (`make`): an open group adds its bottom padding.
-    private static func blockEnd(header: SidebarRow, last: SidebarRow?, collapsed: Bool, metrics m: SidebarLayoutMetrics) -> CGFloat {
-        let after = (last ?? header).maxY + m.rowSpacing
-        return collapsed ? after : after + m.groupBottomPadding
+    /// Where the list goes on after a group's block (`make`): one row spacing under its last row, open or
+    /// folded (no padding under a group, Leo 2026-10-21).
+    private static func blockEnd(header: SidebarRow, last: SidebarRow?, metrics m: SidebarLayoutMetrics) -> CGFloat {
+        (last ?? header).maxY + m.rowSpacing
     }
 }
 

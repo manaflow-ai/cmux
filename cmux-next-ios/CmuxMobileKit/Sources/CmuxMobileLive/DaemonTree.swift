@@ -179,6 +179,9 @@ public struct DaemonTree: Sendable {
                         guard var mapped = Self.tab(tab, id: id, agent: state, pending: agents.pending,
                                                     waitingFor: agents.waitingFor, bindings: &agentTabs) else { continue }
                         if let pinned = tab["pinned"] as? Bool { mapped.pinned = pinned }
+                        mapped.linkIDs = WorkspaceTab.LinkIDs(
+                            tab: tab["tab_resource_id"] as? String, pane: pane["resource_id"] as? String,
+                            isPaneSelected: pane["active_tab"] as? Int == index, harnessSession: state?.harnessSession)
                         if let group = tab["group"] as? String { mapped.group = groups[group] ?? WorkspaceTab.TabGroupRef(id: group) }
                         tabs.append(mapped)
                     }
@@ -270,6 +273,9 @@ public struct DaemonTree: Sendable {
         case "browser":
             let url = (tab["url"] as? String).flatMap(URL.init(string:))
             return WorkspaceTab(id: id, kind: .browser, title: title.isEmpty ? (url?.host() ?? "Browser") : title, url: url)
+        case "conversation" where (tab["conversation"] as? [String: Any])?["page"] as? String == "phone":
+            // A Mac phone tab (`page: phone`, route `sim:<udid>`): its simulator streams like a browser tab.
+            return WorkspaceTab(id: id, kind: .simulator, title: title.isEmpty ? "Simulator" : title)
         case "conversation":
             guard let session = (tab["conversation"] as? [String: Any])?["agent_session"] as? [String: Any] else { return nil }
             let binding = AgentBinding(session: session["session"] as? String, harness: session["harness"] as? String, host: session["host"] as? String)
@@ -328,18 +334,27 @@ public struct AgentState: Hashable, Sendable {
     public var agent: String?
     /// The Mac's last report for this agent (`updated_at_ms`), when it sends one.
     public var updatedAt: Date?
+    /// The harness's own session id (`agent_session_id`): what an
+    /// `agent/<harness>/<session>` link names (CmuxLink).
+    public var harnessSession: String?
 
-    public init(state: String, agent: String?, updatedAt: Date? = nil) {
+    public init(state: String, agent: String?, updatedAt: Date? = nil, harnessSession: String? = nil) {
         self.state = state
         self.agent = agent
         self.updatedAt = updatedAt
+        self.harnessSession = harnessSession
     }
 
     /// An agent row of `list-agents` or an `agent-changed` event.
     public init?(json: [String: Any]) {
         guard json["surface"] is Int else { return nil }
         self.init(state: json["state"] as? String ?? "unknown", agent: json["agent"] as? String,
-                  updatedAt: Self.date(json["updated_at_ms"]))
+                  updatedAt: Self.date(json["updated_at_ms"]), harnessSession: Self.session(json["agent_session_id"]))
+    }
+
+    /// A non-empty `agent_session_id`.
+    static func session(_ value: Any?) -> String? {
+        (value as? String).flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// Epoch milliseconds (`updated_at_ms`) as a date; nil when absent (older Macs).
@@ -359,6 +374,44 @@ public struct DaemonReplyError: Error, Equatable, Sendable {
     }
 }
 
+/// A daemon `notification` event's fields the Feed uses. The ledger
+/// (`list-notifications`) keeps only the title and body; a terminal agent's
+/// prompt and whole answer (or error text) ride on the live event alone,
+/// memory only on the Mac, and `id` joins them to the ledger row.
+public struct NotificationPost: Equatable, Sendable {
+    /// The ledger row's id; nil from a Mac before `id` rode on the event.
+    public var id: String?
+    public var surface: Int?
+    public var source: String?
+    /// The prompt of the agent turn this event ends (markdown).
+    public var prompt: String?
+    /// The agent's whole last message, or a failed turn's error text (markdown).
+    public var message: String?
+    /// The banner's folded cut of `message`; an older Mac sends only this.
+    public var preview: String?
+    /// The posting agent's own session id: a Feed reply goes only to that session.
+    public var session: String?
+
+    public init(id: String? = nil, surface: Int? = nil, source: String? = nil, prompt: String? = nil,
+                message: String? = nil, preview: String? = nil, session: String? = nil) {
+        self.id = id
+        self.surface = surface
+        self.source = source
+        self.prompt = prompt
+        self.message = message
+        self.preview = preview
+        self.session = session
+    }
+
+    init(json: [String: Any]) {
+        func text(_ key: String) -> String? {
+            (json[key] as? String).flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+        }
+        self.init(id: text("id"), surface: json["surface"] as? Int, source: text("source"), prompt: text("prompt"),
+                  message: text("message"), preview: text("preview"), session: text("session"))
+    }
+}
+
 /// What a daemon event line means for the phone's copy of the tree.
 public enum DaemonEvent: Equatable, Sendable {
     /// Re-list the tree (any topology/metadata delta, `tree-changed`, focus,
@@ -366,11 +419,11 @@ public enum DaemonEvent: Equatable, Sendable {
     case treeChanged
     /// The subscription ended (`overflow`): subscribe again, then re-list.
     case resubscribe
-    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil)
+    case agentChanged(surface: Int, state: String, agent: String?, updatedAt: Date? = nil, harnessSession: String? = nil)
     case titleChanged(surface: Int, title: String)
     /// A notification was posted (`notification`): the tree's markers and the
-    /// notification ledger changed.
-    case notification
+    /// notification ledger changed. It carries the agent's memory-only texts.
+    case notification(NotificationPost)
     case other
 
     public static func parse(_ line: Data) -> DaemonEvent {
@@ -382,12 +435,13 @@ public enum DaemonEvent: Equatable, Sendable {
         case "agent-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .agentChanged(surface: surface, state: object["state"] as? String ?? "unknown", agent: object["agent"] as? String,
-                                 updatedAt: AgentState.date(object["updated_at_ms"]))
+                                 updatedAt: AgentState.date(object["updated_at_ms"]),
+                                 harnessSession: AgentState.session(object["agent_session_id"]))
         case "title-changed":
             guard let surface = object["surface"] as? Int else { return .other }
             return .titleChanged(surface: surface, title: object["title"] as? String ?? "")
         case "notification":
-            return .notification
+            return .notification(NotificationPost(json: object))
         case "tree-changed", "layout-changed", "surface-exited", "personal-changed":
             return .treeChanged
         default:

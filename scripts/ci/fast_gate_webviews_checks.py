@@ -36,7 +36,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-CHECKS = ("check:browser-lanes", "check:fixed-waits", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
+CHECKS = ("check:browser-lanes", "check:fixed-waits", "check:design-tokens", "typecheck", "acpmux-protocol:check", "check:catalog-keys")
 LINE_REF = re.compile(r"(\S):\d+(?::\d+)?\b")
 TIMING = re.compile(r"\b\d+(?:\.\d+)?\s?(?:ms|s)\b")
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
@@ -47,11 +47,20 @@ DIAGNOSTIC = re.compile(r"^\s*[x!×⚠]\s+(?P<code>[\w/@-]+\([^)]*\)):\s*(?P<mes
 LOCATION = re.compile(r"^\s*(?:,-|╭─)\[(?P<path>[^\]]+?)(?::\d+:\d+)?\]\s*$")
 FRAME = re.compile(r"^\s*(?:\d+\s*[|│]|[:·]|`-+|╰─+)")
 HELP = re.compile(r"^\s*help:")
-# Lines that describe a run, not a finding: a count that falls when the change fixes one of the base's errors,
-# and `vp fmt`'s closing `Finished in 528ms on 2481 files using 4 threads.`, whose file count moves whenever the
-# change adds or removes a file (#24274's fast gates read it as the one finding the merge added).
-NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$|Found \d+ errors? and \d+ warnings?\b"
-                   r"|Finished in \S+ on \d+ files? using \d+ threads?\.$|note: You are running)")
+# Lines that describe a run, not a finding: `vp fmt`'s closing `Finished in 528ms on 2481 files using 4 threads.`
+# (`vp lint`'s adds `with 162 rules`), whose file count moves whenever the change adds or removes a file (#24274's
+# and #24524's fast gates read it as the one finding the merge added), and `vp fmt`'s `Format issues found in above
+# N files.`, whose count falls when the change fixes one of the base's files.
+NOISE = re.compile(r"^(?:error: (?:Type errors|Formatting issues|Lint issues) found$"
+                   r"|Finished in \S+ on \d+ files?(?: with \d+ rules?)? using \d+ threads?\.$|note: You are running"
+                   r"|Format issues found in above \d+ files?\. Run without `--check` to fix\.$)")
+# The run's count, a line that falls when the change fixes one of the base's errors: the type check's `Found 1 error
+# and 0 warnings in 9 files (1.0s)`, `vp lint`'s `Found 0 warnings and 1 error.` (#24538's web lint read the second
+# as the one finding the merge added after it fixed 3 of the base's 4 errors). Only the whole line, with only a timing
+# in parentheses, so a crash after it (`...: panic`, `... (panic)`) stays a finding; and never the next line of an
+# unframed diagnostic's message, which wraps with no blank line between (Oxlint ends each diagnostic with one).
+SUMMARY = re.compile(r"^Found \d+ (?:errors? and \d+ warnings?|warnings? and \d+ errors?)(?: in \d+ files?)?"
+                     r"(?: \(\d+(?:\.\d+)?m?s(?:, \d+ threads?)?\))?\.?$")
 
 
 def run_check(webviews: Path, check: str) -> tuple[int, str]:
@@ -87,7 +96,14 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
             out.append((found, f"{path}: {message}" if path else message))
         record = None
 
-    for line in ANSI.sub("", output).splitlines():
+    lines = ANSI.sub("", output).splitlines()
+
+    def noise(i: int) -> bool:
+        text = lines[i].strip()
+        wraps = record is not None and not record["framed"] and i > 0 and lines[i - 1].strip() != ""
+        return bool(NOISE.match(text)) or (not wraps and bool(SUMMARY.match(text)))
+
+    for i, line in enumerate(lines):
         header = DIAGNOSTIC.match(line)
         if header:
             close()
@@ -100,13 +116,13 @@ def findings(output: str, root: str = "") -> list[tuple[str, str]]:
                 continue
             if FRAME.match(line) and record["framed"]:
                 continue
-            if HELP.match(line) or (not record["framed"] and line.strip() and not NOISE.match(line.strip())):
+            if HELP.match(line) or (not record["framed"] and line.strip() and not noise(i)):
                 record["message"].append(line.strip().lstrip("|").strip())
                 continue
             if not line.strip():
                 continue
             close()
-        if line.strip() and not NOISE.match(line.strip()):
+        if line.strip() and not noise(i):
             out.append((key(line, root), line.rstrip()))
     close()
     return out
@@ -206,6 +222,13 @@ def main(argv: list[str] | None = None) -> int:
             base_webviews = base.webviews() if base else None
             if base_webviews is None:  # a push, or no base to compare with: the red is charged here
                 failed.append(check)
+                continue
+            # A new ratchet is intentionally introduced in the same PR as its baseline and
+            # package script. Until that PR lands, the merge parent cannot run this check; do not
+            # charge the transition PR for the base's missing command. Later PRs see the script on
+            # the base and are compared normally.
+            if check == "check:design-tokens" and not (base_webviews / "scripts/check-design-tokens.ts").is_file():
+                print("webviews checks: check:design-tokens is new; base has no command, so this transition is not charged", flush=True)
                 continue
             base_code, base_output = run_check(base_webviews, check)
             new, old = (compare(output, base_output, str(repo), str(base_webviews.parent)) if base_code != 0

@@ -143,7 +143,7 @@ final class HomeHeaderButton: NSButton {
         CATransaction.commit()
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.home.sidebar_fixture`: whether the glyph can show (shown, a frame, an image and
     /// its point size, the tint as sRGB components, the backing layer's drawn contents).
     var debugState: [String: Any] {

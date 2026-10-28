@@ -166,7 +166,8 @@ private struct LayoutOpPlanner {
     private mutating func add(_ item: LayoutItem, to section: LayoutSectionID, index: Int) throws(Gap) -> [[String: Any]] {
         if item.ref.kind == LayoutItemRef.workspaceKind {
             guard let ref = Self.workspaceRef(item.ref.value) else { throw .unknownItem }
-            if let placed = shown?.items[ref] ?? records.item(for: ref)?.id {
+            // A pending-only placement (no confirmed record) is adopted again, so this change does not depend on it.
+            if let placed = shown?.items[ref].flatMap({ records.items[$0] == nil ? nil : $0 }) ?? records.item(for: ref)?.id {
                 if section == Self.workspaces {
                     guard let record = records.items[placed] else { return [] }
                     return backToMachine(record)

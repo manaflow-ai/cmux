@@ -18,8 +18,8 @@ extension DaemonService {
     /// Opens the page listener of this app's daemon when its credential file is missing.
     public func ensurePageListener() async throws -> PageListenerOutcome {
         guard let connection, let identity else { throw DaemonError.notConnected }
-        if identity.supports(DaemonCapabilities.shared.wsListen) {
-            let request = identity.supports(DaemonCapabilities.shared.wsListenOrigins)
+        if identity.supports(DaemonCapability.wsListen.rawValue) {
+            let request = identity.supports(DaemonCapability.wsListenOrigins.rawValue)
                 ? WsListenRequest(allowOrigins: Self.pageOrigins) : WsListenRequest(allowOrigin: Self.channelsPageOrigin)
             _ = try await connection.request(request)
             return .ready

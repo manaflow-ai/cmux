@@ -71,6 +71,10 @@ public struct Action: Identifiable {
     /// Typed handler: receives the target and every collected argument.
     /// Takes precedence over `argumentHandler` and `handler` when set.
     public var invoke: (@MainActor (ActionInvocation) -> Void)?
+    /// The pipeline handler (``ActionRegistry/bindEffect(_:isEnabled:effect:)``): applies the visible change
+    /// and returns the rest as an ``ActionEffect`` the registry settles. Takes precedence over every
+    /// other handler when set.
+    public var effect: (@MainActor (ActionInvocation) -> ActionEffect)?
     /// Why the action cannot run right now (for example "needs daemon
     /// capability tab-groups-v1"), or nil when it can. A non-nil reason
     /// disables the action everywhere and is reported by `action.run`.
@@ -98,6 +102,9 @@ public struct Action: Identifiable {
     /// menu (Remove Icon on an object without an icon). The palette, the
     /// CLI and MCP still offer the action.
     public var targetHidden: (@MainActor (ActionInvocation) -> Bool)?
+    /// The index the registry's run timing records this action's runs under, interned when it was
+    /// registered (``ActionRunTiming/intern(_:)``); 0 before.
+    public internal(set) var timingIndex: UInt32 = 0
 
     public init(
         id: ActionID,
@@ -121,8 +128,10 @@ public struct Action: Identifiable {
         self.handler = handler
     }
 
-    /// Runs the most specific handler for `invocation`.
-    func run(_ invocation: ActionInvocation) {
+    /// Runs the most specific handler for `invocation`; returns what its synchronous part did
+    /// (``ActionEffect/done`` for every handler but ``effect``).
+    func run(_ invocation: ActionInvocation) -> ActionEffect {
+        if let effect { return effect(invocation) }
         if let invoke {
             invoke(invocation)
         } else if let argumentHandler, let argument = invocation.legacyArgument {
@@ -130,6 +139,7 @@ public struct Action: Identifiable {
         } else {
             handler()
         }
+        return .done
     }
 
     /// A copy of this action under another ID (used to fold legacy IDs into
@@ -145,6 +155,13 @@ public struct Action: Identifiable {
             invoke: invoke,
             unavailableReason: unavailableReason,
             handler: handler
-        )
+        ).withEffect(effect)
+    }
+
+    /// This action with `effect` as its pipeline handler.
+    func withEffect(_ effect: (@MainActor (ActionInvocation) -> ActionEffect)?) -> Action {
+        var copy = self
+        copy.effect = effect
+        return copy
     }
 }

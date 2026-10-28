@@ -19,12 +19,20 @@ extension DaemonService {
     /// ``intend(_:_:transaction:_:)`` in two steps (Cmd-D): the intent shows now, before any await; the returned work sends `body`.
     public func intendNow<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                                        _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T) -> @MainActor () async -> T? {
+        let send = intendNowReporting(label, intent, transaction: transaction, body)
+        return { try? await send().get() }
+    }
+
+    /// ``intendNow(_:_:transaction:_:)`` whose work returns the failure too (``intentEffect(_:_:_:)``).
+    func intendNowReporting<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+                                         _ body: @escaping @Sendable (isolated DaemonConnection) async throws -> T)
+        -> @MainActor () async -> Result<T, any Error> {
         let ticket = openTicket(label)
         guard let connection else {
             return { [self] in
                 logger.error("\(label, privacy: .public): not connected")
                 await closeTicket(ticket, label: label, error: DaemonError.notConnected)
-                return nil
+                return .failure(DaemonError.notConnected)
             }
         }
         store.intend(intent, transaction: transaction)
@@ -39,12 +47,12 @@ extension DaemonService {
                 store.noteSettledAtNextSnapshot(transaction)
             }
             await closeTicket(ticket, label: label, error: nil, replying: connection)
-            return value
+            return .success(value)
         } catch {
             store.rejectIntent(transaction)
             logger.error("\(label, privacy: .public) rejected: \(String(describing: error), privacy: .public)")
             await closeTicket(ticket, label: label, error: error)
-            return nil
+            return .failure(error)
         } }
     }
 

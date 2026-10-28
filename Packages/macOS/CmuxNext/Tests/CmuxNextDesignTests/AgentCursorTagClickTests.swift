@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 import Testing
+import CmuxNextDesignTokens
 
 /// The agent cursor's name tag is a link (user, 2026-10-20): the cursor
 /// carrier still lets every click through, except on a tag, where a click

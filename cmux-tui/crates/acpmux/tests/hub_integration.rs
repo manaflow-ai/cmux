@@ -27,10 +27,18 @@ mod auto_resume;
 mod cursor_requests;
 #[path = "hub_integration/drafts.rs"]
 mod drafts;
+#[path = "hub_integration/full_access_guards.rs"]
+mod full_access_guards;
 #[path = "hub_integration/lanes.rs"]
 mod lanes;
+#[path = "hub_integration/log_retention.rs"]
+mod log_retention;
+#[path = "hub_integration/permission_display.rs"]
+mod permission_display;
 #[path = "hub_integration/permission_groups.rs"]
 mod permission_groups;
+#[path = "hub_integration/presence.rs"]
+mod presence;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
 #[path = "hub_integration/prompt_ledger.rs"]
@@ -49,6 +57,8 @@ mod purged_stays_purged;
 mod questions;
 #[path = "hub_integration/restart.rs"]
 mod restart;
+#[path = "hub_integration/run_parent.rs"]
+mod run_parent;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
 #[path = "hub_integration/seen.rs"]
@@ -57,6 +67,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/silent_turn.rs"]
 mod silent_turn;
+#[path = "hub_integration/stalled_turn.rs"]
+mod stalled_turn;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_now.rs"]
@@ -65,10 +77,14 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/subagent_retry.rs"]
+mod subagent_retry;
 #[path = "hub_integration/surfaces.rs"]
 mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
+#[path = "hub_integration/tasks.rs"]
+mod tasks;
 #[path = "hub_integration/xai_requests.rs"]
 mod xai_requests;
 
@@ -125,6 +141,15 @@ async fn setup_env(
     policy: PermissionPolicy,
     env: BTreeMap<String, String>,
 ) -> (Arc<Hub>, TestClient) {
+    setup_defaults_env(policy, env, BTreeMap::new()).await
+}
+
+/// `setup_env` with the fake family's `defaults.env` too.
+async fn setup_defaults_env(
+    policy: PermissionPolicy,
+    env: BTreeMap<String, String>,
+    defaults_env: BTreeMap<String, String>,
+) -> (Arc<Hub>, TestClient) {
     let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
     let mut agents = BTreeMap::new();
     agents.insert(
@@ -146,6 +171,10 @@ async fn setup_env(
         Config { harnesses: agents, default_harness: Some("fake".into()), ..Default::default() };
     cfg.store.mode = StoreMode::Memory;
     cfg.permission_policy = policy;
+    if !defaults_env.is_empty() {
+        let defaults = acpmux::config::SessionDefaults { env: defaults_env, ..Default::default() };
+        cfg.defaults.insert("fake".into(), defaults);
+    }
     let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
     // These clients stand for the person at the app (`hub/person.rs`).
@@ -1432,6 +1461,8 @@ async fn watchers_get_permission_pending_and_auto_approvals() {
     assert!(c.response(rid).await.0.is_ok());
 }
 
+#[path = "hub_integration/event_log_fds.rs"]
+mod event_log_fds;
 #[path = "hub_integration/handoff.rs"]
 mod handoff;
 #[path = "hub_integration/transcript_events.rs"]
