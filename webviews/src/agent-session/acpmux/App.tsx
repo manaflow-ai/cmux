@@ -2220,22 +2220,28 @@ export function VirtualTranscript({
   const scrollPacer = useRef<ReturnType<typeof createScrollPacer> | undefined>(undefined);
   scrollPacer.current ??= createScrollPacer((frame: ScrollFrame) => {
     if (!transcriptMounted.current) return;
-    // A rail jump, a wheel glide, a layout correction or any other frame callback may move the live
-    // scroller after an event queued this frame. That event is stale: its state must not restore the
-    // old offset, so the commit renders the live offset instead. Dropping the commit (as it once did)
-    // left the rows mounted where the scroll began for as long as a frame-driven scroll kept moving,
-    // so a jump or a fling painted blank frames all the way (transcript-fling, cached rows).
-    const live = ref.current?.scrollTop;
-    if (live !== undefined && Math.abs(live - frame.top) > 0.5)
-      scrollRef.current = { top: live, delta: live - scrollRef.current.top || scrollRef.current.delta };
-    // One commit a frame, flushed in the pacer's own frame callback: React would otherwise render an
-    // update made here in a later task, after the frame paints with the rows of the last offset.
-    acpmuxPerf.timed("flush.scroll", () =>
+    // A wheel/default write or a rail jump may move the live scroller after an event queued this
+    // frame. The queued state is stale, but dropping it starves virtualization until motion stops.
+    // Commit the live offset and preserve the synchronous reader/jump intent instead.
+    if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) {
+      const node = ref.current;
+      const top = node.scrollTop;
+      const atLatest = jumpTarget.current !== undefined
+        ? true
+        : followingRef.current && top >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX;
+      scrollRef.current = { top, delta: top - scrollRef.current.top };
       flushSync(() => {
         setScroll(scrollRef.current);
-        setFollowing(followingRef.current);
-      }),
-    );
+        setFollowing(atLatest);
+      });
+      return;
+    }
+    acpmuxPerf.timed("flush.scroll", () => {
+      flushSync(() => {
+        setScroll(scrollRef.current);
+        setFollowing(frame.atLatest);
+      });
+    });
   });
   const queueScroll = (top: number, atLatest: boolean) => {
     // Keep the intent ref synchronous so a second scroll event before the next frame sees the
