@@ -10,6 +10,7 @@ extension ContentView {
             RunawayPaneWarningOverlayHost(
                 center: center,
                 workspaceIDs: Set(tabManager.tabs.map(\.id)),
+                workspacePanelIDs: Set(tabManager.tabs.flatMap { $0.panels.keys }),
                 windowId: windowId,
                 isShowingWorkspaces: selection.selection == .tabs
             )

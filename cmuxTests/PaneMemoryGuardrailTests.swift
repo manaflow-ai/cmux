@@ -463,23 +463,38 @@ struct PaneMemoryGuardrailTests {
             workspaceTitle: "Dock", paneTitle: "dock", ttyDevice: 2,
             command: "node", processCount: 2_000, memoryBytes: 9 * threshold, canStop: true
         )
-
         let selected = try #require(RunawayPaneWarningOverlayHost.matchingWarning(
             warnings: [dockWarning],
             workspaceIDs: [workspaceID],
+            workspacePanelIDs: [],
             windowId: windowID,
             windowDockPanelIDs: [dockPanelID],
             isShowingWorkspaces: true
         ))
         #expect(selected.key == dockWarning.key)
-
         let workspace = try #require(RunawayPaneWarningOverlayHost.matchingWarning(
             warnings: [workspaceWarning, dockWarning],
             workspaceIDs: [workspaceID],
+            workspacePanelIDs: [workspaceWarning.panelId],
             windowId: windowID,
             windowDockPanelIDs: [dockPanelID],
             isShowingWorkspaces: true
         ))
         #expect(workspace.key == workspaceWarning.key)
+        let hiddenDock = RunawayPaneWarningOverlayHost.matchingWarning(
+            warnings: [
+                RunawayPaneWarning(
+                    key: PaneMemoryPaneKey(workspaceId: workspaceID, panelId: UUID()),
+                    workspaceTitle: "Dock", paneTitle: "legacy dock", ttyDevice: 3,
+                    command: "node", processCount: 2_000, memoryBytes: 9 * threshold, canStop: true
+                )
+            ],
+            workspaceIDs: [workspaceID],
+            workspacePanelIDs: [],
+            windowId: windowID,
+            windowDockPanelIDs: [],
+            isShowingWorkspaces: true
+        )
+        #expect(hiddenDock == nil)
     }
 }

@@ -6,6 +6,7 @@ import SwiftUI
 struct RunawayPaneWarningOverlayHost: View {
     let center: RunawayPaneWarningCenter
     let workspaceIDs: Set<UUID>
+    let workspacePanelIDs: Set<UUID>
     let windowId: UUID
     let isShowingWorkspaces: Bool
 
@@ -14,6 +15,7 @@ struct RunawayPaneWarningOverlayHost: View {
             warning: Self.matchingWarning(
                 warnings: center.warnings,
                 workspaceIDs: workspaceIDs,
+                workspacePanelIDs: workspacePanelIDs,
                 windowId: windowId,
                 windowDockPanelIDs: AppDelegate.shared?.existingWindowDock(forWindowId: windowId)
                     .map { Set($0.panels.keys) } ?? [],
@@ -27,12 +29,15 @@ struct RunawayPaneWarningOverlayHost: View {
     static func matchingWarning(
         warnings: [RunawayPaneWarning],
         workspaceIDs: Set<UUID>,
+        workspacePanelIDs: Set<UUID>,
         windowId: UUID,
         windowDockPanelIDs: Set<UUID>,
         isShowingWorkspaces: Bool
     ) -> RunawayPaneWarning? {
         if isShowingWorkspaces,
-           let workspaceWarning = warnings.first(where: { workspaceIDs.contains($0.workspaceId) }) {
+           let workspaceWarning = warnings.first(where: {
+               workspaceIDs.contains($0.workspaceId) && workspacePanelIDs.contains($0.panelId)
+           }) {
             return workspaceWarning
         }
         return warnings.first {
