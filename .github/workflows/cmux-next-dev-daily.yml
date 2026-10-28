@@ -27,9 +27,9 @@ jobs:
   # whose queue moves, and the other size for a re-run. The routing App key stays in this Linux job's
   # routing environment and is minted only on the refs the release environment allows (main, rc/**, v* tags), so
   # no other branch's picker code ever holds it; actions: read is the queue janitor's pool snapshot. A failed pick reads as
-  # success, and sign then falls back to vars.MACOS_RUNNER_26 or Blacksmith 6 vCPU.
+  # success, and sign then falls back to Blacksmith 6 vCPU.
   pick-sign-runner:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: ci-routing-agent
     continue-on-error: true
     # Checkout, then the token mints 1 + 1 and the pick 3.
@@ -98,7 +98,7 @@ jobs:
     # This job signs and runs no code from the app. verify runs the app's
     # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned && fromJSON(needs.pick-sign-runner.outputs.owned) || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-sign-runner.outputs.owned && fromJSON(needs.pick-sign-runner.outputs.owned) || github.run_attempt > 1 && needs.pick-sign-runner.outputs.alternate || needs.pick-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
       actions: read
