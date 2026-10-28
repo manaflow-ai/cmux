@@ -48,7 +48,8 @@ function mount(
 test("keyboard reordering skips sections omitted from the visible cards", async () => {
   const moves: unknown[] = [];
   const { container } = mount((...move) => moves.push(move), ["changes", "context"]);
-  const handle = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-card__handle")!;
+  const handle = container.querySelector<HTMLElement>(".acpmux-chat-inspector-card__handle")!;
+  expect(handle.getAttribute("aria-roledescription")).toBe("drag handle");
   await act(async () =>
     handle.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })),
   );
@@ -58,7 +59,7 @@ test("keyboard reordering skips sections omitted from the visible cards", async 
 test("card handle uses ArrowUp/ArrowDown without toggling its section", async () => {
   const moves: unknown[] = [];
   const { container } = mount((...move) => moves.push(move));
-  const handle = container.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-card__handle")!;
+  const handle = container.querySelector<HTMLElement>(".acpmux-chat-inspector-card__handle")!;
   await act(async () =>
     handle.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })),
   );

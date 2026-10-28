@@ -85,7 +85,9 @@ await requireBrowserLane("chat-inspector-server-columns.test.ts", async () => {
       await handle.evaluate((node) => {
         const box = node.getBoundingClientRect();
         return (
-          document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)?.closest("button") === node
+          document
+            .elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)
+            ?.closest(".acpmux-chat-inspector-card__handle") === node
         );
       }),
     ).toBe(true);

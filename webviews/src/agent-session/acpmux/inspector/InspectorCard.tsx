@@ -41,13 +41,13 @@ export function InspectorCard({
     const targetId = order[index + delta];
     if (targetId) onMove(id, targetId, delta > 0);
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== "ArrowUp" && event.key !== "ArrowDown") return;
     event.preventDefault();
     event.stopPropagation();
     moveBy(event.key === "ArrowUp" ? -1 : 1);
   };
-  const onDragStart = (event: DragEvent<HTMLButtonElement>) => {
+  const onDragStart = (event: DragEvent<HTMLDivElement>) => {
     event.dataTransfer?.setData("application/x-cmux-inspector-section", id);
     if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
     setDragging(true);
@@ -86,18 +86,19 @@ export function InspectorCard({
       onDragEnd={clearDragState}
     >
       {children}
-      <button
-        type="button"
+      <div
+        role="group"
+        aria-roledescription="drag handle"
         className="acpmux-chat-inspector-card__handle"
         aria-label={label}
         aria-keyshortcuts="ArrowUp ArrowDown"
+        tabIndex={0}
         draggable
         onKeyDown={onKeyDown}
         onDragStart={onDragStart}
-        onClick={(event) => event.stopPropagation()}
       >
         <span aria-hidden="true">⠿</span>
-      </button>
+      </div>
     </article>
   );
 }
