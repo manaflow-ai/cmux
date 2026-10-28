@@ -69,7 +69,12 @@ extension ActionRegistry {
     ///    character on the key: with Command held a key never reads what it types without Command
     ///    (QWERTY Cmd-X on Dvorak - QWERTY ⌘ is the Dvorak Q key and must not read q: Quit);
     /// 6. for a Command or Control chord whose key types no ASCII character, the ASCII-capable
-    ///    layout's key (Ctrl-B on Russian is the key with the Latin B).
+    ///    layout's key (Ctrl-B on Russian is the key with the Latin B);
+    /// 7. for a Command or Control chord, the US ANSI punctuation on the physical key when the layout
+    ///    types that character on no key without Option (``KeyInput/positional``): Cmd-ü on German is
+    ///    Cmd-[, Ctrl and the key left of 1 on German or AZERTY is Ctrl-`. This is macOS's localized
+    ///    key-equivalent rule and Chrome's: the layout's character first, the position only for a
+    ///    character the layout cannot type plainly, so a key the layout needs is never taken from it.
     /// An `armed` key (the next key of an armed chord: Cmd-J then S) is not typing either, so it
     /// takes the digit-row and ASCII-capable readings like a chord.
     /// Letters are never read by position (Cmd-Z on German is the key that types z), and a plain,
@@ -92,6 +97,7 @@ extension ActionRegistry {
             appendTyped(input.unshifted)
         }
         if decided, let ascii = input.asciiFallback { readings.append(Shortcut(ascii, modifiers: flags)) }
+        if decided, let positional = input.positional { readings.append(Shortcut(positional, modifiers: flags)) }
         return readings
     }
 

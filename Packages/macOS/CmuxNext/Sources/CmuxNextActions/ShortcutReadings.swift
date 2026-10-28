@@ -2,16 +2,17 @@
 /// the binding table tries them: none, or up to ``capacity`` distinct readings. Held inline, so
 /// reading a key allocates no array (p04-input-055).
 public nonisolated struct ShortcutReadings: RandomAccessCollection, Hashable, Sendable {
-    /// The most readings one key has: the physical digit, the text, the Command map's unshifted
-    /// key, the key-equivalent reading, the unshifted key and the ASCII-capable layout's key.
-    public static let capacity = 6
+    /// The most readings one key has: the text, the Command map's unshifted key, the physical
+    /// digit, the key-equivalent reading, the unshifted key, the ASCII-capable layout's key and the
+    /// US position of moved punctuation.
+    public static let capacity = 7
 
-    private var slots: (Shortcut, Shortcut, Shortcut, Shortcut, Shortcut, Shortcut)
+    private var slots: (Shortcut, Shortcut, Shortcut, Shortcut, Shortcut, Shortcut, Shortcut)
     public private(set) var endIndex: Int
 
     public init() {
         let none = Shortcut("", modifiers: [])
-        slots = (none, none, none, none, none, none)
+        slots = (none, none, none, none, none, none, none)
         endIndex = 0
     }
 
@@ -37,7 +38,8 @@ public nonisolated struct ShortcutReadings: RandomAccessCollection, Hashable, Se
         case 2: slots.2 = reading
         case 3: slots.3 = reading
         case 4: slots.4 = reading
-        default: slots.5 = reading
+        case 5: slots.5 = reading
+        default: slots.6 = reading
         }
         endIndex += 1
     }
@@ -52,7 +54,8 @@ public nonisolated struct ShortcutReadings: RandomAccessCollection, Hashable, Se
         case 2: slots.2
         case 3: slots.3
         case 4: slots.4
-        default: slots.5
+        case 5: slots.5
+        default: slots.6
         }
     }
 
