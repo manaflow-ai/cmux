@@ -3,6 +3,7 @@
 @MainActor
 final class CloudSignedOutCreationContinuation {
     private var generation = 0
+    private var pendingGeneration: Int?
     private var task: Task<Void, Never>?
 
     /// The auth attempt has its own bounded lifetime. Cancelling this waiter
@@ -12,19 +13,42 @@ final class CloudSignedOutCreationContinuation {
         signIn: @escaping @MainActor () async -> Bool,
         resume: @escaping @MainActor () -> Void
     ) -> Task<Void, Never> {
-        cancel()
-        let expected = generation
+        let expected = reserve()
         let pending = Task { @MainActor [weak self] in
-            let succeeded = await signIn()
-            guard let self, self.generation == expected else { return }
-            self.task = nil
-            guard succeeded, !Task.isCancelled else { return }
-            // Consume before calling out; replay may itself start another intent.
-            self.generation += 1
-            resume()
+            _ = await self?.perform(expected: expected, signIn: signIn, resume: resume)
         }
         task = pending
         return pending
+    }
+
+    /// Reserves one replay generation synchronously, before an action hands its
+    /// asynchronous sign-in work to ActionRegistry.
+    func reserve() -> Int {
+        cancel()
+        pendingGeneration = generation
+        return generation
+    }
+
+    /// Completes a reserved sign-in. The registry owns cancellation of this
+    /// operation; a stale generation can never replay the captured creation.
+    @discardableResult
+    func perform(
+        expected: Int,
+        signIn: @escaping @MainActor () async -> Bool,
+        resume: @escaping @MainActor () -> Void
+    ) async -> Bool {
+        let succeeded = await signIn()
+        guard pendingGeneration == expected, generation == expected else { return false }
+        pendingGeneration = nil
+        task = nil
+        guard succeeded, !Task.isCancelled else {
+            generation += 1
+            return false
+        }
+        // Consume before calling out; replay may itself start another intent.
+        generation += 1
+        resume()
+        return true
     }
 
     /// Hosted auth publishes its user before loading the initial active team.
@@ -39,9 +63,15 @@ final class CloudSignedOutCreationContinuation {
 
     func cancel() {
         generation += 1
+        pendingGeneration = nil
         task?.cancel()
         task = nil
     }
 
-    var isPending: Bool { task != nil }
+    func cancel(expected: Int) {
+        guard pendingGeneration == expected, generation == expected else { return }
+        cancel()
+    }
+
+    var isPending: Bool { pendingGeneration != nil }
 }

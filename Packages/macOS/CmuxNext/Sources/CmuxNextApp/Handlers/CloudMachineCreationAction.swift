@@ -9,7 +9,7 @@ struct CloudMachineCreationAction {
     func bind(into registry: ActionRegistry, reason: @escaping @MainActor () -> String?) {
         let cloud = context.services.cloud
         let signedOutCreation = cloud.signedOutCreation
-        CloudHandlers.bind("newCloudMachine", registry, reason: reason) { invocation in
+        let bound = registry.bindEffect("newCloudMachine", requires: nil, unavailable: reason) { invocation in
             let request = try CloudHandlers.newMachineRequest(invocation)
             let actionOrigin = CloudHandlers.origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
@@ -27,17 +27,31 @@ struct CloudMachineCreationAction {
             guard !cloud.isSignedIn else {
                 signedOutCreation.cancel()
                 start()
-                return
+                return .done
             }
             guard actionOrigin == .user else {
-                throw ActionFailure(message: CloudStrings.signInFirst)
+                return .refused(CloudStrings.signInFirst)
             }
-            signedOutCreation.replace(signIn: { await cloud.auth.signIn() }) {
-                // Keep the original destination even if another window became
-                // active; closing it cancels the deferred creation.
-                if let window, context.services.windows.controller(for: window.id) == nil { return }
-                start()
+            let expected = signedOutCreation.reserve()
+            return .waiting(.network) {
+                let resumed = await withTaskCancellationHandler {
+                    await signedOutCreation.perform(expected: expected, signIn: { await cloud.auth.signIn() }) {
+                        guard cloud.isSignedIn, cloud.unavailableReason == nil else { return }
+                        // Keep the original destination even if another window became
+                        // active; closing it cancels the deferred creation.
+                        if let window, context.services.windows.controller(for: window.id) == nil { return }
+                        start()
+                    }
+                } onCancel: {
+                    Task { @MainActor in signedOutCreation.cancel(expected: expected) }
+                }
+                // Hosted sign-in cancellation is an expected no-op, like the
+                // standalone sign-in action; the coordinator has consumed the
+                // pending intent and will not replay it.
+                _ = resumed
+                return nil
             }
         }
+        assert(bound, "newCloudMachine is not in the action catalog")
     }
 }
