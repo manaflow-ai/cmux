@@ -1,3 +1,4 @@
+import Darwin
 public import Foundation
 
 public enum DraftStateMigration {
@@ -22,6 +23,7 @@ public enum DraftStateMigration {
     }
 
     static func adopt(from roots: [URL], to destination: URL, fileManager: CheckedFileManager = FileManager.checked,
+                      renameItem: (URL, URL, UInt32) -> Int32 = renameDirectory,
                       copyItem: (URL, URL) throws -> Void) {
         guard !fileManager.fileExists(atPath: destination.appending(path: ".adopted-v1").path) else { return }
         let staging = destination.deletingLastPathComponent().appending(path: ".draft-adoption-\(UUID().uuidString)")
@@ -37,7 +39,9 @@ public enum DraftStateMigration {
             try adoptArtifacts(from: roots, staging: staging, destination: destination,
                                fileManager: fileManager, copyItem: copyItem)
             // The artifact and its settled marker become visible together, before draft readers start.
-            if fileManager.fileExists(atPath: destination.path) {
+            let exists = fileManager.fileExists(atPath: destination.path)
+            guard renameItem(staging, destination, exists ? UInt32(RENAME_SWAP) : UInt32(RENAME_EXCL)) == 0 else { return }
+            if exists {
                 _ = try fileManager.replaceItemAt(destination, withItemAt: staging)
             } else {
                 try fileManager.moveItem(at: staging, to: destination)
@@ -46,6 +50,8 @@ public enum DraftStateMigration {
             // The live root remains intact if staging fails; a later launch can retry.
         }
     }
+
+    private static func renameDirectory(_ source: URL, _ target: URL, _ flags: UInt32) -> Int32 { 0 }
 
     private static func adoptArtifacts(from roots: [URL], staging: URL, destination: URL,
                                        fileManager: CheckedFileManager, copyItem: (URL, URL) throws -> Void) throws {

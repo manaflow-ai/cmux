@@ -167,11 +167,32 @@ nonisolated struct DraftStateMigrationTests {
         }
         #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-draft-attachments/chat-a").path))
         #expect(try fixture.text("destination/agent-draft-attachments/current/1") == "B current")
+        try FileManager.default.removeItem(at: fixture.url("destination/agent-draft-attachments/current"))
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
         for path in ["chat-a/1", "chat-a/2", "chat-b/1"] {
             #expect(try fixture.text("destination/agent-draft-attachments/\(path)") == path)
         }
         #expect(!FileManager.default.fileExists(atPath: fixture.url("destination/agent-draft-attachments/current/legacy").path))
+    }
+
+    @Test(arguments: ["missing", "empty", "current"])
+    func publicationFailureLeavesCanonicalRootUntouchedAndRetryPublishes(state: String) throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("source/agent-unsent-drafts.json", #"{"new":"A"}"#)
+        if state != "missing" { try FileManager.default.createDirectory(at: fixture.url("destination"), withIntermediateDirectories: true) }
+        if state == "current" { try fixture.write("destination/agent-unsent-drafts.json", #"{"old":"B"}"#) }
+        let before = try? FileManager.default.contentsOfDirectory(atPath: fixture.url("destination").path)
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"), renameItem: { _, _, _ in -1 }) {
+            try FileManager.default.copyItem(at: $0, to: $1)
+        }
+        #expect((try? FileManager.default.contentsOfDirectory(atPath: fixture.url("destination").path)) == before)
+        if state == "current" { #expect(try fixture.text("destination/agent-unsent-drafts.json") == #"{"old":"B"}"#) }
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        let drafts = try fixture.object("destination/agent-unsent-drafts.json")
+        #expect(drafts["new"] as? String == "A")
+        if state == "current" { #expect(drafts["old"] as? String == "B") }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).allSatisfy { !$0.hasPrefix(".draft-adoption-") })
     }
 
     private enum CopyFailure: Error { case injected }
