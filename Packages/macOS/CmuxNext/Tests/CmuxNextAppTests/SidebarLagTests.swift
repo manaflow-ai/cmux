@@ -20,10 +20,30 @@ struct SidebarLagTests {
     }
 
     /// A pull request read landing (one row's badge turns red) patches that row; it does not lay out
-    /// every row of the list again.
-    @Test func aBadgeChangePatchesItsRowOnly() {
+    /// every row of the list again. Measured in a child process too: in the full run its two frames
+    /// in the shared process took 281 s.
+    @Test func aBadgeChangePatchesItsRowOnly() async throws {
+        let url = Self.reportURL("badge", parent: getpid())
+        if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+        defer { try? FileManager.default.removeItem(at: url) }
+        await #expect(processExitsWith: .success) { await SidebarLagTests.badgeChangeInChild() }
+        let data = try #require(try? Data(contentsOf: url), "the child left no badge-change report")
+        let r = try JSONDecoder().decode(BadgeReport.self, from: data)
+        try #require(r.parent == getpid(), "the report is another process's (parent \(r.parent))")
+        #expect(r.listReloads == 0, "a badge change laid the list out again: \(r.counts)")
+        #expect(r.rowPatches >= 1, "the badge change patched no row: \(r.counts)")
+    }
+
+    nonisolated struct BadgeReport: Codable, Sendable {
+        var parent: pid_t
+        var listReloads = 0, rowPatches = 0
+        var counts: [String: Int] = [:]
+    }
+
+    /// The child: one badge change on a 500-row sidebar, its counters written next to the parent's pid.
+    static func badgeChangeInChild() {
+        var report = BadgeReport(parent: getppid())
         let bench = SidebarLagBench(count: 500)
-        defer { bench.close() }
         bench.drain()
         _ = SidebarPerfCounters.report(reset: true)
         SidebarSessionTree.shared.pullRequests[bench.ids[2]] = SidebarPullRequestBadge(count: 2, status: .failing)
@@ -31,8 +51,21 @@ struct SidebarLagTests {
         bench.drain()
         bench.drawFrame()
         let counts = SidebarPerfCounters.report(reset: true)
-        #expect((counts["list_reloads"] ?? 0) == 0, "a badge change laid the list out again: \(counts)")
-        #expect((counts["row_patches"] ?? 0) >= 1, "the badge change patched no row: \(counts)")
+        bench.close()
+        report.listReloads = counts["list_reloads"] ?? 0
+        report.rowPatches = counts["row_patches"] ?? 0
+        report.counts = counts
+        write(report, to: reportURL("badge", parent: report.parent))
+    }
+
+    /// Writes a child's report; a report it cannot write ends the child with a failure.
+    static func write(_ report: some Encodable, to url: URL) {
+        do {
+            try JSONEncoder().encode(report).write(to: url)
+        } catch {
+            FileHandle.standardError.write(Data("sidebar-lag: the report was not written: \(error)\n".utf8))
+            exit(EXIT_FAILURE)
+        }
     }
 
     /// Agents streaming, the pointer moving, the list scrolling and the selection stepping lay the
@@ -52,7 +85,7 @@ struct SidebarLagTests {
     /// 13 to 19 s with the same frame numbers. The child writes what it measured for this test to
     /// check against the same budgets as before.
     @Test func everyDayInteractionsStayInsideTheFrameBudget() async throws {
-        let url = Self.reportURL(parent: getpid())
+        let url = Self.reportURL("frames", parent: getpid())
         // Only this run's child writes the report: an older one never stands in for it.
         if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
         defer { try? FileManager.default.removeItem(at: url) }
@@ -99,8 +132,9 @@ struct SidebarLagTests {
         var lines: [String] = []
     }
 
-    nonisolated static func reportURL(parent: pid_t) -> URL {
-        FileManager.default.temporaryDirectory.appending(path: "cmux-sidebar-lag-\(parent).json")
+    /// Where the child for `test` leaves its report.
+    nonisolated static func reportURL(_ test: String, parent: pid_t) -> URL {
+        FileManager.default.temporaryDirectory.appending(path: "cmux-sidebar-lag-\(test)-\(parent).json")
     }
 
     /// The child: times every scenario at both sizes and writes the report next to its parent's pid
@@ -128,11 +162,6 @@ struct SidebarLagTests {
         report.budget1 = calibration.budget(1)
         report.budget8 = calibration.budget(8)
         report.skipReason = calibration.skipReason
-        do {
-            try JSONEncoder().encode(report).write(to: reportURL(parent: report.parent))
-        } catch {
-            FileHandle.standardError.write(Data("sidebar-lag: the report was not written: \(error)\n".utf8))
-            exit(EXIT_FAILURE)
-        }
+        write(report, to: reportURL("frames", parent: report.parent))
     }
 }
