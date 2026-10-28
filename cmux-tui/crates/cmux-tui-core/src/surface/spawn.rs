@@ -105,6 +105,21 @@ impl Surface {
         // blocking reader thread (local_reader.rs).
         #[cfg(unix)]
         let read_fd = holder.is_none().then(|| master.as_raw_fd()).flatten();
+        // Input goes to the process's `pty-writer`, which waits for room on
+        // the master instead of the caller (H1): a holder terminal's custody
+        // queue, or one registered here for a direct master (made
+        // non-blocking; its reader reads only what is ready). A master the
+        // writer cannot take keeps the blocking `writer`.
+        #[cfg(unix)]
+        let input = match holder.as_ref() {
+            Some(holder) => holder.input().cloned(),
+            None => read_fd
+                .and_then(|fd| {
+                    // SAFETY: master owns fd here; the writer owns the dup.
+                    unsafe { BorrowedFd::borrow_raw(fd) }.try_clone_to_owned().ok()
+                })
+                .and_then(|dup| crate::pty_write::input_queue(dup).ok()),
+        };
         #[cfg(unix)]
         let read_descriptor = read_fd
             .map(|fd| {
@@ -208,7 +223,9 @@ impl Surface {
                     LockRank::Runtime,
                     "pty.runtime",
                     PtyRuntime::Local {
-                        writer,
+                        writer: terminal_runtime::local_writer(writer),
+                        #[cfg(unix)]
+                        input,
                         master: Some(master),
                         killer,
                         #[cfg(unix)]

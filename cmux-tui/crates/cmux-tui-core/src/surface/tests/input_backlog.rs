@@ -146,10 +146,7 @@ fn a_paste_into_a_program_that_does_not_read_never_freezes_resize_output_or_othe
     );
 
     // A key typed after the paste does not wait for the program to read.
-    let typed = {
-        let busy = busy.clone();
-        within(STEP, move || busy.write_bytes(b"x"))
-    };
+    let typed = within(STEP, move || busy.write_bytes(b"x"));
     assert!(typed.is_some(), "a key waited behind the paste");
 
     // Another terminal still takes input and shows its output.

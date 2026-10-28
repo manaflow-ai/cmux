@@ -49,7 +49,11 @@ pub(crate) enum LockRank {
     /// `pty_input_fifo::PtyInputFifo` and held for one whole input (a `send` with
     /// its paste and Return, an INPUT frame, an image paste, a clear-history
     /// key). The write it holds the turn for takes the terminal (a paste's
-    /// bracketed mode) and the runtime lock, so it ranks before both. It
+    /// bracketed mode) and the runtime lock, each briefly, so it ranks before
+    /// both. No PTY write runs under the runtime lock (H1): input goes to the
+    /// terminal's `pty-writer` queue, which never waits for the child, or,
+    /// with no queue, through the `pty.writer` leaf lock after the runtime
+    /// lock is released. It
     /// ranks after `Mux::state`, so an input turn never takes the registry or
     /// the state lock: a turn can wait behind a write the child does not
     /// read, and nothing daemon-wide may wait with it.

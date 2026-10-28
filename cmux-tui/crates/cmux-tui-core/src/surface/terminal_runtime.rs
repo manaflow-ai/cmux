@@ -388,9 +388,26 @@ pub(crate) struct TerminalJournalGap {
     pub(crate) reason: &'static str,
 }
 
+/// A local terminal's writer, behind its own lock: a write that waits for
+/// the child holds only this, never the runtime lock (H1). Used when the
+/// terminal has no `pty-writer` queue (a byte backend, a Windows ConPTY, a
+/// master the writer could not take).
+pub(super) type LocalWriter = Arc<RankedMutex<Box<dyn Write + Send>>>;
+
+pub(super) fn local_writer(writer: Box<dyn Write + Send>) -> LocalWriter {
+    Arc::new(RankedMutex::new(LockRank::Leaf, "pty.writer", writer))
+}
+
 pub(super) enum PtyRuntime {
     Local {
-        writer: Box<dyn Write + Send>,
+        writer: LocalWriter,
+        /// The terminal's queue on the process's `pty-writer`
+        /// (`crate::pty_write`): a direct PTY master's or a holder custody
+        /// master's. Input goes here, never waiting for the child, so no
+        /// caller waits under this runtime's lock while the child does not
+        /// read (H1). `None`: input goes through `writer`.
+        #[cfg(unix)]
+        input: Option<crate::pty_write::PtyInputQueue>,
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
         /// The holder runs this terminal's shell (`holder_runtime`): a

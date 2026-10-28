@@ -5,9 +5,7 @@
 //! holder older than the capability gets no mark. A write that never
 //! reached the PTY arms nothing.
 
-use std::fs::File;
 use std::io::Read;
-use std::os::fd::OwnedFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 
 use cmux_holder::ExitStatus;
@@ -149,13 +147,17 @@ fn echo_flow_a_failed_write_arms_nothing() {
         }
     }
     let (reader, mut child) = UnixStream::pair().unwrap();
-    let master = File::from(OwnedFd::from(reader.try_clone().unwrap()));
     let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
     let (end_tx, end_rx) = std::sync::mpsc::channel::<()>();
+    // A master with no descriptor: the input goes through the failing writer,
+    // not the `pty-writer` queue (whose failures arrive after the send).
     let surface = Surface::spawn_local(
         spawn_options(),
         LocalLaunch {
-            master: Box::new(FdMasterPty { file: master, size: Mutex::new(geometry.pty_size()) }),
+            master: Box::new(TestMasterPty {
+                size: Mutex::new(geometry.pty_size()),
+                control: Arc::default(),
+            }),
             reader: Box::new(reader),
             writer: Box::new(Failing),
             killer: Box::new(TestChildKiller),

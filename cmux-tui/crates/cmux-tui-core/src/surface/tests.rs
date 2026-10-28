@@ -85,8 +85,18 @@ impl Write for TerminalProbeDuringWrite {
 fn replace_local_writer(surface: &Surface, replacement: Box<dyn Write + Send>) {
     let pty = surface.as_pty().unwrap();
     let mut runtime = pty.runtime.lock().unwrap();
-    let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+    let PtyRuntime::Local {
+        writer,
+        #[cfg(unix)]
+        input,
+        ..
+    } = &mut *runtime
+    else {
         panic!("test surface unexpectedly uses a terminal host");
     };
-    *writer = replacement;
+    *writer = terminal_runtime::local_writer(replacement);
+    #[cfg(unix)]
+    {
+        *input = None;
+    }
 }

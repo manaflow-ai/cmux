@@ -56,6 +56,73 @@ impl From<crate::pty_write::DeliveryFailure> for ConfirmedInputFailure {
     }
 }
 
+/// Where a local terminal's input goes, read under the runtime lock and
+/// written after it is released (H1): a write that waits for the child
+/// never holds the lock a resize, the reader or a close needs.
+pub(super) struct LocalInput {
+    /// The terminal's `pty-writer` queue, when it has one.
+    #[cfg(unix)]
+    pub(super) queue: Option<crate::pty_write::PtyInputQueue>,
+    pub(super) writer: LocalWriter,
+    /// A dup of the PTY master, for a bounded write through `writer`'s
+    /// descriptor: taken only when asked and the terminal has no queue.
+    #[cfg(unix)]
+    pub(super) master: Option<std::os::fd::OwnedFd>,
+    /// Whether wheel and motion reports in the payload asked about fit the
+    /// child's input queue now (`pty_input_room::admits`); true otherwise.
+    pub(super) admitted: bool,
+}
+
+impl LocalInput {
+    /// The local input of `pty`; `None` when it is not a local runtime (a
+    /// hosted terminal, or a kept one whose host ended). `lossy` is a payload
+    /// to check for room (interactive input); `bounded` asks for a master dup.
+    pub(super) fn of(pty: &PtySurface, lossy: Option<&[u8]>, bounded: bool) -> Option<Self> {
+        let runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
+        let PtyRuntime::Local {
+            writer,
+            master,
+            #[cfg(unix)]
+            input,
+            ..
+        } = &*runtime
+        else {
+            return None;
+        };
+        let admitted = match (lossy, master.as_deref()) {
+            (Some(payload), Some(master)) => crate::pty_input_room::admits(master, payload),
+            _ => true,
+        };
+        #[cfg(not(unix))]
+        let _ = bounded;
+        #[cfg(unix)]
+        let master = (bounded && input.is_none())
+            .then(|| master.as_deref().and_then(|master| master.as_raw_fd()))
+            .flatten()
+            .and_then(|fd| {
+                // SAFETY: the master owns `fd` while the runtime lock is held.
+                unsafe { std::os::fd::BorrowedFd::borrow_raw(fd) }.try_clone_to_owned().ok()
+            });
+        Some(Self {
+            #[cfg(unix)]
+            queue: input.clone(),
+            writer: writer.clone(),
+            #[cfg(unix)]
+            master,
+            admitted,
+        })
+    }
+
+    /// Writes `bytes` through the writer, which may wait for the child; the
+    /// caller holds no lock but its input turn.
+    pub(super) fn write_through(&self, bytes: &[u8]) -> std::io::Result<()> {
+        crate::request_path::will_block(|| {
+            let mut writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
+            writer.write_all(bytes).and_then(|()| writer.flush())
+        })
+    }
+}
+
 /// The error of an input write to a browser surface.
 fn not_a_terminal() -> std::io::Error {
     std::io::Error::new(
@@ -128,45 +195,24 @@ impl Surface {
         let slot = &pty.last_input_flow;
         // Armed before the write: the echo can be read before the write returns.
         slot.arm(flow);
-        let reached_pty = {
-            let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-            // A holder terminal's `pty-writer` queue takes the bytes in the
-            // key lane: the request never waits for the child.
+        // Read under the runtime lock, written after it (H1). send_hosted_input
+        // took every live host, and a local runtime never becomes hosted, so
+        // `None` is a keep-on-exit terminal whose host ended: it outlives its
+        // child, so typing into the dead PTY is an expected interaction, and
+        // the bytes are dropped silently instead of failing every keystroke
+        // on the final screen.
+        let reached_pty = match LocalInput::of(pty, Some(bytes), false) {
+            None => Ok(false),
+            Some(input) if !input.admitted => Ok(false),
+            // The `pty-writer` queue takes the bytes in the key lane: the
+            // request never waits for the child.
             #[cfg(unix)]
-            let queued = match &*runtime {
-                PtyRuntime::Local { master, holder: Some(holder), .. } => {
-                    holder.input().map(|input| {
-                        let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                        crate::pty_input_room::queue_input(master, input, bytes)
-                    })
-                }
-                _ => None,
-            };
-            #[cfg(not(unix))]
-            let queued = None;
-            if let Some(queued) = queued {
-                queued
-            } else {
-                match &mut *runtime {
-                    PtyRuntime::Local { writer, master, .. } => {
-                        let master = master.as_deref().map(|master| master as &dyn MasterPty);
-                        // Waits while the child does not read its input.
-                        crate::request_path::will_block(|| {
-                            crate::pty_input_room::write_input(master, writer.as_mut(), bytes)
-                        })
-                    }
-                    // The host stamps its own read of the echo.
-                    #[cfg(any(unix, windows))]
-                    PtyRuntime::Hosted(host) => crate::request_path::will_block(|| {
-                        host.send_flow(MessageKind::Input, bytes, flow).map(|()| false)
-                    }),
-                    // A keep-on-exit terminal outlives its child, so typing into the
-                    // dead PTY is an expected interaction: drop the bytes silently
-                    // instead of failing every keystroke on the final screen.
-                    #[cfg(any(unix, windows))]
-                    PtyRuntime::ExitedHosted => Ok(false),
-                }
+            Some(LocalInput { queue: Some(queue), .. }) => {
+                crate::pty_input_room::queue_input(None, &queue, bytes)
             }
+            // Waits while the child does not read its input, holding only
+            // the writer's own lock.
+            Some(input) => input.write_through(bytes).map(|()| true),
         };
         // Dropped, handed to a host, or failed: no echo of this write comes to this slot.
         if !matches!(reached_pty, Ok(true)) {
@@ -253,27 +299,31 @@ impl Surface {
         // The request is sent in its turn; its acknowledgement is awaited
         // after the turn ended, as after the runtime lock.
         let turn = pty.input_fifo.enter();
-        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-        // A holder terminal's `pty-writer` queue takes the bytes after every
-        // earlier input and answers once its PTY took the last one. The wait
-        // runs after the runtime lock and the input turn are released.
-        #[cfg(unix)]
-        if let PtyRuntime::Local { holder: Some(holder), .. } = &*runtime
-            && let Some(input) = holder.input()
-        {
-            let receipt = input
-                .send_receipted(bytes, crate::pty_write::InputLane::Bulk)
-                .map_err(ConfirmedInputFailure::Known)?;
-            drop(runtime);
-            drop(turn);
-            return crate::request_path::will_block(|| receipt.wait())
-                .map_err(ConfirmedInputFailure::from);
+        // The `pty-writer` queue takes the bytes after every earlier input
+        // and answers once its PTY took the last one. The wait runs after the
+        // runtime lock and the input turn are released.
+        if let Some(input) = LocalInput::of(pty, None, false) {
+            #[cfg(unix)]
+            if let Some(queue) = input.queue.as_ref() {
+                let receipt = queue
+                    .send_receipted(bytes, crate::pty_write::InputLane::Bulk)
+                    .map_err(ConfirmedInputFailure::Known)?;
+                drop(turn);
+                return crate::request_path::will_block(|| receipt.wait())
+                    .map_err(ConfirmedInputFailure::from);
+            }
+            // No queue: the write waits in its turn, under the writer's lock
+            // only.
+            return input.write_through(bytes).map_err(ConfirmedInputFailure::Indeterminate);
         }
+        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
         match &mut *runtime {
-            PtyRuntime::Local { writer, .. } => crate::request_path::will_block(|| {
-                writer.write_all(bytes).and_then(|()| writer.flush())
-            })
-            .map_err(ConfirmedInputFailure::Indeterminate),
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: LocalInput::of took the local runtime above, and a \
+                          runtime never changes between local and hosted"
+            )]
+            PtyRuntime::Local { .. } => unreachable!("local input returned above"),
             #[cfg(any(unix, windows))]
             PtyRuntime::Hosted(host) => {
                 let receipt = host.begin_input_confirmed(bytes)?;
@@ -342,24 +392,9 @@ impl Surface {
             let term = pty.term.lock().unwrap_or_else(PoisonError::into_inner);
             term.mode(2004, false)
         };
-        let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-        #[allow(
-            clippy::unreachable,
-            reason = "INVARIANT: send_hosted_input took every hosted runtime, and a local \
-                      runtime is never replaced by a hosted one"
-        )]
-        let PtyRuntime::Local {
-            writer,
-            master,
-            #[cfg(unix)]
-            holder,
-            ..
-        } = &mut *runtime
-        else {
-            unreachable!("hosted paste returned above")
-        };
-        #[cfg(not(unix))]
-        let _ = master;
+        // send_hosted_input took every live host; a kept terminal whose host
+        // ended drops the paste, as it drops keys.
+        let Some(input) = LocalInput::of(pty, None, timeout.is_some()) else { return Ok(()) };
         let mut payload = Vec::with_capacity(bytes.len() + if bracketed { 12 } else { 0 });
         if bracketed {
             payload.extend_from_slice(b"\x1b[200~");
@@ -368,38 +403,50 @@ impl Surface {
         if bracketed {
             payload.extend_from_slice(b"\x1b[201~");
         }
-        // A holder terminal's `pty-writer` queue takes the paste whole, after
-        // every key typed before it, without waiting for the child.
+        // The `pty-writer` queue takes the paste whole, after every key typed
+        // before it, without waiting for the child.
         #[cfg(unix)]
-        if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
-            return input.send(&payload, crate::pty_write::InputLane::Bulk);
+        if let Some(queue) = input.queue.as_ref() {
+            return queue.send(&payload, crate::pty_write::InputLane::Bulk);
         }
-        // Waits while the child does not read its input.
-        crate::request_path::will_block(|| {
-            #[cfg(unix)]
-            if let Some(timeout) = timeout
-                && let Some(fd) = master.as_ref().and_then(|master| master.as_raw_fd())
-            {
-                return crate::pty_write::write_bounded(
-                    fd,
+        // No queue: waits while the child does not read its input, with no
+        // runtime or terminal lock held; a bounded paste writes the master's
+        // dup until its deadline.
+        #[cfg(unix)]
+        if let (Some(timeout), Some(master)) = (timeout, input.master.as_ref()) {
+            use std::os::fd::AsRawFd;
+            return crate::request_path::will_block(|| {
+                crate::pty_write::write_bounded(
+                    master.as_raw_fd(),
                     &payload,
                     timeout,
                     "PTY paste write timed out",
                 )
-                .map_err(|failure| failure.error);
-            }
-            writer.write_all(&payload)?;
-            writer.flush()
-        })
+                .map_err(|failure| failure.error)
+            });
+        }
+        #[cfg(not(unix))]
+        let _ = timeout;
+        input.write_through(&payload)
     }
 
     #[cfg(test)]
     pub(crate) fn replace_input_writer_for_test(&self, replacement: Box<dyn Write + Send>) {
         let pty = self.as_pty().expect("input test requires a terminal");
         let mut runtime = pty.runtime.lock().unwrap_or_else(PoisonError::into_inner);
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+        let PtyRuntime::Local {
+            writer,
+            #[cfg(unix)]
+            input,
+            ..
+        } = &mut *runtime
+        else {
             panic!("input test requires the in-process test runtime");
         };
-        *writer = replacement;
+        *writer = terminal_runtime::local_writer(replacement);
+        #[cfg(unix)]
+        {
+            *input = None;
+        }
     }
 }

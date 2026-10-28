@@ -241,6 +241,25 @@ impl PtyWriter {
     }
 }
 
+/// The process's one `pty-writer`, started with the first terminal whose
+/// input it writes: every direct PTY master and every holder terminal's
+/// custody master (H1). One thread for all of them, idle with no timer.
+pub(crate) fn shared_writer() -> io::Result<&'static PtyWriter> {
+    static WRITER: std::sync::OnceLock<PtyWriter> = std::sync::OnceLock::new();
+    if let Some(writer) = WRITER.get() {
+        return Ok(writer);
+    }
+    // A start that loses the race ends with its handle: no queue is on it.
+    let started = PtyWriter::start()?;
+    Ok(WRITER.get_or_init(|| started))
+}
+
+/// A queue on the process's `pty-writer` ([`shared_writer`]) for `master`,
+/// a dup the writer owns and makes non-blocking.
+pub(crate) fn input_queue(master: OwnedFd) -> io::Result<PtyInputQueue> {
+    shared_writer()?.register(master)
+}
+
 impl Drop for PtyWriter {
     fn drop(&mut self) {
         // The sender goes before the ring, so the wake sees it gone.

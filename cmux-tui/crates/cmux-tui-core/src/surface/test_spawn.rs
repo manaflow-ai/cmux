@@ -188,7 +188,9 @@ impl Surface {
                     LockRank::Runtime,
                     "pty.runtime",
                     PtyRuntime::Local {
-                        writer: Box::new(std::io::sink()),
+                        writer: terminal_runtime::local_writer(Box::new(std::io::sink())),
+                        #[cfg(unix)]
+                        input: None,
                         master: Some(Box::new(TestMasterPty {
                             size: Mutex::new(initial_pty_size),
                             control: test_master_control.clone(),
@@ -281,10 +283,20 @@ impl Surface {
         let capture = PtyInputCapture::default();
         let pty = self.as_pty().expect("a terminal surface");
         let mut runtime = pty.runtime.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let PtyRuntime::Local { writer, .. } = &mut *runtime else {
+        let PtyRuntime::Local {
+            writer,
+            #[cfg(unix)]
+            input,
+            ..
+        } = &mut *runtime
+        else {
             panic!("a test surface writes its PTY itself");
         };
-        *writer = Box::new(capture.clone());
+        *writer = terminal_runtime::local_writer(Box::new(capture.clone()));
+        #[cfg(unix)]
+        {
+            *input = None;
+        }
         capture
     }
 }

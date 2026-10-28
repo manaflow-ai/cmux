@@ -100,7 +100,8 @@ pub(crate) use stream_progress::{TerminalStreamProgress, TerminalStreamSubscript
 pub use terminal_runtime::PtyTerminalRuntime;
 pub(crate) use terminal_runtime::{ColdFreeze, ScrollbackMemory, TerminalJournalGap, ThawWake};
 use terminal_runtime::{
-    PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard, TerminalReader,
+    LocalWriter, PtyChildStartupGuard, PtyRuntime, ReaderCompletion, ReaderCompletionGuard,
+    TerminalReader,
 };
 #[cfg(test)]
 mod test_pty;

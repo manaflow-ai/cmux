@@ -119,42 +119,33 @@ impl Surface {
                     continue;
                 }
                 ClearHistoryTransition::EncodedFallback(encoded) => {
-                    let mut runtime = pty.runtime.lock().recover_poison();
-                    #[allow(
-                        clippy::unreachable,
-                        reason = "INVARIANT: the hosted runtimes returned above, and a runtime \
-                                  never changes between local and hosted after construction"
-                    )]
-                    let PtyRuntime::Local {
-                        writer,
-                        master,
-                        #[cfg(unix)]
-                        holder,
-                        ..
-                    } = &mut *runtime
-                    else {
-                        unreachable!("a local PTY runtime cannot become hosted")
-                    };
-                    let Some(master) = master.as_deref() else {
+                    let has_master = matches!(
+                        &*pty.runtime.lock().recover_poison(),
+                        PtyRuntime::Local { master: Some(_), .. }
+                    );
+                    // The hosted runtimes returned above, and a runtime never
+                    // changes between local and hosted after construction.
+                    let input = input::LocalInput::of(pty, None, true).filter(|_| has_master);
+                    let Some(input) = input else {
                         return Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
                             "terminal process has exited"
                         )));
                     };
+                    // Written with neither the terminal nor the runtime lock
+                    // held (H1).
                     drop(term);
-                    // A holder terminal's keys go through its `pty-writer`
-                    // queue, so the fallback key follows them in order. The
-                    // wait for its delivery runs after the runtime lock is
-                    // released.
+                    // The terminal's keys go through its `pty-writer` queue,
+                    // so the fallback key follows them in order. The wait for
+                    // its delivery runs after the input turn is released.
                     #[cfg(unix)]
-                    if let Some(input) = holder.as_ref().and_then(|holder| holder.input()) {
-                        let receipt = queue_clear_history_fallback(input, &encoded)?;
-                        drop(runtime);
+                    if let Some(queue) = input.queue.as_ref() {
+                        let receipt = queue_clear_history_fallback(queue, &encoded)?;
                         drop(turn);
                         return crate::request_path::will_block(|| {
                             wait_clear_history_fallback(receipt)
                         });
                     }
-                    return write_clear_history_fallback(master, writer.as_mut(), &encoded);
+                    return write_local_clear_history_fallback(&input, &encoded);
                 }
                 ClearHistoryTransition::Noop => return Ok(()),
                 ClearHistoryTransition::Cleared(clear) => {
@@ -333,6 +324,41 @@ pub(crate) fn write_clear_history_fallback(
     #[cfg(not(test))]
     {
         let _ = writer;
+        Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
+            "bounded clear-history fallback writes are unavailable for this PTY"
+        )))
+    }
+}
+
+/// [`write_clear_history_fallback`] for a local terminal with no
+/// `pty-writer` queue: bounded on a dup of its master, or (tests) through
+/// its writer, with no runtime lock held.
+fn write_local_clear_history_fallback(
+    input: &input::LocalInput,
+    bytes: &[u8],
+) -> Result<(), ClearHistoryFailure> {
+    check_clear_history_fallback_size(bytes)?;
+    #[cfg(unix)]
+    if let Some(master) = input.master.as_ref() {
+        use std::os::fd::AsRawFd;
+        return crate::pty_write::write_bounded(
+            master.as_raw_fd(),
+            bytes,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT,
+            CLEAR_HISTORY_FALLBACK_WRITE_TIMEOUT_ERROR,
+        )
+        .map_err(|failure| clear_history_write_failure(failure.error, failure.delivered));
+    }
+    #[cfg(test)]
+    {
+        input
+            .write_through(bytes)
+            .map_err(anyhow::Error::from)
+            .map_err(ClearHistoryFailure::ambiguous)
+    }
+    #[cfg(not(test))]
+    {
+        let _ = input;
         Err(ClearHistoryFailure::known_not_delivered(anyhow::anyhow!(
             "bounded clear-history fallback writes are unavailable for this PTY"
         )))
