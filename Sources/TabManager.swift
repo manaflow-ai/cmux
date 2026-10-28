@@ -7116,20 +7116,24 @@ extension TabManager {
                 ?? (filtered.isEmpty ? nil : 0)
             return (filtered, remappedSelection)
         }
-        let cloudIndexes = snapshots.indices.filter { isCloudVMSessionRestoreWorkspace(snapshots[$0]) }
-        guard !cloudIndexes.isEmpty else {
+        let cloudIndexSet = Set(
+            snapshots.indices.filter { isCloudVMSessionRestoreWorkspace(snapshots[$0]) }
+        )
+        guard !cloudIndexSet.isEmpty else {
             return (snapshots, selectedWorkspaceIndex)
         }
 
-        let managedCloudIndexes = cloudIndexes.filter { isManagedCloudVMSessionRestoreWorkspace(snapshots[$0]) }
+        let managedCloudIndexSet = Set(
+            cloudIndexSet.filter { isManagedCloudVMSessionRestoreWorkspace(snapshots[$0]) }
+        )
         let selectedManagedCloudIndex = selectedWorkspaceIndex.flatMap { selected in
-            managedCloudIndexes.contains(selected) ? selected : nil
+            managedCloudIndexSet.contains(selected) ? selected : nil
         }
-        let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexes.first
+        let keptCloudIndex = selectedManagedCloudIndex ?? managedCloudIndexSet.first
         var indexMap: [Int: Int] = [:]
         var filtered: [SessionWorkspaceSnapshot] = []
         for (index, snapshot) in snapshots.enumerated() {
-            if cloudIndexes.contains(index), index != keptCloudIndex {
+            if cloudIndexSet.contains(index), index != keptCloudIndex {
                 continue
             }
             indexMap[index] = filtered.count

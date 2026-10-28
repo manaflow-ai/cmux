@@ -106,6 +106,15 @@ enum SessionSnapshotImportTrust {
             var window = sanitized.windows[windowIndex]
             let workspaceLimit = SessionPersistencePolicy.maxUntrustedImportedWorkspacesPerWindow
             if window.tabManager.workspaces.count > workspaceLimit {
+                let originalGroupMembers: [UUID: [UUID]] = {
+                    var members: [UUID: [UUID]] = [:]
+                    for workspace in window.tabManager.workspaces {
+                        if let groupID = workspace.groupId {
+                            members[groupID, default: []].append(workspace.workspaceId)
+                        }
+                    }
+                    return members
+                }()
                 let selectedIndex = window.tabManager.selectedWorkspaceIndex
                 var retained = Array(window.tabManager.workspaces.prefix(workspaceLimit))
                 var retainedSelection = selectedIndex.flatMap { retained.indices.contains($0) ? $0 : nil }
@@ -119,6 +128,30 @@ enum SessionSnapshotImportTrust {
                 report.droppedWorkspaceCount += window.tabManager.workspaces.count - retained.count
                 window.tabManager.workspaces = retained
                 window.tabManager.selectedWorkspaceIndex = retainedSelection
+                let retainedGroupMembers: [UUID: [UUID]] = {
+                    var members: [UUID: [UUID]] = [:]
+                    for workspace in retained {
+                        if let groupID = workspace.groupId {
+                            members[groupID, default: []].append(workspace.workspaceId)
+                        }
+                    }
+                    return members
+                }()
+                if var groups = window.tabManager.workspaceGroups {
+                    for groupIndex in groups.indices {
+                        guard let originalMembers = originalGroupMembers[groups[groupIndex].id] else {
+                            continue
+                        }
+                        let originalAnchorID = groups[groupIndex].anchorWorkspaceId
+                            ?? groups[groupIndex].anchorMemberIndex.flatMap {
+                                originalMembers.indices.contains($0) ? originalMembers[$0] : nil
+                            }
+                        groups[groupIndex].anchorMemberIndex = originalAnchorID.flatMap {
+                            retainedGroupMembers[groups[groupIndex].id]?.firstIndex(of: $0)
+                        }
+                    }
+                    window.tabManager.workspaceGroups = groups
+                }
             }
             for workspaceIndex in window.tabManager.workspaces.indices {
                 var workspace = window.tabManager.workspaces[workspaceIndex]
