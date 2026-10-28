@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Fails when cmux-next code grows into a god file or a god type.
 #
-# Swift (Packages/macOS/CmuxNext), absolute limits:
-#   - 400 lines per file (tests 600), at most 3 top-level types per source file.
-# Swift, ratcheted:
+# Swift (Packages/macOS/CmuxNext), ratcheted:
+#   - 400 lines per file (tests 600), at most 3 top-level types per source file
+#     (a swift-file entry: its path under the package, its lines, its type count).
 #   - 1000 lines per type: the sum of a type's top-level declaration and all of
 #     its extensions in the same module (nested types count toward the outer
 #     type). Extensions of types the module does not declare are not counted.
@@ -11,9 +11,14 @@
 #   - 1000 lines and 60 functions per file (test files: 1500 lines, 120 fns).
 #
 # Ratchet: scripts/cmux-next/godfile-baseline.tsv lists every type or file that
-# was over budget when the rule landed. A listed entry may stay over budget but
-# may never grow past its baseline numbers. Anything not listed must meet the
-# budget. When a listed entry shrinks, lower its baseline with
+# was over budget when the rule landed (Swift files: when they joined the
+# ratchet). A listed entry may stay over budget but may never grow past its
+# baseline numbers (a swift-file entry is held to the larger of its numbers and
+# the budget, so a file over on one count only may not pass the other). Anything
+# not listed must meet the budget. A row's optional fifth column is the date
+# (YYYYMMDD) it was listed at the size it had then, for a row added after the
+# rule landed; --update-baseline keeps it. When a listed entry shrinks, lower
+# its baseline with
 #   scripts/cmux-next/check-no-godfiles.sh --update-baseline
 # (it only lowers numbers and drops entries that now meet the budget; it never
 # raises a number or adds an entry).
@@ -34,18 +39,28 @@
 # files' modules (a type spans all its extensions in its module). safe-push
 # passes the files a push changes; CI scans everything.
 #
+# --rev REV measures REV's committed tree (an archive of it) against REV's own
+# baseline instead of this checkout, so a pre-push hook judges exactly what it
+# pushes (uncommitted edits never count). With --base, a push's own change:
+#   check-no-godfiles.sh --rev HEAD --base BASE --file PATH...
+# prepush-gate.py's local-only "god files" rule runs that form, with no
+# warning tier, on every push. With --rev and --base the baseline only
+# lowers: a row REV adds or raises over BASE's needs a date (fifth column)
+# BASE's row does not have; a row that only moved with its file passes.
+#
 # GODFILES_WARN_SLACK=PCT (CI: 20) is the warning tier: an entry over its
 # allowance (its baseline, else its budget) by at most PCT% of its budget is
 # ratchet debt, printed as a `::warning title=ratchet debt::` annotation, and
 # passes; over that hard ceiling (a new type: 1200 lines at 20) it fails. The
 # top-level type count per Swift file has no slack. --update-baseline ignores it.
 #
-# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--base REF] [--file PATH]... [package-root]
+# Usage: scripts/cmux-next/check-no-godfiles.sh [--update-baseline | --only swift|rust] [--rev REV] [--base REF] [--file PATH]... [package-root]
 set -euo pipefail
 
 update=0
 only=all
 base_ref=""
+rev_ref=""
 files=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -53,6 +68,10 @@ while [[ $# -gt 0 ]]; do
     --base)
       [[ -n "${2:-}" ]] || { echo "--base takes a commit" >&2; exit 2; }
       base_ref="$2"
+      shift 2 ;;
+    --rev)
+      [[ -n "${2:-}" ]] || { echo "--rev takes a commit" >&2; exit 2; }
+      rev_ref="$2"
       shift 2 ;;
     --file)
       [[ -n "${2:-}" ]] || { echo "--file takes a repository-relative path" >&2; exit 2; }
@@ -67,8 +86,8 @@ while [[ $# -gt 0 ]]; do
     *) break ;;
   esac
 done
-if (( update )) && [[ "$only" != all || -n "$base_ref" || -n "$files" ]]; then
-  echo "--update-baseline rewrites every entry; run it without --only, --base or --file" >&2
+if (( update )) && [[ "$only" != all || -n "$base_ref" || -n "$rev_ref" || -n "$files" ]]; then
+  echo "--update-baseline rewrites every entry; run it without --only, --rev, --base or --file" >&2
   exit 2
 fi
 check_swift=0; check_rust=0
@@ -221,10 +240,43 @@ measure() {
 measurements="$(mktemp)"
 base_measurements="$(mktemp)"
 base_tree=""
-cleanup() { rm -f "$measurements" "$base_measurements"; [[ -z "$base_tree" ]] || rm -rf "$base_tree"; }
+rev_tree=""
+cleanup() {
+  rm -f "$measurements" "$base_measurements"
+  [[ -z "$base_tree" ]] || rm -rf "$base_tree"
+  [[ -z "$rev_tree" ]] || rm -rf "$rev_tree"
+}
 trap cleanup EXIT
 script_repo="$repo"
-measure "$root" "$repo" > "$measurements"
+# ROOT is often a temporary worktree path while REPO is the main clone;
+# normalize both before deriving the repository-relative package path.
+# Without this, a /var versus /private/var spelling mismatch makes an
+# archive empty and turns inherited god-file debt into new failures.
+package_rel="$(pkg_rel "$root" "$repo")"
+extract_tree() { # commit dir: the package (and cmux-tui) of COMMIT, extracted into DIR
+  local archive_paths=("$package_rel")
+  # cmux-tui is optional in focused fixtures and partial checkouts. A missing
+  # pathspec makes git archive fail before it writes the Swift package, which
+  # leaves the measurements empty and falsely turns inherited debt into new
+  # failures.
+  if git -C "$repo" cat-file -e "$1:cmux-tui" 2>/dev/null; then
+    archive_paths+=(cmux-tui)
+  fi
+  git -C "$repo" archive "$1" -- "${archive_paths[@]}" 2>/dev/null |
+    tar -x -C "$2" 2>/dev/null || true
+}
+if [[ -n "$rev_ref" ]]; then
+  # --rev: REV's committed tree and REV's own baseline, never this checkout's.
+  rev_commit="$(git -C "$repo" rev-parse --verify --quiet "$rev_ref^{commit}")" ||
+    { echo "--rev $rev_ref is not a commit here" >&2; exit 2; }
+  rev_tree="$(mktemp -d)"
+  extract_tree "$rev_commit" "$rev_tree"
+  baseline="$rev_tree/godfile-baseline.tsv"
+  git -C "$repo" show "$rev_commit:scripts/cmux-next/godfile-baseline.tsv" > "$baseline" 2>/dev/null || : > "$baseline"
+  measure "$rev_tree/$package_rel" "$rev_tree" "$rev_commit" > "$measurements"
+else
+  measure "$root" "$repo" > "$measurements"
+fi
 
 # 3. Compare against the baseline, and with --base against REF's measurements
 # (ARGV[2]; empty until it is measured). A swift-file row's fns is its type count.
@@ -241,9 +293,11 @@ evaluate() { # scoped (0 or 1) -> report lines
   }
   FILENAME == ARGV[1] {
     if ($0 ~ /^#/ || NF < 4) next
-    if (only == "swift" && $1 != "swift-type") next
+    if (only == "swift" && $1 == "rust-file") next
     if (only == "rust" && $1 != "rust-file") next
     base_lines[$1 "\t" $2] = $3; base_fns[$1 "\t" $2] = $4
+    # The optional fifth column: the date a row was listed at its size then.
+    if (NF >= 5 && $5 ~ /^[0-9]+$/) base_date[$1 "\t" $2] = $5
     next
   }
   FILENAME == ARGV[2] {
@@ -251,19 +305,43 @@ evaluate() { # scoped (0 or 1) -> report lines
     next
   }
   $1 == "swift-file" {
-    # Absolute limits: lines (and, outside tests, top-level types) per Swift file.
+    # Lines (and, outside tests, top-level types) per Swift file. A listed file
+    # is held to the larger of its baseline numbers and the budget.
     key = $1 "\t" $2; lines = $3; types = $4; limit = $5; tlimit = $6
-    if (lines > limit) {
+    listed = (key in base_lines)
+    allow_l = limit; allow_t = tlimit
+    if (listed) {
+      seen[key] = 1
+      if (base_lines[key] > allow_l) allow_l = base_lines[key]
+      if (tlimit > 0 && base_fns[key] > allow_t) allow_t = base_fns[key]
+    }
+    grew = 0
+    if (lines > allow_l) {
+      grew = 1
       if (scoped && (key in was_lines) && was_lines[key] >= lines)
-        printf "NOTE\t%s has %d lines (limit %d), over budget on the base too; this change did not grow it\n", $2, lines, limit
+        printf "NOTE\t%s has %d lines (allowed %d), over it on the base too; this change did not grow it\n", $2, lines, allow_l
+      else if (listed)
+        verdict("swift-file", $2, sprintf("god file: %s has %d lines; baseline allows %d (+%d over; move new code to a new file)", $2, lines, allow_l, lines - allow_l), lines, 0, allow_l, 0, limit, 0)
       else
         verdict("swift-file", $2, sprintf("god file: %s has %d lines (limit %d)", $2, lines, limit), lines, 0, limit, 0, limit, 0)
     }
-    if (tlimit > 0 && types > tlimit) {
+    if (tlimit > 0 && types > allow_t) {
+      grew = 1
       if (scoped && (key in was_fns) && was_fns[key] >= types)
-        printf "NOTE\t%s declares %d top-level types (limit %d), over budget on the base too\n", $2, types, tlimit
+        printf "NOTE\t%s declares %d top-level types (allowed %d), over it on the base too\n", $2, types, allow_t
       else
-        printf "FAIL\tswift-file\t%s\tgod file: %s declares %d top-level types (limit %d)\n", $2, $2, types, tlimit
+        printf "FAIL\tswift-file\t%s\tgod file: %s declares %d top-level types (%s %d)\n", $2, $2, types, (listed ? "baseline allows" : "limit"), allow_t
+    }
+    if (listed) {
+      over = (lines > limit) || (tlimit > 0 && types > tlimit)
+      bl = base_lines[key]; bf = base_fns[key]
+      if (grew) { keep_lines[key] = bl; keep_fns[key] = bf }
+      else if (!over) printf "NOTE\t%s now meets the budget; run --update-baseline to drop it\n", $2
+      else {
+        if (lines < bl || types < bf) printf "NOTE\t%s shrank to %d lines, %d types (baseline %d, %d); run --update-baseline\n", $2, lines, types, bl, bf
+        # Lowers only: a count that grew within the budget keeps its baseline number.
+        keep_lines[key] = (lines < bl ? lines : bl); keep_fns[key] = (types < bf ? types : bf)
+      }
     }
     next
   }
@@ -299,7 +377,7 @@ evaluate() { # scoped (0 or 1) -> report lines
   }
   END {
     if (!filescoped) for (key in base_lines) if (!(key in seen)) printf "NOTE\t%s is gone; run --update-baseline to drop it\n", key
-    if (update) for (key in keep_lines) printf "KEEP\t%s\t%d\t%d\n", key, keep_lines[key], keep_fns[key]
+    if (update) for (key in keep_lines) printf "KEEP\t%s\t%d\t%d%s\n", key, keep_lines[key], keep_fns[key], ((key in base_date) ? "\t" base_date[key] : "")
   }
 ' "$baseline" "$base_measurements" "$measurements"
 }
@@ -310,21 +388,7 @@ report="$(evaluate 0)"
 if [[ -n "$base_ref" ]] && grep -q '^FAIL' <<<"$report"; then
   if base_commit="$(git -C "$repo" rev-parse --verify --quiet "$base_ref^{commit}")"; then
     base_tree="$(mktemp -d)"
-    # ROOT is often a temporary worktree path while REPO is the main clone;
-    # normalize both before deriving the repository-relative package path.
-    # Without this, a /var versus /private/var spelling mismatch makes the
-    # base archive empty and turns inherited god-file debt into new failures.
-    package_rel="$(pkg_rel "$root" "$repo")"
-    archive_paths=("$package_rel")
-    # cmux-tui is optional in focused fixtures and partial checkouts. A missing
-    # pathspec makes git archive fail before it writes the Swift package, which
-    # leaves base measurements empty and falsely turns inherited debt into new
-    # failures.
-    if git -C "$repo" cat-file -e "$base_commit:cmux-tui" 2>/dev/null; then
-      archive_paths+=(cmux-tui)
-    fi
-    git -C "$repo" archive "$base_commit" -- "${archive_paths[@]}" 2>/dev/null |
-      tar -x -C "$base_tree" 2>/dev/null || true
+    extract_tree "$base_commit" "$base_tree"
     measure "$base_tree/$package_rel" "$base_tree" "$base_commit" > "$base_measurements"
     report="$(evaluate 1)"
   else
@@ -332,6 +396,38 @@ if [[ -n "$base_ref" ]] && grep -q '^FAIL' <<<"$report"; then
   fi
 fi
 
+# --rev with --base (the pre-push hook): the baseline itself only lowers. A row
+# REV adds, or a number it raises over BASE's baseline, carries a date in its
+# fifth column that BASE's row does not have: the dated entry a reviewer sees,
+# never a silent raise. A row that only moved (follow-renames.py rewrote its
+# path: BASE has a row of the same kind and numbers that REV dropped) passes.
+if [[ -n "$rev_ref" && -n "$base_ref" ]] &&
+  base_commit="$(git -C "$repo" rev-parse --verify --quiet "$base_ref^{commit}")"; then
+  report+=$'\n'"$(awk -F'\t' '
+    function dated(d, was) { return d ~ /^[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]$/ && d != was }
+    FNR == NR {
+      if ($0 ~ /^#/ || NF < 4) next
+      was_l[$1 "\t" $2] = $3; was_f[$1 "\t" $2] = $4; was_d[$1 "\t" $2] = (NF >= 5 ? $5 : "")
+      next
+    }
+    $0 ~ /^#/ || NF < 4 { next }
+    {
+      key = $1 "\t" $2; now[key] = 1
+      if (!(key in was_l)) { added[key] = $0; next }
+      if (($3 > was_l[key] || $4 > was_f[key]) && !dated(NF >= 5 ? $5 : "", was_d[key]))
+        printf "FAIL\tbaseline\t%s\tgodfile baseline: row %s %s raised from %d lines, %d fns to %d, %d without a new date (the baseline only lowers; a raise is a dated entry)\n", $2, $1, $2, was_l[key], was_f[key], $3, $4
+    }
+    END {
+      for (key in was_l) if (!(key in now)) { split(key, k, "\t"); dropped[k[1] "\t" was_l[key] "\t" was_f[key]]++ }
+      for (key in added) {
+        n = split(added[key], c, "\t")
+        if (dated(n >= 5 ? c[5] : "", "")) continue
+        moved = c[1] "\t" c[3] "\t" c[4]
+        if (dropped[moved] > 0) { dropped[moved]--; continue }
+        printf "FAIL\tbaseline\t%s\tgodfile baseline: new row %s %s has no date (add the date it was listed, YYYYMMDD, as its fifth column)\n", c[2], c[1], c[2]
+      }
+    }' <(git -C "$repo" show "$base_commit:scripts/cmux-next/godfile-baseline.tsv" 2>/dev/null || true) "$baseline")"
+fi
 
 # Each Rust failure names the commit that pushed the file over its allowance
 # (the oldest commit of the newest run of over-budget versions), so an agent
@@ -350,8 +446,8 @@ grower() { # key allowed_lines allowed_fns
     echo "unknown in a shallow checkout; run the check in a full clone"
     return
   fi
-  lines=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | wc -l | tr -d ' ')
-  fns=$(git -C "$repo" show "HEAD:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
+  lines=$(git -C "$repo" show "${rev_commit:-HEAD}:$key" 2>/dev/null | wc -l | tr -d ' ')
+  fns=$(git -C "$repo" show "${rev_commit:-HEAD}:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
   if (( lines <= allow_lines && fns <= allow_fns )); then
     echo "uncommitted changes in this checkout"
     return
@@ -360,7 +456,7 @@ grower() { # key allowed_lines allowed_fns
     lines=$(git -C "$repo" show "$commit:$key" 2>/dev/null | wc -l | tr -d ' ')
     fns=$(git -C "$repo" show "$commit:$key" 2>/dev/null | grep -cE "$rust_fn_re" || true)
     if (( lines > allow_lines || fns > allow_fns )); then culprit="$commit"; else break; fi
-  done < <(git -C "$repo" log --format=%H -n 40 HEAD -- "$key")
+  done < <(git -C "$repo" log --format=%H -n 40 "${rev_commit:-HEAD}" -- "$key")
   if [[ -n "$culprit" ]]; then
     git -C "$repo" log -1 --format='%h %an %ad: %s' --date=short "$culprit"
   else
@@ -390,7 +486,7 @@ if (( update )); then
   fi
   {
     echo "# Ratchet for scripts/cmux-next/check-no-godfiles.sh: entries over budget that may only shrink."
-    echo "# kind<TAB>key<TAB>lines<TAB>fns. Regenerate with --update-baseline (lowers only)."
+    echo "# kind<TAB>key<TAB>lines<TAB>fns[<TAB>date listed]. Regenerate with --update-baseline (lowers only)."
     grep '^KEEP' <<<"$report" | cut -f2- | sort
   } > "$baseline"
   echo "updated $baseline"

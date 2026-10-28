@@ -86,7 +86,13 @@ Renames: the scanners check a renamed file at its old path in the base tree and 
 rename needs no trailer, so a pure move adds none of their findings. The guardrails do not credit renames yet (they
 diff with --no-renames), so a moved file's existing guardrail debt still reads as new there.
 
-Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check), god files,
+Also local only: "God files" (check-no-godfiles.sh --rev HEAD --base BASE --file <the push's changed files>): refuses
+a push that grows an over-budget Swift file, Swift type or cmux-tui Rust file past its godfile-baseline.tsv row, takes
+an unlisted one past its budget, or raises or adds a baseline row without a date in its fifth column. No warning tier
+here (CI's GODFILES_WARN_SLACK is CI's). Before this rule nothing ran the god-file check on a push that was not to
+feat-cmux-next or a pull request into it, and CI's step only warns. It fails open.
+
+Not here (they stay on CI and the fleet): generated-file freshness (gen-*.py --check),
 the app size cap, script tests, Swift and Rust builds and tests.
 
   scripts/cmux-next/prepush-gate.py                  # what HEAD adds over origin/feat-cmux-next
@@ -1284,6 +1290,78 @@ def stability_settings(repo: Path, ranges: list, trusted_scripts: Path | None) -
     return refused
 
 
+GODFILES = "check-no-godfiles.sh"
+GODFILES_TIMEOUT = 120
+# The files check-no-godfiles.sh measures (Swift in the CmuxNext package, Rust in cmux-tui), and its baseline.
+GODFILE_INPUT = re.compile(r"^(?:Packages/macOS/CmuxNext/(?:Sources|Tests)/.+\.swift|cmux-tui/.+\.rs)$")
+GODFILE_BASELINE = SCRIPTS + "/godfile-baseline.tsv"
+# Its failure lines (stdout); NOTE lines name a path first and ::warning lines are the CI tier's.
+GODFILE_FAILURE = re.compile(r"^(?:god file|god type|godfile baseline): ")
+
+
+def godfile_failures(repo: Path, script: Path, rev: str, base: str, files: list[str]) -> list[str] | None:
+    """check-no-godfiles.sh --rev REV --base BASE on FILES: its failure lines, or None when it did not run."""
+    cmd = ["bash", str(script), "--rev", rev, "--base", base]
+    for path in files:
+        cmd += ["--file", path]
+    cmd.append(str(repo / "Packages/macOS/CmuxNext"))
+    # No warning tier here: the ratchet's own rule (an entry never grows past its baseline) is what a push meets.
+    env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_") and k != "GODFILES_WARN_SLACK"}
+    env["GODFILES_NO_BLAME"] = "1"
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=GODFILES_TIMEOUT, env=env,
+                              stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        log(f"prepush-gate: WARNING: {GODFILES} did not run ({type(error).__name__}: {error}); not applied to this push.")
+        return None
+    if done.returncode not in (0, 1):
+        log(f"prepush-gate: WARNING: {GODFILES} failed (exit {done.returncode}: "
+            f"{(done.stderr or done.stdout).strip()[-400:]}); not applied to this push.")
+        return None
+    return [line for line in done.stdout.splitlines() if GODFILE_FAILURE.match(line)]
+
+
+def god_files(repo: Path, ranges: list, trusted_scripts: Path | None) -> bool:
+    """check-no-godfiles.sh on each pushed head's own changed files; True when the push grows a god file or type.
+
+    An over-budget Swift file, Swift type or cmux-tui Rust file may not grow past its godfile-baseline.tsv row, and
+    an unlisted one may not pass its budget; the baseline itself only lowers, unless a row carries a new date (the
+    reviewed escape). Each head is measured from its commit (--rev), against its own base (--base), so an upstream
+    file the push did not touch never counts. A failure that a range the push does not own (the branch's old remote
+    head, over the upstream it started from) already had is that range's, not this push's. Local only, like the
+    guardrails; it fails open (an error warns)."""
+    script = (trusted_scripts or repo / SCRIPTS) / GODFILES
+    if not script.is_file():
+        log(f"prepush-gate: WARNING: {GODFILES} is not installed; rerun scripts/install-git-hooks.sh. God files were "
+            "not checked.")
+        return False
+    refused = False
+    for own in ranges:
+        if own.base == own.head:
+            continue
+        names = git(repo, "diff", "--name-only", "--no-renames", "--diff-filter=ACMRT", "-z", own.base, own.head,
+                    check=False).decode(errors="replace").split("\0")
+        files = sorted(n for n in names if GODFILE_INPUT.match(n))
+        if not files and GODFILE_BASELINE not in names:
+            continue
+        found = godfile_failures(repo, script, own.head, own.base, files)
+        if not found:
+            continue
+        for before_base, before_head in own.before:
+            had = godfile_failures(repo, script, before_head, before_base, files)
+            if had:
+                found = [line for line in found if line not in set(had)]
+        if found:
+            refused = True
+            log(f"prepush-gate: at {own.head[:12]}: god files (scripts/cmux-next/{GODFILES}; split the file or type, or "
+                "move new code to a new one):")
+            for line in found:
+                log(f"  {line}")
+            log("  A row of scripts/cmux-next/godfile-baseline.tsv at the new size with today's date (YYYYMMDD) as its "
+                "fifth column lets one through; say why in the commit.")
+    return refused
+
+
 class LocalContext(NamedTuple):
     """What a LOCAL_TIER rule reads: the push's own ranges (push_range.OwnRange), the installed checks copy for the
     hook, the hook's pushed-ref lines and remote (the compile trailer), and start_guardrails()'s result (started
@@ -1321,6 +1399,7 @@ LOCAL_TIER = (
     LocalRule("compile trailer", lambda ctx: compile_trailer(
         ctx.repo, compile_ranges(ctx.repo, ctx.pushed_lines, ctx.push_range, ctx.remote), ctx.trusted_scripts)),
     LocalRule("p10 settings only through the lander", lambda ctx: stability_settings(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
+    LocalRule("god files", lambda ctx: god_files(ctx.repo, ctx.ranges, ctx.trusted_scripts)),
 )
 
 
@@ -1356,7 +1435,8 @@ def run_local_tier(ctx: LocalContext, timings: bool) -> bool:
 # gate, guardrails.py and arch-ratchet.py alike. The arch_rules/*.py modules are compared as a folder
 # (_stale_rules), so a rule module added upstream needs no entry here.
 TRUSTED_COPIES = ("prepush-gate.py", "guardrails.py", "count-swift-code-lines.py", "arch-ratchet.py", "arch_counts.py",
-                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh")
+                  "push_range.py", "git_batch.py", "follow-renames.py", "wakeup-audit.py", "check-concurrency.sh",
+                  "check-no-godfiles.sh")
 RULES_SUBDIR = "arch_rules"
 
 

@@ -1,5 +1,5 @@
 # Ratchet for scripts/cmux-next/check-no-godfiles.sh: entries over budget that may only shrink.
-# kind<TAB>key<TAB>lines<TAB>fns. Regenerate with --update-baseline (lowers only).
+# kind<TAB>key<TAB>lines<TAB>fns[<TAB>date listed]. Regenerate with --update-baseline (lowers only).
 rust-file	cmux-tui/bindings/examples/rust-agent-screen-detection/src/manifest.rs	2290	109
 rust-file	cmux-tui/bindings/rust/src/client.rs	1092	67
 rust-file	cmux-tui/bindings/rust/src/resource/client.rs	1142	52
@@ -8,6 +8,29 @@ rust-file	cmux-tui/bindings/rust/src/resource/model.rs	1611	52
 rust-file	cmux-tui/bindings/rust/src/resource/typed_stream.rs	1465	77
 rust-file	cmux-tui/bindings/rust/src/resource/wire.rs	794	63
 rust-file	cmux-tui/bindings/rust/tests/mock_server.rs	2863	55
+rust-file	cmux-tui/crates/acpmux/src/agent.rs	1273	40	20261028
+rust-file	cmux-tui/crates/acpmux/src/agent_host/host.rs	1058	28	20261028
+rust-file	cmux-tui/crates/acpmux/src/claude_stdio/inbound.rs	1071	14	20261028
+rust-file	cmux-tui/crates/acpmux/src/cli/command.rs	1194	1	20261028
+rust-file	cmux-tui/crates/acpmux/src/cli/harness.rs	1087	23	20261028
+rust-file	cmux-tui/crates/acpmux/src/cli/hosts.rs	1055	56	20261028
+rust-file	cmux-tui/crates/acpmux/src/cli/output.rs	1080	32	20261028
+rust-file	cmux-tui/crates/acpmux/src/config.rs	1349	65	20261028
+rust-file	cmux-tui/crates/acpmux/src/daemon.rs	1103	31	20261028
+rust-file	cmux-tui/crates/acpmux/src/hub/hosts.rs	1107	25	20261028
+rust-file	cmux-tui/crates/acpmux/src/hub/lifecycle.rs	1125	16	20261028
+rust-file	cmux-tui/crates/acpmux/src/hub/mod.rs	1326	41	20261028
+rust-file	cmux-tui/crates/acpmux/src/hub/person.rs	1060	37	20261028
+rust-file	cmux-tui/crates/acpmux/src/hub/subsessions.rs	1161	34	20261028
+rust-file	cmux-tui/crates/acpmux/src/hub/turns.rs	1219	24	20261028
+rust-file	cmux-tui/crates/acpmux/src/login_env.rs	1096	54	20261028
+rust-file	cmux-tui/crates/acpmux/src/server/mod.rs	1649	55	20261028
+rust-file	cmux-tui/crates/acpmux/src/server/remote_guard.rs	1053	29	20261028
+rust-file	cmux-tui/crates/acpmux/src/server/requests.rs	1654	12	20261028
+rust-file	cmux-tui/crates/acpmux/src/store.rs	1323	71	20261028
+rust-file	cmux-tui/crates/acpmux/tests/durable_agents.rs	1970	78	20261028
+rust-file	cmux-tui/crates/acpmux/tests/hub_integration.rs	1574	40	20261028
+rust-file	cmux-tui/crates/acpmux/tests/peer_integration.rs	2246	62	20261028
 rust-file	cmux-tui/crates/chatmux-relay/src/actions.rs	2863	100
 rust-file	cmux-tui/crates/chatmux-relay/src/journal_forwarder.rs	2274	94
 rust-file	cmux-tui/crates/chatmux-relay/src/preview_proxy.rs	1870	60
@@ -18,6 +41,14 @@ rust-file	cmux-tui/crates/chatmux-relay/src/session.rs	1528	49
 rust-file	cmux-tui/crates/chatmux-relay/src/tunnel_terminal.rs	1127	53
 rust-file	cmux-tui/crates/chatmux-relay/src/watch.rs	1038	30
 rust-file	cmux-tui/crates/chatmux-relay/src/workspace.rs	3595	142
+rust-file	cmux-tui/crates/cmux-browser-host/src/cdp/driver.rs	1030	47	20261028
+rust-file	cmux-tui/crates/cmux-browser-host/src/gate_tests.rs	1534	75	20261028
+rust-file	cmux-tui/crates/cmux-hang-watch/src/lib.rs	1167	80	20261028
+rust-file	cmux-tui/crates/cmux-holder-v3/src/holder.rs	1181	53	20261028
+rust-file	cmux-tui/crates/cmux-holder/src/holder.rs	1437	56	20261028
+rust-file	cmux-tui/crates/cmux-host/src/github_cli.rs	1046	48	20261028
+rust-file	cmux-tui/crates/cmux-layout-reducer-ffi/src/focus.rs	1079	45	20261028
+rust-file	cmux-tui/crates/cmux-layout-reducer/src/sidebar_doc/reduce.rs	1154	41	20261028
 rust-file	cmux-tui/crates/cmux-relay/src/relay.rs	2505	84
 rust-file	cmux-tui/crates/cmux-remote-protocol/src/rpc.rs	1299	34
 rust-file	cmux-tui/crates/cmux-remote/src/admin.rs	1238	57
@@ -39,23 +70,48 @@ rust-file	cmux-tui/crates/cmux-remote/src/workspace/mod.rs	1781	58
 rust-file	cmux-tui/crates/cmux-remote/src/workspace/patch.rs	1215	43
 rust-file	cmux-tui/crates/cmux-remote/src/workspace/process.rs	4086	162
 rust-file	cmux-tui/crates/cmux-terminal-client/src/lib.rs	4256	139
+rust-file	cmux-tui/crates/cmux-threads/src/blocking.rs	989	61	20261028
+rust-file	cmux-tui/crates/cmux-threads/src/checked.rs	581	61	20261028
+rust-file	cmux-tui/crates/cmux-threads/src/qos.rs	730	64	20261028
 rust-file	cmux-tui/crates/cmux-tui-cdp/src/client.rs	3947	150
+rust-file	cmux-tui/crates/cmux-tui-cloud-conversations/src/host_replica.rs	1044	38	20261028
+rust-file	cmux-tui/crates/cmux-tui-cloud-conversations/src/service.rs	1411	73	20261028
 rust-file	cmux-tui/crates/cmux-tui-core/src/agent_hooks.rs	1391	39
+rust-file	cmux-tui/crates/cmux-tui-core/src/chief_brains.rs	1208	42	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/chief_registry.rs	1239	45	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/holder_runtime/service.rs	1029	40	20261028
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_checkpoint.rs	1427	39
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_hooks.rs	2028	54
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_ingress.rs	2993	98
 rust-file	cmux-tui/crates/cmux-tui-core/src/journal_reducers.rs	1930	65
 rust-file	cmux-tui/crates/cmux-tui-core/src/layout.rs	1638	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/model.rs	1026	67
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux.rs	1098	18	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux/presentation.rs	1003	37	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux/resource_topology/effect_execution.rs	1084	13	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux/tab_groups.rs	1022	30	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/mux/terminal_adoption.rs	1002	20	20261028
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/auxiliary.rs	1025	44
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/content.rs	2728	82
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_router/topology.rs	1930	46
 rust-file	cmux-tui/crates/cmux-tui-core/src/resource_selector.rs	1139	33
 rust-file	cmux-tui/crates/cmux-tui-core/src/server.rs	2778	30
+rust-file	cmux-tui/crates/cmux-tui-core/src/server/agent_session_attach.rs	1037	40	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/server/client_registry.rs	1094	55	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/server/connection_scheduler.rs	1268	62	20261028
 rust-file	cmux-tui/crates/cmux-tui-core/src/server/loopback_forward.rs	1091	46
+rust-file	cmux-tui/crates/cmux-tui-core/src/server/message_writer.rs	743	69	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/server/request_watchdog.rs	1022	49	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/state/closed_history.rs	1123	24	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/state/closed_history_store.rs	1007	34	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/state/router.rs	1102	20	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/state/tests.rs	1639	42	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/surface.rs	1036	23	20261028
+rust-file	cmux-tui/crates/cmux-tui-core/src/terminal_metadata.rs	1013	51	20261028
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry.rs	6002	226
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/effect_store.rs	1410	25
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/journal_extensions.rs	3444	73
+rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/personal_mutations.rs	1026	36	20261028
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/presentation_store.rs	1244	49
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/resource_store.rs	5114	105
 rust-file	cmux-tui/crates/cmux-tui-core/src/workspace_registry/session_journal.rs	2188	55
@@ -67,7 +123,13 @@ rust-file	cmux-tui/crates/cmux-tui-platform/src/platform.rs	1361	86
 rust-file	cmux-tui/crates/cmux-tui-platform/src/unix_process_scope.rs	1687	72
 rust-file	cmux-tui/crates/cmux-tui/src/bin/cmux-tui-hook.rs	1139	54
 rust-file	cmux-tui/crates/cmux-tui/src/browser_input.rs	2025	101
+rust-file	cmux-tui/crates/cmux-tui/src/cli.rs	1131	34	20261028
+rust-file	cmux-tui/crates/cmux-tui/src/cli/app.rs	1188	47	20261028
 rust-file	cmux-tui/crates/cmux-tui/src/cli/command.rs	4304	141
+rust-file	cmux-tui/crates/cmux-tui/src/cli/command/cases.rs	1045	2	20261028
+rust-file	cmux-tui/crates/cmux-tui/src/cli/lifecycle.rs	1394	61	20261028
+rust-file	cmux-tui/crates/cmux-tui/src/cli/mcp/tests.rs	1582	62	20261028
+rust-file	cmux-tui/crates/cmux-tui/src/cli/wire.rs	1076	38	20261028
 rust-file	cmux-tui/crates/cmux-tui/src/machine_agent/runtime.rs	2618	124
 rust-file	cmux-tui/crates/cmux-tui/src/machine_provider_client.rs	2723	110
 rust-file	cmux-tui/crates/cmux-tui/src/machine_provider_runtime.rs	6508	182
@@ -90,8 +152,334 @@ rust-file	cmux-tui/crates/cmux-tui/tests/cli.rs	3832	121
 rust-file	cmux-tui/crates/cmux-tui/tests/terminal_host_recovery.rs	5339	110
 rust-file	cmux-tui/crates/ghostty-vt/src/kitty.rs	1368	64
 rust-file	cmux-tui/crates/ghostty-vt/src/terminal.rs	3187	163
+rust-file	cmux-tui/crates/ghostty-vt/tests/tmux_conformance.rs	2274	196	20261028
+swift-file	Sources/CmuxNextActions/ActionRegistry.swift	422	2	20261028
+swift-file	Sources/CmuxNextActions/Catalog/AgentActionCatalog.swift	488	1	20261028
+swift-file	Sources/CmuxNextActions/Catalog/BrowserActionCatalog.swift	466	1	20261028
+swift-file	Sources/CmuxNextActions/Catalog/SettingsActionCatalog.swift	523	1	20261028
+swift-file	Sources/CmuxNextActions/Catalog/SidebarSectionActionCatalog.swift	413	1	20261028
+swift-file	Sources/CmuxNextActions/Catalog/TabActionCatalog.swift	444	1	20261028
+swift-file	Sources/CmuxNextActions/Catalog/WorkspaceActionCatalog.swift	442	1	20261028
+swift-file	Sources/CmuxNextAgentCursor/AgentCursorLayer.swift	470	1	20261028
+swift-file	Sources/CmuxNextAgentLanes/RemoteMachinesSidebar.swift	479	2	20261028
+swift-file	Sources/CmuxNextAgentPane/AcpmuxPaneSocket.swift	426	1	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPageProvider.swift	425	2	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneGit.swift	196	4	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneHost.swift	444	4	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneModel.swift	437	1	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneRequest+Decoding.swift	444	0	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneTransport+Frames.swift	430	0	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneTunables.swift	422	8	20261028
+swift-file	Sources/CmuxNextAgentPane/AgentPaneView.swift	414	1	20261028
+swift-file	Sources/CmuxNextAgentPane/PanePaintHold.swift	170	4	20261028
+swift-file	Sources/CmuxNextAgentPane/RemoteAcpmuxWire.swift	450	2	20261028
+swift-file	Sources/CmuxNextApp/AgentTabs+Lifecycle.swift	409	2	20261028
+swift-file	Sources/CmuxNextApp/AgentTabs.swift	589	1	20261028
+swift-file	Sources/CmuxNextApp/AppServices.swift	1104	1	20261028
+swift-file	Sources/CmuxNextApp/BrowserPageRequests.swift	458	1	20261028
+swift-file	Sources/CmuxNextApp/BrowserTabService.swift	453	1	20261028
+swift-file	Sources/CmuxNextApp/Cloud/CloudMachineSession.swift	404	1	20261028
+swift-file	Sources/CmuxNextApp/Cloud/CloudService.swift	528	1	20261028
+swift-file	Sources/CmuxNextApp/Control/AppControl.swift	448	1	20261028
+swift-file	Sources/CmuxNextApp/Control/CaptureSceneRegistry.swift	438	2	20261028
+swift-file	Sources/CmuxNextApp/Crash/AppRunMarker.swift	508	1	20261028
+swift-file	Sources/CmuxNextApp/DaemonTerminalIO.swift	428	1	20261028
+swift-file	Sources/CmuxNextApp/Drag/TabDragGhostPanel.swift	448	2	20261028
+swift-file	Sources/CmuxNextApp/Drag/TabDragSession.swift	414	1	20261028
+swift-file	Sources/CmuxNextApp/Feed/AcpmuxPermissionFeedBridge.swift	459	1	20261028
+swift-file	Sources/CmuxNextApp/Focus/FocusEffectApplier.swift	444	1	20261028
+swift-file	Sources/CmuxNextApp/Focus/KeyRouter.swift	486	1	20261028
+swift-file	Sources/CmuxNextApp/Handlers/BrowserDownloadsPopup.swift	503	9	20261028
+swift-file	Sources/CmuxNextApp/Handlers/CloudHandlers+Machine.swift	418	1	20261028
+swift-file	Sources/CmuxNextApp/Handlers/TabLifecycle.swift	465	1	20261028
+swift-file	Sources/CmuxNextApp/Hibernation/AgentPageHibernation.swift	474	1	20261028
+swift-file	Sources/CmuxNextApp/Hibernation/BrowserHibernation.swift	929	1	20261028
+swift-file	Sources/CmuxNextApp/History/LocationTrailService.swift	401	1	20261028
+swift-file	Sources/CmuxNextApp/Home/HomeHeaderPanels.swift	98	4	20261028
+swift-file	Sources/CmuxNextApp/Home/HomeHostView.swift	481	1	20261028
+swift-file	Sources/CmuxNextApp/Home/HomeService.swift	507	1	20261028
+swift-file	Sources/CmuxNextApp/IconAssets/IconAssetStore.swift	134	4	20261028
+swift-file	Sources/CmuxNextApp/InternalPages/InternalPageTabStore.swift	504	3	20261028
+swift-file	Sources/CmuxNextApp/NewTab/NewTabPreload.swift	402	1	20261028
+swift-file	Sources/CmuxNextApp/Notifications/NotificationCenterService.swift	583	1	20261028
+swift-file	Sources/CmuxNextApp/Notifications/NotificationsControl.swift	104	5	20261028
+swift-file	Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift	467	2	20261028
+swift-file	Sources/CmuxNextApp/Pages/Diff/DiffPageService.swift	464	3	20261028
+swift-file	Sources/CmuxNextApp/Pages/Files/FilePageProvider.swift	522	2	20261028
+swift-file	Sources/CmuxNextApp/Pages/Files/FilePageService.swift	547	1	20261028
+swift-file	Sources/CmuxNextApp/Pages/Files/TableWidths/MarkdownCommentRepository.swift	95	4	20261028
+swift-file	Sources/CmuxNextApp/Pages/SettingsPageProvider.swift	486	3	20261028
+swift-file	Sources/CmuxNextApp/PaneContentView.swift	416	1	20261028
+swift-file	Sources/CmuxNextApp/PaneController+Intents.swift	406	0	20261028
+swift-file	Sources/CmuxNextApp/PaneController.swift	610	1	20261028
+swift-file	Sources/CmuxNextApp/Remote/SSHService.swift	463	1	20261028
+swift-file	Sources/CmuxNextApp/RemoteView/RemoteBrowserPages.swift	445	1	20261028
+swift-file	Sources/CmuxNextApp/SidebarBridge.swift	484	1	20261028
+swift-file	Sources/CmuxNextApp/SplitRoomCheck.swift	148	4	20261028
+swift-file	Sources/CmuxNextApp/TabContentCache.swift	628	3	20261028
+swift-file	Sources/CmuxNextApp/Themes/ThemeCoordinator.swift	405	3	20261028
+swift-file	Sources/CmuxNextApp/TopPages/TopHomePageView.swift	502	1	20261028
+swift-file	Sources/CmuxNextApp/WindowRootView.swift	428	1	20261028
+swift-file	Sources/CmuxNextApp/Windows/WindowController.swift	529	2	20261028
+swift-file	Sources/CmuxNextApp/Windows/WindowManager+Membership.swift	460	0	20261028
+swift-file	Sources/CmuxNextApp/Windows/WindowManager.swift	530	1	20261028
+swift-file	Sources/CmuxNextApp/Windows/WindowOverlayLayer.swift	521	1	20261028
+swift-file	Sources/CmuxNextApp/Windows/WindowRegistry.swift	415	1	20261028
+swift-file	Sources/CmuxNextApp/WorkspaceContentController.swift	514	1	20261028
+swift-file	Sources/CmuxNextAppCore/AppServicesProviding.swift	50	5	20261028
+swift-file	Sources/CmuxNextBridge/AgentTurnStates.swift	379	4	20261028
+swift-file	Sources/CmuxNextBridge/ProgramStatusSeen.swift	169	4	20261028
+swift-file	Sources/CmuxNextBridge/SidebarMapping.swift	439	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFEngine.swift	456	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFLayerHosting.swift	441	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFMessagePump.swift	478	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFPaneHost.swift	479	2	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFRuntime+Events.swift	446	0	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFRuntime.swift	714	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFSwitches.swift	476	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/CEFTab.swift	480	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostControlCore.swift	471	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostPageView.swift	515	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostSession.swift	484	1	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/ChromiumHost/ChromiumHostSupervising.swift	86	4	20261028
+swift-file	Sources/CmuxNextBrowser/CEF/ChromiumHost/Generated/ChromiumHostOps.swift	579	2	20261028
+swift-file	Sources/CmuxNextBrowser/Core/BrowserPageBusy.swift	421	1	20261028
+swift-file	Sources/CmuxNextBrowser/Engine/BrowserTabHostingProtocols.swift	96	5	20261028
+swift-file	Sources/CmuxNextBrowser/UI/AddressBarView.swift	596	1	20261028
+swift-file	Sources/CmuxNextBrowser/UI/BrowserChromeView.swift	485	1	20261028
+swift-file	Sources/CmuxNextBrowser/UI/ExtensionActionToolbar.swift	405	2	20261028
+swift-file	Sources/CmuxNextBrowser/UI/ExtensionsMenu/ExtensionsMenuView.swift	311	4	20261028
+swift-file	Sources/CmuxNextBrowser/WebKit/WebKitTab.swift	453	1	20261028
+swift-file	Sources/CmuxNextBrowserCore/Core/BrowserMediaState.swift	171	5	20261028
+swift-file	Sources/CmuxNextBrowserImport/Import/ImportDestination.swift	79	5	20261028
+swift-file	Sources/CmuxNextBrowserImport/Sources/BrowserFolderGrants.swift	129	4	20261028
+swift-file	Sources/CmuxNextChiefViews/ChiefViewsPage.swift	141	4	20261028
+swift-file	Sources/CmuxNextChromiumWarmup/ChromiumWarmup.swift	479	1	20261028
+swift-file	Sources/CmuxNextCloud/Hands/HandModels.swift	118	7	20261028
+swift-file	Sources/CmuxNextCloud/Hands/HandPresenceKey.swift	115	4	20261028
+swift-file	Sources/CmuxNextCompat/Atomic.swift	236	4	20261028
+swift-file	Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift	537	1	20261028
+swift-file	Sources/CmuxNextCompat/Threading/CPUIntensive+Blocking.swift	419	0	20261028
+swift-file	Sources/CmuxNextCompat/Threading/MayBlockRunner.swift	172	4	20261028
+swift-file	Sources/CmuxNextCompat/Threading/ThreadRegistry.swift	363	4	20261028
+swift-file	Sources/CmuxNextComputerUse/ComputerUseHelperV2.swift	416	1	20261028
+swift-file	Sources/CmuxNextControl/Concurrency/MainActorWorkQueue.swift	454	1	20261028
+swift-file	Sources/CmuxNextControl/ControlSocketServer.swift	418	1	20261028
+swift-file	Sources/CmuxNextControl/Diagnostics/HangEpisodeRecorder.swift	419	1	20261028
+swift-file	Sources/CmuxNextControl/Diagnostics/HangLog.swift	183	4	20261028
+swift-file	Sources/CmuxNextControl/Diagnostics/MainThreadWatchdog.swift	533	1	20261028
+swift-file	Sources/CmuxNextCrashReporting/OwnerPanicForwarder.swift	450	1	20261028
+swift-file	Sources/CmuxNextDaemon/CloudConversations/CloudConversationResults.swift	145	4	20261028
+swift-file	Sources/CmuxNextDaemon/CloudConversations/CloudSessionRequests.swift	78	4	20261028
+swift-file	Sources/CmuxNextDaemon/Connection/AttachStreamTable.swift	140	4	20261028
+swift-file	Sources/CmuxNextDaemon/Connection/DaemonConnection.swift	441	1	20261028
+swift-file	Sources/CmuxNextDaemon/Connection/DaemonEndpoint.swift	618	2	20261028
+swift-file	Sources/CmuxNextDaemon/Connection/HomeWorkspaceClient.swift	182	4	20261028
+swift-file	Sources/CmuxNextDaemon/Connection/LineTransport.swift	445	2	20261028
+swift-file	Sources/CmuxNextDaemon/Conversations/ChiefLiveRequests.swift	118	5	20261028
+swift-file	Sources/CmuxNextDaemon/Conversations/ConversationEvent.swift	88	4	20261028
+swift-file	Sources/CmuxNextDaemon/Launch/DaemonLauncher.swift	469	2	20261028
+swift-file	Sources/CmuxNextDaemon/Loopback/BrowserRuntimeWire.swift	101	8	20261028
+swift-file	Sources/CmuxNextDaemon/Requests/Apps/AppsRun.swift	77	4	20261028
+swift-file	Sources/CmuxNextDaemon/Requests/TabMove/MoveTabToLayout.swift	107	4	20261028
+swift-file	Sources/CmuxNextDaemon/Requests/Tabs/FrontendBrowserTab.swift	126	4	20261028
+swift-file	Sources/CmuxNextDaemon/Requests/TerminalIO/Input.swift	150	5	20261028
+swift-file	Sources/CmuxNextDaemon/Requests/TerminalIO/Lease.swift	85	5	20261028
+swift-file	Sources/CmuxNextDaemon/State/SessionStreamItem.swift	304	4	20261028
+swift-file	Sources/CmuxNextDaemon/Store/DaemonStore.swift	481	2	20261028
+swift-file	Sources/CmuxNextDaemon/Store/TabModel.swift	431	1	20261028
+swift-file	Sources/CmuxNextDaemon/Terminal/TerminalEventQueue.swift	423	1	20261028
+swift-file	Sources/CmuxNextDaemonService/DaemonService+Energy.swift	170	4	20261028
+swift-file	Sources/CmuxNextDaemonService/DaemonService.swift	576	1	20261028
+swift-file	Sources/CmuxNextDesign/HoverCards/HoverCardCoordinator.swift	459	2	20261028
+swift-file	Sources/CmuxNextDesign/HoverCards/HoverCardPanel.swift	448	3	20261028
+swift-file	Sources/CmuxNextDesign/HoverCards/HoverCardRow.swift	415	6	20261028
+swift-file	Sources/CmuxNextDesign/HoverCards/HoverCardSource.swift	66	4	20261028
+swift-file	Sources/CmuxNextDesign/Motion/Motion+AppKit.swift	497	0	20261028
+swift-file	Sources/CmuxNextDesign/Overlay/WebPopupHost.swift	346	4	20261028
+swift-file	Sources/CmuxNextDesign/Overlay/WindowOverlayHost.swift	474	1	20261028
+swift-file	Sources/CmuxNextDesign/RestingPlacement.swift	150	6	20261028
+swift-file	Sources/CmuxNextDesign/SidebarCustomization.swift	118	4	20261028
+swift-file	Sources/CmuxNextDesign/StatusIndicator/StaticStatusGlyph.generated.swift	534	1	20261028
+swift-file	Sources/CmuxNextDesign/StatusIndicator/StatusIndicatorLayer.swift	423	1	20261028
+swift-file	Sources/CmuxNextDesign/Text/ChromeLabel.swift	478	2	20261028
+swift-file	Sources/CmuxNextDesign/ThemeScope.swift	504	1	20261028
+swift-file	Sources/CmuxNextDesign/ThemedControls.swift	101	4	20261028
+swift-file	Sources/CmuxNextDesign/WindowMaterialView.swift	418	1	20261028
+swift-file	Sources/CmuxNextDesignTokens/SidebarSectionsPreferences.swift	148	4	20261028
+swift-file	Sources/CmuxNextDevices/DeviceHub.swift	419	2	20261028
+swift-file	Sources/CmuxNextDevices/DeviceHubClient.swift	373	6	20261028
+swift-file	Sources/CmuxNextDevices/DeviceHubModels.swift	297	14	20261028
+swift-file	Sources/CmuxNextDevices/DeviceHubSocket.swift	210	5	20261028
+swift-file	Sources/CmuxNextDevices/RelaySecretStore.swift	131	4	20261028
+swift-file	Sources/CmuxNextDiff/DiffPageConfig.swift	152	4	20261028
+swift-file	Sources/CmuxNextDiff/DiffPageProvider+Revert.swift	148	4	20261028
+swift-file	Sources/CmuxNextFeatures/Feature.swift	256	5	20261028
+swift-file	Sources/CmuxNextFeatures/Features.generated.swift	3007	0	20261028
+swift-file	Sources/CmuxNextHistory/HistoryTrailLocation.swift	153	4	20261028
+swift-file	Sources/CmuxNextHome/NativeTranscript/HomeFirstRunView.swift	420	3	20261028
+swift-file	Sources/CmuxNextHome/NativeTranscript/HomeNativeTranscriptView.swift	517	1	20261028
+swift-file	Sources/CmuxNextHome/Sidebar/HomeSidebarView.swift	487	3	20261028
+swift-file	Sources/CmuxNextHomeEngine/HomeChiefEngineSource.swift	150	4	20261028
+swift-file	Sources/CmuxNextHomeEngine/HomeChiefSettingsView.swift	403	1	20261028
+swift-file	Sources/CmuxNextIPC/FrameReader.swift	239	4	20261028
+swift-file	Sources/CmuxNextIPCTestSupport/FixtureEventPayloads.swift	53	4	20261028
+swift-file	Sources/CmuxNextInput/InputEventTap.swift	408	1	20261028
+swift-file	Sources/CmuxNextInput/InputLatencyTracker.swift	421	1	20261028
+swift-file	Sources/CmuxNextInputModel/TerminalAttachMachine.swift	485	1	20261028
+swift-file	Sources/CmuxNextLayout/Model/LayoutModel.swift	506	1	20261028
+swift-file	Sources/CmuxNextLayout/Views/DividerHandleView.swift	436	1	20261028
+swift-file	Sources/CmuxNextLayout/Views/LayoutRootView.swift	769	1	20261028
+swift-file	Sources/CmuxNextLayout/Views/PaneHostView.swift	418	1	20261028
+swift-file	Sources/CmuxNextLayout/Views/ScreenContentView.swift	444	1	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenButtons.swift	395	4	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenChrome.swift	184	4	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenControls.swift	239	6	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenDevicesSettings.swift	730	1	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenHub.swift	289	7	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenPages.swift	403	2	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenPane.swift	400	4	20261028
+swift-file	Sources/CmuxNextMacScreen/MacScreenStyle.swift	153	4	20261028
+swift-file	Sources/CmuxNextMemory/MemoryCoordinator.swift	555	1	20261028
+swift-file	Sources/CmuxNextMobile/DaemonLane/DaemonLanePolicy.swift	432	1	20261028
+swift-file	Sources/CmuxNextMobile/MobileHost/MobileHostPairedDevices.swift	172	4	20261028
+swift-file	Sources/CmuxNextNowPlaying/MediaRemoteAdapter.swift	241	4	20261028
+swift-file	Sources/CmuxNextOnboarding/Model/ImportStepModel.swift	495	1	20261028
+swift-file	Sources/CmuxNextOnboarding/System/ClassicSessionImport.swift	463	2	20261028
+swift-file	Sources/CmuxNextPages/PageChromiumHosting.swift	354	7	20261028
+swift-file	Sources/CmuxNextPages/PageRouter.swift	448	1	20261028
+swift-file	Sources/CmuxNextPages/PageSchemeHandler.swift	447	1	20261028
+swift-file	Sources/CmuxNextPages/PageWebKitEngine.swift	142	4	20261028
+swift-file	Sources/CmuxNextPages/PageWebView+Chromium.swift	406	0	20261028
+swift-file	Sources/CmuxNextPages/PageWebView.swift	651	2	20261028
+swift-file	Sources/CmuxNextPages/WebUI/PageLifecycle.swift	418	2	20261028
+swift-file	Sources/CmuxNextPalette/PaletteController.swift	466	3	20261028
+swift-file	Sources/CmuxNextPalette/PaletteModel.swift	429	3	20261028
+swift-file	Sources/CmuxNextRemote/AddMachine/HostCLI.swift	234	5	20261028
+swift-file	Sources/CmuxNextRemote/Install/RemoteAgentDaemon.swift	134	4	20261028
+swift-file	Sources/CmuxNextRemoteView/Decode/RemoteVideoDecoder.swift	162	4	20261028
+swift-file	Sources/CmuxNextRemoteView/Transport/RemoteRdStreamTransport.swift	447	1	20261028
+swift-file	Sources/CmuxNextRemoteViewSessions/RemoteVNCSource.swift	235	4	20261028
+swift-file	Sources/CmuxNextServer/AddMachine/AddMachineCard.swift	191	4	20261028
+swift-file	Sources/CmuxNextServer/AddMachine/AddMachineModel.swift	449	6	20261028
+swift-file	Sources/CmuxNextServer/AddMachine/AddMachineView.swift	268	4	20261028
+swift-file	Sources/CmuxNextServer/AddMachine/HostStep.swift	139	6	20261028
+swift-file	Sources/CmuxNextServer/AddMachine/MachineSection.swift	138	5	20261028
+swift-file	Sources/CmuxNextSettings/CmuxConfigSnapshot.swift	531	1	20261028
+swift-file	Sources/CmuxNextSettings/Schema/SettingsSchema+Appearance.swift	411	1	20261028
+swift-file	Sources/CmuxNextSettings/SettingsController.swift	412	1	20261028
+swift-file	Sources/CmuxNextSidebar/Logic/RustSidebarResults.swift	31	4	20261028
+swift-file	Sources/CmuxNextSidebar/Logic/SidebarLayout.swift	469	1	20261028
+swift-file	Sources/CmuxNextSidebar/Logic/SidebarTunables.swift	296	4	20261028
+swift-file	Sources/CmuxNextSidebar/Logic/WorkspaceHoverCardContent.swift	489	1	20261028
+swift-file	Sources/CmuxNextSidebar/Model/SidebarGroup.swift	230	5	20261028
+swift-file	Sources/CmuxNextSidebar/Model/SidebarModel.swift	603	1	20261028
+swift-file	Sources/CmuxNextSidebar/Model/SidebarSection.swift	205	4	20261028
+swift-file	Sources/CmuxNextSidebar/Model/SidebarSessionTree.swift	209	4	20261028
+swift-file	Sources/CmuxNextSidebar/Store/SidebarDoc.swift	368	9	20261028
+swift-file	Sources/CmuxNextSidebar/Store/SidebarDocStore.swift	463	5	20261028
+swift-file	Sources/CmuxNextSidebar/Views/GroupHeaderRowView.swift	438	1	20261028
+swift-file	Sources/CmuxNextSidebar/Views/Sections/SidebarItemRowView.swift	525	1	20261028
+swift-file	Sources/CmuxNextSidebar/Views/Sections/SidebarRegionView.swift	419	1	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarContainerView.swift	496	1	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarListView+Blocks.swift	284	4	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarListView+Drag.swift	533	0	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarListView+Layout.swift	412	0	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarNoticeCardView.swift	481	2	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarNowPlayingCardView.swift	419	2	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarSurfaceIsland.swift	152	5	20261028
+swift-file	Sources/CmuxNextSidebar/Views/SidebarView.swift	412	2	20261028
+swift-file	Sources/CmuxNextSidebar/Views/WorkspaceHoverCard.swift	641	2	20261028
+swift-file	Sources/CmuxNextSignposts/SignpostName.swift	584	1	20261028
+swift-file	Sources/CmuxNextTabs/TabCell.swift	499	1	20261028
+swift-file	Sources/CmuxNextTabs/TabStripView.swift	402	1	20261028
+swift-file	Sources/CmuxNextTasks/SocketTasksSource.swift	418	3	20261028
+swift-file	Sources/CmuxNextTerminal/GhosttyRuntime.swift	491	2	20261028
+swift-file	Sources/CmuxNextTerminal/TerminalHostView.swift	435	1	20261028
+swift-file	Sources/CmuxNextTerminal/TerminalIO.swift	251	5	20261028
+swift-file	Sources/CmuxNextTerminal/TerminalOutputLane.swift	469	2	20261028
+swift-file	Sources/CmuxNextTerminal/TerminalSession.swift	485	1	20261028
+swift-file	Sources/CmuxNextTerminal/TerminalSurfaceView.swift	661	1	20261028
+swift-file	Sources/CmuxNextTrace/TraceRuntime.swift	448	1	20261028
+swift-file	Sources/CmuxNextUpdater/UpdaterService.swift	463	1	20261028
+swift-file	Sources/CmuxNextUpdater/WebUpdates/WebUpdater.swift	477	1	20261028
+swift-file	Sources/CmuxNextWakeups/BackgroundWork.swift	482	1	20261028
+swift-file	Sources/CmuxNextWakeups/DisplayClock.swift	596	1	20261028
+swift-file	Sources/CmuxNextWakeups/FrameScheduler.swift	437	2	20261028
+swift-file	Sources/CmuxNextWakeups/IdleScheduler.swift	404	1	20261028
+swift-file	Sources/CmuxNextWakeups/LaneScheduler.swift	773	1	20261028
+swift-file	Sources/CmuxNextWakeups/MainFrameBudget.swift	579	1	20261028
+swift-file	Sources/CmuxNextWakeups/MainJobGate.swift	413	2	20261028
+swift-file	Sources/CmuxNextWakeups/MainOwnerLedger.swift	414	1	20261028
+swift-file	Sources/CmuxNextWakeups/MainTaskBoard.swift	415	1	20261028
+swift-file	Sources/CmuxNextWakeups/MainTurnMeter.swift	401	1	20261028
+swift-file	Sources/CmuxNextWakeups/MainWakeUpQueue.swift	409	1	20261028
+swift-file	Sources/CmuxNextWakeups/StartupScheduler.swift	475	1	20261028
+swift-file	Tests/CmuxNextAppTests/AddMachineFlowTests.swift	626	1	20261028
+swift-file	Tests/CmuxNextAppTests/CloudMoveTests.swift	691	1	20261028
+swift-file	Tests/CmuxNextAppTests/LayoutScrollModifierTests.swift	788	1	20261028
+swift-file	Tests/CmuxNextAppTests/MacScreenHubTests.swift	754	13	20261028
+swift-file	Tests/CmuxNextAppTests/WindowTerminalResizeTests.swift	609	1	20261028
+swift-file	Tests/CmuxNextBrowserTests/CEFRuntimeHostExitTests.swift	765	6	20261028
+swift-file	Tests/CmuxNextBrowserTests/ChromiumHostControlChannelTests.swift	662	0	20261028
+swift-file	Tests/CmuxNextBrowserTests/ChromiumHostSessionTests.swift	611	0	20261028
+swift-file	Tests/CmuxNextChromiumWarmupTests/ChromiumWarmupTests.swift	609	2	20261028
+swift-file	Tests/CmuxNextControlTests/MainFrameBudgetTests.swift	677	7	20261028
+swift-file	Tests/CmuxNextCrashReportingTests/SystemCrashReportTests.swift	601	0	20261028
+swift-file	Tests/CmuxNextInputTests/IntentPrewarmServiceTests.swift	636	1	20261028
+swift-file	Tests/CmuxNextPagesTests/PageDiscardTests.swift	747	4	20261028
+swift-file	Tests/CmuxNextPagesTests/PageLifecycleTests.swift	749	7	20261028
+swift-file	Tests/CmuxNextPagesTests/PageWebViewChromiumTests.swift	706	3	20261028
+swift-type	CmuxNextActions/ActionRegistry	1734	0	20261028
+swift-type	CmuxNextActions/ActionSurfaceCatalog	1033	0	20261028
+swift-type	CmuxNextAgentPane/AgentPaneModel	1281	0	20261028
+swift-type	CmuxNextAgentPane/AgentPaneTransport	1154	0	20261028
+swift-type	CmuxNextAgentPane/AgentPaneView	1881	0	20261028
+swift-type	CmuxNextApp/AgentTabStore	1711	0	20261028
+swift-type	CmuxNextApp/AppActions	1152	0	20261028
+swift-type	CmuxNextApp/AppControl	1567	0	20261028
+swift-type	CmuxNextApp/AppServices	3080	0	20261028
+swift-type	CmuxNextApp/BrowserHibernation	1471	0	20261028
+swift-type	CmuxNextApp/CloudHandlers	1109	0	20261028
+swift-type	CmuxNextApp/HomeService	1396	0	20261028
+swift-type	CmuxNextApp/KeyRouter	1569	0	20261028
+swift-type	CmuxNextApp/NotificationCenterService	1248	0	20261028
+swift-type	CmuxNextApp/PaneController	1629	0	20261028
+swift-type	CmuxNextApp/SidebarBridge	1201	0	20261028
+swift-type	CmuxNextApp/TabContentCache	1633	0	20261028
+swift-type	CmuxNextApp/TabDragSession	1255	0	20261028
+swift-type	CmuxNextApp/WindowController	1085	0	20261028
 swift-type	CmuxNextApp/WindowManager	1128	0
+swift-type	CmuxNextBrowser/BrowserChromeView	1355	0	20261028
+swift-type	CmuxNextBrowser/CEFEngine	1190	0	20261028
+swift-type	CmuxNextBrowser/CEFPaneHost	1183	0	20261028
+swift-type	CmuxNextBrowser/CEFRuntime	2456	0	20261028
+swift-type	CmuxNextBrowser/CEFTab	2185	0	20261028
+swift-type	CmuxNextBrowser/ChromiumHostPageView	1363	0	20261028
+swift-type	CmuxNextBrowser/WebKitTab	1436	0	20261028
+swift-type	CmuxNextControl/BrowserPageService	1184	0	20261028
+swift-type	CmuxNextControl/ControlRouter	1506	0	20261028
+swift-type	CmuxNextControl/MainThreadWatchdog	1148	0	20261028
 swift-type	CmuxNextDaemon/DaemonConnection	1446	0
+swift-type	CmuxNextDaemon/DaemonStore	2464	0	20261028
+swift-type	CmuxNextDaemon/LineTransport	1069	0	20261028
+swift-type	CmuxNextDaemonService/DaemonService	1608	0	20261028
+swift-type	CmuxNextDesign/WindowOverlayHost	1415	0	20261028
+swift-type	CmuxNextFeatures/Feature	3161	0	20261028
+swift-type	CmuxNextHome/HomeNativeTranscriptView	1061	0	20261028
+swift-type	CmuxNextHomeEngine/CloudHomeSource	1138	0	20261028
+swift-type	CmuxNextLayout/LayoutModel	1027	0	20261028
+swift-type	CmuxNextLayout/LayoutRootView	2338	0	20261028
+swift-type	CmuxNextLayout/ScreenContentView	3618	0	20261028
+swift-type	CmuxNextPages/PageWebView	2856	0	20261028
+swift-type	CmuxNextPalette/PaletteModel	1319	0	20261028
+swift-type	CmuxNextSettings/SettingsController	1151	0	20261028
+swift-type	CmuxNextSidebar/SidebarLayout	1039	0	20261028
+swift-type	CmuxNextTabs/TabCell	1536	0	20261028
 swift-type	CmuxNextTabs/TabStripView	2046	0
+swift-type	CmuxNextTerminal/GhosttyRuntime	1411	0	20261028
 swift-type	CmuxNextTerminal/TerminalSurfaceView	1032	0
 rust-file	cmux-tui/crates/cmux-tui-hooks/src/lib.rs	3941	139
+swift-type	CmuxNextUpdater/UpdaterService	2120	0	20261028
+swift-type	CmuxNextWakeups/BackgroundWork	1077	0	20261028
+swift-type	CmuxNextWakeups/MainFrameBudget	1014	0	20261028

@@ -193,13 +193,17 @@ def stale_tokens(text: str, files: list[str], folders: set[str], fileset: set[st
     return found
 
 
-def stale_godfile(text: str, swift_types: dict[str, set[str]]) -> list[str]:
+def stale_godfile(text: str, swift_types: dict[str, set[str]], fileset: set[str] | None = None) -> list[str]:
+    """`swift-type Module/Type` rows whose type is gone, and `swift-file` rows (package paths) whose file is gone."""
     found = []
     for line in text.splitlines():
         cols = line.split("\t")
         if len(cols) >= 2 and cols[0] == "swift-type":
             module, _, name = cols[1].partition("/")
             if name not in swift_types.get(module, set()):
+                found.append(cols[1])
+        elif len(cols) >= 2 and cols[0] == "swift-file" and fileset is not None:
+            if PKG + cols[1] not in fileset:
                 found.append(cols[1])
     return found
 
@@ -260,7 +264,7 @@ def stale_at(repo: Path, rev: str | None) -> dict[str, list[str]]:
     out: dict[str, list[str]] = {}
     for path, text in texts.items():
         if path == GODFILE:
-            found = stale_godfile(text, tree_swift_types(repo, rev, files))
+            found = stale_godfile(text, tree_swift_types(repo, rev, files), fileset)
         else:
             found = stale_tokens(text, files, folders, fileset)
         if found:
@@ -542,7 +546,7 @@ def rewrite_text(text: str, renames: Renames, source: str, report: Report) -> st
 
 
 def rewrite_godfile(text: str, renames: Renames, repo: Path, report: Report) -> str:
-    """`swift-type Module/Type` rows follow the moved file that declares the type."""
+    """`swift-type Module/Type` rows follow the moved file that declares the type; `swift-file` rows follow the file."""
     moved_types: dict[tuple[str, str], str] = {}
     for old, new in renames.files.items():
         if not (old.startswith(PKG + "Sources/") and new.startswith(PKG + "Sources/") and new.endswith(".swift")):
@@ -565,6 +569,12 @@ def rewrite_godfile(text: str, renames: Renames, repo: Path, report: Report) -> 
             if (module, name) in moved_types:
                 cols[1] = f"{moved_types[(module, name)]}/{name}"
                 report.godfile_rows.append(f"{module}/{name} -> {cols[1]}")
+                lines[i] = "\t".join(cols)
+        elif len(cols) >= 2 and cols[0] == "swift-file":
+            moved = renames.files.get(PKG + cols[1], "")
+            if moved.startswith(PKG) and moved.endswith(".swift"):
+                report.godfile_rows.append(f"{cols[1]} -> {moved[len(PKG):]}")
+                cols[1] = moved[len(PKG):]
                 lines[i] = "\t".join(cols)
     if report.godfile_rows:
         report.edited[GODFILE] = report.edited.get(GODFILE, 0) + len(report.godfile_rows)
