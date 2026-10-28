@@ -180,7 +180,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(rail.x + rail.width).toBeLessThanOrEqual(body.x + 1);
       expect(row.height).toBeGreaterThanOrEqual(36);
       const search = await bounds(page, ".acpmux-quick-search");
-      expect(search.height).toBeGreaterThanOrEqual(40);
+      expect(search.height).toBe(row.height);
       expect(await page.locator(".acpmux-quick-rail .agent-mark-monogram").count()).toBe(0);
     } finally {
       await page.close();
@@ -243,7 +243,7 @@ await requireBrowserLane("quick-model-menu-layout.test.ts", async () => {
       expect(await body.getAttribute("data-scrolled")).toBeNull();
       const first = (await page.locator(".acpmux-quick-list [role=menuitemradio]").first().boundingBox())!;
       const inset = await bounds(page, ".acpmux-quick-body");
-      expect(first.y - inset.y).toBeGreaterThanOrEqual(6);
+      expect(first.y - inset.y).toBe(0);
       await body.evaluate((node) => {
         node.scrollTop = node.scrollHeight;
       });
