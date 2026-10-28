@@ -241,7 +241,7 @@ extension SettingsSchema {
     ]
 
     /// Keys an agent may not set or reset, with the reason.
-    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
+    public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) }, uniquingKeysWith: { first, _ in first })
         .merging(refusedTable) { first, _ in first }
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
         .merging(BrowserVerificationAutofillSettingsSchema.refusedKeys) { first, _ in first }
@@ -328,6 +328,8 @@ extension SettingsSchema {
         "announcements.fetch": .network,
         // Whether this Mac sends hang reports (stacks and timings) to cmux: the person's choice only.
         "diagnostics.hangReports": .privacy,
+        // Whether a quit writes each window's picture (terminal text, pages) to disk: the person's choice only.
+        "launch.savedPicture": .privacy,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
         "agents.defaultPermissionMode": .userOnly,

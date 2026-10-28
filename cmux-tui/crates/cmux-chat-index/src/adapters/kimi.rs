@@ -177,7 +177,8 @@ fn wire_head(path: &Path) -> Vec<Value> {
     if file.take(WINDOW).read_to_end(&mut bytes).is_err() {
         return Vec::new();
     }
-    let complete = bytes.iter().rposition(|byte| *byte == b'\n').map_or(&[][..], |at| &bytes[..at]);
+    // Before the last newline; nothing when there is none.
+    let complete = bytes.rsplitn(2, |byte| *byte == b'\n').nth(1).unwrap_or_default();
     complete
         .split(|byte| *byte == b'\n')
         .filter_map(|line| serde_json::from_slice::<Value>(line).ok())
@@ -358,9 +359,8 @@ fn index_lookup<'a>(
 }
 
 pub(super) fn classify_code(parts: &[&str]) -> PathRole {
-    let name = parts.last().copied().unwrap_or_default();
-    let session = parts.len() == 4 && parts[0] == "sessions" && name == "state.json";
-    let store = parts.len() == 1 && name == "session_index.jsonl";
+    let session = matches!(parts, ["sessions", _, _, "state.json"]);
+    let store = matches!(parts, ["session_index.jsonl"]);
     role(session, store)
 }
 
@@ -383,11 +383,12 @@ fn md5_hex(input: &[u8]) -> String {
         message.push(0);
     }
     message.extend_from_slice(&bit_len.to_le_bytes());
-    for chunk in message.chunks_exact(64) {
-        let words: [u32; 16] = std::array::from_fn(|i| {
-            let at = i * 4;
-            u32::from_le_bytes([chunk[at], chunk[at + 1], chunk[at + 2], chunk[at + 3]])
-        });
+    let (blocks, _) = message.as_chunks::<64>();
+    for block in blocks {
+        let mut words = [0u32; 16];
+        for (word, bytes) in words.iter_mut().zip(block.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*bytes);
+        }
         let [mut a, mut b, mut c, mut d] = state;
         for (i, (&shift, &constant)) in S.iter().zip(k.iter()).enumerate() {
             let (f, g) = match i / 16 {
@@ -396,8 +397,11 @@ fn md5_hex(input: &[u8]) -> String {
                 2 => (b ^ c ^ d, (3 * i + 5) % 16),
                 _ => (c ^ (b | !d), (7 * i) % 16),
             };
-            let rotated =
-                a.wrapping_add(f).wrapping_add(constant).wrapping_add(words[g]).rotate_left(shift);
+            let rotated = a
+                .wrapping_add(f)
+                .wrapping_add(constant)
+                .wrapping_add(word(&words, g))
+                .rotate_left(shift);
             a = d;
             d = c;
             c = b;
@@ -415,4 +419,41 @@ fn md5_hex(input: &[u8]) -> String {
         let _ = write!(hex, "{byte:02x}");
     }
     hex
+}
+
+/// Word `g mod 16` of an MD5 block.
+#[allow(clippy::indexing_slicing, reason = "g % 16 is below 16, the length of the array")]
+fn word(words: &[u32; 16], g: usize) -> u32 {
+    words[g % 16]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn md5_matches_rfc_1321_vectors() {
+        assert_eq!(md5_hex(b""), "d41d8cd98f00b204e9800998ecf8427e");
+        assert_eq!(md5_hex(b"abc"), "900150983cd24fb0d6963f7d28e17f72");
+        assert_eq!(
+            md5_hex(
+                b"12345678901234567890123456789012345678901234567890123456789012345678901234567890"
+            ),
+            "57edf4a22be3c955ac49da2e2107b67a"
+        );
+    }
+
+    #[test]
+    fn classify_code_names_session_state_and_the_index() {
+        assert_eq!(classify_code(&["sessions", "a", "b", "state.json"]), role(true, false));
+        assert_eq!(classify_code(&["session_index.jsonl"]), role(false, true));
+        for parts in [
+            &[][..],
+            &["state.json"],
+            &["x", "a", "b", "state.json"],
+            &["a", "session_index.jsonl"],
+        ] {
+            assert_eq!(classify_code(parts), role(false, false));
+        }
+    }
 }

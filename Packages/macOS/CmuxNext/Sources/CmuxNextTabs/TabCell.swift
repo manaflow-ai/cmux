@@ -270,20 +270,6 @@ final class TabCell {
         }
     }
 
-    private func updateLift() {
-        themeScope.perform { backgroundLayer.shadowColor = Palette.shadow.cgColor }
-        // The raised elevation step (PopupStyle.elevation2), not a darker drag shadow.
-        let elevation = PopupStyle.elevation2
-        backgroundLayer.shadowRadius = elevation.layerRadius
-        backgroundLayer.shadowOffset = elevation.layerOffset(flipped: true)
-        Motion.tabs.set(backgroundLayer, "shadowOpacity", to: Float(isLifted ? elevation.alpha : 0), fade: .lift)
-        updateStacking()
-        if isLifted { titleFade.stopMarquee(animated: false) }
-        // The lifted fill reads as solid from the first frame, so nothing it
-        // passes over (a group chip) shows through while it would ease in.
-        updateColors(animated: !isLifted)
-    }
-
     /// `showing` is whether the fill that changed shows: the tab's by
     /// default, the close button's for its own hover.
     func updateColors(animated: Bool, showing: Bool? = nil) {
@@ -303,9 +289,8 @@ final class TabCell {
                 : Palette.selectionFill.withAlphaComponent(Palette.selectionFill.alphaComponent * Self.backgroundWindowSelectionShare)
             let fill: NSColor? = fillsSelection ? selection : multi ? Palette.secondarySelectionFill : (isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil)
             backgroundLayer.backgroundColor = fill?.cgColor
-            if isLifted, let lift = Palette.windowBackground.blended(withFraction: 0.08, of: Palette.textPrimary) {
-                // Keeps the tabs sliding under it quiet: solid when opaque, thicker glass when translucent.
-                backgroundLayer.backgroundColor = WindowBackdrop.dragPreview(themeScope).dragLiftFill(lift).cgColor
+            if isLifted, let lift = liftFill {
+                backgroundLayer.backgroundColor = lift.cgColor
             }
             // A hibernated tab keeps its title color (Chrome's discarded tabs do too); the ring marks it.
             let text = isSelected ? Palette.textPrimary : Palette.textSecondary
@@ -392,6 +377,8 @@ final class TabCell {
         backgroundLayer.frame = bounds
         layoutSeparator(slot: slot, pill: bounds)
         backgroundLayer.cornerRadius = m.cornerRadius
+        // The lift's shadowPath; a sample of a moving width gets its outline from `retimeInner`.
+        if !onPath { castPillShadow() }
 
         let midY = bounds.height / 2
         let iconSide = m.iconSize

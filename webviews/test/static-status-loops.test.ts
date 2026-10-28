@@ -72,11 +72,13 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     body: string,
     reducedMotion: "reduce" | "no-preference",
     look?: "static" | "animated",
+    /** More payload fields: `energy: "saver"` (Energy Saver) or `motion: "off"` (animations off). */
+    payload: Record<string, string> = {},
   ): Promise<Page> {
     const p = await browser!.newPage();
     await p.emulateMedia({ reducedMotion });
     await p.setContent(`<style>${style}</style>${body}`);
-    if (look) {
+    if (look || Object.keys(payload).length > 0) {
       // The app's path: the bootstrap, then a theme push carrying the look (WebTheme.payloadJSON).
       await p.addScriptTag({ content: bootstrap });
       await p.evaluate(
@@ -84,9 +86,9 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
           (window as unknown as { cmuxTheme: { apply(payload: object): void } }).cmuxTheme.apply({
             variables: {},
             colorScheme: "light",
-            statusIndicators: value,
+            ...value,
           }),
-        look,
+        { ...(look ? { statusIndicators: look } : {}), ...payload },
       );
     }
     // Let a changed rule take effect before reading the running animations.
@@ -212,6 +214,23 @@ await requireBrowserLane("static-status-loops.test.ts", async () => {
     const running = await loops(p);
     await p.close();
     expect(running).toEqual([]);
+  });
+
+  // p14-energy-063: Energy Saver (`data-cmux-energy`) and animations off (`data-cmux-motion`) hold
+  // every loop still, as Chrome's battery saver stops frames nobody interacts with.
+  test("Energy Saver and animations off stop every loop, the diff viewer's too", async () => {
+    for (const payload of [{ energy: "saver" }, { motion: "off" }] as Record<string, string>[]) {
+      const p = await page(
+        `${desktop}${pane}${home}${diff}`,
+        paneLoops + diffLoops,
+        "no-preference",
+        undefined,
+        payload,
+      );
+      const running = await loops(p);
+      await p.close();
+      expect({ payload, running }).toEqual({ payload, running: [] });
+    }
   });
 
   test("Reduce Motion stops every loop, the diff viewer's too", async () => {

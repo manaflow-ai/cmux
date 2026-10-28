@@ -105,6 +105,7 @@ public final class FrameInputCoalescer {
     public init(scheduler: FrameScheduler, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
         self.scheduler = scheduler
         // Precise: a one-frame deadline that took the 8 ms wake leeway would wait two or three frames.
+        // timer-class-allow: the coalescer's one-frame fallback, an unposted precise scheduler timer (p06 section A)
         fallback = DemandTimer(owner: "FrameInputCoalescer.fallback", policy: .precise, clock: clock, ledger: ledger)
     }
 
@@ -268,6 +269,7 @@ public final class FrameInputCoalescer {
     /// Runs every pending delivery in arrival order; posts made by the bodies wait for the next frame.
     /// `endingIntervals`: a frame (or its fallback) ends every consumer's interval; a discrete flush
     /// ends only the intervals of the consumers it delivered.
+    // perf-hot: 10us input-coalesce
     private func flushAll(endingIntervals: Bool) {
         if !order.isEmpty {
             var due: [Slot] = []

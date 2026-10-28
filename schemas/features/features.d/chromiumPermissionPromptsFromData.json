@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "chromiumPermissionPromptsFromData",
+  "owner": "PL-cefhost",
+  "description": "Every permission a Chromium page asks for (camera, microphone, clipboard, MIDI and the rest) is asked in the tab's prompt bar instead of Chromium's hidden bubble, and macOS camera and microphone access is asked in cmux's name.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "labs",
+  "process": "chromium",
+  "chromium_feature": "CmuxPermissionPromptsFromData",
+  "params": [],
+  "stories": [],
+  "sticky": false,
+  "runtimeMutable": false
+}

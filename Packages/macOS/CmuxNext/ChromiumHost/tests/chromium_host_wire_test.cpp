@@ -1,6 +1,7 @@
 // Checks cmux_host::Encode/Decode (ChromiumHost/src/chromium_host_wire.h)
 // against the golden frame that ChromiumHostFrameTests.swift checks too
 // (scripts/cmux-next/tests/chromium-host-wire.test.sh).
+#include <climits>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -376,6 +377,41 @@ int main() {
     Queue q(8);
     q.AddEnd();
     Check(q.MarkReady(), "an EOF before the UI thread exists runs once it does");
+  }
+  {
+    // A pinch or pressure step (kGesture, task p01-process-054) is ordered input like a click,
+    // and each step is kept: Chrome sends every pinch update (PinchEvent, render_widget_host_ns_view.mojom).
+    cmux_host::Header pinch;
+    pinch.kind = cmux_host::kGesture;
+    pinch.v[2] = 1;
+    pinch.v[3] = 1100000;
+    Check(cmux_host::IsOrderedInput(pinch), "a gesture carries an input seq");
+    Check(!cmux_host::IsPointerMove(pinch), "a gesture is not a pointer move");
+    Queue q(8);
+    q.MarkReady();
+    q.Add(pinch, {});
+    pinch.v[3] = 1200000;
+    q.Add(pinch, {});
+    auto taken = q.Take();
+    Check(taken.size() == 2 && taken[0].header.v[3] == 1100000 && taken[1].header.v[3] == 1200000,
+          "pinch steps are each kept, in order");
+  }
+
+  {
+    // A click's button (task p01-process-054): left, middle and right are CEF's MBT_* values; a back
+    // (3) or forward (4) button, or any other value, is no click, never a left click at the pointer.
+    cmux_host::Header click;
+    click.kind = cmux_host::kMouse;
+    click.v[2] = 1;
+    for (int32_t button = 0; button <= 2; ++button) {
+      click.v[3] = button;
+      Check(cmux_host::ClickButtonOf(click) == button, "left, middle and right click as themselves");
+    }
+    for (int32_t button : {3, 4, 5, -1, INT32_MAX}) {
+      click.v[3] = button;
+      Check(cmux_host::ClickButtonOf(click) == cmux_host::kNoClickButton, "a back or forward button is no click");
+      Check(cmux_host::ClickButtonOf(click) != 0, "a back or forward button is never a left click");
+    }
   }
 
   TestWheel();

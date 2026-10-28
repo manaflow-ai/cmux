@@ -1716,9 +1716,11 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # (check-no-bench-hooks.sh).
   SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS"
   if [[ "$BLOCKING_CHECKS" -eq 1 ]]; then
-    # bench-checks only: the main-thread blocking detector records (never traps) each blocking call
-    # (`debug.blocking`, plans/cmux-next/threading-model.md). Its bookkeeping costs time on every checked
-    # call, so the latency, frame, launch, idle and memory stories measure `bench` without it.
+    # bench-checks only: the main-thread blocking detector records each blocking call (`debug.blocking`,
+    # plans/cmux-next/threading-model.md). It never traps here: with CMUX_BENCH_HOOKS, BlockingMode ignores
+    # CMUX_BLOCKING_TRAP=1 (the Debug/Nightly opt-in crash mode), so an inherited export cannot stop a bench
+    # run. Its bookkeeping costs time on every checked call, so the latency, frame, launch, idle and memory
+    # stories measure `bench` without it.
     SWIFT_OTHER_FLAGS+=" -DCMUX_BLOCKING_CHECKS"
     echo "==> bench-checks configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
   elif [[ "$PGO_PROFILE" -eq 1 ]]; then

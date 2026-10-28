@@ -1,0 +1,97 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "pinned-items",
+  "suite": "e2e",
+  "title": "Chrome-style pinned tabs: a pinned tab moves first in its pane, and Close Other Tabs keeps it",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-pinned-items-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab with the keyboard",
+    "converted from scripts/cmux-next/pinned-items-e2e.py, which stays; tests/oracle/corpus/e2e/_scripts-095.json links them"
+  ],
+  "requires": ["actions", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus"]},
+      "settleMaxMs": 5000,
+      "note": "the pinned-tab leg of scripts/cmux-next/pinned-items-e2e.py (kept), in the launch workspace: tabs t1 (the launch's), t2 and t3"
+    },
+    {
+      "id": "t2",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "newSurface"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 5000,
+      "note": "the script's newSurface: a second terminal tab in the focused pane; created/0 is its public tab id"
+    },
+    {
+      "id": "t3",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "newSurface"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "three-tabs",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "pin-t3",
+      "op": "action.run",
+      "target": {"tab": "$step:t3#/created/0"},
+      "args": {"action": "palette.toggleTabPin"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 5000,
+      "note": "script row 'a pinned tab moves first' (the script's CLI-origin pin of t3)"
+    },
+    {
+      "id": "pinned-first",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus"]},
+      "settleMaxMs": 5000
+    },
+    {
+      "id": "close-others",
+      "op": "action.run",
+      "target": {"tab": "$step:t2#/created/0"},
+      "args": {"action": "closeOtherTabsInPane"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 10000,
+      "note": "script row 'Close Other Tabs keeps the pinned tab': from t2's menu, t1 closes and t3 stays"
+    },
+    {
+      "id": "kept",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "at three-tabs the launch workspace's pane lists t1, t2 and t3, none pinned",
+    "at pinned-first the pane's first tab is t3 (the id t3 created) with pinned true, followed by t1 and t2 unpinned",
+    "at kept the pane lists exactly t3 (pinned) and t2: Close Other Tabs closed only the unpinned tab it did not keep",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "workspace tiles, top rows, Home out of and back into the top rows and their menu titles (Pin / Unpin Workspace): debug.sidebar_rows and debug.menu_item only, and the sidebar facet has no provider yet (p15-oracle-036)",
+    "the user's pins and Home edits undone by Cmd-Z after a palette run: the palette runs are keys typed into the palette panel, which debug.key reaches only with target palette, and the result is again the sidebar facet's",
+    "the script's 'Cmd-W keeps a pinned tab' row: since tabs.cmdWClosesPinnedTabs (default on) the user's Cmd-W closes a pinned tab as Chrome's does (TabLifecycle.close), so that row of the script is stale",
+    "everything across an app restart and a full restart: driver_app has no restart step (p15-oracle-023, p15-oracle-188)"
+  ]
+}

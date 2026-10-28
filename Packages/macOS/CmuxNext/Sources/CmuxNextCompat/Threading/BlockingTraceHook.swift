@@ -91,7 +91,7 @@ public final class BlockingTraceHook: Sendable {
         if !sink.pinned.exchange(true, ordering: .sequentiallyConsistent) {
             _ = unsafe Unmanaged.passRetained(sink)
         }
-        let address = unsafe UInt64(UInt(bitPattern: Unmanaged.passUnretained(sink).toOpaque()))
+        let address = UInt64(UInt(bitPattern: ObjectIdentifier(sink))) // the sink's address, from its identity
         if recording {
             process.recording.store(address, ordering: .sequentiallyConsistent)
         } else {
@@ -123,6 +123,7 @@ extension BlockingKind {
         case .systemQuery: 16
         case .priorityInversion: 17
         case .ffi: 18
+        case .xpcReply: 19
         }
     }
 }

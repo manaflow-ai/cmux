@@ -118,7 +118,11 @@ fn handle_resource_connection_message_now(
 fn next_reply(outbound: &BoundedOutbound) -> Value {
     loop {
         match outbound.recv() {
-            Some(OutboundItem::Text(text) | OutboundItem::Frame(_, text)) => {
+            Some(
+                OutboundItem::Text(text)
+                | OutboundItem::Frame(_, text)
+                | OutboundItem::Chunk { text, .. },
+            ) => {
                 return serde_json::from_str(&text.to_string()).unwrap();
             }
             Some(OutboundItem::Flush(flushed)) => {

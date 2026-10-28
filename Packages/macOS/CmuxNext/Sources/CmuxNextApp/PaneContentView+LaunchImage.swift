@@ -97,7 +97,9 @@ extension VisiblePaneRefs {
             return .page(Pane(key: "window:\(controller.state.id):\(route)", state: state))
         }
         guard let content = controller.content, !content.isParked else { return .loading }
-        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) }
+        // While the launch holds panes off screen (p08-startup-065), only the panes the layout reports on screen hold startup.
+        let onlyVisible = controller.services.launchPanes.holdsPanes
+        let onScreen = content.panes.values.filter { Window.isOnScreen($0.view) && (!onlyVisible || $0.isVisible) }
         return .workspace(onScreen: onScreen.map { Pane(key: $0.paneKey, state: state(of: $0)) }, layoutPanes: content.modelPanes.count)
     }
 
@@ -130,4 +132,43 @@ extension BrowserTabState {
     /// A shown page's launch content signal: a load ended in it (finished, stopped or failed), or its
     /// process ended. A stand-in tab (deferred, hibernated) loads nothing and needs none.
     var launchLoadEnded: Bool { hasEndedLoad || processExit != nil }
+}
+
+/// One pane of the launch window as its build behind the picture shows it, focused pane first (p08-startup-060).
+extension PaneController: LaunchWindowPane {
+    /// The launch window's build behind its picture holds its content until its own slice (`showForLaunch`), so no
+    /// turn builds every pane; the build ends when the phase is built.
+    var launchHeld: Bool {
+        guard !launchReleased, let phase = services.windows.launchPicture, !phase.isBuilt else { return false }
+        return state?.id == services.windows.launchWindowID
+    }
+
+    func showForLaunch() {
+        launchReleased = true
+        services.presentation.cancel(self)
+        showSelected()
+    }
+
+    /// The build ended before this pane's slice (another screen, scrolled away): it shows as usual now.
+    func releaseFromLaunch() {
+        guard !launchReleased else { return }
+        launchReleased = true
+        services.presentation.setNeedsShowSelected(self)
+    }
+
+    /// A terminal's first frame after its first content is applied; a page's first contentful paint, an agent's or
+    /// internal page's first paint (each content's `createTabFirstFrame`); native content at its commit.
+    func whenLaunchContentDrawn(_ drawn: @escaping @MainActor () -> Void) -> (@MainActor () -> Void)? {
+        switch currentContent {
+        case .terminal(let entry)? where showsLiveTerminal: return entry.session.whenContentFrameDrawn(drawn)
+        case let content? where !content.isTerminal: return content.createTabFirstFrame.wait { _ in drawn() }
+        default:
+            drawn()
+            return nil
+        }
+    }
+
+    func launchArea(in picture: NSView) -> CGRect {
+        view.window == nil || !isVisible ? .zero : view.convert(view.bounds, to: picture) // the layout's viewport presence
+    }
 }

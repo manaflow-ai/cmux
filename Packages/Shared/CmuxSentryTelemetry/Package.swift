@@ -28,6 +28,8 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CMUXMobileCore"),
+        // The Mutex of the reporter's policy state (p02-threads-146).
+        .package(path: "../CmuxThreading"),
         .package(
             // sentry-cocoa 9.29.0 removed PrivateSentrySDKOnly, which the cmux
             // CLI uses to store envelopes (CLI/CLISocketSentryTelemetry.swift).
@@ -50,6 +52,7 @@ let package = Package(
             dependencies: [
                 "CmuxSentryScrubbing",
                 "CMUXMobileCore",
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
                 // macOS links the dynamic SDK: a static Sentry adds the
                 // Objective-C personality routine to the cmux-next app image,
                 // one more than compact unwind encodes (C++, iroh-ffi and

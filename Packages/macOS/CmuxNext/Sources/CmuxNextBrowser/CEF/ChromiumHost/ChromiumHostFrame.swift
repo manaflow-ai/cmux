@@ -11,7 +11,7 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
-        case ime = 11, textInputWatch = 12
+        case ime = 11, textInputWatch = 12, gesture = 13
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
         case rendererGone = 108, textInputState = 109, inputPresented = 110

@@ -3,6 +3,9 @@ import CmuxNextSettings
 import CmuxNextResources
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `resources` on the app control socket (`cmux rpc resources '{…}'`): the
 /// numbers the hover cards show, as JSON. It takes two samples
@@ -61,8 +64,8 @@ enum ResourceControl {
     /// it is flexible, never aligned while hidden), not a sleep.
     private static func waitOnce(_ delay: Duration, deadlines: MainDeadlineScheduler) async {
         let timer = MainDeadline(owner: "Resources.control", workClass: .automation, scheduler: deadlines)
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            timer.schedule(after: delay) { continuation.resume() }
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
+            timer.schedule(after: delay) { continuation.resume(returning: ()) }
         }
         withExtendedLifetime(timer) {}
     }

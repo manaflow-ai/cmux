@@ -8,6 +8,9 @@ import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 extension AppActions {
     static func bindWorkspaces(_ services: AppServices) {
@@ -53,13 +56,15 @@ extension AppActions {
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG || CMUX_BENCH_HOOKS
-        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, mainWork: services.mainWork, work: services.work))
+        services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, deadlines: services.mainDeadlines, work: services.work))
         #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         // Home = the home workspace and its left dock (cx-ebm.59.5), in the active window or the one that has it;
         // the sidebar's Home entry, so a dock showing Channels goes back to Messages (cx-frn2y).
         registry.bind("home.show") { if showHome(services), services.home.dockMode == .channels { HomeDockTab.view(services)?.switchTo(.messages) } }
-        HomeSettingActions().bind(into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) })
+        services.lifetimeFollowers.append(HomeSettingActions().bind(
+            into: registry, settings: { [weak services] in services?.settings }, unavailable: RefusalStrings.homeNotReady, mainWork: services.mainWork,
+            summonChiefPet: { [weak services] petOn in services?.notifications.chiefPet?.summon(petOn: petOn) }))
         // The composer's attach button as an action (home.attachFiles): a path
         // goes to the shown Home composer through its own intake (as a drop);
         // without one the shown composer opens its file picker.
@@ -212,10 +217,11 @@ extension AppActions {
                 guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
                 prompt.returnConfirms = false
                 return {
-                    await withCheckedContinuation { answer in
+                    // A question that goes unanswered is a no.
+                    (try? await withOnceContinuation { (answer: OnceContinuation<Bool, OnceContinuationError>) in
                         DestructiveConfirmation.present(prompt, in: controller?.window ?? services.windows.active?.window,
                                                         settings: services.settings) { answer.resume(returning: $0) }
-                    }
+                    }) ?? false
                 }
             },
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.

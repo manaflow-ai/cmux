@@ -1,0 +1,20 @@
+{
+  "id": "rd-host-g2g",
+  "tier": "linux",
+  "description": "Remote desktop glass to glass on loopback (cmux-rd, release, built at the commit): Xvfb, the marker test app, the host and the bench viewer over UDP; key press to the first decoded frame that shows it (p50, p95, p99, max per run), decode p95, lost presses and frames per second (cmux-tui/scripts/bench-rust-lab.py).",
+  "command": ["cmux-tui/scripts/bench-rust-lab.py", "--bench", "rd-host", "--runs", "3"],
+  "session": "light",
+  "engine": "none",
+  "config": "release",
+  "metrics": [
+    {"name": "rd\\.g2g\\.(p50|p95|p99|max)", "unit": "ms", "better": "lower"},
+    {"name": "rd\\.decode\\.p95", "unit": "ms", "better": "lower"},
+    {"name": "rd\\.lost", "unit": "count", "better": "lower"},
+    {"name": "rd\\.frames", "unit": "fps", "better": "higher"}
+  ],
+  "repeats": 1,
+  "seconds": 600,
+  "needs": ["file:cmux-tui/crates/cmux-rd-host/src/bench.rs"],
+  "owner": "PL-daemon",
+  "component": "RemoteDesktop>Latency"
+}

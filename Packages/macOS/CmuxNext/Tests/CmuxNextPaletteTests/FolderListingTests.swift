@@ -20,7 +20,8 @@ struct FolderListingTests {
         let folders = FolderListing.readNow(root, mode: .folder, limit: 10)
         #expect(folders.failure == nil)
         #expect(folders.entries.map(\.name) == ["link", "plain", "repo", ".hidden"])
-        #expect(folders.entries.allSatisfy(\.isDirectory))
+        let allFolders = folders.entries.allSatisfy(\.isDirectory)
+        #expect(allFolders)
         #expect(folders.entries.first { $0.name == "repo" }?.isGitRepository == true)
         #expect(folders.entries.first { $0.name == "plain" }?.isGitRepository == false)
 

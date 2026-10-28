@@ -1,4 +1,3 @@
-package import CmuxNextCompat
 package import CmuxNextWakeups
 public import Foundation
 
@@ -83,55 +82,16 @@ public actor IntranetHostProbe {
         return intercepts
     }
 
-    /// The lookup's answer, or false at the deadline, whichever comes first;
-    /// a lookup that answers late is dropped (getaddrinfo ignores cancellation).
+    /// The lookup's answer, or false at the deadline, whichever comes first (a ``Deadline`` race on the injected
+    /// clock); a lookup that answers late is dropped (getaddrinfo ignores cancellation).
     private func lookupWithDeadline(_ host: String) async -> Bool {
-        let lookup = self.lookup, timeout = self.timeout
-        let deadline = DemandTimer(owner: "omnibar.intranetProbe", clock: clock)
-        let answer = OneShotAnswer()
-        let result = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
-            answer.begin(continuation)
-            let work = Task { answer.finish(await lookup.resolves(host)) }
-            deadline.schedule(after: timeout) {
-                if answer.finish(false) { work.cancel() }
-            }
-        }
-        deadline.cancel()
-        return result
+        let lookup = self.lookup
+        return await Deadline(timeout, clock: clock).value("omnibar.intranetProbe") { await lookup.resolves(host) } ?? false
     }
 
     /// Ten random lowercase letters, a name no real network has.
     public nonisolated static func makeRandomLabel() -> String {
         let letters = Array("abcdefghijklmnopqrstuvwxyz")
         return String((0..<10).map { _ in letters[Int.random(in: 0..<letters.count)] })
-    }
-}
-
-/// Resumes one continuation once: with the lookup's answer or the deadline's
-/// false, whichever calls ``finish(_:)`` first.
-private nonisolated final class OneShotAnswer: Sendable {
-    // Synchronous compare-and-set from a lookup task and a timer callback
-    // racing to resume one continuation (the lock carve-out).
-    private let state = Mutex<(continuation: CheckedContinuation<Bool, Never>?, answer: Bool?)>((nil, nil))
-
-    package func begin(_ continuation: CheckedContinuation<Bool, Never>) {
-        let answered = state.withLock { state -> Bool? in
-            if state.answer == nil { state.continuation = continuation }
-            return state.answer
-        }
-        if let answered { continuation.resume(returning: answered) }
-    }
-
-    /// True for the first caller, whose value resumes the waiter.
-    @discardableResult
-    package func finish(_ value: Bool) -> Bool {
-        let (first, continuation) = state.withLock { state -> (Bool, CheckedContinuation<Bool, Never>?) in
-            guard state.answer == nil else { return (false, nil) }
-            state.answer = value
-            defer { state.continuation = nil }
-            return (true, state.continuation)
-        }
-        continuation?.resume(returning: value)
-        return first
     }
 }

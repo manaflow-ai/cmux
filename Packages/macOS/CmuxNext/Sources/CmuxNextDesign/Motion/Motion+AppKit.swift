@@ -76,7 +76,7 @@ extension Motion {
             context.timingFunction = curve ?? fadeCurve
             context.allowsImplicitAnimation = duration > 0
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } }) // main-hop-allow: AppKit calls a group's completion on main, so it runs inline there
     }
 
     /// Applies `animator()` changes at once (a zero-length group, so implicit
@@ -86,7 +86,7 @@ extension Motion {
             context.duration = 0
             context.allowsImplicitAnimation = false
             changes()
-        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } })
+        }, completionHandler: completion.map { done in { @Sendable in MainDelivery().run(done) } }) // main-hop-allow: AppKit calls a group's completion on main, so it runs inline there
     }
 
     /// A layer action for properties that fade (`CALayer.actions`). Its
@@ -166,7 +166,9 @@ extension Motion {
 extension MotionGate {
     /// Animates `NSView.animator()` changes with a spring token, or applies
     /// them at once when movement does not animate. `completion` runs on the
-    /// main thread after the change finishes (or on the next turn).
+    /// main thread after the change finishes (or on the next turn). A
+    /// layer-backed view's frame or alpha moves on the render server through
+    /// `animate(_:in:frame:alpha:completion:)` instead (MotionGate+ViewLayer).
     ///
     /// - Parameter view: The view the change animates. When its window has no
     ///   screen the change applies at once (``canAnimate(in:)``).
@@ -357,6 +359,11 @@ extension MotionGate {
 
     /// A continuous clockwise rotation for a busy spinner, or nil when loops are off (Reduce
     /// Motion, Energy Saver, the category or speed off). Clockwise only: every spinner turns the same way.
+    ///
+    /// Every infinite loop made here runs through a ``LoopHost`` (``LoopVisibility``, or a host that
+    /// gates it on its own ``VisibilityNode``, ``StatusIndicatorView``), never a bare `layer.add`: a
+    /// loop in a hidden or occluded view costs the render server frames nobody sees (p03-rendering.md,
+    /// R6). `LoopRegistrationTests` checks every `repeatCount = .infinity` in CmuxNext's sources.
     public func spinAnimation() -> CAAnimation? {
         guard let period = period(.spinner) else { return nil }
         let spin = CABasicAnimation(keyPath: "transform.rotation.z")

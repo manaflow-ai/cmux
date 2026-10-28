@@ -226,6 +226,7 @@ public final class DisplayClock {
             display.linklessTickQueued = true
             let id = display.id
             // task-owner: one hop; the subscribers leave or keep ticking on the stall deadline
+            // main-hop-allow: the frame clock's own tick for a display with no link; p06 section A: a frame source is never queued behind the classes it drives
             Task { @MainActor [weak self] in self?.linklessTick(id) }
         }
         applyRate(display)
@@ -317,6 +318,7 @@ public final class DisplayClock {
         display.raiseTickQueued = true
         let id = display.id, framesBefore = display.frames
         // task-owner: one hop; the link ticks the display after it
+        // main-hop-allow: the frame clock's own tick, as the linkless tick; p06 section A: a frame source is never queued behind the classes it drives
         Task { @MainActor [weak self] in self?.raiseTick(id, framesBefore: framesBefore) }
     }
 
@@ -332,7 +334,7 @@ public final class DisplayClock {
         for scheduler in display.subscribers {
             guard let rate = scheduler.linkRate else { continue }
             if all.map({ rate.hertz > $0.hertz }) ?? true { all = rate }
-            let visible = scheduler.hostWindow.map { isVisible($0) } ?? true
+            let visible = scheduler.isSeen(by: isVisible)
             if visible, seen.map({ rate.hertz > $0.hertz }) ?? true { seen = rate }
         }
         return seen ?? all ?? .motion
@@ -408,19 +410,20 @@ public final class DisplayClock {
     /// can see ticks at the stall rate, not the display's (R6: hidden and occluded cost nothing); the
     /// app and budgeted schedulers always tick.
     private func pace(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?) -> Pace? {
-        guard let hiddenUntil else { return scheduler.hostWindow.map { isVisible($0) } == false ? .hidden : .stall }
-        guard let window = scheduler.hostWindow, !isVisible(window) else { return .link }
+        guard let hiddenUntil else { return scheduler.isSeen(by: isVisible) ? .stall : .hidden }
+        guard !scheduler.isSeen(by: isVisible) else { return .link }
         let due = scheduler.lastTickTimestamp.map { $0 <= hiddenUntil + Self.stallSlack } ?? true
         return due ? .hidden : nil
     }
 
     /// Every subscriber of `display` is a window nobody can see.
     private func allHidden(_ display: Display) -> Bool {
-        !display.subscribers.isEmpty && display.subscribers.allSatisfy { $0.hostWindow.map { !isVisible($0) } ?? false }
+        !display.subscribers.isEmpty && display.subscribers.allSatisfy { !$0.isSeen(by: isVisible) }
     }
 
     private func record(_ id: CGDirectDisplayID) -> Display {
         if let display = displays[id] { return display }
+        // timer-class-allow: the frame clock's own stall deadline, an unposted scheduler timer (p06 section A)
         let display = Display(id: id, stall: DemandTimer(owner: "DisplayClock.stall", clock: clock, ledger: ledger))
         displays[id] = display
         return display

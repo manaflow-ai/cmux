@@ -30,6 +30,14 @@ struct MobileEventLaneScopeTests {
         #expect(scope.markerScope(inPayload: Data(#"{"kind":"lane#x"}"#.utf8)) == nil)
     }
 
+    @Test func aPartialTailIsForwardedUnscopedAfterTheWholeFrames() throws {
+        let whole = try MobileSyncFrameCodec.encodeFrame(Data(#"{"kind":"event","topic":"a"}"#.utf8))
+        let next = try MobileSyncFrameCodec.encodeFrame(Data(#"{"kind":"event","topic":"b"}"#.utf8))
+        let tail = next.prefix(next.count - 1)
+        let scoped = scope.scoped(whole + tail, surfaceID: surface.uuidString)
+        #expect(scoped == scope.marker(surfaceID: surface) + whole + tail)
+    }
+
     @Test func aLaneWithoutATerminalUUIDForwardsUnscoped() throws {
         let event = try MobileSyncFrameCodec.encodeFrame(Data(#"{"kind":"event"}"#.utf8))
         #expect(scope.scoped(event, surfaceID: "not-a-terminal") == event)

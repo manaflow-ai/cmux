@@ -36,6 +36,7 @@ final class PaletteShortcutRecorderView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
+    // visibility-walk-allow: colors only (the glass's theme, the message color), no layout
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
@@ -43,7 +44,36 @@ final class PaletteShortcutRecorderView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if window == nil { press.cancel() }
         applyColors()
+    }
+
+    /// Press, drag and release, as in the Actions menu: the release picks the option it ends on.
+    private lazy var press = PalettePress(in: content, rows: { [weak self] in self?.rowViews ?? [] }, release: { [weak self] index in
+        guard let self, let options = self.shown?.options, options.indices.contains(index) else { return }
+        self.onChoose?(options[index])
+    })
+
+    // A press on an option is the panel's own: a new state rebuilds the rows while it is held.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let hit = super.hitTest(point)
+        return press.isOnRow(hit) ? self : hit
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if !press.began(event) { super.mouseDown(with: event) }
+    }
+
+    // input-coalesce: native (a press highlight: a row hit test per event, nothing selected until the release)
+    // local-monitor-allow: a held press's drag (PalettePress) is per event and keeps order; no hover work runs here
+    override func mouseDragged(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseDragged(with: event) }
+        press.dragged(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard press.isPressed else { return super.mouseUp(with: event) }
+        press.ended(event)
     }
 
     private func applyColors() {
@@ -79,15 +109,6 @@ final class PaletteShortcutRecorderView: NSView {
         let options = state.options
         rowViews = options.enumerated().map { index, option in
             let row = PaletteMenuRow(command: Self.command(option), keycaps: Self.keycaps(option), isSelected: index == 0 && state.pending != nil)
-            // Press, drag and release, as in the Actions menu: the release picks the option it ends on.
-            row.onPress = { [weak self] event in
-                guard let self else { return }
-                PalettePress.track(event, in: self.content, row: { point in
-                    self.rowViews.firstIndex { $0.frame.contains(point) }
-                }, select: { _ in }, release: { index in
-                    if options.indices.contains(index) { self.onChoose?(options[index]) }
-                })
-            }
             content.addSubview(row)
             return row
         }

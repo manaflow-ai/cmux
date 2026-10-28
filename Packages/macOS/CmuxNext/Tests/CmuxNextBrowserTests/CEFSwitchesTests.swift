@@ -57,6 +57,36 @@ import Testing
     }
 }
 
+/// chromium-host-bench.py `--modes tcc` (p01-process-089) measures Chromium's real "Chromium Safe Storage" read on a
+/// bench build, whose development bundle id otherwise runs Chromium with its mock keychain.
+@Suite struct CEFSwitchesBenchKeychainTests {
+    private func arguments(bundle: String, environment: [String: String] = [:]) -> [String] {
+        CEFSwitches.current(forkAPIVersion: 29, bundleIdentifier: bundle, environment: environment).arguments
+    }
+
+    @Test(arguments: ["com.cmuxterm.app.debug.bench-tag", "com.cmuxterm.app.next.dev"])
+    func aDevelopmentBundleUsesTheMockKeychain(bundle: String) {
+        #expect(arguments(bundle: bundle).contains("use-mock-keychain"))
+    }
+
+    @Test(arguments: ["com.cmuxterm.app.debug.bench-tag", "com.cmuxterm.app.next.dev"])
+    func theBenchSwitchGivesADevelopmentBundleTheRealKeychain(bundle: String) {
+        #expect(!arguments(bundle: bundle, environment: ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1"]).contains("use-mock-keychain"))
+        #expect(arguments(bundle: bundle, environment: ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "0"]).contains("use-mock-keychain"))
+    }
+
+    @Test func theMockKeychainVariableStillWins() {
+        let environment = ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1", "CMUX_MOCK_KEYCHAIN": "1"]
+        #expect(arguments(bundle: "com.cmuxterm.app.debug.bench-tag", environment: environment).contains("use-mock-keychain"))
+    }
+
+    @Test(arguments: ["com.cmuxterm.app", "com.cmuxterm.app.nightly.cmux-next", "com.cmuxterm.app.next"])
+    func aShippedBundleKeepsTheRealKeychain(bundle: String) {
+        #expect(!arguments(bundle: bundle).contains("use-mock-keychain"))
+        #expect(!arguments(bundle: bundle, environment: ["CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1"]).contains("use-mock-keychain"))
+    }
+}
+
 /// Chromium's wake-up alignment (p14-energy-040). `AlignWakeUps` snaps each delayed wake-up of every
 /// Chromium thread to one 8 ms grid (MessagePump::AdjustDelayedRunTime), and `BatterySaverModeAlignWakeUps`
 /// lets battery saver widen it to 32 ms in child processes. Both are `FEATURE_DISABLED_BY_DEFAULT`, and
@@ -64,7 +94,7 @@ import Testing
 /// names them. `TimerSlackMac` stays the default-off feature `cefTimerSlack`.
 @Suite struct CEFSwitchesWakeUpAlignmentTests {
     /// Every fork API from stock CEF past the newest the app knows today.
-    static let forkAPIs = Array(Int32(0)...40)
+    nonisolated static let forkAPIs = Array(Int32(0)...40)
 
     static func arguments(forkAPIVersion: Int32, chromiumFeatures: [String] = [],
                           bundle: String = "com.cmuxterm.app.next") -> [String] {
@@ -124,6 +154,60 @@ import Testing
         #expect(Set(CEFSwitches.wakeUpAlignmentFeatures).isSubset(of: Self.enabledFeatures(hostSwitches)))
     }
     #endif
+}
+
+/// The app's `process: chromium` features (p12-perf-process-153) reach CEF as one `enable-features` and one
+/// `disable-features` entry. A feature the app turns off is only on the disable list, also when the enable
+/// list names it too or cmux names it itself: disable wins, as Chromium's FeatureList::InitFromCommandLine
+/// processes the disabled features first (base/feature_list.cc).
+@Suite struct CEFSwitchesChromiumFeatureTests {
+    private func switches(enabled: [String], disabled: [String], forkAPIVersion: Int32 = 29) -> [String] {
+        CEFSwitches.current(forkAPIVersion: forkAPIVersion, chromiumFeatures: enabled, disabledChromiumFeatures: disabled,
+                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
+    }
+
+    private func features(_ arguments: [String], _ prefix: String) -> [String] {
+        arguments.filter { $0.hasPrefix(prefix) }.flatMap { $0.dropFirst(prefix.count).split(separator: ",").map(String.init) }
+    }
+
+    /// A remote off reaches the switches as an off feature: on the disable list, not on the enable list.
+    @Test func anOffFeatureIsOnlyDisabled() {
+        let arguments = switches(enabled: [], disabled: ["BackForwardCache"])
+        #expect(features(arguments, "disable-features=") == CEFSwitches.idleServiceOffFeatures + ["BackForwardCache"])
+        #expect(!features(arguments, "enable-features=").contains("BackForwardCache"))
+    }
+
+    @Test func aFeatureOnBothListsIsDisabled() {
+        let arguments = switches(enabled: ["TimerSlackMac", "BackForwardCache"], disabled: ["TimerSlackMac"])
+        let enabled = features(arguments, "enable-features=")
+        #expect(enabled.contains("BackForwardCache"))
+        #expect(!enabled.contains("TimerSlackMac"))
+        #expect(features(arguments, "disable-features=") == CEFSwitches.idleServiceOffFeatures + ["TimerSlackMac"])
+    }
+
+    /// A feature cmux turns on itself (wake-up alignment, the Chrome prompt off) also loses to an off one.
+    @Test func anOffFeatureBeatsOneCmuxNames() {
+        let arguments = switches(enabled: [], disabled: ["AlignWakeUps", "IPH_DemoMode"])
+        let enabled = features(arguments, "enable-features=")
+        #expect(!enabled.contains("AlignWakeUps"))
+        #expect(!enabled.contains(CEFSwitches.chromePromptOffFeature))
+        #expect(enabled.contains("BatterySaverModeAlignWakeUps"))
+        #expect(arguments.filter { $0.hasPrefix("enable-features=") }.count == 1)
+    }
+
+    /// With no app feature off, the one disable entry holds only the idle services cmux does not use (p13-webui-084).
+    @Test func noOffFeatureLeavesOnlyTheIdleServicesDisabled() {
+        let arguments = switches(enabled: ["TimerSlackMac"], disabled: [])
+        let idleServicesOnly = "disable-features=" + CEFSwitches.idleServiceOffFeatures.joined(separator: ",")
+        #expect(arguments.filter { $0.hasPrefix("disable-features=") } == [idleServicesOnly])
+        #expect(features(arguments, "enable-features=").contains("TimerSlackMac"))
+    }
+
+    @Test func anEntryNamesTheFeatureBeforeItsParams() {
+        #expect(CEFSwitches.featureName(of: CEFSwitches.chromePromptOffFeature) == "IPH_DemoMode")
+        #expect(CEFSwitches.featureName(of: "*Name<Study.Group:param/value") == "Name")
+        #expect(CEFSwitches.featureName(of: "TimerSlackMac") == "TimerSlackMac")
+    }
 }
 
 /// The New Tab and every agent chat are one site (`cmux-page://cmux.agent`). Chrome puts at most 2 main frames
@@ -197,5 +281,40 @@ import Testing
             caps.append(.init(site: String(parts[0]), mainFrames: frames))
         }
         return caps.isEmpty ? nil : caps
+    }
+}
+
+/// A CEF pin bump must not put Chromium's commit waits back on the main thread (p03-rendering-041):
+/// a page-window resize calls `CATransactionCoordinator::Synchronize`, which waits up to 500 ms
+/// before the app's commit and up to 50 ms after it (`ca_transaction_observer.mm`). Every fork
+/// version either keeps `AsyncLiveResize` (which skips that call) or skips it itself for a resize
+/// with no deadline (fork API 27, e07a2f78).
+@Suite struct CEFResizeCommitWaitTests {
+    private static func enabledFeatures(forkAPIVersion: Int32) -> [String] {
+        CEFSwitches.current(forkAPIVersion: forkAPIVersion, rendererPaths: forkAPIVersion >= CEFForkFeatures.rendererPathsForkAPI,
+                            bundleIdentifier: "com.cmuxterm.app.next", environment: [:]).arguments
+            .filter { $0.hasPrefix("enable-features=") }
+            .flatMap { $0.dropFirst("enable-features=".count).split(separator: ",").map(String.init) }
+    }
+
+    @Test func everyForkVersionResizesWithoutACommitWait() {
+        for forkAPIVersion in Int32(0)...64 {
+            let skipsSynchronize = CEFForkFeatures(forkAPIVersion: forkAPIVersion, shimHasRendererPaths: true)
+                .resizeWaitsOnlyForDeadline
+            let asyncLiveResize = Self.enabledFeatures(forkAPIVersion: forkAPIVersion).contains("AsyncLiveResize")
+            #expect(asyncLiveResize || skipsSynchronize, "fork API \(forkAPIVersion) waits for Chromium's commit on every resize")
+        }
+    }
+
+    @Test func aForkWithoutTheSkipKeepsAsyncLiveResize() {
+        #expect(!CEFForkFeatures(forkAPIVersion: 26, shimHasRendererPaths: false).resizeWaitsOnlyForDeadline)
+        #expect(Self.enabledFeatures(forkAPIVersion: 26).contains("AsyncLiveResize"))
+    }
+
+    /// The skip keeps the bounded wait a layer-hosted page asks for, which AsyncLiveResize would lose.
+    @Test func aForkWithTheSkipDropsAsyncLiveResize() {
+        #expect(CEFForkFeatures(forkAPIVersion: 27, shimHasRendererPaths: false).resizeWaitsOnlyForDeadline)
+        #expect(!Self.enabledFeatures(forkAPIVersion: 27).contains("AsyncLiveResize"))
+        #expect(CEFSwitches.resizeSyncForkAPI == CEFForkFeatures.resizeSyncForkAPI)
     }
 }

@@ -286,41 +286,17 @@ final class FieldChrome: NSView {
     /// `alphaValue` shows nothing (A/B takes ffalpha/ffhide-*-take80): the
     /// system draws the glass from its container. The field's own container
     /// fades it: an opacity keyframe animation on the container's layer, on the
-    /// render server (no main-thread frame can delay it).
-    /// `MLAB_FIELD_FADE` (A/B only): `link` sets the container's `alphaValue`
-    /// on the main thread at each display frame instead (one frame late in
-    /// take 83 when the send's commit ran long), `off` leaves the field as is.
+    /// render server (no main-thread frame can delay it; a main-thread display
+    /// link setting `alphaValue` was one frame late in take 83 when the send's
+    /// commit ran long). With the host's motion gate off the field keeps its
+    /// model opacity, 1: the change applies in one frame.
     func sendPulse(begin: CFTimeInterval) {
-        switch FieldChrome.fadeMode {
-        case "off": return
-        case "link":
-            fadeBegin = begin
-            if fadeLink == nil {
-                let l = displayLink(target: self, selector: #selector(fadeFrame(_:)))
-                l.add(to: .main, forMode: .common)
-                fadeLink = l
-            }
-            fadeLink?.isPaused = false
-        default:
-            guard let l = fieldContainer.layer else { return }
-            Animate.sampledPulse(l, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
-            for k in keyFix.field.layers { Animate.sampledPulse(k, "opacity", Springs.fieldOpacity, base: 1, begin: begin) }
-        }
+        guard animatesFade(), let l = fieldContainer.layer else { return }  // cmux: the host's motion gate, no display link
+        for k in [l] + keyFix.field.layers { Animate.sampledPulse(k, "opacity", Springs.fieldOpacity, base: 1, begin: begin) }
     }
 
-    private static let fadeMode = ProcessInfo.processInfo.environment["MLAB_FIELD_FADE"] ?? "layer"
-    private var fadeBegin: CFTimeInterval = 0
-    private var fadeLink: CADisplayLink?
-
-    @objc private func fadeFrame(_ link: CADisplayLink) {
-        let e = Springs.fieldOpacity
-        let tau = link.targetTimestamp - fadeBegin
-        let done = tau >= e.settleTime
-        let v = done ? 1 : CGFloat(min(1, max(0, e.value(tau, from: 1, to: 1))))
-        if fieldContainer.alphaValue != v { fieldContainer.alphaValue = v }
-        for l in keyFix.field.layers where l.opacity != Float(v) { l.opacity = Float(v) }
-        if done { link.isPaused = true }
-    }
+    /// Whether the send's fade runs: the host's motion gate (``MessagesLabHomeView/fadeMotionGate``).
+    var animatesFade: @MainActor () -> Bool = { true }
 }
 
 /// How the glass field follows a height change (`--field-anim`). Measured with

@@ -36,15 +36,26 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         didSet { loneRailWatch = followLoneConversationTunable() }
     }
     private let mainWork: MainWorkScheduler
-    /// Visible while the view is in a window and not hidden there (a parked tab): the Debug
-    /// Settings switch lays out again only then.
-    private let visibility = VisibilityNode(root: "home.split", own: .hidden)
+    /// Visible while the view is in a window: the parent of ``visibility``.
+    private let windowed: VisibilityNode
+    /// Visible while ``windowed`` is and neither the view nor an ancestor is hidden (a parked tab):
+    /// the Debug Settings switch lays out again only then.
+    private let visibility: VisibilityNode
     private var loneRailWatch: FrameObservation<Bool>?
 
     /// - Parameter mainWork: the app's main-thread scheduler; a Debug Settings change lays out on its frames.
-    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler) {
+    /// - Parameter caches: Home's cache consumer (`memoryHomeLabCaches`): the list's bitmaps join it; nil keeps
+    ///   MessagesLab's sizes.
+    /// - Parameter page: The Home page's node, under its window's (`ViewVisibility`): the consumer counts the page
+    ///   as shown only while its window shows (not occluded, miniaturized or in a hidden app). The split's own
+    ///   node is no window's child, so it is not the one tracked.
+    public init(sidebar: HomeSidebarView, content: NSView, widths: HomeSidebarWidth = HomeSidebarWidth(), mainWork: MainWorkScheduler,
+                caches: MessagesLabMemoryConsumer? = nil, page: VisibilityNode? = nil) {
         self.widths = widths
         self.mainWork = mainWork
+        let windowed = VisibilityNode(root: "home.split.window", own: .hidden)
+        self.windowed = windowed
+        visibility = VisibilityNode("home.split", parent: windowed)
         list = sidebar
         minimum = sidebar.minimumWidth
         standard = sidebar.preferredWidth
@@ -59,6 +70,10 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setAccessibilityIdentifier("cmux.home.split")
         sidebar.onContentChange = { [weak self] in self?.foldMayHaveChanged() }
         loneRailWatch = followLoneConversationTunable()
+        if let caches {
+            if let page { caches.track(page) }
+            caches.track(sidebar: sidebar)
+        }
     }
 
     @available(*, unavailable)
@@ -189,20 +204,20 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         registerDropTypes()
     }
 
+    /// A parked tab stays in its window with `isHidden`; AppKit sends the hide and unhide to its
+    /// descendants, so an ancestor's reaches the node here (recipe R-hide: no ancestor walk).
     override public func viewDidHide() {
         super.viewDidHide()
-        updateVisibility()
+        visibility.set(.hidden)
     }
 
     override public func viewDidUnhide() {
         super.viewDidUnhide()
-        updateVisibility()
+        visibility.set(.visible)
     }
 
-    /// In a window, and neither this view nor an ancestor hidden (a parked tab stays in its window
-    /// with `isHidden`; AppKit sends the hide and unhide to its descendants).
     private func updateVisibility() {
-        visibility.set(window != nil && !isHiddenOrHasHiddenAncestor ? .visible : .hidden)
+        windowed.set(window != nil ? .visible : .hidden)
     }
 
     private func place(_ width: CGFloat) {
