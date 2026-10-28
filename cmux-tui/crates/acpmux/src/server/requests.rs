@@ -1540,7 +1540,9 @@ async fn dispatch_request(
             let name = str_param(&params, "name")
                 .ok_or_else(|| RpcError::invalid_params("name is required"))?;
             let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-            hub.reconnect_peer(name, wait).await?;
+            // A link that is open stays up unless the caller forces it (`host reconnect`).
+            let force = params.get("force").and_then(Value::as_bool).unwrap_or(false);
+            hub.reconnect_peer_with(name, wait, force).await?;
             Ok(json!({"peers": hub.peers()}))
         }
         "_acpmux/peer_remove" => {
