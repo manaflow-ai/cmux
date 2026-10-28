@@ -13,6 +13,15 @@ import CmuxNextWakeups
 /// machine's daemon is its own tree and sidebar section.
 @Observable
 final class SSHMachineSession {
+    struct DaemonObservationKey: Equatable {
+        let startup: DaemonStartupState
+        let recoveryAttempt: Int
+    }
+
+    static func daemonObservationKey(startup: DaemonStartupState, recoveryAttempt: Int) -> DaemonObservationKey {
+        DaemonObservationKey(startup: startup, recoveryAttempt: 0)
+    }
+
     /// Its route and name; Add Machine may rename it (`SSHHost.named`), never reroute it.
     var host: SSHHost
     /// The host's id, or the paired server's (`ServerMachineSession`).
@@ -71,7 +80,10 @@ final class SSHMachineSession {
         let daemon = daemon, link = link
         // task-owner: follows the daemon's first-connect state for the session's life; cancelled in close()
         startupTask = Task { [weak self] in
-            for await startup in ObservationStream({ daemon.startup }) {
+            for await observation in ObservationStream({
+                Self.daemonObservationKey(startup: daemon.startup, recoveryAttempt: self?.connectRecoveryAttempt ?? 0)
+            }) {
+                let startup = observation.startup
                 guard case .unavailable(let error) = startup else {
                     self?.startupError = nil
                     self?.daemonFailure = nil

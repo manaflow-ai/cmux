@@ -11,6 +11,13 @@ import CmuxNextSidebar
 /// with the host's name and status, in one list. New workspaces in it run on the host.
 @MainActor
 enum RemoteGroupHandlers {
+    static func shouldContinueMarking(status: SSHConnectionMachine.Status) -> Bool {
+        switch status {
+        case .authFailed, .hostKeyUntrusted, .installFailed, .offline: false
+        default: true
+        }
+    }
+
     /// A focus request makes an automated run interactive for this action even
     /// while the registry is capturing its refusal output.
     static func shouldOfferInteractiveFlow(_ invocation: ActionInvocation) -> Bool {
@@ -99,10 +106,8 @@ enum RemoteGroupHandlers {
                     mark(session: name)
                     return
                 }
-                switch status {
-                case .connecting, .connected, .reconnecting, .installing, .needsInstall, .unreachable, .failed: continue
-                case .offline, .authFailed, .hostKeyUntrusted, .installFailed: return
-                }
+                if Self.shouldContinueMarking(status: status) { continue }
+                return
             }
         }
     }
