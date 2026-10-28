@@ -960,7 +960,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextFilesTests",
             // CmuxFuzzSupport: FilePathFuzzTests (p10-stability-030).
-            dependencies: ["CmuxNextFiles", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            dependencies: ["CmuxNextFiles", "CmuxNextWakeups", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // The Files pane's AppKit views over CmuxNextFiles: list (NSTableView), icons
@@ -1147,7 +1147,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // CmuxNextCompat only (the thumbnail cache is a memory consumer).
         .target(
             name: "CmuxNextFileGrid",
-            dependencies: ["CmuxNextCompat"],
+            // Wakeups: each tile's thumbnail lands as a posted visible task (MainWorkScheduler).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
             ],
@@ -2287,6 +2288,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
+                "CmuxNextDictation",
                 "CmuxNextDiff",
                 "CmuxNextEnergy",
                 "CmuxNextFeatures",
