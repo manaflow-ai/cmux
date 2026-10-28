@@ -1,17 +1,21 @@
 //! GitHub for the person's own machines, through the Mac's `gh` login.
 //!
 //! A machine the person added (the lane) asks the Mac that mirrors it as a peer (the owner) for
-//! one GitHub action: a request on the link the Mac opened to it, never with a credential. The
-//! Mac checks it, runs one fixed `gh` command with its own login, and answers with bounded output
-//! (`peer.rs` takes the request).
+//! one GitHub action: an agent session there asks its daemon (`handle`), which sends the request,
+//! never a credential, up the link the Mac opened to it (`server/client_request.rs`,
+//! `hub/github_owner.rs`). The Mac checks it again, runs one fixed `gh` command with its own
+//! login, and answers with bounded output (`peer.rs` takes the request).
 //!
 //! - The Mac serves only a peer whose saved config says `githubBroker`
 //!   (`PeerConfig::github_broker`); any other peer is refused, as every request from a peer was.
 //! - Only these actions exist: read a repository or a pull request, open an issue, comment on
 //!   one, and open a draft pull request. There is no push, merge, close, delete, edit, settings,
 //!   secret, workflow or `gh api` passthrough.
+//! - On the lane only an agent session of that daemon may ask (its caller token, `hub/person.rs`),
+//!   over the unix socket; the Web, the app's pages and peers are refused (`remote_guard.rs`).
 //! - The token never leaves the Mac: `gh` reads it from the Mac's keyring, and the answer holds
-//!   only `gh`'s output. Each action is a log line on the Mac, with no title, body or output.
+//!   only `gh`'s output. Each decision is a `github_broker_action` event on the lane session and
+//!   a log line on the Mac, with no title, body or output in either.
 
 use crate::rpc::RpcError;
 use serde::{Deserialize, Serialize};
@@ -385,6 +389,50 @@ pub async fn serve_owner(peer: &str, params: Value) -> Result<Value, RpcError> {
     let row = audit_payload(&request, status, result.as_ref().err());
     tracing::info!(peer, session, "github broker: {row}");
     Ok(json!({"action": request.action, "repo": request.repo, "output": result?}))
+}
+
+/// The lane's side: an agent session asked over the unix socket (`remote_guard.rs` refuses
+/// every other origin).
+pub async fn handle(
+    hub: &Arc<crate::hub::Hub>,
+    conn: &Arc<crate::server::Conn>,
+    params: Value,
+) -> Result<Value, RpcError> {
+    if conn.origin != crate::server::Origin::Local {
+        return Err(denied("GitHub actions are asked over this machine's unix socket only"));
+    }
+    let mut request: GithubActionParams = serde_json::from_value(params)
+        .map_err(|e| invalid(format!("invalid GitHub action: {e}")))?;
+    let session = conn
+        .caller()
+        .ok_or_else(|| {
+            denied("GitHub actions are for an acpmux session's agent (run it inside one)")
+        })?
+        .to_owned();
+    request.session_id = Some(session.clone());
+    validate(&request)?;
+    let session = hub.resolve(&session)?;
+    let record = |status: &str, error: Option<&RpcError>| {
+        hub.append_github_audit(&session, audit_payload(&request, status, error));
+    };
+    let Some(owner) = hub.github_owner_link() else {
+        let error = RpcError::new(
+            -32042,
+            "no Mac that lends GitHub to this machine is connected (add this machine from the Mac with Add Machine)",
+        )
+        .with_data(json!({"reason": "github.no_owner"}));
+        record("unavailable", Some(&error));
+        return Err(error);
+    };
+    let wire = serde_json::to_value(&request).map_err(|e| RpcError::internal(e.to_string()))?;
+    let budget = GH_TIMEOUT + std::time::Duration::from_secs(15);
+    let reply = owner.request_client(crate::rpc::method::MUX_GITHUB_ACTION, wire, budget).await;
+    match &reply {
+        Ok(_) => record("allowed", None),
+        Err(e) if e.code == -32040 => record("denied", Some(e)),
+        Err(e) => record("failed", Some(e)),
+    }
+    reply
 }
 
 #[cfg(test)]
