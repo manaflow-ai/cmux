@@ -43,6 +43,7 @@ public final class AgentUnsentDrafts {
     /// has a session. Call it after the tab's own `onSessionChange` is set.
     public func wire(_ model: AgentPaneModel, key: @escaping () -> String) {
         model.onUnsentDraft = { [weak self] text, attachments in self?.set(text, attachments: attachments, for: key()) }
+        model.onUnsentDraftTextOnly = { [weak self] text in self?.setTextPreservingAttachments(text, for: key()) }
         let started = model.onSessionChange
         model.onSessionChange = { [weak self] session in
             self?.set("", for: key())
@@ -53,6 +54,11 @@ public final class AgentUnsentDrafts {
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
     public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
     public func attachments(for key: String) -> [AgentPaneWakeState.Attachment] { drafts[key]?.attachments ?? [] }
+
+    /// Updates text without changing attachments received from an earlier attachment-aware write.
+    public func setTextPreservingAttachments(_ text: String, for key: String) {
+        set(text, attachments: drafts[key]?.attachments ?? [], for: key)
+    }
 
     /// Keeps `text` as tab `key`'s draft; blank text forgets it.
     public func set(_ text: String, attachments: [AgentPaneWakeState.Attachment] = [], for key: String) {

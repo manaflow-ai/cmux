@@ -7,7 +7,7 @@ import Testing
     @Test func descriptionsNeverIncludeAssociatedUserContent() {
         let secret = "secret-user-content-123"
         let requests: [AgentPaneRequest] = [
-            .unsentDraft(secret, attachments: []),
+            .unsentDraft(secret, attachments: [], attachmentsProvided: true),
             .typeAhead(secret),
             .shellRun(command: secret, cwd: "/tmp/\(secret)"),
             .openPreview(URL(string: "http://127.0.0.1/?token=\(secret)")!),
