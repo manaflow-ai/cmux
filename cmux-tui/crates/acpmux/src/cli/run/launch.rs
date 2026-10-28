@@ -295,6 +295,7 @@ pub(super) fn show_in_group(
     session_name: &str,
     title: Option<&str>,
     group: &str,
+    daemon_cli_path: Option<&std::path::Path>,
 ) -> Result<()> {
     let key = workspace_key(id);
     let mut args = vec!["agent", "open", id];
@@ -304,8 +305,13 @@ pub(super) fn show_in_group(
     args.extend(["--key", &key, "--group", group]);
     // Prefer the app's bundled CLI when the daemon was started by the app.
     // A plain shell can otherwise resolve an older standalone `cmux` first.
-    let cli = std::env::var_os(crate::login_env::BUNDLED_CLI_ENV)
-        .filter(|path| !path.is_empty())
+    let cli = daemon_cli_path
+        .map(std::path::Path::to_path_buf)
+        .or_else(|| {
+            std::env::var_os(crate::login_env::BUNDLED_CLI_ENV)
+                .filter(|path| !path.is_empty())
+                .map(std::path::PathBuf::from)
+        })
         .unwrap_or_else(|| "cmux".into());
     let command = std::iter::once(cli.to_string_lossy().as_ref())
         .chain(args.iter().copied())

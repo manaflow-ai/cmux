@@ -694,7 +694,14 @@ async fn dispatch_request(
                     "sessionCapabilities": {"list": {}, "fork": {}, "close": {}, "delete": {}},
                 },
                 "authMethods": [],
-                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD, "capabilities": crate::capabilities::ids(),
+                "_meta": {"acpmux": {"version": VERSION, "build": crate::hub::BUILD,
+                // An app-launched daemon inherits the app's matching CLI path.
+                // The standalone acpmux CLI uses it for app actions even when
+                // the caller's shell has no CMUX_* variables.
+                "cliPath": (conn.origin == Origin::Local)
+                    .then(|| std::env::var(crate::login_env::BUNDLED_CLI_ENV).ok()
+                        .filter(|path| std::path::Path::new(path).is_absolute()))
+                    .flatten(), "capabilities": crate::capabilities::ids(),
                 // `local`: the unix socket or the proven local app
                 // (`local_app.rs`), which the session pool serves.
                 "origin": match conn.origin { Origin::Web => "remote", Origin::Peer => "peer", _ => "local" },

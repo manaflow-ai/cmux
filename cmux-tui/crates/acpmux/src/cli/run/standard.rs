@@ -438,7 +438,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     // Generated names can be identical on independent peers.
                     let title =
                         launch.name.as_ref().map(|_| launch.title.as_deref().unwrap_or(&name));
-                    launch::show_in_group(&id, &name, title, group)?;
+                    launch::show_in_group(
+                        &id,
+                        &name,
+                        title,
+                        group,
+                        client.daemon_cli_path().as_deref(),
+                    )?;
                 }
                 Ok(())
             };
