@@ -65,10 +65,20 @@ r2_bucket="$(field r2_bucket)"; r2_key="$(field r2_key)"
 [[ "$sha" =~ ^[0-9a-f]{64}$ && -n "$asset" ]] || { echo "error: pin $PIN lacks a sha256 or asset" >&2; exit 1; }
 
 refuse() { echo "error: remote browser host: $*" >&2; exit 1; }  # not softened by --optional
+# A shipped build (Release) embeds only a released pin. The one exception is reload.sh's bench build (Release plus
+# -DCMUX_BENCH_HOOKS: --config bench, and --release of a dogfood tag), which never ships: reload.sh sets the build
+# setting CMUX_BENCH_HOOKS_RELOAD=1 only with that flag and checks after the build that the app carries the bench
+# marker (check-no-bench-hooks.sh --expect), which the release and nightly pipelines refuse. Both must hold here: the
+# flag text alone could be one Swift never compiles (-Xcc -D...), leaving an app with a staging pin and no marker.
+ships_release() {
+  [[ "${CONFIGURATION:-}" == "Release" ]] || return 1
+  [[ "${CMUX_BENCH_HOOKS_RELOAD:-}" == 1 && " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]] && return 1
+  return 0
+}
 staging=0
 if [[ -n "$(field staging)" ]]; then
   staging=1
-  [[ "${CONFIGURATION:-}" != "Release" ]] ||
+  ! ships_release ||
     refuse "$PIN is a staging pin (scripts/cmux-next/cef-pin-staging.sh): a Release build embeds only a published host (publish-remote-browser-host.sh)"
   expires="$(/usr/bin/python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["staging"]["store_expires"])' "$PIN" 2>/dev/null || true)"
   days_left="$(/usr/bin/python3 -c 'import datetime as d, sys; print((d.date.fromisoformat(sys.argv[1]) - d.date.fromisoformat(sys.argv[2])).days)' \
