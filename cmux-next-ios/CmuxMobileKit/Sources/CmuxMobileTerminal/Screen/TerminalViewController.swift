@@ -284,6 +284,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var dockBottomMargin: NSLayoutConstraint!
     /// The docked keyboard's top edge, which the bottom stack rides.
     private var keyboardDock: MobileKeyboardDock!
+    /// Keyboard notifications for `keyboardDock`; the controller lives as
+    /// long as its tab, so it hears every one from its creation on.
+    private let keyboardTracker = MobileKeyboardFrameTracker()
     /// A drag that began while following the prompt with the keyboard up:
     /// a downward drag dismisses the keyboard and the content stays pinned
     /// to the composer, row for row (SPEC M6).
@@ -468,7 +471,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // simulator it can also stay at the bottom under a docked keyboard
         // (after a rotation the keyboard covered the dock). Away from the
         // bottom the stack rests at the chrome's line instead.
-        keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: false)
+        keyboardDock = MobileKeyboardDock(view: view, usesBottomSafeArea: false, keyboard: keyboardTracker)
         keyboardDock.trackInteractiveDismissal(of: scrollView)
         let guide = keyboardDock.guide
         keyRowCollapsed = keyBarClip.heightAnchor.constraint(equalToConstant: 0)

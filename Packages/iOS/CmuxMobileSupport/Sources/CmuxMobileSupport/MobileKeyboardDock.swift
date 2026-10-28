@@ -33,12 +33,10 @@ public final class MobileKeyboardDock: NSObject {
     /// ``guide``'s `identifier`, for tools that look for it in a view.
     public static let guideIdentifier = "MobileKeyboardDock"
 
-    /// The keyboard's latest notified end frame as UIKit posted it, shared by
-    /// every dock so a dock made while the keyboard is up starts on it; each
-    /// dock reads it through `keyboardFrame(notified:)` in its own window.
-    private static var lastEndFrame: CGRect?
-    /// The last will-show / will-hide: whether the keyboard is on screen.
-    private static var keyboardShown = false
+    /// The keyboard's notifications, as recorded app-wide (inject the app's
+    /// tracker so a dock made while the keyboard is up starts on it); this
+    /// dock reads its frames through `keyboardFrame(notified:)` in its window.
+    private let keyboard: MobileKeyboardFrameTracker
 
     private weak var view: UIView?
     private let usesBottomSafeArea: Bool
@@ -58,8 +56,10 @@ public final class MobileKeyboardDock: NSObject {
     ///   - view: the view the composer lives in.
     ///   - usesBottomSafeArea: rest on the bottom safe-area edge (as
     ///     `UIKeyboardLayoutGuide.usesBottomSafeArea`), else on the view's bottom.
-    public init(view: UIView, usesBottomSafeArea: Bool) {
+    ///   - keyboard: the app's keyboard tracker.
+    public init(view: UIView, usesBottomSafeArea: Bool, keyboard: MobileKeyboardFrameTracker) {
         self.view = view
+        self.keyboard = keyboard
         self.usesBottomSafeArea = usesBottomSafeArea
         let system = view.keyboardLayoutGuide
         system.followsUndockedKeyboard = false
@@ -76,13 +76,13 @@ public final class MobileKeyboardDock: NSObject {
             notifiedTop,
         ])
         notifiedTop.constant = notifiedConstant
-        let center = NotificationCenter.default
-        center.addObserver(self, selector: #selector(keyboardWillChangeFrame(_:)),
-                           name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
-        center.addObserver(self, selector: #selector(keyboardDidChangeFrame(_:)),
-                           name: UIResponder.keyboardDidChangeFrameNotification, object: nil)
-        for name in [UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification] {
-            center.addObserver(self, selector: #selector(keyboardWillShowOrHide(_:)), name: name, object: nil)
+        keyboard.subscribe(self) { [weak self] note, change in
+            guard let self else { return }
+            switch change {
+            case .willChangeFrame: self.follow(note)
+            case .willShow, .willHide: self.keyboardWillShowOrHide(note)
+            case .didChangeFrame: self.keyboardDidChangeFrame()
+            }
         }
     }
 
@@ -109,8 +109,8 @@ public final class MobileKeyboardDock: NSObject {
     /// overlap of the view's bottom edge, at least the resting line's.
     private var notifiedConstant: CGFloat {
         guard let view else { return 0 }
-        let keyboard = Self.lastEndFrame.map { overlap(of: keyboardFrame(notified: $0)) } ?? 0
-        return -max(keyboard, restInset)
+        let overlap = keyboard.lastEndFrame.map { overlap(of: keyboardFrame(notified: $0)) } ?? 0
+        return -max(overlap, restInset)
     }
 
     /// The resting line's distance above the view's bottom edge.
@@ -129,12 +129,7 @@ public final class MobileKeyboardDock: NSObject {
         ).height
     }
 
-    @objc private func keyboardWillChangeFrame(_ note: Notification) {
-        follow(note)
-    }
-
-    @objc private func keyboardWillShowOrHide(_ note: Notification) {
-        Self.keyboardShown = note.name == UIResponder.keyboardWillShowNotification
+    private func keyboardWillShowOrHide(_ note: Notification) {
         // Only a frame that needs the show / hide state (see
         // `keyboardFrame(notified:)`) moves the dock here; will-change already
         // placed every other one.
@@ -161,7 +156,7 @@ public final class MobileKeyboardDock: NSObject {
         guard let screen = view?.window?.screen.bounds, end.maxY > 0 else { return end }
         if end.width > screen.width + 1 {
             let height = end.height * screen.height / end.maxY
-            let top = showing ?? Self.keyboardShown ? screen.maxY - height : screen.maxY
+            let top = showing ?? keyboard.isShown ? screen.maxY - height : screen.maxY
             return CGRect(x: screen.minX, y: top, width: screen.width, height: height)
         }
         // On screen, yet reaching below this screen's bottom: iPad points.
@@ -170,8 +165,7 @@ public final class MobileKeyboardDock: NSObject {
     }
 
     private func follow(_ note: Notification) {
-        guard let raw = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-        Self.lastEndFrame = raw
+        guard note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] is CGRect else { return }
         // UIKit has decided where the keyboard goes: any drag hand-off ends,
         // also for a view out of its window (its next layout re-reads it).
         holdingAfterDrag = false
@@ -195,7 +189,7 @@ public final class MobileKeyboardDock: NSObject {
 
     /// A keyboard that settled with no will-change notification after a drag
     /// (a dismissal the finger called off): back on the notified keyboard.
-    @objc private func keyboardDidChangeFrame(_ note: Notification) {
+    private func keyboardDidChangeFrame() {
         guard holdingAfterDrag, let view, view.window != nil else { return }
         holdingAfterDrag = false
         refresh()
