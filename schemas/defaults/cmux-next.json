@@ -1999,7 +1999,7 @@
     "tunable-source.CmuxNextApp/Handlers/AgentHandlers+Pane.swift:waitForPaneController": "5273d96afd35d9e8ac744476b0e6336bf4ab461ae9c7eb28379dc15c594448ff",
     "tunable-source.CmuxNextApp/Handlers/AgentHandlers+Pane.swift:withAgentPane": "cb88b0c6647e4ac57f7bd2475654de1e88858f12d4c76b7189f5681aaeb75948",
     "tunable-source.CmuxNextApp/Handlers/AgentHandlers.swift:agentPaneZoomPath": "e5f98468a1af408f700a6f90ee796999782bfa1d3659a343b850ceab6c37c154",
-    "tunable-source.CmuxNextApp/Handlers/AgentHandlers.swift:bind": "55b9f23de138bfd78e3502128d1cb47a2309f891c99dc477a5ab9e439c4c0a0d",
+    "tunable-source.CmuxNextApp/Handlers/AgentHandlers.swift:bind": "436de1e90df83b1185e077ae3171f58f641c171008a0bbaa6952774d27c8c604",
     "tunable-source.CmuxNextApp/Handlers/AgentHandlers.swift:destination": "e1a72b52aee4a2aa5548add91c9714408204f18a9181d5b05869d14f0802864d",
     "tunable-source.CmuxNextApp/Handlers/AgentHandlers.swift:focusedAgentView": "8f975bfc13e131547e0c983a0def55874105f98616bde0e5422c67941f3303f9",
     "tunable-source.CmuxNextApp/Handlers/AgentHandlers.swift:fork": "f037efa35352482c3c418571f710e4cecee10af0203a059b46b88eeaf4c3db4e",

@@ -216,6 +216,9 @@ on:
       - .github/workflows/cmux-next-generated-catch-up.yml
       - tests/test_next_batch.py
       - tests/test_next_batch_groups.py
+      - scripts/ci/test_reds.py
+      - scripts/ci/base_red_excuse.py
+      - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-batch.yml
       - tests/test_cmux_next_base_autofix_finishes.py
       - tests/test_cmux_next_pr_autofix_settings.py
@@ -285,6 +288,9 @@ on:
       - tests/test_cmux_next_pr_autofix_settings.py
       - scripts/ci/base_red_checks.py
       - scripts/ci/tests/test_base_red_checks.py
+      - scripts/ci/test_reds.py
+      - scripts/ci/base_red_excuse.py
+      - scripts/ci/next_batch.py
       - .github/workflows/cmux-next-base-autofix.yml
       - App/**
       - cmux.xcodeproj/**
@@ -1895,6 +1901,16 @@ jobs:
           python3 tests/test_pr_capture_check_paths.py
           python3 tests/test_car_guards.py
 
+      # "Red on the base, so not ours" is judged per failing test, and a crash or a cut-short
+      # run is never the base's (scripts/ci/test_reds.py, after cmux#26346 landed with its own
+      # signal 6 behind a job-level base red).
+      - name: Base-red classifier (per test)
+        id: base-red-classifier
+        continue-on-error: true
+        run: |
+          python3 tests/test_test_reds.py
+          python3 tests/test_base_red_excuse.py
+
       # The cmux NEXT DEV update script (an unchanged build is left alone; an
       # update keeps sessions and reopens the app) and the classic session import.
       - name: DEV update and classic import scripts
@@ -2074,6 +2090,7 @@ jobs:
             ${{ steps.web-bundles-from.outcome }}|Prebuilt web bundles install and stamp
             ${{ steps.web-ota-pointer.outcome }}|Web update pointer
             ${{ steps.companion-workflows.outcome }}|Companion workflows
+            ${{ steps.base-red-classifier.outcome }}|Base-red classifier (per test)
             ${{ steps.dev-update-classic-import.outcome }}|DEV update and classic import scripts
             ${{ steps.routing-replay.outcome }}|Routing replay (router changes)
             ${{ steps.app-ffi-pin.outcome }}|Check the app FFI pin

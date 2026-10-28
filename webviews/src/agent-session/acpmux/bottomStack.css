@@ -88,7 +88,7 @@
   > .acpmux-composer
   > .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   flex: 0 1 auto;
-  min-height: calc(var(--text-title--line-height, 22px) + 22px * var(--cmux-interface-scale, 1));
+  min-height: calc(var(--text-content--line-height) + 2 * var(--acpmux-prompt-inset));
   grid-template-rows: auto minmax(0, 1fr);
 }
 .acpmux-main[data-dock="float"]
