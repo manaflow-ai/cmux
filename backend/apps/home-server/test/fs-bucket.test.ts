@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { existsSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket, FsBucketError } from "../src/fs-bucket.ts"
@@ -207,6 +207,98 @@ describe("self-hosted attachment bucket", () => {
       expect(readdirSync(join(root, ".multipart")).sort()).toEqual([second.uploadId, `${second.uploadId}.json`].sort())
       expect(readdirSync(join(root, ".multipart", second.uploadId))).toHaveLength(100)
       await second.abort()
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+  it("refuses keys with '.', '..' or empty segments, backslashes or absolute paths, so no key reaches outside the root or into .multipart", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const root = join(parent, "bucket")
+      const bucket = new FsBucket(root)
+      const open = await bucket.createMultipartUpload("home/v1/open")
+      const record = `.multipart/${open.uploadId}.json`
+      const refused = [
+        `./${record}`,
+        "./.multipart/x",
+        "a/../.multipart/x",
+        "./a",
+        "a/./b",
+        "a/.",
+        "a/..",
+        "..",
+        ".",
+        "",
+        "a//b",
+        "a/",
+        "/a",
+        "../outside",
+        "a/../../outside",
+        `../${"bucket"}/a`,
+        join(parent, "outside"),
+        "a\\b",
+        "..\\outside",
+        ".multipart\\x",
+        "a\u0000b"
+      ]
+      for (const key of refused) {
+        await expect(bucket.put(key, "{}"), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.get(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.head(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(key), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(["fine", key]), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.createMultipartUpload(key), key).rejects.toThrow(/invalid object key/)
+        expect(() => bucket.resumeMultipartUpload(key, open.uploadId), key).toThrow(/invalid object key/)
+      }
+      // Nothing landed beside the root, and inside it only the open upload exists.
+      expect(readdirSync(parent)).toEqual(["bucket"])
+      expect(readdirSync(root)).toEqual([".multipart"])
+      expect(readFileSync(join(root, record), "utf8")).toBe(JSON.stringify({ key: "home/v1/open" }))
+
+      // Dots inside a segment, dotfiles and an inner .multipart segment are ordinary keys.
+      for (const key of ["home/v1/.multipart/b", ".hidden", "a/.b", "a..b", "...", "a/b..", "v1.2/file.txt"]) {
+        await bucket.put(key, key)
+        expect(await new Response((await bucket.get(key))!.body!).text()).toBe(key)
+        expect((await bucket.head(key))?.key).toBe(key)
+        await bucket.delete(key)
+        expect(await bucket.head(key)).toBeNull()
+      }
+      await open.abort()
+    } finally {
+      rmSync(parent, { recursive: true, force: true })
+    }
+  })
+  it("refuses to overwrite an open upload's record through a key that normalizes into .multipart, so the upload can't be redirected", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const victim = await bucket.createMultipartUpload("home/v1/victim", { httpMetadata: { contentType: "image/png" } })
+      const part = await victim.uploadPart(1, "victim bytes")
+      const recordPath = join(root, ".multipart", `${victim.uploadId}.json`)
+      const original = readFileSync(recordPath, "utf8")
+
+      // The attack: rewrite the record so the upload names another object, then finish it as that object.
+      const forged = JSON.stringify({ key: "home/v1/target", contentType: "text/html" })
+      for (const key of [`./.multipart/${victim.uploadId}.json`, `a/../.multipart/${victim.uploadId}.json`, `./.multipart/./${victim.uploadId}.json`]) {
+        await expect(bucket.put(key, forged), key).rejects.toThrow(/invalid object key/)
+        await expect(bucket.delete(key), key).rejects.toThrow(/invalid object key/)
+      }
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+
+      const redirected = bucket.resumeMultipartUpload("home/v1/target", victim.uploadId)
+      await expect(redirected.uploadPart(2, "attacker")).rejects.toThrow(/NoSuchUpload/)
+      await expect(redirected.complete([part])).rejects.toThrow(/NoSuchUpload/)
+      await expect(redirected.abort()).rejects.toThrow(/NoSuchUpload/)
+      expect(await bucket.head("home/v1/target")).toBeNull()
+      expect(readFileSync(recordPath, "utf8")).toBe(original)
+
+      // The real upload is untouched and still completes as its own object.
+      const done = await bucket.resumeMultipartUpload("home/v1/victim", victim.uploadId).complete([part])
+      expect(done.key).toBe("home/v1/victim")
+      expect(done.httpMetadata.contentType).toBe("image/png")
+      expect(await new Response((await bucket.get("home/v1/victim"))!.body!).text()).toBe("victim bytes")
+      expect(await bucket.head("home/v1/target")).toBeNull()
       expect(readdirSync(join(root, ".multipart"))).toEqual([])
     } finally {
       rmSync(root, { recursive: true, force: true })
