@@ -10169,7 +10169,7 @@ function AcpmuxPane() {
                 )}
                 {snapshot.peerCopy?.offline && (
                   <PeerCopyBanner
-                    key={snapshot.peerCopy.peer}
+                    key={`${snapshot.sessionId ?? ""}:${snapshot.peerCopy.peer}`}
                     copy={snapshot.peerCopy}
                     machine={peerMachine.state}
                     onResume={peerMachine.resume}
