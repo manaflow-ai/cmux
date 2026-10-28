@@ -209,6 +209,56 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         #expect(context.lastSet?.difficultyRaw == "easy")
     }
 
+    private func autoSet(_ context: FakeSessionPriorityControlCommandContext, source: String = "auto") throws -> ControlCallResult {
+        try run(
+            "session_priority.set",
+            [
+                "workspace_id": .string(workspaceID.uuidString),
+                "difficulty": .string("hard"),
+                "source": .string(source),
+            ],
+            context
+        )
+    }
+
+    /// A rating that arrives after session priority went off changes nothing, so turning it back
+    /// on does not bring back a stale automatic difficulty. The reply is the workspace as it is.
+    @Test func autoSetWhileDisabledIsNotStored() throws {
+        let context = FakeSessionPriorityControlCommandContext()
+        context.probe = ControlSessionPriorityProbe(
+            enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false
+        )
+        context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
+        let object = payload(try autoSet(context))
+        #expect(context.setCalls == 0)
+        #expect(object?["workspace_id"] == .string(workspaceID.uuidString))
+        #expect(context.lastWorkspaceID == .some(workspaceID))
+    }
+
+    @Test func autoSetWhileEnabledIsStored() throws {
+        let context = FakeSessionPriorityControlCommandContext()
+        context.probe = ControlSessionPriorityProbe(
+            enabled: true, workspaceId: workspaceID, manual: false, overridePresent: false
+        )
+        context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
+        _ = try autoSet(context)
+        #expect(context.setCalls == 1)
+        #expect(context.lastSet?.source == "auto")
+        #expect(context.lastSet?.difficultyRaw == "hard")
+    }
+
+    /// Only the automatic value is dropped: a difficulty the user sets while off is kept.
+    @Test func userSetWhileDisabledIsStillStored() throws {
+        let context = FakeSessionPriorityControlCommandContext()
+        context.probe = ControlSessionPriorityProbe(
+            enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false
+        )
+        context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
+        _ = try autoSet(context, source: "user")
+        #expect(context.setCalls == 1)
+        #expect(context.lastSet?.source == "user")
+    }
+
     @Test func setSurfacesInvalidDifficulty() throws {
         let context = FakeSessionPriorityControlCommandContext()
         context.resolution = .invalidDifficulty("brutal")
