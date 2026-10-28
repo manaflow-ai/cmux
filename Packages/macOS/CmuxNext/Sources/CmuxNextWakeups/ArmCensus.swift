@@ -36,9 +36,12 @@ public final class ArmCensus: Sendable {
 
     /// The source line that made the armed object.
     public struct Site: Sendable, CustomStringConvertible {
+        /// The source file, its `#fileID`.
         public let file: StaticString
+        /// The source line.
         public let line: UInt
 
+        /// A site from its `#fileID` and line.
         public init(file: StaticString, line: UInt) {
             self.file = file
             self.line = line
@@ -49,8 +52,11 @@ public final class ArmCensus: Sendable {
 
     /// One armed object.
     public struct Arm: Sendable {
+        /// What it is (a timer, a deadline, a watcher, a system observer).
         public let kind: Kind
+        /// Who armed it.
         public let owner: String
+        /// The line that made it.
         public let site: Site
         /// `CLOCK_UPTIME_RAW` nanoseconds at its first arm.
         public let armedNanos: UInt64

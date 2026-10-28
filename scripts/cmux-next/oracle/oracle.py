@@ -119,6 +119,8 @@ Sibling interfaces this file calls:
     linux_run.sh overlay BASE HEAD --out FILE; overlay.load_plan, mask_runs, summary  (202)
         -> a base/head diff builds the plan's buildSha on the base side, runs `run --facets v0` on both
            sides for a v0 plan, and `diff --overlay PLAN` masks what is not comparable (never a pass)
+    confirm.py --diff DIR: reruns the divergent cases of DIR/comparison.json (its a_dir, b_dir and
+        expected_files) and routes only "head fails twice, base passes" through route.py (184, 118)
 """
 
 from __future__ import annotations
@@ -1537,13 +1539,16 @@ def comparability(a: RunView, b: RunView, *, partial: bool, order_parity: bool =
 
 
 def run_diff_py(a_dir: Path, b_dir: Path, out: Path, expected: Sequence[Path],
-                arm_pointers: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
+                arm_pointers: Sequence[str] = (), cases: Sequence[str] = ()) -> Tuple[int, Dict[str, Any]]:
+    """diff.py over two run dirs; `cases` limits it to those case ids (confirm.py's reruns)."""
     script = require_sibling("diff", "p15-oracle-014")
     command = [sys.executable, "-I", str(Path(script.__file__)), str(a_dir), str(b_dir), "--out", str(out)]
     for path in expected:
         command += ["--expected", str(path)]
     for pointer in arm_pointers:
         command += ["--arm-pointer", pointer]
+    for case_id in cases:
+        command += ["--case", glob.escape(case_id)]
     proc = subprocess.run(command, check=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     try:
         document = json.loads(out.read_text(encoding="utf-8"))
@@ -1595,8 +1600,8 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         expected = [*expected, ENGINE_PARITY_FILE]
     document: Dict[str, Any] = {}
     code = None
+    files = list(expected)
     if refused is None:
-        files = list(expected)
         if rules:
             write_json(out / "expectation-rules.json", list(rules))
             files.append(out / "expectation-rules.json")
@@ -1636,6 +1641,12 @@ def compare_views(a: RunView, b: RunView, *, a_dir: Path, b_dir: Path, out: Path
         "overlay": overlay,
         "divergence": str(target) if target.is_file() else None,
         "divergences": str(out / "divergences.jsonl"),
+        # What confirm.py (task 184) reruns and compares with: the two run dirs, diff.py's --expected files
+        # and the switch's arm readback pointers (task 111; empty unless the sides are two arms).
+        "a_dir": str(a_dir),
+        "b_dir": str(b_dir),
+        "expected_files": [str(path) for path in files],
+        "arm_pointers": list(arm_pointers),
         "order_parity": order_parity,
         "leaked_state": leaks,
         "leaks_differ": leaks_differ,
