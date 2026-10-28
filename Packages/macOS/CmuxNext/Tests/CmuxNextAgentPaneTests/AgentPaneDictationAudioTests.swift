@@ -105,34 +105,26 @@ struct AgentPaneDictationAudioTests {
         #expect(mode == 0o600)
     }
 
-    /// A finish between a tap taking its second of samples and that second's write: the header
-    /// counted the second and the file did not hold it, and the late write opened a new file.
-    @Test func aFinishDuringATapsFlushKeepsEverySample() async throws {
+    /// A finish queued behind a tap's flush: the header counts every sample and the file holds
+    /// them all, and no write opens a second file after the close. The writer is held so the flush
+    /// and the finish queue up in that order.
+    @Test func aFinishQueuedBehindAFlushKeepsEverySample() async throws {
         let folder = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: folder) }
-        let finished = FinishBox()
-        let holder = RecordingHolder()
-        let recording = DictationAudioRecording(file: folder.appending(path: "race.wav"), flushTaken: {
-            // The tap's thread, after it took the flush: the session ends right here.
-            let done = DispatchSemaphore(value: 0)
-            Task.detached {
-                await finished.set(await holder.recording?.finish())
-                done.signal()
-            }
-            done.wait()
-        })
-        holder.recording = recording
-        // Exactly one second, so this append takes the flush and fires the hook.
-        let second = [Float](repeating: 0.25, count: 16_000)
-        await Task.detached { second.withUnsafeBufferPointer { recording.append($0, sampleRate: 16_000) } }.value
-        let audio = try #require(await finished.value)
+        let recording = DictationAudioRecording(folder: folder)
+        recording.writer.suspend()
+        // Exactly one second: this append queues one flush.
+        feed(recording, seconds: 1, value: 0.25)
+        let finishing = Task { await recording.finish() }
+        recording.writer.resume()
+        let audio = try #require(await finishing.value)
         let wav = try #require(audio.data)
         let dataBytes = wav[40..<44].enumerated().reduce(0) { $0 | Int($1.element) << (8 * $1.offset) }
         #expect(dataBytes == 16_000 * 2, "the header counts every sample")
         #expect(wav.count == 44 + dataBytes, "and the file holds every sample it counts")
-        // No second file appears after the finish.
-        try await Task.sleep(for: .milliseconds(100))
-        #expect((try? FileManager.default.contentsOfDirectory(atPath: folder.path))?.isEmpty ?? true)
+        // A finish of an ended recording answers after everything queued before it: nothing is left behind.
+        #expect(await recording.finish() == nil)
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
     }
 
     /// Review of #26559 at 2596b7ca: a recording's file went to a shared temporary folder that
@@ -162,57 +154,49 @@ struct AgentPaneDictationAudioTests {
 
     /// Review of #26559 at 78df61f4: a finish after a discard answered at once, before the
     /// discard's delete ran on the writer queue, so a caller (and these tests) could see the
-    /// folder still there. A finish answers only after every step queued before it.
+    /// folder still there. A finish answers only after every step queued before it: with the writer
+    /// held, the finish cannot answer before the delete, whatever the scheduler does.
     @Test func aFinishAfterADiscardWaitsForItsDelete() async throws {
         let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: parent) }
         let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
-        let writer = DispatchQueue(label: "dictation-test-writer")
-        let recording = DictationAudioRecording(folder: folder, writer: writer)
+        let recording = DictationAudioRecording(folder: folder)
         feed(recording, seconds: 2)
-        await withCheckedContinuation { done in writer.async { done.resume() } }
+        await withCheckedContinuation { done in recording.writer.async { done.resume() } }
         #expect(FileManager.default.fileExists(atPath: folder.path))
-        writer.suspend()
+        recording.writer.suspend()
         recording.discard()
-        let finished = FinishFlag()
         let finishing = Task {
             let audio = await recording.finish()
-            await finished.set()
-            return audio
+            return (audio, FileManager.default.fileExists(atPath: folder.path))
         }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(await finished.value == false, "the finish waits for the discard's delete")
-        writer.resume()
-        #expect(await finishing.value == nil)
-        #expect(!FileManager.default.fileExists(atPath: folder.path))
+        recording.writer.resume()
+        let (audio, folderThere) = await finishing.value
+        #expect(audio == nil)
+        #expect(!folderThere, "the finish answered after the discard's delete")
     }
 
     /// Review of #26559 at 90725635 (P1): discard marked the recording finished under the lock and
-    /// queued its delete after releasing it, so a finish in between queued its answer first and
-    /// returned with the folder still there.
+    /// queued its delete after releasing it, so a finish racing it on another thread could queue
+    /// its answer first and return with the folder still there. Many real races, no hook: every
+    /// finish that answers after (or alongside) a discard sees the folder gone.
     @Test func aFinishRacingADiscardStillWaitsForTheDelete() async throws {
         let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: parent) }
-        let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
-        let holder = RecordingHolder()
-        let folderAtAnswer = FolderSeen()
-        let recording = DictationAudioRecording(folder: folder, writer: DispatchQueue(label: "dictation-test-writer"), discardMarked: {
-            // The other caller's finish lands between discard's lock and its delete: what it sees
-            // when it answers is what a caller of `discard(); await finish()` relies on.
-            let done = DispatchSemaphore(value: 0)
-            Task.detached {
-                let audio = await holder.recording?.finish()
-                await folderAtAnswer.set(audio == nil, FileManager.default.fileExists(atPath: folder.path))
-                done.signal()
-            }
-            done.wait()
-        })
-        holder.recording = recording
-        feed(recording, seconds: 2)
-        await Task.detached { recording.discard() }.value
-        let seen = await folderAtAnswer.value
-        #expect(seen?.nothing == true)
-        #expect(seen?.folderThere == false, "the racing finish answered after the delete")
+        for _ in 0..<200 {
+            let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
+            let recording = DictationAudioRecording(folder: folder)
+            feed(recording, seconds: 1)
+            await withCheckedContinuation { done in recording.writer.async { done.resume() } }
+            async let discarded: Void = Task.detached { recording.discard() }.value
+            async let raced = Task.detached { () -> Bool? in
+                // A finish that wins the race closes the recording itself: it says nothing here.
+                let audio = await recording.finish()
+                return audio == nil ? FileManager.default.fileExists(atPath: folder.path) : nil
+            }.value
+            _ = await discarded
+            if let folderThere = await raced { #expect(!folderThere, "a finish after a discard answered before the delete") }
+        }
     }
 
     /// Review of #26559 at 90725635 (P3): the WAV header stored the data length in 32 bits, so a
@@ -243,7 +227,6 @@ struct AgentPaneDictationAudioTests {
         let parent = FileManager.default.temporaryDirectory.appending(path: "dictation-test-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: parent) }
         let folder = parent.appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
-        let writer = DispatchQueue(label: "dictation-test-writer")
         let engine = LongRecordingTranscriber(seconds: 140)
         let session = DictationSession(authorizer: GrantedDictationAuthorizer(), makeTranscriber: { meter in
             engine.meter = meter
@@ -251,9 +234,9 @@ struct AgentPaneDictationAudioTests {
         })
         session.recordsAudio = true
         session.recordingFolder = { folder }
-        session.makeRecording = { DictationAudioRecording(folder: $0, writer: writer) }
         session.start()
         try await waitFor { engine.fed && session.phase == .listening }
+        let writer = try #require(session.recording?.writer)
         await withCheckedContinuation { done in writer.async { done.resume() } }
         #expect(FileManager.default.fileExists(atPath: folder.path))
         // The close waits on the held writer: the session sits in its closing step.
@@ -308,25 +291,6 @@ struct AgentPaneDictationAudioTests {
         #expect(payload["audio"] == nil)
         #expect(AgentPaneDictation.payload(DictationUpdate(phase: .idle, text: "fix the build"))["audioOmitted"] == nil)
     }
-}
-
-private actor FinishBox {
-    private(set) var value: DictationAudio?
-    func set(_ audio: DictationAudio?) { value = audio }
-}
-
-private final class RecordingHolder: @unchecked Sendable {
-    var recording: DictationAudioRecording?
-}
-
-private actor FinishFlag {
-    private(set) var value = false
-    func set() { value = true }
-}
-
-private actor FolderSeen {
-    private(set) var value: (nothing: Bool, folderThere: Bool)?
-    func set(_ nothing: Bool, _ folderThere: Bool) { value = (nothing, folderThere) }
 }
 
 private nonisolated struct GrantedDictationAuthorizer: DictationAuthorizing {

@@ -62,7 +62,8 @@ public final class DictationAudioRecording: Sendable {
     /// The recording's own folder, removed with its file (``init(folder:)``); nil for a file given
     /// alone (``init(file:)``), whose folder stays.
     private let folder: URL?
-    private let writer: DispatchQueue
+    /// The serial queue every file step runs on, in the order the state lock saw them.
+    let writer: DispatchQueue
     /// The file as ``writer`` writes it. Only blocks on ``writer`` take this lock, one at a time,
     /// so it is never contended; it carries the state across that queue's blocks.
     private let output = Mutex(Output())
@@ -75,41 +76,23 @@ public final class DictationAudioRecording: Sendable {
         var failed = false
     }
 
-    /// Called after a tap took a full second for the file (tests interleave a finish there).
-    private let flushTaken: (@Sendable () -> Void)?
-    /// Called after a discard marked the recording finished (tests interleave a finish there).
-    private let discardMarked: (@Sendable () -> Void)?
-
     /// A recording into `file` (made owner-only at the first second heard).
-    public convenience init(file: URL) {
-        self.init(file: file, flushTaken: nil)
-    }
-
-    init(file: URL, flushTaken: (@Sendable () -> Void)?) {
+    public init(file: URL) {
         writer = Self.writerQueue()
         self.file = file
         folder = nil
-        self.flushTaken = flushTaken
-        discardMarked = nil
     }
 
     /// A recording that owns `folder` (a fresh upload folder of the chat, made owner-only at the
     /// first second heard; by default one under this user's temporary folder): its file is
     /// `Recording.wav` there, and a recording sent inline or discarded removes the folder.
-    public convenience init(folder: URL? = nil) {
-        self.init(folder: folder, writer: Self.writerQueue())
-    }
-
-    /// A recording that owns `folder`, writing on `writer` (tests hold it to order the steps).
-    init(folder: URL?, writer: DispatchQueue, discardMarked: (@Sendable () -> Void)? = nil) {
-        self.writer = writer
-        self.discardMarked = discardMarked
+    public init(folder: URL? = nil) {
+        writer = Self.writerQueue()
         let folder = folder
             ?? FileManager.default.temporaryDirectory.appending(path: "cmux-dictation", directoryHint: .isDirectory)
             .appending(path: UUID().uuidString.lowercased(), directoryHint: .isDirectory)
         self.folder = folder
         file = folder.appending(path: "Recording.wav")
-        flushTaken = nil
     }
 
     private static func writerQueue() -> DispatchQueue {
@@ -134,12 +117,12 @@ public final class DictationAudioRecording: Sendable {
     /// Input below 16 kHz (a narrowband headset) is not recorded: the session goes as text alone.
     public func append(_ input: UnsafeBufferPointer<Float>, sampleRate: Double) {
         // The closure runs before withLockUnchecked returns, so the buffer is still valid in it.
-        let full: [Int16]? = state.withLockUnchecked { state in
-            guard state.omitted == nil, !state.finished else { return nil }
+        state.withLockUnchecked { state in
+            guard state.omitted == nil, !state.finished else { return }
             guard sampleRate >= Self.sampleRate else {
                 state.omitted = .narrowband
                 state.pending = []
-                return nil
+                return
             }
             // Input samples per output sample.
             let step = sampleRate / Self.sampleRate
@@ -157,16 +140,14 @@ public final class DictationAudioRecording: Sendable {
                     state.partial = (0, 0)
                 }
             }
-            guard state.pending.count >= Self.flushSamples else { return nil }
+            guard state.pending.count >= Self.flushSamples else { return }
             defer { state.pending = [] }
             state.written += state.pending.count
             // Enqueued under the lock, so the writer runs the writes in the order `written` counted
             // them and before any finish or discard that read `written` after this one (async: no wait).
             let full = state.pending
             writer.async { self.write(full) }
-            return full
         }
-        if full != nil { flushTaken?() }
     }
 
     /// Why ``finish()`` has nothing, when the session's audio was left out rather than silent.
@@ -213,7 +194,6 @@ public final class DictationAudioRecording: Sendable {
                 self.removeFile()
             }
         }
-        discardMarked?()
     }
 
     // MARK: - On `writer`
