@@ -45,7 +45,11 @@ struct CmdWLastTabClosesWorkspaceTests {
             #expect(store.workspaces.contains { $0.id == first }, "the other workspace closed too")
         }
     }
+}
 
+/// Close Workspace's question covers what a tab close of its terminals asks. A unit test of the question, no daemon.
+@MainActor @Suite(.serialized)
+struct CloseWorkspaceAgentQuestionTests {
     /// Close Workspace asks what the tab close of its terminals would ask: an agent at work in one, with
     /// `app.warnBeforeClosingAgentSession` (its default, on), so Cmd-W through the workspace close loses no question
     /// (review of 5141e93507e). The same holds for Cmd-Shift-W.
