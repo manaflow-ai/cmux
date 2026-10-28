@@ -184,15 +184,22 @@ struct MobileShellForegroundConnectionRecoveryTests {
     let originalTransport = try #require(box.get())
     let originalClient = try #require(store.remoteClient)
     let probeCount = await router.count(of: "mobile.workspace.list")
+    let statusCount = await router.count(of: "mobile.host.status")
 
     store.suspendForegroundRefresh()
     clock.advance(by: MobileShellComposite.foregroundProbeSilenceIsDeadAfterBackground + 1)
-    await router.holdNextWorkspaceListRequests(count: 2)
+    await router.holdNextWorkspaceListRequests()
+    await router.holdNextHostStatusRequests()
     store.resumeForegroundRefresh()
 
     #expect(await router.waitForCount(
         of: "mobile.workspace.list",
-        atLeast: probeCount + 2
+        atLeast: probeCount + 1
+    ))
+    // The confirming probe is a direct status request, not a second list.
+    #expect(await router.waitForCount(
+        of: "mobile.host.status",
+        atLeast: statusCount + 1
     ))
     #expect(try await pollUntil {
         store.remoteClient !== originalClient
@@ -203,6 +210,87 @@ struct MobileShellForegroundConnectionRecoveryTests {
     #expect(box.get() !== originalTransport)
     #expect(await originalTransport.isTransportClosed())
     #expect(!store.isRecoveringConnection)
+}
+
+@MainActor
+@Test func longBackgroundAnsweredConfirmationKeepsSession() async throws {
+    // A stalled list fetch alone is not proof: when the direct status
+    // request answers, the Mac still serves this session and it is kept.
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock,
+        probeTimeoutNanoseconds: 50_000_000
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    let originalTransport = try #require(box.get())
+    let originalClient = try #require(store.remoteClient)
+    let statusCount = await router.count(of: "mobile.host.status")
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: MobileShellComposite.foregroundProbeSilenceIsDeadAfterBackground + 1)
+    await router.holdNextWorkspaceListRequests()
+    store.resumeForegroundRefresh()
+
+    #expect(await router.waitForCount(
+        of: "mobile.host.status",
+        atLeast: statusCount + 1
+    ))
+    #expect(try await pollUntil {
+        store.connectionRecoveryOwner.phase == .idle && !store.isRecoveringConnection
+    })
+    #expect(store.remoteClient === originalClient)
+    #expect(box.get() === originalTransport)
+    #expect(store.macConnectionStatus == .connected)
+}
+
+@MainActor
+@Test func longBackgroundProbeAuthFailureSettlesWithoutReconnecting() async throws {
+    // An auth error during the probe tears the session down for re-auth.
+    // The probe must settle so Reconnecting never masks the disconnected
+    // state (which would also unblock terminal input).
+    let router = LivenessHostRouter()
+    let box = TransportBox()
+    let clock = TestClock()
+    let (store, directory) = try await makeForegroundRecoveryStore(
+        router: router,
+        box: box,
+        clock: clock,
+        probeTimeoutNanoseconds: 10_000_000_000
+    )
+    defer {
+        Task { await router.releaseAllHeld() }
+        try? FileManager.default.removeItem(at: directory)
+    }
+    let probeCount = await router.count(of: "mobile.workspace.list")
+
+    store.suspendForegroundRefresh()
+    clock.advance(by: MobileShellComposite.foregroundProbeSilenceIsDeadAfterBackground + 1)
+    await router.holdNextWorkspaceListRequests()
+    // The router numbers both list methods together.
+    let listRequestCount = probeCount + (await router.count(of: "workspace.list"))
+    await router.failWorkspaceListRequest(number: listRequestCount + 1, code: "auth_required")
+    store.resumeForegroundRefresh()
+
+    #expect(await router.waitForCount(
+        of: "mobile.workspace.list",
+        atLeast: probeCount + 1
+    ))
+    // Let the reveal grace pass while the failing probe is still held.
+    #expect(try await pollUntil(attempts: 2_000) { store.isRecoveringConnection })
+    await router.releaseAllHeld()
+    #expect(try await pollUntil {
+        store.connectionState == .disconnected
+            && store.connectionRecoveryOwner.phase == .idle
+    })
+    #expect(!store.isRecoveringConnection)
+    #expect(store.connectionRequiresReauth)
 }
 
 @MainActor

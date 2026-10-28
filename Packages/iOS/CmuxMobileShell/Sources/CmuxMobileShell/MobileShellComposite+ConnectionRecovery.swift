@@ -397,26 +397,34 @@ extension MobileShellComposite {
                           self.connectionRecoveryOwner.isCurrent(attempt),
                           self.remoteClient === expectedClient,
                           self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                        self.releaseStaleProbe(attempt)
                         return
                     }
                     if !healthy, unansweredProbeIsDead,
                        self.lastBackgroundedAt == nil,
                        self.foregroundResumeEpoch == epochAtProbeStart,
                        await expectedClient.isTransportClosed() == false {
-                        // One unanswered probe is ambiguous right after
-                        // resume while relay paths re-establish. Confirm
-                        // with a fresh deadline before replacing a session
+                        // One failed probe is ambiguous right after resume:
+                        // relay paths may still be re-establishing, the
+                        // state-sync fetch may share a stalled runner, and an
+                        // error reply proves the Mac is alive. Confirm with a
+                        // fresh, direct request before replacing a session
                         // whose native connection still reads open.
                         guard !Task.isCancelled,
                               self.connectionRecoveryOwner.isCurrent(attempt),
-                              self.remoteClient === expectedClient else { return }
-                        healthy = await self.reloadWorkspaceListFromMac(
+                              self.remoteClient === expectedClient else {
+                            self.releaseStaleProbe(attempt)
+                            return
+                        }
+                        healthy = await self.macAnswersLivenessRequest(
+                            client: expectedClient,
                             timeoutNanoseconds: self.runtime?.livenessProbeTimeoutNanoseconds
                         )
                         guard !Task.isCancelled,
                               self.connectionRecoveryOwner.isCurrent(attempt),
                               self.remoteClient === expectedClient,
                               self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                            self.releaseStaleProbe(attempt)
                             return
                         }
                     }
@@ -441,7 +449,10 @@ extension MobileShellComposite {
                     guard !Task.isCancelled,
                           self.connectionRecoveryOwner.isCurrent(attempt),
                           self.remoteClient === expectedClient,
-                          self.connectionGeneration == attempt.sourceConnectionGeneration else { return }
+                          self.connectionGeneration == attempt.sourceConnectionGeneration else {
+                        self.releaseStaleProbe(attempt)
+                        return
+                    }
                     let spannedBackground = self.lastBackgroundedAt != nil
                         || self.foregroundResumeEpoch != epochAtProbeStart
                     if transportClosed == false, !unansweredProbeIsDead {
@@ -788,6 +799,7 @@ extension MobileShellComposite {
             // long-background probe that outlived its grace: the session may
             // be half-open, so the user sees Reconnecting while it settles.
             isRecoveringConnection = foregroundProbeIndicatorIsVisible
+                && connectionState == .connected
             connectionRecoveryFailed = false
         case .redialing, .validatingReplacement:
             isRecoveringConnection = true
@@ -821,10 +833,50 @@ extension MobileShellComposite {
             }
             guard let self, !Task.isCancelled,
                   self.foregroundProbeIndicatorAttemptID == attempt.id,
-                  self.connectionRecoveryOwner.probingAttemptID == attempt.id else { return }
+                  self.connectionRecoveryOwner.probingAttemptID == attempt.id,
+                  self.connectionState == .connected else { return }
             self.foregroundProbeIndicatorTask = nil
             self.foregroundProbeIndicatorIsVisible = true
             self.applyConnectionRecoveryOwnerState()
+        }
+    }
+
+    /// Settles a probe whose session was torn down or replaced under it,
+    /// for example by an authorization failure during the probe request.
+    /// Nothing else leaves the probing phase, so without this the owner
+    /// would swallow every later recovery trigger.
+    private func releaseStaleProbe(_ attempt: MobileConnectionRecoveryOwner.Attempt) {
+        guard connectionRecoveryOwner.probingAttemptID == attempt.id else { return }
+        connectionRecoveryOwner.cancelProbing()
+        applyConnectionRecoveryOwnerState()
+    }
+
+    /// Confirms whether the Mac still serves this session with one direct
+    /// request that bypasses the coalesced workspace-list and state-sync
+    /// fetches. Any reply, including an RPC error, proves the session is
+    /// alive; only a timeout or closed transport counts as unanswered.
+    private func macAnswersLivenessRequest(
+        client: MobileCoreRPCClient,
+        timeoutNanoseconds: UInt64?
+    ) async -> Bool {
+        do {
+            _ = try await client.sendRequest(
+                MobileCoreRPCClient.requestData(method: "mobile.host.status", params: [:]),
+                timeoutNanoseconds: timeoutNanoseconds ?? runtime?.rpcRequestTimeoutNanoseconds
+            )
+            return true
+        } catch let error as MobileShellConnectionError {
+            switch error {
+            case .requestTimedOut, .transportWriteTimedOut, .connectionClosed:
+                return false
+            default:
+                if remoteClient === client {
+                    _ = disconnectForAuthorizationFailureIfNeeded(error)
+                }
+                return true
+            }
+        } catch {
+            return false
         }
     }
 
