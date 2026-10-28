@@ -78,7 +78,7 @@ import Testing
             case .item(let item): item.id
             }
         }
-        let band = projection.layout.scopedToWindow(hiding: { hidden.contains($0.id.rawValue) }).sections.flatMap(\.items).map(\.id.rawValue)
+        let band = projection.layout.withoutItems(where: { hidden.contains($0.id.rawValue) }).sections.flatMap(\.items).map(\.id.rawValue)
         return rows + band
     }
 

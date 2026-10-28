@@ -78,7 +78,7 @@ final class SidebarRows {
                               registry: WindowRegistry, hidden: Set<String> = [], showAppStore: Bool = true) -> SidebarLayoutDocument {
         guard SidebarDocWiring.isActive else { return visibleLayout(document, showAppStore: showAppStore) }
         let refs = WorkspaceLayoutRefs(machines: machines)
-        return visibleLayout(document, showAppStore: showAppStore).scopedToWindow(hiding: { item in
+        return visibleLayout(document, showAppStore: showAppStore).withoutItems(where: { item in
             // An open workspace's item follows the window that lists it, wherever it was pinned.
             if item.ref.kind == LayoutItemRef.workspaceKind, let id = refs.workspaceID(for: item.ref), let owner = registry.owner(of: id) {
                 return owner != windowID

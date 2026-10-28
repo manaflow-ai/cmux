@@ -14,11 +14,11 @@ extension SidebarLayoutDocument {
     /// and the sections themselves stay.
     /// The stored document is not changed (no user data is removed).
     public nonisolated func scopedToWindow(ownedElsewhere: (String) -> Bool) -> SidebarLayoutDocument {
-        scopedToWindow(hiding: { $0.ref.kind == LayoutItemRef.workspaceKind && ownedElsewhere($0.ref.value) })
+        withoutItems(where: { $0.ref.kind == LayoutItemRef.workspaceKind && ownedElsewhere($0.ref.value) })
     }
 
     /// The layout one window draws: without the items of any items section that `hides`. The sections stay.
-    public nonisolated func scopedToWindow(hiding hides: (LayoutItem) -> Bool) -> SidebarLayoutDocument {
+    public nonisolated func withoutItems(where hides: (LayoutItem) -> Bool) -> SidebarLayoutDocument {
         var result = self
         for index in result.sections.indices where result.sections[index].content == .items {
             result.sections[index].items.removeAll(where: hides)
