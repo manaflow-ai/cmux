@@ -27,6 +27,7 @@ use crate::cli::command::{HarnessCmd, SecretCmd};
 use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
+use crate::stderr::clean_stderr_line;
 
 mod claude_turn;
 mod program;
@@ -928,7 +929,8 @@ async fn run_short(
         Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
     } else {
         let err = String::from_utf8_lossy(&out.stderr);
-        Err(format!("{}: {}", out.status, err.lines().last().unwrap_or("").trim()))
+        let detail = err.lines().rev().map(clean_stderr_line).find(|line| !line.is_empty());
+        Err(format!("{}: {}", out.status, detail.unwrap_or_default()))
     }
 }
 
@@ -1054,7 +1056,8 @@ async fn acp_steps(
     }
     let text =
         stderr_tail.lock().map(|t| String::from_utf8_lossy(&t).into_owned()).unwrap_or_default();
-    let lines: Vec<&str> = text.lines().collect();
+    let lines: Vec<String> =
+        text.lines().map(clean_stderr_line).filter(|line| !line.is_empty()).collect();
     let last = lines[lines.len().saturating_sub(15)..].join("\n");
     let silent = opts.prompt && wire.reply.trim().is_empty();
     if let Some(kind) = endpoint

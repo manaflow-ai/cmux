@@ -5,6 +5,7 @@
 
 use super::person::{REASON, person_required, valid_key};
 use super::*;
+use crate::stderr::clean_stderr_line;
 
 mod preset_bind;
 pub(crate) use preset_bind::StartGrant;
@@ -526,7 +527,7 @@ impl Hub {
                 .unwrap()
                 .iter()
                 .rev()
-                .map(|l| l.trim().to_owned())
+                .map(|line| clean_stderr_line(line))
                 .find(|l| super::exit_reason::explains_exit(l))
         };
         Self::drain_inbound(session).await;
