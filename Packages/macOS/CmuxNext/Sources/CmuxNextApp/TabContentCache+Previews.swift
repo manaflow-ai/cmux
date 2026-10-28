@@ -15,8 +15,8 @@ extension TabContentCache {
     /// page on screen is pictured on demand when its version moved since its
     /// last picture (once per navigation or load); a hidden one returns its
     /// last picture (the engine cannot picture it; nil: the card shows its
-    /// placeholder). `captureIfMissing` (a tab drag) also pictures a hidden
-    /// page that has none.
+    /// placeholder). `captureIfMissing` (a tab drag) also asks for a hidden
+    /// page that has none (Chromium gives none of a hidden page).
     func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
         if let entry = terminals[key] {
             guard entry.session.showsOutput else { return nil } // a new shell's prompt: nothing to picture
