@@ -30,6 +30,8 @@ export type QuickMenu = {
   models: readonly Omit<QuickModel, "family">[];
   current?: string;
   onModel(id: string): void;
+  /// Cached machine auth health for the selected harness, independent of live-session model picks.
+  auth?: { note: string; logIn?(): void };
   /// The reasoning levels; absent when the model offers no choice.
   effort?: {
     levels: Choice[];
@@ -134,6 +136,37 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// provider's than the row lands, when the running one is unavailable.
 const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
   !!model.offers?.some((offer) => offer.id === current);
+
+/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
+/// submenu (a chevron), shows a number key, or shows the chosen model's check (wider: it has its own
+/// leading padding).
+export type ProbeRow = {
+  label: string;
+  value?: string;
+  sub?: boolean;
+  shortcut?: boolean;
+  check?: boolean;
+};
+
+/// Invisible width probes keep tab changes from resizing the surface horizontally. They never
+/// reserve height: the visible models and controls alone determine how tall the menu is.
+function QuickMenuSpacer({ widths }: { widths: ProbeRow[] }) {
+  return (
+    <div className="acpmux-quick-spacer" aria-hidden="true" inert>
+      <div className="acpmux-quick-probe">
+        {widths.map((row, index) => (
+          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
+            <span className="acpmux-menu-label">{row.label}</span>
+            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
+            {row.check && <span className="ui-menu-check">✓</span>}
+            {row.sub && <span className="ui-submenu-chevron" />}
+            {row.shortcut && <span className="ui-menu-shortcut">9</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField" | "providers">;
@@ -518,6 +551,18 @@ export function QuickModelMenu({
           {inlineMore && families.onAddHarness && (moreShown || !shown?.more.length) && (
             <MenuItem className="acpmux-quick-item" onSelect={() => families.onAddHarness?.()}>
               <span className="acpmux-menu-label">{t("modelPicker.addHarness")}</span>
+            </MenuItem>
+          )}
+        </>
+      )}
+      {!query && onChatTab && menu.auth && !shown?.note && (
+        <>
+          <MenuItem disabled className="acpmux-quick-item acpmux-quick-note">
+            {menu.auth.note}
+          </MenuItem>
+          {menu.auth.logIn && (
+            <MenuItem className="acpmux-quick-item acpmux-quick-login" onSelect={menu.auth.logIn}>
+              <span className="acpmux-menu-label">{t("harness.logIn")}</span>
             </MenuItem>
           )}
         </>

@@ -40,7 +40,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   Object.assign(scope, {
     window: dom.window,
     document: dom.window.document,
@@ -88,9 +91,17 @@ type Sent = { method: "model" | "harness" | "effort"; value: string };
 async function mount(start: {
   signIn?: import("../src/agent-session/acpmux/signIn").SignIn;
   harness: string;
-  extra?: { id: string; name: string; family?: string; unavailable?: string; probeFailed?: boolean }[];
+  extra?: {
+    id: string;
+    name: string;
+    family?: string;
+    unavailable?: string;
+    probeFailed?: boolean;
+  }[];
   /// Completed turns of the shown chat: none (the default) is a chat with no message yet.
   turnCount?: number;
+  fresh?: boolean;
+  fork?: boolean;
   /// acpmux's session list (the sidebar's Chats).
   sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
 }) {
@@ -129,7 +140,7 @@ async function mount(start: {
       canLoadOlder: false,
       catalog: acpmux,
       summary: {
-        sessionId: state.sessionId,
+        ...(start.fresh ? {} : { sessionId: state.sessionId }),
         harness: state.harness,
         model: state.model,
         turnCount: start.turnCount ?? 0,
@@ -161,8 +172,21 @@ async function mount(start: {
         onHarness={(harness, model) => {
           sent.push({ method: "harness", value: model ? `${harness}/${model}` : harness });
           session += 1;
-          setState({ sessionId: `s${session}`, harness, model: model ?? "default", effort: "medium" });
+          setState({
+            sessionId: `s${session}`,
+            harness,
+            model: model ?? "default",
+            effort: "medium",
+          });
         }}
+        {...(start.fork
+          ? {
+              fork: {
+                ready: true,
+                to: (id: string) => sent.push({ method: "harness", value: id }),
+              },
+            }
+          : {})}
         showPlan={false}
         {...(start.signIn ? { signIn: start.signIn } : {})}
       />
@@ -184,7 +208,12 @@ async function mount(start: {
 /// the compact menu first (Leo 2026-10-20: one model button), and the full picker is reached from it.
 const openFullPicker = () =>
   dom.window.dispatchEvent(
-    new dom.window.KeyboardEvent("keydown", { key: "m", metaKey: true, ctrlKey: true, bubbles: true }),
+    new dom.window.KeyboardEvent("keydown", {
+      key: "m",
+      metaKey: true,
+      ctrlKey: true,
+      bubbles: true,
+    }),
   );
 
 const tabFor = (name: string) =>
@@ -199,7 +228,10 @@ test("a signed-out harness offers Log In, never its models", async () => {
   const logins: string[] = [];
   const { sent, catalog } = await mount({
     harness: "claude",
-    signIn: { signedOut: { codex: "codex login" }, logIn: (harness, login) => logins.push(`${harness}: ${login}`) },
+    signIn: {
+      signedOut: { codex: "codex login" },
+      logIn: (harness, login) => logins.push(`${harness}: ${login}`),
+    },
   });
   const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
   await act(async () => {
@@ -213,7 +245,7 @@ test("a signed-out harness offers Log In, never its models", async () => {
   // No More models fold either: it would open models a pick refuses (seen on a DEV build).
   expect(host.querySelector(".acpmux-mp-older")).toBeNull();
   const login = host.querySelector<HTMLButtonElement>(".acpmux-mp-login");
-  expect(login?.textContent).toMatch(/(?:Log In|harness\.logIn)/);
+  expect(login?.textContent).toBe("Log In");
   await act(async () => login!.click());
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
@@ -242,25 +274,76 @@ test("a search never lists a signed-out harness's models", async () => {
 // Auth health is checked before a turn, including for the running harness. The closed model
 // control exposes the same login action as the open picker, so the first prompt never discovers a
 // stale or expired account.
-test("the running chat's signed-out harness offers login before sending", async () => {
+test("a fresh session offers login before sending", async () => {
   const logins: string[] = [];
   await mount({
     harness: "codex",
-    turnCount: 1,
-    signIn: { signedOut: { codex: "codex login" }, logIn: (harness, login) => logins.push(`${harness}: ${login}`) },
+    fresh: true,
+    signIn: {
+      signedOut: { codex: "codex login" },
+      logIn: (harness, login) => logins.push(`${harness}: ${login}`),
+    },
   });
   const closedLogin = host.querySelector<HTMLButtonElement>('[data-auth-action="login"]');
-  expect(closedLogin?.textContent).toMatch(/(?:Log In|harness\.logIn)/);
+  expect(closedLogin?.textContent).toBe("Log In");
   await act(async () => closedLogin!.click());
   expect(logins).toEqual(["codex: codex login"]);
   await act(async () => {
     openFullPicker();
   });
-  // A started chat's harness is fixed: its menu has no rail and lists the pre-turn login action.
-  expect(host.querySelector(".acpmux-mp-harness")).toBeNull();
+  // Before a session is established, signed-out models remain unavailable.
   expect(modelRows()).toHaveLength(0);
-  expect(host.querySelector(".acpmux-mp-login")?.textContent).toMatch(/(?:Log In|harness\.logIn)/);
+  expect(host.querySelector(".acpmux-mp-login")?.textContent).toBe("Log In");
 });
+
+for (const fork of [false, true]) {
+  test(`an established session keeps selectable models despite cached auth health (${fork ? "rail" : "no rail"})`, async () => {
+    const logins: string[] = [];
+    const { sent } = await mount({
+      harness: "codex",
+      turnCount: 1,
+      fork,
+      signIn: {
+        signedOut: { codex: "codex login" },
+        logIn: (_harness, login) => logins.push(login),
+      },
+    });
+    const chip = host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
+    await act(async () => chip.click());
+    const rows = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')];
+    expect(rows.length).toBeGreaterThan(0);
+    const login = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-quick-login");
+    expect(login?.textContent).toBe("Log In");
+    await act(async () => rows[rows.length - 1]!.click());
+    expect(sent.some((pick) => pick.method === "model")).toBe(true);
+    expect(logins).toEqual([]);
+    await act(async () => {
+      openFullPicker();
+    });
+    expect(modelRows().length).toBeGreaterThan(0);
+    await act(async () => modelRows()[0]!.click());
+    expect(sent.filter((pick) => pick.method === "model").length).toBe(2);
+  });
+}
+
+for (const login of ["", "  "]) {
+  test(`a missing login command offers no empty terminal action (${JSON.stringify(login)})`, async () => {
+    const logins: string[] = [];
+    await mount({
+      harness: "codex",
+      fresh: true,
+      signIn: { signedOut: { codex: login }, logIn: (_harness, command) => logins.push(command) },
+    });
+    expect(host.querySelector(".acpmux-model-auth")?.textContent).toBe("Signed out");
+    expect(host.querySelector('[data-auth-action="login"]')).toBeNull();
+    await act(async () => {
+      openFullPicker();
+    });
+    expect(host.querySelector(".acpmux-mp-login")).toBeNull();
+    expect(modelRows()).toHaveLength(0);
+    expect(logins).toEqual([]);
+  });
+}
 
 test("Starred lists no model of a signed-out harness", async () => {
   const { BUNDLED_MODEL_CATALOG } = await import("../src/agent-session/acpmux/modelCatalogData");
@@ -268,7 +351,10 @@ test("Starred lists no model of a signed-out harness", async () => {
   const [codexModel, claudeModel] = [first("codex"), first("claude")];
   // The picker reads its stars when it mounts.
   dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify([codexModel, claudeModel]));
-  await mount({ harness: "claude", signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined } });
+  await mount({
+    harness: "claude",
+    signIn: { signedOut: { codex: "codex login" }, logIn: () => undefined },
+  });
   await act(async () => {
     openFullPicker();
   });

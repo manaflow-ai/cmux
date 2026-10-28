@@ -118,7 +118,10 @@ function quickSections(
 /// itself by its short name under its harness ("Opus 5.5"). Choices are memoized per harness
 /// entry, so the owner map keys stay the same objects between renders.
 const choiceCache = new WeakMap<HarnessChoice, { latest: ModelChoice[]; older: ModelChoice[] }>();
-function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[]; older: ModelChoice[] } {
+function sectionsFor(entry: HarnessChoice | undefined): {
+  latest: ModelChoice[];
+  older: ModelChoice[];
+} {
   if (!entry) return { latest: [], older: [] };
   const cached = choiceCache.get(entry);
   if (cached) return cached;
@@ -153,7 +156,10 @@ function shownSections(
   const sections = sectionsFor(entry);
   const runs = sections.older.find((choice) => choice.id === model);
   if (!runs) return sections;
-  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
+  return {
+    latest: [...sections.latest, runs],
+    older: sections.older.filter((choice) => choice !== runs),
+  };
 }
 
 /// Every model of a harness, newest first, older versions included.
@@ -250,7 +256,12 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
     ...(model.offers
-      ? { offers: model.offers.map((offer) => ({ ...quickRow(family, offer), provider: offer.provider })) }
+      ? {
+          offers: model.offers.map((offer) => ({
+            ...quickRow(family, offer),
+            provider: offer.provider,
+          })),
+        }
       : {}),
   };
 }
@@ -271,7 +282,10 @@ function railByHarness(
     if (seen.has(family.id)) return [];
     seen.add(family.id);
     const folded = profiles[family.id] ?? [];
-    const named = folded.map((profile) => ({ ...profile, name: launchName(family.name, profile.name, profile.id) }));
+    const named = folded.map((profile) => ({
+      ...profile,
+      name: launchName(family.name, profile.name, profile.id),
+    }));
     // Resolve branded suffixes first: `claude-work` becomes Work (work), leaving a profile
     // whose ID is just `work` free to keep Work. Raw IDs distinguish any names still repeated.
     const names = ensureDistinctLaunchNames(
@@ -294,7 +308,16 @@ function railByHarness(
         )
           return [];
         seen.add(profile.id);
-        return [{ id: profile.id, name: profile.name, mark: family.mark, models: [], more: [], launch: true }];
+        return [
+          {
+            id: profile.id,
+            name: profile.name,
+            mark: family.mark,
+            models: [],
+            more: [],
+            launch: true,
+          },
+        ];
       }),
     ];
   });
@@ -411,7 +434,10 @@ export function ModelPicker(props: ModelPickerProps) {
     fork,
   } = props;
   /// A signed-out harness's login command ("" when acpmux names none); undefined when it can start.
-  const loginFor = useCallback((entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id], [signedOut]);
+  const loginFor = useCallback(
+    (entry: HarnessChoice) => signedOut?.[entry.acpmuxHarness ?? entry.id]?.trim(),
+    [signedOut],
+  );
   const t = useT();
   const newTab = useContext(OnNewTab);
   /// The chat's agent CLI has an update (hq#2569 #12): a row in the menu and the picker and a line
@@ -797,12 +823,9 @@ export function ModelPicker(props: ModelPickerProps) {
     if (starred.length) list.push({ id: STARRED, name: starredText, starred: true, models: starred, more: [] });
     for (const entry of startable) {
       const signedOutHere = loginFor(entry) !== undefined;
-      // A stale pre-turn health result must not blank the running chat's model list. Keep
-      // its rows visible beside the auth action; picks remain guarded until re-authentication.
-      const runningSignedOut = signedOutHere && entry.ids.includes(harness ?? "");
-      const { shown, more } = !signedOutHere || runningSignedOut
-        ? quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined)
-        : { shown: [], more: [] };
+      const { shown, more } = signedOutHere
+        ? { shown: [], more: [] }
+        : quickSections(entry, entry.ids.includes(harness ?? "") ? props.model : undefined);
       list.push({
         id: entry.id,
         name: entry.name,
@@ -1024,7 +1047,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipTitle = rowChip?.title ?? chipLabel;
   // Health is checked before a turn starts. Keep the selected harness's signed-out/expired state
   // visible on the closed control and offer its login command without making the user send first.
-  const selectedLogin = current ? loginFor(current) : undefined;
+  const selectedLogin = props.currentAuth?.login.trim() ?? (current ? loginFor(current) : undefined);
   const authLabel = selectedLogin !== undefined ? t("harnesses.signedOut") : undefined;
   const authAction = current && selectedLogin && onLogIn ? (
     <button
@@ -1126,6 +1149,18 @@ export function ModelPicker(props: ModelPickerProps) {
             }}
             menu={{
               ...quick,
+              ...(authLabel
+                ? {
+                    auth: {
+                      note: authLabel,
+                      ...(current && selectedLogin && onLogIn
+                        ? {
+                            logIn: () => onLogIn(current.acpmuxHarness ?? current.id, selectedLogin),
+                          }
+                        : {}),
+                    },
+                  }
+                : {}),
               ...(update && updateText ? { update: { text: updateText, run: update.update } } : {}),
               // This harness's top models, the running one among them; a signed-out harness lists none.
               models:
@@ -1379,6 +1414,27 @@ export function ModelPicker(props: ModelPickerProps) {
                     ))}
                   </div>
                 )}
+                {!searching &&
+                  selected &&
+                  selected === current &&
+                  props.currentAuth &&
+                  loginFor(selected) === undefined && (
+                    <>
+                      <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>
+                      {selectedLogin && onLogIn && (
+                        <button
+                          type="button"
+                          className={`acpmux-mp-row acpmux-mp-login ${modelRow} ${rowFill(false)}`}
+                          onClick={() => {
+                            onLogIn(selected.acpmuxHarness ?? selected.id, selectedLogin);
+                            close();
+                          }}
+                        >
+                          <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
+                        </button>
+                      )}
+                    </>
+                  )}
                 {selected && !searching && !starredView && loginFor(selected) !== undefined ? (
                   <>
                     <div className={emptyNote}>{t("harness.signedOut", { agent: selected.name })}</div>

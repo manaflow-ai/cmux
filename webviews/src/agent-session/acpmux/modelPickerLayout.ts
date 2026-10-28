@@ -81,6 +81,9 @@ export type ModelPickerProps = {
   /// login command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; the
   /// selected harness also shows that state and its action on the closed model control.
   signedOut?: Readonly<Record<string, string>>;
+  /// Machine auth health for the current session: offer login without blocking an established
+  /// session's model changes based on a potentially stale check of different CLI credentials.
+  currentAuth?: { login: string };
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo

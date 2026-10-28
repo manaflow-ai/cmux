@@ -458,7 +458,12 @@ export function ComposerPickers({
     return settleTimer(
       () =>
         setRecents((list) =>
-          rememberCombo(list, { harness, model: current, effort: currentEffort, effortName: effortName }),
+          rememberCombo(list, {
+            harness,
+            model: current,
+            effort: currentEffort,
+            effortName: effortName,
+          }),
         ),
       settleMs,
     );
@@ -501,7 +506,12 @@ export function ComposerPickers({
     if (pickedModel !== shown) {
       pending.current =
         pickedEffort && !presession
-          ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
+          ? {
+              sessionId: summary?.sessionId,
+              from: current,
+              model: pickedModel,
+              effort: pickedEffort,
+            }
           : undefined;
       onModel(pickedModel);
       if (pickedEffort && presession) onEffort(effort?.id ?? HELD_EFFORT_ID, pickedEffort);
@@ -570,7 +580,12 @@ export function ComposerPickers({
       if (effort && wanted.effort !== currentEffort && efforts.some((choice) => choice.id === wanted.effort))
         onEffort(effort.id, wanted.effort);
     } else if (wanted.effort)
-      pending.current = { sessionId: summary.sessionId, from: current, model: wanted.model, effort: wanted.effort };
+      pending.current = {
+        sessionId: summary.sessionId,
+        from: current,
+        model: wanted.model,
+        effort: wanted.effort,
+      };
     if (wanted.fast) fastWanted.current = { sessionId: summary.sessionId, model: wanted.model };
   });
   const fastValue = fastMode?.currentValue;
@@ -922,7 +937,9 @@ export function ComposerPickers({
   const usage = summary?.usage;
   const usageNote =
     showContextUsage && usage && usage.size > 0
-      ? t(PICKER_LABELS.context, { percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) })
+      ? t(PICKER_LABELS.context, {
+          percent: Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100),
+        })
       : undefined;
 
   const picksModel =
@@ -953,8 +970,19 @@ export function ComposerPickers({
           onHarnessEnable={onHarnessEnable}
           onAddAgent={onAddAgent}
           harnessFixed={locked}
-          {...(signIn ? { signedOut: pickableSignedOut(signIn.signedOut, summary), onLogIn: signIn.logIn } : {})}
-          {...(fastMode ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } } : {})}
+          {...(signIn
+            ? {
+                signedOut: pickableSignedOut(signIn.signedOut, summary),
+                ...(harness && signIn.signedOut[harness] !== undefined
+                  ? { currentAuth: { login: signIn.signedOut[harness] } }
+                  : {}),
+                onLogIn: signIn.logIn,
+              }
+            : {})}
+          {...(!bolted && fastMode
+            ? { fastMode: { ...fastMode, lastOnValue: fastMode.lastOnValue ?? rememberedFastValue } }
+            : {})}
+          {...(speedTiers ? { speed: speedTiers } : {})}
           catalogRefresh={catalogRefresh}
           harnessNotes={
             snapshot.switching?.phase === "failed"
@@ -1010,7 +1038,10 @@ export function ComposerPickers({
           permissionAccess={permissionAccess}
           onMode={onMode}
           {...(pendingMenu
-            ? { heading: t(pendingMenu.heading ?? PICKER_LABELS.mode), numbered: pendingMenu.numbered }
+            ? {
+                heading: t(pendingMenu.heading ?? PICKER_LABELS.mode),
+                numbered: pendingMenu.numbered,
+              }
             : {})}
         />
       )}
@@ -1141,7 +1172,9 @@ function AccessMenu({
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
   // Modes the agent refused in this session (a company-managed Mac's Claude Code settings can
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
-  const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
+  const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({
+    ids: [],
+  });
   const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
   // MDM or a team policy keeps full access off (#23322, `managed`): its rows are disabled and say so.
   const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
@@ -1530,7 +1563,12 @@ export function unrestricted(modeId: string): boolean {
 }
 
 /// A pick that returns "keep" leaves the menu open (e.g. a row that expands the menu).
-export type Section = { title?: string; choices: Choice[]; current?: string; onPick(id: string): void | "keep" };
+export type Section = {
+  title?: string;
+  choices: Choice[];
+  current?: string;
+  onPick(id: string): void | "keep";
+};
 
 /// A button that opens a menu above the composer: a select-only combobox, so
 /// focus stays on the button, which names the active option. Each section is
@@ -1974,18 +2012,20 @@ export const SlashIcon = () => (
   </Icon>
 );
 
-/// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
-/// The picker uses the same pre-turn health result for every harness, including the running one.
-/// A signed-out or expired account must be visible before a prompt is sent so the person can sign
-/// in from the model control instead of discovering the problem on the first turn.
+/// Machine health is a cached check of the default CLI credentials, not the live session's
+/// authentication result. An established session may use its own account/route; preserve model
+/// selection there. Its reported health still reaches currentAuth as a nonblocking login offer.
 function pickableSignedOut(
   signedOut: Readonly<Record<string, string>>,
   summary: AcpmuxSnapshot["summary"],
 ): Readonly<Record<string, string>> {
-  void summary;
-  return signedOut;
+  const running = summary?.sessionId ? summary.harness : undefined;
+  if (!running || !(running in signedOut)) return signedOut;
+  const { [running]: _running, ...rest } = signedOut;
+  return rest;
 }
 
+/// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
 const LEVEL_KEYS: Record<string, StringKey> = {
   low: "effort.level.low",
   medium: "effort.level.medium",
@@ -2064,7 +2104,14 @@ const PLAIN_LEVELS = new Set(["none", "minimal", "low", "medium", "high", "xhigh
 /// not a level).
 export function reasoningChoices(
   options: { value: string; name?: string; description?: string }[],
-  model: { efforts?: readonly string[]; defaultEffort?: string; own?: { efforts?: true }; noEffort?: true } | undefined,
+  model:
+    | {
+        efforts?: readonly string[];
+        defaultEffort?: string;
+        own?: { efforts?: true };
+        noEffort?: true;
+      }
+    | undefined,
   t: (key: StringKey) => string,
 ): Choice[] {
   if (model?.noEffort || (model?.own?.efforts && (model.efforts ?? []).length === 0)) return [];
