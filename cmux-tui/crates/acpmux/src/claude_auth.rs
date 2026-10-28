@@ -240,6 +240,18 @@ pub fn is_sign_in_failure(message: &str) -> bool {
         || m.contains("authentication_failed")
 }
 
+/// Whether `message` says a credential expired: an OAuth or access token, an API key, a login
+/// or a credential, with "expired" (or "expiry", "expires"). One matcher for every place that
+/// tells an expired sign-in from a missing one (a failed auth check, a failed turn), so the
+/// two never drift. A bare "session expired" says nothing about the sign-in.
+pub fn is_expired_credential(message: &str) -> bool {
+    let m = message.to_lowercase();
+    m.contains("expir")
+        && ["oauth", "token", "credential", "api key", "authentication", "login", "logged in"]
+            .iter()
+            .any(|word| m.contains(word))
+}
+
 /// The explanation for a Claude agent's sign-in failure, or None when this
 /// session is not a Claude agent acpmux started (or the text says another
 /// thing). `original` is Claude's own text, kept at the end.

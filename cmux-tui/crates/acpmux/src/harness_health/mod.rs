@@ -297,13 +297,10 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
         .then_some("Codex's `cli_auth_credentials_store` does not keep its login in a file")
 }
 
-/// A failed auth check is expired only when its own output says a credential expired.
+/// A failed auth check is expired only when its own output says a credential expired
+/// (`claude_auth::is_expired_credential`, the matcher a failed turn uses too).
 fn auth_failure(output: &str) -> Auth {
-    let lower = output.to_ascii_lowercase();
-    let credential = ["oauth", "token", "session", "credential", "authentication"]
-        .iter()
-        .any(|word| lower.contains(word));
-    if credential && lower.contains("expir") { Auth::Expired } else { Auth::SignedOut }
+    if crate::claude_auth::is_expired_credential(output) { Auth::Expired } else { Auth::SignedOut }
 }
 
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
@@ -543,6 +540,8 @@ mod tests {
         assert_eq!(auth_failure("OAuth token has expired"), Auth::Expired);
         assert_eq!(auth_failure("Not logged in"), Auth::SignedOut);
         assert_eq!(auth_failure("HTTP 503"), Auth::SignedOut);
+        assert_eq!(auth_failure("Your refresh token has expired; run codex login"), Auth::Expired);
+        assert_eq!(auth_failure("the MCP session expired"), Auth::SignedOut);
         assert_eq!(serde_json::to_value(Auth::Expired).unwrap(), json!("expired"));
     }
 
