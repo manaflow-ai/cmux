@@ -10,6 +10,12 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
     /// A terminal tab in the current window's focused pane, started in
     /// `cwd`, then `command` typed into its shell (already shell-quoted).
     case terminal(cwd: String?, command: String?)
+    /// An opened script or executable file. It comes from another app, so
+    /// opening it is not consent to run it: the caller asks the person, and
+    /// only a Run answer types `command` (already shell-quoted) into a new
+    /// terminal tab in `cwd`. `quarantined` (macOS marked the file as
+    /// downloaded, `com.apple.quarantine`): the caller refuses to run it.
+    case confirmRun(path: String, cwd: String, command: String, quarantined: Bool)
     /// Any other file: the shared file opener (`file.open`), which shows
     /// Markdown in the Markdown page, text and code in the code editor page,
     /// and images, PDFs and media in a browser tab.
@@ -22,10 +28,13 @@ public nonisolated enum ExternalOpenRoute: Equatable, Sendable {
 }
 
 /// Maps opened URLs and files to routes. Pure: no AppKit, no file writes;
-/// `isDirectory` and `isExecutable` are injected for tests.
+/// `isDirectory`, `isExecutable` and `isQuarantined` are injected for tests.
 public nonisolated struct ExternalOpenRouter: Sendable {
     public var isDirectory: @Sendable (String) -> Bool
     public var isExecutable: @Sendable (String) -> Bool
+    /// Whether macOS marked the file as downloaded from the internet
+    /// (``hasQuarantineAttribute(atPath:)``).
+    public var isQuarantined: @Sendable (String) -> Bool
     /// This build's URL scheme (`cmux`, `cmux-dev`, `cmux-dev-<tag>`), the
     /// one sign-in calls back on; nil routes no links.
     public var linkScheme: String?
@@ -54,12 +63,31 @@ public nonisolated struct ExternalOpenRouter: Sendable {
             var directory: ObjCBool = false
             return FileManager.default.fileExists(atPath: path, isDirectory: &directory) && directory.boolValue
         },
-        isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+        isExecutable: @escaping @Sendable (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
+        isQuarantined: @escaping @Sendable (String) -> Bool = { ExternalOpenRouter.hasQuarantineAttribute(atPath: $0) }
     ) {
         self.linkScheme = linkScheme
         self.isAuthCallback = isAuthCallback
         self.isDirectory = isDirectory
         self.isExecutable = isExecutable
+        self.isQuarantined = isQuarantined
+    }
+
+    /// The attribute macOS (through the downloading app) puts on a file from
+    /// the internet; Gatekeeper reads it.
+    static let quarantineAttribute = "com.apple.quarantine"
+
+    /// Whether the file at `path` (its target, for a symlink: that is what
+    /// would run) carries ``quarantineAttribute``. A file system that has no
+    /// extended attributes, or a file that is gone, has none; any other
+    /// failure to read it counts as quarantined, so an unreadable answer
+    /// never runs a file.
+    public static func hasQuarantineAttribute(atPath path: String) -> Bool {
+        if getxattr(path, quarantineAttribute, nil, 0, 0, 0) >= 0 { return true }
+        switch errno {
+        case ENOATTR, ENOTSUP, ENOENT: return false
+        default: return true
+        }
     }
 
     /// Script extensions and the shell that runs a script without its execute bit.
@@ -118,10 +146,16 @@ public nonisolated struct ExternalOpenRouter: Sendable {
         if Self.pageExtensions.contains(ext) { return .browserTab(URL(fileURLWithPath: path)) }
         if let shell = Self.scriptShells[ext] {
             let quoted = ShellQuote.quote(path)
-            return .terminal(cwd: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")
+            return confirmRun(path, in: folder, command: isExecutable(path) ? quoted : "\(shell) \(quoted)")
         }
-        if ext.isEmpty, isExecutable(path) { return .terminal(cwd: folder, command: ShellQuote.quote(path)) }
+        if ext.isEmpty, isExecutable(path) { return confirmRun(path, in: folder, command: ShellQuote.quote(path)) }
         return .file(URL(fileURLWithPath: path))
+    }
+
+    /// A run of the opened file at `path`, for the person to confirm (or,
+    /// downloaded, for the caller to refuse).
+    private func confirmRun(_ path: String, in folder: String, command: String) -> ExternalOpenRoute {
+        .confirmRun(path: path, cwd: folder, command: command, quarantined: isQuarantined(path))
     }
 
     /// `ssh://[user@]host[:port]`, as Terminal handles it. The host and

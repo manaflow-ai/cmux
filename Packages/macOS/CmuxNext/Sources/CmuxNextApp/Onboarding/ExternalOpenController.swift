@@ -1,6 +1,8 @@
 import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextOnboarding
 
 /// Opens what macOS hands cmux as the default browser, the `ssh:` and
@@ -104,11 +106,30 @@ final class ExternalOpenController {
             // front here would put the previously focused agent input back
             // under the next keystroke from the opening app.
             if isAgent { return }
+        } else if case .confirmRun(let path, let cwd, let command, let quarantined) = route {
+            // An opened script runs only on the person's Run in this window's question.
+            confirmRun(OpenedScriptConfirmation(path: path, cwd: cwd, command: command, quarantined: quarantined), in: controller)
+            windows.bringToFront(controller)
         } else {
             deliver(route, to: pane)
             windows.bringToFront(controller)
         }
         if !services.environment.noActivate { NSApp.activate() }
+    }
+
+    /// Asks before an opened script runs (refuses a downloaded one). Only a
+    /// Run answer opens the terminal tab that types the command, in the
+    /// window's focused pane at that time.
+    private func confirmRun(_ request: OpenedScriptConfirmation, in controller: WindowController) {
+        guard let window = controller.window else { return }
+        request.ask(
+            present: { spec, done in _ = CmuxDialogCenter.shared.present(spec, in: .window(window), completion: done) },
+            run: { [weak self, weak controller] cwd, typing in
+                guard let pane = controller?.focusedPane ?? self?.services?.windows.active?.focusedPane else { return }
+                pane.newTerminalTab(cwd: cwd, typing: typing)
+            },
+            reveal: { NSWorkspace.shared.revealInBackground([$0]) }
+        )
     }
 
     /// A workspace being created to hold what opens while a window lists

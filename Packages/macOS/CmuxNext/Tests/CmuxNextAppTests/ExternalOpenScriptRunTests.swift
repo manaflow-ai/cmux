@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import CmuxNextOnboarding
 import Foundation
 import Testing
@@ -62,6 +63,100 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = try Self.file("notes.txt", in: folder, quarantined: true)
         #expect(ExternalOpenRouter(isExecutable: { _ in true }).route(file) == .file(file))
+    }
+
+    @Test func theQuarantineCheckIsTheRoutersInjectedOne() {
+        let router = ExternalOpenRouter(isDirectory: { _ in false }, isExecutable: { _ in true }, isQuarantined: { $0 == "/Downloads/get.sh" })
+        #expect(router.route(URL(fileURLWithPath: "/Downloads/get.sh"))
+            == .confirmRun(path: "/Downloads/get.sh", cwd: "/Downloads", command: "'/Downloads/get.sh'", quarantined: true))
+        #expect(router.route(URL(fileURLWithPath: "/work/build.sh"))
+            == .confirmRun(path: "/work/build.sh", cwd: "/work", command: "'/work/build.sh'", quarantined: false))
+    }
+
+    // MARK: The question (`OpenedScriptConfirmation`)
+
+    /// What the question did: the spec it showed and what ran or was revealed after the answer.
+    @MainActor final class Probe {
+        var shown: [CmuxDialogSpec] = []
+        var answer: ((CmuxDialogAnswer) -> Void)?
+        var runs: [String] = []
+        var reveals: [URL] = []
+
+        func ask(_ request: OpenedScriptConfirmation) {
+            request.ask(present: { spec, done in self.shown.append(spec); self.answer = done },
+                        run: { cwd, typing in self.runs.append("\(cwd)|\(typing)") },
+                        reveal: { self.reveals.append($0) })
+        }
+
+        func press(_ button: String, role: CmuxDialogButton.Role = .normal, dismissal: Bool = false) {
+            answer?(CmuxDialogAnswer(button: button, role: role, isDismissal: dismissal))
+        }
+    }
+
+    static let script = OpenedScriptConfirmation(path: "/work/run me.command", cwd: "/work", command: "'/work/run me.command'", quarantined: false)
+
+    @MainActor @Test func theQuestionNamesTheFileAndCancelIsTheSafeKey() throws {
+        let spec = Self.script.spec
+        #expect(spec.title.contains("run me.command"))
+        #expect(spec.lines.contains("/work/run me.command"))
+        #expect(spec.cancelButton?.id == "cancel")
+        // Return presses nothing: only a press of Run runs the file.
+        #expect(spec.defaultButton == nil)
+        let run = try #require(spec.buttons.first { $0.id == OpenedScriptConfirmation.runButton })
+        #expect(CmuxDialogKeys.action(for: .return, modifiers: [], in: spec) == nil)
+        #expect(CmuxDialogKeys.action(for: .escape, modifiers: [], in: spec) == .press("cancel"))
+        #expect(run.key == nil)
+    }
+
+    @MainActor @Test func nothingRunsBeforeTheAnswerAndCancelRunsNothing() {
+        let probe = Probe()
+        probe.ask(Self.script)
+        #expect(probe.shown.count == 1)
+        #expect(probe.runs.isEmpty)
+        probe.press("cancel", role: .cancel)
+        #expect(probe.runs.isEmpty)
+        #expect(probe.reveals.isEmpty)
+    }
+
+    @MainActor @Test func aClosedQuestionRunsNothing() {
+        let probe = Probe()
+        probe.ask(Self.script)
+        probe.press(OpenedScriptConfirmation.runButton, role: .destructive, dismissal: true)
+        #expect(probe.runs.isEmpty)
+    }
+
+    @MainActor @Test func runTypesTheCommandInTheFilesFolder() {
+        let probe = Probe()
+        probe.ask(Self.script)
+        probe.press(OpenedScriptConfirmation.runButton, role: .destructive)
+        #expect(probe.runs == ["/work|'/work/run me.command'\n"])
+    }
+
+    @MainActor @Test func aDownloadedFileGetsNoRunButtonAndNoAnswerRunsIt() {
+        var request = Self.script
+        request.quarantined = true
+        let spec = request.spec
+        #expect(spec.identifier == OpenedScriptConfirmation.refusalIdentifier)
+        #expect(spec.title.contains("run me.command"))
+        #expect(spec.lines.contains("/work/run me.command"))
+        #expect(!spec.buttons.contains { $0.id == OpenedScriptConfirmation.runButton })
+        let probe = Probe()
+        probe.ask(request)
+        // An answer naming Run (automation answers by button id) still runs nothing.
+        probe.press(OpenedScriptConfirmation.runButton, role: .destructive)
+        probe.press("ok", role: .default)
+        #expect(probe.runs.isEmpty)
+        #expect(probe.reveals.isEmpty)
+    }
+
+    @MainActor @Test func showInFinderRevealsTheDownloadedFile() {
+        var request = Self.script
+        request.quarantined = true
+        let probe = Probe()
+        probe.ask(request)
+        probe.press(OpenedScriptConfirmation.showInFinderButton)
+        #expect(probe.reveals == [URL(fileURLWithPath: "/work/run me.command")])
+        #expect(probe.runs.isEmpty)
     }
 
     // MARK: Helpers
