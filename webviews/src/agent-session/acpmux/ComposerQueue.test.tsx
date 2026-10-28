@@ -10,6 +10,8 @@ import { ComposerQueue } from "./ComposerQueue";
 import { queuedRowsState } from "./queuedRowsState";
 import type { QueueEdit } from "./model";
 import { queueingOn, setQueueing } from "./queueing";
+import { webSwapHold, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
+import { settleQueuedEditWrites } from "./queuedEditDrafts";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -785,7 +787,7 @@ test("an edit pulled back while its images load, from a row that turned out a te
 });
 
 // Each build gets a new page origin; only the native draft directory is shared.
-function draftHost(readDelay?: Promise<void>) {
+function draftHost(readDelay?: Promise<void>, rejectedWrites = 0, rejectText?: string) {
   const saved = new Map<string, Record<string, any>>();
   Object.assign(dom!.window, {
     webkit: {
@@ -793,7 +795,13 @@ function draftHost(readDelay?: Promise<void>) {
         agentSession: {
           postMessage({ method, params }: { method: string; params: Record<string, any> }) {
             const key = `${params.sessionId}/${params.promptId}`;
-            if (method === "chat.queuedEditDrafts.set") saved.set(key, structuredClone(params.draft));
+            if (method === "chat.queuedEditDrafts.set") {
+              if (rejectedWrites > 0 && (!rejectText || params.draft.text === rejectText)) {
+                rejectedWrites -= 1;
+                throw new Error("transient native refusal");
+              }
+              saved.set(key, structuredClone(params.draft));
+            }
             if (method === "chat.queuedEditDrafts.clear" && saved.get(key)?.revision === params.revision)
               saved.delete(key);
             const value =
@@ -876,6 +884,30 @@ test("a queued edit typed before quit restores across build origins with its ima
   expect(thumbnails(container)).toHaveLength(1);
   expect(thumbnails(container)[0]?.closest<HTMLElement>("[data-image-id]")?.dataset.imageId).toBe(SHOT_B);
   expect(edits).toEqual([]);
+});
+
+test("a refused native save retries once per swap or quit and keeps the newest edit", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  const kept = draftHost(undefined, 2, "retry the newest text");
+  await startEdit(container, "p-1");
+  await typeQueueEdit(container, "retry the newest text");
+  // The editor opens with a baseline saved. Typing is refused, leaving its newer text pending.
+  expect(kept.size).toBe(1);
+  expect([...kept.values()][0]?.text).toBe("first");
+  expect(webSwapHold()).toBe("composer.queue-edit-unsaved");
+  await settle();
+  // One refusal per ask: no background loop claims this is durable or spins until success.
+  expect([...kept.values()][0]?.text).toBe("first");
+  // The quit flush retries the retained newest text once the host accepts writes again.
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(1);
+  expect([...kept.values()][0]?.text).toBe("retry the newest text");
+  (dom!.window.document.activeElement as HTMLElement).blur();
+  container.setAttribute(WEB_SWAP_KEPT_TEXT, "");
+  expect(webSwapHold()).toBeNull();
 });
 
 test("a saved edit remains recoverable until queue_edit acknowledges it; that acknowledgement clears it", async () => {
