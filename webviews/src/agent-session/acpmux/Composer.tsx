@@ -6,7 +6,15 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import {
+  bindMarks,
+  placeInline,
+  withoutInlineTokens,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -197,7 +205,11 @@ export type ComposerHandle = {
   wake(state: ComposerWake): void;
 };
 
-export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean; shellText?: string };
+export type ComposerWake = {
+  attachments?: ComposerAttachment[];
+  shell?: boolean;
+  shellText?: string;
+};
 
 type Props = {
   snapshot: AcpmuxSnapshot;
@@ -205,7 +217,10 @@ type Props = {
   /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
   /// header's PR belongs to another folder then.
   headerCwd?: string;
-  chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
+  chips: React.ComponentType<{
+    snapshot: AcpmuxSnapshot;
+    permissionAccess?: ComposerPermissionAccess;
+  }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
   /// resolves and stays (for the user to send again) when it rejects, so a refusal loses nothing.
@@ -546,6 +561,9 @@ export function Composer({
     dropLanded,
     attach,
   } = useAttachmentIntake({
+    place: (chips) => {
+      if (!shell) box.current?.place(chips);
+    },
     allowImages,
     dropZone: () => composerBox.current?.closest(".acpmux-main") ?? null,
     // A file pasted in shell mode is kept for the next prompt and uploads nothing; the mode stays.
@@ -615,6 +633,11 @@ export function Composer({
     handle,
     () => ({
       restore(restoredText, restoredAttachments) {
+        const restored = bindMarks(restoredText, restoredAttachments);
+        restoredText = restored.text;
+        restoredAttachments = restored.attachments;
+        // The editor parses tokens synchronously; make their payload IDs known before replacing its document.
+        attachmentsRef.current = appendAttachments(attachmentsRef.current, restoredAttachments);
         // Put back, not typed: the Enter that sent it says nothing about this change.
         notTyped();
         // What comes back goes first; what was typed or attached since stays after it.
@@ -806,7 +829,10 @@ export function Composer({
   const unsentDraft = useRef<UnsentDraftThrottle | undefined>(undefined);
   useEffect(() => {
     if (sessionId || !onUnsentDraft) return;
-    const throttle = createUnsentDraftThrottle({ send: onUnsentDraft, intervalMs: UNSENT_DRAFT_INTERVAL_MS });
+    const throttle = createUnsentDraftThrottle({
+      send: onUnsentDraft,
+      intervalMs: UNSENT_DRAFT_INTERVAL_MS,
+    });
     unsentDraft.current = throttle;
     const flush = () => throttle.flush();
     const hidden = () => {
@@ -823,7 +849,7 @@ export function Composer({
     };
   }, [sessionId, onUnsentDraft]);
   useEffect(() => {
-    unsentDraft.current?.push(text);
+    unsentDraft.current?.push(withoutInlineTokens(text, (id) => attachmentsRef.current.some((chip) => chip.id === id)));
   }, [text, sessionId, onUnsentDraft]);
   const commands = snapshot.commands;
   const remote = remoteComposer(snapshot);
@@ -869,7 +895,12 @@ export function Composer({
     () =>
       mentionWord === undefined
         ? []
-        : mentionItems({ query: mentionWord, files: mentionFiles, sessions: snapshot.sessions, chatId }),
+        : mentionItems({
+            query: mentionWord,
+            files: mentionFiles,
+            sessions: snapshot.sessions,
+            chatId,
+          }),
     [mentionWord, mentionFiles, snapshot.sessions, chatId],
   );
   // A chat whose folder cannot be searched (a remote chat) opens the picker only on a matching
@@ -1011,8 +1042,9 @@ export function Composer({
     // The key that sent it is spent: what the composer writes back after the send is not typing.
     notTyped();
     unsentDraft.current?.flush();
-    const sent = attachments;
-    const taken = onSend(prompt, sent, steer);
+    const placed = placeInline(prompt, attachments);
+    const sent = placed.attachments;
+    const taken = onSend(placed.text, sent, steer);
     if (taken === false) return false;
     const written = field.current?.value() ?? "";
     const clear = (rest = "") => {
@@ -1535,8 +1567,18 @@ export function Composer({
     onEdit?.(command);
   };
   const fieldMenu: ContextMenuItem[] = [
-    { id: "undo", label: t(COMPOSER_LABELS.undo), disabled: !fieldHistory.undo, onSelect: () => runField("undo") },
-    { id: "redo", label: t(COMPOSER_LABELS.redo), disabled: !fieldHistory.redo, onSelect: () => runField("redo") },
+    {
+      id: "undo",
+      label: t(COMPOSER_LABELS.undo),
+      disabled: !fieldHistory.undo,
+      onSelect: () => runField("undo"),
+    },
+    {
+      id: "redo",
+      label: t(COMPOSER_LABELS.redo),
+      disabled: !fieldHistory.redo,
+      onSelect: () => runField("redo"),
+    },
     {
       id: "cut",
       label: t(COMPOSER_LABELS.cut),
@@ -1550,7 +1592,12 @@ export function Composer({
       disabled: !onEdit || !fieldSelected,
       onSelect: () => runEdit("copy"),
     },
-    { id: "paste", label: t(COMPOSER_LABELS.paste), disabled: !onEdit, onSelect: () => runEdit("paste") },
+    {
+      id: "paste",
+      label: t(COMPOSER_LABELS.paste),
+      disabled: !onEdit,
+      onSelect: () => runEdit("paste"),
+    },
     {
       id: "pasteAsPlainText",
       label: t(COMPOSER_LABELS.pasteAsPlainText),
@@ -1885,7 +1932,12 @@ export function Composer({
                             },
                           ]
                         : []),
-                      { id: "mention", name: t(COMPOSER_LABELS.mention), icon: <AtIcon />, hint: "@" },
+                      {
+                        id: "mention",
+                        name: t(COMPOSER_LABELS.mention),
+                        icon: <AtIcon />,
+                        hint: "@",
+                      },
                       ...(searchFiles
                         ? [{ id: "files", name: t("files.search"), icon: <SearchIcon size={18} /> }]
                         : []),
