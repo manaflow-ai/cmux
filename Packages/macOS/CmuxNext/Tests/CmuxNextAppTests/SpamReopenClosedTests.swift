@@ -121,6 +121,100 @@ struct SpamReopenClosedTests {
         }
     }
 
+    /// The race of one closed item's reopens (the toast's Undo, History, Cmd-Shift-T), rule: a
+    /// Cmd-Shift-T behind an Undo of the newest closed tab reopens the next newest, as Chrome's
+    /// Reopen Closed Tab after an Undo does. Two closed tabs, then in one turn the toast's Undo of the
+    /// newest (`DaemonClosedHistory.reopen`, what the toast's action calls) and a Cmd-Shift-T: each
+    /// tab comes back once, and no reopen fails as not found.
+    @Test func cmdShiftTBehindAnUndoOfTheNewestReopensTheNextNewest() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let tag = UUID().uuidString.prefix(6).lowercased()
+            let older = "https://example.com/undo-older-\(tag)", newest = "https://example.com/undo-newest-\(tag)"
+            let (olderItem, newestItem) = try await Self.closeTwo(older, newest, services, connection, paneModel)
+
+            let newestEntry = try #require(DaemonClosedHistory.entry(newestItem, in: services))
+            var work: [ActionWork] = []
+            var pressed = false
+            let refusal = services.registry.capturingRefusal {
+                work = services.registry.capturingWork {
+                    DaemonClosedHistory.reopen(newestEntry, services: services)
+                    pressed = services.registry.perform("reopenClosedBrowserPanel", invocation: ActionInvocation(origin: .user))
+                }
+            }
+            #expect(pressed)
+            #expect(refusal == nil, "Undo then Cmd-Shift-T refused: \(refusal ?? "")")
+            let failures = await Self.failures(of: work)
+            #expect(failures.isEmpty, "Undo then Cmd-Shift-T: \(failures)")
+            try await PinnedPageTests.until({ [older, newest].allSatisfy { url in paneModel.tabs.contains { $0.url == url } } },
+                                            report: { "open: \(paneModel.tabs.map { $0.url ?? $0.id })" })
+            for url in [older, newest] {
+                #expect(paneModel.tabs.filter { $0.url == url }.count == 1, "\(url) reopened \(paneModel.tabs.filter { $0.url == url }.count) times")
+            }
+            try await PinnedPageTests.until({ !store.closedItems.contains { $0.id == olderItem || $0.id == newestItem } },
+                                            report: { "still closed: \(store.closedItems.map(\.id))" })
+        }
+    }
+
+    /// The same race for one item: in one turn a Cmd-Shift-T takes the newest closed tab, then the
+    /// toast's Undo and History's Reopen ask for that same item. It comes back once, the later two
+    /// are refused as already reopening (a HUD message, no not-found failure), and the older closed
+    /// tab stays closed.
+    @Test func undoAndHistoryReopenOfAnItemCmdShiftTTookAreRefusedAsAlreadyReopening() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let paneModel = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let tag = UUID().uuidString.prefix(6).lowercased()
+            let older = "https://example.com/race-older-\(tag)", newest = "https://example.com/race-newest-\(tag)"
+            let (olderItem, newestItem) = try await Self.closeTwo(older, newest, services, connection, paneModel)
+
+            let newestEntry = try #require(DaemonClosedHistory.entry(newestItem, in: services))
+            var work: [ActionWork] = []
+            var pressed = false
+            let refusal = services.registry.capturingRefusal {
+                work = services.registry.capturingWork {
+                    pressed = services.registry.perform("reopenClosedBrowserPanel", invocation: ActionInvocation(origin: .user))
+                    DaemonClosedHistory.reopen(newestEntry, services: services)
+                    HistoryRestorer(services: services).reopen(closedID: newestItem)
+                }
+            }
+            #expect(pressed)
+            #expect(refusal == "That tab is already reopening.", "the second reopen of one item: \(refusal ?? "no refusal")")
+            let failures = await Self.failures(of: work)
+            #expect(failures.isEmpty, "Cmd-Shift-T, Undo and History of one item: \(failures)")
+            try await PinnedPageTests.until({ paneModel.tabs.contains { $0.url == newest } && !store.closedItems.contains { $0.id == newestItem } },
+                                            report: { "open: \(paneModel.tabs.map { $0.url ?? $0.id })" })
+            #expect(paneModel.tabs.filter { $0.url == newest }.count == 1, "the item reopened \(paneModel.tabs.filter { $0.url == newest }.count) times")
+            #expect(!paneModel.tabs.contains { $0.url == older }, "a refused reopen reopened the older tab in its place")
+            #expect(store.closedItems.contains { $0.id == olderItem }, "the older close left the history")
+        }
+    }
+
+    /// Opens `older` and `newest` in `pane` and closes them in that order, each recorded: their items.
+    private static func closeTwo(_ older: String, _ newest: String, _ services: AppServices, _ connection: DaemonConnection,
+                                 _ pane: PaneModel) async throws -> (older: String, newest: String) {
+        let store = services.daemon.store
+        let olderSurface = try await connection.newFrontendBrowserTab(url: older, engine: .webkit, in: pane.handle, activate: false).surface
+        let newestSurface = try await connection.newFrontendBrowserTab(url: newest, engine: .webkit, in: pane.handle, activate: false).surface
+        try await PinnedPageTests.until({ store.tab(surface: olderSurface) != nil && store.tab(surface: newestSurface) != nil })
+        let seen = Set(store.closedItems.map(\.id))
+        try await connection.closeTab(olderSurface)
+        try await PinnedPageTests.until({ fresh(store, seen).count == 1 }, report: { "the older close was not recorded" })
+        let olderItem = try #require(fresh(store, seen).first?.id)
+        try await connection.closeTab(newestSurface)
+        try await PinnedPageTests.until({ fresh(store, seen).count == 2 }, report: { "the newest close was not recorded" })
+        let newestItem = try #require(fresh(store, seen).first { $0.id != olderItem }?.id)
+        return (olderItem, newestItem)
+    }
+
+    /// Every failure `work` ended with.
+    private static func failures(of work: [ActionWork]) async -> [String] {
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        return failures
+    }
+
     /// The closed items stored since `seen`, newest first.
     private static func fresh(_ store: DaemonStore, _ seen: Set<String>) -> [ClosedItem] {
         store.closedItems.filter { !seen.contains($0.id) }

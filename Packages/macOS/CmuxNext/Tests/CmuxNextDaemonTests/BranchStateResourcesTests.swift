@@ -32,6 +32,25 @@ struct BranchStateResourcesTests {
         }
     }
 
+    /// A second `closed.reopen` of one closed item (an Undo and a History reopen that both reached
+    /// the daemon) carries the same idempotency key, one per closed item: the daemon replays the
+    /// first reopen instead of failing it as not found, and the tab came back once.
+    @Test func aSecondReopenOfOneClosedItemReplaysTheFirst() async throws {
+        try await BranchDaemonHarness.with(sessionEvents: true) { h in
+            let store = h.store
+            try await store.waitUntil("state resources served", timeout: .seconds(20)) { store.servesStateResources }
+            let (key, pane, _) = try await h.workspaceWithTerminal("closed-twice")
+            let created = try await h.connection.newTab(in: pane, options: SpawnOptions(cwd: h.root.path, workspace: key))
+            try await h.connection.closeTab(created.surface)
+            try await store.waitUntil("the closed tab recorded", timeout: .seconds(20)) { store.closedItems.contains { $0.kind == .tab } }
+            let item = try #require(await store.closedItems.first { $0.kind == .tab })
+            let first = try await h.connection.state.reopenClosed(item.id)
+            let second = try await h.connection.state.reopenClosed(item.id)
+            #expect(second == first, "the second reopen of \(item.id) did not replay the first")
+            #expect(first.tabIDs.count == 1)
+        }
+    }
+
     /// `history.closed.maxGroups` and `maxAgeDays` (reopen-closed.md S1b):
     /// the prune a mirror over a limit asks for deletes the oldest groups
     /// in the daemon, and the store follows.
