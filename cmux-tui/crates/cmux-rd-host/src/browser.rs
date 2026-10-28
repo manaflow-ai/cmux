@@ -7,8 +7,9 @@
 //! stream). The supervisor restarts a browser that exits, with a backoff that grows while
 //! it keeps crashing fast, and kills it when the host stops.
 
-use crate::cdp_socket::CdpBridge;
+use crate::cdp_socket::{self, CdpBridge};
 use std::io;
+use std::os::unix::process::CommandExt;
 use std::process::{Child, Command};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -53,27 +54,25 @@ impl BrowserCommand {
         }
     }
 
-    /// Opens Chrome's DevTools protocol (CDP) on `127.0.0.1:port`, so an agent on the same
-    /// machine drives the browser the person watches (`--browser-cdp-port`, off by default).
-    /// Loopback only: anyone who reaches the port controls the browser and its logins.
-    /// The API the tests drive; in this commit it still opens the TCP port.
-    pub fn with_cdp_pipe(self) -> Self {
-        self.with_cdp_port(0)
-    }
-
-    pub fn with_cdp_port(mut self, port: u16) -> Self {
+    /// Chrome speaks CDP on an inherited pipe (`--remote-debugging-pipe`: fds 3 and 4), never
+    /// on a TCP port that every local process could reach. The supervisor opens the pipe for
+    /// each launch and hands it to the host's owner-only CDP socket (`cdp_socket.rs`,
+    /// `--browser-cdp-socket`, off by default).
+    pub fn with_cdp_pipe(mut self) -> Self {
         // Before the URL, which stays the last argument.
         let at = self.args.len().saturating_sub(1);
-        self.args.splice(
-            at..at,
-            [
-                "--remote-debugging-address=127.0.0.1".to_string(),
-                format!("--remote-debugging-port={port}"),
-            ],
-        );
+        self.args.insert(at, CDP_PIPE_SWITCH.to_string());
         self
     }
+
+    /// Does this command ask the browser to read CDP from fds 3 and 4?
+    fn wants_cdp_pipe(&self) -> bool {
+        self.args.iter().any(|a| a == CDP_PIPE_SWITCH)
+    }
 }
+
+/// Chrome's switch for CDP on fds 3 (read) and 4 (write).
+const CDP_PIPE_SWITCH: &str = "--remote-debugging-pipe";
 
 /// Restart delays: the first restart waits `min`; each fast crash (uptime under `healthy`)
 /// doubles it up to `max`; a run that stayed up `healthy` resets it.
@@ -95,6 +94,8 @@ impl Default for Backoff {
 }
 
 struct Shared {
+    /// Where each launch's CDP pipe goes (commands with `--remote-debugging-pipe` only).
+    cdp: Option<Arc<CdpBridge>>,
     stop: AtomicBool,
     pid: AtomicU32,
     starts: AtomicU32,
@@ -112,7 +113,32 @@ impl BrowserSupervisor {
     /// Starts the browser now and supervises it on a thread. Fails if the first spawn fails
     /// (a missing binary is a configuration error, not a crash to retry).
     pub fn start(cmd: BrowserCommand, backoff: Backoff) -> io::Result<Self> {
+        Self::launch(cmd, backoff, None)
+    }
+
+    /// As [`BrowserSupervisor::start`] for a command made `with_cdp_pipe`: every launch,
+    /// restarts included, gets a new CDP pipe that is attached to `cdp`.
+    pub fn start_with_cdp(
+        cmd: BrowserCommand,
+        backoff: Backoff,
+        cdp: Arc<CdpBridge>,
+    ) -> io::Result<Self> {
+        Self::launch(cmd, backoff, Some(cdp))
+    }
+
+    fn launch(
+        cmd: BrowserCommand,
+        backoff: Backoff,
+        cdp: Option<Arc<CdpBridge>>,
+    ) -> io::Result<Self> {
+        if cmd.wants_cdp_pipe() != cdp.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "a browser with --remote-debugging-pipe needs a CDP socket, and only it",
+            ));
+        }
         let shared = Arc::new(Shared {
+            cdp,
             stop: AtomicBool::new(false),
             pid: AtomicU32::new(0),
             starts: AtomicU32::new(0),
@@ -127,15 +153,6 @@ impl BrowserSupervisor {
                 supervise(cmd, backoff, first, &s)
             })?;
         Ok(Self { shared, thread: Some(thread) })
-    }
-
-    /// The API the tests drive; this commit does not connect `_cdp`.
-    pub fn start_with_cdp(
-        cmd: BrowserCommand,
-        backoff: Backoff,
-        _cdp: Arc<CdpBridge>,
-    ) -> io::Result<Self> {
-        Self::start(cmd, backoff)
     }
 
     /// How many times the browser was started (1 after `start`, +1 per restart).
@@ -167,7 +184,21 @@ fn spawn(cmd: &BrowserCommand, shared: &Shared) -> io::Result<Child> {
     for (k, v) in &cmd.env {
         c.env(k, v);
     }
+    let pipes = match &shared.cdp {
+        Some(_) => Some(cdp_socket::browser_pipes()?),
+        None => None,
+    };
+    if let Some((_, ends)) = &pipes {
+        let (read, write) = ends.raw();
+        // SAFETY: the closure runs in the forked child before exec and calls only
+        // async-signal-safe functions (fcntl, dup2, close) on fds the child inherited.
+        unsafe { c.pre_exec(move || cdp_socket::install_child_fds(read, write)) };
+    }
     let child = c.spawn()?;
+    // The browser's ends close here (dropped with `pipes`); the host keeps its own.
+    if let (Some((pipe, _ends)), Some(cdp)) = (pipes, &shared.cdp) {
+        cdp.attach(pipe);
+    }
     shared.pid.store(child.id(), Ordering::SeqCst);
     shared.starts.fetch_add(1, Ordering::SeqCst);
     Ok(child)
