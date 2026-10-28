@@ -45,6 +45,21 @@ focus and selection, as a person's would).
 `receipt` needs the ActionEffect kind, which no app reply carries yet: the driver checks that an action ran,
 marks that step's checkpoints uncertain (never baselined) and says so in the result message.
 
+Switch arms (task 049). The session's `switches` (registry name -> arm, from oracle.py `--switch NAME --arm A` or
+`--arm launch-config`) become switches.arm_plan's launch values: CMUX_NEXT_SWITCHES (the env form of
+`--cmux-switches=`, since bench_launch starts the app with no arguments) and CMUX_NEXT_TUI_SWITCHES, which
+DaemonDiagnosticKnobs hands the app's daemon as CMUX_TUI_SWITCHES (the app's launch strip unsets a raw CMUX_TUI_*
+variable). An unknown switch is a session error: nothing launches. Whenever the registry has switches, every launch
+reads the app's arms back from the switches facet's `arms`, and every case, before its fixture and steps, reads the
+tag daemon's `identify` and `oracle-state` when a daemon switch is registered; every registry switch must read back
+its planned arm or its default. A mismatch (another arm, a default that leaked in, no reader in the build for a
+requested switch) raises switches.ArmNotApplied out of run_case: oracle.py stops the run with one arm-not-applied
+verdict, since every later case and every relaunch would run on the same arms. A run that requests an app switch
+reads `debug.oracle.switch_hits` with reset once after each launch (the result's `launch_switch_hits`, so sites that
+run only at startup count) and after each case (`switch_hits`: everything since the last read, the case's setup
+settle included). The result carries `switch_readback` and both hit maps, which oracle.py writes into the receipt
+and diff --switch (task 111) checks.
+
 App pid: the app's pid at the case start must hold to the end (after a restart step, the relaunched app's): a
 child crash the case allows never takes the app with it.
 
@@ -69,6 +84,7 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_app.py run-case --app "PATH/cmux DEV <tag>.app" CASE.json [--build bench] [--repeat N] [--out DIR]
+                         [--switch NAME=ARM]...   (each result line carries its switch_readback and switch_hits)
       runs one case N times, each in a fresh launch and session root; prints each result's checkpoint
       hashes; exit 1 when they differ
   driver_app.py --selftest       the offline tests (driver_app_test.py)
@@ -103,6 +119,7 @@ for _path in (str(HERE), str(SCRIPTS)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
+import switches  # noqa: E402 - sibling: the switch arms this launch applies and reads back (p15-oracle-049)
 import webfixture  # noqa: E402 - the sibling loopback server (p15-oracle-222), stdlib only
 
 FACETS = ("topology", "daemon", "focus", "layout", "sidebar", "tabs", "overlays", "settings", "intents", "windows",
@@ -116,6 +133,9 @@ RECORDER, TURNS = "debug.oracle.recorder", "debug.oracle.turns"
 # (InputJournal.defaultCapacity is 4,096), so replay starts from the windows' checkpoints and the terminals' starts.
 JOURNAL, JOURNAL_LAST = "debug.journal", 1 << 16
 JOURNAL_SCHEMA = "cmux-input-journal-v1"
+SWITCH_HITS = "debug.oracle.switch_hits"
+# The app's reader of its frozen switch arms: the switches facet's `arms` (p15-oracle-180).
+APP_ARMS_READER = "snapshot.switches"
 # OracleSettleControl.defaultSettleMilliseconds and maxSettleMilliseconds; OracleWaitCondition.maxMilliseconds.
 DEFAULT_SETTLE_MS, MAX_SETTLE_MS, MAX_WAIT_MS = 5_000, 300_000, 30_000
 REQUEST_S = 30.0
@@ -559,6 +579,24 @@ class BenchAppPort:
             self.bench = None
 
 
+def add_hits(total: Optional[Mapping[str, Mapping[str, int]]],
+             more: Mapping[str, Mapping[str, int]]) -> Dict[str, Dict[str, int]]:
+    """Two hit maps (registry name -> {arm: N}) summed."""
+    out = {name: dict(arms) for name, arms in (total or {}).items()}
+    for name, arms in more.items():
+        for arm, count in arms.items():
+            out.setdefault(name, {})[arm] = out.get(name, {}).get(arm, 0) + count
+    return out
+
+
+def read_daemon_arm_sources(socket_path: str, timeout: float = REQUEST_S) -> Dict[str, Any]:
+    """The switch readers of the app's daemon (`identify`, `oracle-state`), read the way driver_daemon.py reads them."""
+    import driver_daemon
+
+    with driver_daemon.SdkReads(socket_path, timeout) as reads:
+        return driver_daemon.daemon_arm_sources(reads)
+
+
 def read_daemon_facet(socket_path: str, schema_doc: Mapping[str, Any], timeout: float = REQUEST_S) -> Dict[str, Any]:
     """The app daemon's `daemon` facet: session.snapshot + settings.snapshot (+ the oracle-state extras of a debug
     or `--features oracle` daemon) through the Python SDK, with the schema's capture rules."""
@@ -621,6 +659,9 @@ class CaseRun:
         self.case_id = ctx.get("case_id") or f"{case.get('suite')}/{case.get('id')}"
         self.scale = float(ctx.get("timeout_multiplier") or 1)
         self.state = CaseState()
+        self.switch_readback: Dict[str, str] = {}
+        # Switch hits read before an app restart step (op_restart), added to the case's teardown read.
+        self.restart_hits: Optional[Dict[str, Dict[str, int]]] = None
         # The step running now (a Crash from an unexpected error names it), the steps whose expected receipt
         # kind the app could not report, and whether the app was left in a state the next case must not inherit.
         self.at: Optional[str] = None
@@ -675,12 +716,16 @@ class CaseRun:
                 self.case = web.expand(self.case)
             self.pid = self.app.pid
             self.settle("sync", DEFAULT_SETTLE_MS, "setup")
+            # Raises switches.ArmNotApplied, which ends the run (oracle.py), not just this case.
+            self.switch_readback = self.session.verify_arms()
             teardown = self.setup_fixture(fixture.get("setup"))
             for index, step in enumerate(self.case.get("steps") or ()):
                 self.at = step.get("id") if isinstance(step, Mapping) else None
                 self.run_step(index, step)
         except CaseError as error:
             status, message, at = error.status, error.message, error.step
+        except switches.ArmNotApplied:
+            raise
         except Exception as error:  # noqa: BLE001 - a malformed step or a driver bug is this case's Crash
             status, message, at = "Crash", f"driver: {error!r}", self.at
         finally:
@@ -692,9 +737,21 @@ class CaseRun:
                     message = "; ".join(filter(None, [message, f"fixture teardown: {error!r}"]))
             if web is not None:
                 web.stop()
+        hits = None
+        if self.session.counts_hits and self.app.alive():
+            try:
+                hits = self.switch_hits("teardown")
+            except CaseError as error:
+                status, message = "Crash", "; ".join(filter(None, [message, error.message]))
+        if self.restart_hits is not None:
+            hits = add_hits(self.restart_hits, hits or {})
         result: Dict[str, Any] = {"status": status, "message": message, "checkpoints": []}
         if at:
             result["step"] = at
+        if self.switch_readback:
+            result["switch_readback"] = dict(self.switch_readback)
+        if hits is not None:
+            result["switch_hits"] = hits
         if status in ("Crash", "Timeout") or self.dirty or not self.app.alive():
             # A crash or a stuck barrier leaves state the next case must not inherit (task 189 adds the reset check).
             result["session_dirty"] = True
@@ -737,6 +794,14 @@ class CaseRun:
             result["journal_error"] = f"{path}: {error}"
             return
         result["journal"] = str(path)
+
+    def switch_hits(self, step: str) -> Optional[Dict[str, Dict[str, int]]]:
+        try:
+            return self.session.hit_counts(step)
+        except socket.timeout:
+            raise CaseError("Timeout", f"{SWITCH_HITS} gave no answer in {REQUEST_S:.0f} s", step) from None
+        except AppGone as error:
+            raise CaseError("Crash", f"the app stopped answering: {error}", step) from None
 
     @staticmethod
     def start_web(web: Any) -> str:
@@ -1049,6 +1114,9 @@ class CaseRun:
         step_id = step["id"]
         if not runs_here(step):
             raise CaseError("Crash", other_driver("restart", (step.get("target") or {}).get("process")), step_id)
+        if self.session.counts_hits:
+            # The new process counts from zero: keep the hits of the one that quits.
+            self.restart_hits = add_hits(self.restart_hits, self.switch_hits(step_id) or {})
         try:
             self.app.relaunch()
         except (AppLaunchFailed, AppGone, socket.timeout) as error:
@@ -1211,13 +1279,25 @@ class AppSession:
                  canonicalizer: Optional[Tuple[Canonicalize, Dict[str, Any]]] = None,
                  run: Callable[..., subprocess.CompletedProcess] = subprocess.run,
                  read_daemon: Callable[[str, Mapping[str, Any]], Dict[str, Any]] = read_daemon_facet,
+                 read_daemon_arms: Callable[[str], Mapping[str, Any]] = read_daemon_arm_sources,
                  host: Callable[[], Dict[str, str]] = host_meta, root_base: Path = Path("/tmp/o"),
+                 switch_roots: Optional[switches.Roots] = None,
                  web_fixture: Callable[[], Any] = webfixture.WebFixture):
         app = session_ctx.get("binary")
         if not app:
             raise ValueError("the app driver needs --binary \"PATH/cmux DEV <tag>.app\" (a --config bench build)")
-        if session_ctx.get("switches"):
-            raise ValueError("switch arms reach the app in p15-oracle-049; this driver runs the default arms")
+        registry = session_ctx.get("switch_registry")
+        roots = switch_roots or (switches.Roots(registry=Path(registry).resolve()) if registry else switches.Roots())
+        try:
+            self.arms = switches.arm_plan(dict(session_ctx.get("switches") or {}), roots)
+        except switches.UnknownSwitch as error:  # nothing launches on a switch the run cannot apply
+            raise ValueError(str(error)) from None
+        self.read_daemon_arms = read_daemon_arms
+        self.app_arms = switches.Readback(arms={}, sources={}, problems=())
+        # Whether this build counts switch hits for the run (read once per launch), and the hits of the last
+        # launch that no case result has carried yet.
+        self.counts_hits = False
+        self.launch_hits: Optional[Dict[str, Dict[str, int]]] = None
         self.engine = session_ctx.get("engine")
         if self.engine is not None and self.engine not in ENGINES:
             raise ValueError(f"engine {self.engine!r}: one of {', '.join(ENGINES)} (browser.defaultEngine)")
@@ -1256,13 +1336,17 @@ class AppSession:
         self.armable: Tuple[str, ...] = ()
 
     def environment(self) -> Dict[str, str]:
-        """The launch's own variables over bench_launch's: normalize.app_environment of the session's prefixes.
+        """The launch's own variables over bench_launch's: normalize.app_environment of the session's prefixes and
+        the run's switch arms (CMUX_NEXT_SWITCHES, CMUX_NEXT_TUI_SWITCHES for the app's daemon).
         Task p15-oracle-200 moves the hermetic environment into hermetic_env.py."""
         import normalize
 
-        return normalize.app_environment(normalize.Context(root=self.paths.roots, home=(str(self.paths.home),)))
+        prefixes = normalize.app_environment(normalize.Context(root=self.paths.roots, home=(str(self.paths.home),)))
+        return {**prefixes, **self.arms.app_environment()}
 
     def ensure_launched(self, spec: LaunchSpec) -> None:
+        """Launches the app for `spec` unless it runs already. Raises switches.ArmNotApplied when the arms the app
+        froze at launch are not the plan's: every case of this launch, and every relaunch, would run on them."""
         if self.launched == spec and self.app.alive():
             return
         if self.launched is not None:
@@ -1271,6 +1355,79 @@ class AppSession:
         self.app.launch(spec)
         self.launched = spec
         self.armable = self.probe_armable()
+        self.app_arms = self.read_app_arms()
+        self.app_arms.check()
+        try:
+            launch = self.hit_counts("launch")
+        except CaseError as error:
+            raise AppLaunchFailed("bad-switch-hits", error.message) from None
+        self.counts_hits = launch is not None
+        if launch is not None:
+            self.launch_hits = add_hits(self.launch_hits, launch)
+
+    def read_app_arms(self) -> Any:
+        """The arms the app froze at launch, from the switches facet's `arms` (p15-oracle-180), against the plan:
+        each requested switch its arm, every other registry switch its default. A build with no switches provider
+        reads back nothing, so a requested app switch is arm-not-applied; with an empty registry nothing is read."""
+        if not self.arms.switches:
+            return switches.Readback(arms={}, sources={}, problems=())
+        values = self.request(SNAPSHOT, {"facets": ["switches"], "paths": self.paths.control_paths()})
+        facet = values.get("switches") if isinstance(values, dict) else None
+        arms = facet.get("arms") if isinstance(facet, dict) and facet.get("status") != "not-comparable" else None
+        try:
+            return switches.read_back(self.arms, switches.APP, {APP_ARMS_READER: arms})
+        except switches.UsageError as error:
+            raise AppLaunchFailed("bad-switch-readback", str(error)) from None
+
+    def daemon_arms(self) -> Any:
+        """The tag daemon's arms against the plan. No daemon of the tag running reads back nothing, which only a
+        requested daemon switch needs; a read that fails proves no arm, so it is a mismatch."""
+        socket_path = self.app.daemon_socket()
+        if socket_path is None:
+            missing = tuple(f"{s.name}: no cmux-tui of this tag is running to read back"
+                            for s in self.arms.requested(switches.DAEMON))
+            return switches.Readback(arms={}, sources={}, problems=missing)
+        try:
+            return switches.read_back(self.arms, switches.DAEMON, self.read_daemon_arms(socket_path))
+        except Exception as error:  # noqa: BLE001 - an SDK or reply failure is a readback that failed
+            return switches.Readback(arms={}, sources={}, problems=(
+                f"daemon switch readback from {socket_path}: {error!r}",))
+
+    def verify_arms(self) -> Dict[str, str]:
+        """The arms both processes read back now (registry name -> arm). The app's are read once per launch (a
+        frozen value); the daemon's at each case whenever the registry has a daemon switch, since the app may start
+        a new daemon. Raises switches.ArmNotApplied, with the readback, on any mismatch with the plan."""
+        readbacks = [self.app_arms]
+        if any(s.product == switches.DAEMON for s in self.arms.switches):
+            readbacks.append(self.daemon_arms())
+        seen: Dict[str, set] = {}
+        for readback in readbacks:
+            for name, arm in readback.arms.items():
+                seen.setdefault(name, set()).update(arm.split("|"))
+        arms = {name: "|".join(sorted(values)) for name, values in sorted(seen.items())}
+        problems = tuple(problem for readback in readbacks for problem in readback.problems)
+        if problems:
+            raise switches.ArmNotApplied(problems, arms)
+        return arms
+
+    def hit_counts(self, step: str) -> Optional[Dict[str, Dict[str, int]]]:
+        """The switch hits since the last call, by registry name (`debug.oracle.switch_hits` reads and zeroes them),
+        or None when this run requests no app switch or the build has no hit counters (p15-oracle-027)."""
+        if not self.arms.requested(switches.APP):
+            return None
+        reply = self.app.request(SWITCH_HITS, {"reset": True}, REQUEST_S)
+        if reply.get("ok") is not True or reply.get("result") is None:
+            return None
+        try:
+            return switches.hits_by_name(self.arms, reply["result"])
+        except switches.UsageError as error:
+            raise CaseError("Crash", f"{SWITCH_HITS}: {error}", step) from None
+
+    def take_launch_hits(self) -> Optional[Dict[str, Dict[str, int]]]:
+        """The hits of the launch since its first read (startup, the first window), once: the next result carries
+        them as `launch_switch_hits` and oracle.py adds them to the run's hits."""
+        hits, self.launch_hits = self.launch_hits, None
+        return hits
 
     def probe_armable(self) -> Tuple[str, ...]:
         """The facets this build reads inside a perform turn: the recorder refuses to arm one read off the main
@@ -1292,6 +1449,15 @@ class AppSession:
         return reply.get("result")
 
     def run_case(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
+        """One case's result. switches.ArmNotApplied (from the launch or the case's readback) is raised, not
+        returned: it is the run's verdict, not this case's."""
+        result = self.run_launched(case, case_ctx)
+        launch = self.take_launch_hits()
+        if launch is not None:
+            result["launch_switch_hits"] = launch
+        return result
+
+    def run_launched(self, case: Dict[str, Any], case_ctx: Dict[str, Any]) -> Dict[str, Any]:
         try:
             spec = launch_spec(case, self.engine)
             self.ensure_launched(spec)
@@ -1368,7 +1534,9 @@ def run_repeats(ctx: Mapping[str, Any], case: Dict[str, Any], repeat: int,
         hashes.append((result["status"], row))
         emit(json.dumps({"attempt": attempt, "status": result["status"], "message": result["message"],
                          "checkpoints": [f"{cp['step']}/{cp['checkpoint']} {h[:12]}"
-                                         for cp, h in zip(result["checkpoints"], row)]}))
+                                         for cp, h in zip(result["checkpoints"], row)],
+                         **{k: result[k] for k in ("switch_readback", "switch_hits", "launch_switch_hits")
+                            if k in result}}))
     same = all(h == hashes[0] for h in hashes)
     emit(f"driver_app: {len(hashes)} runs, {'equal' if same else 'DIFFERENT'} checkpoint hashes")
     return 0 if same and hashes and hashes[0][0] == "Pass" else 1
@@ -1377,7 +1545,8 @@ def run_repeats(ctx: Mapping[str, Any], case: Dict[str, Any], repeat: int,
 def cmd_run_case(args: argparse.Namespace) -> int:
     case = json.loads(Path(args.case).read_text(encoding="utf-8"))
     ctx = {"run_id": "run-case", "product": "app", "build": args.build, "binary": args.app, "ref": args.ref,
-           "out_dir": args.out}
+           "out_dir": args.out, "switches": switches.parse_requests(args.switch),
+           "switch_registry": args.switch_registry}
     return run_repeats(ctx, case, args.repeat, emit=lambda line: print(line, flush=True))
 
 
@@ -1392,6 +1561,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     one.add_argument("--ref", help="the full SHA the app was built from (default: its CMUXCommit or CMUX_CI_SHA)")
     one.add_argument("--repeat", type=int, default=2)
     one.add_argument("--out", help="log folder (default: /tmp/o/logs, kept after the run)")
+    one.add_argument("--switch", action="append", default=[], metavar="NAME=ARM",
+                     help="run on this refactor switch arm (plans/cmux-next/refactor-switches/NAME.json); repeatable")
+    one.add_argument("--switch-registry", help="refactor switch registry (default plans/cmux-next/refactor-switches)")
     args = parser.parse_args(argv)
     if args.selftest:
         import unittest
@@ -1401,7 +1573,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         suite = unittest.defaultTestLoader.loadTestsFromModule(driver_app_test)
         return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
     if args.command == "run-case":
-        return cmd_run_case(args)
+        try:
+            return cmd_run_case(args)
+        except (switches.UsageError, ValueError) as error:  # a bad --switch or an unknown switch: nothing launched
+            print(f"driver_app: {error}", file=sys.stderr)
+            return 2
+        except switches.ArmNotApplied as error:  # the build runs other arms than the run applied
+            print(f"driver_app: {error}; read back {json.dumps(error.readback, sort_keys=True)}", file=sys.stderr)
+            return 1
     parser.print_usage(sys.stderr)
     return 2
 
