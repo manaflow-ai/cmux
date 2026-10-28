@@ -44,8 +44,24 @@ export const isDroppedMark = (ch: string): boolean => /^\p{M}$/u.test(ch) && fol
 
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
+/**
+ * Folds of graphemes seen before: text reuses a small alphabet, so most graphemes skip the two
+ * normalizations. Bounded; cleared when full, so its memory never grows past FOLD_CACHE_MAX entries.
+ */
+const FOLD_CACHE_MAX = 8192
+const foldCache = new Map<string, string>()
+
 /** One grapheme folded; a single ASCII character (most text) skips normalization. */
-const foldGrapheme = (g: string) => (g.length === 1 && g.charCodeAt(0) < 0x80 ? g.toLowerCase() : foldText(g))
+const foldGrapheme = (g: string) => {
+  if (g.length === 1 && g.charCodeAt(0) < 0x80) return g.toLowerCase()
+  let f = foldCache.get(g)
+  if (f === undefined) {
+    if (foldCache.size >= FOLD_CACHE_MAX) foldCache.clear()
+    f = foldText(g)
+    foldCache.set(g, f)
+  }
+  return f
+}
 
 const foldGraphemes = (s: string) => Array.from(graphemes.segment(s), ({ segment }) => foldGrapheme(segment)).join("")
 
@@ -96,7 +112,7 @@ export const foldedMatch = (text: string, query: string): { readonly start: numb
   }
   const nonAscii = (from: number, to: number) => {
     if (to <= from) return
-    for (const { segment } of graphemes.segment(text.slice(from, to))) piece(foldGrapheme(segment), [...segment].length, false)
+    for (const { segment } of graphemes.segment(text.slice(from, to))) piece(foldGrapheme(segment), segment.length === 1 ? 1 : [...segment].length, false)
   }
   let next = 0
   for (const m of text.matchAll(ASCII_RUN)) {
