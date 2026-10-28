@@ -3301,6 +3301,12 @@ mod tests {
         assert!(!run_with_context(&plan, &context).failed);
         let hooks_path = context.home.join(".codex/hooks.json");
         let mut hooks = read_json_object(&hooks_path).unwrap();
+        let key_path = codex_state_key_hooks_path(&hooks_path, false);
+        let expected = codex_expected_trust_entries(&key_path, &hooks).unwrap();
+        let (existing_key, existing_hash) = expected
+            .iter()
+            .find(|(key, _)| key.contains(":post_tool_use:"))
+            .unwrap();
         hooks
             .get_mut("hooks")
             .and_then(Value::as_object_mut)
@@ -3320,7 +3326,11 @@ mod tests {
         )
         .unwrap();
         assert!(settings.iter().any(|line| line.starts_with("hooks.Stop=")));
-        assert!(settings.iter().any(|line| line.starts_with("hooks.state=")));
+        let state_line = settings.iter().find(|line| line.starts_with("hooks.state=")).unwrap();
+        let parsed: toml::Value = toml::from_str(state_line).unwrap();
+        let entry = parsed["hooks"]["state"][existing_key].as_table().unwrap();
+        assert_eq!(entry.get("enabled").and_then(toml::Value::as_bool), Some(false));
+        assert_eq!(entry.get("trusted_hash").and_then(toml::Value::as_str), Some(existing_hash.as_str()));
     }
 
     #[test]
