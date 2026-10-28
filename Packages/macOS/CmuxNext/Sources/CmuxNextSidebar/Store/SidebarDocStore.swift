@@ -33,8 +33,8 @@ public final class SidebarDocStore {
     public private(set) var isActive = false
     /// What the sidebar draws from the document (`show(live:)`); nil while inactive.
     public internal(set) var shown: SidebarDocProjection?
-    /// The `version` `shown` was built at: behind `version` while an applied change (a Cmd-N move) waits for the next
-    /// `show`, a hop later.
+    /// The `version` `shown` was built at: behind `version` while an applied change waits for the next `show`, a hop
+    /// later, and, when the store shows in chunks (`showInChunks(on:)`), while a change no person made is built.
     @ObservationIgnored public internal(set) var shownVersion: UInt64 = 0
 
     @ObservationIgnored private let mirror: SidebarMirror?
@@ -87,6 +87,8 @@ public final class SidebarDocStore {
     @ObservationIgnored var requestedIconURLs: [String: String] = [:]
     /// The last projection (`projection(live:)`), with what it was built over.
     @ObservationIgnored var projectionCache: SidebarDocProjectionCache?
+    /// Where `show` builds a projection in chunks (`showInChunks(on:)`); nil: at once.
+    @ObservationIgnored var showChunks: SidebarDocShowChunks?
     /// `projectionCache` as a memory consumer of the app's coordinator (`registerMemoryConsumer(with:)`).
     @ObservationIgnored var projectionMemory: SidebarDocProjectionMemory?
     /// Changes whose outcome no reply told (all asks unanswered, or answered only after an ask went unanswered: the
@@ -278,8 +280,14 @@ public final class SidebarDocStore {
     /// Sends reducer ops (`[{op: ...}]`, JSON objects) as one `sidebar.apply`:
     /// group edits, adopt-then-move. `undoable` false (a collapse) puts no undo step.
     public func send(ops: [[String: Any]], title: String, undoable: Bool = true) {
+        send(ops: ops, title: title, undoable: undoable, byPerson: true)
+    }
+
+    /// `send(ops:title:undoable:)`; `byPerson` false: the store's own change (a remote close), which a chunked show
+    /// builds like any change no person made.
+    func send(ops: [[String: Any]], title: String, undoable: Bool, byPerson: Bool) {
         guard !ops.isEmpty, let data = try? JSONSerialization.data(withJSONObject: ops) else { return }
-        send(.apply(data, key: Self.newKey()), title: title, undoable: undoable) { remote, key, stamped in
+        send(.apply(data, key: Self.newKey()), title: title, undoable: undoable, byPerson: byPerson) { remote, key, stamped in
             try await remote.apply(ops: stamped ?? data, key: key)
         }
     }
@@ -302,10 +310,10 @@ public final class SidebarDocStore {
         }
     }
 
-    private func send(_ intent: SidebarMirrorIntent, title: String, undoable: Bool = true,
+    private func send(_ intent: SidebarMirrorIntent, title: String, undoable: Bool = true, byPerson: Bool = true,
                       _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) {
         do {
-            try submit(intent, title: title, undoable: undoable, body)
+            try submit(intent, title: title, undoable: undoable, byPerson: byPerson, body)
         } catch {
             if let origin = Self.undoOrigin { onUndoRefused(origin) }
             onRefused(error.message)
@@ -314,7 +322,8 @@ public final class SidebarDocStore {
 
     /// Applies `intent` to the mirror and sends it; throws (after telling every list) when it is refused at once.
     /// `redraws` false (a fold): the rows the mirror orders do not change, so no rebuild follows the intent.
-    private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool, redraws: Bool = true,
+    /// `byPerson` false: the store's own change, never shown at once as a person's (`bump(localIntent:)`).
+    private func submit(_ intent: SidebarMirrorIntent, title: String, undoable: Bool, redraws: Bool = true, byPerson: Bool = true,
                         _ body: @escaping @MainActor (any SidebarDocRemote, String, Data?) async throws -> SidebarDocReply) throws(SidebarDocSendRefusal) {
         lastIntentKey = intent.idempotencyKey
         func refused(_ message: String) -> SidebarDocSendRefusal {
@@ -330,7 +339,7 @@ public final class SidebarDocStore {
         } catch {
             throw refused(SidebarDocStrings.unavailable)
         }
-        if redraws { bump() }
+        if redraws { bump(localIntent: byPerson) }
         let key = intent.idempotencyKey
         // An undo's or redo's inverse fills the step the undo put; a user's change puts its own step now (cx-kpicb).
         let origin = Self.undoOrigin ?? (undoable ? onUndoPending(title) : nil)
@@ -400,7 +409,12 @@ public final class SidebarDocStore {
         if redraws { bump() }
     }
 
-    private func bump() { version &+= 1 }
+    /// Moves `version`; `localIntent`: a change this app applied to the mirror (`submit`), which a chunked show
+    /// (`SidebarDocShowChunks.noteChange(at:localIntent:)`) shows at once unless automation sent it.
+    private func bump(localIntent: Bool = false) {
+        version &+= 1
+        showChunks?.noteChange(at: version, localIntent: localIntent)
+    }
 
     static func newKey() -> String { "sidebar-" + UUID().uuidString.lowercased() }
 }

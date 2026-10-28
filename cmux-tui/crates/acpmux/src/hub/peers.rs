@@ -82,7 +82,7 @@ impl Hub {
             self.load_peer_cache(&peer);
         }
         let generation = peer.generation;
-        tokio::spawn(peer.run());
+        self.supervise("hub.peer", Fatal, ShutdownBehavior::Skip, peer.run());
         (generation, settled)
     }
 

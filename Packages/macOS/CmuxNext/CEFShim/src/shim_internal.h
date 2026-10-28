@@ -183,6 +183,9 @@ struct ForkApi {
   // No API number yet (p01-process-242 numbers it, cmux expects 35): Jump to
   // Selection, FrameInputHandler::CenterSelection on the focused frame.
   int (*browser_center_selection)(int) = nullptr;
+  // No API number yet (p03-rendering-116; the fork train numbers it): the
+  // slice of the next CefDoMessageLoopWork call only, in microseconds.
+  void (*set_message_loop_time_slice)(int64_t) = nullptr;
 };
 
 struct Host {

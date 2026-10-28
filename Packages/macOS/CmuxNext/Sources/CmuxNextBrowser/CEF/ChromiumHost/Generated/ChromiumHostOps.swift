@@ -51,16 +51,17 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case pageSchemeAddFirstParty = 175, pageSchemeAddFirstPartyDynamic = 176, pageResourceRespond = 177
     case memoryPressureVote = 178, setCursorEvents = 179, tabSetVisibility = 180, extLoadLaterSupported = 181
     case extLoadCommandLine = 182, tabPagePush = 183, setPopupMenus = 184, browserPopupMenuReply = 185
-    case browserEditCommand = 186, addDocumentScript = 187, addPageChannel = 188, tabEvaluate = 189
-    case tabSetFrozen = 190, tabSendClick = 191, tabSetColorScheme = 192, pageSchemeSetGroup = 193, tabDiscard = 194
-    case widgetSetGeometry = 195, widgetDismiss = 196, widgetSendInput = 197, browserImeSetComposition = 198
-    case browserImeCommitText = 199, browserImeFinishComposing = 200, browserImeCancelComposition = 201
-    case tabCopySurface = 202, tabSendMouseMove = 203
+    case browserEditCommand = 186, setPumpTimeSlice = 187, addDocumentScript = 188, addPageChannel = 189
+    case tabEvaluate = 190, tabSetFrozen = 191, tabSendClick = 192, tabSetColorScheme = 193
+    case pageSchemeSetGroup = 194, tabDiscard = 195, widgetSetGeometry = 196, widgetDismiss = 197
+    case widgetSendInput = 198, browserImeSetComposition = 199, browserImeCommitText = 200
+    case browserImeFinishComposing = 201, browserImeCancelComposition = 202, tabCopySurface = 203
+    case tabSendMouseMove = 204
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "bacc6da86a234cc8e102311f98179332b6b44fcf39ffd98b5f93004ff834575d"
+    static let abiIdentity = "5dcd7a25ecd6963ed029c6b05edaa864bc989a5c7084c8374fcb2ad670c415fa"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "4087a505dccf4ec96a62269191c0f9ba690020552b723c718b2586b47fd04978"
+    static let wireIdentity = "33cba40a31649fff3301d63a2dad0bb3e6f0b3600ddb51127a0bec67e1f9fb0d"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -387,6 +388,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.preinit, [.int32], []),
         Row(.post, [.int32, .int64, .int32], []),
         Row(.post, [.int32, .string], []),
+        Row(.local, [], []),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),

@@ -136,13 +136,17 @@ enum RawSocks {
         guard fd >= 0 else { throw POSIXError(.EIO) }
         defer { close(fd) }
         var timeout = timeval(tv_sec: 10, tv_usec: 0)
-        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
+        // SAFETY: setsockopt reads sizeof(timeval) bytes, the length passed, from `timeout`.
+        unsafe setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         var address = sockaddr_in()
         address.sin_family = sa_family_t(AF_INET)
         address.sin_port = in_port_t(UInt16(proxyPort).bigEndian)
-        address.sin_addr.s_addr = inet_addr("127.0.0.1")
-        let connected = withUnsafePointer(to: &address) {
-            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        // SAFETY: inet_addr reads the NUL-terminated copy of the literal made for this call.
+        address.sin_addr.s_addr = unsafe inet_addr("127.0.0.1")
+        // SAFETY: connect reads sizeof(sockaddr_in) bytes, the length passed, from `address`, a
+        // sockaddr_in local; the sockaddr view is the socket API's cast, used only for the call.
+        let connected = unsafe withUnsafePointer(to: &address) {
+            unsafe $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { unsafe Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
         }
         guard connected == 0 else { throw POSIXError(.ECONNREFUSED) }
         try send(fd, [5, 1, 0])
@@ -154,8 +158,10 @@ enum RawSocks {
         try send(fd, Array(payload.utf8))
         var rest: [UInt8] = []
         while true {
-            var chunk = [UInt8](repeating: 0, count: 4096)
-            let n = read(fd, &chunk, chunk.count)
+            let capacity = 4096
+            var chunk = [UInt8](repeating: 0, count: capacity)
+            // SAFETY: read writes at most `capacity` bytes, the size passed, into `chunk`.
+            let n = unsafe read(fd, &chunk, capacity)
             if n <= 0 { break }
             rest += chunk[0..<n]
         }
@@ -163,14 +169,17 @@ enum RawSocks {
     }
 
     private static func send(_ fd: Int32, _ bytes: [UInt8]) throws {
-        guard write(fd, bytes, bytes.count) == bytes.count else { throw POSIXError(.EIO) }
+        // SAFETY: write reads bytes.count bytes, the count passed, from `bytes`.
+        guard unsafe write(fd, bytes, bytes.count) == bytes.count else { throw POSIXError(.EIO) }
     }
 
     private static func receive(_ fd: Int32, count: Int) throws -> [UInt8] {
         var out: [UInt8] = []
         while out.count < count {
-            var chunk = [UInt8](repeating: 0, count: count - out.count)
-            let n = read(fd, &chunk, chunk.count)
+            let capacity = count - out.count
+            var chunk = [UInt8](repeating: 0, count: capacity)
+            // SAFETY: read writes at most `capacity` bytes, the size passed, into `chunk`.
+            let n = unsafe read(fd, &chunk, capacity)
             if n <= 0 { break }
             out += chunk[0..<n]
         }
