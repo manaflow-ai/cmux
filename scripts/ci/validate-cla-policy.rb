@@ -12,6 +12,7 @@ require "json"
 require "open3"
 require "tempfile"
 require "time"
+require "tmpdir"
 require "yaml"
 
 class PolicyError < StandardError; end
@@ -164,7 +165,7 @@ EXPECTED_GUARD_WORKFLOW_DIGEST = "0aeffcf9241fbc59bd9aa744a882ddbd8c7555ca879855
 # The guard workflow remains pinned to its reviewed immutable bytes. The CLA
 # policy itself is validated structurally, then authorized by an exact-head
 # trusted review.
-EXPECTED_GUARD_SCRIPT_DIGEST = "11456f449bfcc09d5e19706527ce081a46f93eb357b97099d7bd267ae0ce2c28"
+EXPECTED_GUARD_SCRIPT_DIGEST = "707e7a7e06579b5bf8129f64cdcbdd6293b81201bffc6f36b8174d25e0881beb"
 # Migration marker for the base v2 guard validator. That validator requires
 # the literal EXPECTED_WORKFLOW_DIGEST while it checks this candidate. The v3
 # validator does not use this inert marker for policy authorization.
@@ -969,6 +970,129 @@ end
 
 def fetch_snapshot(repository, sha, paths)
   paths.to_h { |path| [path, fetch_file(repository, sha, path, allow_missing: true)] }
+end
+
+# Git reads of the guard and policy files. Each revision's files are read from
+# that revision's own commit: the base's from the base sha, the head's (as
+# data, never checked out or run) from the head sha. A pull request therefore
+# still cannot change the policy that judges it. The reads cost two git round
+# trips (the commits' trees, then the wanted blobs) and no REST call, where the
+# contents API took one call per file per revision (12 for a base and a head).
+# Any git failure returns nil and the caller reads through the contents API as
+# before, so the guard is never worse off; a file that is not a regular file
+# fails the guard either way.
+GIT_TIMEOUT_SECONDS = "60"
+GIT_ENVIRONMENT = {
+  "GIT_TERMINAL_PROMPT" => "0",
+  "GIT_NO_LAZY_FETCH" => "1",
+  "GIT_CONFIG_NOSYSTEM" => "1",
+  "GIT_CONFIG_GLOBAL" => File::NULL
+}.freeze
+GIT_FETCH_OPTIONS = %w[
+  fetch --quiet --no-tags --no-write-fetch-head --recurse-submodules=no --filter=blob:none
+].freeze
+GIT_REGULAR_FILE_MODES = %w[100644 100755].freeze
+GIT_SERVER_URL = %r{\Ahttps://[A-Za-z0-9.-]+(?::[0-9]+)?\z}
+
+def git_remote_url(repository)
+  server = ENV.fetch("GITHUB_SERVER_URL", "https://github.com")
+  return nil unless server.match?(GIT_SERVER_URL) && repository.match?(REPOSITORY)
+
+  "#{server}/#{repository}.git"
+end
+
+def git_output(git_dir, *args, stdin_data: "")
+  stdout, _stderr, status = Open3.capture3(
+    GIT_ENVIRONMENT, "timeout", GIT_TIMEOUT_SECONDS, "git", "--git-dir=#{git_dir}", *args,
+    stdin_data: stdin_data, binmode: true
+  )
+  status.success? ? stdout : nil
+end
+
+# { path => blob id } for the wanted paths present at sha; nil when git
+# cannot list the tree.
+def git_tree_blobs(git_dir, sha, paths)
+  listing = git_output(git_dir, "ls-tree", "-z", "--full-tree", sha, "--", *paths)
+  return nil if listing.nil?
+
+  blobs = {}
+  listing.split("\0").each do |entry|
+    meta, path = entry.split("\t", 2)
+    next unless paths.include?(path)
+
+    mode, type, id = meta.to_s.split(" ")
+    fail!("#{path} is not a regular file") unless type == "blob" && GIT_REGULAR_FILE_MODES.include?(mode)
+    return nil unless id.to_s.match?(SHA)
+
+    blobs[path] = id
+  end
+  blobs
+end
+
+# { blob id => bytes } for the given ids, read from the local object store
+# only (no lazy fetch); nil when one is missing.
+def git_blob_bytes(git_dir, ids)
+  return {} if ids.empty?
+
+  output = git_output(git_dir, "cat-file", "--batch", stdin_data: ids.map { |id| "#{id}\n" }.join)
+  return nil if output.nil?
+
+  bytes = {}
+  offset = 0
+  ids.each do |id|
+    newline = output.index("\n", offset)
+    return nil if newline.nil?
+
+    header = output.byteslice(offset, newline - offset).split(" ")
+    return nil unless header.length == 3 && header[0] == id && header[1] == "blob" && header[2].match?(/\A[0-9]+\z/)
+
+    size = header[2].to_i
+    fail!("a policy file is too large") if size > MAX_FILE_BYTES
+    bytes[id] = output.byteslice(newline + 1, size)
+    offset = newline + 1 + size + 1
+  end
+  bytes
+end
+
+# { sha => { path => bytes or nil } } for every sha, read by git from the
+# protected repository (a fork pull request's head is fetched there too, by
+# its sha); nil when git could not read them.
+def git_snapshots(repository, shas, paths)
+  url = git_remote_url(repository)
+  return nil if url.nil? || shas.empty? || !shas.all? { |sha| sha.match?(SHA) }
+
+  Dir.mktmpdir("cla-policy-objects") do |git_dir|
+    return nil if git_output(git_dir, "init", "--quiet", "--bare").nil?
+    return nil if git_output(git_dir, *GIT_FETCH_OPTIONS, "--depth=1", url, *shas).nil?
+
+    trees = {}
+    shas.each do |sha|
+      blobs = git_tree_blobs(git_dir, sha, paths)
+      return nil if blobs.nil?
+
+      trees[sha] = blobs
+    end
+    ids = trees.values.flat_map(&:values).uniq
+    return nil if !ids.empty? && git_output(git_dir, *GIT_FETCH_OPTIONS, url, *ids).nil?
+
+    contents = git_blob_bytes(git_dir, ids)
+    return nil if contents.nil?
+
+    trees.transform_values do |blobs|
+      paths.to_h { |path| [path, blobs[path] && contents.fetch(blobs[path])] }
+    end
+  end
+end
+
+# The guard and policy files of each revision ({ sha => repository its files
+# live in }), keyed by sha: by git when it can, else through the contents API
+# as before.
+def read_revisions(repository, revisions)
+  paths = GUARD_PATHS + CLA_POLICY_PATHS
+  snapshots = git_snapshots(repository, revisions.keys, paths)
+  return snapshots unless snapshots.nil?
+
+  revisions.to_h { |sha, source| [sha, fetch_snapshot(source, sha, paths)] }
 end
 
 # Returns [first parent, test merge] for the exact head, or nil when GitHub
@@ -3266,8 +3390,12 @@ begin
   head_sha = required_env("HEAD_SHA", SHA)
   fail!("base and head revisions are identical") if base_sha == head_sha
 
-  repository_metadata = api_json(repository, "repos/#{repository}")
-  repository_id = repository_metadata.is_a?(Hash) ? repository_metadata["id"] : nil
+  # The runner names the repository's ID; the API is read only without it.
+  repository_id = ENV["GITHUB_REPOSITORY_ID"].to_s.match?(/\A[1-9][0-9]*\z/) ? ENV["GITHUB_REPOSITORY_ID"].to_i : nil
+  if repository_id.nil?
+    repository_metadata = api_json(repository, "repos/#{repository}")
+    repository_id = repository_metadata.is_a?(Hash) ? repository_metadata["id"] : nil
+  end
   assert_positive_integer(repository_id, "base repository ID")
   live_pr = api_json(repository, "repos/#{repository}/pulls/#{pr_number}")
   fail!("pull request metadata is malformed") unless live_pr.is_a?(Hash)
@@ -3300,22 +3428,25 @@ begin
   head_repository = live_head_repo["full_name"].to_s
   fail!("pull request head repository name is malformed") unless head_repository.match?(REPOSITORY)
 
-  # A fork pull request stores the head commit in the head repository. Fetch
-  # base and test-merge files from the protected repository and candidate
-  # files from the validated head repository, so normal external
-  # contributions are admitted.
-  base_guard = fetch_snapshot(repository, base_sha, GUARD_PATHS)
-  head_guard = fetch_snapshot(head_repository, head_sha, GUARD_PATHS)
-  base_policy = fetch_snapshot(repository, base_sha, CLA_POLICY_PATHS)
-  head_policy = fetch_snapshot(head_repository, head_sha, CLA_POLICY_PATHS)
+  # Each revision's files are read at its own sha: the base's from the base
+  # sha, never from the head. A fork pull request stores the head commit in
+  # the head repository; git fetches it by sha from the protected repository,
+  # and the contents API fallback reads it from the validated head
+  # repository, so normal external contributions are admitted.
+  revisions = read_revisions(repository, { base_sha => repository, head_sha => head_repository })
+  base_guard = revisions.fetch(base_sha).slice(*GUARD_PATHS)
+  head_guard = revisions.fetch(head_sha).slice(*GUARD_PATHS)
+  base_policy = revisions.fetch(base_sha).slice(*CLA_POLICY_PATHS)
+  head_policy = revisions.fetch(head_sha).slice(*CLA_POLICY_PATHS)
   landed_parent_guard = landed_guard = landed_parent_policy = landed_policy = nil
   if head_guard != base_guard || head_policy != base_policy
     landed_parent_sha, landed_sha = pull_request_test_merge(repository, pr_number, base_sha, head_sha)
     if landed_sha
-      landed_parent_guard = fetch_snapshot(repository, landed_parent_sha, GUARD_PATHS)
-      landed_guard = fetch_snapshot(repository, landed_sha, GUARD_PATHS)
-      landed_parent_policy = fetch_snapshot(repository, landed_parent_sha, CLA_POLICY_PATHS)
-      landed_policy = fetch_snapshot(repository, landed_sha, CLA_POLICY_PATHS)
+      landed = read_revisions(repository, { landed_parent_sha => repository, landed_sha => repository })
+      landed_parent_guard = landed.fetch(landed_parent_sha).slice(*GUARD_PATHS)
+      landed_guard = landed.fetch(landed_sha).slice(*GUARD_PATHS)
+      landed_parent_policy = landed.fetch(landed_parent_sha).slice(*CLA_POLICY_PATHS)
+      landed_policy = landed.fetch(landed_sha).slice(*CLA_POLICY_PATHS)
     end
   end
   head_guard_workflow = head_guard.fetch(GUARD_WORKFLOW_PATH)
