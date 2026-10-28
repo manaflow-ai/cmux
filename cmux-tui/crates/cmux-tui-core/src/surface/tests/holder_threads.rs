@@ -160,3 +160,63 @@ fn a_holder_burst_longer_than_one_run_is_read_to_its_end() {
     assert!(pty.reader_completion.wait_until(Instant::now() + WAIT));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The end a holder reports is recorded on another thread, never inline on
+/// the reporting one, also with no owner to give it a work pool: the
+/// reporter (the holder link thread, a shutdown detach) may hold a lock the
+/// record takes (review of H2: link.state, pty.runtime). Here the reporter
+/// holds the terminal's `exit` lock, the first one the record takes.
+#[test]
+fn a_holder_end_is_never_recorded_on_the_reporting_thread() {
+    let stamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.subsec_nanos());
+    let dir = std::env::temp_dir().join(format!("holder-end-{}-{stamp}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let service = stand_in_service(dir.join("h.sock"));
+    let (master, _program) = nonblocking_pty();
+    let terminal = stand_in_terminal(service, 1, master);
+    let geometry = PtyGeometry { cols: 20, rows: 4, cell_width: 8, cell_height: 16 };
+    let surface = Surface::spawn_local(
+        LocalSpawn {
+            id: FIRST_ID + 95,
+            opts: SurfaceOptions { cols: 20, rows: 4, ..SurfaceOptions::default() },
+            // No owner: no terminal work pool.
+            mux: Weak::new(),
+            terminal_public_id: None,
+            kitty_reservation: None,
+            initial_kitty_limits: KittyGraphicsLimits::disabled(),
+            resource_identity: None,
+            lifetime: PtyLifetime::DaemonOwned,
+            cell_pixels: (8, 16),
+            initial_geometry: geometry,
+            host_identity: None,
+        },
+        holder_local_launch(&terminal, Vec::new(), None).unwrap(),
+    )
+    .unwrap();
+    let (reported_tx, reported_rx) = std::sync::mpsc::channel();
+    let reporter = {
+        let surface = surface.clone();
+        let terminal = terminal.clone();
+        std::thread::spawn(move || {
+            let pty = surface.as_pty().unwrap();
+            let held = pty.exit.lock().unwrap();
+            terminal.sink.exit(ExitStatus::Exited(3), 0);
+            let _ = reported_tx.send(());
+            drop(held);
+        })
+    };
+    assert!(
+        reported_rx.recv_timeout(WAIT).is_ok(),
+        "the end was recorded on the reporting thread, under the lock it holds"
+    );
+    reporter.join().unwrap();
+    let pty = surface.as_pty().unwrap();
+    assert!(pty.reaper_completion.wait_until(Instant::now() + WAIT), "the end was never recorded");
+    assert_eq!(
+        surface.terminal_exit().map(|exit| exit.outcome),
+        Some(crate::terminal_host_protocol::TerminalExitOutcome::Exit { code: 3 }),
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

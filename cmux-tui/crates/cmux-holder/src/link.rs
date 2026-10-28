@@ -640,8 +640,11 @@ fn read_loop(
                     // the answer goes to its waiter and before any DATA of
                     // the channel (the holder queues ADOPTED ahead of them).
                     let _oldest = input.u64();
+                    // Taken in its own statement: no sink call runs under
+                    // `link.state` (a sink's callbacks may take it).
+                    let sink = link.lock().sinks.get(&chan).cloned();
                     if let Ok(end) = input.u64()
-                        && let Some(sink) = link.lock().sinks.get(&chan).cloned()
+                        && let Some(sink) = sink
                     {
                         sink.adopted(end);
                     }
@@ -679,8 +682,9 @@ fn read_loop(
                     }
                 }
                 Some(Kind::Gap) => {
+                    let sink = link.lock().sinks.get(&chan).cloned();
                     if let (Ok(requested), Ok(oldest)) = (input.u64(), input.u64())
-                        && let Some(sink) = link.lock().sinks.get(&chan).cloned()
+                        && let Some(sink) = sink
                     {
                         sink.gap(requested, oldest);
                     }
@@ -691,11 +695,15 @@ fn read_loop(
                     }
                 }
                 Some(Kind::Exit) => {
-                    if let (Ok(kind), Ok(code), Ok(end)) = (input.u8(), input.i32(), input.u64())
-                        && let Some(sink) = link.lock().sinks.remove(&chan)
-                    {
-                        acked.remove(&chan);
-                        sink.exit(ExitStatus::decode(kind, code), end);
+                    if let (Ok(kind), Ok(code), Ok(end)) = (input.u8(), input.i32(), input.u64()) {
+                        // Removed in its own statement: the sink's end runs
+                        // with `link.state` released (its record forgets the
+                        // channel, which takes that lock).
+                        let sink = link.lock().sinks.remove(&chan);
+                        if let Some(sink) = sink {
+                            acked.remove(&chan);
+                            sink.exit(ExitStatus::decode(kind, code), end);
+                        }
                     }
                 }
                 _ => {}

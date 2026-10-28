@@ -415,13 +415,20 @@ fn notify_end(
             let end = work();
             record_local_end(&ended, end, completion);
         });
-        match owner {
-            Some(owner) => {
-                if let Err(record) = owner.submit_terminal_work(record) {
-                    record();
-                }
-            }
-            None => record(),
+        // Never on the thread that reports the end: it may hold the locks
+        // the record takes (the holder link's state, a surface's runtime
+        // during a shutdown detach). Without the pool, a one-off thread.
+        let record = match owner {
+            Some(owner) => match owner.submit_terminal_work(record) {
+                Ok(()) => return,
+                Err(record) => record,
+            },
+            None => record,
+        };
+        if let Err(error) =
+            cmux_tui_platform::qos::spawn_outside_request("terminal-end".to_owned(), record)
+        {
+            eprintln!("cmux-tui: a terminal's end could not be recorded: {error}");
         }
     }));
 }

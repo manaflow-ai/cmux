@@ -480,7 +480,9 @@ impl HolderSink {
             state.due_ack(self.acker.get().is_some())
         };
         if let (Some(offset), Some(acker)) = (ack, self.acker.get()) {
-            acker(offset);
+            // A blocking write to the holder link: a read worker leaves its
+            // slot to the other terminals while it waits.
+            crate::mux::terminal_work::read_loop::will_block(|| acker(offset));
         }
         let mut state = self.state.lock().recover_poison();
         while state.bytes.is_empty() && state.exit.is_none() && !state.detached && !state.lost {
