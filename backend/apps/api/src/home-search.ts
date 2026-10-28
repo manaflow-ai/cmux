@@ -2,6 +2,7 @@ import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
 import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 import type { Env } from "./env.ts"
+import { foldedMatch, isDroppedMark } from "./home-search-fold.ts"
 
 /**
  * `home.search` (home-messaging.md sections 7 and 20): the PlanetScale projection through the
@@ -58,12 +59,24 @@ const findMatch = (chars: ReadonlyArray<string>, needle: ReadonlyArray<string>) 
   return -1
 }
 
-/** The hit for one row: snippet (120 code points around the match) and the match range inside it. */
+/**
+ * The hit for one row: snippet (120 code points around the match) and the match range inside it.
+ * The plain case-insensitive match comes first (what Postgres ILIKE matched, and the cheap path);
+ * only when it finds nothing does the match fold accents as the MySQL collation does
+ * (home-search-fold.ts), so a row that matched only through folding still gets its range.
+ */
 export const hitOf = (row: { conversation_id: string; title: string | null; seq: string | number; message_id: string; author_id: string; created_at: Date | string; body: string }, q: string): SearchHit => {
   const needle = [...q.toLowerCase()]
-  const at = Math.max(0, findMatch([...row.body], needle))
-  const snippet = homeConversation.snippetOf(row.body, at, needle.length)
-  const start = findMatch([...snippet], needle)
+  const chars = [...row.body]
+  const at = findMatch(chars, needle)
+  // A plain match ending before accents the fold drops (`cafe` in a decomposed `café`) covers them too.
+  let end = at + needle.length
+  while (at >= 0 && end < chars.length && isDroppedMark(chars[end]!)) end++
+  const match = at >= 0 ? { start: at, length: end - at } : foldedMatch(row.body, q)
+  const { snippet, from, to, lead } = homeConversation.snippetWindow(row.body, match?.start ?? 0, match?.length ?? needle.length)
+  // The part of the match the snippet shows, in snippet offsets.
+  const shownStart = match ? Math.max(match.start, from) : 0
+  const shownEnd = match ? Math.min(match.start + match.length, to) : 0
   return {
     conversation: row.conversation_id,
     title: row.title,
@@ -72,7 +85,7 @@ export const hitOf = (row: { conversation_id: string; title: string | null; seq:
     author: row.author_id,
     created_at: new Date(row.created_at).toISOString(),
     snippet,
-    ranges: start >= 0 ? [{ start, length: needle.length }] : []
+    ranges: shownEnd > shownStart ? [{ start: shownStart - from + lead, length: shownEnd - shownStart }] : []
   }
 }
 
