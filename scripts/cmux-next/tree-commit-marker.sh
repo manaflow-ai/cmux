@@ -150,20 +150,19 @@ write_markers() {
   git -C "$repo_root" rev-list --first-parent -n "$window" HEAD > "$tmp/head-revs" \
     || { echo "error: could not list HEAD's first-parent history" >&2; exit 1; }
   cp "$tmp/head-revs" "$tmp/revs"
-  : > "$tmp/tip-revs"
   if [[ -n "$tip" ]]; then
     git -C "$repo_root" rev-list --first-parent -n "$window" "$tip" > "$tmp/tip-revs" \
       || { echo "error: could not list the tip's first-parent history" >&2; exit 1; }
     grep -vxF -f "$tmp/head-revs" "$tmp/tip-revs" >> "$tmp/revs" || true
   fi
-  # A tip commit is keyed with this checkout's key script and input list, so it
-  # is marked only when its own copies are the same (a tip that changed the key
-  # definition is left to its own run, or the backfill, which keys it right).
+  # Every commit is keyed with this checkout's key script and input list, so it
+  # is marked only when its own copies are the same: an older commit from before
+  # a key definition change, or a tip commit after one, is left to a run whose
+  # definition matches it (its own run, or the backfill).
   local key_def
   key_def="$(key_definition HEAD)" || { echo "error: could not read this checkout's tree key definition" >&2; exit 1; }
   while read -r rev; do
-    if grep -qxF "$rev" "$tmp/tip-revs" && ! grep -qxF "$rev" "$tmp/head-revs" \
-        && [[ "$(key_definition "$rev" 2>/dev/null)" != "$key_def" ]]; then
+    if [[ "$(key_definition "$rev" 2>/dev/null)" != "$key_def" ]]; then
       echo "commit ${rev:0:12}: its tree key definition differs from this run's; not marked here"
       skipped=$((skipped + 1)); continue
     fi
