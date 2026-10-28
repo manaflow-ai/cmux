@@ -1,5 +1,6 @@
 import { Schema } from "effect"
 import { def } from "./op-def.ts"
+import { isPattern } from "./json-pattern.ts"
 import {
   ClientToken,
   ConversationCommit,
@@ -315,7 +316,7 @@ export const GrantRevoke = def({
   risk: "mutate-shared",
   target: "conversation",
   principals: ["session", "install"],
-  params: Schema.Struct({ ...conv, grant_id: Schema.String.check(Schema.isPattern(/^grt_[0-9A-Z]{26}$/)) }),
+  params: Schema.Struct({ ...conv, grant_id: Schema.String.check(isPattern(/^grt_[0-9A-Z]{26}$/)) }),
   result: commit,
   errors: [...conversationErrors, "unknown_invite"],
   docs: "Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants.",
@@ -370,8 +371,8 @@ export const InviteAccept = def({
   target: "invite",
   principals: ["session"],
   params: Schema.Struct({
-    code: Schema.String.check(Schema.isPattern(/^[dg][0-9A-HJKMNP-TV-Z]{26}$/)),
-    secret: Schema.String.check(Schema.isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/))
+    code: Schema.String.check(isPattern(/^[dg][0-9A-HJKMNP-TV-Z]{26}$/)),
+    secret: Schema.String.check(isPattern(/^[0-9A-HJKMNP-TV-Z]{26}$/))
   }),
   result: commit,
   errors: [...conversationErrors, "unknown_invite", "invite_not_pending", "invite_expired", "banned", "duplicate_participant"],
