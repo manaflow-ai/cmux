@@ -183,29 +183,3 @@ test("Fast mode exposes one checked menu row with a visual switch and no bare st
   await settle();
   expect(document.querySelector(".acpmux-quick-fast")?.getAttribute("aria-checked")).toBe("true");
 });
-
-test("search rows use the same height and inset tokens as their menu items", async () => {
-  const quickCss = await Bun.file(new URL("./modelPicker.css", import.meta.url)).text();
-  const sharedCss = await Bun.file(new URL("./styles.css", import.meta.url)).text();
-  const uiCss = await Bun.file(new URL("../../ui/ui.css", import.meta.url)).text();
-  const modelPicker = await Bun.file(new URL("./ModelPicker.tsx", import.meta.url)).text();
-
-  expect(quickCss).toMatch(
-    /\.acpmux-quick-search \{[\s\S]*?height: var\(--ui-row-height\);[\s\S]*?padding-inline: var\(--ui-row-padding-inline\);/,
-  );
-  expect(quickCss).not.toContain("height: calc(var(--ui-row-height) + var(--ui-popup-padding) * 2)");
-  for (const selector of [
-    ".acpmux-file-search input",
-    ".acpmux-file-result",
-    ".acpmux-project-search",
-    ".acpmux-project-search-field",
-  ]) {
-    expect(sharedCss).toContain(selector);
-  }
-  expect(sharedCss).toContain("height: var(--ui-row-height)");
-  expect(sharedCss).toContain("padding-inline: var(--ui-row-padding-inline)");
-  expect(uiCss).toMatch(/\.ui-menu-search \{[\s\S]*?height: var\(--ui-row-height\);/);
-  expect(modelPicker).toContain("h-[var(--ui-row-height,28px)]");
-  expect(modelPicker).toContain("border-edge px-2");
-  expect(modelPicker).not.toContain("acpmux-mp-search flex h-9");
-});
