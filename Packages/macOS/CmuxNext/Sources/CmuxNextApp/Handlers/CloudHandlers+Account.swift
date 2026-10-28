@@ -18,18 +18,19 @@ extension CloudHandlers {
         let signedOutCreation = CloudSignedOutCreationContinuation()
         bind("newCloudMachine", registry, reason: reason) { invocation in
             let request = try newMachineRequest(invocation)
+            let actionOrigin = origin(of: invocation)
             let window = invocation.allowsViewChange ? context.services.windows.active?.state : nil
             let start: @MainActor () -> Void = {
                 guard cloud.isSignedIn else { return }
                 // A person’s original gesture owns the window and request. If
                 // that window has gone away while the browser was open, drop
                 // the intent rather than creating an orphaned machine.
-                guard window != nil || origin(of: invocation) != .user else { return }
-                if request.isDefault, origin(of: invocation) == .user, window != nil {
+                guard window != nil || actionOrigin != .user else { return }
+                if request.isDefault, actionOrigin == .user, window != nil {
                     beginWorkspaceSetup(context, window: window, askedBy: invocation.callerAgentSession)
                     return
                 }
-                let flow = creationFlow(context, startedByPerson: origin(of: invocation) == .user,
+                let flow = creationFlow(context, startedByPerson: actionOrigin == .user,
                                          askedBy: invocation.callerAgentSession)
                 guard request.isDefault else { return createRequested(request, flow: flow, window: window, context) }
                 reportCreatedMachine(flow.start(in: window, existing: nil), context)
@@ -38,7 +39,7 @@ extension CloudHandlers {
                 start()
                 return
             }
-            guard origin(of: invocation) == .user else {
+            guard actionOrigin == .user else {
                 throw ActionFailure(message: CloudStrings.signInFirst)
             }
             signedOutCreation.replace(signIn: { await cloud.auth.signIn() }, resume: start)
