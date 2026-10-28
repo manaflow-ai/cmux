@@ -1892,7 +1892,12 @@ impl WorkspaceRegistry {
     /// pages, which held the registry for seconds on a large registry each
     /// maintenance tick (https://github.com/manaflow-ai/cmux/issues/26702).
     pub(crate) fn latest_journal_checkpoint_source(&self) -> anyhow::Result<u64> {
-        Ok(self.journal_checkpoints()?.first().map_or(0, |checkpoint| checkpoint.source_sequence))
+        let source = self.connection.get().query_row(
+            "SELECT COALESCE(MAX(source_sequence), 0) FROM journal_checkpoints",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        Ok(u64::try_from(source)?)
     }
 
     pub(crate) fn journal_checkpoint(
