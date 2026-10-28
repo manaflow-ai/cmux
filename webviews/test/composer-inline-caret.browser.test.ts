@@ -60,6 +60,7 @@ await requireBrowserLane("composer-inline-caret.browser.test.ts", async () => {
           await page.mouse.move(destination.x, destination.y, { steps: 10 });
           await page.mouse.up();
           expect(await atom.count()).toBe(1);
+          expect(await atom.evaluate((node) => node.previousSibling?.textContent ?? "")).toContain("result");
           await page.evaluate(() => window.cmuxAcpmuxComposer?.({ attachmentView: "strip" }));
           await page.waitForSelector(".acpmux-attachments img");
           if (captures) await page.screenshot({ path: path.join(captures, `chat-strip-${theme}.png`) });
