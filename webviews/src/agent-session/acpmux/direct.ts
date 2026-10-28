@@ -4315,6 +4315,10 @@ export class AcpmuxDirectClient {
       this.subagents.closeBatch();
       const messageId = typeof update.messageId === "string" ? update.messageId : undefined;
       if (messageId && this.supersededMessageIds.has(messageId)) return;
+      // A steer can make the adapter start a fresh message stream before the prior one receives a
+      // final chunk. Settle that prior row now so its Sources remain visible after turn completion.
+      if (messageId && this.streamingAssistantMessageId && messageId !== this.streamingAssistantMessageId)
+        this.endAssistantSegment();
       const sameMessage = Boolean(
         this.streamingAssistant &&
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),

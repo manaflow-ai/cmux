@@ -182,7 +182,12 @@ function toolFindings(tool: Tool): Finding[] {
   const calls = plain
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/)
-    .map((part) => part.replace(/^\s*if\s+/, ""))
+    .map((part) =>
+      part
+        .replace(/^\s*(?:(?:if|then|do|else)\s+)+/, "")
+        .replace(/^\s*[({]\s*/, "")
+        .replace(/\s*[)}]\s*$/, ""),
+    )
     .filter((part) => EXECUTED_PR_COMMAND.test(part) && !/(?:^|\s)(?:--help|-h)(?=\s|$)/.test(part))
     .join("\n");
   const found: Finding[] = [];
