@@ -86,11 +86,16 @@ class StageFeedTests(unittest.TestCase):
         with self.assertRaises(tool.RolloutError):
             tool.current_stage(bad, "300")
 
-    def test_set_repairs_a_broken_percent_or_time(self):
+    def test_set_repairs_a_broken_percent_or_time_at_the_same_stage(self):
+        later = NOW + datetime.timedelta(hours=3)
         staged = tool.stage_feed(FEED, "300", 5, NOW)
-        for broken in (staged.replace(">5<", ">abc<"), staged.replace("2026-11-02T12:00:00Z", "yesterday")):
-            repaired = tool.stage_feed(broken, "300", 0, NOW)
-            self.assertEqual(tool.current_stage(repaired, "300"), tool.Stage(0, NOW))
+        broken = [staged.replace(">5<", ">abc<"), staged.replace("2026-11-02T12:00:00Z", "yesterday"),
+                  staged.replace("<cmux:rolloutPercent>5</cmux:rolloutPercent>", "<cmux:rolloutPercent/>"),
+                  staged.replace("<cmux:rolloutStagedAt>2026-11-02T12:00:00Z</cmux:rolloutStagedAt>", "<cmux:rolloutStagedAt />")]
+        for feed in broken:
+            repaired = tool.stage_feed(feed, "300", 5, later)
+            self.assertEqual(tool.current_stage(repaired, "300"), tool.Stage(5, later), feed)
+            self.assertEqual(repaired.count("rolloutPercent"), 2, "one element, opened and closed")
 
     def test_the_enclosure_attribute_names_the_build_too(self):
         out = tool.stage_feed(FEED, "200", 0, NOW)

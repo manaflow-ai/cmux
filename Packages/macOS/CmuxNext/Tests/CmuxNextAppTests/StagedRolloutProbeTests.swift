@@ -60,6 +60,41 @@ import Testing
         #expect(items.first { $0.version == "500" }?.rolloutPercent == "")
     }
 
+    @Test func anEmptiedPercentageDoesNotReplaceTheWaitingUpdate() async throws {
+        let h = UpdateStagedYieldsToNewerTests.make(ring: "dev", feed: Self.feed(percent: ""))
+        h.rig.advance(by: .seconds(UpdateStagedYieldsToNewerTests.interval))
+        h.rig.fireAtNow()
+        try await UpdateStagedYieldsToNewerTests().settle(h, fetches: 1)
+        #expect(h.sparkle.cancels == 0, "an emptied percentage replaced the waiting update")
+    }
+
+    /// A held newest build that needs a newer macOS is not named either: the install is outside its stage.
+    @Test func aHeldBuildIsNotNamedAsNeedingANewerMacOS() {
+        var prober = UpdateProber(fetcher: Feed(xml: ""), architecture: .arm64)
+        prober.rollout = StagedRollout(seed: 1)
+        let item = AppcastItem(version: "500", minimumSystemVersion: SystemVersion("99.0"), rolloutPercent: "0")
+        #expect(prober.held(.requiresNewerSystem(item, required: SystemVersion("99.0")!)) == .upToDate(latest: nil))
+        #expect(prober.held(.updateAvailable(item)) == .upToDate(latest: nil))
+        let open = AppcastItem(version: "500")
+        #expect(prober.held(.updateAvailable(open)) == .updateAvailable(open))
+    }
+
+    /// The ring's newest build is held for this install: Sparkle offers nothing, so the ring has
+    /// no way forward, and a Mac on a faster ring goes back to a kept build of this ring (or waits).
+    /// A Mac that runs the held build is still on the ring.
+    @Test func aHeldNewestBuildIsNoWayForwardOnTheRing() {
+        let kept = KeptVersion(build: "300", shortVersion: "1.0.0", bundle: URL(fileURLWithPath: "/kept/300/cmux.app"),
+                               storeSchemas: [:], teamID: "TEAM")
+        let offered = [AppcastItem(version: "300", sparkleChannel: "cmux-next"),
+                       AppcastItem(version: "600", sparkleChannel: "cmux-next", rolloutPercent: "0")]
+        let rollout = StagedRollout(seed: 1)
+        #expect(RingReturn.decide(installedBuild: "450", offered: offered, promoted: [], kept: [kept], rollout: rollout) == .goBack(kept))
+        #expect(RingReturn.decide(installedBuild: "450", offered: offered, promoted: [], kept: [kept]) == .none)
+        #expect(RingReturn.decide(installedBuild: "600", offered: offered, promoted: [], kept: [kept], rollout: rollout) == .none)
+    }
+
+    struct Feed: AppcastFetching { let xml: String; func fetch(_ url: URL) async throws -> Data { Data(xml.utf8) } }
+
     @Test func aBuildAtEveryInstallStillReplacesTheWaitingUpdate() async throws {
         let h = UpdateStagedYieldsToNewerTests.make(ring: "dev", feed: Self.feed(percent: "100"))
         h.rig.advance(by: .seconds(UpdateStagedYieldsToNewerTests.interval))
@@ -70,7 +105,6 @@ import Testing
     }
 
     @Test func theProbeOffersOnlyWhatThisInstallsStageReaches() async throws {
-        struct Feed: AppcastFetching { let xml: String; func fetch(_ url: URL) async throws -> Data { Data(xml.utf8) } }
         let identity = UpdateBuildIdentity(bundleIdentifier: "com.cmuxterm.app.next.rollout-probe", shortVersion: "1.0.0", build: "300",
                                            minimumSystemVersion: nil,
                                            infoFeedURL: "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml", hasPublicKey: true)

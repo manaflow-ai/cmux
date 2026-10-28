@@ -1,3 +1,4 @@
+public import CmuxUpdater
 public import Foundation
 
 /// What picking a slower ring (Dev to Nightly) does to the build this Mac runs. Sparkle never
@@ -20,8 +21,9 @@ nonisolated public enum RingReturn: Equatable, Sendable {
     ///     after they leave the feed.
     ///   - pulled: builds on the feed's pulled list: never a way back, whatever their verdict.
     ///   - kept: kept versions, newest first.
+    ///   - rollout: this install's staged rollout; nil offers every item.
     public static func decide(installedBuild: String, offered: [AppcastItem], promoted: Set<String>,
-                              pulled: Set<String> = [], kept: [KeptVersion]) -> RingReturn {
+                              pulled: Set<String> = [], kept: [KeptVersion], rollout: StagedRollout? = nil) -> RingReturn {
         let onRing = Set(offered.map(\.version)).union(promoted).subtracting(pulled)
         if onRing.contains(installedBuild) { return .none }
         if offered.contains(where: { AppcastSelector.isOlder(installedBuild, than: $0.version) }) { return .none }
