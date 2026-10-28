@@ -380,9 +380,9 @@
   flex: 1 1 0;
   min-width: 0;
   min-height: 0;
-  padding: 6px;
+  padding: 0;
   overflow-y: auto;
-  scroll-padding-block: 6px;
+  scroll-padding-block: 0;
 }
 .acpmux-quick-body[data-scrolled] { mask-image: linear-gradient(to bottom, transparent, #000 6px); }
 .acpmux-quick-list,
@@ -453,3 +453,6 @@
 .ui-menu-item.acpmux-quick-offer {
   padding-inline-start: calc(var(--ui-row-padding-inline) + 12px);
 }
+
+/* Model rows own their inset; the list wrapper must not add a second inset. */
+.acpmux-mp-models { padding: 0; }

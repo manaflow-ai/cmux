@@ -1330,7 +1330,7 @@ export function ModelPicker(props: ModelPickerProps) {
             <ScrollArea className="min-h-0 flex-1">
               <PickerOptionList
                 id={`${menuId}-models`}
-                className="acpmux-mp-models p-1.5"
+                className="acpmux-mp-models"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
                 {!searching && !starredView && folderProfiles.length > 0 && (
