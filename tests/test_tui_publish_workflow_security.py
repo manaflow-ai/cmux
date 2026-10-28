@@ -2347,7 +2347,9 @@ def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_t
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
-    assert daemon == "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}", daemon
+    # Every label it can resolve to is Blacksmith Linux; size and overflow wiring are free to change.
+    from runs_on_labels import disallowed_labels
+    assert disallowed_labels(daemon) == {}, (daemon, disallowed_labels(daemon))
     assert "cmux-next-daemon-macos-shadow" not in jobs
     shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
     shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
@@ -2393,8 +2395,12 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
+    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
+    # daemon-tested, the same check the tree-commit marker writer uses.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "daemon-tests.json" in script and '"separate"' in script
+    assert "tree-commit-marker.sh\" daemon-tested" in script
+    checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    assert "daemon-tests.json" in checker and '"separate"' in checker
 
 
 
