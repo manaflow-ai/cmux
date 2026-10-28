@@ -47,9 +47,10 @@ public final class DisplayBackdropBinding {
         let values = root.value(at: ["appearance", "displayBackgrounds"])?.objectValue
         let rotations = root.value(at: ["appearance", "displayBackgroundRotations"])?.objectValue
         guard let id, let raw = values?[id]?.stringValue else {
-            let picture = BackdropSelectionSetting().parse(root, diagnostics: &[]) 
+            var diagnostics: [SettingsDiagnostic] = []
+            let picture = BackdropSelectionSetting().parse(root, diagnostics: &diagnostics)
             let shuffle = BackdropSelectionSetting.shuffle(root)
-            return (picture, shuffle.map { max(1, $0.nextTurn(after: now(), calendar: calendar()).timeIntervalSince(now()) + 1) })
+            return (picture, shuffle.map { $0.turn(at: now(), calendar: calendar()).wait })
         }
         guard raw != "none" else { return (nil, nil) }
         let rotation = rotations?[id]?.stringValue.flatMap(BackdropRotation.init(rawValue:)) ?? .defaultRotation
