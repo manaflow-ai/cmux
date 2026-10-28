@@ -521,6 +521,7 @@
               "sidebar.hoverCards.enabled",
               "sidebar.hoverCards.delay",
               "sidebar.hoverCards.layout",
+              "sidebar.hoverCards.richDetails",
               "sidebar.hoverCards.sections.timings",
               "sidebar.hoverCards.sections.prompts",
               "sidebar.hoverCards.sections.waiting",
@@ -24787,6 +24788,57 @@
       "title" : {
         "key" : "settings.sidebar.hoverCards.layout",
         "text" : "Workspace Card Layout"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.hoverCards.richDetails.help",
+        "text" : "Show prompts, needs-input state and workspace facts instead of the inner tabs when hovering a workspace."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.hoverCards.richDetails",
+      "keywords" : [
+        "hover",
+        "card",
+        "workspace",
+        "details",
+        "prompt",
+        "needs input",
+        "tabs"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "hoverCards",
+        "richDetails"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.hoverCards.richDetails",
+        "text" : "Show Rich Workspace Details"
       },
       "validation" : "portable"
     },
