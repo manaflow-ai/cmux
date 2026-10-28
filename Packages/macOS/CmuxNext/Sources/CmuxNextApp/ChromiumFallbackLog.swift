@@ -33,6 +33,9 @@ final class ChromiumFallbackLog {
     /// Tabs whose record names Chromium and whose page runs in WebKit now, by
     /// tab id, with why: each moves to Chromium once Chromium can open tabs.
     private(set) var webKitPages: [String: CEFUnavailableReason] = [:]
+    /// Stand-ins shown when Chromium became ready: their page offers the move with a button
+    /// instead of moving under the person (they may be typing in it).
+    private var offered: Set<String> = []
 
     private struct Candidate: Hashable {
         let machine: String
@@ -68,7 +71,10 @@ final class ChromiumFallbackLog {
     func isWebKitPage(_ key: String) -> Bool { webKitPages[key] != nil }
 
     /// Tab `key` no longer has a WebKit stand-in (it moved to Chromium or closed).
-    func forgetWebKitPage(_ key: String) { webKitPages[key] = nil }
+    func forgetWebKitPage(_ key: String) {
+        webKitPages[key] = nil
+        offered.remove(key)
+    }
 
     /// The notice of a Chromium record's WebKit page: it runs in WebKit for
     /// now, why, and, while the runtime downloads, that it moves to Chromium.
@@ -113,12 +119,27 @@ extension ChromiumFallbackLog {
         return cache.tracked(entry, tab)
     }
 
-    /// Tab `key`'s page is a WebKit stand-in and Chromium can open tabs now: the stand-in closes and a Chromium page
-    /// is made at the address it shows, as a reroute re-makes a page in its new store. The caller gets no page until
-    /// the Chromium one is installed (`onBrowserReady`). False when the page is no stand-in or a page is being made.
+    /// Tab `key`'s page is a WebKit stand-in and Chromium can open tabs now. A hidden stand-in moves: it closes and a
+    /// Chromium page is made at the address it showed, as Chrome reloads a discarded tab when it is selected; the caller
+    /// gets no page until the Chromium one is installed (`onBrowserReady`). A shown one stays under the person, and its
+    /// page offers the move with a button. False when the page stays.
     func movesToChromium(_ key: String, tab: TabModel, in cache: TabContentCache) -> Bool {
         guard isWebKitPage(key), cache.browserTabs.cefUnavailable() == nil, let entry = cache.browsers[key],
-              entry.tab.engineKind == .webkit, cache.pendingBrowsers.insert(key).inserted else { return false }
+              entry.tab.engineKind == .webkit else { return false }
+        guard !cache.node(for: key).isVisible else {
+            if offered.insert(key).inserted {
+                let move = { [weak self, weak cache] in if let self, let cache { _ = self.move(key, tab: tab, in: cache) } }
+                entry.chrome.showNotice(BrowserEngineStrings.chromiumReady, action: (title: BrowserEngineStrings.moveToChromium, run: move))
+            }
+            return false
+        }
+        return move(key, tab: tab, in: cache)
+    }
+
+    /// Closes tab `key`'s WebKit stand-in and makes its Chromium page at the address it showed.
+    private func move(_ key: String, tab: TabModel, in cache: TabContentCache) -> Bool {
+        guard isWebKitPage(key), let entry = cache.browsers[key], entry.tab.engineKind == .webkit,
+              cache.pendingBrowsers.insert(key).inserted else { return false }
         let url = entry.tab.state.url ?? cache.recordURL(tab)
         forgetWebKitPage(key)
         cache.browserTabs.untrack(key)
@@ -149,7 +170,7 @@ extension ChromiumFallbackLog {
     }
 
     /// Chromium's runtime was installed (`ChromiumRuntimeService.onInstalled`): each pane that shows a stand-in shows
-    /// its tab again, which moves it to Chromium now; a hidden one moves when it shows.
+    /// its tab again, whose page then offers the move; a hidden stand-in moves when it is next asked for.
     func chromiumBecameReady(in cache: TabContentCache) {
         for key in webKitPages.keys { cache.onBrowserReady?(key) }
     }
@@ -190,6 +211,16 @@ enum BrowserEngineStrings {
         String(localized: "browser.engine.fallback.webKitForNow.downloadFailed",
                defaultValue: "Chromium couldn’t download yet, so this tab runs in WebKit for now. It moves to Chromium when Chromium is ready.",
                bundle: .module)
+    }
+    /// A shown Chromium tab's WebKit page once Chromium is ready: the move waits for the person.
+    static var chromiumReady: String {
+        String(localized: "browser.engine.fallback.chromiumReady",
+               defaultValue: "Chromium is ready. This tab still runs in WebKit. Chromium has its own cookies, so sites may ask you to sign in again after the move.",
+               bundle: .module)
+    }
+    /// The button that moves a shown tab from its WebKit page to Chromium.
+    static var moveToChromium: String {
+        String(localized: "browser.engine.fallback.moveToChromium", defaultValue: "Move to Chromium", bundle: .module)
     }
     /// The tab moved from its WebKit page to Chromium: the engines keep separate cookies.
     static var movedToChromium: String {

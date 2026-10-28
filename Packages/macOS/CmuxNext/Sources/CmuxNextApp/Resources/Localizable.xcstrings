@@ -13945,6 +13945,268 @@
           }
         }
       }
+    },
+    "browser.engine.fallback.chromiumReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium is ready. This tab still runs in WebKit. Chromium has its own cookies, so sites may ask you to sign in again after the move."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أصبح Chromium جاهزًا. لا تزال علامة التبويب هذه تعمل في WebKit. لدى Chromium ملفات تعريف ارتباط خاصة به، لذا قد تطلب منك المواقع تسجيل الدخول مرة أخرى بعد النقل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium je spreman. Ova kartica i dalje radi u WebKitu. Chromium ima vlastite kolačiće, pa vas stranice nakon prelaska mogu ponovo tražiti da se prijavite."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium er klar. Denne fane kører stadig i WebKit. Chromium har sine egne cookies, så websteder kan bede dig logge ind igen efter flytningen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium ist bereit. Dieser Tab läuft noch in WebKit. Chromium hat eigene Cookies, daher fragen Websites nach dem Wechsel eventuell erneut nach einer Anmeldung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium está listo. Esta pestaña todavía se ejecuta en WebKit. Chromium tiene sus propias cookies, así que los sitios pueden pedirte que vuelvas a iniciar sesión tras el cambio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium est prêt. Cet onglet s’exécute encore dans WebKit. Chromium a ses propres cookies : après le passage, des sites peuvent vous demander de vous reconnecter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium è pronto. Questa scheda usa ancora WebKit. Chromium ha i propri cookie, quindi dopo il passaggio i siti potrebbero chiederti di accedere di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium の準備ができました。このタブはまだ WebKit で動作しています。Chromium は独自の Cookie を持つため、移動後にサイトから再度ログインを求められることがあります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium រួចរាល់ហើយ។ ផ្ទាំងនេះនៅតែដំណើរការក្នុង WebKit។ Chromium មានខូគីផ្ទាល់ខ្លួន ដូច្នេះបន្ទាប់ពីផ្លាស់ទី គេហទំព័រអាចសុំឱ្យអ្នកចូលគណនីម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium이 준비되었습니다. 이 탭은 아직 WebKit에서 실행됩니다. Chromium은 자체 쿠키를 사용하므로 옮긴 후 사이트에서 다시 로그인하라고 할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium er klar. Denne fanen kjører fortsatt i WebKit. Chromium har egne informasjonskapsler, så nettsteder kan be deg logge på igjen etter flyttingen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium jest gotowy. Ta karta nadal działa w WebKit. Chromium ma własne pliki cookie, więc po przeniesieniu witryny mogą poprosić o ponowne zalogowanie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O Chromium está pronto. Esta guia ainda usa o WebKit. O Chromium tem os próprios cookies, então os sites podem pedir que você entre de novo depois da mudança."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium готов. Эта вкладка всё ещё работает в WebKit. У Chromium свои файлы cookie, поэтому после переноса сайты могут попросить войти снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium พร้อมแล้ว แท็บนี้ยังทำงานใน WebKit อยู่ Chromium มีคุกกี้ของตัวเอง หลังย้ายแล้วเว็บไซต์จึงอาจขอให้คุณลงชื่อเข้าใช้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium hazır. Bu sekme hâlâ WebKit’te çalışıyor. Chromium’un kendi çerezleri vardır, bu yüzden geçişten sonra siteler yeniden oturum açmanızı isteyebilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium готовий. Ця вкладка все ще працює у WebKit. Chromium має власні файли cookie, тому після перенесення сайти можуть попросити увійти знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium đã sẵn sàng. Thẻ này vẫn chạy trong WebKit. Chromium có cookie riêng nên sau khi chuyển, các trang web có thể yêu cầu bạn đăng nhập lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 已就绪。此标签页仍在 WebKit 中运行。Chromium 有自己的 Cookie，因此移动后网站可能会要求你重新登录。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium 已就緒。此分頁仍在 WebKit 中執行。Chromium 有自己的 Cookie，因此移動後網站可能會要求你重新登入。"
+          }
+        }
+      }
+    },
+    "browser.engine.fallback.moveToChromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Chromium"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "النقل إلى Chromium"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premjesti u Chromium"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyt til Chromium"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu Chromium wechseln"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasar a Chromium"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passer à Chromium"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passa a Chromium"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium に移動"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្លាស់ទៅ Chromium"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium으로 옮기기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytt til Chromium"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenieś do Chromium"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Passar para o Chromium"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенести в Chromium"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ย้ายไปยัง Chromium"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium’a Taşı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенести до Chromium"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuyển sang Chromium"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至 Chromium"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移至 Chromium"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
