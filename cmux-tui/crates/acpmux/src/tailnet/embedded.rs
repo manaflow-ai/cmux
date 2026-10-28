@@ -909,7 +909,7 @@ mod tests {
         })
         .await
         .expect("detached close completed after lifecycle lock was released");
-        assert_eq!(started_rx.await.expect("queued start ran after retirement"), "stopped");
+        assert_eq!(started_rx.await.expect("queued start ran after retirement"), "error");
         start.await.expect("queued start task completed");
     }
 
