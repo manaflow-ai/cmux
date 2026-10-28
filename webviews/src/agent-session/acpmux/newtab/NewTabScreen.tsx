@@ -491,7 +491,9 @@ export function NewTabScreen(props: Props) {
   /// False only when a Sandboxed send started nothing, so the caller's one-shot guards stay open.
   const askChat = (agent: string, prompt: string, cwd?: string, model?: string): boolean | void => {
     if (props.runMode?.mode === "cloud" && props.onCloud) {
-      const started = props.onCloud(agent, prompt, cwd ?? envFolder, model, attachments);
+      // The folder the chip names (envFolder), never the raw `cwd` a caller passes: a tab that
+      // inherited home with a start folder elsewhere shows and copies the start folder.
+      const started = props.onCloud(agent, prompt, envFolder, model, attachments);
       setSandboxRefusal(typeof started === "string" ? started : undefined);
       return started === true;
     }

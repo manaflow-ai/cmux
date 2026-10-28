@@ -189,7 +189,7 @@ test("with Cloud picked, a send goes to onCloud with its prompt, not a new chat;
   expect(container.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("fix the flaky test");
 });
 
-test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder", async () => {
+test("picking Cloud drops a saved environment picked before: the send names the folder chip's folder, not the tab's inherited one", async () => {
   const clouded: unknown[][] = [];
   const repoB: SavedEnvironment = { id: "b", name: "Repo B", kind: "local", folder: "/repo/B", updatedAt: 1 };
   function Page() {
@@ -197,6 +197,7 @@ test("picking Cloud drops a saved environment picked before: the send names the 
     return (
       <NewTabScreen
         snapshot={noChat()}
+        cwd="/Users/me"
         startCwd="/repo/A"
         onAsk={() => {}}
         onOpen={() => {}}
