@@ -6,7 +6,10 @@ test("keeps a fractional anchor bounded across repeated positive growth and reve
   let origin = 0;
   let rowTop = 500;
   const visual = rowTop - physical;
-  for (const delta of [...Array.from({ length: 100 }, () => 0.25), ...Array.from({ length: 100 }, () => -0.25)]) {
+  for (const delta of [
+    ...Array.from({ length: 100 }, () => 0.25),
+    ...Array.from({ length: 100 }, () => -0.25),
+  ]) {
     const previousPhysicalTop = physical;
     rowTop += delta;
     const next = fractionalAnchorCorrection({
