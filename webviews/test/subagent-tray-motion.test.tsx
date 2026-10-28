@@ -316,6 +316,20 @@ describe("subagent tray motion edges", () => {
     await act(async () => root.unmount());
   });
 
+  test("the copy keeps the card's scroll offsets", async () => {
+    motion(true);
+    const shown = { current: "chat-a" as string | undefined };
+    const { root } = mount();
+    await draw(root, shown, [item("A"), item("B")], false);
+    const list = card()!.querySelector<HTMLElement>(".acpmux-running-tray__list")!;
+    list.scrollTop = 40;
+    await draw(root, shown, [], false);
+    const ghost = host.querySelector<HTMLElement>(`.${TRAY_GHOST}`)!;
+    expect(ghost.querySelector<HTMLElement>(".acpmux-running-tray__list")!.scrollTop).toBe(40);
+    ended(ghost);
+    await act(async () => root.unmount());
+  });
+
   test("animationcancel settles the entrance, the copy and a tick, with their listeners", async () => {
     motion(true);
     const shown = { current: "chat-a" as string | undefined };

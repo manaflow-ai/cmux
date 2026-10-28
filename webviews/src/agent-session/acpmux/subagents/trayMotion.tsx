@@ -113,6 +113,17 @@ export function playTrayExit(card: HTMLElement): void {
     pointerEvents: "none",
   });
   host.appendChild(ghost);
+  // A clone keeps no scroll offsets: the copy's scrolled parts (the list, a command's output) are put
+  // back where the card had them, before the frame paints. Only the scrolled ones, a handful.
+  const scrolled = [card, ...card.querySelectorAll<HTMLElement>("*")];
+  const copied = [ghost, ...ghost.querySelectorAll<HTMLElement>("*")];
+  scrolled.forEach((node, index) => {
+    if (node.scrollTop === 0 && node.scrollLeft === 0) return;
+    const copy = copied[index];
+    if (!copy) return;
+    copy.scrollTop = node.scrollTop;
+    copy.scrollLeft = node.scrollLeft;
+  });
   // A tray that only moved within this host (another placement mounts it in the same commit) did not
   // leave: its copy goes before the frame paints. Only this host counts: another chat's tray, shown
   // or hidden, never cancels this exit.
