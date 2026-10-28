@@ -968,5 +968,54 @@ class AwaitedLowPriorityTests(unittest.TestCase):
         self.assertEqual(int(counts["awaited-low-priority"]), AWAITED_COUNT, out)
 
 
+class WindowVisibilitySourceRuleTests(unittest.TestCase):
+    """window-visibility-source: a window's occlusion and minimize notices are observed once, by its
+    WindowVisibilitySource (through WindowEvents and the occlusion checker); every other reader follows the node."""
+
+    SOURCE = SRC + "CmuxNextDesign/Windows/WindowVisibilitySource.swift"
+
+    def hits(self, path: str, base: str, head: str) -> list[int]:
+        base_lines, head_lines = base.split("\n"), head.split("\n")
+        added, removed = [], []
+        for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=base_lines, b=head_lines, autojunk=False).get_opcodes():
+            if tag in ("replace", "delete"):
+                removed += [guardrails.Added(path, n + 1, base_lines[n]) for n in range(i1, i2)]
+            if tag in ("replace", "insert"):
+                added += [guardrails.Added(path, n + 1, head_lines[n]) for n in range(j1, j2)]
+        change = guardrails.FileChange(path, head_lines, added, removed=removed, base_lines=base_lines)
+        rule = next(r for r in guardrails.RULES if r.id == "window-visibility-source")
+        return [h.number for h in rule.find([change], collections.Counter())]
+
+    def test_a_new_observation_of_a_window_visibility_notice_is_refused(self):
+        for line in ("events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: o, update),",
+                     "events.subscribe(NSWindow.didMiniaturizeNotification, owner: o, update),",
+                     "center.addObserver(forName: NSWindow.didDeminiaturizeNotification, object: nil, queue: .main) { _ in }",
+                     "static let notices = [NSWindow.didChangeOcclusionStateNotification, NSWindow.didMoveNotification]"):
+            with self.subTest(line=line):
+                self.assertEqual(self.hits(UI + "/A.swift", "let x = 0\n", f"let x = 0\n{line}\n"), [2])
+
+    def test_the_source_its_adapters_comments_strings_and_escapes_pass(self):
+        line = "events.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: o, update),"
+        for path in (self.SOURCE, SRC + "CmuxNextWakeups/WindowEvents.swift",
+                     SRC + "CmuxNextDesign/Windows/WindowOcclusionChecker.swift"):
+            with self.subTest(path=path):
+                self.assertEqual(self.hits(path, "let x = 0\n", f"let x = 0\n{line}\n"), [])
+        for text in ("// the node follows didChangeOcclusionStateNotification",
+                     'let name = "didMiniaturizeNotification"',
+                     "// visibility-source-allow: records the raw notice order for debug.window\n" + line,
+                     "let shown = window.occlusionState.contains(.visible)"):
+            with self.subTest(text=text):
+                self.assertEqual(self.hits(UI + "/A.swift", "let x = 0\n", f"let x = 0\n{text}\n"), [])
+
+    def test_an_edited_old_observation_is_not_new(self):
+        base = "let x = 0\nevents.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: o, update),\n"
+        head = "let x = 0\nevents.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: p, update),\n"
+        self.assertEqual(self.hits(UI + "/A.swift", base, head), [])
+
+    def test_the_rule_is_in_the_local_tier(self):
+        rule = next(r for r in guardrails.RULES if r.id == "window-visibility-source")
+        self.assertTrue(rule.local_only)
+
+
 if __name__ == "__main__":
     unittest.main()
