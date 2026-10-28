@@ -15,6 +15,7 @@ import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
 import { APPEARANCE_CATEGORIES } from "../appearanceUndo";
 import { AppearanceBar } from "./AppearanceBar";
+import { AutofillCard } from "./AutofillCard";
 import { MobileCard } from "./MobileCard";
 import { NoticesCard } from "./NoticesCard";
 import { ImportSuggestionsCard } from "./ImportSuggestionsCard";
@@ -59,6 +60,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   voiceInput: () => <VoiceInputCard />,
   notices: () => <NoticesCard />,
   server: () => <ServerCard />,
+  autofill: () => <AutofillCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

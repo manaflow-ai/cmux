@@ -165,6 +165,8 @@ public extension PageDescriptor {
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
                   "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
+                  // Settings > Browser > Autofill and passwords: Chromium's own pages, on the person's click.
+                  "browserProfile.managePasswords", "browserProfile.manageAddresses",
                   "reloadConfiguration",
                   // Machines > Add Server… opens the Add Server card (no code: the page never approves).
                   "server.addServer",

@@ -4,6 +4,7 @@ import { useSettingsState } from "../context";
 import { filterRows } from "../search";
 import { valueOf } from "../store";
 import { t, text } from "../strings";
+import { autofillCardMatches, AutofillCard } from "./AutofillCard";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { GroupList } from "./GroupList";
 
@@ -22,7 +23,9 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
     devBuild: state.host?.dev_build === true,
   });
   const shown = new Set(matches.flatMap((match) => match.rows.map((row) => row.key)));
-  const empty = shown.size === 0;
+  // Autofill and passwords is a card, not schema rows: it shows when its own words match.
+  const autofill = !changedOnly && autofillCardMatches(query);
+  const empty = shown.size === 0 && !autofill;
   // Only rows that matched at some point in this search mount their editors (a row that stops
   // matching keeps its content to collapse smoothly); the rest stay empty, collapsed slots, so
   // opening search costs the matches, not every setting.
@@ -36,7 +39,8 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
         </span>
       </p>
       {shownCategories(state.host?.dev_build === true).map((category) => {
-        const open = category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
+        const cardShown = autofill && [...category.lead, ...category.trail].includes("autofill");
+        const open = cardShown || category.groups.some((group) => group.rows.some((row) => shown.has(row.key)));
         const pet = category.id === "chief";
         const petRows = pet
           ? new Set(
@@ -64,6 +68,7 @@ export function SearchResults({ query, changedOnly = false }: { query: string; c
               <h2 className="result-section-title">{text(category.title)}</h2>
               {petRows && petRows.size > 0 && <ChiefPetCard query={query} visibleRows={petRows} />}
               <GroupList groups={groups} query={query} shown={shown} mounted={mounted} />
+              {cardShown && <AutofillCard />}
             </div>
           </section>
         );

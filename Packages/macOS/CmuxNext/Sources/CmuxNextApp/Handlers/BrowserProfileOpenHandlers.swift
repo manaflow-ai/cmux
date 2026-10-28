@@ -6,7 +6,8 @@ import Foundation
 /// Browser profile actions that open pages or set defaults: New Tab, New
 /// Window and New Workspace with a profile, Open Link in a profile, the
 /// workspace and room defaults, Move and Duplicate Tab into a profile, and
-/// Manage Extensions of a profile (data-model.md 5 and 7).
+/// Manage Extensions, Passwords and Addresses of a profile (data-model.md 5
+/// and 7): Chromium's own pages in a Chromium tab of that profile.
 enum BrowserProfileOpenHandlers {
     typealias Bind = (ActionID, @escaping @MainActor (ActionInvocation) throws -> Void) -> Void
 
@@ -84,5 +85,21 @@ enum BrowserProfileOpenHandlers {
             guard let pane = context.paneController(invocation) else { return }
             pane.newBrowserTab(url: URL.browserExtensionManagement, engine: BrowserEngineTag.cef.rawValue, profile: record.id)
         }
+        // Each profile's passwords and contact info live in its own Chromium
+        // profile; Chromium's own pages in a tab of it manage them.
+        bind("browserProfile.managePasswords") { invocation in
+            try openAutofillPage(.passwords, invocation, context: context)
+        }
+        bind("browserProfile.manageAddresses") { invocation in
+            try openAutofillPage(.addresses, invocation, context: context)
+        }
+    }
+
+    /// Opens Chromium's `page` in a Chromium tab of the invocation's browser
+    /// profile; with none named, the profile a new tab of the pane gets.
+    static func openAutofillPage(_ page: ChromiumAutofillPage, _ invocation: ActionInvocation, context: AppActionContext) throws {
+        let record = try context.explicitBrowserProfile(invocation)
+        guard let pane = context.paneController(invocation) else { return }
+        pane.newBrowserTab(url: page.url, engine: BrowserEngineTag.cef.rawValue, profile: record?.id)
     }
 }

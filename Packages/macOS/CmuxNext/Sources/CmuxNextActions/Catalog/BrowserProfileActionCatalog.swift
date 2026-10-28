@@ -26,6 +26,22 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
         // the control socket refuses every CLI, MCP or script run, and a page needs the person's
         // own click. The daemon refuses `delete-browser-profile` from any connection but the app.
         deleteDescriptor.isPersonOnly = true
+        // Settings > Browser > Autofill and passwords (Lawrence 2026-10-28): Chromium's own password
+        // manager and Addresses and more pages in a Chromium tab of the profile. Person-only: they
+        // show the profile's sites, usernames and contact info, which agents never see
+        // (plans/cmux-next/passwords.md P2), and agents never open Chromium's pages (AgentURLPolicy).
+        var managePasswords = descriptor(
+            "browserProfile.managePasswords", text("action.browserProfile.managePasswords", "Manage Passwords in Browser Profile…"),
+            "key", "manage-passwords",
+            extra: ["password", "passwords", "password manager", "passkeys", "autofill", "logins", "sign-in", "credentials"],
+            arguments: [profile], targets: [])
+        managePasswords.isPersonOnly = true
+        var manageAddresses = descriptor(
+            "browserProfile.manageAddresses", text("action.browserProfile.manageAddresses", "Manage Addresses and Contact Info in Browser Profile…"),
+            "person.text.rectangle", "manage-addresses",
+            extra: ["autofill", "address", "addresses", "contact", "contact info", "phone", "email", "form"],
+            arguments: [profile], targets: [])
+        manageAddresses.isPersonOnly = true
         return [
             descriptor("browserProfile.new", text("action.browserProfile.new", "New Browser Profile…"), "person.crop.circle.badge.plus",
                        "create", extra: ["add", "create"],
@@ -80,6 +96,8 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        destructive: true),
             descriptor("browserProfile.manageExtensions", text("action.browserProfile.manageExtensions", "Manage Extensions in Browser Profile…"),
                        "puzzlepiece", "manage-extensions", extra: ["extension", "extensions", "addon"], arguments: [profile], targets: []),
+            managePasswords,
+            manageAddresses,
         ]
     }
 }

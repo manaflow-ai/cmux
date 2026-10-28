@@ -1287,6 +1287,7 @@
           "text" : "Browser"
         },
         "trail" : [
+          "autofill",
           "browserProfiles"
         ]
       },
