@@ -738,15 +738,15 @@
    pane's edges. Every chevron and the turn's own controls stay. */
 @container composer (max-width: 297px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; }
-  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: calc(-1 * var(--acpmux-composer-narrow-bleed)); }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) > .acpmux-composer-box { margin-inline: -8px; }
   /* The quiet row widens with the box, so the mode text stays on the prompt's 16 px edge. */
-  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot { margin-inline: calc(-1 * var(--acpmux-composer-narrow-bleed)); }
+  .acpmux-composer:not(.acpmux-quick .acpmux-composer) .acpmux-composer-foot { margin-inline: -8px; }
 }
 /* Keep the complete control rail usable in a very narrow pane: preserve every action and only
    tighten their rhythm. */
 @container composer (max-width: 260px) {
   .acpmux-composer-bar { --acpmux-row-group-gap: 8px; --acpmux-row-edge: 8px; --acpmux-row-inset: 4px; }
-  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: var(--acpmux-composer-action-size); }
+  .acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button { width: 24px; }
 }
 /* The composer is one material surface; the location strip on its top edge shares its fill and
    edge (.acpmux-composer-strip), so it cannot read as a second box over wallpaper. Its only edge is
@@ -765,7 +765,7 @@
    (Leo 2026-10-21: no discs; the secondary text color, only a hover background). Stop's square and a
    ready Send are the secondary color, a step above an empty draft's 45% Send. Their hover pill is
    composerStates.css's. */
-.acpmux-composer-bar .acpmux-send { width: var(--acpmux-composer-action-size); height: var(--acpmux-composer-action-size); }
+.acpmux-composer-bar .acpmux-send { width: 28px; height: 28px; }
 .acpmux-composer-bar .acpmux-send:is(.acpmux-send-ready, .acpmux-cancel) { color: var(--agent-muted); }
 
 /* Permission cards use the same quiet material language as the composer: the composer's hairline,

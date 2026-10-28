@@ -12,17 +12,6 @@
   /* Shared by the composer and the running-work tray; keep both columns measured from the same edge. */
   --acpmux-composer-column-inset: 8px;
   --acpmux-composer-action-size: 28px;
-  --acpmux-composer-column-gap: var(--acpmux-row-group-gap, 10px);
-  --acpmux-composer-narrow-bleed: 8px;
-}
-
-/* The pane is the container for the tray as well as the composer. Keep the same narrow metrics on
-   both surfaces when the composer gives up its outer width. */
-@container composer (max-width: 260px) {
-  :is(.acpmux-composer-bar, .acpmux-running-tray[data-alignment-surface="tray"]) {
-    --acpmux-composer-column-inset: 4px;
-    --acpmux-composer-action-size: 24px;
-  }
 }
 
 /* Codex's composer-permission-mode-picker.png: the capsule keeps its own inset in either look,

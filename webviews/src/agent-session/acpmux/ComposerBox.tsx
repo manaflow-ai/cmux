@@ -171,7 +171,13 @@ export function ComposerBox({
   return (
     <>
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div ref={boxRef} className="ui-glass ui-glass-floats acpmux-composer-box" data-alignment-surface="composer" data-alignment-inset="surface" onMouseDown={focusFromCard}>
+      <div
+        ref={boxRef}
+        className="ui-glass ui-glass-floats acpmux-composer-box"
+        data-alignment-surface="composer"
+        data-alignment-inset="surface"
+        onMouseDown={focusFromCard}
+      >
         {top}
         <AttachmentStrip
           attachments={attachments}

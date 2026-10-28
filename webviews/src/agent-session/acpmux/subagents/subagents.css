@@ -503,17 +503,19 @@ button.cv-subagent > :last-child {
 .acpmux-running-tray__finished > svg {
   flex: none;
 }
-/* The tray shares the composer's measured control columns and edge inset, including its narrow-row
-   metrics; the same tokens center the + and mic controls in the composer. */
+/* composerTrayColumns.ts measures the actual leading and trailing controls. The tray is outside
+   the composer's size container, so it inherits the measured edges and independent columns. */
+.acpmux-dock > .acpmux-running-tray[data-alignment-surface="tray"] {
+  margin-inline: var(--acpmux-tray-surface-start, var(--cv-inset)) var(--acpmux-tray-surface-end, var(--cv-inset));
+}
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head {
   display: grid;
-  grid-template-columns: var(--acpmux-composer-action-size) minmax(0, 1fr) auto var(--acpmux-composer-action-size);
-  column-gap: var(--acpmux-composer-column-gap);
-  padding-inline: var(--acpmux-composer-column-inset);
+  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) auto var(--acpmux-tray-end-size, 28px);
+  column-gap: 8px;
+  padding-inline: var(--acpmux-tray-start-inset, 8px) var(--acpmux-tray-end-inset, 8px);
 }
-.acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > .acpmux-lineage__icon,
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__right-action {
-  width: var(--acpmux-composer-action-size);
+  width: var(--acpmux-tray-end-size, 28px);
   justify-content: center;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__right-action {
@@ -526,42 +528,36 @@ button.cv-subagent > :last-child {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   column-gap: 0;
-  padding-right: var(--acpmux-composer-column-inset);
+  padding-right: var(--acpmux-tray-end-inset, 8px);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:has(> [data-alignment-column="right-action"]) {
-  grid-template-columns: minmax(0, 1fr) var(--acpmux-composer-action-size);
+  grid-template-columns: minmax(0, 1fr) var(--acpmux-tray-end-size, 28px);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line:not(:has(> [data-alignment-column="right-action"])) {
   padding-right: 0;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button {
   display: grid;
-  grid-template-columns: var(--acpmux-composer-action-size) minmax(0, 1fr) auto auto var(--acpmux-composer-action-size);
-  column-gap: var(--acpmux-composer-column-gap);
-  padding-inline: var(--acpmux-composer-column-inset);
+  grid-template-columns: var(--acpmux-tray-start-size, 28px) minmax(0, 1fr) auto auto var(--acpmux-tray-end-size, 28px);
+  column-gap: 8px;
+  padding-inline: var(--acpmux-tray-start-inset, 8px) var(--acpmux-tray-end-inset, 8px);
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-running-tray__head > [data-alignment-column="left-icon"],
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button > [data-alignment-column="left-icon"] {
-  width: var(--acpmux-composer-action-size);
+  width: var(--acpmux-tray-start-size, 28px);
   justify-content: center;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line__button > [data-alignment-column="right-action"] {
-  width: var(--acpmux-composer-action-size);
+  width: var(--acpmux-tray-end-size, 28px);
   justify-content: center;
   margin-inline: 0;
   grid-column: 5;
 }
 .acpmux-running-tray[data-alignment-surface="tray"] .acpmux-agent-line > [data-alignment-column="right-action"] {
   position: static;
-  width: var(--acpmux-composer-action-size);
-  height: var(--acpmux-composer-action-size);
+  width: var(--acpmux-tray-end-size, 28px);
+  height: var(--acpmux-tray-end-size, 28px);
   margin: 0;
-}
-
-@container composer (max-width: 260px) {
-  .acpmux-dock > .acpmux-running-tray {
-    margin-inline: calc(var(--cv-inset) - var(--acpmux-composer-narrow-bleed));
-  }
 }
 
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its

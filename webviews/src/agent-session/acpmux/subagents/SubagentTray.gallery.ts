@@ -24,6 +24,7 @@ import {
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
 import { SUBAGENTS, SubagentFold, type Subagent } from "./subagentFold";
+import { setComposerLook } from "../composerLook";
 import { trayPanelLook } from "./trayPanel.experiment";
 
 const prompt = "Find out how the daemon updates itself, and check the docs agree";
@@ -517,6 +518,7 @@ export default agentPaneEntry({
       height: 560,
       ready: { transport: "mock" },
       play: async (ctx) => {
+        setComposerLook("claude", { remember: false });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "false")
           throw new Error("alignment collapsed state must start folded");
@@ -529,6 +531,7 @@ export default agentPaneEntry({
       height: 560,
       ready: { transport: "mock" },
       play: async (ctx) => {
+        setComposerLook("claude", { remember: false });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
         if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -547,6 +550,7 @@ export default agentPaneEntry({
       height: 560,
       ready: { transport: "mock" },
       play: async (ctx) => {
+        setComposerLook("codex", { remember: false });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         if (ctx.document.querySelector(".acpmux-running-tray__head")?.getAttribute("aria-expanded") !== "false")
           throw new Error("alignment collapsed state must start folded");
@@ -559,6 +563,7 @@ export default agentPaneEntry({
       height: 560,
       ready: { transport: "mock" },
       play: async (ctx) => {
+        setComposerLook("codex", { remember: false });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
         if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });
@@ -572,6 +577,7 @@ export default agentPaneEntry({
       height: 560,
       ready: { transport: "mock" },
       play: async (ctx) => {
+        setComposerLook("codex", { remember: false });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-running-tray__head"));
         const head = ctx.document.querySelector<HTMLElement>(".acpmux-running-tray__head");
         if (head?.getAttribute("aria-expanded") !== "true") await ctx.click({ selector: ".acpmux-running-tray__head" });

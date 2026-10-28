@@ -34,6 +34,7 @@ import {
 import { FileSearch } from "./FileSearch";
 import { PromptFocus } from "./promptFocus";
 import { ComposerBox, type ComposerBoxHandle } from "./ComposerBox";
+import { followComposerTrayColumns } from "./composerTrayColumns";
 import { Icon } from "./icons/Icon";
 import { MentionMenu, mentionQuery, mentionResults, useMentionSearch } from "./MentionMenu";
 import { hasOtherChats, mentionInsert, mentionItems, mentionSelection, type MentionItem } from "./mentionItems";
@@ -537,12 +538,17 @@ export function Composer({
   // A paste on the prompt or the shell field, and a file drop anywhere (composer/attachmentIntake.tsx).
   // The composer's card, and the chat column around it that a file drag covers (composer/DropOverlay.tsx).
   const composerBox = useRef<HTMLDivElement | null>(null);
+  const [columnBox, setColumnBox] = useState<HTMLDivElement | null>(null);
   const [dropHost, setDropHost] = useState<Element | null>(null);
   const setComposerBox = useCallback((element: HTMLDivElement | null) => {
     composerBox.current = element;
+    setColumnBox(element);
     setDropHost(element ? (element.closest(".acpmux-main") ?? element.ownerDocument.body) : null);
   }, []);
   const landingTarget = useCallback(() => composerBox.current, []);
+  useLayoutEffect(() => {
+    if (columnBox) return followComposerTrayColumns(columnBox);
+  }, [columnBox, look, quietRow]);
   const {
     attachments,
     setAttachments,
