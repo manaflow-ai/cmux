@@ -15,7 +15,7 @@ import { marksHeader, PrefixCache, ttlMs, turnPlan } from "../chief-brain/cache-
 import { capText, type Kind, Memory, RETRY_MS } from "../chief-brain/memory.ts"
 import { brainModels, compactorModel, FAKE, gatewayOptions, isClaude, isMetered, pickTurnModel, turnFailedNotice } from "../chief-brain/models.ts"
 import { meteredOwner } from "../model-gateway/routes.ts"
-import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, replyTarget, textParts } from "../chief-brain/brain-text.ts"
+import { clipReply, formatMessage, inboxKind, isNoReply, linkIds, ownsRoot, replyTarget, textParts, threadOf } from "../chief-brain/brain-text.ts"
 import { AGENT, systemPrompt } from "../chief-brain/prompts.ts"
 import { memoryTools } from "../chief-brain/brain-tools.ts"
 import { AGENT_RATE_WINDOW_MS, brainName, POST_RETRY_MS, TURN_MS, type Admission } from "../chief-brain/brain-do.ts"
@@ -42,7 +42,7 @@ import { batchMarker, runRequest } from "./run-view.ts"
  * copied from P's conversation brain on the first wake (`memoryExport`).
  */
 const SCHEMA_D = [
-  `CREATE TABLE IF NOT EXISTS cd_batch (n INTEGER PRIMARY KEY AUTOINCREMENT, request TEXT UNIQUE NOT NULL, run TEXT NOT NULL, first_seq INTEGER NOT NULL, last_seq INTEGER NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, created INTEGER NOT NULL, submitted INTEGER NOT NULL DEFAULT 0)`,
+  `CREATE TABLE IF NOT EXISTS cd_batch (n INTEGER PRIMARY KEY AUTOINCREMENT, request TEXT UNIQUE NOT NULL, run TEXT NOT NULL, first_seq INTEGER NOT NULL, last_seq INTEGER NOT NULL, trigger_message TEXT NOT NULL, trigger_kind TEXT NOT NULL, trigger_thread_root TEXT, trigger_own_root INTEGER NOT NULL DEFAULT 1, created INTEGER NOT NULL, submitted INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS cd_run (id TEXT PRIMARY KEY, first INTEGER NOT NULL, covered TEXT NOT NULL, view TEXT NOT NULL, state TEXT NOT NULL, created INTEGER NOT NULL, post_key INTEGER NOT NULL DEFAULT 0)`
 ]
 export const HOST_D = "cloud-chief-d"
@@ -122,6 +122,9 @@ export class ChiefDurableDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SCHEMA_D]) this.sql.exec(q)
+    // Whether trigger_thread_root is the trigger's own (brain-text ownsRoot); batches from before keep the old reply target.
+    if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(cd_batch)`).toArray().some((c) => c.name === "trigger_own_root"))
+      this.sql.exec(`ALTER TABLE cd_batch ADD COLUMN trigger_own_root INTEGER NOT NULL DEFAULT 1`)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const cache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL))
     this.compactor = new Compactor({
@@ -236,7 +239,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
     if (!run || !cfg.agent || !cfg.owner) return
     const conversation = this.conversation()!
     const principal = chiefPrincipal(cfg.agent, cfg.owner)
-    const t = this.sql.exec<{ trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; last_seq: number }>(`SELECT trigger_message, trigger_kind, trigger_thread_root, last_seq FROM cd_batch WHERE run = ? ORDER BY n DESC LIMIT 1`, run.id).toArray()[0]
+    const t = this.sql.exec<{ trigger_message: string; trigger_kind: string; trigger_thread_root: string | null; trigger_own_root: number; last_seq: number }>(`SELECT trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, last_seq FROM cd_batch WHERE run = ? ORDER BY n DESC LIMIT 1`, run.id).toArray()[0]
     const lastSeq = Number(this.sql.exec<{ s: number }>(`SELECT MAX(last_seq) AS s FROM cd_batch WHERE run = ?`, run.id).one().s)
     const reply = ok && text && !isNoReply(text) ? clipReply(linkIds(text)) : ""
     let post: string = !ok ? "none" : reply ? "pending" : "no_reply"
@@ -252,7 +255,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
       // a refused try commits nothing, an unknown outcome commits once.
       for (;;) {
         key = keyOf()
-        const res = await postReply(this.env, principal, { conversation, text: reply, run: { id: run.id, host: `${HOST_D}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root), key }).catch((e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) }))
+        const res = await postReply(this.env, principal, { conversation, text: reply, run: { id: run.id, host: `${HOST_D}:${cfg.agent}`, steps }, ...replyTarget(t.trigger_kind, t.trigger_message, t.trigger_thread_root, t.trigger_own_root !== 0), key }).catch((e: unknown) => ({ ok: false as const, code: "owner.unreachable", message: String(e) }))
         if (res.ok) {
           post = "posted"
           posted = res.message
@@ -304,7 +307,8 @@ export class ChiefDurableDO extends DurableObject<Env> {
     const rows = fresh.flatMap((m) => {
       if (m.author === w.agent || m.retracted_at !== undefined) return []
       const text = formatMessage(view.head, m, { owner: w.owner })
-      return text ? [{ id: m.id, seq: m.seq, thread_root: m.thread_root ?? null, text }] : []
+      // A reply that names no thread is in the thread of the message it answers (#25588; brain-text threadOf).
+      return text ? [{ id: m.id, seq: m.seq, thread_root: threadOf(m, view.messages), own_root: ownsRoot(m) ? 1 : 0, text }] : []
     })
     this.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO UPDATE SET seq = MAX(seq, excluded.seq)`, w.conversation, top)
     if (rows.length === 0) {
@@ -342,7 +346,7 @@ export class ChiefDurableDO extends DurableObject<Env> {
     const created = this.ctx.storage.transactionSync(() => {
       const dup = this.sql.exec<{ n: number }>(`SELECT n FROM cd_batch WHERE request = ?`, request).toArray()[0]
       if (dup) return false
-      n = Number(this.sql.exec<{ n: number }>(`INSERT INTO cd_batch (request, run, first_seq, last_seq, trigger_message, trigger_kind, trigger_thread_root, created) VALUES (?, '', ?, ?, ?, ?, ?, ?) RETURNING n`, request, rows[0]!.seq, rows[rows.length - 1]!.seq, trigger.id, kind, trigger.thread_root, Date.now()).one().n)
+      n = Number(this.sql.exec<{ n: number }>(`INSERT INTO cd_batch (request, run, first_seq, last_seq, trigger_message, trigger_kind, trigger_thread_root, trigger_own_root, created) VALUES (?, '', ?, ?, ?, ?, ?, ?, ?) RETURNING n`, request, rows[0]!.seq, rows[rows.length - 1]!.seq, trigger.id, kind, trigger.thread_root, trigger.own_root, Date.now()).one().n)
       const fresher = this.memory.first() >= this.memory.len()
       for (const r of rows) if (this.sql.exec(`INSERT INTO oc_logged (key) VALUES (?) ON CONFLICT DO NOTHING RETURNING key`, `user:${r.id}`).toArray().length > 0) this.memory.append("user", r.text)
       if (!open) {
