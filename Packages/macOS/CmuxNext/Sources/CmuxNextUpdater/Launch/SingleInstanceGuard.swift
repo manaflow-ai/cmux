@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 
@@ -7,7 +8,8 @@ public import Foundation
 ///
 /// The claim is an exclusive `flock` on `<Application Support>/<bundle id>/instance.lock`, held for the life of the
 /// process (the kernel drops it when the process ends, however it ends). Two launches racing each other cannot
-/// both get it. The owner writes its pid, bundle path and executable into the file (``Owner``). A copy that
+/// both get it. The owner then writes its pid, bundle path and executable beside it, in `instance.owner`
+/// (``Owner``, replaced atomically, off the main thread). A copy that
 /// cannot get it hands its URLs and files to that exact bundle and exits (`SingleInstanceHandoff`), before it
 /// reads the relaunch-focus record, a session, the daemon or CEF. Never by bundle id: an older copy registered
 /// under the same id may be what LaunchServices picks (nightly proof, 2026-10-27: `open -b` started an older
@@ -27,7 +29,7 @@ public nonisolated struct SingleInstanceGuard: Equatable, Sendable {
         case handOff(activates: Bool)
     }
 
-    /// The copy that holds the claim, as it wrote itself into the lock file.
+    /// The copy that holds the claim, as it recorded itself in `instance.owner`.
     public nonisolated struct Owner: Equatable, Sendable {
         public var pid: pid_t
         /// Its `.app` bundle: where the hand-off sends the URLs (`open -a`).
@@ -96,10 +98,14 @@ public nonisolated extension SingleInstanceGuard {
         applicationSupport?.appending(path: bundleIdentifier).appending(path: "instance.lock")
     }
 
+    /// The owner record beside the lock file at `lockURL` (`instance.owner`).
+    static func ownerURL(lockURL: URL) -> URL {
+        lockURL.deletingLastPathComponent().appending(path: "instance.owner")
+    }
+
     /// Takes the claim at `url`, keeping the descriptor open (close-on-exec, so no child keeps it) for the life of
-    /// the process, and writes `owner` into it. Only a lock another process holds is `.taken`; any file error
-    /// launches as before.
-    static func claim(at url: URL, owner: Owner? = nil) -> Claim {
+    /// the process. Only a lock another process holds is `.taken`; any file error launches as before.
+    static func claim(at url: URL) -> Claim {
         // blocking-allow: runs once in `main` before NSApp exists and before any other thread starts; whether this copy may start at all decides everything after it, so nothing can run first (one mkdir of an existing folder)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let fd = open(url.path, O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
@@ -109,30 +115,23 @@ public nonisolated extension SingleInstanceGuard {
             close(fd)
             return lockError == EWOULDBLOCK ? .taken : .unavailable
         }
-        if let owner {
-            // A record that fails to write leaves the hand-off unresolved, so a second copy launches nothing.
-            let bytes = Array(owner.record.utf8)
-            _ = ftruncate(fd, 0)
-            _ = bytes.withUnsafeBytes { pwrite(fd, $0.baseAddress, $0.count, 0) }
-        }
         return .held  // fd stays open: the claim lasts until this process ends
     }
 
-    /// The running copy holding the claim at `url`, from its record, if its pid is alive, is not `selfPID`, and
-    /// still runs the recorded executable (a reused pid or a record from a copy that has ended is nil).
+    /// Writes `owner` to `url` by an atomic replace (a temporary file renamed over it), so a reader sees the
+    /// whole previous record or the whole new one, never a partial one. Call it off the main thread. A write
+    /// that fails leaves the hand-off unresolved, so a second copy launches nothing.
+    static func writeOwner(_ owner: Owner, at url: URL) {
+        try? Data(owner.record.utf8).blockingWrite(to: url, options: .atomic)
+    }
+
+    /// The running copy recorded at `url` (``ownerURL(lockURL:)``), if its pid is alive, is not `selfPID`, and
+    /// still runs the recorded executable (a reused pid or a record from a copy that has ended is nil). Call it
+    /// off the main thread.
     static func runningCopy(at url: URL, selfPID: pid_t = getpid(),
                             executablePath: (pid_t) -> String? = SingleInstanceGuard.processExecutablePath) -> Owner? {
-        let fd = open(url.path, O_RDONLY | O_CLOEXEC)
-        guard fd >= 0 else { return nil }
-        defer { close(fd) }
-        var data: [UInt8] = []
-        var chunk = [UInt8](repeating: 0, count: 4096)
-        while data.count < 64 * 1024 {
-            let count = chunk.withUnsafeMutableBytes { read(fd, $0.baseAddress, $0.count) }
-            guard count > 0 else { break }
-            data += chunk[..<count]
-        }
-        guard let owner = Owner(record: String(decoding: data, as: UTF8.self)), owner.pid != selfPID,
+        guard let data = try? Data(blockingContentsOf: url), data.count <= 64 * 1024,
+              let owner = Owner(record: String(decoding: data, as: UTF8.self)), owner.pid != selfPID,
               executablePath(owner.pid) == owner.executablePath else { return nil }
         return owner
     }
@@ -157,9 +156,18 @@ public nonisolated extension SingleInstanceGuard {
         return Self.lockURL(bundleIdentifier: bundleIdentifier)
     }
 
-    /// The decision for this launch; takes the claim when this launch is guarded.
+    /// The decision for this launch; takes the claim when this launch is guarded. The owner then records itself
+    /// off the main thread for a later second copy's hand-off (``writeOwner(_:at:)``).
     func resolve() -> Decision {
         guard let lockURL else { return .launch }
-        return decide(Self.claim(at: lockURL, owner: Self.currentOwner))
+        let claim = Self.claim(at: lockURL)
+        if claim == .held {
+            let ownerURL = Self.ownerURL(lockURL: lockURL)
+            // task-owner: one write of a few bytes at launch; it ends on its own and nothing waits on it
+            Task.detached(priority: .utility) {
+                if let owner = Self.currentOwner { Self.writeOwner(owner, at: ownerURL) }
+            }
+        }
+        return decide(claim)
     }
 }

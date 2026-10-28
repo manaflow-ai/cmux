@@ -93,21 +93,22 @@ import Testing
         #expect(output == "-a /Applications/cmux.app https://a.example/\n")
     }
 
-    private func lockFile() -> (directory: URL, url: URL) {
+    private func ownerFile() -> (directory: URL, url: URL) {
         let directory = FileManager.default.temporaryDirectory.appending(path: "single-instance-\(UUID().uuidString)")
-        return (directory, directory.appending(path: "instance.lock"))
+        return (directory, SingleInstanceGuard.ownerURL(lockURL: directory.appending(path: "instance.lock")))
     }
 
     /// Nightly proof, 2026-10-27: the bundle id resolved to an older copy (`/Users/Shared/.../cmux NEXT DAILY.app`,
     /// no guard) while another copy held the claim; `open -b` started the older one, whose Chromium failed. The
     /// helper goes to the path the claim's owner recorded, whatever the bundle id resolves to.
     @Test func theHandOffTargetsTheRunningCopyNotWhatTheBundleIdResolvesTo() throws {
-        let (directory, url) = lockFile()
+        let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let running = SingleInstanceGuard.Owner(pid: 58353, bundlePath: "/Applications/cmux NEXT.app",
                                                 executablePath: "/Applications/cmux NEXT.app/Contents/MacOS/cmux")
         let launchServicesPick = "/Users/Shared/cmux-capture/dailyuse/cmux NEXT DAILY.app"
-        #expect(SingleInstanceGuard.claim(at: url, owner: running) == .held)
+        SingleInstanceGuard.writeOwner(running, at: url)
         let resolved = try #require(SingleInstanceGuard.runningCopy(at: url, selfPID: 59556) { pid in
             pid == 58353 ? "/Applications/cmux NEXT.app/Contents/MacOS/cmux" : "\(launchServicesPick)/Contents/MacOS/cmux"
         })
@@ -120,31 +121,42 @@ import Testing
     }
 
     /// A record that no longer names a live copy (the pid ended or now runs something else, this very process, a
-    /// missing or garbled file) resolves to nothing, so the hand-off launches nothing.
+    /// missing, oversized or garbled file) resolves to nothing, so the hand-off launches nothing.
     @Test func anUnprovableOwnerResolvesToNothing() throws {
-        let (directory, url) = lockFile()
+        let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in "/x" } == nil, "no lock file")
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in "/x" } == nil, "no record (owner not written yet)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let owner = SingleInstanceGuard.Owner(pid: 4242, bundlePath: "/Applications/cmux.app",
                                               executablePath: "/Applications/cmux.app/Contents/MacOS/cmux")
-        #expect(SingleInstanceGuard.claim(at: url, owner: owner) == .held)
+        SingleInstanceGuard.writeOwner(owner, at: url)
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in owner.executablePath } == owner)
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in nil } == nil, "pid ended")
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in "/usr/bin/vim" } == nil, "pid reused")
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 4242) { _ in owner.executablePath } == nil, "itself")
+        try Data((owner.record + String(repeating: "x", count: 70 * 1024)).utf8).write(to: url)
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in owner.executablePath } == nil, "oversized")
         #expect(SingleInstanceGuard.Owner(record: "") == nil)
         #expect(SingleInstanceGuard.Owner(record: "abc\n/a.app\n/a\n") == nil)
         #expect(SingleInstanceGuard.Owner(record: owner.record) == owner)
     }
 
-    /// The real kernel lookup: this test process recorded as an owner resolves; the claim rewrites a stale record.
+    /// The real kernel lookup: this test process recorded as an owner resolves, and a new record replaces a
+    /// longer stale one whole.
     @Test func aLiveRecordedProcessResolves() throws {
-        let (directory, url) = lockFile()
+        let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(String(repeating: "stale record\n", count: 50).utf8).write(to: url)
         let executable = try #require(SingleInstanceGuard.processExecutablePath(getpid()))
         let owner = SingleInstanceGuard.Owner(pid: getpid(), bundlePath: "/Applications/cmux.app", executablePath: executable)
-        #expect(SingleInstanceGuard.claim(at: url, owner: owner) == .held)
+        SingleInstanceGuard.writeOwner(owner, at: url)
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 0) == owner)
+    }
+
+    /// The record sits beside the lock, so the lock's flock never guards a file a reader opens.
+    @Test func theOwnerRecordIsBesideTheLock() {
+        #expect(SingleInstanceGuard.ownerURL(lockURL: URL(filePath: "/tmp/support/com.cmuxterm.app.nightly/instance.lock")).path
+            == "/tmp/support/com.cmuxterm.app.nightly/instance.owner")
     }
 }
