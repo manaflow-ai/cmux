@@ -145,6 +145,17 @@ run("projection full compare", () => {
     expect(late.done).toMatchObject({ complete: false, rows_read: 0 })
   }, 60_000)
 
+  it("a 16-digit numeric key (text from Postgres, a number from MySQL) compares equal", async () => {
+    await both("audit.append", { ...audit("team_p1", 1), n: 1_000_000_000_000_000 })
+    try {
+      const { table } = await pass()
+      expect(table("audit_events")).toMatchObject({ outcome: "equal", diffs: 0 })
+    } finally {
+      await pgc.query("DELETE FROM audit_events WHERE n > 1000000")
+      await my.query("DELETE FROM audit_events WHERE n > 1000000")
+    }
+  }, 60_000)
+
   it("a numeric key past 2^53 fails its table instead of comparing rounded keys", async () => {
     await both("audit.append", { ...audit("team_p1", 1), n: 2 ** 53 })
     try {

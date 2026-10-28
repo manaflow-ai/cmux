@@ -192,6 +192,8 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
   if (!spec) throw new Error(`not a projected table: ${table}`)
   const pageSize = options.pageSize ?? 1000
   const recheckCap = options.recheckCap ?? 20_000
+  // A table that starts past the bound reads nothing, not even its column lists.
+  checkBudget(options.budget)
   const shared = (await sharedColumns(pgc, my, table)).filter((c) => !spec.skip.includes(c))
   const teamColumn = TEAM_COLUMN[table]
   const columns = [...new Set([...spec.key, ...(teamColumn ? [teamColumn] : []), ...shared])]
@@ -207,7 +209,8 @@ export const compareTableFull = async (pgc: PgLike, my: MyLike, table: string, o
       return n
     })
   const keyText = (key: Key) => key.map(String).join("/")
-  const hashOf = (r: Row) => rowHash(shapeRow(r, shared))
+  // Numeric keys hash in one form: Postgres returns a bigint as text, mysql2 as a number, and norm() keeps text of 16+ digits as text.
+  const hashOf = (r: Row) => rowHash({ ...shapeRow(r, shared), ...Object.fromEntries(spec.key.filter((k) => NUMERIC_KEYS.has(k)).map((k) => [k, String(r[k])])) })
   const pgSideT = pgSide(pgc, table, spec.key, columns)
   const mySideT = mySide(my, table, spec.key, columns)
   const pgStream = new KeysetStream(pgSideT, keyOf, keep, "postgres", pageSize, options.budget)

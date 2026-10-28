@@ -66,7 +66,9 @@ export const runFullCompare = async (deps: FullCompareDeps): Promise<FullCompare
   const postgres = selectOnlyPg(deps.postgres)
   const mysql = selectOnlyMy(deps.mysql)
   const budget: FullBudget = { rowsRead: 0, maxRows: deps.maxRows ?? FULL_MAX_ROWS, deadline: started + (deps.wallMs ?? FULL_WALL_MS), now }
+  // The junk list (JUNK_TEAMS_SQL, as the 15-minute compare reads it) has at most one id per team row; its rows count against the bound.
   const excludeTeams = await junkTeams(postgres)
+  budget.rowsRead += excludeTeams.length
   const tables: Array<FullTableReport> = []
   const failed: Array<string> = []
   const skipped: Array<string> = []
