@@ -8,6 +8,8 @@ function harness() {
   const w = dom.window;
   const frames = new Map<number, FrameRequestCallback>();
   const observers = new Set<object>();
+  const tasks: Array<() => void> = [];
+  const records: PerformanceEntry[] = [];
   let serial = 0;
   let now = 100;
   Object.defineProperty(w.performance, "now", { value: () => now });
@@ -15,16 +17,36 @@ function harness() {
   w.cancelAnimationFrame = (id) => {
     frames.delete(id);
   };
+  w.MessageChannel = class {
+    closed = false;
+    port1 = {
+      onmessage: null as (() => void) | null,
+      close: () => {
+        this.closed = true;
+      },
+    };
+    port2 = {
+      postMessage: () =>
+        tasks.push(() => {
+          if (!this.closed) this.port1.onmessage?.();
+        }),
+      close: () => {
+        this.closed = true;
+      },
+    };
+  } as unknown as typeof MessageChannel;
   w.PerformanceObserver = class {
     static supportedEntryTypes = ["longtask", "event"];
-    observe() {
+    type = "";
+    observe(options: { type: string }) {
+      this.type = options.type;
       observers.add(this);
     }
     disconnect() {
       observers.delete(this);
     }
     takeRecords() {
-      return [];
+      return records.filter((entry) => entry.entryType === this.type);
     }
   } as unknown as typeof PerformanceObserver;
   w.eval(`(${installLatencyProbe.toString()})();`);
@@ -34,6 +56,13 @@ function harness() {
     probe,
     frames,
     observers,
+    records,
+    advance(ms: number) {
+      now += ms;
+    },
+    flushTasks() {
+      while (tasks.length) tasks.shift()!();
+    },
     frame() {
       now += 16.7;
       const pending = [...frames.values()];
@@ -49,6 +78,31 @@ function harness() {
 test("an installed probe does no recurring work before an action", () => {
   const h = harness();
   try {
+    expect(h.frames.size).toBe(0);
+    expect(h.observers.size).toBe(0);
+  } finally {
+    h.close();
+  }
+});
+
+test("post-response frame work and queued Long Tasks entries survive until finalization", () => {
+  const h = harness();
+  try {
+    let visible = false;
+    h.w.__latencyCheck = () => visible;
+    h.probe.arm("response");
+    const input = new h.w.Event("keydown");
+    Object.defineProperty(input, "timeStamp", { value: 100 });
+    h.w.dispatchEvent(input);
+    visible = true;
+    h.frame();
+    expect(h.probe.state).toBe("input");
+    h.advance(80);
+    h.records.push({ entryType: "longtask", startTime: 116.7, duration: 80 } as PerformanceEntry);
+    h.flushTasks();
+    expect(h.probe.result()?.paint).toBeCloseTo(96.7);
+    expect(h.probe.result()?.maxFrameGap).toBeCloseTo(96.7);
+    expect(h.probe.result()?.longTasks).toEqual([80]);
     expect(h.frames.size).toBe(0);
     expect(h.observers.size).toBe(0);
   } finally {
@@ -99,6 +153,26 @@ test("input failures stop measurement before settle runs", async () => {
   try {
     const result = await measureOnce(page, action);
     expect(result.error).toContain("input unavailable");
+    expect(h.frames.size).toBe(0);
+    expect(h.observers.size).toBe(0);
+  } finally {
+    h.close();
+  }
+});
+
+test("completion records real commits and leaves no frame or observer running", () => {
+  const h = harness();
+  try {
+    h.w.__latencyCheck = () => Boolean(h.w.document.querySelector("output")!.textContent);
+    h.w.__latencyReactCommits = 10;
+    h.probe.arm("visible output");
+    h.probe.markInput("host-command");
+    h.w.document.querySelector("output")!.textContent = "ready";
+    h.w.__latencyReactCommits += 2;
+    h.frame();
+    h.flushTasks();
+    expect(h.probe.state).toBe("done");
+    expect(h.probe.result()?.reactCommits).toBe(2);
     expect(h.frames.size).toBe(0);
     expect(h.observers.size).toBe(0);
   } finally {
