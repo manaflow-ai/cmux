@@ -115,3 +115,7 @@ fn random_id() -> Result<String, Failure> {
         .map_err(|error| Failure::new("upload_failed", format!("no random id: {error}")))?;
     Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
+
+#[cfg(test)]
+#[path = "uploads_tests.rs"]
+mod tests;
