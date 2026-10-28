@@ -2099,8 +2099,7 @@ export class AcpmuxDirectClient {
     } catch (error) {
       if (mine !== this.copyAttaches) return;
       if (await this.keepPeerCopy(sessionId, generation, error)) return;
-      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
-        this.dropUnread(sessionId);
+      if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) this.dropUnread(sessionId);
     } finally {
       this.releaseSnapshots(hold);
     }
