@@ -82,8 +82,10 @@ public final class AgentPaneMachineLink {
         observation?.cancel()
         observation = nil
         guard views.count > 0 else { return }
-        // task-owner: the App's tab store; event-driven (Observation on the machines' link state).
-        // Stops when it is restarted, when no page is left, and once this instance is gone.
+        // task-owner: the App's tab store (app lifetime); event-driven (Observation on the
+        // machines' link state). Cancelled when it is restarted (a page joins, `state` is set);
+        // ends at the next change once no page is left or this instance is gone (it holds
+        // neither strongly).
         observation = Task { [weak self] in
             var last: [ObjectIdentifier: State?] = [:]
             let reads = ObservationStream { [weak self] () -> [(AgentPaneView, State?)] in
@@ -131,7 +133,7 @@ public final class AgentPaneMachineLink {
     /// its handshake; true once it finished. A machine on its way is only waited for. Stops on the
     /// handshake, the deadline or cancellation.
     func awaitLink(_ machine: String) async -> Bool {
-        if let wait = waits[machine] { return await wait.value }
+        if let wait = waits[machine] { return await wait.value && !Task.isCancelled }
         switch use(machine) {
         case .up, .stuck: return false
         case .coming: break
@@ -142,7 +144,9 @@ public final class AgentPaneMachineLink {
         let wait = Task { await Self.holds(within: budget) { if case .up = use(machine) { true } else { false } } }
         waits[machine] = wait
         defer { waits[machine] = nil }
-        return await wait.value
+        let back = await wait.value
+        // A send the person cancelled meanwhile is not retried; the shared wait ends on its own bound.
+        return back && !Task.isCancelled
     }
 
     /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
