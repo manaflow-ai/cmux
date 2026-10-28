@@ -588,3 +588,97 @@ fn daemon_locks_caller_class_follows_the_connection_origin() {
     assert!(set_hello(&mux, relay, HelloRole::PageRelay, None, true, None, false));
     assert_eq!(relay_writer.lock_caller.get(), LockCaller::Automation);
 }
+
+/// `memory`: absent unless requested; once requested, each owner's bytes
+/// follow what it holds. A terminal that prints 20000 lines of history leads
+/// the terminal list with more rows and bytes, the output store keeps its
+/// tail, a queued reply counts in the outbound budgets, and the section
+/// decodes through the SDK.
+#[cfg(unix)]
+#[test]
+fn server_stats_include_reports_memory_owners() {
+    // `cat` prints nothing, so only this test's output reaches the owners.
+    let quiet_shell =
+        crate::SurfaceOptions { command: Some(vec!["/bin/cat".into()]), ..Default::default() };
+    let mux = Mux::new_for_test("server-stats-memory", quiet_shell);
+    let client = mux.control_clients.register(ClientTransport::Unix, writer());
+    let _quiet = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let busy = mux.new_workspace(None, Some((80, 24))).unwrap();
+    let memory = || {
+        let full = stats(&mux, client, json!({"cmd":"server-stats","include":["memory"]}));
+        let decoded: ::cmux::raw::ServerStatsResult =
+            serde_json::from_value(full.clone()).expect("the SDK decodes the memory section");
+        assert_eq!(serde_json::to_value(&decoded).unwrap(), full);
+        full["memory"].clone()
+    };
+    let field = |section: &Value, path: &[&str]| -> u64 {
+        path.iter()
+            .fold(section, |value, key| &value[*key])
+            .as_u64()
+            .unwrap_or_else(|| panic!("memory.{} missing: {section}", path.join(".")))
+    };
+
+    let plain = stats(&mux, client, json!({"cmd":"server-stats"}));
+    assert!(plain.get("memory").is_none(), "{plain}");
+    let other = stats(&mux, client, json!({"cmd":"server-stats","include":["write_path"]}));
+    assert!(other.get("memory").is_none(), "{other}");
+
+    let before = memory();
+    assert_eq!(field(&before, &["terminals", "terminals"]), 2, "{before}");
+    assert_eq!(field(&before, &["terminals", "unmeasured"]), 0, "{before}");
+
+    let lines: String = (0..20_000).map(|line| format!("line {line} of scrollback\r\n")).collect();
+    busy.with_terminal(|term| term.vt_write(lines.as_bytes())).unwrap();
+    let terminal = busy.terminal_public_id().expect("the terminal id").clone();
+    mux.output_store.append(&terminal, &Arc::from("g1"), &[b'x'; 4096]);
+    let held = writer();
+    mux.control_clients.register(ClientTransport::Unix, held.clone());
+    held.send_reply(&json!({"ok": true, "data": "x".repeat(10_000)})).unwrap();
+
+    let after = memory();
+    let terminals = &after["terminals"];
+    assert!(
+        field(&after, &["terminals", "scrollback_rows"])
+            > field(&before, &["terminals", "scrollback_rows"]),
+        "20000 lines of history add rows: {before} then {after}"
+    );
+    assert!(
+        field(&after, &["terminals", "bytes"]) > field(&before, &["terminals", "bytes"]),
+        "20000 lines of history cost pages: {before} then {after}"
+    );
+    let top = terminals["top"].as_array().expect("terminals.top");
+    assert_eq!(top.len(), 2, "both terminals, at most five: {terminals}");
+    assert_eq!(top[0]["surface"], busy.id, "the busy terminal leads: {terminals}");
+    assert_eq!(top[0]["state"], "hot", "{terminals}");
+    assert_eq!(top[0]["terminal_id"], terminal.as_str(), "{terminals}");
+    assert!(top[0]["scrollback_rows"].as_u64().is_some_and(|rows| rows > 0), "{terminals}");
+    assert!(field(&top[0], &["bytes"]) > field(&top[1], &["bytes"]), "{terminals}");
+    let sum: u64 = top.iter().map(|row| field(row, &["bytes"])).sum();
+    assert_eq!(sum, field(&after, &["terminals", "bytes"]), "the rows add up: {terminals}");
+
+    let tail = |section: &Value| field(section, &["output_store", "tail_bytes"]);
+    assert!(tail(&after) >= tail(&before) + 4096, "the tail keeps the output: {after}");
+    assert!(field(&after, &["output_store", "logs"]) >= 1, "{after}");
+    assert!(
+        field(&after, &["output_store", "capacity_estimate_bytes"])
+            >= tail(&after) + field(&after, &["output_store", "pending_bytes"]),
+        "{after}"
+    );
+
+    let journal = |name: &str| field(&after, &["journal_ring", name]);
+    assert!(journal("records") <= journal("max_records"), "{after}");
+    assert!(journal("max_estimate_bytes") > 0, "{after}");
+    let _ = journal("resident_estimate_bytes");
+
+    let outbound = |section: &Value, name: &str| field(section, &["outbound", name]);
+    assert!(outbound(&after, "connections") >= 2, "{after}");
+    assert!(outbound(&after, "budgets") >= 1, "{after}");
+    assert!(
+        outbound(&after, "control_retained_bytes")
+            >= outbound(&before, "control_retained_bytes") + 10_000,
+        "the queued reply holds its encoded text: {before} then {after}"
+    );
+    let _ = outbound(&after, "retained_bytes");
+    let _ = outbound(&after, "graphic_cache_entries");
+    let _ = outbound(&after, "graphic_cache_bytes");
+}
