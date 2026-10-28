@@ -137,6 +137,9 @@ for sha in "${lane_shas[@]}" "$publisher"; do
   ! GIT_NO_LAZY_FETCH=1 git -C "$TMP/job" cat-file -e "$sha^{commit}" 2>/dev/null || fail "(b) $sha was fetched (lazily) with no budget" "$out"
 done
 grep -qF "7 active run commits were not fetched within 0s" <<<"$out" || fail "(b) the unread runs were not reported" "$out"
+# Fails open: an unread run may be the publisher, so the probe defers (a DEV
+# run's dev-daily-tree-wait then polls) instead of reporting failed.
+[[ "$state" == deferred ]] || fail "(b) an exhausted fetch budget must defer, got tree_state=$state" "$out"
 
 # (c) A hanging fetch is stopped at the budget: the probe answers in seconds,
 # and every run the deadline cut off is unread (unknown), not absent.
@@ -147,6 +150,7 @@ took=$((SECONDS - started))
 [[ "$status" == 0 && -n "$state" ]] || fail "(c) the probe wrote no state (exit $status)" "$out"
 (( took < 20 )) || fail "(c) a hanging run-commit fetch held the probe ${took}s past a 2 s budget" "$out"
 grep -qF "7 active run commits were not fetched within 2s" <<<"$out" || fail "(c) the unread runs were not reported" "$out"
+[[ "$state" == deferred ]] || fail "(c) a fetch cut off by the deadline must defer, got tree_state=$state" "$out"
 [[ -s "$TMP/children" ]] || fail "(c) the hanging fetch recorded no child" "$out"
 # An orphan is reaped a moment after it dies: allow that moment, never 30 s.
 while read -r child; do
@@ -182,4 +186,18 @@ probe CMUX_TUI_TREE_RUN_FETCH_SECONDS=2
 [[ "$status" == 0 && -n "$state" ]] || fail "(d) the probe wrote no state (exit $status)" "$out"
 grep -qF "1 active run commits were not fetched within 2s" <<<"$out" || fail "(d) the cut-off run was not unread" "$out"
 grep -qF "cannot read active run commit ${gone:0:12}" <<<"$out" || fail "(d) the gone commit was not skipped" "$out"
+[[ "$state" == deferred ]] || fail "(d) a cut-off run must defer, got tree_state=$state" "$out"
+
+# (e) Every run read, none with this tree: no publisher, so failed (not deferred).
+fresh_job
+python3 -c '
+import json, sys
+json.dump({"workflow_runs": [{"status": "queued", "head_sha": sys.argv[2], "head_branch": "cp/1"}]}, open(sys.argv[1], "w"))' "$TMP/runs.json" "${lane_shas[0]}"
+cat > "$TMP/bin/git" <<SHIM
+#!/usr/bin/env bash
+for arg; do [[ "\$arg" == fetch ]] && { printf '%s\n' "\$*" >> "$TMP/fetches.log"; break; }; done
+exec "$real_git" "\$@"
+SHIM
+probe
+[[ "$status" == 0 && "$state" == failed ]] || fail "(e) a read run with another tree must leave failed, got '$state' (exit $status)" "$out"
 printf 'pin-cmux-tui run-fetch tests: ok\n'

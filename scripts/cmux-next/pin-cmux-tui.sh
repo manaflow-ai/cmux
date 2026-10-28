@@ -555,6 +555,9 @@ await_outside_publisher() {
       echo "cmux-tui tree $key: active artifacts run for $current has the same tree; deferring to it" >&2
       tree_publisher_sha="$current"; tree_publisher_action=active; return 0
     fi
+    # The last look could not compare every active run (fetch budget, API):
+    # unknown, not "no publisher" (probe_checkout_tree defers on it).
+    if [[ "$current" == unknown ]]; then tree_publisher_action=unknown; else tree_publisher_action=none; fi
     (( $(date +%s) - started + poll <= wait )) || break
     sleep "$poll"
   done
@@ -1095,7 +1098,7 @@ tree_published() {
 probe_checkout_tree() {
   local key legacy publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}"
   local base_key="" source="" state="" reason="" recheck="${CMUX_TUI_TREE_RECHECK_SECONDS:-20}" superseded=""
-  local fetch_key="" resolved=""
+  local fetch_key="" resolved="" publisher_unknown=""
   key="$(tree_key HEAD)"
   legacy="$(legacy_tree_key HEAD)"
   [[ "$legacy" == "$key" ]] && legacy=""
@@ -1139,6 +1142,7 @@ probe_checkout_tree() {
       await_outside_publisher "$key" "$(git -C "$repo_root" rev-parse HEAD)"
     fi
     [[ -n "$tree_publisher_sha" ]] && source="commit:$tree_publisher_sha"
+    [[ -z "$tree_publisher_sha" && "${tree_publisher_action:-}" == unknown ]] && publisher_unknown=1
   fi
   if [[ -n "$source" && -z "${GH_TOKEN:-}" ]]; then
     reason="no GH_TOKEN to read the cmux-tui artifacts runs"; source=""
@@ -1164,12 +1168,19 @@ probe_checkout_tree() {
         state=failed
       fi ;;
     none)
-      if [[ -z "$source" ]]; then
+      if [[ -z "$source" && -n "$publisher_unknown" ]]; then
+        # Fails open: the active runs could not all be compared in time, so a
+        # same-tree publisher may exist. Deferred leaves the wait marker (and a
+        # DEV run's dev-daily-tree-wait polls) instead of reporting a red.
+        state=deferred
+        reason="the active cmux-tui artifacts runs could not all be compared with tree $key in time (fetch budget or GitHub API), so one may be publishing it; its publish starts the tree jobs"
+      elif [[ -z "$source" ]]; then
         reason="${reason:-no cmux-tui artifacts run can publish tree $key}. $(pin_push_hint)"
+        state=failed
       else
         reason="no cmux-tui artifacts run exists for ${source#*:}, so nothing publishes tree $key. $(pin_push_hint)"
-      fi
-      state=failed ;;
+        state=failed
+      fi ;;
     *) state=failed
       reason="could not read the cmux-tui artifacts runs for ${source#*:} (GitHub API), so no publisher of tree $key is known; re-run this check" ;;
   esac
@@ -1191,6 +1202,7 @@ probe_checkout_tree() {
     report_tree_miss "$key"
     case "${tree_publisher_action:-none}:$state" in
       dispatched:*) echo "next: dispatching one cmux-tui-artifacts run for ${tree_publisher_sha:0:12} (CMUX_TUI_TREE_DISPATCH=1); its publish starts the tree jobs" >&2 ;;
+      unknown:deferred) echo "next: tree_state=deferred; ${reason}" >&2 ;;
       *:deferred) echo "next: an artifacts run for this tree is active; its publish starts the tree jobs" >&2 ;;
       *) echo "next: tree_state=$state; ${reason}" >&2 ;;
     esac
