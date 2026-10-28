@@ -32,8 +32,14 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   globalThis.__cmuxPaneStrings = strings as never;
   installChipHost(state.chipHost);
   resetSummaryCards();
-  if (state.mockHarnesses)
-    (globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses = state.mockHarnesses;
+  // Only the gallery's mock daemon reads these. Clear them between staged variants, so one
+  // capture's negative auth cannot leak into the next fixture.
+  Object.assign(globalThis, {
+    cmuxAcpmuxMockHarnesses: state.mockHarnesses,
+    cmuxAcpmuxMockHarnessHealth: state.mockHarnessHealth,
+    cmuxAcpmuxMockNative: state.native,
+    cmuxAcpmuxMockSessionAuth: state.mockSessionAuth,
+  });
   const snapshot = structuredClone(state.snapshot);
   const answer = (value: unknown) => ({ ok: true, value });
   // The app's staged upload (cloudUploads.ts: begin, base64 chunks, finish, cancel), so a pasted

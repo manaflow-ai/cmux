@@ -170,6 +170,11 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertIn("::warning title=cmux-next style guard (warn-only)::Package conventions lint", result.stdout)
         self.assertNotIn("::error", result.stdout)
 
+    def test_concurrency_failure_blocks_even_with_style_guards_warn(self):
+        result = self.run_warn_aggregate("failure|Main-thread concurrency\nsuccess|Crash safety\n")
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("Main-thread concurrency", result.stdout)
+
     def test_a_red_blocking_check_still_fails_beside_a_style_warning(self):
         result = self.run_warn_aggregate("failure|Package conventions lint\nfailure|Crash safety\n")
         self.assertEqual(result.returncode, 1, result.stdout)

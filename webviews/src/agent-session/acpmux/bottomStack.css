@@ -117,7 +117,12 @@
   overflow: clip;
 }
 @media (min-height: 360px) {
-  .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
+  /* Not while the fold plays (conversation/fold.ts clips it with an inline overflow then): the fold's
+   own height carries the tray, so open and close never jump by the reservation. */
+  .acpmux-dock
+    > .acpmux-running-tray:has(
+      > .acpmux-running-tray__fold:not([style*="overflow"]) > .acpmux-running-tray__finished
+    ) {
     min-height: calc(2 * var(--ds-control-row, 28px) + 2px + 2 * var(--cmux-hairline, 0.5px));
   }
 }
