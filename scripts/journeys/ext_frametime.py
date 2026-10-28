@@ -108,8 +108,8 @@ def cond_shown_draws_within(j, want, cache):
     show = _app_show(j, watch["pane"])
     if show is not None:
         # The app's record: exact, off the main thread's queue. Its unpause must be after the mark. The app's
-        # times are CLOCK_UPTIME_RAW; the driver's marks are time.monotonic() (CLOCK_MONOTONIC, which on macOS
-        # also counts sleep): the mark moves to the app's clock by the two clocks' offset read now.
+        # times are CLOCK_UPTIME_RAW; the driver's marks are time.monotonic() (mach_absolute_time in CPython on
+        # macOS, the same clock today): the mark moves by the two clocks' offset read now, in case they differ.
         mark_ns = (j.marks[want["since"]] + _uptime_minus_monotonic()) * 1e9
         detail = {"pane": watch["pane"], "source": "app", "show": show, "frame_ms": budget}
         if show.get("unpaused_ns") is None or show["unpaused_ns"] < mark_ns - 1e6:
