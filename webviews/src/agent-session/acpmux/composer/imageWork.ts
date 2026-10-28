@@ -110,129 +110,12 @@ function canDraw(): boolean {
   return typeof createImageBitmap === "function" && typeof OffscreenCanvas === "function";
 }
 
-function metadataFreePng(bytes: Uint8Array): Uint8Array | undefined {
-  const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
-  if (bytes.length < 33 || !signature.every((byte, index) => bytes[index] === byte)) return undefined;
-  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const chunks: Uint8Array[] = [];
-  let offset = 8;
-  let sawData = false;
-  while (offset + 12 <= bytes.length) {
-    const length = view.getUint32(offset);
-    const end = offset + 12 + length;
-    if (end > bytes.length) return undefined;
-    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
-    if (!/^[A-Za-z]{4}$/.test(type)) return undefined;
-    if (offset === 8 && (type !== "IHDR" || length !== 13)) return undefined;
-    const chunk = bytes.subarray(offset, end);
-    const critical = type.charCodeAt(0) < 0x61;
-    if (critical && type !== "IHDR" && type !== "PLTE" && type !== "IDAT" && type !== "IEND") return undefined;
-    if (critical || type === "tRNS") chunks.push(chunk);
-    if (type === "IDAT") sawData = true;
-    offset = end;
-    if (type === "IEND") {
-      if (!sawData) return undefined;
-      const result = new Uint8Array(chunks.reduce((total, value) => total + value.length, 0));
-      let at = 0;
-      for (const value of chunks) {
-        result.set(value, at);
-        at += value.length;
-      }
-      return result;
-    }
-  }
-  return undefined;
-}
-
-function metadataFreeJpeg(bytes: Uint8Array): Uint8Array | undefined {
-  if (bytes.length < 2 || bytes[0] !== 0xff || bytes[1] !== 0xd8) return undefined;
-  const chunks: Uint8Array[] = [bytes.subarray(0, 2)];
-  let offset = 2;
-  while (offset + 1 < bytes.length) {
-    const markerStart = offset;
-    if (bytes[offset] !== 0xff) return undefined;
-    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
-    if (offset >= bytes.length) return undefined;
-    const marker = bytes[offset]!;
-    offset += 1;
-    if (marker === 0xd9) {
-      chunks.push(bytes.subarray(markerStart, offset));
-      return joinChunks(chunks);
-    }
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      chunks.push(bytes.subarray(markerStart, offset));
-      continue;
-    }
-    if (offset + 2 > bytes.length) return undefined;
-    const length = (bytes[offset]! << 8) | bytes[offset + 1]!;
-    if (length < 2 || offset + length > bytes.length) return undefined;
-    const end = offset + length;
-    const segment = bytes.subarray(markerStart, end);
-    if (marker !== 0xda && !(marker >= 0xe0 && marker <= 0xef) && marker !== 0xfe) chunks.push(segment);
-    if (marker === 0xda) {
-      if (jpegScanHasUnsafeMarkers(bytes, end)) return undefined;
-      chunks.push(bytes.subarray(end));
-      return joinChunks(chunks);
-    }
-    offset = end;
-  }
-  return undefined;
-}
-
-function jpegScanHasUnsafeMarkers(bytes: Uint8Array, start: number): boolean {
-  let offset = start;
-  while (offset + 1 < bytes.length) {
-    if (bytes[offset] !== 0xff) {
-      offset += 1;
-      continue;
-    }
-    while (offset < bytes.length && bytes[offset] === 0xff) offset += 1;
-    if (offset >= bytes.length) return true;
-    const marker = bytes[offset]!;
-    if (marker === 0x00 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
-      offset += 1;
-      continue;
-    }
-    // A no-canvas preview only accepts a single baseline scan. Progressive scans and any marker
-    // between scans could carry metadata, so leave those files as originals for a real decoder.
-    return marker === 0xd9 ? offset + 1 !== bytes.length : true;
-  }
-  return true;
-}
-
-function joinChunks(chunks: Uint8Array[]): Uint8Array {
-  const result = new Uint8Array(chunks.reduce((total, value) => total + value.length, 0));
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return result;
-}
-
 /// Always decode and reencode pixels to strip metadata, including small images. The preview keeps
 /// aspect ratio and never upscales, at most 1568 px on its long edge (the conservative standard
 /// Claude vision tier: https://platform.claude.com/docs/en/build-with-claude/vision). Its original
 /// remains accessible by session path. Undefined when the engine cannot decode it.
 export async function prepareImage(file: Blob): Promise<PreparedImage | undefined> {
-  // Unit-test DOMs and a few embedded WebKit surfaces do not expose the bitmap/canvas APIs. Keep
-  // small, already-sized PNG/JPEG images attachable there instead of dropping the paste on the
-  // floor; sanitize valid chunks/segments and reject images that cannot meet the bounded preview
-  // contract. Other formats stay file attachments until a decoder is available.
-  if (!canDraw()) {
-    if ((file.type !== "image/png" && file.type !== "image/jpeg") || file.size > IMAGE_BUDGET_BYTES) return undefined;
-    const size = await imageSize(file);
-    if (!size?.width || !size.height) return undefined;
-    if (size.width > MAX_IMAGE_SIDE || size.height > MAX_IMAGE_SIDE) return undefined;
-    if (size.width > MAX_DECODE_PIXELS / size.height) return undefined;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const preview = file.type === "image/png" ? metadataFreePng(bytes) : metadataFreeJpeg(bytes);
-    if (!preview || preview.length > IMAGE_BUDGET_BYTES) return undefined;
-    return {
-      mimeType: file.type === "image/jpeg" ? "image/jpeg" : "image/png",
-      data: base64(preview),
-    };
-  }
+  if (!canDraw()) return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
     // A picture past the pixel budget is never decoded (a 200-megapixel PNG is 800 MB of pixels):
@@ -243,7 +126,7 @@ export async function prepareImage(file: Blob): Promise<PreparedImage | undefine
     if (!isSizedType(file.type) && file.size > MAX_UNSIZED_DECODE_BYTES) return undefined;
     const size = await imageSize(file);
     if (size && (size.width === undefined || size.height === undefined)) return undefined;
-    if (size?.width !== undefined && size.height !== undefined && size.width > MAX_DECODE_PIXELS / size.height)
+    if (size?.width !== undefined && size.height !== undefined && size.width * size.height > MAX_DECODE_PIXELS)
       return undefined;
     bitmap = await createImageBitmap(file);
     const fitted = await fit(bitmap, file.type);

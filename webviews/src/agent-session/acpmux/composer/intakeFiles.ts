@@ -86,25 +86,21 @@ export async function intakeFiles(
   };
   await Promise.all(
     files.map(async (file, index) => {
-      // When the host has no path/upload route (the local in-memory composer and the New Tab
-      // fixture), read ordinary documents directly just like images. A routed chat leaves
-      // non-images for its upload/link path so large files never block the page.
-      const result =
-        isImageFile(file) || (!options.localPaths && !options.upload)
-          ? await readAttachment(file, options.allowImages).catch(() => undefined)
-          : undefined;
-      const attachment = result && !("reason" in result) ? result : undefined;
+      const result = isImageFile(file)
+        ? await readAttachment(file, options.allowImages).catch(() => undefined)
+        : undefined;
+      const image = result && !("reason" in result) ? result : undefined;
       const path = (await known)?.[index];
-      if (attachment) {
+      if (image) {
         if (path) {
-          attachment.originalPath = path.path;
-          attachment.originalName = file.name;
+          image.originalPath = path.path;
+          image.originalName = file.name;
         }
-        images[index] = attachment;
-        events.ready?.(index, attachment);
+        images[index] = image;
+        events.ready?.(index, image);
       }
       if (path) {
-        if (!attachment)
+        if (!image)
           link(index, {
             ...linkAttachment(path.path, path.folder),
             mimeType: file.type || "application/octet-stream",
@@ -120,11 +116,11 @@ export async function intakeFiles(
             () => false,
           ))
         ) {
-          if (!attachment) fail(index, { name: file.name, reason: "unsupported" });
+          if (!image) fail(index, { name: file.name, reason: "unsupported" });
           return;
         }
-        waiting.push({ index, file, ...(attachment?.kind === "image" ? { image: attachment } : {}) });
-      } else if (!attachment) {
+        waiting.push({ index, file, ...(image ? { image } : {}) });
+      } else if (!image) {
         fail(index, { name: file.name, reason: result && "reason" in result ? result.reason : "unsupported" });
       }
     }),

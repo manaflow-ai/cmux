@@ -119,6 +119,7 @@ async function openComposer(sent: Sent[] = [], onEdit?: (command: ComposerEditCo
         onStop={() => {}}
         onProject={() => {}}
         onNewChat={() => {}}
+        upload={async (files) => ({ paths: files.map((file) => `/tmp/composer-test/${file.name}`) })}
         {...(onEdit ? { onEdit } : {})}
         localName="studio"
         projectChoices={[{ cwd: "/Users/you/src/app", label: "app" }]}
@@ -283,7 +284,7 @@ test("Paste as Plain Text of only a file leaves no raw paste armed for the next 
   await plainPasteKey({ key: "v", code: "KeyV" });
   await paste("", [new File(["notes"], "notes.txt", { type: "text/plain" })]);
   await paste(LOG);
-  expect(chips(composer).map((chip) => chip.kind)).toEqual(["text", "pasted"]);
+  expect(chips(composer).map((chip) => chip.kind)).toEqual(["link", "pasted"]);
 });
 
 test("a bubble shows a pasted chip's text as the echo will; a resend never sends the paste twice", () => {

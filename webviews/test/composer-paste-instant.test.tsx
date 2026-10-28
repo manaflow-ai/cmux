@@ -11,6 +11,7 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { Composer as ComposerView, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import type { ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { KeptAttachments } from "../src/agent-session/acpmux/composer/keptAttachments";
+import { installComposerImageEngine } from "./support/composerImageEngine";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -32,8 +33,10 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+let restoreImageEngine: () => void;
 
 beforeAll(() => {
+  restoreImageEngine = installComposerImageEngine();
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
   const { window } = dom;
   Object.assign(scope, {
@@ -65,6 +68,7 @@ afterEach(() => {
 });
 
 afterAll(() => {
+  restoreImageEngine();
   dom.window.close();
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
@@ -76,27 +80,35 @@ function Chips() {
   return null;
 }
 
-// A valid PNG with opaque pixel data: the composer reads its 640x480 header before decoding it.
-const PNG = (() => {
-  const chunk = (type: string, data: Uint8Array) => {
-    const bytes = new Uint8Array(12 + data.length);
-    const view = new DataView(bytes.buffer);
-    view.setUint32(0, data.length);
-    bytes.set(new TextEncoder().encode(type), 4);
-    bytes.set(data, 8);
-    return bytes;
-  };
-  const header = new Uint8Array([0, 0, 2, 0x80, 0, 0, 1, 0xe0, 8, 2, 0, 0, 0]);
-  const chunks = [chunk("IHDR", header), chunk("IDAT", new Uint8Array(504).fill(7)), chunk("IEND", new Uint8Array())];
-  const bytes = new Uint8Array(8 + chunks.reduce((total, value) => total + value.length, 0));
-  bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-  let offset = 8;
-  for (const value of chunks) {
-    bytes.set(value, offset);
-    offset += value.length;
-  }
-  return bytes;
-})();
+// A PNG's signature and header, padded past a spacer image's size.
+const PNG = Uint8Array.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  0,
+  0,
+  0,
+  0x0d,
+  0x49,
+  0x48,
+  0x44,
+  0x52,
+  // Its size, 640x480 (the composer reads it before it decodes the picture), then filler.
+  0,
+  0,
+  2,
+  0x80,
+  0,
+  0,
+  1,
+  0xe0,
+  ...Array(504).fill(7),
+]);
 
 /// A screenshot whose bytes come only when `release()` is called: a large image the composer is
 /// still reading and scaling.
