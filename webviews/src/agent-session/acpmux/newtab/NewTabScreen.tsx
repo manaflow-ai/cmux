@@ -367,7 +367,7 @@ export function NewTabScreen(props: Props) {
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
   const inlinePlace = useRef<
     ((chips: readonly import("../composer/attachmentIntake").PendingAttachment[]) => void) | undefined
-  >();
+  >(undefined);
   const {
     attachments,
     setAttachments,
