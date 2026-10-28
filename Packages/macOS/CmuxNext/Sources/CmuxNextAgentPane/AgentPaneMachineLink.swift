@@ -69,6 +69,14 @@ public final class AgentPaneMachineLink {
         return Self.event(state(view))
     }
 
+    /// `view`'s page no longer gets the link (its tab released it); the last page gone ends the
+    /// observation.
+    public func forget(_ view: AgentPaneView) {
+        guard views.contains(view) else { return }
+        views.remove(view)
+        restart()
+    }
+
     static func event(_ state: State?) -> AgentPageEvent {
         AgentPageEvent(kind: "machineLink", value: state?.json ?? .null)
     }
@@ -83,9 +91,9 @@ public final class AgentPaneMachineLink {
         observation = nil
         guard views.count > 0 else { return }
         // task-owner: the App's tab store (app lifetime); event-driven (Observation on the
-        // machines' link state). Cancelled when it is restarted (a page joins, `state` is set);
-        // ends at the next change once no page is left or this instance is gone (it holds
-        // neither strongly).
+        // machines' link state). Cancelled when it is restarted (a page joins or is forgotten,
+        // `state` is set) and not restarted once no page is left (``forget(_:)``);
+        // also ends at the next change once this instance or its pages are gone (held weakly).
         observation = Task { [weak self] in
             var last: [ObjectIdentifier: State?] = [:]
             let reads = ObservationStream { [weak self] () -> [(AgentPaneView, State?)] in
