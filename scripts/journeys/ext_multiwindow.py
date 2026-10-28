@@ -37,10 +37,12 @@ Steps (`do`):
                                         the front and takes key, as a person's click on it does
   remember_windows {as}                 keeps every open window's state as AS (for `window_unchanged`, `since`) and
                                         sets the mark AS (for `expect`'s `since`)
-  click_sidebar {window, home: true | workspace: NAME, mark?, focus?}
+  click_sidebar {window, home: true | workspace: NAME, mark?, focus_first?}
                                         a click (debug.mouse down and up) at the middle of the Home item or the
-                                        workspace row NAME in that window's own sidebar; `focus` (default true): the
-                                        window takes key first, as a person's click on an inactive window does
+                                        workspace row NAME in that window's own sidebar. The window is NOT made key
+                                        first: the key record stays whatever it was (a stale key window is the bug
+                                        class these journeys guard), so the click alone must name its window.
+                                        `focus_first: true` (opt-in, off in the mw- journeys) makes it key first
   move_workspace {workspace: NAME, to: WINDOW | "new", as?, mark?}
                                         `action.run moveWorkspaceToWindow` (target the workspace, argument `window`
                                         the named window), the action the sidebar row's Move to Window menu and the
@@ -308,7 +310,8 @@ def sidebar_target(j, wid, step):
 def step_click_sidebar(j, step):
     _init(j)
     wid = window_id(j, step["window"])
-    focus = make_current(j, wid, step.get("focus", True))
+    # Never key first unless asked: the click must act in its own window whatever window the app last had as key.
+    focus = make_current(j, wid, bool(step.get("focus_first", False)))
     target, what = sidebar_target(j, wid, step)
     center = _rect_center(target["window_frame"])
     if not center:
