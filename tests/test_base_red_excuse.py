@@ -401,6 +401,20 @@ class NoVerdictCompileIsNeverABaseRed(unittest.TestCase):
         self.assertIn(f"ignored '{self.FLEET}'", text)
         self.assertIn("cmux-next Release compile (Xcode 26)", text)
 
+    def test_a_real_fleet_red_whose_log_echoes_the_script_is_not_set_aside(self):
+        """The log echoes the step's script, no-verdict words included; only the job's own ::error decides."""
+        app = "cmux-next app compile (build fleet)"
+        step = "Compile-check the app at the pull request's head on the build fleet"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, app, step), 2: failed_job(2, 20, BASE_SHA, app, step)}
+        script = '    local summary="No build-fleet verdict for \\`$REF\\` ($1), so nothing has compiled this head here."'
+        self.gh.logs[1] = log(app, step, script, "##[error]The cmux-next app did not compile on the build fleet at "
+                              f"`{HEAD}`; the errors are in this job's log above.")
+        self.gh.logs[2] = log(app, step, script, "##[error]something else broke")
+        self.gh.check_runs = [{"id": 6, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "success",
+                               "head_sha": HEAD, "app": {"slug": "github-actions"}}]
+        with self.assertRaisesRegex(excuse.Refused, "did not compile"):
+            self.judge()
+
     def test_a_skipped_or_foreign_release_compile_is_not_a_pass(self):
         self.gh.check_runs = [
             {"id": 5, "name": "cmux-next Release compile (Xcode 26)", "conclusion": "skipped", "head_sha": HEAD,

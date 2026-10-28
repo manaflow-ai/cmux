@@ -80,8 +80,10 @@ SHA = re.compile(r"\b(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}\b")
 # for another head): nothing compiled the head, so it is never a base red, whatever the base shows
 # (2026-10-28: the fleet Release compile's "no result" was red on PRs and on the base alike while the
 # controller was wedged). It is set aside only when another job compiled that same head: COMPILE_PASSES.
-NO_VERDICT = re.compile(r"cmux-next/compile is not a pass for \S+ \((?:no result|unavailable|mismatch|unreadable|"
-                        r"last: [^)]*)\)|No build-fleet verdict for ")
+# Only the job's own ::error annotation counts (`##[error]` at the start of the line): the log also
+# echoes the step's script, which spells these words out on every run, a real compile red included.
+NO_VERDICT = re.compile(r"^##\[error\](?:cmux-next/compile is not a pass for [0-9a-f]{40} \((?:no result|unavailable|"
+                        r"mismatch|unreadable|last: [^)]*)\)|No build-fleet verdict for `[0-9a-f]{40}` )")
 # A real compile pass at the head: the Mac Release compile (a check run), or the fleet's cmux-next/compile
 # commit status.
 COMPILE_PASS_CHECKS = ("cmux-next Release compile (Xcode 26)",)
@@ -114,7 +116,7 @@ def signature(job: dict, log: str) -> tuple[set[str], set[str], set[str]]:
 
 def no_verdict(log: str) -> str | None:
     """The line where a compile check says it gave no verdict, if it does."""
-    return next((text for text in lines_of(log) if NO_VERDICT.search(text)), None)
+    return next((text for text in lines_of(log) if NO_VERDICT.match(text)), None)
 
 
 def compile_pass_at(repo: str, sha: str, github) -> str | None:
