@@ -137,9 +137,10 @@ struct RightSidebarCustomTabTests {
                 notificationCenter: center,
                 defaults: defaults,
                 shortcutProvider: { action in
-                    action == .switchRightSidebarToFiles
-                        ? KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: .files, defaults: defaults)
-                        : .unbound
+                    guard let mode = RightSidebarMode.allCases.first(where: { $0.shortcutAction == action }) else {
+                        return .unbound
+                    }
+                    return KeyboardShortcutSettings.rightSidebarPositionalDefaultShortcut(for: mode, defaults: defaults)
                 }
             )
             let one = try #require(NSEvent.keyEvent(
@@ -157,7 +158,7 @@ struct RightSidebarCustomTabTests {
 
             FileExplorerState(defaults: defaults).selectCustomSidebar(name: "status-board")
             center.post(name: UserDefaults.didChangeNotification, object: defaults)
-            #expect(matcher.modeShortcut(for: one, allowingAction: { _ in true }) == nil)
+            #expect(matcher.modeShortcut(for: one, allowingAction: { _ in true }) == .customSidebar)
             #expect(matcher.modeShortcut(for: two, allowingAction: { _ in true }) == .files)
 
             defaults.set(false, forKey: "customSidebars.beta.enabled")
@@ -169,6 +170,41 @@ struct RightSidebarCustomTabTests {
             defaults.set("unrelated", forKey: "unrelated.preference")
             center.post(name: UserDefaults.didChangeNotification, object: defaults)
             #expect(observer.revision == revision)
+        }
+    }
+
+    @Test func customShortcutCanBeReboundUnboundAndContextGated() throws {
+        try withDefaults { defaults in
+            let action = try #require(RightSidebarMode.customSidebar.shortcutAction)
+            #expect(KeyboardShortcutSettings.settingsVisibleActions.contains(action))
+            var binding = StoredShortcut(key: "9", command: false, shift: false, option: false, control: true)
+            let matcher = RightSidebarModeShortcutMatcher(
+                shortcutProvider: { $0 == action ? binding : .unbound },
+                availability: { $0.isAvailable(defaults: defaults) }
+            )
+            let event = try #require(NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: .control,
+                timestamp: 0, windowNumber: 0, context: nil,
+                characters: "9", charactersIgnoringModifiers: "9", isARepeat: false, keyCode: 25
+            ))
+            #expect(matcher.modeShortcut(for: event, allowingAction: { _ in true }) == .customSidebar)
+            #expect(matcher.modeShortcut(for: event, allowingAction: { _ in false }) == nil)
+            binding = .unbound
+            matcher.reload()
+            #expect(matcher.modeShortcut(for: event, allowingAction: { _ in true }) == nil)
+        }
+    }
+
+    @Test func refreshDoesNotResurrectHiddenCustomTab() {
+        withDefaults { defaults in
+            let state = FileExplorerState(defaults: defaults)
+            state.mode = .customSidebar
+            #expect(RightSidebarTabPreferences.setHidden(true, mode: .customSidebar, defaults: defaults))
+            state.refreshModeAvailability()
+            #expect(state.mode == .files)
+            // An explicit selection can still temporarily reveal the hidden tab.
+            state.mode = .customSidebar
+            #expect(state.mode == .customSidebar)
         }
     }
 }
