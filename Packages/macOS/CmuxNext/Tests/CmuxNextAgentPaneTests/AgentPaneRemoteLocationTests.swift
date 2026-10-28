@@ -53,6 +53,9 @@ struct AgentPaneRemoteLocationTests {
 
     @Test func peerSnapshotIsReadOnlyAndDoesNotExposeURLs() throws {
         #expect(AcpmuxPaneMethods.requests.contains("_acpmux/peers"))
+        #expect(!AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/peers", "params": [:]], modeFields: nil))
+        #expect(AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/peers", "params": ["command": "pwd"]], modeFields: nil))
+        #expect(AcpmuxPaneMethods.breaksParamsRule(["method": "_acpmux/peers", "params": ["peer": "other"]], modeFields: nil))
         let shape = try #require(AcpmuxPaneMethods.replyShapes["_acpmux/peers"])
         let value = ["peers": [["name": "studio-mac", "state": "offline", "lastSeen": 5,
                                "error": "removed", "url": "ssh://private"]]]
