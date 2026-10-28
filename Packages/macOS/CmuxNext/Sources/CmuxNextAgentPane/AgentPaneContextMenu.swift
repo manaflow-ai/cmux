@@ -220,6 +220,13 @@ enum AgentPaneContextMenu {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessageAsMarkdown, symbol: "doc.on.doc") { actions.copy(markdown) })
             } else {
                 copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessage, symbol: "doc.on.doc") { actions.copy(target.text) })
+                if target.isPrompt {
+                    // Prompts are already their Markdown source; keep the distinction from the
+                    // rendered copy without changing isPrompt (which drives Edit and Resend).
+                    copies.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.copyMessageAsMarkdown, symbol: "doc.on.doc") {
+                        actions.copy(target.text)
+                    })
+                }
             }
             if let row = target.retryRowId {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.retry, symbol: "arrow.clockwise") { actions.retry(row) })
