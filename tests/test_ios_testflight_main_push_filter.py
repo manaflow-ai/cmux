@@ -9,6 +9,7 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github" / "workflows" / "ios-testflight.yml"
+UPLOAD_QUEUE = ROOT / "scripts" / "ci" / "ios_testflight_queue.cjs"
 NOTES_GENERATOR = ROOT / "ios" / "scripts" / "generate-testflight-notes.sh"
 DISTRIBUTION_HELPER = ROOT / "ios" / "scripts" / "resolve_testflight_distribution.py"
 BUN = shutil.which("bun")
@@ -182,6 +183,7 @@ def run_decision_scenario(
     artifact_api_failure: bool = False,
     failed_prior_run: Optional[dict[str, object]] = None,
     changed_files_since_failure: tuple[str, ...] = (),
+    deferred_markers: tuple[dict[str, object], ...] = (),
     expected_failure: Optional[str] = None,
 ) -> dict[str, object]:
     decision_job = mapping_block(workflow_text(), "decide", indent=2)
@@ -263,6 +265,7 @@ def run_decision_scenario(
         "artifactApiFailure": artifact_api_failure,
         "failedPriorRun": failed_prior_run,
         "changedFilesSinceFailure": changed_files_since_failure,
+        "deferredMarkers": deferred_markers,
     }
     harness = f"""
 const scenario = {json.dumps(scenario)};
@@ -276,7 +279,11 @@ const workflowRunRequests = [];
 const artifactRequests = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
+const deletedArtifacts = [];
+const reRuns = [];
+const markerRuns = scenario.deferredMarkers;
 let workflowRunCalls = 0;
+process.env.GITHUB_WORKSPACE = {json.dumps(str(ROOT))};
 let uploadPhase = scenario.blockingPriorRun
   ? (scenario.uploadJobStartsLate ? 0 : 1)
   : 2;
@@ -302,6 +309,18 @@ const priorRuns = (request) => {{
         ? '2020-01-01T00:00:00Z'
         : undefined,
   }}));
+  if (page === 1) {{
+    for (const marker of markerRuns) {{
+      runs.push({{
+        id: marker.runId,
+        status: marker.status ?? 'completed',
+        conclusion: marker.conclusion ?? 'success',
+        run_attempt: marker.runAttempt ?? 1,
+        event: marker.event ?? 'workflow_dispatch',
+        head_sha: 'queued-sha',
+      }});
+    }}
+  }}
   if (scenario.failedPriorRun && page === 1) {{
     runs.push({{
       id: scenario.failedPriorRun.id,
@@ -371,6 +390,22 @@ const github = {{
         }};
       }},
       listJobsForWorkflowRun: async (request) => {{
+        const markerRun = markerRuns.find(
+          (marker) => marker.runId === Number(request.run_id)
+        );
+        if (markerRun) {{
+          const active = (markerRun.status ?? 'completed') !== 'completed';
+          uploadJobStatuses.push(active ? 'in_progress' : 'completed');
+          return {{
+            data: {{
+              jobs: [{{
+                name: 'Upload to TestFlight',
+                status: active ? 'in_progress' : 'completed',
+                conclusion: active ? null : (markerRun.uploadRan ? 'success' : 'skipped'),
+              }}],
+            }},
+          }};
+        }}
         if (
           orderingFailurePending &&
           scenario.orderingApiFailure === 'jobs'
@@ -422,7 +457,26 @@ const github = {{
           }},
         }};
       }},
+      deleteArtifact: async (request) => {{
+        deletedArtifacts.push(request.artifact_id);
+        return {{ status: 204 }};
+      }},
+      reRunWorkflow: async (request) => {{
+        reRuns.push(request.run_id);
+        return {{ status: 201 }};
+      }},
       listArtifactsForRepo: async (request) => {{
+        if (request.name === 'ios-testflight-deferred') {{
+          const markers = markerRuns
+            .filter((marker) => !deletedArtifacts.includes(marker.runId + 1000))
+            .map((marker) => ({{
+              id: marker.runId + 1000,
+              name: 'ios-testflight-deferred',
+              expired: false,
+              workflow_run: {{ id: marker.runId, head_branch: 'main' }},
+            }}));
+          return {{ data: {{ total_count: markers.length, artifacts: markers }} }};
+        }}
         artifactRequests.push(request);
         if (artifactFailurePending) {{
           artifactFailurePending = false;
@@ -527,6 +581,8 @@ process.stdout.write(JSON.stringify({{
   priorRunStatuses,
   uploadJobStatuses,
   producedArtifactName,
+  deletedArtifacts,
+  reRuns,
 }}));
 """
     assert BUN is not None, "bun is required to execute the decide job harness"
@@ -929,7 +985,17 @@ def test_manual_override_artifact_is_excluded_from_canonical_history() -> None:
     assert scheduled_run["compareCalls"] == []
 
 
-def test_manual_run_waits_for_an_earlier_upload() -> None:
+QUEUED_OUTPUTS = {
+    "should_build": "false",
+    "last_uploaded_sha": "",
+    "variant": "internal",
+    "deferred": "true",
+}
+
+
+def test_manual_run_queues_behind_an_earlier_upload_instead_of_sleeping() -> None:
+    # A blocked manual run used to sleep 60 s up to 300 times on a Linux
+    # runner. It now records its place in the upload queue and exits.
     result = run_decision_scenario(
         event_name="workflow_dispatch",
         prior_sha="base-sha",
@@ -938,8 +1004,8 @@ def test_manual_run_waits_for_an_earlier_upload() -> None:
         blocking_prior_run=True,
     )
 
-    assert result["waitCalls"] == [60_000]
-    assert result["workflowRunCalls"] == 2
+    assert result["waitCalls"] == []
+    assert result["workflowRunCalls"] == 1
     assert result["workflowRunRequests"] == [
         {
             "owner": "manaflow-ai",
@@ -948,30 +1014,17 @@ def test_manual_run_waits_for_an_earlier_upload() -> None:
             "branch": "main",
             "per_page": 100,
         },
-        {
-            "owner": "manaflow-ai",
-            "repo": "cmux",
-            "workflow_id": "ios-testflight.yml",
-            "branch": "main",
-            "per_page": 100,
-        },
     ]
-    assert result["priorRunStatuses"] == [
-        "in_progress",
-        "in_progress",
-    ]
-    assert result["uploadJobStatuses"] == [
-        "in_progress",
-        "completed",
-    ]
-    assert result["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
+    assert result["priorRunStatuses"] == ["in_progress"]
+    # One look at the blocking run's jobs, not one per minute.
+    assert result["uploadJobStatuses"] == ["in_progress"]
+    assert result["outputs"] == QUEUED_OUTPUTS
+    assert len(result["notices"]) == 1
+    assert "queued this upload" in result["notices"][0]
+    assert result["reRuns"] == []
 
 
-def test_manual_run_waits_before_upload_job_exists() -> None:
+def test_manual_run_queues_before_upload_job_exists() -> None:
     result = run_decision_scenario(
         event_name="workflow_dispatch",
         prior_sha="base-sha",
@@ -981,20 +1034,13 @@ def test_manual_run_waits_before_upload_job_exists() -> None:
         upload_job_starts_late=True,
     )
 
-    assert result["waitCalls"] == [60_000, 60_000]
-    assert result["uploadJobStatuses"] == [
-        None,
-        "in_progress",
-        "completed",
-    ]
-    assert result["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
+    assert result["waitCalls"] == []
+    assert result["uploadJobStatuses"] == [None]
+    assert result["outputs"] == QUEUED_OUTPUTS
 
 
-def test_ordering_retries_transient_api_failures() -> None:
+def test_manual_run_queues_when_ordering_cannot_be_checked() -> None:
+    # No retry loop: the queue re-runs it, and the next poll retries the API.
     for failed_api in ("runs", "jobs"):
         result = run_decision_scenario(
             event_name="workflow_dispatch",
@@ -1006,21 +1052,118 @@ def test_ordering_retries_transient_api_failures() -> None:
             ordering_api_failure=failed_api,
         )
 
-        assert result["waitCalls"] == [60_000, 60_000]
-        assert result["workflowRunCalls"] == 3
-        assert result["uploadJobStatuses"] == [
-            "in_progress",
-            "completed",
-        ]
-        assert result["warnings"] == [
-            "could not inspect earlier TestFlight runs; retrying: "
-            f"transient {failed_api} failure"
-        ]
-        assert result["outputs"] == {
-            "should_build": "true",
-            "last_uploaded_sha": "base-sha",
-            "variant": "internal",
-        }
+        assert result["waitCalls"] == []
+        assert result["workflowRunCalls"] == 1
+        assert result["outputs"] == QUEUED_OUTPUTS
+        assert f"transient {failed_api} failure" not in result["notices"][0]
+        assert any(
+            f"transient {failed_api} failure" in message
+            for message in result["debugMessages"]
+        )
+
+
+def test_run_queues_behind_an_earlier_queued_run_and_starts_it() -> None:
+    # A queued run holds its place: a later manual run queues behind it, and,
+    # with no upload under way, the later run's decide re-runs the queued one.
+    result = run_decision_scenario(
+        event_name="workflow_dispatch",
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 70},),
+    )
+
+    assert result["waitCalls"] == []
+    assert result["outputs"] == QUEUED_OUTPUTS
+    assert result["reRuns"] == [70]
+    assert result["deletedArtifacts"] == []
+
+
+def test_internal_poll_starts_the_oldest_queued_run() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 80}, {"runId": 70}),
+    )
+
+    assert result["outputs"]["should_build"] == "false"
+    assert "deferred" not in result["outputs"]
+    assert result["reRuns"] == [70]
+
+
+def test_queue_waits_while_a_queued_run_is_re_running() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 70, "status": "in_progress"}, {"runId": 80}),
+    )
+
+    assert result["outputs"]["should_build"] == "false"
+    assert result["reRuns"] == []
+    assert result["deletedArtifacts"] == []
+
+
+def test_queue_drops_markers_of_runs_that_already_uploaded_or_were_cancelled() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=(
+            {"runId": 60, "uploadRan": True},
+            {"runId": 65, "conclusion": "cancelled"},
+            {"runId": 70},
+        ),
+    )
+
+    assert result["deletedArtifacts"] == [1060, 1065]
+    assert result["reRuns"] == [70]
+
+
+def test_queued_run_builds_when_its_turn_comes() -> None:
+    # The re-run of a queued manual run (its own marker, nothing ahead) builds
+    # the commit and inputs it was dispatched with. Its marker stays until the
+    # upload job is done, so later runs keep waiting behind it.
+    result = run_decision_scenario(
+        event_name="workflow_dispatch",
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 100, "status": "in_progress"}, {"runId": 120}),
+    )
+
+    assert result["outputs"] == {
+        "should_build": "true",
+        "last_uploaded_sha": "base-sha",
+        "variant": "internal",
+    }
+    assert result["deletedArtifacts"] == []
+    assert result["reRuns"] == []
+
+
+def test_queued_demo_run_that_no_longer_builds_releases_its_place() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[1],
+        prior_sha="head-sha",
+        prior_artifact="ios-testflight-build-metadata-demo",
+        head_sha="head-sha",
+        deferred_markers=(
+            {"runId": 100, "status": "in_progress", "event": "schedule"},
+            {"runId": 120},
+        ),
+    )
+
+    assert result["outputs"]["should_build"] == "false"
+    assert result["deletedArtifacts"] == [1100]
+    assert result["reRuns"] == [120]
 
 
 def test_ordering_ignores_later_active_runs() -> None:
@@ -1069,7 +1212,7 @@ def test_ordering_skips_defunct_queued_prior_run() -> None:
     }
 
 
-def test_manual_run_waits_behind_a_scheduled_upload() -> None:
+def test_manual_run_queues_behind_a_scheduled_upload() -> None:
     result = run_decision_scenario(
         event_name="workflow_dispatch",
         prior_sha="base-sha",
@@ -1079,16 +1222,9 @@ def test_manual_run_waits_behind_a_scheduled_upload() -> None:
         blocking_prior_run=True,
     )
 
-    assert result["waitCalls"] == [60_000]
-    assert result["uploadJobStatuses"] == [
-        "in_progress",
-        "completed",
-    ]
-    assert result["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "internal",
-    }
+    assert result["waitCalls"] == []
+    assert result["uploadJobStatuses"] == ["in_progress"]
+    assert result["outputs"] == QUEUED_OUTPUTS
 
 
 def test_internal_poll_skips_instead_of_queueing_behind_an_upload() -> None:
@@ -1143,8 +1279,9 @@ def test_internal_poll_skips_when_ordering_cannot_be_checked() -> None:
         }
 
 
-def test_demo_schedule_still_waits_for_an_earlier_upload() -> None:
-    # Two DEMO uploads a day cannot pile up, and dropping one loses a build.
+def test_demo_schedule_queues_behind_an_earlier_upload() -> None:
+    # Dropping a DEMO run loses a build, so it queues instead of skipping,
+    # and exits instead of sleeping.
     result = run_decision_scenario(
         event_name="schedule",
         schedule=IOS_SCHEDULES[1],
@@ -1155,16 +1292,11 @@ def test_demo_schedule_still_waits_for_an_earlier_upload() -> None:
         blocking_prior_run=True,
     )
 
-    assert result["waitCalls"] == [60_000]
-    assert result["notices"] == []
-    assert result["outputs"] == {
-        "should_build": "true",
-        "last_uploaded_sha": "base-sha",
-        "variant": "demo",
-    }
+    assert result["waitCalls"] == []
+    assert result["outputs"] == {**QUEUED_OUTPUTS, "variant": "demo"}
 
 
-def test_demo_schedule_retries_ordering_api_errors() -> None:
+def test_demo_schedule_queues_on_ordering_api_errors() -> None:
     for failed_api in ("runs", "jobs"):
         result = run_decision_scenario(
             event_name="schedule",
@@ -1177,12 +1309,8 @@ def test_demo_schedule_retries_ordering_api_errors() -> None:
             ordering_api_failure=failed_api,
         )
 
-        assert result["waitCalls"] == [60_000]
-        assert result["outputs"] == {
-            "should_build": "true",
-            "last_uploaded_sha": "base-sha",
-            "variant": "demo",
-        }
+        assert result["waitCalls"] == []
+        assert result["outputs"] == {**QUEUED_OUTPUTS, "variant": "demo"}
 
 
 def test_internal_poll_skips_inputs_that_already_failed_to_upload() -> None:
@@ -1409,3 +1537,50 @@ if __name__ == "__main__":
     test_scheduled_and_manual_runs_use_independent_concurrency_groups()
     test_automatic_lane_stays_on_cmux_internal_identity()
     print("all iOS TestFlight scheduling tests passed")
+
+
+def test_upload_ordering_never_sleeps_or_holds_a_runner() -> None:
+    # The decide job once slept 60 s up to 300 times (maxWaits=300), holding a
+    # Linux runner for up to five hours and listing every earlier run's jobs on
+    # each pass. Ordering is one pass and an exit; the queue does the rest.
+    decision_job = mapping_block(workflow_text(), "decide", indent=2)
+    decision_script = literal_block(decision_job, "script", indent=10)
+    queue_source = UPLOAD_QUEUE.read_text(encoding="utf-8")
+    for name, source in (("decide script", decision_script), ("upload queue", queue_source)):
+        for forbidden in ("setTimeout", "setInterval", "sleep", "maxWaits", "for (let wait"):
+            assert forbidden not in source, (
+                f"{name} must not wait in a loop ({forbidden}); queue the run and exit"
+            )
+    timeout = next(
+        line.split(":", 1)[1].strip()
+        for line in decision_job.splitlines()
+        if line.startswith("    timeout-minutes:")
+    )
+    assert int(timeout) <= 15
+    queue_runs = [
+        mapping_block(workflow_text(), job, indent=2)
+        for job in ("decide", "next-queued-upload")
+    ]
+    for job in queue_runs:
+        assert "scripts/ci/ios_testflight_queue.cjs" in job
+        assert "actions: write" in job
+
+
+def test_queued_run_saves_its_marker_and_the_upload_hands_the_queue_on() -> None:
+    decision_job = mapping_block(workflow_text(), "decide", indent=2)
+    assert "deferred: ${{ steps.decide.outputs.deferred }}" in decision_job
+    marker_step = decision_job[decision_job.index("- name: Save the upload queue marker") :]
+    assert "if: steps.decide.outputs.deferred == 'true'" in marker_step
+    assert "name: ios-testflight-deferred" in marker_step
+    assert "overwrite: true" in marker_step
+    queue_source = UPLOAD_QUEUE.read_text(encoding="utf-8")
+    assert "const DEFERRED_ARTIFACT = 'ios-testflight-deferred';" in queue_source
+
+    handoff = mapping_block(workflow_text(), "next-queued-upload", indent=2)
+    assert "needs: [decide, upload]" in handoff
+    assert (
+        "if: ${{ always() && needs.decide.outputs.should_build == 'true' "
+        "&& github.ref == 'refs/heads/main' }}"
+    ) in handoff
+    assert "queue.release(" in handoff
+    assert "queue.reconcile(" in handoff
