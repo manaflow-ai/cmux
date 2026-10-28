@@ -10,6 +10,10 @@
 //! through the FIFO, never a pid signal (`bg_run.rs`). They never keep a chat
 //! awake (`idle.rs`): a harness's own background shells do, since its exit ends them. A task
 //! runs until it ends, an agent or a person stops it, or its chat is purged.
+//!
+//! The folder is keyed by the chat's id, which names one chat: an import takes an id here only
+//! for that same chat coming back (`transfer_in.rs` replaces a moved-away chat only when its
+//! harness and agent session match), so the tasks it finds are its own.
 
 use super::*;
 use crate::bg_run::{self, Record};
@@ -69,7 +73,8 @@ impl Hub {
             return Err(RpcError::invalid_params(format!("{} is not a folder", cwd.display())));
         }
         let dir = self.bg_dir(session);
-        let running = self.bg_records(&dir).iter().filter(|r| bg_live(&dir, &r.id)).count();
+        // A runner whose lock cannot be probed counts: the cap never lets an unknown one by.
+        let running = self.bg_records(&dir).iter().filter(|r| !bg_gone(&dir, &r.id)).count();
         if running >= MAX_RUNNING {
             return Err(RpcError::invalid_params(format!(
                 "{MAX_RUNNING} background tasks already run in this chat; stop one first"
@@ -106,10 +111,9 @@ impl Hub {
 
     /// The environment the chat's agent runs with, so a task sees what the agent's own shell
     /// sees whatever its harness passes an MCP server (Codex passes only a few names): built by
-    /// the launch's own builder (`agent::harness_command`) from the profile env the agent was
-    /// started with (`Session::launch_env`), or, before this daemon started one, from the
-    /// profile as a spawn would build it (`Hub::spawn_profile_for`: defaults, preset, chat
-    /// store, session env, expansions).
+    /// the launch's own builder (`agent::harness_command`) from the profile as a spawn builds it
+    /// now (`Hub::spawn_profile_for`: defaults, preset, chat store, session env, expansions).
+    /// That is the env the agent wakes with, since a hibernated agent starts again from it.
     async fn bg_env(
         &self,
         session: &Session,
@@ -122,11 +126,7 @@ impl Hub {
                     .map_err(RpcError::invalid_params)?;
             (profile, cfg.defaults_for(&meta.harness))
         };
-        let mut profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
-        let launched = session.launch_env.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        if let Some(env) = launched {
-            profile.env = env;
-        }
+        let profile = self.spawn_profile_for(meta, &profile, &defaults.env).await?;
         let at = Some((session.id.as_str(), meta.name.as_str()));
         let cmd = crate::agent::harness_command(&meta.harness, &profile, &meta.cwd, None, at)
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
@@ -217,9 +217,16 @@ impl Hub {
         }
         let aside = crate::config::home().join("bg").join(".purged");
         let to = aside.join(format!("{}-{}", session.id, uuid::Uuid::now_v7().simple()));
-        let moved = std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to));
-        tracing::warn!(dir = %dir.display(), to = %to.display(), ?moved,
-            "a purged chat's background task outlived its stop; its files were moved aside");
+        match std::fs::create_dir_all(&aside).and_then(|()| std::fs::rename(&dir, &to)) {
+            Ok(()) => tracing::warn!(to = %to.display(),
+                "a purged chat's background task outlived its stop; its files were moved aside"),
+            // Where no move works, nothing is left to read or stop: the records go, so the id
+            // lists no task. A runner still there keeps its open files and exits on its own.
+            Err(e) => {
+                tracing::error!(dir = %dir.display(), "a purged chat's tasks could not be moved aside: {e}");
+                let _ = std::fs::remove_dir_all(&dir);
+            }
+        }
     }
 }
 
@@ -228,22 +235,6 @@ const STOP_WAIT: std::time::Duration =
     std::time::Duration::from_secs(bg_run::GRACE.as_secs() * 2 + START_WAIT.as_secs());
 /// How often that wait looks at the lock.
 const STOP_LOOK: std::time::Duration = std::time::Duration::from_millis(50);
-
-/// Whether the task's runner still holds its lock.
-fn bg_live(dir: &std::path::Path, id: &str) -> bool {
-    #[cfg(unix)]
-    {
-        matches!(
-            crate::agent_host::liveness_of(&bg_run::lock_path(dir, id)),
-            crate::agent_host::Liveness::Live
-        )
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (dir, id);
-        false
-    }
-}
 
 /// Whether the task's runner is surely gone: its lock is free or missing. A lock that cannot be
 /// probed proves nothing, so it never counts.
@@ -278,7 +269,9 @@ async fn bg_wait_gone(dir: &std::path::Path, id: &str) -> bool {
 /// A task as the wire carries it: `state` is `running`, `exited`, `stopped`, `killed` (a signal
 /// nobody here sent) or `lost` (its runner died without a word), with its last `tail` bytes.
 fn bg_view(dir: &std::path::Path, r: &Record, tail: u64) -> Value {
-    let state = match (bg_live(dir, &r.id), r.ended_at, r.stopped, r.signal) {
+    // An exit the runner wrote is final; without one, only a free lock says the runner is gone.
+    let running = r.ended_at.is_none() && !bg_gone(dir, &r.id);
+    let state = match (running, r.ended_at, r.stopped, r.signal) {
         (true, ..) => "running",
         (_, None, ..) => "lost",
         (_, _, true, _) => "stopped",
