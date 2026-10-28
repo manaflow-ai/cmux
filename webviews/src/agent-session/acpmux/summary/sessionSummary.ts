@@ -142,6 +142,7 @@ function sources(rows: readonly AcpmuxRow[], pullRequests: readonly SummaryPullR
   const add = (source: SummarySource, order: number) => {
     const key = sourceKey(source);
     const prior = seen.get(key);
+    if (prior && order < prior.order) prior.order = order;
     if (!prior || (source.kind === "pullRequest" && prior.source.kind !== "pullRequest"))
       seen.set(key, { source, order: prior?.order ?? order, sequence: prior?.sequence ?? sequence++ });
   };
