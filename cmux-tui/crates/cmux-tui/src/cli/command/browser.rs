@@ -153,6 +153,10 @@ pub(super) fn parse_browser(
                 ("move", None, Some(_)) => {
                     return Err(UsageError::new("--click-count is forbidden for move"));
                 }
+                #[allow(
+                    clippy::unreachable,
+                    reason = "INVARIANT: validate_one_of above admits only down, up and move"
+                )]
                 _ => unreachable!("kind validated above"),
             }
             request(ResourceOperation::BrowserInputMouse, selectors, flags, params)

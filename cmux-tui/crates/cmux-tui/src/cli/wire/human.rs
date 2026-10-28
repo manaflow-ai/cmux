@@ -96,7 +96,8 @@ pub(super) fn append_record_table(values: &[Value], output: &mut String) {
         .enumerate()
         .map(|(index, column)| {
             rows.iter()
-                .map(|row| usize::from(row[index].cell_width()))
+                .filter_map(|row| row.get(index))
+                .map(|cell| usize::from(cell.cell_width()))
                 .max()
                 .unwrap_or(0)
                 .max(usize::from(human_header(column).cell_width()))
@@ -120,9 +121,8 @@ pub(super) fn append_table_row(cells: &[String], widths: &[usize], output: &mut 
         }
         output.push_str(cell);
         if index + 1 != cells.len() {
-            output.push_str(
-                &" ".repeat(widths[index].saturating_sub(usize::from(cell.cell_width()))),
-            );
+            let width = widths.get(index).copied().unwrap_or(0);
+            output.push_str(&" ".repeat(width.saturating_sub(usize::from(cell.cell_width()))));
         }
     }
     output.push('\n');
@@ -155,9 +155,7 @@ pub(super) fn human_cell(value: &Value) -> String {
         Value::Number(value) => value.to_string(),
         // serde_json escapes C0 controls but writes C1 controls and the
         // Unicode separators raw, so the serialized form needs the same pass.
-        value => sanitize_human_cell(
-            &serde_json::to_string(value).expect("JSON value serialization cannot fail"),
-        ),
+        value => sanitize_human_cell(&value.to_string()),
     }
 }
 

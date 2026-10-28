@@ -114,7 +114,7 @@ impl EventCancellation {
 
     pub(super) fn cancel(&self) {
         self.stop.store(true, Ordering::Release);
-        self.sender.lock().unwrap().take();
+        self.sender.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take();
     }
 }
 
@@ -225,7 +225,9 @@ impl SessionEventWorker {
         self.activate();
         // Closing the receiver wakes a worker blocked in recv(). This avoids
         // polling the session event mailbox on a fixed 100 ms timer.
-        if let Some(stop) = self.stop.lock().unwrap().take() {
+        if let Some(stop) =
+            self.stop.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take()
+        {
             stop.close();
         }
         if let Some(mux) = self.mux.take() {

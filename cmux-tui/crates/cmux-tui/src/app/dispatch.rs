@@ -166,7 +166,15 @@ impl App {
             AppEvent::HostInputFailed(error) => {
                 anyhow::bail!(localization::catalog().runtime.host_input_failed(&error))
             }
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: handle_inner normalizes raw input before it calls dispatch_event"
+            )]
             AppEvent::Input(_) => unreachable!("raw input is normalized before dispatch"),
+            #[allow(
+                clippy::unreachable,
+                reason = "INVARIANT: handle_inner unwraps or drops SessionScoped before dispatch_event"
+            )]
             AppEvent::SessionScoped { .. } => {
                 unreachable!("session-scoped events are unwrapped before dispatch")
             }
