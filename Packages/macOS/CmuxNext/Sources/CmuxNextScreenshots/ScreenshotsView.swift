@@ -44,12 +44,12 @@ public final class ScreenshotsView: NSView {
     ///   - workspace: opens and reveals files.
     ///   - files: copies drops in, renames and trashes (CmuxNextFiles).
     ///   - appearance: grid colors and tile size.
-    ///   - mainWork: the app's one main-thread scheduler (the grid follows the model on it).
+    ///   - mainWork: the app's one main-thread scheduler (the grid follows the model on it, and its thumbnails land on it).
     public init(model: ScreenshotsModel, cache: ThumbnailCache, workspace: any ScreenshotsWorkspace,
                 files: any FileOperating = FileOperator(), appearance: FileGridAppearance = FileGridAppearance(),
                 mainWork: MainWorkScheduler) {
         self.model = model
-        self.grid = FileGridView(cache: cache, appearance: appearance)
+        self.grid = FileGridView(cache: cache, work: mainWork, appearance: appearance)
         self.saver = ScreenshotDropSaver(files: files)
         self.commands = ScreenshotsCommands(workspace: workspace, files: files)
         super.init(frame: .zero)

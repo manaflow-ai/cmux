@@ -48,6 +48,7 @@ pub async fn spawn_within(
         // child environment arrives over the private bootstrap pipe.
         .env_clear()
         .envs(crate::agent::host_environment())
+        .env(super::PANIC_LOG_ENV, super::panic_log_path())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -61,6 +62,10 @@ pub async fn spawn_within(
     #[cfg(debug_assertions)]
     if let Some(ms) = std::env::var_os(super::host::POOLED_OWNER_WAIT_ENV) {
         cmd.env(super::host::POOLED_OWNER_WAIT_ENV, ms);
+    }
+    #[cfg(debug_assertions)]
+    if let Some(value) = std::env::var_os(super::host_process::TEST_PANIC_ENV) {
+        cmd.env(super::host_process::TEST_PANIC_ENV, value);
     }
     // SAFETY: setsid is async-signal-safe and touches no Rust state. The host
     // leads its own session so it outlives the controller and its group.

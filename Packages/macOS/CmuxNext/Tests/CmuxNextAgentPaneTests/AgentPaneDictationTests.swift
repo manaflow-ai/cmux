@@ -36,10 +36,10 @@ struct AgentPaneDictationTests {
 
         init() {
             (appEvents, workspaceEvents) = (AppEvents(center: appCenter), AppEvents(center: workspaceCenter))
-            let mainThread = AgentPaneMainThread(deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
-                                                 appEvents: appEvents, workspaceEvents: workspaceEvents)
+            let deadlines = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))
+            let mainThread = AgentPaneMainThread(deadlines: deadlines, appEvents: appEvents, workspaceEvents: workspaceEvents)
             dictation = AgentPaneDictation(input: tap, mainThread: mainThread, send: { _ in }, microphone: DictationMicrophone(),
-                                           makeSession: { DictationSession(authorizer: WaitingAuthorizer()) })
+                                           makeSession: { DictationSession(deadlines: deadlines, authorizer: WaitingAuthorizer()) })
             let pressedAt = pressedAt
             dictation.now = { pressedAt }
         }

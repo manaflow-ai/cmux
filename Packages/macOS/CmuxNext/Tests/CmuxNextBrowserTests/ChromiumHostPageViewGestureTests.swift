@@ -9,7 +9,7 @@ import Testing
 @Suite struct ChromiumHostPageViewGestureTests {
     func makePage() -> ChromiumHostPageView {
         ChromiumHostPageView(frame: NSRect(x: 0, y: 0, width: 400, height: 300), inputTarget: .view,
-                             makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                             makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS

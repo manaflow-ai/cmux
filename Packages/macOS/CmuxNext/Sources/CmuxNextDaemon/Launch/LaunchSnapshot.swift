@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The daemon's launch snapshot (`launch-snapshot-v1`): the last settled
@@ -140,9 +141,9 @@ public struct LaunchSnapshotLocation: Sendable {
     /// (`CMUX_TUI_STATE_DIR`), where cmux-tui keeps each registry in
     /// `<session>-<id>/`: the path when the defaults lost it. Nil without a
     /// directory or a snapshot.
-    public static func find(session: String, in stateDirectory: URL?, files: FileManager = .default) -> String? {
+    public static func find(session: String, in stateDirectory: URL?) -> String? {
         guard let stateDirectory,
-              let entries = try? files.contentsOfDirectory(at: stateDirectory, includingPropertiesForKeys: nil) else { return nil }
+              let entries = try? FileManager.checked.contentsOfDirectory(at: stateDirectory, includingPropertiesForKeys: nil) else { return nil }
         // `<session>-<id>` with one id part, so `cmux-app-a` never takes `cmux-app-a-b`'s registry.
         let ours = entries.filter { entry in
             let name = entry.lastPathComponent

@@ -6196,6 +6196,7 @@ fn terminal_keep_legacy_classification_keeps_only_unplaced_terminals() {
 mod exit_snapshot_generations;
 mod integrity_check_scope;
 mod ledger_retention;
+mod malformed_input_tests;
 mod terminal_journal_append;
 mod terminal_keep_tests;
 mod terminal_resume_tests;

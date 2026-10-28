@@ -760,9 +760,10 @@ class SessionTableTests(unittest.TestCase):
             plan = ib.tab_plan(pages, ib.SESSIONS["energy-saver"]["tabs"])
             static = ib.tab_plan(pages, ib.SESSIONS["tabs-static"]["tabs"])
         self.assertEqual([engine for engine, _, _ in plan], ["webkit"] * 5 + ["chromium"] * 11)
-        self.assertEqual(plan[0][1:], (pages.origin + "/static-w0", "w0"))
+        self.assertEqual(plan[0][1:], (pages.origin + ib.PROBE_PATH + "-w0", "w0"))
         self.assertEqual(plan[-1][1:], (pages.origin + ib.ANIM_PATH, "anim"))
-        self.assertEqual(static[-1][1:], (pages.origin + "/static-shown", "shown"))
+        self.assertEqual(static[-1][1:], (pages.origin + ib.PROBE_PATH + "-shown", "shown"))
+        self.assertEqual(ib.plan_keys(ib.TABS_STATIC)[-1], ("chromium", "shown"))
         self.assertEqual(len({key for _, _, key in plan}), len(plan))
 
     def test_idle_pages_serve_the_shared_static_page_and_the_animated_page(self):
@@ -2626,6 +2627,198 @@ class WindowServerTests(unittest.TestCase):
         self.assertEqual(entry["windowserver"]["delta_per_s"], 39.0)
         self.assertIn("WindowServer (rusage, reported): 40.0/s, 1.0/s with cmux hidden (hidden), delta 39.0/s",
                       ib.table("light", {}, [], entry))
+
+
+# A JS event loop on a virtual clock that runs a probe page's script (PageVisibilityTests): setTimeout clamps to 4 ms
+# and, while the page is hidden and `align` is set, fires on the next multiple of `align` ms as Chrome's hidden-page
+# wake alignment does; requestAnimationFrame fires every 16 ms only while visible; `steps` change visibilityState and
+# dispatch visibilitychange. Prints the POSTed paths with their times.
+PROBE_HARNESS = r"""
+const script = require('fs').readFileSync(0, 'utf8');
+const cfg = JSON.parse(process.argv[1]);
+let now = 0, seq = 0;
+const timers = [], posts = [], listeners = [];
+let rafs = [];
+global.document = {visibilityState: 'visible', addEventListener: (type, f) => listeners.push(f)};
+global.performance = {now: () => now};
+global.fetch = (path) => { posts.push([now, path]); return {then() {}}; };
+global.setTimeout = (f, delay) => {
+  let at = now + Math.max(delay || 0, 4);
+  if (document.visibilityState === 'hidden' && cfg.align) at = Math.ceil(at / cfg.align) * cfg.align;
+  timers.push({at, f, seq: seq++});
+};
+global.requestAnimationFrame = (f) => rafs.push(f);
+eval(script);
+const steps = cfg.steps.slice();
+while (true) {
+  const timer = timers.length ? timers.reduce((a, b) => (a.at < b.at || (a.at === b.at && a.seq < b.seq)) ? a : b) : null;
+  const frame = rafs.length && document.visibilityState === 'visible' ? Math.floor(now / 16 + 1) * 16 : Infinity;
+  const step = steps.length ? steps[0].at : Infinity;
+  const next = Math.min(timer ? timer.at : Infinity, frame, step);
+  if (next === Infinity || next > cfg.end) break;
+  now = next;
+  if (step === next) {
+    document.visibilityState = steps.shift().visibility;
+    listeners.forEach(f => f());
+  } else if (timer && timer.at === next) {
+    timers.splice(timers.indexOf(timer), 1);
+    timer.f();
+  } else {
+    const due = rafs; rafs = [];
+    due.forEach(f => f(now));
+  }
+}
+console.log(JSON.stringify(posts));
+"""
+
+
+class PageVisibilityTests(unittest.TestCase):
+    """D17 (task 048): the probe page's posts, their parser, and the per-tab visibility report."""
+
+    def run_page(self, steps, end, align=1000):
+        node = shutil.which("node")
+        if node is None:
+            self.skipTest("no node to run the probe page's script")
+        import re
+        import subprocess
+        page = ib.probe_page("c3")
+        script = re.search(r"<script>(.*)</script>", page, re.S).group(1)
+        done = subprocess.run([node, "-e", PROBE_HARNESS, json.dumps({"steps": steps, "end": end, "align": align})],
+                              input=script, capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return json.loads(done.stdout)
+
+    def probes(self, posts):
+        return [ib.parse_probe(path) for _, path in posts if path.startswith(ib.PROBE_REPORT_PATH + "/")]
+
+    def test_a_visible_page_posts_its_load_and_state_and_runs_no_probe(self):
+        posts = self.run_page([], 60000)
+        self.assertEqual([path for _, path in posts], ["/loaded/c3", "/vis/c3/visible"])
+
+    def test_a_hidden_page_is_probed_after_the_delay_and_before_the_freeze_grace(self):
+        posts = self.run_page([{"at": 1000, "visibility": "hidden"}], 60000)
+        self.assertIn("/vis/c3/hidden", [path for _, path in posts])
+        probes = self.probes(posts)
+        self.assertEqual(len(probes), 1)
+        key, probe = probes[0]
+        self.assertEqual(key, "c3")
+        self.assertEqual((probe["state_start"], probe["state_end"], probe["intact"]), ("hidden", "hidden", True))
+        self.assertEqual(probe["raf"], 0, "a hidden page runs no rAF")
+        self.assertLessEqual(probe["timer_wakes_per_s"], ib.HIDDEN_TIMER_WAKES_MAX)
+        self.assertGreaterEqual(probe["hidden_ms"], ib.PROBE_DELAY_MS)
+        report_at = next(t for t, path in posts if path.startswith(ib.PROBE_REPORT_PATH))
+        self.assertLess(report_at - 1000, ib.FREEZE_HIDDEN_TABS_S * 1000, "the probe ends before the freeze")
+
+    def test_unthrottled_timers_of_a_hidden_page_show_in_its_probe(self):
+        _, probe = self.probes(self.run_page([{"at": 1000, "visibility": "hidden"}], 60000, align=0))[0]
+        self.assertGreater(probe["timer_wakes_per_s"], 100)
+
+    def test_a_page_shown_again_before_its_probe_runs_none(self):
+        posts = self.run_page([{"at": 1000, "visibility": "hidden"}, {"at": 5000, "visibility": "visible"}], 60000)
+        self.assertEqual(self.probes(posts), [])
+        self.assertEqual([path for _, path in posts][-1], "/vis/c3/visible")
+
+    def test_a_page_shown_during_its_probe_reports_it_not_intact(self):
+        start = 1000 + ib.PROBE_DELAY_MS
+        posts = self.run_page([{"at": 1000, "visibility": "hidden"}, {"at": start + 1500, "visibility": "visible"}],
+                              60000)
+        _, probe = self.probes(posts)[0]
+        self.assertFalse(probe["intact"])
+        self.assertIsNone(ib.hidden_probe([probe]))
+
+    def test_the_probe_parser(self):
+        key, probe = ib.parse_probe(ib.PROBE_REPORT_PATH + "/c1/hidden/hidden/0/5/4000/4100/11050/1")
+        self.assertEqual(key, "c1")
+        self.assertEqual(probe, {"state_start": "hidden", "state_end": "hidden", "raf": 0, "raf_per_s": 0.0,
+                                 "timer_fires": 5, "timer_wakes_per_s": 1.0, "probe_ms": 4100, "hidden_ms": 11050,
+                                 "intact": True})
+        self.assertIsNone(ib.parse_probe(ib.PROBE_REPORT_PATH + "/c1/hidden/hidden/0/1/0/4000/11000/1")[1][
+            "timer_wakes_per_s"])
+        self.assertIsNone(ib.parse_probe(ib.PROBE_REPORT_PATH + "/c1/hidden")[0])
+
+    def test_the_pages_server_serves_probe_pages_and_keeps_their_posts(self):
+        import urllib.request
+        with ib.IdlePages() as pages:
+            body = urllib.request.urlopen(pages.probe_url("c3"), timeout=5).read().decode()
+            for path in ("/vis/c3/hidden", ib.PROBE_REPORT_PATH + "/c3/hidden/hidden/0/4/3000/4000/11000/1",
+                         ib.PROBE_REPORT_PATH + "/bad"):
+                urllib.request.urlopen(urllib.request.Request(pages.origin + path, method="POST"), timeout=5).read()
+            states, probes = pages.page_states()
+        self.assertEqual(body, ib.probe_page("c3"))
+        self.assertIn("/loaded/'+k", body)
+        self.assertEqual(states, {"c3": "hidden"})
+        self.assertEqual([p["timer_wakes_per_s"] for p in probes["c3"]], [1.0])
+        self.assertEqual(len(pages.probe_errors), 1)
+
+    def hidden(self, raf=0, wakes=1.0):
+        return {"state_start": "hidden", "state_end": "hidden", "raf": raf, "raf_per_s": raf / 4, "timer_fires": 4,
+                "timer_wakes_per_s": wakes, "probe_ms": 4000, "hidden_ms": 11000, "intact": True}
+
+    def test_tabs_static_wants_every_tab_but_the_shown_one_hidden(self):
+        tabs = ib.TABS_STATIC
+        keys = [key for _, key in ib.plan_keys(tabs)]
+        states = {key: "visible" if key == "shown" else "hidden" for key in keys}
+        probes = {key: [self.hidden()] for key in keys if key != "shown"}
+        report = ib.visibility_report(ib.SESSIONS["tabs-static"], tabs, states, states, probes)
+        self.assertEqual((report["met"], report["wrong"], report["unknown"]), (True, {}, {}))
+        self.assertEqual(len(report["tabs"]), 16)
+        self.assertEqual(report["tabs"]["shown"]["expected"], "visible")
+        # A hidden Chromium tab that reports visible, one that runs rAF, one over the timer limit: each is wrong.
+        bad = ib.visibility_report(ib.SESSIONS["tabs-static"], tabs, {**states, "c0": "visible"},
+                                   {**states, "c0": "visible"},
+                                   {**probes, "c1": [self.hidden(raf=40)], "c2": [self.hidden(wakes=4.0)]})
+        self.assertFalse(bad["met"])
+        self.assertEqual(sorted(bad["wrong"]), ["c0", "c1", "c2"])
+        self.assertIn("visibilityState visible at the window start, expected hidden", bad["wrong"]["c0"])
+        self.assertEqual(bad["wrong"]["c1"], ["10.0 rAF/s while hidden"])
+        self.assertEqual(bad["wrong"]["c2"], ["4.0 timer wakes/s while hidden > 1"])
+        # WebKit tabs are reported, never judged.
+        webkit = ib.visibility_report(ib.SESSIONS["tabs-static"], tabs, {**states, "w0": "visible"}, states, probes)
+        self.assertTrue(webkit["met"])
+        self.assertTrue(webkit["tabs"]["w0"]["problems"])
+
+    def test_the_shown_tab_of_a_hidden_minimized_or_covered_window_must_be_hidden(self):
+        for spec in (ib.SESSIONS["light-hidden"], ib.SESSIONS["minimized"], {"cover": True}):
+            visible = ib.visibility_report(spec, ib.ONE_TAB, {"shown": "visible"}, {"shown": "visible"}, {})
+            self.assertFalse(visible["met"], spec)
+            hidden = ib.visibility_report(spec, ib.ONE_TAB, {"shown": "hidden"}, {"shown": "hidden"},
+                                          {"shown": [self.hidden()]})
+            self.assertTrue(hidden["met"], spec)
+        shown = ib.visibility_report(ib.SESSIONS["light"], ib.ONE_TAB, {"shown": "visible"}, {"shown": "visible"}, {})
+        self.assertTrue(shown["met"])
+
+    def test_a_tab_with_no_report_or_no_hidden_probe_is_unknown_not_met(self):
+        spec = ib.SESSIONS["light-hidden"]
+        none = ib.visibility_report(spec, ib.ONE_TAB, {}, {}, {})
+        self.assertIsNone(none["met"])
+        self.assertEqual(none["unknown"]["shown"], ["no visibilityState by the window start",
+                                                    "no visibilityState by the window end"])
+        unprobed = ib.visibility_report(spec, ib.ONE_TAB, {"shown": "hidden"}, {"shown": "hidden"}, {})
+        self.assertIsNone(unprobed["met"])
+        self.assertEqual(unprobed["unknown"]["shown"], ["no hidden probe"])
+
+    def test_the_animated_tab_is_left_to_its_own_rate(self):
+        tabs = ib.SESSIONS["energy-saver"]["tabs"]
+        report = ib.visibility_report(ib.SESSIONS["energy-saver"], tabs, {}, {}, {})
+        self.assertNotIn("anim", report["tabs"])
+        self.assertEqual(report["tabs"]["c9"]["expected"], "hidden")
+
+    def test_the_visibility_tab_goes_only_to_the_light_sessions_when_asked(self):
+        self.assertIsNone(ib.session_tabs("light-hidden"))
+        self.assertIs(ib.session_tabs("light-hidden", True), ib.ONE_TAB)
+        self.assertIs(ib.session_tabs("minimized", True), ib.ONE_TAB)
+        self.assertIsNone(ib.session_tabs("stress", True))
+        self.assertIs(ib.session_tabs("tabs-static", True), ib.TABS_STATIC)
+        self.assertEqual(ib.settle_seconds("light-hidden", 10, ib.ONE_TAB), ib.VISIBILITY_SETTLE_S)
+        self.assertEqual(ib.settle_seconds("light-hidden", 10), 10)
+        self.assertGreater(ib.VISIBILITY_SETTLE_S * 1000, ib.PROBE_DELAY_MS + ib.PROBE_MS)
+        self.assertLess(ib.PROBE_DELAY_MS + ib.PROBE_MS, ib.FREEZE_HIDDEN_TABS_S * 1000)
+
+    def test_the_visibility_line_names_states_and_probe_rates(self):
+        report = ib.visibility_report(ib.SESSIONS["light-hidden"], ib.ONE_TAB, {"shown": "hidden"},
+                                      {"shown": "hidden"}, {"shown": [self.hidden()]})
+        self.assertEqual(json.loads(ib.visibility_line(report)),
+                         {"met": True, "wrong": {}, "unknown": {}, "tabs": {"shown": ["hidden", "hidden", 0.0, 1.0]}})
 
 
 FIVE = ("signed-in", "home", "occluded", "app-quit", "external-churn")
