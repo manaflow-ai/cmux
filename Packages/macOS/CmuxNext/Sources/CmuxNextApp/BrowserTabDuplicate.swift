@@ -46,8 +46,8 @@ struct BrowserTabDuplicate {
                     return nil
                 }
             })
-        case .appPage:
-            // A cmux page has no history (`history(of:)` gives none): its address opens it.
+        case .appPage, .chromiumEntries:
+            // A cmux page has no history (a live page never saves entries alone) (`history(of:)` gives none): its address opens it.
             pane.newBrowserTab(url: url, inherited: tab.browserEngine, profile: profile, opener: tab.surface)
         }
     }

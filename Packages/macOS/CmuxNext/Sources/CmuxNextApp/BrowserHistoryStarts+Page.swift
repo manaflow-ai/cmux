@@ -39,6 +39,14 @@ extension BrowserHistoryStarts {
         }
         guard let state = BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef),
               BrowserHistoryWriter.keepsFileAccess(of: saved, shown: url) else {
+            // No engine state it may use: Chromium still gets the saved web entries back, by address (P7).
+            if let entries = BrowserHistoryWriter.restoreEntries(saved, at: url) {
+                var restored = configuration
+                restored.restoreState = .chromiumEntries(entries)
+                outcomes[key] = "entries"
+                markEngineRestored(key)
+                return restored
+            }
             outcomes[key] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
             return configuration
         }

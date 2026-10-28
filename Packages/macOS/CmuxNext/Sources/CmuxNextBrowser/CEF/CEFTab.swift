@@ -115,6 +115,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
     @ObservationIgnored var pendingRestore: String?
+    /// Saved entries to restore the same way (``restoreEntriesOnCreation(_:)``).
+    @ObservationIgnored var pendingEntries: BrowserSavedSession?
     /// The renderer ended while the tab was hidden: reload when shown
     /// (a crashed background tab reloads when it is selected).
     @ObservationIgnored var reloadWhenShown = false
@@ -249,7 +251,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     /// as its first navigation (no blank entry before it).
     func takeInitialURLString() -> String {
         loadAfterAttach = nil
-        guard pendingRestore == nil else { return "" }
+        guard pendingRestore == nil, pendingEntries == nil else { return "" }
         if CEFAgentURLGuard.defersCreationLoad(pendingURL, agentDriven: isAgentDriven) {
             loadAfterAttach = pendingURL
             return ""
@@ -302,6 +304,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             _ = runtime.shim?.tabRestoreNavigation(browser, state)
             host.lifecycleTrace.record(id, "restore-navigation sent")
         }
+        sendPendingEntries(browser: browser)
         refreshExtensionActions()
     }
 

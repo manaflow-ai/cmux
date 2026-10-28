@@ -208,7 +208,7 @@ public final class BrowserHistoryWriter {
         case .webKit(let data)?: data.isEmpty ? nil : .init(engine: webKitTag, data: data.base64EncodedString())
         case .chromium(let state)?: state.isEmpty ? nil : .init(engine: chromiumTag, data: state)
         // A cmux page has no engine history: its record's URL opens it again.
-        case .appPage?, nil: nil
+        case .appPage?, .chromiumEntries?, nil: nil
         }
     }
 

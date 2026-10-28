@@ -442,6 +442,7 @@ public final class CEFEngine: BrowserEngine {
            shim.navigationRestoreSupported() == 1, shim.forkAPIVersion() >= CEFTab.navigationRestoreForkAPI {
             tab.pendingRestore = state
         }
+        if case .chromiumEntries(let session)? = configuration.restoreState { tab.restoreEntriesOnCreation(session) }
         if let url = configuration.initialURL { tab.load(url) }
         return tab
     }

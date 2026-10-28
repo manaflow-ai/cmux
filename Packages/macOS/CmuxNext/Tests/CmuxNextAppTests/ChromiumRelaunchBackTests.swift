@@ -9,7 +9,7 @@ import Testing
 /// came back with one entry, and Back reloaded the saved page from scratch over it. It now gets Chromium's own
 /// entries back, by address and title only (fork API 31, `cmux_shim_tab_restore_entries`): no page state, so no
 /// form value or chosen file comes back, and nothing is posted again.
-@Suite struct ChromiumRelaunchBackTests {
+@MainActor @Suite struct ChromiumRelaunchBackTests {
     static let a = "https://a.test/", b = "https://b.test/login", c = "https://c.test/"
 
     static func record(_ urls: [String], index: Int, formPost: Int? = nil, state: Bool = false) -> FrontendBrowserHistory {

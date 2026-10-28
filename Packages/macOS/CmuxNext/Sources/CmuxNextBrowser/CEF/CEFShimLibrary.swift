@@ -177,6 +177,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let free: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     let tabNavigationState: (Int32) -> String?
     let tabRestoreNavigation: (Int32, String?) -> Int32
+    /// Fork API 31: entries by address and title into a browser made with no address; nil on older forks.
+    let tabRestoreEntries: CEFShimRestoreEntries?
     let navigationRestoreSupported: @convention(c) () -> Int32
     // Fork API v3 (the shim returns 0/NULL on older forks).
     let extList: (Int32) -> String?

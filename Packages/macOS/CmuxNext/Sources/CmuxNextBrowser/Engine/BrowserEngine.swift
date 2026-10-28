@@ -87,4 +87,8 @@ public nonisolated enum BrowserRestoreState: Hashable, Sendable {
     case chromium(String)
     /// A cmux page in a browser tab (`BrowserAppPage`): its address and view state, no engine history.
     case appPage(BrowserAppPageState)
+    /// A Chromium tab's saved entries by address and title only (no page state: no form value, no chosen
+    /// file), restored as Chromium's own back/forward list (fork API 31, `cmux_shim_tab_restore_entries`),
+    /// when its record has no engine state it may use (``chromium(_:)``).
+    case chromiumEntries(BrowserSavedSession)
 }
