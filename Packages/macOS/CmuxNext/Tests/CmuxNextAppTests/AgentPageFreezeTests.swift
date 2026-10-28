@@ -205,6 +205,39 @@ struct AgentPageFreezeTests {
         #expect(frozen.frozen, "a page still hidden past freezeHiddenTabs stayed awake after the quit's collection")
     }
 
+    /// A provisional tab's creation answers after its hidden page froze: the page moves to the
+    /// store's key (`AgentTabStore.rekey`) and the alias goes later. The page thaws instead of
+    /// being forgotten frozen, freezes again under its new key, and a turn or the quit still reaches it.
+    @Test func aFrozenChatWhoseTabGetsItsRealKeyIsNotLostFrozen() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.isRendering = { rig.rendering.contains($0) }
+        let view = try rig.hiddenChat("tab_provisional", session: "s-rekey")
+        advance(rig, seconds: 31)
+        let control = try #require(page(rig, "tab_provisional"))
+        #expect(control.frozen)
+
+        rig.records["tab_real"] = rig.records["tab_provisional"]
+        rig.tabs.rekey("tab_provisional", to: "tab_real")
+        rig.tabs.aliases["tab_provisional"] = nil
+        rig.hibernation.replan()
+        #expect(rig.tabs.existingView("tab_real") === view)
+        #expect(!control.frozen, "a page whose tab got its real key stayed frozen and forgotten")
+        #expect(rig.hibernation.frozen.isEmpty)
+
+        // Hidden under its new key: it freezes again, and the quit's collection thaws it.
+        advance(rig, seconds: 31)
+        #expect(control.frozen, "the page never froze again under its new key")
+        #expect(rig.hibernation.frozen == ["tab_real"])
+        rig.hibernation.holdAwake(true)
+        #expect(!control.frozen, "the quit's collection did not reach the rekeyed page")
+        rig.hibernation.holdAwake(false)
+        #expect(control.frozen)
+        // A push for it finds the page by itself.
+        try #require(view.model.transport.willDeliver)()
+        #expect(!control.frozen, "a push did not wake the rekeyed page")
+    }
+
     /// Release asks the page what it holds and for its frame: a frozen page thaws first.
     @Test func aFrozenChatThawsBeforeItIsReleased() async throws {
         let rig = Self.rig()
