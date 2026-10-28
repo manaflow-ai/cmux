@@ -10,7 +10,7 @@ import { connectInfo, machineBySelector, mintLinkToken, type MintReply } from ".
 import { registerVmInstall, sendEphemeral, VmEventBuckets, vmEventEmit, vmSelfGet, vmStatusReport, type VmReply } from "./cloud-vm.ts"
 import { TABLE_LEDGER, TABLE_MACHINE, TABLE_SNAPSHOT, TABLE_TOMBSTONE, type CloudState, type LedgerRow, type MachineRow } from "./domains/cloud.ts"
 import type { SnapshotRow } from "./domains/cloud-snapshot.ts"
-import { platformCall, type PlatformCall, type PlatformReply, type PlatformHost } from "./cloud-platform.ts"
+import { platformCall, platformShape, type PlatformCall, type PlatformReply, type PlatformHost } from "./cloud-platform.ts"
 import { PlatformOperations } from "./cloud-platform-operations.ts"
 import { directCloudProvider } from "./providers/index.ts"
 import { statusApplied } from "./cloud-do-core.ts"
@@ -263,7 +263,7 @@ export class CloudDO extends CloudIdle {
       team: entity,
       operations: this.platformOperations,
       now: Date.now() + this.skewMs,
-      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
+      providerInfo: () => ({ protocolVersion: 1, provider: "freestyle", region: "global", available: (this.env.ENVIRONMENT === "development" || this.env.ENVIRONMENT === "test") && this.env.PLATFORM_MACHINES === "on" && (this.env.CLOUD_VM_TRANSPORT === undefined || this.env.CLOUD_VM_TRANSPORT === "direct") && directCloudProvider(this.env).id === "freestyle" && cloudConfig(this.env).image !== null, shapeSelection: "grow-to-fit", minimumShape: null, memoryPause: true, fork: true }),
       arm: async (at) => {
         this.bind(entity)
         const realAt = Math.max(Date.now(), at - this.skewMs)
@@ -277,6 +277,11 @@ export class CloudDO extends CloudIdle {
       },
       submit: (p, f) => this.submit(entity, p, f),
       machine: (id) => rows()?.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      resources: async (row) => {
+        const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+        const r = driver ? await driver.resourcesOf(row.provider_name, { team: entity, machine: row.id }).catch(() => null) : null
+        return r ? platformShape({ cpu: r.cpu, memory_mb: r.memory, disk_mb: r.storage }) : null
+      },
       ledger: (key) => rows()?.get<LedgerRow>(TABLE_LEDGER, key)?.row,
       snapshot: (id) => rows()?.get<SnapshotRow>(TABLE_SNAPSHOT, id)?.row,
       tombstoned: (machine) => rows()?.get(TABLE_TOMBSTONE, machine) !== undefined,

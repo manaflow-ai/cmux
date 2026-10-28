@@ -56,6 +56,8 @@ export interface PlatformHost {
   mayUse(user: string): Promise<boolean>
   submit(principal: Principal, frame: { t: "op"; op: string; params: unknown; idempotency_key: string; origin: "script" }): Promise<SubmitResult>
   machine(id: string): MachineRow | undefined
+  /** Authoritative provider resources; null/error never confirms a requested reservation. */
+  resources(row: MachineRow): Promise<PlatformShape | null>
   ledger(key: string): LedgerRow | undefined
   snapshot(id: string): SnapshotRow | undefined
   tombstoned(machine: string): boolean
@@ -138,7 +140,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     case "shape": {
       const m = own(call.machine)
       if ("ok" in m) return m
-      const metadata = host.operations.metadata(host, m.id)
+      const metadata = await host.operations.metadata(host, m.id)
       return metadata.ok ? ok(metadata.value.shape) : metadata
     }
     case "pause":

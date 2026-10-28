@@ -187,13 +187,23 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     expect(((await cloudStub(c.team).fakeControl({})) as any).creates).toBe(0)
   })
 
-  it("refuses every call where PLATFORM_MACHINES is not on", async () => {
+  it("keeps owned cleanup available after disabling development and stays inert elsewhere", async () => {
     const off = new PlatformMachines(createExecutionContext(), { ...(env as object), PLATFORM_MACHINES: undefined } as never)
     const c = caller()
     expect(await off.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off", retryable: false })
     expect(await off.providerInfo(c)).toMatchObject({ ok: false, code: "platform.machines_off" })
     expect(await off.create(c, nameOf(), { vcpu: 2, memGiB: 4, diskGiB: 16 })).toMatchObject({ ok: false, code: "platform.machines_off" })
-    expect(await off.destroy(c, `vm_${"a".repeat(20)}`)).toMatchObject({ ok: false, code: "platform.machines_off" })
+    const { machine, name, stub } = await bootAndBind(c)
+    expect(await off.find(c, name)).toEqual({ ok: true, value: { id: machine } })
+    expect(await off.destroy(c, machine)).toEqual({ ok: true, value: { deleted: true } })
+    const own = reply(await stub.submit(c.team, { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }, frame("cloud.machine.create", { size: SIZE })))
+    expect(await off.destroy(c, own.value.machine.id)).toMatchObject({ ok: false, code: "cloud.machine.not_found" })
+    for (const environment of ["staging", "production"]) {
+      const inert = new PlatformMachines(createExecutionContext(), { ...(env as object), ENVIRONMENT: environment, PLATFORM_MACHINES: "on" } as never)
+      expect(await inert.boot(c, nameOf())).toMatchObject({ ok: false, code: "platform.machines_off" })
+      expect(await inert.find(c, name)).toMatchObject({ ok: false, code: "platform.machines_off" })
+      expect(await inert.destroy(c, machine)).toMatchObject({ ok: false, code: "platform.machines_off" })
+    }
   })
 
   it("grows the snapshot-sized VM only after bind, then returns the exact shape and memory power state", async () => {
@@ -294,8 +304,17 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
     const c = caller()
     const { machine, stub } = await bootAndBind(c)
     const name = nameOf()
-    await stub.fakeControl({ fail_next: 1 })
-    expect(await rpc.fork(c, machine, name)).toMatchObject({ ok: false, retryable: true })
+    await inDO(stub, async instance => {
+      const original = instance.driverFor.bind(instance)
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) driver.snapshot = async () => { throw new Error("transient capture failure") }
+        return driver
+      }
+      try {
+        expect(await instance.platformMachine(c.team, c.user, { op: "fork", machine, name })).toMatchObject({ ok: false, retryable: true })
+      } finally { instance.driverFor = original }
+    })
     // The capture intent survives the failed provider call. On this alarm the ordinary Cloud
     // ledger finishes it first; the expired platform intent must then remove the saved snapshot,
     // without restoring a child or requiring the caller to retry the fork.
@@ -374,6 +393,54 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
       }
     })
     expect(await stub.fakeControl({})).toMatchObject({ creates: 1 })
+  })
+
+  it("confirms provider resources after failed create reads and after resize before reporting running", async () => {
+    const c = caller()
+    const stub = cloudStub(c.team)
+    await inDO(stub, async instance => {
+      const original = instance.driverFor.bind(instance)
+      instance.platformTestOriginalDriver = original
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (driver) driver.resourcesOf = async () => { throw new Error("resource read unavailable") }
+        return driver
+      }
+    })
+    const target = { vcpu: 4, memGiB: 8, diskGiB: 32 }
+    const created = await rpc.create(c, nameOf(), target)
+    expect(created).toMatchObject({ ok: true, value: { state: "starting", targetShape: target } })
+    const id = created.value.id as string
+    const file = await bindFile(stub, id)
+    const { body } = await bindBody(c, id, file.json.bind_token)
+    expect(await stub.bindMachine(c.team, body)).toMatchObject({ ok: true })
+    expect(await rpc.get(c, id)).toMatchObject({ ok: true, value: { state: "starting", targetShape: target } })
+    await inDO(stub, async instance => {
+      const original = instance.platformTestOriginalDriver
+      let blocked = false
+      instance.driverFor = async (...args: Array<unknown>) => {
+        const driver = await original(...args)
+        if (!driver) return driver
+        const resources = driver.resourcesOf.bind(driver)
+        const resize = driver.resize.bind(driver)
+        driver.resourcesOf = async (...readArgs: Array<unknown>) => {
+          if (blocked) throw new Error("post-resize resource read unavailable")
+          return resources(...readArgs)
+        }
+        driver.resize = async (...resizeArgs: Array<unknown>) => { await resize(...resizeArgs); blocked = true }
+        return driver
+      }
+    })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, resizes: 1 })
+    // A successful resize ledger is insufficient while its resource confirmation is unavailable.
+    expect(await rpc.get(c, id)).toMatchObject({ ok: true, value: { state: "starting", shape: { vcpu: 2, memGiB: 4, diskGiB: 16 }, targetShape: target } })
+    await inDO(stub, async instance => { instance.driverFor = instance.platformTestOriginalDriver })
+    await stub.fakeControl({ advance_ms: 10_000 })
+    await fireAlarm(stub)
+    expect(await rpc.get(c, id)).toEqual({ ok: true, value: { id, state: "running", region: "global", shape: target } })
+    expect(await stub.fakeControl({})).toMatchObject({ creates: 1, resizes: 1 })
   })
 
   it("is not reachable over HTTP", async () => {
