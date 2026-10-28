@@ -33,13 +33,13 @@ struct SessionPriorityPaneTrackingTests {
     func restartedPaneCountsUntilTheIndexShowsItsResumedClaude() {
         var state = SessionPriorityCoordinatorState()
         restart(&state)
-        let whileWaiting = state.isRestarting(panelId: pane)
+        let whileWaiting = state.isRestarting(panelId: pane, nowMs: 3_000)
         let started = state.noteSessionStarted(panelId: pane, sessionId: "s1")
-        let beforeIndex = state.isRestarting(panelId: pane)
+        let beforeIndex = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         // A reconcile reads the resumed Claude from the index.
         state.follow(panelId: pane, sessionId: "s1")
-        let afterIndex = state.isRestarting(panelId: pane)
+        let afterIndex = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         #expect(whileWaiting)
         #expect(started)
@@ -55,7 +55,7 @@ struct SessionPriorityPaneTrackingTests {
         restart(&state)
         state.follow(panelId: pane, sessionId: "s1")
         let started = state.noteSessionStarted(panelId: pane, sessionId: "s1")
-        let restarting = state.isRestarting(panelId: pane)
+        let restarting = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         #expect(started)
         #expect(restarting)
@@ -68,7 +68,7 @@ struct SessionPriorityPaneTrackingTests {
         _ = state.noteSessionStarted(panelId: pane, sessionId: "s1")
 
         state.noteSessionEnded(panelId: pane)
-        let restarting = state.isRestarting(panelId: pane)
+        let restarting = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         #expect(!restarting)
     }
@@ -85,7 +85,7 @@ struct SessionPriorityPaneTrackingTests {
             paneWasReplaced: false
         )
         _ = state.noteResult(panelId: pane, .resumeNotTyped(manual), nowMs: 1_000)
-        let restarting = state.isRestarting(panelId: pane)
+        let restarting = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         #expect(!restarting)
     }
@@ -99,7 +99,7 @@ struct SessionPriorityPaneTrackingTests {
         let deadline = 2_000 + SessionPriorityCoordinatorState.sessionStartTimeoutMs
 
         let waiting = state.awaitsSessionStart(panelId: pane, nowMs: deadline)
-        let restarting = state.isRestarting(panelId: pane)
+        let restarting = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         #expect(!waiting)
         #expect(!restarting)
@@ -113,9 +113,48 @@ struct SessionPriorityPaneTrackingTests {
         state.follow(panelId: pane, sessionId: "s1")
         state.noteRestartStarted(panelId: pane, sessionId: "s1", target: high, nowMs: 0)
         _ = state.noteResult(panelId: pane, .held(.draft), nowMs: 1_000)
-        let restarting = state.isRestarting(panelId: pane)
+        let restarting = state.isRestarting(panelId: pane, nowMs: 3_000)
 
         #expect(!restarting)
+    }
+
+    /// A resumed Claude that died without a `SessionEnd` before the index saw it: a minute after
+    /// its start the pane counts only by its index entry, so its workspace leaves the plan.
+    @Test
+    func restartedPaneStopsCountingAMinuteAfterItsStartWithoutAnIndexEntry() {
+        var state = SessionPriorityCoordinatorState()
+        restart(&state)
+        let started = state.noteSessionStarted(panelId: pane, sessionId: "s1", occurredAtMs: 10_000)
+        let limit = SessionPriorityCoordinatorState.indexAfterSessionStartTimeoutMs
+
+        let justBefore = state.isRestarting(panelId: pane, nowMs: 10_000 + limit - 1)
+        let atTheLimit = state.isRestarting(panelId: pane, nowMs: 10_000 + limit)
+
+        #expect(started)
+        #expect(limit == 60_000)
+        #expect(justBefore)
+        #expect(!atTheLimit)
+    }
+
+    /// `claude --resume` keeps the session id, so the replaced Claude's `SessionEnd` arriving after
+    /// the resumed one's `SessionStart` looks like its own. It happened before that start, so it
+    /// is ignored; the resumed Claude's own end still counts.
+    @Test
+    func replacedClaudesLateSessionEndDoesNotEndTheResumedOne() {
+        var state = SessionPriorityCoordinatorState()
+        restart(&state)
+        _ = state.noteSessionStarted(panelId: pane, sessionId: "s1", occurredAtMs: 10_000)
+
+        state.noteSessionEnded(panelId: pane, occurredAtMs: 9_500)
+        let afterLateEnd = state.isRestarting(panelId: pane, nowMs: 11_000)
+        let sessionAfterLateEnd = state.records[pane]?.sessionId
+
+        state.noteSessionEnded(panelId: pane, occurredAtMs: 12_000)
+        let afterOwnEnd = state.isRestarting(panelId: pane, nowMs: 12_500)
+
+        #expect(afterLateEnd)
+        #expect(sessionAfterLateEnd == "s1")
+        #expect(!afterOwnEnd)
     }
 
     // MARK: - Background work from the last turn end (E2E F3)
