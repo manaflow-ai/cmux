@@ -789,11 +789,12 @@ test.each([{ turnCount: 0 }, { turnCount: 2 }, { folderProfile: true, currentFol
     expect(more).toBeDefined();
     await act(async () => more!.click());
     await settle();
-    // More models intentionally opens the full searchable picker; both surfaces share the same
-    // header-free model data and model-selection callbacks.
+    // More models opens the full picker for chats and expands in place on New Tab; either
+    // entry uses the same header-free model data and model-selection callbacks.
     const full = doc().querySelector<HTMLElement>(".acpmux-mp");
-    expect(full).not.toBeNull();
-    expect(full!.textContent).not.toMatch(/Model\s*·\s*this session/i);
+    const surface = full ?? menu();
+    expect(surface).not.toBeNull();
+    expect(surface!.textContent).not.toMatch(/Model\s*·\s*this session/i);
   },
 );
 
