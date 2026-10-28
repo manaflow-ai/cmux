@@ -48,8 +48,9 @@ await requireBrowserLane("ui-scale-chat-column.test.ts", async () => {
   };
 
   const measure = async (page: Page, selector: string, effectiveScale: number): Promise<Box> => {
-    await page.locator(selector).waitFor();
-    const box = await page.locator(selector).boundingBox();
+    const target = page.locator(selector).first();
+    await target.waitFor();
+    const box = await target.boundingBox();
     if (!box) throw new Error(`missing ${selector}`);
     return { left: box.x * effectiveScale, width: box.width * effectiveScale };
   };
