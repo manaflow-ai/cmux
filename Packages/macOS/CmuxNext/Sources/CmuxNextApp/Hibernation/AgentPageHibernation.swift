@@ -79,7 +79,8 @@ final class AgentPageHibernation {
     var frozen: Set<String> { Set(frozenPages.keys) }
     /// When a hidden page last had to stay awake: the engine refused to freeze it (it still counted
     /// it visible), or the transport woke it for a push. It freezes `freezeSeconds` after that.
-    private var awakeSince: [String: ContinuousClock.Instant] = [:]
+    /// Per page, not per key: a page can be under two keys (a provisional tab's alias).
+    private var awakeSince: [ObjectIdentifier: ContinuousClock.Instant] = [:]
     /// The one deadline for the next page to freeze; cancelled when no hidden page is due.
     private let freezeDeadline = DemandTimer(owner: "AgentPageFreeze")
     /// A page is due to freeze later and the timer for it runs (tests).
@@ -172,7 +173,6 @@ final class AgentPageHibernation {
 
     func forget(_ key: String) {
         thaw(key)
-        awakeSince[key] = nil
         shown.remove(key)
         workspaceDue.remove(key)
         hiddenAt[key] = nil
@@ -187,7 +187,8 @@ final class AgentPageHibernation {
         // A frozen page no longer under its key (closed, or its tab got another key) thaws; one still
         // hidden under its new key starts its hidden clock below and freezes again later.
         for (key, entry) in frozenPages where entry.view == nil || tabs.existingView(key) !== entry.view { thaw(key) }
-        awakeSince = awakeSince.filter { tabs.existingView($0.key) != nil }
+        let livePages = Set(tabs.views.values.map(ObjectIdentifier.init))
+        awakeSince = awakeSince.filter { livePages.contains($0.key) }
         startUnseenClocks(tabs)
         replanFreeze()
         guard setting.discardsAutomatically,
@@ -333,16 +334,26 @@ final class AgentPageHibernation {
             freezeDeadline.cancel()
             return
         }
+        guard let tabs = store() else { return freezeDeadline.cancel() }
         let current = now()
         var next: Double?
-        // Pages, not keys: a tab whose provisional key still resolves has its page under both, so a
-        // page being released or already frozen under one key is skipped under the other too.
-        let busy = Set(releasing.compactMap { store()?.existingView($0) }.map(ObjectIdentifier.init)
-            + frozenPages.values.compactMap(\.view).map(ObjectIdentifier.init))
-        for (key, at) in hiddenAt where frozenPages[key] == nil && !releasing.contains(key) && keepsAwake(key, onScreen: false) == nil {
-            if let view = store()?.existingView(key), busy.contains(ObjectIdentifier(view)) { continue }
-            var remaining = threshold - (current - at).seconds
-            if let awake = awakeSince[key] { remaining = max(remaining, threshold - (current - awake).seconds) }
+        // Pages, not keys: a page can be under two keys (a provisional tab's alias resolves until the
+        // tree drops it). Each page is planned once, from the latest hide of any of its keys, and one
+        // being released or already frozen under any key is left alone.
+        let releasingPages = Set(releasing.compactMap { tabs.existingView($0) }.map(ObjectIdentifier.init))
+        let frozenNow = Set(frozenPages.values.compactMap(\.view).map(ObjectIdentifier.init))
+        var pages: [ObjectIdentifier: (key: String, at: ContinuousClock.Instant)] = [:]
+        for (key, at) in hiddenAt {
+            guard let view = tabs.existingView(key) else { continue }
+            let page = ObjectIdentifier(view)
+            if let seen = pages[page], seen.at >= at { continue }
+            pages[page] = (key, at)
+        }
+        for (page, hidden) in pages where !releasingPages.contains(page) && !frozenNow.contains(page)
+            && keepsAwake(hidden.key, onScreen: false) == nil {
+            let key = hidden.key
+            var remaining = threshold - (current - hidden.at).seconds
+            if let awake = awakeSince[page] { remaining = max(remaining, threshold - (current - awake).seconds) }
             if remaining > 0 {
                 next = min(next ?? remaining, remaining)
             } else if keepsAwake(key) != nil || store()?.existingView(key).map({ freezer($0) == nil }) ?? false {
@@ -388,11 +399,11 @@ final class AgentPageHibernation {
     private func freeze(_ key: String) -> Bool {
         guard let view = store()?.existingView(key), let page = freezer(view) else { return true }
         guard page.setFrozen(true) else {
-            awakeSince[key] = now()
+            awakeSince[ObjectIdentifier(view)] = now()
             logger.debug("agent page \(key, privacy: .public) freeze refused")
             return false
         }
-        awakeSince[key] = nil
+        awakeSince[ObjectIdentifier(view)] = nil
         frozenPages[key] = FrozenPage(view: view, control: page)
         // Work for the page wakes it first: a push the frame pacer sends a hidden page (a reply, a
         // turn's end, a backlog), a script call (debug and automation actions) or a picture. The page
@@ -432,7 +443,7 @@ final class AgentPageHibernation {
     private func pageWorkNeeds(_ view: AgentPaneView?) {
         guard let view, let key = frozenPages.first(where: { $0.value.view === view })?.key else { return }
         thaw(key)
-        awakeSince[key] = now()
+        awakeSince[ObjectIdentifier(view)] = now()
         replan()
     }
 

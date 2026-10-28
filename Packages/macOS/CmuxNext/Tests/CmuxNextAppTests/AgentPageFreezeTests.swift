@@ -274,6 +274,32 @@ struct AgentPageFreezeTests {
         #expect(control.calls == [true, false], "\(control.calls)")
     }
 
+    /// Rekeyed with its alias kept, the page is under both keys and both age past the threshold.
+    /// Work for it thaws it, and the plan that follows must not freeze it again under the other key.
+    @Test func workForAPageUnderTwoKeysDoesNotRefreezeItUnderTheOther() throws {
+        let rig = Self.rig()
+        rig.hibernation.update(setting: .fallback, pressure: .normal)
+        rig.hibernation.isRendering = { rig.rendering.contains($0) }
+        let view = try rig.hiddenChat("tab_provisional", session: "s-two-keys")
+        advance(rig, seconds: 31)
+        let control = try #require(page(rig, "tab_provisional"))
+        #expect(control.frozen)
+        rig.records["tab_real"] = rig.records["tab_provisional"]
+        rig.tabs.rekey("tab_provisional", to: "tab_real")
+        // The alias stays: both keys show the page, and the real key's hidden clock starts.
+        advance(rig, seconds: 1)
+        #expect(control.frozen)
+        advance(rig, seconds: 31)
+        #expect(control.calls == [true], "the page was frozen twice: \(control.calls)")
+        try #require(view.model.transport.beforePageWork, "the page lost its wake")()
+        #expect(!control.frozen, "work for the page found it frozen again under its other key")
+        advance(rig, seconds: 20)
+        #expect(!control.frozen, "froze again before freezeHiddenTabs after the work")
+        advance(rig, seconds: 11)
+        #expect(control.frozen)
+        #expect(control.calls == [true, false, true], "\(control.calls)")
+    }
+
     /// Debug and automation actions call the page's scripts directly: a frozen page wakes first.
     @Test func aScriptCallOrPictureWakesAFrozenChat() async throws {
         let rig = Self.rig()
