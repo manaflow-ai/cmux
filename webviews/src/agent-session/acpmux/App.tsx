@@ -165,6 +165,7 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { PeerCopyBanner } from "./PeerCopyBanner";
+import { usePeerCloudMachine } from "./peerCloudMachine";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
 import { heldPrompts } from "./heldPrompt";
 import { StartingSends, type StartingSend } from "./startingSends";
@@ -4593,6 +4594,12 @@ function AcpmuxPane() {
         catalog,
       ),
     [clientSnapshot, switchView, catalog],
+  );
+  // The chat's Cloud machine while it does not answer: paused offers Resume, starting spins.
+  // An ssh peer is never an account's Cloud machine, whatever its name.
+  const offlinePeer = snapshot.peerCopy?.offline ? snapshot.peerCopy.peer : undefined;
+  const peerMachine = usePeerCloudMachine(
+    offlinePeer && snapshot.peerKinds?.[offlinePeer] !== "ssh" ? offlinePeer : undefined,
   );
   useEffect(() => setMinimapVisible(true), [snapshot.sessionId]);
   // The person's own queued prompts: another agent's message never draws in the composer's queue.
@@ -10146,7 +10153,9 @@ function AcpmuxPane() {
                     onChoose={(choice) => void callNative("chat.adoptLive", { choice }).catch(() => undefined)}
                   />
                 )}
-                {snapshot.peerCopy?.offline && <PeerCopyBanner copy={snapshot.peerCopy} />}
+                {snapshot.peerCopy?.offline && (
+                  <PeerCopyBanner copy={snapshot.peerCopy} machine={peerMachine.state} onResume={peerMachine.resume} />
+                )}
                 {snapshot.summary?.watching && !snapshot.liveTakeOver && (
                   <WatchBanner
                     family={snapshot.summary.watching}

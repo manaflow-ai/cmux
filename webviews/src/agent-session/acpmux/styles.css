@@ -839,3 +839,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-project-menu .acpmux-project-search-field { height: var(--ui-row-height); margin-block-end: 0; padding-inline: var(--acpmux-project-menu-edge); }
 .acpmux-project-folders { max-height: min(45vh, 300px); overflow-y: auto; }
 .acpmux-project-folders.ui-combobox-scroll { overflow: hidden; }
+/* A paused or starting Cloud machine's banner (PeerCopyBanner.tsx): the title line holds the spinner, or Resume in the inline and button arms of `paused-machine-resume`. */
+.acpmux-peer-copy-title{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;margin:0}
+.acpmux-peer-copy-spinner{align-self:center;flex:none;color:var(--agent-muted)}
+.acpmux-peer-copy[data-arm=button] .acpmux-peer-copy-title{align-items:center;justify-content:space-between}
+.acpmux-peer-copy-resume{flex:none;border:0;border-radius:6px;padding:4px 12px;background:var(--agent-accent);color:var(--agent-accent-text,#fff);font:inherit;cursor:pointer}
+.acpmux-peer-copy-resume:focus-visible{outline:2px solid color-mix(in srgb,var(--agent-text) 40%,transparent);outline-offset:2px}
