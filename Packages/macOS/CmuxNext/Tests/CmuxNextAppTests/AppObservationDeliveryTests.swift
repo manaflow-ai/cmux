@@ -7,7 +7,7 @@ import Foundation
 import Observation
 import Testing
 
-/// App services whose observation hops became FrameObservations (p04-input-026): the changes of one turn reach each
+/// App services whose observation hops became FrameObservations: the changes of one turn reach each
 /// one once, in its delivery's class, on a scheduler with no display link, and never inside the change's will-set.
 /// ``drainMainTurns(rounds:)`` runs the deliveries.
 @MainActor @Suite(.serialized)

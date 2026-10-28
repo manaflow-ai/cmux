@@ -1,5 +1,5 @@
-//! Page-relay subscriptions filter by event kind on the bus (chrome-parity
-//! p13-webui-067): a page relay that hears `history-changed` is never sent,
+//! Page-relay subscriptions filter by event kind on the bus:
+//! a page relay that hears `history-changed` is never sent,
 //! queued or rendered a terminal's `surface-output`, it still hears its own
 //! event, and a normal subscriber's stream is unchanged.
 

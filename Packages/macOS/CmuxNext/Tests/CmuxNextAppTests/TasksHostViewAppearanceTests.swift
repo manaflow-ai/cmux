@@ -3,7 +3,7 @@ import CmuxNextDesign
 import CmuxNextTasks
 import Testing
 
-/// The Tasks pane in the scheduler sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-340,
+/// The Tasks pane in the scheduler sweep (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// rule 9, the hidden class): the pane resolves its colors in one place, `updateLayer`. A real appearance change
 /// while the pane is hidden resolves no colors (AppKit does not display a hidden view); its show resolves them once,
 /// however many changes came while it was hidden. Before, `viewDidChangeEffectiveAppearance` resolved them too, so

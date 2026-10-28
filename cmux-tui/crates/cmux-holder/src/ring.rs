@@ -848,7 +848,7 @@ mod tests {
         (from..from + len as u64).map(|offset| b'a' + (offset % 23) as u8).collect()
     }
 
-    /// p07-memory-094: a cold ring released before the offset the daemon
+    /// A cold ring released before the offset the daemon
     /// confirmed keeps every byte from there on, at the same offsets, for
     /// itself and for a holder that adopts its segment after it died; the
     /// pages it gave back take new output again.

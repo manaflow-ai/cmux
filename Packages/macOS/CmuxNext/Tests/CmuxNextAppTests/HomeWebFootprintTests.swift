@@ -1,14 +1,14 @@
 import CmuxNextLaunch
 import Testing
 
-/// Home's web objects once the launch settled (p13-webui-056, plans/cmux-next/chrome-parity/p13-webui.md D1
+/// Home's web objects once the launch settled (plans/cmux-next/chrome-parity/p13-webui.md D1
 /// and D2): the later-tab warm-ups (``LaterTabWarmups``) run on fake engines through the launch's posts, the
 /// first frame, the completion and enough frames for every post, and Home then holds only the web objects
 /// the default engine uses. Chrome keeps the same rule for its spare renderer: it warms only the process the
 /// next navigation takes (content/browser/renderer_host/spare_render_process_host_manager_impl.cc).
 @MainActor @Suite(.timeLimit(.minutes(1))) struct HomeWebFootprintTests {
     /// D1: Chromium is the default and agent pages open there. Chromium, its spare window and the New Tab
-    /// preload, no WebKit object at all (Settings, History and Cloud preload nothing at launch, p13-webui-045).
+    /// preload, no WebKit object at all (Settings, History and Cloud preload nothing at launch).
     @Test func chromiumDefaultMakesNoWebKitObject() {
         let engines = HomeWebEngines(defaultEngine: .chromium, agentPages: .chromium)
         settleHome(engines)
@@ -44,7 +44,7 @@ import Testing
         #expect(!engines.ran.contains("startChromiumWarmup"))
     }
 
-    /// Before the first frame nothing is made; before startup completes no WebKit object is (p08-startup-042).
+    /// Before the first frame nothing is made; before startup completes no WebKit object is.
     @Test func noWebObjectBeforeTheFirstFrameAndNoWebKitBeforeCompletion() {
         let engines = HomeWebEngines(defaultEngine: .webKit, agentPages: .webKit)
         let f = LaunchOrderFixture()
@@ -83,7 +83,7 @@ private enum HomeWebObject: Hashable, CustomStringConvertible {
 
     /// Chromium's browser process.
     case chromiumProcess
-    /// Chromium's spare window for the next tab (renderer-less where the fork can, p13-webui-019).
+    /// Chromium's spare window for the next tab (renderer-less where the fork can).
     case chromiumSpareWindow
     /// The agent pages' WebKit warm-up page.
     case agentWarmup

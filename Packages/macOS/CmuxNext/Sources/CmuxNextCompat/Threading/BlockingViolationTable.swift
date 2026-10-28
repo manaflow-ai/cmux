@@ -435,7 +435,7 @@ final class BlockingViolationTable: Sendable {
                                         seamKind: pending.seamKind, location: location, violation: violation))
             }
             #if DEBUG
-            // A fault, not an error: a new site is a bug to fix (p02-threads-006), and a fault is kept in the
+            // A fault, not an error: a new site is a bug to fix, and a fault is kept in the
             // persistent log and shown by `log show` without --info or --debug.
             switch context {
             case .pool:

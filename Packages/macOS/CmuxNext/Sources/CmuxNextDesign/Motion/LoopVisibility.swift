@@ -168,5 +168,5 @@ public import QuartzCore
 }
 
 /// The app's ``LoopHost`` (CmuxHomeCore): a Shared view that cannot see its window takes one
-/// injected (p14-energy-115) and its loops follow this host's window like the app's own.
+/// injected and its loops follow this host's window like the app's own.
 extension LoopVisibility: LoopHost {}

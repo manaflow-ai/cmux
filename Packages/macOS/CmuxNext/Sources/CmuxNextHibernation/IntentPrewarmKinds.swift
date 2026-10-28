@@ -1,6 +1,6 @@
 package import CoreGraphics
 
-/// The intent prewarm's kinds beside the wake itself (p04-input-042), for the hibernated targets it holds:
+/// The intent prewarm's kinds beside the wake itself, for the hibernated targets it holds:
 /// - the cover: the page's last frame decoded off the main thread before its restore starts, so the restored
 ///   page's cover shows it from its first frame (`BrowserWakeStandIn`, `decoded: true`) instead of decoding it
 ///   (10 to 30 ms for a full page) once the switch puts the page in a window;

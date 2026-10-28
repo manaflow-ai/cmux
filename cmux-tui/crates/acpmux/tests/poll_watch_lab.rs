@@ -1,6 +1,6 @@
 //! Lab builds (`cmux-tui/lab/stability.env`) time every task poll of the
 //! daemon: a task that holds its worker past 2 ms is written once, with its
-//! spawn site, to `$ACPMUX_HOME/hangs.jsonl` (p10-stability-033), and the
+//! spawn site, to `$ACPMUX_HOME/hangs.jsonl`, and the
 //! daemon writes its slow-poll totals there when it stops.
 #![cfg(all(unix, debug_assertions, tokio_unstable, feature = "cmux-stability"))]
 

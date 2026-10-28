@@ -1,4 +1,4 @@
-//! A sequence that changes priority (p05-ipc-142): an attach stream's view
+//! A sequence that changes priority: an attach stream's view
 //! drains at input priority while it is focused, utility while it is only
 //! visible and background while it is hidden. Chrome moves a hidden
 //! renderer's task runners the same way

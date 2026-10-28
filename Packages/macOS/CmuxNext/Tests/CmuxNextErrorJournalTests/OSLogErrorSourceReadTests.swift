@@ -58,7 +58,7 @@ import Testing
         #expect(!rest.more, "a read to the end said more is waiting")
     }
 
-    /// p10-stability-095: a damaged cursor in `cursors.json` (`7:1e300`) trapped in `Int64(_:)` when no newer
+    /// A damaged cursor in `cursors.json` (`7:1e300`) trapped in `Int64(_:)` when no newer
     /// entry came. Any cursor that is not this launch's whole milliseconds starts the harvest at launch; a whole
     /// one, however far ahead, comes back unchanged.
     @Test func aDamagedCursorStartsAtLaunch() async throws {

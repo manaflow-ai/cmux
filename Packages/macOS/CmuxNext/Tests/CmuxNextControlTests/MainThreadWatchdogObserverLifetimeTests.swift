@@ -6,7 +6,7 @@ import Testing
 
 /// ``MainThreadWatchdog/stop()`` runs on any thread, so it does not touch the main run loop's observers: each one
 /// removes itself, on the main thread, at its first call after the stop (or once the watchdog is gone). After
-/// that call no heartbeat counts, and no observer is left to fire on every later turn (p10-stability-059).
+/// that call no heartbeat counts, and no observer is left to fire on every later turn.
 @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadWatchdogObserverLifetimeTests {
     #if DEBUG
     @MainActor

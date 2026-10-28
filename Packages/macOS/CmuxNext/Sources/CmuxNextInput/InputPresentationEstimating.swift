@@ -3,7 +3,7 @@ public import CmuxNextWakeups
 
 /// When content committed at a time reaches the glass, for ``InputLatencyTracker``'s
 /// ``CmuxNextInputCore/InputStage/presented`` stage. The app's is CmuxNextWakeups' `PresentationClock` (the
-/// commit's vsync plus one render-server frame plus the per-OS offset, p04-input-003); tests pass a fake.
+/// commit's vsync plus one render-server frame plus the per-OS offset); tests pass a fake.
 ///
 /// Chrome closes an `EventMetrics` at the presentation feedback of the frame that shows it
 /// (cc/metrics/compositor_frame_reporter.cc), and the feedback says how its time was found (`kVSync` and the other

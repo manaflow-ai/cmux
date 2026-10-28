@@ -3,7 +3,7 @@ import Sentry
 import Testing
 @testable import CmuxNextCrashReporting
 
-/// p12-perf-process-151: the launch's features on the Sentry scope, as the `features_hash` and `features`
+/// The launch's features on the Sentry scope, as the `features_hash` and `features`
 /// tags and the `features` context; names only, the tag cut to Sentry's length at an entry boundary.
 @Suite struct CrashFeatureScopeTests {
     private static let features = CrashFeatureScope(hash: "363b2a8f1f789985",

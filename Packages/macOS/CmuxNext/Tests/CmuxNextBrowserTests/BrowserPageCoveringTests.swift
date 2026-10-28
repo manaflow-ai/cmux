@@ -3,7 +3,7 @@ import AppKit
 import Foundation
 import Testing
 
-/// p08-startup-043. A Chromium page draws in its own child window over the cmux window, so a launch picture (a view
+/// A Chromium page draws in its own child window over the cmux window, so a launch picture (a view
 /// in the pane) is under it from the page's commit, when Chromium fills the page with its base color: while the
 /// picture shows, the page window keeps a hole over all of the page (`BrowserPageCovering`). And a Chromium page
 /// holds the keyboard as a key child window, not through the cmux window's first responder, which is how a page

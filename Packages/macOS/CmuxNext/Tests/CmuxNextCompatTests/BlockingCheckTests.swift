@@ -68,7 +68,7 @@ struct BlockingCheckTests {
         }
     }
 
-    /// The mode is resolved once, from the environment the table was made with (p02-threads-006): Debug stays
+    /// The mode is resolved once, from the environment the table was made with: Debug stays
     /// record during the push, and only `CMUX_BLOCKING_TRAP=1` traps (the flip is p02-threads-021).
     @Test func theModeIsResolvedFromTheLaunchEnvironmentOnly() {
         #expect(BlockingMode.resolved(environment: [:]) == .record)

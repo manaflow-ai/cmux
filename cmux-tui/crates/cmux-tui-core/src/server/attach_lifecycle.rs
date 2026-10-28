@@ -5,8 +5,7 @@
 //! attaches, detaching committed attaches, and view geometry replacement.
 //!
 //! A legacy attach's worker is a thread; an attach stream's is an
-//! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool
-//! (p05-ipc-079).
+//! [`attach_pump::AttachPump`] on the daemon-wide sequenced pool.
 
 use super::MessageWriter;
 use super::OutboundStream;

@@ -1,5 +1,5 @@
 // What a Markdown tab shows besides its file, kept while the host discards its hidden page
-// (`memoryDiscardInternalPages`, p07-memory-026): the mode and the scroll, anchored to the heading
+// (`memoryDiscardInternalPages`): the mode and the scroll, anchored to the heading
 // above the top of the view as Chrome's scroll anchoring keeps a node and an offset
 // (third_party/blink/renderer/core/layout/scroll_anchor.cc), so the place survives images that
 // load late and an edit of the file above it. The host asks `cmux.markdown.viewState` and gives the

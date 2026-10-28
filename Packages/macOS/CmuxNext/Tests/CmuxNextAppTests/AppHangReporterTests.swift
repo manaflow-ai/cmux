@@ -6,7 +6,7 @@ import Foundation
 import Testing
 
 /// The app's Sentry options and app-hang events: one hang watcher per process (Chrome's `HangWatcher`), so the SDK's
-/// ANR thread is off wherever the watchdog's sinks are set (p14-energy-101).
+/// ANR thread is off wherever the watchdog's sinks are set.
 @Suite struct AppHangEventTests {
     /// The reporter as the app builds it: its hang tracking from the watchdog's sinks (`AppCrashReporting`).
     private static func reporter() -> CrashReporter {

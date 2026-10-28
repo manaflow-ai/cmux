@@ -74,7 +74,7 @@ PAGE = """<!doctype html><meta charset=utf-8><title>native ui probe</title>
  style="position:fixed;left:40px;top:340px;font-size:16px">download</a>
 """ + suggestions.FIELDS
 
-# The permission rows (p01-process-062), on their own served page.
+# The permission rows, on their own served page.
 PERMISSION_ROW_NAMES = ("permission_camera", "permission_microphone", "permission_location", "permission_notifications")
 # Every row, in the order they run.
 ROWS = ("select", "context_menu", "download", "date", "datalist", "popup_window", "devtools_docked", "devtools_window",

@@ -98,7 +98,7 @@ fn local_surface_reaper_timeout_retains_production_handle() {
     assert!(pty.reaper_thread.lock().unwrap().is_none());
 }
 
-/// p02-threads-237: fifty local terminals end with their own exit statuses
+/// Fifty local terminals end with their own exit statuses
 /// through the mux's one reaper, and none of them has a wait thread. Every
 /// shell runs until the threads are counted (each waits for a line), so a
 /// wait thread per child would still be alive then.

@@ -8,8 +8,8 @@ import Darwin
 import Foundation
 import Testing
 
-/// Chromium Host REPLY frames awaited by token (`CEFHostReplies` in CEFReplyWaiters.swift, task
-/// p01-process-018) and read by `CEFHostReplyFields`: the golden body that
+/// Chromium Host REPLY frames awaited by token (`CEFHostReplies` in CEFReplyWaiters.swift)
+/// and read by `CEFHostReplyFields`: the golden body that
 /// ChromiumHost/src/chromium_host_tlv.h's TlvWriter encodes, replies before and after the await,
 /// the decode off the main thread, malformed shapes, the deadline on a manual clock, cancellation,
 /// a second wait on a token, and the host's exit.

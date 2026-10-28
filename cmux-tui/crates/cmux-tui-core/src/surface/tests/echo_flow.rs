@@ -1,5 +1,5 @@
-//! Exact echo flows on terminals whose master the daemon writes itself
-//! (p09-observability-018): a holder terminal tells a holder that granted
+//! Exact echo flows on terminals whose master the daemon writes itself:
+//! a holder terminal tells a holder that granted
 //! WRITE_FLOW about the key press before its bytes, and the output the
 //! holder streams next is that key's echo on the attach stream, once. A
 //! holder older than the capability gets no mark. A write that never

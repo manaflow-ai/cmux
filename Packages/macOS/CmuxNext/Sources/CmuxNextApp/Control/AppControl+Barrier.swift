@@ -34,7 +34,7 @@ extension AppControl {
     }
 
     /// `debug.oracle.settle` and `debug.oracle.wait_for` (p15-oracle.md section 3B) over the app's own
-    /// signals: the daemon store's settle and connection waits (p15-oracle-029), a sync round trip that reads the
+    /// signals: the daemon store's settle and connection waits, a sync round trip that reads the
     /// connection epoch before it, the motion clocks' idle waits, and one `CommitBoundary`. DEV and bench builds only.
     func registerOracleSettle(_ router: ControlRouter, services: AppServices) {
         #if DEBUG || CMUX_BENCH_HOOKS

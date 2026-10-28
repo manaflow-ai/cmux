@@ -1,5 +1,5 @@
 /// `input.resampleDrags` and `input.resampleFrameAheadMs` in cmux-next.json: how a dragged divider or
-/// edge is drawn (p04-input-040, feature `resampledDrags`).
+/// edge is drawn (feature `resampledDrags`).
 ///
 /// ```jsonc
 /// "input": {

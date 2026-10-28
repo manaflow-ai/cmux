@@ -1,7 +1,7 @@
 import os
 
 extension TerminalAttachment {
-    /// How a view's events reach it when its consumer falls 8 MiB behind (p05-ipc-099).
+    /// How a view's events reach it when its consumer falls 8 MiB behind.
     enum Delivery: Sendable, Equatable {
         /// Its own attach connection (the legacy path): the reader thread parks, the daemon's attach
         /// mailbox overflows and ends the stream with `overflow`, and the view reattaches.

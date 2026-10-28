@@ -57,7 +57,7 @@ struct AppMemoryModel: MemorySnapshotModel {
         let cache = services.cache
         let rendering = cache.terminals.keys.filter { cache.ledger.isRendering($0) }.count
         // Hidden: away from the viewport, outside the keep-alive band (whose surfaces stay resident), or
-        // shown in an off-screen window (resident until the window stays off screen 30 s, p07-memory-097).
+        // shown in an off-screen window (resident until the window stays off screen 30 s).
         let hidden = cache.terminals.filter { cache.ledger.isAway($0.key) || $0.value.session.isInOffScreenWindow }.values
         let hiddenBytes = hidden.reduce(0) { $0 + Int(clamping: $1.session.pausedNonvolatileIOSurfaceBytes) }
         return MemoryDiagnosticsSnapshot.Terminal(
@@ -73,7 +73,7 @@ struct AppMemoryModel: MemorySnapshotModel {
         if let page = services.pagePreloads.heldPage, !page.showsChromium {
             spares.append(.init(pool: "page_preload", processKind: .webkitWebContent, pid: Self.webContentProcess(of: page)))
         }
-        // Chromium's spare windows; their placeholder's renderer, when it has one, gives the pid (p07-memory-113).
+        // Chromium's spare windows; their placeholder's renderer, when it has one, gives the pid.
         // A read never builds the engine: none built, no spare window.
         for window in services.cache.chromium.built?.spareWindowRenderers ?? [] {
             spares.append(.init(pool: window.pool, processKind: .chromiumRenderer, pid: nil, rendererClients: window.rendererClients))

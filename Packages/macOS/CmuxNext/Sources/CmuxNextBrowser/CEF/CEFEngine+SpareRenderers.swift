@@ -1,6 +1,6 @@
 import Foundation
 
-/// The Chromium spare renderers (p07-memory-113): the one-spare rule and what `debug.memory` lists.
+/// The Chromium spare renderers: the one-spare rule and what `debug.memory` lists.
 extension CEFEngine {
     /// The default-off feature `chromiumOneSpareRenderer`: at most one Chromium spare renderer
     /// (``CEFSpareWindow/placeholderIsTheSpare``). Set before Chromium starts, like ``setRendererlessSpareWindows(_:)``.

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 @testable import CmuxNextComputerUse
 
-/// The Computer Use helper is reaped from a process-exit source on the spawner's reap queue (p02-threads-128),
+/// The Computer Use helper is reaped from a process-exit source on the spawner's reap queue,
 /// where a `cua-helper-v2-reap` thread used to wait in `waitpid` for as long as the helper ran on after SIGTERM.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct DisclaimedHelperSpawnerReapTests {

@@ -26,7 +26,7 @@ public nonisolated struct RemoteAnnexB {
     /// One pass over the bytes with the length of the zero run before each:
     /// a `01` after two or more zeros is a start code, and the unit before it
     /// ends where that run began. Nothing is indexed, so no input can read
-    /// past the bytes (p10-stability-093).
+    /// past the bytes.
     public nonisolated func nalRanges(_ bytes: [UInt8]) -> [Range<Int>] {
         var ranges: [Range<Int>] = []
         var unitStart: Int?

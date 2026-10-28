@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// The browser's status views and bars lay out by frame (p03-rendering-072): each places its
+/// The browser's status views and bars lay out by frame: each places its
 /// subviews in `layout()` from its bounds, with no Auto Layout, in narrow, normal and wide
 /// rooms, right to left, and with their accessories (fields, an action button).
 @MainActor @Suite(.serialized) struct BrowserStatusViewsFrameTests {

@@ -43,7 +43,7 @@ let package = Package(
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
         // The Action Button call flow (plans/cmux-next/ios-action-button-DESIGN.md).
         .package(path: "../../Packages/Shared/CmuxChiefVoiceCore"),
-        // OnceContinuation: BoundedWait's wait (p10-stability-171).
+        // OnceContinuation: BoundedWait's wait.
         .package(path: "../../Packages/Shared/CmuxSafeConcurrency"),
     ],
     targets: [

@@ -4,7 +4,7 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Testing
 
-/// The terminals' one modifier watch on the app's input tap (p04-input-019): Command pressed or released over
+/// The terminals' one modifier watch on the app's input tap: Command pressed or released over
 /// a terminal without focus reaches the terminal under the pointer and no other. The watch holds one flags
 /// subscription while some terminal is under the pointer and none otherwise, however many terminals there are.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))

@@ -135,7 +135,7 @@ export const LIVE_TAIL_POLL_MS = 1200;
 
 /// A tray row's live tail. The caller's `open` is the stop predicate: the effect also stops its
 /// poll and ignores late replies when the row closes or unmounts. The poll rests while the page is
-/// hidden (pages/shared/pagePoll.ts, p13-webui-069) and on show waits one period: a show reads
+/// hidden (pages/shared/pagePoll.ts) and on show waits one period: a show reads
 /// nothing in the agent page (check-switch-fetches.py).
 export function useLiveBackgroundTaskOutput(
   toolCallId: string | undefined,

@@ -1,7 +1,7 @@
 public import CoreGraphics
 
 /// What a sidebar section showed when its view was let go (``SidebarSectionRelease``, feature
-/// `memoryDiscardSidebarSections`, p07-memory-100): the next show builds the section again from it, as Chrome builds a
+/// `memoryDiscardSidebarSections`): the next show builds the section again from it, as Chrome builds a
 /// discarded tab again from its navigation entry's scroll and form state (content/public/browser/navigation_entry.h).
 public struct SidebarSectionState: Equatable, Sendable {
     /// The list's visible origin.

@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// A hosted page's accessibility in its page view (p01-process-049): the first read of the page
+/// A hosted page's accessibility in its page view: the first read of the page
 /// view's children sends the view's and window's tokens for the shown page, once; the host's token
 /// becomes a remote element child; a reply for an earlier page, window or context changes nothing;
 /// a refusal is kept until the page changes or Chromium builds its tree, even while a request is in

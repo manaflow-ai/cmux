@@ -70,7 +70,7 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
 import oracle  # noqa: E402  (shard_of, merge_runs, run_diff_py, check_out_dir, RUST_PRODUCTS)
-import patch_mutants  # noqa: E402  (where the seeded mutants live, p15-oracle-026)
+import patch_mutants  # noqa: E402  (where the seeded mutants live)
 
 SCHEMA = "cmux-oracle-confirmed-v1"
 SUMMARY_SCHEMA = "cmux-oracle-confirm-v1"

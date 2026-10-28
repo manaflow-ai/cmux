@@ -97,7 +97,7 @@ import Testing
         #expect(store.agents.bySurface[200]?.state == .idle)
     }
 
-    /// p06-scheduler-032: the drain applies each event with its own cause. In one batch, an agent's
+    /// The drain applies each event with its own cause. In one batch, an agent's
     /// title (automation) and the echo of the person's own change (person): the view only the agent
     /// changed flushes as automation, behind a pending key; the person's flushes in the
     /// input-response pass. Before, the whole batch applied as program and both flushed as visible.

@@ -6,7 +6,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The profile build's two profiles from one run (p08-startup-103): launch.profraw at startup complete
+/// The profile build's two profiles from one run: launch.profraw at startup complete
 /// (written, then the counters reset), rest.profraw at `debug.pgo_flush`, both non-empty, on a fake
 /// runtime that writes its counter to the file it was last given. The runtime's write at exit goes to the
 /// exit file, never over a profile the flush wrote or reported.

@@ -3,7 +3,7 @@ import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
 
-// The app side of the oracle's config suite (p15-oracle-212): reads every file of
+// The app side of the oracle's config suite: reads every file of
 // tests/oracle/corpus/config the way the app does (`JSONC`, `EffectiveSettings.merge`,
 // `SettingDescriptor`, `ShortcutBindingFormat`, `WhenClause.allowsBareKeys`) and prints one JSONL
 // dump line per file. cmux-config's `oracle_effective` example prints the same lines for the

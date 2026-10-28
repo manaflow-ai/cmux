@@ -105,7 +105,7 @@ extension URL {
 /// the row bitmaps), so it is Sendable: the folder is a constant and the decoded pictures sit
 /// behind their lock.
 ///
-/// The kept pictures are a byte-capped LRU (p07-memory-115), sized and trimmed by the host with the
+/// The kept pictures are a byte-capped LRU, sized and trimmed by the host with the
 /// transcript's other pixel caches (`MessagesLabTranscriptCaches`); a dropped picture decodes again
 /// from its file at the next ask.
 final class HomeMarkdownImages: MarkdownImageProvider, Sendable { // memory: consumer via MessagesLabMemoryConsumer (CmuxNextHome)

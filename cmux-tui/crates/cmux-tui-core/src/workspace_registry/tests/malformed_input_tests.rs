@@ -1,5 +1,5 @@
 //! Values read from disk or a peer that are too short or malformed are
-//! rejected, never indexed past their end (p10-stability-126).
+//! rejected, never indexed past their end.
 
 use super::*;
 

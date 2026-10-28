@@ -2,7 +2,7 @@ import CmuxNextChromiumRuntime
 import Testing
 
 /// A sanitizer app (`reload.sh --config asan|tsan|ubsan`) keeps Chromium and the early malloc zone off
-/// unless its launch asks for Chromium (chrome-parity p10-stability-012).
+/// unless its launch asks for Chromium.
 struct SanitizerRuntimeTests {
     private func runtime(exporting symbols: Set<String>, environment: [String: String] = [:]) -> SanitizerRuntime {
         SanitizerRuntime.detect(environment: environment, exports: { symbols.contains($0) })

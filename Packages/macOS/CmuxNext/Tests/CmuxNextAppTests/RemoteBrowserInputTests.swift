@@ -5,8 +5,8 @@ import CmuxNextRemoteView
 import Testing
 
 #if DEBUG
-/// A remote tab's page pointer once per frame (feature `pointerFrameRemoteInput`, p04-input-035): with
-/// the window's FrameInputCoalescer (p04-input-030) a frame interval's first move goes to the page at
+/// A remote tab's page pointer once per frame (feature `pointerFrameRemoteInput`): with
+/// the window's FrameInputCoalescer a frame interval's first move goes to the page at
 /// once and the rest once at the frame, to the latest point; scrolls in the middle of a gesture sum per
 /// phase; buttons, enter, leave, keys and scroll phase edges send what waits first (Chromium's
 /// rAF-aligned input and `ShouldFlushQueue`, `third_party/blink/renderer/platform/widget/input/

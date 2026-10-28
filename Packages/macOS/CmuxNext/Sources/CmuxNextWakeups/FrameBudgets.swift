@@ -93,7 +93,7 @@ public struct FrameBudgets: Sendable, Equatable {
     }
 }
 
-/// Where a frame's budgeted batch runs (p06-scheduler-201; plans/cmux-next/chrome-parity/p06-scheduler.md,
+/// Where a frame's budgeted batch runs (plans/cmux-next/chrome-parity/p06-scheduler.md,
 /// "Budget mechanics"). The feature `mainBudgetTurn` picks it at the composition root.
 public enum BudgetedBatchPlacement: Sendable, Equatable {
     /// Inside the display-link tick, after its frame-locked clients, on the fixed 60 Hz shares and

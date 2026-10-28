@@ -64,7 +64,7 @@ extension ThreadRegistry {
         ThreadDeclaration("cmux.remote-view.mock-host", qos: .userInitiated),
         ThreadDeclaration("cmux.next.mobile.unix-lane", qos: .userInitiated),
         ThreadDeclaration("com.cmuxterm.next.phone-process.stdin", policy: .perItem),
-        // Shared packages the app links (p02-threads-146): Mac Screen sharing, the VNC link and demo server, Home's
+        // Shared packages the app links: Mac Screen sharing, the VNC link and demo server, Home's
         // attachment thumbnails, and the iOS shell's attachment and dictation queues (shared with the app's packages).
         ThreadDeclaration("cmux.screen.capture", qos: .userInitiated),
         ThreadDeclaration("cmux.vnc.peer-close", qos: .userInitiated),

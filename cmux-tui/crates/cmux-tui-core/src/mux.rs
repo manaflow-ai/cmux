@@ -835,7 +835,7 @@ pub struct Mux {
     pub(crate) history: crate::history_ops::HistoryHost,
     pub(crate) surface_operation_admission: Arc<crate::server::ServerSurfaceOperationAdmission>,
     /// The daemon-wide sequenced pool: every connection's control sequence
-    /// and stream sequences run on its fixed workers (p05-ipc-073).
+    /// and stream sequences run on its fixed workers.
     pub(crate) sequenced_pool: crate::server::SequencedPool,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
@@ -849,7 +849,7 @@ pub struct Mux {
     /// Waits for the exits of the daemon's long-lived children (terminal
     /// shells, terminal hosts, Chief brains, the journal plugin) on one
     /// `mux-reaper` thread and completes each on `work`
-    /// (`cmux_threads::reaper`, p02-threads-237).
+    /// (`cmux_threads::reaper`).
     #[cfg(unix)]
     pub(crate) reaper: Arc<cmux_threads::reaper::Reaper>,
     /// Each client's git requests, run on `work` one at a time in arrival

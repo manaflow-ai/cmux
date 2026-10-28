@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import Testing
 
-/// A drain of the event inbox costs what changed (p06-scheduler-033): the workspace-list check and
+/// A drain of the event inbox costs what changed: the workspace-list check and
 /// the unread sum cost the workspaces that joined, left or changed their own count, and the sidebar
 /// is flattened (O(workspaces), once) only by a batch that changed the order, the membership or a
 /// group. A storm of title events in hidden workspaces flattens no sidebar, with or without a

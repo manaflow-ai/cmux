@@ -79,8 +79,8 @@ pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
 /// and only toward a host whose record advertises `supports_shell_activity`;
 /// older hosts reject the unknown bit.
 pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
-/// ClientHello opt-in and HostHello acknowledgement for key-press flows
-/// (p09-observability-018). On a connection that negotiated it, the flag
+/// ClientHello opt-in and HostHello acknowledgement for key-press flows.
+/// On a connection that negotiated it, the flag
 /// marks a payload whose last 8 bytes are not terminal bytes but the
 /// little-endian `flow u64` of a key press ([`flow_trailer_payload`]):
 /// - an interactive `Input` frame (request id 0): the key press the bytes

@@ -210,7 +210,7 @@ struct AgentPageHibernationTests {
         return pages
     }
 
-    /// p07-memory-031: past the Mac's budget of live hidden agent pages, the least recently shown
+    /// Past the Mac's budget of live hidden agent pages, the least recently shown
     /// ones go at once, long before the timeout, but never one hidden less than `minimumHidden`.
     /// Without a budget only the timeout lets pages go.
     @Test func pastTheBudgetTheLeastRecentlyShownPagesGoAtOnce() async throws {

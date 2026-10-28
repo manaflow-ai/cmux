@@ -159,7 +159,7 @@ import Testing
     }
 
     #if DEBUG
-    /// The pane's page view asks its pane which page shows (p01-process-230): no macOS caret accessory while the
+    /// The pane's page view asks its pane which page shows: no macOS caret accessory while the
     /// shown tab is a cmux page (``CEFTab/pageThemeSurface``), the system's placement for a web page.
     @Test func hostModePageViewHidesTheCaretAccessoryOnACmuxPage() throws {
         let runtime = try Self.runtime(hostMode: true)

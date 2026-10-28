@@ -1,6 +1,6 @@
 // Checks the Chromium Host's focus rule (CEFShim/src/embedder_focus_policy.h,
 // no CEF needed; scripts/cmux-next/test-shim-embedder-focus-cpp.sh): only a
-// page cmux marked embedder-active may take focus (task p01-process-032).
+// page cmux marked embedder-active may take focus.
 #include <cstdio>
 
 #include "../src/embedder_focus_policy.h"

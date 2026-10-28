@@ -13,8 +13,8 @@ let cefScheduleCallback: CEFShimLibrary.ScheduleFn = { context, delayMillisecond
     }
 }
 
-/// C entry for the fork's delayed work as absolute run times (`cmux_shim_schedule_delayed_fn`,
-/// p14-energy-046). `ctx` is the runtime's token, as for ``cefScheduleCallback``.
+/// C entry for the fork's delayed work as absolute run times (`cmux_shim_schedule_delayed_fn`).
+/// `ctx` is the runtime's token, as for ``cefScheduleCallback``.
 let cefScheduleDelayedCallback: CEFShimLibrary.ScheduleDelayedFn = { context, runTimeNanos, leewayNanos, precise in
     let runTime = CEFPumpSchedule.runTimeNanos(runTimeNanos)
     // SAFETY: as for cefScheduleCallback.

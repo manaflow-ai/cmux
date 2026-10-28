@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 
 /// The process's terminal echo stages: the contents gate every terminal layer's hook reads and the
-/// sink the app installs at its composition root (p04-input-094), before its first terminal.
+/// sink the app installs at its composition root, before its first terminal.
 /// Surfaces made before the install, or with none, have no stage and cost nothing.
 public final class TerminalEchoStages {
     /// Read by every terminal layer's `setContents:` hook. A layer class's hook reads the gate it was
@@ -21,7 +21,7 @@ public final class TerminalEchoStages {
 
     /// - Parameters:
     ///   - contentsGate: The process's gate.
-    ///   - traceHook: The runtime's trace hook, which sees frames in every build (p09-observability-049).
+    ///   - traceHook: The runtime's trace hook, which sees frames in every build.
     init(contentsGate: TerminalContentsGate, traceHook: GhosttyTraceHook?) {
         self.contentsGate = contentsGate
         self.traceHook = traceHook

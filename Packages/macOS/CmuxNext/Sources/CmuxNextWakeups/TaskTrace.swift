@@ -6,7 +6,7 @@ public import CmuxNextTrace
 /// matching flow-in inside its `task.run` slice, so a trace draws an arrow from each post to its run. Chrome's
 /// `TaskAnnotator` (base/task/common/task_annotator.cc) does this for every `PostTask`: `WillQueueTask` writes the
 /// flow begin with `FROM_HERE`, `RunTask` the flow end inside the `ThreadPool_RunTask` slice. A ``BackgroundWork``
-/// lane item's slice is its lane's (``LaneScheduler``, p02-threads-124), which its ``LaneJob`` puts the flow-in in;
+/// lane item's slice is its lane's (``LaneScheduler``), which its ``LaneJob`` puts the flow-in in;
 /// a main-thread item's slice is the ticket's own (``Ticket/run(priority:_:)``).
 ///
 /// Off (the `task` category is a recording category, never the black box's), a post and a run cost one relaxed

@@ -2,7 +2,7 @@ import AppKit
 import Testing
 @testable import MessagesLabHome
 
-/// The pane's main-thread callback adapters (p10-stability-044): window notifications, a later run-loop pass
+/// The pane's main-thread callback adapters: window notifications, a later run-loop pass
 /// and the local event monitors. Their owners keep them as stored values and have no `deinit` to remove them, so
 /// each adapter must stop when it is released and run its work on the main actor.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct MainThreadCallbackTests {

@@ -120,7 +120,7 @@ fn cmux_next_machine_catalog_publishes_into_the_existing_machine_api() {
 }
 
 /// The route finds `machine-catalog-publish` by the decoded `cmd`, never a
-/// substring of the line (p05-ipc-069): an escaped name publishes as its
+/// substring of the line: an escaped name publishes as its
 /// plain spelling, and an accepted or a refused line takes two parses, the
 /// head and the handler's one decode.
 #[test]

@@ -12,7 +12,7 @@ import GhosttyNextKit
 import QuartzCore
 import Testing
 
-/// The Ghostty trace hook (p09-observability-049) against ghostty-next's 048 ABI (ghostty.h): `ghostty.render`
+/// The Ghostty trace hook against ghostty-next's 048 ABI (ghostty.h): `ghostty.render`
 /// around a draw, `frame.gpu_done` at its GPU completion, a frame's first `CONTENTS_SET` as the echo stages'
 /// frame and the typing probe's contents mark, the GPU completion of a frame handed over before it, surfaces
 /// found by trace id only, and the record installed only while something reads it. A test calls the hook the
@@ -318,7 +318,7 @@ struct GhosttyTraceHookTests {
     }
     #endif
 
-    /// p03-rendering-081: with renderer-owned frames the renderer presents off main and reports each frame through
+    /// With renderer-owned frames the renderer presents off main and reports each frame through
     /// the surface's `presented_cb`: that is the probe's contents mark, with no trace hook set, and a presented frame
     /// never waits for its GPU work. A frame that was not shown marks nothing.
     @Test func thePresentedFrameMarksTheParsedPressWithoutWaitingForTheGPU() throws {
@@ -354,7 +354,7 @@ struct GhosttyTraceHookTests {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// p03-rendering-093: a renderer-presented frame passes through no `setContents:` hook, so each shown one is a
+    /// A renderer-presented frame passes through no `setContents:` hook, so each shown one is a
     /// contents set of TerminalSurfaceView in the app's RenderStats, once the app gave them; a frame not shown is not.
     @Test func eachShownPresentedFrameIsATerminalContentsSet() {
         let trace = TraceRuntime(role: .app)
@@ -372,7 +372,7 @@ struct GhosttyTraceHookTests {
         #expect(stats.totals[.contentsSets] == 2)
     }
 
-    /// p03-rendering-093: the Core Animation threads that report presented frames count them without a data race
+    /// The Core Animation threads that report presented frames count them without a data race
     /// (run under TSan: `swift test --sanitize=thread`).
     @Test func presentedFramesFromManyThreadsCountWithoutARace() async {
         let trace = TraceRuntime(role: .app)
@@ -448,7 +448,7 @@ struct GhosttyTraceHookTests {
         #expect(rig.installed.calls == 4)
     }
 
-    /// p09-observability-054: the hook turns echo sampling on, sampling keeps the hook set with nothing recording,
+    /// The hook turns echo sampling on, sampling keeps the hook set with nothing recording,
     /// and the handoff of the frame that shows the sampled press's echo is its `key.echo_frame` sample end.
     @Test func echoSamplingKeepsTheHookSetAndItsHandoffEndsTheSample() throws {
         let trace = TraceRuntime(role: .app)

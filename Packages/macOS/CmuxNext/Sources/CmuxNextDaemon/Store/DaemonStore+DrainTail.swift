@@ -1,6 +1,6 @@
 import CmuxNextWakeups
 
-/// The frame drain of the event inbox and its tail (p06-scheduler-223, ``DrainTail``).
+/// The frame drain of the event inbox and its tail (``DrainTail``).
 extension DaemonStore {
     /// The frame drain: applies, as one batch, everything up to and including the last transaction a
     /// person or the app's frontend caused, or a read-your-writes wait needs (with the tail before it,

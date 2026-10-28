@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// A runtime's helper-exit reports (p09-observability-083): each Chromium helper process's one abnormal end goes to
+/// A runtime's helper-exit reports: each Chromium helper process's one abnormal end goes to
 /// ``BrowserCrashLog/helperExited(_:)`` (the App's Sentry event) with its pid, the pid the `.ips` file and the
 /// minidump of the same process carry.
 ///

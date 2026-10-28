@@ -76,7 +76,7 @@ public final class FrameWriter: Sendable {
     ///   - sink: Where the bytes go: ``SocketFrameSink`` for a socket, a recorder in tests.
     ///   - label: The drain queue's label.
     ///   - qos: The drain queue's class, chosen by the owner from what the connection carries.
-    ///   - target: A serial queue the drain runs on (its target), nil for none (p04-input-058).
+    ///   - target: A serial queue the drain runs on (its target), nil for none.
     ///   - limit: The most bytes that may wait (not counting the step in flight).
     ///   - runStep: Runs each drain step, once per step (a hang scope); nil runs it bare.
     public init(sink: any FrameSink, label: String, qos: DispatchQoS, target: DispatchQueue? = nil,

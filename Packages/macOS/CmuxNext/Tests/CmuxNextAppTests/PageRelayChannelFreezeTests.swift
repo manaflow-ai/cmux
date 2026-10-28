@@ -9,7 +9,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// Provider freeze hooks and the page relay channels (p13-webui-066), on the production
+/// Provider freeze hooks and the page relay channels, on the production
 /// ``DaemonPageRelay`` and ``PageRelayChannel`` over a fake daemon socket that counts its open
 /// `page_relay` connections: a frozen page's relay holds no live listen, its channel closes its
 /// daemon connection 30 s after the last listener and call, a thaw gives each stream one resync,

@@ -1,4 +1,4 @@
-//! The daemon side of the oracle's config suite (p15-oracle-212): reads every
+//! The daemon side of the oracle's config suite: reads every
 //! file of `tests/oracle/corpus/config` the way cmux-config does and prints
 //! one JSONL dump line per file. `OracleConfigDump` (Swift) prints the same
 //! lines for the app; `scripts/cmux-next/oracle/gen_config.py diff` compares

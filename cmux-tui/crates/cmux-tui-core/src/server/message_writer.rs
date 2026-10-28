@@ -50,7 +50,7 @@ pub(super) struct OutboundStream {
     /// The outbound lane of a stream outside the control sequence; read and
     /// changed only under the connection's outbound lock (`set-stream-priority`).
     lane: Arc<LaneCell>,
-    /// The client's `set-stream-priority` for this stream (p05-ipc-142).
+    /// The client's `set-stream-priority` for this stream.
     pub(super) visibility: Arc<StreamVisibility>,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
@@ -60,7 +60,7 @@ pub(super) struct OutboundStream {
     /// item carries it as `"stream"` and the terminal is `stream-end`.
     pub(super) client_stream: Option<ClientStreamId>,
     /// Run when the writer takes an item of this stream while it held its
-    /// backpressure cap: the producer's drain task (p05-ipc-079), which
+    /// backpressure cap: the producer's drain task, which
     /// stopped at the cap instead of waiting for room.
     pub(super) space_hook: Arc<crate::stream_interrupt::ReadyHook>,
 }

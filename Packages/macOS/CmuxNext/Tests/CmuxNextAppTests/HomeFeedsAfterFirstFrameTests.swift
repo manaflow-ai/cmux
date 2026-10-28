@@ -10,7 +10,7 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Home and the New Tab page's feeds at launch (p08-startup-027), through the launch's own start list
+/// Home and the New Tab page's feeds at launch, through the launch's own start list
 /// (`HomeService.postLaunchFeeds`): posted after startup; a Home view or an agent page that shows moves
 /// them to right after the first frame. No Chief owner, chats feed or Cloud read starts before the first
 /// frame, and a Home view still draws the last launch's list from its cache (HomeLaunchListTests). Each

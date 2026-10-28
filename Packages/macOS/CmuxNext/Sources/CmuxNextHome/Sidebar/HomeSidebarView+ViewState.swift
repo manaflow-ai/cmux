@@ -1,7 +1,7 @@
 public import AppKit
 
-/// What a discarded Home records of its list and puts back when it is built again
-/// (p07-memory-023): the search the person typed and where the list was scrolled.
+/// What a discarded Home records of its list and puts back when it is built again:
+/// the search the person typed and where the list was scrolled.
 extension HomeSidebarView {
     /// The search field's text.
     public var searchQuery: String { list.searchQuery }

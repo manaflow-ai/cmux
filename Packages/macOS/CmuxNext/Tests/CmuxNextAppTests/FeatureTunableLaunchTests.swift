@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p12-perf-process-102: the Debug tunables a feature `replaces` become that feature's local override once, at
+/// The Debug tunables a feature `replaces` become that feature's local override once, at
 /// launch (`AppServices.launchFeatures`, `FeatureLaunchLocalOverrides`), from Debug Settings' file, so what the app reports (`resolution(of:)`,
 /// the Labs card, `features_hash`) is what it does. The Labs page's choice of the same feature goes first.
 /// Run: `swift test --filter FeatureTunableLaunchTests`.

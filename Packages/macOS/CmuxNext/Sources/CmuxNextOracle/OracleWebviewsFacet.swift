@@ -1,7 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import Foundation
 
-/// The `webviews` facet (schemas/oracle/snapshot-v1.schema.json, p15-oracle-215): each loaded cmux page's store
+/// The `webviews` facet (schemas/oracle/snapshot-v1.schema.json): each loaded cmux page's store
 /// summary, as the page itself answers the pane-protocol call `cmux.page.oracle.state`
 /// (webviews/src/protocol/oracle-state.ts): its route, selection, open panels and the SHA-256 of its draft. The
 /// host adds the page kind and the tab and pane that show it. Chromium reads a page's test state through

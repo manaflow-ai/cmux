@@ -77,8 +77,8 @@ impl Surface {
         self.write_bytes_flow(bytes, 0)
     }
 
-    /// [`Self::write_bytes`] of the key press `flow` (0: none,
-    /// p09-observability-018). The PTY owner's first read after the bytes
+    /// [`Self::write_bytes`] of the key press `flow` (0: none).
+    /// The PTY owner's first read after the bytes
     /// reached the PTY echoes it, and that read's `output` event carries
     /// `flow`, once: a hosted terminal's host stamps its read
     /// (`FLAG_INPUT_FLOW`); a master the daemon writes itself, its reader's

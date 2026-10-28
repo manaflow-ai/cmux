@@ -4,7 +4,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// p07-memory-059: an app bundle's decoded images were kept until 65 were read, then all dropped,
+/// An app bundle's decoded images were kept until 65 were read, then all dropped,
 /// outside the memory coordinator. Now they are one lossless consumer: least recently used first,
 /// a new limit frees nothing, a release frees down to it, the critical limit keeps only the images
 /// drawn in the last 2 s, and an image drawn after a release is read again.

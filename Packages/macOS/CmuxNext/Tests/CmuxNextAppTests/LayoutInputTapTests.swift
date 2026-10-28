@@ -4,7 +4,7 @@ import CmuxNextInput
 import CmuxNextWakeups
 import Testing
 
-/// The layout root's routing on the app's input tap (p04-input-019): a live root holds one intercept for scrolls,
+/// The layout root's routing on the app's input tap: a live root holds one intercept for scrolls,
 /// trackpad gestures and buttons at the layout's order; a hidden or windowless root holds none; a press through
 /// the tap focuses the pane under it, and the root never stops the press; a scroll the layout takes is consumed
 /// there, and the intercepts before it (a popup) go first.

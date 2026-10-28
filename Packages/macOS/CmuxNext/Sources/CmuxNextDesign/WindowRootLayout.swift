@@ -1,8 +1,8 @@
 public import AppKit
 
 /// Where the window root places the main pane (its content host) and the standard titlebar: a pure
-/// function of the root's bounds, the sidebar's frame and the window's metrics (chrome-parity
-/// p03-rendering-111). `WindowRootView.layout()` sets these frames once per pass, as Chrome's
+/// function of the root's bounds, the sidebar's frame and the window's metrics.
+/// `WindowRootView.layout()` sets these frames once per pass, as Chrome's
 /// `BrowserViewLayout::Layout` frames the browser window's children from its bounds
 /// (chrome/browser/ui/views/frame/browser_view_layout.cc), with no constraint solve per frame.
 ///

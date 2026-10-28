@@ -7,7 +7,7 @@ import CmuxNextMemory
 import Foundation
 import Testing
 
-/// The production wiring of `memoryAgentAndControlCaches` (p07-memory-060): off (the default) adds
+/// The production wiring of `memoryAgentAndControlCaches`: off (the default) adds
 /// none of its consumers to the app's memory coordinator; on adds the agent pane's three caches, the
 /// control service's idempotency cache and the login environment, each live in the report.
 @MainActor @Suite(.serialized) struct AgentAndControlCachesWiringTests {

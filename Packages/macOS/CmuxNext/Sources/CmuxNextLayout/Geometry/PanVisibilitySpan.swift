@@ -1,7 +1,7 @@
 import CoreGraphics
 
-/// How far the strip can pan before a pane enters or leaves the viewport or the keep-alive band
-/// (p03-rendering-026): a pan event inside the span changes no pane's visibility, so it reports
+/// How far the strip can pan before a pane enters or leaves the viewport or the keep-alive band:
+/// a pan event inside the span changes no pane's visibility, so it reports
 /// none and the visibility pass is skipped. A pane is in a rect when their overlap is wider and
 /// taller than `minimumOverlap` (`ScreenContentView.visiblePanes`, `KeepAliveBand`).
 nonisolated struct PanVisibilitySpan: Equatable, Sendable {

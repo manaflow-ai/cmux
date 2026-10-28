@@ -594,7 +594,7 @@ class SpeedTests(unittest.TestCase):
         self.assertLess(elapsed, 1.0)
 
 
-# raw-blocking-ext (p02-threads-126).
+# raw-blocking-ext.
 REPO = SCRIPTS.parents[1]
 INVENTORY_REV = "772cdfc45ac"
 EXT_RULE = next(rule for rule in guardrails.RULES if rule.id == "raw-blocking-ext")
@@ -789,7 +789,7 @@ class RawBlockingExtTests(unittest.TestCase):
         self.assertGreaterEqual(int(counts["raw-blocking-ext"]), 600, out)
 
 
-# awaited-low-priority (p02-threads-113): a low-priority task whose value main-actor code awaits.
+# awaited-low-priority: a low-priority task whose value main-actor code awaits.
 AWAITED_RULE = next(rule for rule in guardrails.RULES if rule.id == "awaited-low-priority")
 AWAITED_REV = "d842bcdc673"  # origin/perf/chrome-parity when the rule landed
 AWAITED_COUNT = 21  # threading-inventory.py --rev d842bcdc673 --rule awaited-low-priority --count

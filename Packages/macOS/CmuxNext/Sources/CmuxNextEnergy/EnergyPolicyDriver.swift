@@ -28,7 +28,7 @@ public final class EnergyPolicyDriver {
     /// - Parameters:
     ///   - source: The app's one policy source (``MainWorkScheduler/energy``).
     ///   - isEnabled: The `energySaver` feature is on; off, the saver never turns on. Nil while the session's
-    ///     value is not known yet (the local daemon's answer decides it, p12-perf-process-150): the driver then
+    ///     value is not known yet (the local daemon's answer decides it): the driver then
     ///     publishes nothing until ``resolveFeature(isEnabled:)``, so the feature is read with one value only.
     public init(source: EnergyPolicySource, isEnabled: Bool?) {
         self.source = source

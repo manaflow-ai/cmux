@@ -1,5 +1,5 @@
 // The page half of the refactor oracle's `webviews` facet (plans/cmux-next/chrome-parity/p15-oracle.md
-// section 3A, task p15-oracle-215; schemas/oracle/snapshot-v1.schema.json `facets.webviews`). The host
+// section 3A; schemas/oracle/snapshot-v1.schema.json `facets.webviews`). The host
 // (OracleWebviewsFacet, AppServices) calls `cmux.page.oracle.state` on each loaded page and adds the
 // page's kind, tab and pane; the page answers its store summary: route, selection, open panels and the
 // SHA-256 of its draft. Private text never leaves the page: a draft goes out only as `sha256:<hex>`.

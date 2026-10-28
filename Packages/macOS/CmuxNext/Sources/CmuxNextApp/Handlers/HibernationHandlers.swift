@@ -46,7 +46,7 @@ enum HibernationHandlers {
         })
     }
 
-    /// `memory.saver.<mode>` (p07-memory-065), behind `memorySaverSetting`: the coordinator takes the
+    /// `memory.saver.<mode>`, behind `memorySaverSetting`: the coordinator takes the
     /// mode in the action's turn and the validated settings write runs after it. A failed write puts
     /// the previous mode back (the effect's rollback) and reloads Settings, so the coordinator,
     /// cmux-next.json and Settings agree again; settings not loaded yet refuse before anything changes.

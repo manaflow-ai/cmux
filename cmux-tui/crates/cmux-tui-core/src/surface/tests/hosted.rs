@@ -319,7 +319,7 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
     ));
 }
 
-/// p09-observability-018: the host's echo frame names the key press the
+/// The host's echo frame names the key press the
 /// host's PTY read took, and the daemon applies that flow, not a guess of
 /// its own. A connection that did not negotiate the flag refuses it.
 #[cfg(unix)]

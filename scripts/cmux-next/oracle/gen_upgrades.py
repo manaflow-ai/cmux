@@ -90,10 +90,10 @@ for _path in (str(HERE), str(SDK)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-import hermetic_env  # noqa: E402 - sibling (p15-oracle-200): the only place a case environment is built
+import hermetic_env  # noqa: E402 - sibling: the only place a case environment is built
 from case_values import MISSING, resolve_pointer  # noqa: E402 - sibling: one JSON pointer implementation
 from cmux._protocol import ProtocolConnection  # noqa: E402
-import mock_chief  # noqa: E402 - sibling (p15-oracle-069): the mock agent of a `fixture.agent: mock` case
+import mock_chief  # noqa: E402 - sibling: the mock agent of a `fixture.agent: mock` case
 from cmux.errors import CmuxError  # noqa: E402
 from cmux.transport import JsonLineConnection  # noqa: E402 - the SDK's v1 command line (conversation-create)
 
@@ -110,7 +110,7 @@ TAG_PATTERN = "cmux-tui-v*"
 TAG_RE = re.compile(r"^cmux-tui-v(\d+)\.(\d+)\.(\d+)$")
 HEAD = "head"
 DEFAULT_COUNT = 5
-# A tag has no oracle profile (p15-oracle-201); dev keeps debug assertions, like the oracle profile.
+# A tag has no oracle profile; dev keeps debug assertions, like the oracle profile.
 TAG_PROFILE = "dev"
 SESSION = "oracle-upgrade"
 MARKER_ENV = "CMUX_ORACLE_CASE"

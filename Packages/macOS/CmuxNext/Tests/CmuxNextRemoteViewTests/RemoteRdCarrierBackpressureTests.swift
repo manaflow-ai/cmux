@@ -5,7 +5,7 @@ import Testing
 
 /// While its carrier is backed up (``RemoteRdByteCarrier/isBackedUp``) the transport sends none of the
 /// frames it produces: the caller's input stays in its outbox until the carrier says `.writable`, then
-/// reaches the host in order, with no frame lost (p07-memory-098). The carriers queued without limit,
+/// reaches the host in order, with no frame lost. The carriers queued without limit,
 /// and the bounded one ended the session past its bound instead.
 @Suite(.serialized, .timeLimit(.minutes(1)))
 struct RemoteRdCarrierBackpressureTests {

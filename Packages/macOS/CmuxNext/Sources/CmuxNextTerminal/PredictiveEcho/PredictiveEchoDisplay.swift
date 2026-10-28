@@ -35,7 +35,7 @@ protocol PredictiveEchoHost: AnyObject {
     func showPredictions(_ cells: [PredictiveEcho.Cell], cursor: PredictiveEcho.Position?)
 }
 
-/// Shows a terminal's echo predictions (p04-input-046): it feeds ``PredictiveEcho`` the bytes each key
+/// Shows a terminal's echo predictions: it feeds ``PredictiveEcho`` the bytes each key
 /// sent and the grid Ghostty draws, and puts the predicted cells on the host's overlay, a cmux layer
 /// over the surface. Not Ghostty's preedit, which cannot show a backspace over a cell.
 ///

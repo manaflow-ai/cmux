@@ -12,7 +12,7 @@
 //   <host> --framework=<CEF framework dir> [--input-doorbell=<name>]
 // With --input-doorbell, fd 5 holds the input ring (chromium_host_input_ring.h): keys, clicks,
 // pointer moves and wheel ticks, dispatched on Chromium's user-input queue and acked there
-// (host_input.h, task p01-process-042).
+// (host_input.h).
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
@@ -34,11 +34,11 @@
 // App Nap: no window of the host is on screen, so macOS may nap it. The host
 // holds a user-initiated activity while cmux shows one of its pages, latency
 // critical too while cmux is the active app, and lets App Nap apply when cmux
-// is hidden or every page is (host_page_activity.h, tasks p14-energy-128 and
-// p01-process-222). Its main thread runs user-interactive.
+// is hidden or every page is (host_page_activity.h).
+// Its main thread runs user-interactive.
 //
 // Hangs: each turn of the main run loop is a hang watch scope
-// (host_hang_watcher.h, task p01-process-084). A turn of 250 ms or more goes
+// (host_hang_watcher.h). A turn of 250 ms or more goes
 // to cmux's hang reports, one still running at 10 s gets a dump without
 // crashing, and the input a turn dispatched is acked at its end, so cmux
 // shows "Chromium is busy" when the UI thread takes no input for 2 s.
@@ -175,7 +175,7 @@ void PostToMain(std::function<void()> task) {
   CFRunLoopWakeUp(main);
 }
 
-// The fork's input calls (host_user_input.h, task p04-input-065), looked up
+// The fork's input calls (host_user_input.h), looked up
 // once at start; nullptr when the fork does not have one.
 struct ForkInputCalls {
   cmux_host::PostTaskFn post_user_input_task = nullptr;  // API 30
@@ -262,7 +262,7 @@ void SetCrashDumpLocation(const std::string& root_cache) {
   setenv("BREAKPAD_DUMP_LOCATION", database.c_str(), 1);
 }
 
-// A kWheel frame to its page (task p04-input-063), with its scroll phase,
+// A kWheel frame to its page, with its scroll phase,
 // momentum phase and precise flag through the fork's wheel call, so
 // Chromium's MouseWheelPhaseHandler latches the gesture and hands the
 // momentum to the page as Chrome does with the NSEvent. Both paths get pixel
@@ -276,7 +276,7 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
   const cmux_host::Wheel wheel = cmux_host::WheelOf(frame);
   if (cmux_shim_browser_send_wheel(browser_id, wheel.x, wheel.y, wheel.dx, wheel.dy, wheel.precise ? 1 : 0,
                                    wheel.phase, wheel.momentum_phase, wheel.modifiers)) {
-    // The fork's ack of this wheel goes back as WHEEL_ACK with its seq (task p01-process-234).
+    // The fork's ack of this wheel goes back as WHEEL_ACK with its seq.
     host.WheelSent(browser_id, frame.seq, wheel.momentum_phase != cmux_host::kWheelPhaseNone);
     return;
   }
@@ -292,11 +292,11 @@ void SendWheel(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry, 
 }
 
 // One input ring frame, in the ordered stream's order, with its NSEvent's
-// time as the event time Chromium sees (EventTimeOf, task p04-input-065).
+// time as the event time Chromium sees (EventTimeOf).
 // A page's geometry moves its page view only when it changed, in this order,
 // so a click after a resize hits the resized page (HostContext::PlaceFrame,
 // task 053); wheels go to Chromium here, keys, clicks, moves and Edit
-// commands through DispatchInputFrame (host_input.mm, task p01-process-042).
+// commands through DispatchInputFrame (host_input.mm).
 void DispatchInput(cmux_host::HostContext& host, cmux_host::WheelPixelCarry& carry,
                    cmux_host::SetEventTimeFn set_event_time, const cmux_host::Header& frame) {
   if (host.PlaceFrame(frame)) return;
@@ -652,7 +652,7 @@ int main(int argc, char* argv[]) {
       cmux_host::CheckInFenceInbox(Arg(args, cmux_host::kResizeFenceSwitch));
   cmux_host::PageResizes page_resizes(fence_inbox.get(), &cmux_shim_browser_set_resize_fence);
   host.SetPageResizes(&page_resizes);
-  // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
+  // cmux_shim_load bound the fork's cmux_cef_set_energy_saver when it has
   // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
   if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   // The fork's lock delegate (API 31, task 227): cmux locks its own cursor and keys for the page
@@ -729,7 +729,7 @@ int main(int argc, char* argv[]) {
           host_main.Quit();
         });
   }
-  // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK, task p01-process-234).
+  // Chromium's ack of each wheel goes to cmux's swipe navigation (WHEEL_ACK).
   host.SetWheelAckHandler(fork_input.set_wheel_ack_handler);
   host.Attach();
 

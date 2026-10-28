@@ -65,12 +65,12 @@ final class CEFHostStart {
     /// ``attached()`` (task 019 of plans/cmux-next/chrome-parity/p01-process.md).
     var mapsClientIDs = false
     /// The attached host acks each trackpad wheel of a page (``CEFAttachedHost/acksWheels``): the swipe
-    /// navigation decides from those acks and probes no page (task p01-process-234).
+    /// navigation decides from those acks and probes no page.
     private(set) var acksWheels = false
     /// The attached host ended (``hostEnded()``) and no new one is attached yet.
     private(set) var hostGone = false
     /// The host's UI-thread watch: the busy banner and its hang reports (feature `chromiumHostHangBanner`,
-    /// `CEFRuntime.watchHostHangs(reports:)`, task p01-process-084); nil without it. One for every host:
+    /// `CEFRuntime.watchHostHangs(reports:)`); nil without it. One for every host:
     /// each attached host that acks its input dispatch reports to it.
     var hangMonitor: ChromiumHostHangMonitor?
     /// The attached host reports to ``hangMonitor``: it acks its dispatch and the remote shim has the host watch.

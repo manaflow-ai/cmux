@@ -7,8 +7,8 @@ import CmuxNextTabs
 import Foundation
 import Testing
 
-/// A workspace its window unmounts (`WindowController.releaseParked`) comes back as it was
-/// (p07-memory-033): its `WorkspaceViewRecord` keeps the strip, row, tab strip and screen bar
+/// A workspace its window unmounts (`WindowController.releaseParked`) comes back as it was:
+/// its `WorkspaceViewRecord` keeps the strip, row, tab strip and screen bar
 /// scrolls, and the next mount applies them before its first frame commits; the selected tabs stay
 /// in the window's memory. The record holds at most 2 KB for 12 panes.
 @MainActor struct WorkspaceViewRecordTests {

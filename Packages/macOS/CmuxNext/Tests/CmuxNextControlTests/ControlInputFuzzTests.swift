@@ -10,7 +10,7 @@ import Testing
 @Suite struct ControlInputFuzzTests {
     static let alphabet: [Character] = ["t", "a", "b", ":", " ", "-", "_", "w", "é", "1"]
 
-    /// One target ref and envelope, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One target ref and envelope, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try targetRefAndEnvelope(&rng)

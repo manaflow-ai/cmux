@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextWakeups
 import Testing
 
-/// WindowEvents and AppEvents (p06-scheduler-021, architecture-refactor-DESIGN.md row B): one
+/// WindowEvents and AppEvents (architecture-refactor-DESIGN.md row B): one
 /// NotificationCenter observer per window or app per name, made on the first subscriber and
 /// removed with the last; hidden subscribers get no call per post and one missed call on show.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct WindowEventsTests {
@@ -78,7 +78,7 @@ import Testing
         _ = token
     }
 
-    /// p06-scheduler-161: a capture vote makes a hidden node render (a screenshot of a hidden tab draws
+    /// A capture vote makes a hidden node render (a screenshot of a hidden tab draws
     /// its views), so its whenVisible subscribers hear what they missed in the vote's turn and every
     /// post while the vote holds, with page visibility still hidden; after the release they wait again.
     @Test func aCapturedHiddenSubscriberHearsPostsWhileTheVoteHolds() {

@@ -6,7 +6,7 @@ import Darwin
 import Testing
 
 /// Input to the Chromium host goes out at once and waits only under socket
-/// back-pressure (p04-input-038): a pointer flood to a host that has stopped
+/// back-pressure: a pointer flood to a host that has stopped
 /// reading keeps the connection, holds at most one move, one wheel and one
 /// geometry between two discrete frames, keeps the order of every discrete
 /// frame, bounds the waiting bytes, and ends a host whose socket takes

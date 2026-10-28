@@ -8,7 +8,7 @@ import Foundation
 /// (and fail as before) when the connection closes for good or after `handoffHoldLimit`. When it
 /// refuses, they go on at once. One handoff at a time: a second waits until the first's hold ends.
 ///
-/// The requests pass the hold through ``QuietHandoffGate`` without the actor (p05-ipc-091); only the
+/// The requests pass the hold through ``QuietHandoffGate`` without the actor; only the
 /// handoff itself and the hold's end run here.
 extension DaemonConnection {
     /// The handoff's own requests pass the hold.

@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextInput
 import Testing
 
-/// p03-rendering-052: with the feature `overlayTopLayer` and no page child window, a window's overlays
+/// With the feature `overlayTopLayer` and no page child window, a window's overlays
 /// draw in its own top layer (the last subview of its content view), as Blink's top layer does: no overlay
 /// panel is made, no child window is re-ordered, every overlay kind sits above a page attached as a view,
 /// and a dialog keeps the keys it had in the panel. Page child windows still move the layer into the
@@ -46,7 +46,7 @@ import Testing
         let events = InputTapTestEvents()
         let window: TopLayerWindow
         let host: WindowOverlayHost
-        /// Stands in for a Chromium page attached as a view (p03-rendering-045), below the overlays.
+        /// Stands in for a Chromium page attached as a view, below the overlays.
         let page: NSView
 
         init(styleMask: NSWindow.StyleMask = [.borderless]) {

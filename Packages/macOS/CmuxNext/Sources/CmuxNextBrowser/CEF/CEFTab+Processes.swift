@@ -11,16 +11,15 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
     }
 
     /// The pid of the renderer that hosts this tab's main frame (the fork's
-    /// `cmux_cef_browser_renderer_pid`, p14-energy-124); same-site tabs can share it. Nil before the
-    /// browser exists, while it has no renderer, on a fork without the call and in host mode
-    /// (p14-energy-124a).
+    /// `cmux_cef_browser_renderer_pid`); same-site tabs can share it. Nil before the
+    /// browser exists, while it has no renderer, on a fork without the call and in host mode.
     public var rendererPID: pid_t? {
         guard let browserID, let shim = runtime.shim else { return nil }
         let pid = shim.rendererPID(browserID)
         return pid > 0 ? pid : nil
     }
 
-    /// What this tab, as tab `id`, reports about its renderers (p14-energy-124): its main frame's renderer
+    /// What this tab, as tab `id`, reports about its renderers: its main frame's renderer
     /// pid and the renderer client ids of all its frames. Two shim calls, no system call.
     public func renderers(tab id: String) -> ProcessUsage.TabRenderers {
         let clients: [Int32] = if case .chromiumRendererClients(let ids) = contentProcesses { ids } else { [] }
@@ -29,7 +28,7 @@ extension CEFTab: BrowserProcessReporting, BrowserSubframeCrashReporting {
 
     /// Publishes this tab's ``renderers(tab:)`` as tab `id` into `directory` now, and again whenever they may
     /// change (``onRenderersMayChange``) while `isCurrent` says `id` still names this page: one tab per
-    /// change, so the busy watchdog reads every tab's renderers off the main thread (p14-energy-124).
+    /// change, so the busy watchdog reads every tab's renderers off the main thread.
     public func publishRenderers(as id: String, into directory: TabRendererDirectory, while isCurrent: @escaping (CEFTab) -> Bool) {
         directory.update(renderers(tab: id))
         onRenderersMayChange = { [weak self] in

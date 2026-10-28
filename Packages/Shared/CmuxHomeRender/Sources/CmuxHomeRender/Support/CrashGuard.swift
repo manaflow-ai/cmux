@@ -8,7 +8,7 @@ import os
 /// from a NaN width), and an out-of-range subscript or an `Int(x)` that does
 /// not fit traps the whole app. These accessors refuse or clamp instead and
 /// report the call site's first fault of the launch as an
-/// `Invariant.notFatalUntil` failure (p10-stability-099), so a wrong index
+/// `Invariant.notFatalUntil` failure, so a wrong index
 /// reaches crash reporting and the log without flooding either from a render
 /// loop.
 enum CrashGuard {

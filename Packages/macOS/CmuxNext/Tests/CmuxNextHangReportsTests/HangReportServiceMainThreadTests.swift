@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-/// The service and the main-thread part (p12-perf-process-043): a schema 3 send carries
+/// The service and the main-thread part: a schema 3 send carries
 /// `active_seconds` and both histograms, each turn goes in one report only, the ledger moves on
 /// only once a report is queued, and what is not sent survives a quit.
 /// Run: `swift test --filter HangReportServiceTests`.

@@ -13,12 +13,12 @@ import Foundation
 /// Every page shares one off-the-record profile (``CEFEngine/beginPagesProfile()``): like the WebKit pages'
 /// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
 /// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
-/// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
+/// the pages spare window the warm start built (`ChromiumWarmup`) instead of building
 /// a window in the turn that opened it. The page tabs of one pane share that pane's page window
-/// (``PageChromiumWindow``, p13-webui-063): the second page of a pane builds no window. A page tab runs no
-/// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``,
-/// p13-webui-068): only its first paint is read. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
-/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start (p08-startup-041).
+/// (``PageChromiumWindow``): the second page of a pane builds no window. A page tab runs no
+/// browser-tab document script and attaches none of their DevTools bridges (``CEFEngine/makePagesTab(_:)``):
+/// only its first paint is read. A page's ``PageChromiumOrigin`` is its tab's origin, and the slot's
+/// launch order (``CEFLaunchDeferral``, 040) answers a restored page's origin and hidden start.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {

@@ -34,7 +34,7 @@ final class BrowserProfileService {
     @ObservationIgnored private(set) var importStore: ImportedDataStore?
     @ObservationIgnored private var saving: Task<Void, any Error>?
     /// The file's launch read, signaled once it applied: `loaded()` and every browser tab's page at launch
-    /// wait for it (`TabContentCache.enginesAwait`, p08-startup-028).
+    /// wait for it (`TabContentCache.enginesAwait`).
     @ObservationIgnored let loadRead = LaunchReadEvent("BrowserProfiles.loaded")
     /// The home daemon's records follow (``observeHomeRecords()``); nil until the file was read.
     @ObservationIgnored var homeRecordsObservation: ServiceObservation<ObservationTrigger<Bool>>?
@@ -63,7 +63,7 @@ final class BrowserProfileService {
         self.file = file
         self.importStore = importStore
         // Until the book applied, no engine makes a tab's page with a profile chosen from an empty book (a deleted
-        // profile's tab would reopen its store; p08-startup-028, Chrome opens a profile's windows from its loaded callback).
+        // profile's tab would reopen its store, Chrome opens a profile's windows from its loaded callback).
         services.cache.enginesAwait = loadRead
         let mainWork = services.mainWork
         // task-owner: one-shot launch read of a small JSON file. R-hop: read on the file's actor, off main; the book

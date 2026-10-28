@@ -1,4 +1,4 @@
-// One ordered input stream (task p01-process-092; chromium_host_wire.h, "One
+// One ordered input stream (chromium_host_wire.h, "One
 // ordered input stream"): the ordered frame's order word, the outbox keeping
 // a state op that input was written after, the ring queue never folding input
 // across a control seq, the OrderedStream's two checks, and the ordering case:

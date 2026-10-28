@@ -17,7 +17,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../CmuxFuzzSupport"),
-        // The portable lock the OSAllocatedUnfairLock stand-in forwards to (p10-stability-172).
+        // The portable lock the OSAllocatedUnfairLock stand-in forwards to.
         .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [

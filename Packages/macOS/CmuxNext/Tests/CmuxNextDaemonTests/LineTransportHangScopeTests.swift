@@ -9,8 +9,8 @@ import Testing
 /// for a line from the app, sends a second and exits. The counts are read at close, after the reader
 /// saw EOF: two lines give exactly two scopes and none still open, where a scope around `read(2)`
 /// would give a third enter (the read that saw EOF) or a scope left open. The app's one line goes out in
-/// one `daemon.write` scope on the writer's drain queue (p09-observability-069). Each event's handler and
-/// the close run on the connection's decode lane (p05-ipc-144), each in one `daemon.decode` scope.
+/// one `daemon.write` scope on the writer's drain queue. Each event's handler and
+/// the close run on the connection's decode lane, each in one `daemon.decode` scope.
 @Suite(.timeLimit(.minutes(1))) struct LineTransportHangScopeTests {
     enum Seen: Sendable {
         case event(name: String, open: [ScopeStackHangWatch.Scope])

@@ -60,7 +60,7 @@ public nonisolated struct HoverCardMotion: Equatable, Sendable {
     /// at least ``entryOffset`` of clear room around the card (`PopupHostView.travelMargin`).
     ///
     /// Every fade runs on the content view's layer opacity, on the render server; the window's
-    /// `alphaValue` stays 1 (chrome-parity task p03-rendering-105). An `animator().alphaValue`
+    /// `alphaValue` stays 1. An `animator().alphaValue`
     /// fade made AppKit set the window's alpha in the window server once per frame from the main
     /// thread, and a glass card ignores window alpha. Chromium fades a widget's layer the same way
     /// (ui/wm/core/window_animations.cc `AnimateShowWindowCommon`), and a popup's open already

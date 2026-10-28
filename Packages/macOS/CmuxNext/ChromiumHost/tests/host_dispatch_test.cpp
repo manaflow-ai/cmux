@@ -10,8 +10,8 @@
 // go to cmux's pushed policy in Chromium's ids, never to a handler; a page's
 // accessibility token comes back in its REPLY; a page window whose layers
 // are hosted is detached; a page view moves only when its geometry changed
-// (task 053); the host holds its App Nap activity while a page shows (task
-// p14-energy-128); the fork's lock delegate reaches cmux as CMUX_SHIM_LOCK
+// (task 053); the host holds its App Nap activity while a page shows;
+// the fork's lock delegate reaches cmux as CMUX_SHIM_LOCK
 // while cmux's handler is on (task 229); a bad message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <algorithm>
 #include <cstdio>
@@ -601,7 +601,7 @@ void DevToolsPlacementView() {
   Check(shim.calls.empty(), "the shim forgets a closed browser's placement itself");
 }
 
-// The host installs no focus handler (task p01-process-032): the shim grants a
+// The host installs no focus handler: the shim grants a
 // focus request only for a page cmux marked embedder-active
 // (CEFShim/src/embedder_focus_policy.h). cmux installing its in-process
 // handler over the wire changes nothing, and embedder-active reaches the shim.
@@ -1389,7 +1389,7 @@ void GeometryStatsReply() {
   Expect(f.delegate.calls, {"initialize /root", "bad a malformed geometry stats request"}, "fields are bad");
 }
 
-// cmux_shim_password_reveal (task p01-process-025): the shim's done answers
+// cmux_shim_password_reveal: the shim's done answers
 // the op's token with one bytes field, or none when it found no password.
 Message RevealRequest(uint32_t token, const char* id) {
   Writer w;
@@ -1520,7 +1520,7 @@ void PageDisplayFollowsCreation() {
   Expect(shim.calls, {"display 3 4 -1440,200"}, "a created browser's display goes to the fork at once");
 }
 
-// The host shim's cmux_shim_set_energy_saver, as SetEnergySaver takes it (task p14-energy-045).
+// The host shim's cmux_shim_set_energy_saver, as SetEnergySaver takes it.
 int RecordEnergySaver(int enabled, const char* exempt_scheme) {
   shim.calls.push_back("saver " + std::to_string(enabled) + " " + (exempt_scheme ? exempt_scheme : "<null>"));
   return 1;
@@ -1722,7 +1722,7 @@ void HostSwitchesFitTheHostsLoop() {
 
 // The log the host's Chromium writes: the spawn's --log-file when INITIALIZE
 // names none, as cmux's runtime does in host mode, so the supervisor finds a
-// crashed host's last lines there (host_switches.h, p01-process-085).
+// crashed host's last lines there (host_switches.h).
 void HostLogFileIsTheSpawnsUnlessInitializeNamesOne() {
   const std::string spawn = "/root/ChromiumHost/chromium-host.log";
   Check(cmux_host::HostLogFile(std::nullopt, spawn) == spawn, "no log in INITIALIZE: the spawn's");

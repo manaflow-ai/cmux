@@ -5,7 +5,7 @@
 //! (`SessionMeta`) and a bounded tail of the running turn: the trailing message text of the
 //! error comparison (`stream.rs`, at most 64 KB), the last stderr lines, the queue and the
 //! outcomes of recent prompts. [`Session::retained_bytes`] adds them up for the daemon's memory
-//! report (p07-memory-091: bytes per consumer, top sessions); [`Session::trim_to_tail`] gives
+//! report (bytes per consumer, top sessions); [`Session::trim_to_tail`] gives
 //! back their spare capacity, which a long message leaves behind after it ends. Chrome's
 //! `MemoryConsumer` model: the report says what each consumer holds, the release frees what it
 //! can rebuild (`base/memory_coordinator/memory_consumer.h`). The trim is lossless: it keeps
@@ -105,7 +105,7 @@ impl Hub {
     }
 
     /// Trims every session to its tail ([`Session::trim_to_tail`]); the bytes given back. The
-    /// release a memory consumer of session state runs under pressure (p07-memory-091).
+    /// release a memory consumer of session state runs under pressure.
     pub fn trim_sessions_to_tail(&self) -> u64 {
         let sessions: Vec<Arc<Session>> =
             self.sessions.lock_or_recover().values().cloned().collect();

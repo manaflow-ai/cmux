@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The app tells the local daemon Energy Saver only on an edge (p14-energy-033): the first policy it
+/// The app tells the local daemon Energy Saver only on an edge: the first policy it
 /// follows is no edge, a policy change that keeps the saver is none, and each new connection of the
 /// store is told the current value once (cmux-tui-core server/energy_op.rs answers `energy.set`).
 @MainActor @Suite(.serialized) struct DaemonEnergyEdgesTests {

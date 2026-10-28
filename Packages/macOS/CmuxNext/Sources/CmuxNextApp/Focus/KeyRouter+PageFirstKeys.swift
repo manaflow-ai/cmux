@@ -48,7 +48,7 @@ extension KeyRouter {
     }
 }
 
-// A page's keyboard lock (`navigator.keyboard.lock()`, task p01-process-229): while the hosted page that
+// A page's keyboard lock (`navigator.keyboard.lock()`): while the hosted page that
 // has the keyboard holds one in its fullscreen (``KeyFacts/pageLocksKeys``), it gets the chords cmux would
 // run and no chord arms, as Chrome's KeyboardLockController lets a fullscreen page take the browser's
 // shortcuts (chrome/browser/ui/exclusive_access/keyboard_lock_controller.cc). Escape ends the lock in the

@@ -3,7 +3,7 @@ public import CoreGraphics
 
 // The Core Graphics and TextKit initializers and methods Design and Sidebar call with a pointer they
 // never use (a nil transform, pixel buffer or out-parameter), each written once so the callers stay pointer-free
-// (strict memory safety, p10-stability-074). Chromium keeps each UNSAFE_BUFFERS() in one checked
+// (strict memory safety). Chromium keeps each UNSAFE_BUFFERS() in one checked
 // helper in the same way instead of at every use (docs/unsafe_buffers.md).
 // The paths need no `unsafe` at all: CGMutablePath's add calls take their transform by value.
 

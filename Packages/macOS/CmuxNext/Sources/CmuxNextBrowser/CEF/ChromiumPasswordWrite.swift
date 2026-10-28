@@ -12,7 +12,7 @@ public import Foundation
 /// isolation domain (the import's write on the main actor), so the compiler
 /// keeps `copied()` and the buffers from being reached from two threads.
 ///
-/// Memory safety (p10-stability-067): the row buffer is this object's own allocation of
+/// Memory safety: the row buffer is this object's own allocation of
 /// `max(count, 1) * stride` bytes, and every write below stays inside row `index < count` at an offset
 /// under `stride` (the header's field offsets); the password pointers are the caller's, valid while it
 /// holds them (``init(_:afterCopy:)``).
