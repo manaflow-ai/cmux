@@ -77,7 +77,14 @@ public final class WorkspaceModel: Identifiable {
     /// records no "named by the user" flag, so that name reads as default.
     public nonisolated static func isDefaultName(_ name: String) -> Bool {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty || name == "~" { return true }
+        return name.isEmpty || name == "~" || isNumberedDefaultName(name)
+    }
+
+    /// True for the daemon's numbered default, `workspace-N`. Never renamed (name revision 0), it is
+    /// no one's choice whatever source the daemon recorded: Cmd-N sends the `workspace-N` it already
+    /// shows with its create, and daemons recorded that requested name as the user's (#26680).
+    public nonisolated static func isNumberedDefaultName(_ name: String) -> Bool {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard name.hasPrefix("workspace-") else { return false }
         let number = name.dropFirst("workspace-".count)
         return !number.isEmpty && number.allSatisfy(\.isASCII) && number.allSatisfy(\.isNumber)

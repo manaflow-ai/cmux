@@ -35,6 +35,21 @@ impl NameSource {
     pub(crate) fn for_requested(requested: bool) -> Self {
         if requested { Self::User } else { Self::Auto }
     }
+
+    /// A new workspace's name source: like `for_requested`, except that a
+    /// requested default name (`workspace-<n>`) stays automatic. The app
+    /// sends the default name it already shows with Cmd-N's create (#26680),
+    /// which is no one's choice, so the chat's title may still replace it.
+    pub(crate) fn for_requested_workspace(name: Option<&str>) -> Self {
+        Self::for_requested(name.is_some_and(|name| !is_default_workspace_name(name)))
+    }
+}
+
+/// A daemon default workspace name, `workspace-<n>` (`Mux::default_workspace_name`).
+pub(crate) fn is_default_workspace_name(name: &str) -> bool {
+    name.trim()
+        .strip_prefix("workspace-")
+        .is_some_and(|number| !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Automatic callbacks carry the name revision captured before their work began.
@@ -249,8 +264,11 @@ impl NameUpdate {
             )
             .into());
         }
+        // A default name never renamed is still unnamed, whatever its recorded source: daemons
+        // before `for_requested_workspace` recorded the default name Cmd-N sends as the user's.
         let current = CurrentName {
-            unnamed: workspace.name.trim().is_empty(),
+            unnamed: workspace.name.trim().is_empty()
+                || (workspace.name_revision == 0 && is_default_workspace_name(&workspace.name)),
             source: workspace.name_source,
             revision: workspace.name_revision,
         };
