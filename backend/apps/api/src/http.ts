@@ -408,7 +408,7 @@ const OpsLive = HttpApiBuilder.group(CloudApi, "ops", (handlers) =>
         if (avatar) return "invalid" in avatar ? yield* new BadRequest({ code: "validation.invalid", message: avatar.invalid }) : "hidden" in avatar ? yield* new BadRequest({ code: "selector.not_found", message: "no such participant picture" }) : { op: payload.op, value: avatar.value, stream: "avatars", revision: "0" }
         // G8: an approval is read from the team and owner (ConnectionDO, or CloudDO for Cloud) that posted it, for its members (approval-route.ts).
         const { reader, owner } = payload.op === "integration.approval.get" ? yield* Effect.tryPromise({ try: () => approvalRoute(env, resolved, payload.params), catch: unreachable }) : { reader: resolved, owner: def.owner }
-        // Home search reads the PlanetScale projection through the read-only Hyperdrive (home-search.ts).
+        // Home search reads the PlanetScale Vitess projection through the reader Hyperdrive (home-search-mysql.ts).
         if (payload.op === "home.search") {
           const r = yield* Effect.tryPromise({ try: () => homeSearch(env, reader, (payload.params ?? {}) as SearchParams), catch: unreachable })
           if (!r.ok && r.code === "auth.forbidden") return yield* new Forbidden({ code: "auth.forbidden", message: r.message })

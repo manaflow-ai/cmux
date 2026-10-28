@@ -1,16 +1,14 @@
 import { conversation as homeConversation } from "@cmux/home-core"
 import type { Principal } from "@cmux/ownership"
-import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 import type { Env } from "./env.ts"
 
 /**
- * `home.search` (home-messaging.md sections 7 and 20): the PlanetScale projection through the
- * read-only Hyperdrive (role search-ro). Permission is membership: a hit needs a current
+ * `home.search` (home-messaging.md sections 7 and 20): the PlanetScale Vitess projection through the
+ * reader Hyperdrive (home-search-mysql.ts). Permission is membership: a hit needs a current
  * participant row for the caller, and `since_join` is honored through `visible_from_seq`.
  * Retracted messages are deleted from the projection, so they never match. Matching is a
- * case-insensitive substring (pg_trgm index); results are newest first; the snippet is 120
- * code points centered on the match (home-core snippetOf), the same hit shape as the local
- * `conversation-search`.
+ * case-insensitive substring; results are newest first; the snippet is 120 code points centered
+ * on the match (home-core snippetOf), the same hit shape as the local `conversation-search`.
  */
 
 export interface SearchParams {
@@ -36,7 +34,6 @@ export interface SearchHit {
 
 /** home-core search.ts MAX_QUERY_CHARS (the catalog caps q at 200 too). */
 const MAX_QUERY_CHARS = 200
-export const likeEscape = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`)
 
 /** Opaque cursor: the last hit's (created_at, conversation, seq). */
 export const encodeCursor = (h: SearchHit) => Buffer.from(JSON.stringify([h.created_at, h.conversation, h.seq])).toString("base64url")
@@ -79,7 +76,7 @@ export const hitOf = (row: { conversation_id: string; title: string | null; seq:
 export type SearchResult = { ok: true; value: { hits: Array<SearchHit>; cursor?: string } } | { ok: false; code: string; message: string }
 export type PreparedSearch = { readonly me: string; readonly q: string; readonly limit: number; readonly cursor: [string, string, number] | undefined }
 
-/** Validation shared by both projection dialects: the caller, the query, the limit and the cursor. */
+/** Validation of the caller, the query, the limit and the cursor. */
 export const prepareSearch = (principal: Principal, params: SearchParams): PreparedSearch | { ok: false; code: string; message: string } => {
   const me = homeConversation.actorOf(principal)
   if (!me || principal.agent) return { ok: false, code: "auth.forbidden", message: "search is for human participants" }
@@ -95,65 +92,5 @@ export const prepareSearch = (principal: Principal, params: SearchParams): Prepa
   return { me, q, limit, cursor: cursor ?? undefined }
 }
 
-/** The ordered keys of an answer for the shadow-read compare (ids and seqs, never text). */
-const searchKeys = (r: SearchResult): Array<string> =>
-  r.ok ? [...r.value.hits.map((h) => `${h.conversation}/${h.seq}`), `cursor:${r.value.cursor ?? ""}`] : [`error:${r.code}`]
-
-export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
-  // MySQL reads after the verified cutover (vitess-migration-DESIGN.md); shadow compares both first.
-  const mode = projectionReadMode(env)
-  const mysql = async () => (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)
-  if (mode === "mysql") return mysql()
-  if (mode === "shadow") return shadowRead("home.search", () => homeSearchPostgres(env, principal, params), mysql, searchKeys)
-  return homeSearchPostgres(env, principal, params)
-}
-
-const homeSearchPostgres = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> => {
-  const prepared = prepareSearch(principal, params)
-  if ("ok" in prepared) return prepared
-  const { me, q, limit, cursor } = prepared
-  if (!env.HYPERDRIVE_RO) return { ok: false, code: "home.not_configured", message: "search is not configured on this deployment" }
-  const where = [
-    "p.participant_id = $1",
-    "p.left_at IS NULL",
-    "p.kind = 'human'",
-    "s.seq > p.visible_from_seq",
-    "s.body ILIKE $2 ESCAPE '\\'"
-  ]
-  const args: Array<unknown> = [me, `%${likeEscape(q)}%`]
-  const add = (sql: string, value: unknown) => {
-    args.push(value)
-    where.push(sql.replace("?", `$${args.length}`))
-  }
-  if (params.conversation) add("p.conversation_id = ?", params.conversation)
-  if (params.author) add("s.author_id = ?", params.author)
-  if (params.kind) add("c.kind = ?", params.kind)
-  if (params.before) add("s.created_at < ?", params.before)
-  if (cursor) {
-    args.push(cursor[0], cursor[1], cursor[2])
-    const n = args.length
-    where.push(`(s.created_at, s.conversation_id, s.seq) < ($${n - 2}::timestamptz, $${n - 1}, $${n})`)
-  }
-  args.push(limit)
-  const sql = `SELECT s.conversation_id, c.title, s.seq, s.message_id, s.author_id, s.created_at, s.body
-    FROM home_participants p
-    JOIN home_message_search s ON s.conversation_id = p.conversation_id
-    JOIN home_conversations c ON c.id = p.conversation_id
-    WHERE ${where.join(" AND ")}
-    ORDER BY s.created_at DESC, s.conversation_id DESC, s.seq DESC
-    LIMIT $${args.length}`
-
-  // Loaded on first search only (as in projection.ts): pg is CommonJS with node:net.
-  const { default: pg } = await import("pg")
-  // Bounded: a short query cannot use the trigram index, so the server stops it after 3 s.
-  const client = new pg.Client({ connectionString: env.HYPERDRIVE_RO.connectionString, statement_timeout: 3000, query_timeout: 4000, connectionTimeoutMillis: 5000 })
-  try {
-    const connected = await client.connect().then(() => true, () => false)
-    const res = connected ? await client.query(sql, args).catch(() => null) : null
-    if (!res) return { ok: false, code: "search.unavailable", message: "search failed or timed out; try a longer query" }
-    const hits = res.rows.map((r) => hitOf(r, q))
-    return { ok: true, value: { hits, ...(hits.length === limit ? { cursor: encodeCursor(hits[hits.length - 1]!) } : {}) } }
-  } finally {
-    await client.end().catch(() => {})
-  }
-}
+export const homeSearch = async (env: Env, principal: Principal, params: SearchParams): Promise<SearchResult> =>
+  (await import("./home-search-mysql.ts")).homeSearchMysql(env, principal, params)

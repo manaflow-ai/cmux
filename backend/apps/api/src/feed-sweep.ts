@@ -1,10 +1,9 @@
 import type { Env } from "./env.ts"
-import { projectionReadMode, shadowRead } from "./projection-reads.ts"
 
 /**
  * Feed text sweep (feed.md 4, privacy, coordinator option A 2026-10-03). A FeedDO scrubs its
  * stored text (event params, ledger replies) on bind, so an object that gets no request keeps
- * text a stale build wrote. This cron pass pages user ids from the Postgres projection and asks
+ * text a stale build wrote. This cron pass pages user ids from the Vitess projection and asks
  * each user's FeedDO to scrub if it holds a feed. It is idempotent (the scrub marks are
  * high-water marks) and resumable: the cursor lives in one reserved FeedDO object, and a full
  * pass repeats at most once a day.
@@ -71,35 +70,16 @@ export const sweepFeedText = async (deps: SweepDeps): Promise<SweepReport> => {
 
 /** Production wiring: user ids from the projection, FeedDO stubs by user id. */
 export const sweepDeps = (env: Env): SweepDeps => ({
-  listUsers: async (after, limit) => {
-    const mode = projectionReadMode(env)
-    if (mode === "mysql") return listUsersMysql(env, after, limit)
-    if (mode === "shadow") return shadowRead("feed.users", () => listUsersPostgres(env, after, limit), () => listUsersMysql(env, after, limit), (ids) => ids)
-    return listUsersPostgres(env, after, limit)
-  },
+  listUsers: (after, limit) => listUsersMysql(env, after, limit),
   feed: (name) => env.FEED_DO.get(env.FEED_DO.idFromName(name)) as unknown as SweepFeed,
   now: () => Date.now()
 })
 
-const listUsersPostgres = async (env: Env, after: string | null, limit: number): Promise<Array<string>> => {
-    // The writer role: the read-only role may not read users (staging, 2026-10-03: "permission denied for table users").
-    const hyperdrive = env.HYPERDRIVE ?? env.HYPERDRIVE_RO
-    if (!hyperdrive) throw new Error("HYPERDRIVE binding missing")
-    const { default: pg } = await import("pg")
-    const client = new pg.Client({ connectionString: hyperdrive.connectionString, statement_timeout: 10_000, query_timeout: 15_000, connectionTimeoutMillis: 10_000 })
-    await client.connect()
-    try {
-      const r = await client.query<{ id: string }>("SELECT id FROM users WHERE ($1::text IS NULL OR id > $1) ORDER BY id LIMIT $2", [after, limit])
-      return r.rows.map((row) => row.id)
-    } finally {
-      await client.end()
-    }
-}
-
-/** The same page from the PlanetScale MySQL projection (after the verified cutover). */
+/** A page of user ids from the PlanetScale Vitess projection. */
 export const listUsersMysql = async (env: Env, after: string | null, limit: number): Promise<Array<string>> => {
-  const target = env.PS_MYSQL_RO ?? env.PS_MYSQL
-  if (!target) throw new Error("PS_MYSQL binding missing")
+  // The reader only: a projection read never goes through the writer binding.
+  const target = env.PS_MYSQL_RO
+  if (!target) throw new Error("PS_MYSQL_RO binding missing")
   const { connectMysql } = await import("./mysql-connect.ts")
   const client = await connectMysql(target)
   try {

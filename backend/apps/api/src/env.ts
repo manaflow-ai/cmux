@@ -474,18 +474,14 @@ export interface Env {
   readonly CODE_STORAGE_ORG?: string
   /** Secret: PKCS#8 PEM of that organization's ES256 key. Code automations refuse to pin without it. */
   readonly CODE_STORAGE_PRIVATE_KEY?: string
-  /** PlanetScale `cmux-next` through Hyperdrive (projection writes only). */
+  /** PlanetScale Postgres `cmux-next` through Hyperdrive: projection writes while Postgres is the primary or shadow, and the compare cron's reads. */
   readonly HYPERDRIVE?: Hyperdrive
-  /** Read-only role (search-ro, pg_read_all_data) for home.search; never used for writes. */
-  readonly HYPERDRIVE_RO?: Hyperdrive
   /** PlanetScale MySQL `cmux-next-vitess` through Hyperdrive, readwriter role (projection writes). */
   readonly PS_MYSQL?: Hyperdrive
-  /** PlanetScale MySQL reader role (home.search, directory reads). */
+  /** PlanetScale MySQL reader role: every projection read (home.search, the feed sweep). */
   readonly PS_MYSQL_RO?: Hyperdrive
   /** Projection primary: "postgres" (default) until the verified MySQL cutover, then "mysql". */
   readonly PROJECTION_PRIMARY?: string
   /** Projection shadow during dual write: "mysql" or "postgres"; unset = none. */
   readonly PROJECTION_SHADOW?: string
-  /** Where projection reads (home.search, feed sweep) go: "postgres" (default), "shadow" (Postgres answers, MySQL compared per read) or "mysql". */
-  readonly PROJECTION_READS?: string
 }

@@ -4,7 +4,7 @@ import { homeSearchMysql } from "../../apps/api/src/home-search-mysql.ts"
 
 /**
  * home.search on the MySQL projection: membership, since_join, LIKE escaping, CJK and accents,
- * paging, limits. Same cases as test-pg/home-search.test.ts plus CJK.
+ * paging, limits. The cases of the retired Postgres search test plus CJK.
  */
 const url = process.env.MYSQL_URL
 const run = url ? describe : describe.skip
