@@ -214,6 +214,7 @@ mod tests {
             (vec![], 0),
             (vec![Event::User("hello")], 100),
             (vec![Event::Agent("  a "), Event::Agent("b  ")], 100),
+            (vec![Event::Agent(&long), Event::User("next")], 37),
             (
                 vec![
                     Event::User("before"),
