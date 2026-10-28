@@ -17,7 +17,6 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
-import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
@@ -39,7 +38,7 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { quantizePickerRail } from "./pickerRailGeometry";
+import { FastToggle } from "./FastToggle";
 
 type HarnessChoice = {
   id: string;
@@ -401,6 +400,7 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarnessEnable,
     onCombo,
     fastMode,
+    speed,
     catalogRefresh,
     signedOut,
     onLogIn,
@@ -572,35 +572,6 @@ export function ModelPicker(props: ModelPickerProps) {
     const node = menu.current;
     if (node) setOpenHeight(Math.ceil(node.getBoundingClientRect().height));
   }, [menuStyle.visibility, open, openHeight]);
-  // Quantize the narrow horizontal harness rail to complete cells. A fractional viewport
-  // leaves the browser's maximum scroll position between snap points, which would expose a
-  // clipped mark at the far edge. Measure the stable menu container, never the width we set,
-  // and leave fitting rails untouched.
-  useLayoutEffect(() => {
-    if (!open || menuStyle.visibility !== "visible") return;
-    const rail = menu.current?.querySelector<HTMLElement>(".acpmux-mp-rail-scroll");
-    const container = rail?.parentElement;
-    const viewport = rail?.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
-    const list = rail?.querySelector<HTMLElement>(".acpmux-mp-rail-list");
-    if (!rail || !container || !viewport || !list) return;
-    const matchMedia = globalThis.matchMedia;
-    const ResizeObserverImpl = globalThis.ResizeObserver;
-    if (typeof matchMedia !== "function" || typeof ResizeObserverImpl !== "function") return;
-    const quantize = () => {
-      quantizePickerRail(rail, container, viewport, matchMedia.call(globalThis, "(max-width: 407px)").matches);
-    };
-    quantize();
-    const observer = new ResizeObserverImpl(quantize);
-    observer.observe(container);
-    observer.observe(list);
-    const media = matchMedia.call(globalThis, "(max-width: 407px)");
-    media.addEventListener?.("change", quantize);
-    return () => {
-      observer.disconnect();
-      media.removeEventListener?.("change", quantize);
-      rail.style.removeProperty("width");
-    };
-  }, [menuStyle.visibility, open, harnessFixed, railHarnesses.length]);
   const close = useCallback(
     (focus = true) => {
       restoreFocus.current = focus;
@@ -705,38 +676,29 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
-  useEffect(
-    () =>
-      registerPicker(modelText, () =>
-        quick !== undefined ? (open ? close() : setQuickOpen(true)) : showRef.current(),
-      ),
-    [modelText, quick, open, close],
-  );
+  useEffect(() => registerPicker(modelText, () => showRef.current()), [modelText]);
   // The footer's harness item opens this menu: its rail is the composer's harness switcher.
   const opener = props.opener;
   const compact = quick !== undefined;
   useEffect(() => {
     if (!opener) return;
-    const openMenu = () => (compact ? (open ? close() : setQuickOpen(true)) : showRef.current());
+    const openMenu = () => (compact ? setQuickOpen(true) : showRef.current());
     opener.current = openMenu;
     return () => {
       if (opener.current === openMenu) opener.current = undefined;
     };
-  }, [opener, compact, open, close]);
+  }, [opener, compact]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
-        if (quick !== undefined) {
-          if (open) close();
-          else setQuickOpen(true);
-        } else showRef.current();
+        showRef.current();
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [quick, open, close]);
+  }, []);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
@@ -1057,6 +1019,21 @@ export function ModelPicker(props: ModelPickerProps) {
   const chipShort = rowChip?.short && rowChip.short !== chipName ? rowChip.short : undefined;
   const chipFamily = rowChip?.family && rowChip.family !== (chipShort ?? chipName) ? rowChip.family : undefined;
   const chipTitle = rowChip?.title ?? chipLabel;
+  // Health is checked before a turn starts. Keep the selected harness's signed-out/expired state
+  // visible on the closed control and offer its login command without making the user send first.
+  const selectedLogin = current ? loginFor(current) : undefined;
+  const authLabel = selectedLogin !== undefined ? t("harnesses.signedOut") : undefined;
+  const authAction = current && selectedLogin !== undefined && onLogIn ? (
+    <button
+      type="button"
+      className="acpmux-picker-auth-action h-[var(--ui-row-height,28px)] flex-none cursor-pointer rounded-[var(--ui-row-radius,5px)] border-0 bg-transparent px-1.5 font-[inherit] text-detail text-danger hover:bg-hover"
+      data-auth-action="login"
+      title={authLabel}
+      onClick={() => onLogIn(current.acpmuxHarness ?? current.id, selectedLogin)}
+    >
+      {t("harness.logIn")}
+    </button>
+  ) : null;
   const enableProfile = (entry: HarnessChoice) => {
     if (entry.folder?.state !== "needs-enable" || entry.ids.includes(harness ?? "")) return false;
     onHarnessEnable?.(entry.folder.folder, entry.id);
@@ -1178,6 +1155,7 @@ export function ModelPicker(props: ModelPickerProps) {
             onMore={more}
           >
             {chipFace}
+            {authLabel && <span className="acpmux-model-auth text-detail text-danger">{authLabel}</span>}
             {/* A quiet label, as Claude Code's: the model, then its effort, and no chevron. */}
             {detail && (
               <span
@@ -1197,6 +1175,8 @@ export function ModelPicker(props: ModelPickerProps) {
               />
             )}
           </QuickModelMenu>
+          {authAction}
+          {speed && <FastToggle speed={speed} inline />}
         </>
       ) : (
         <>
@@ -1226,8 +1206,11 @@ export function ModelPicker(props: ModelPickerProps) {
             {...press}
           >
             {chipFace}
+            {authLabel && <span className="acpmux-model-auth text-detail text-danger">{authLabel}</span>}
             <ChevronIcon />
           </PickerButton>
+          {authAction}
+          {speed && <FastToggle speed={speed} inline />}
         </>
       )}
       {open && (
@@ -1326,7 +1309,7 @@ export function ModelPicker(props: ModelPickerProps) {
             </ScrollArea>
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
-            <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
+            <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput
                 ref={search}
@@ -1369,7 +1352,7 @@ export function ModelPicker(props: ModelPickerProps) {
             <ScrollArea className="min-h-0 flex-1">
               <PickerOptionList
                 id={`${menuId}-models`}
-                className="acpmux-mp-models"
+                className="acpmux-mp-models p-1.5"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
                 {!searching && !starredView && folderProfiles.length > 0 && (
@@ -1553,12 +1536,14 @@ export function ModelPicker(props: ModelPickerProps) {
                 <button
                   type="button"
                   className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
-                  aria-pressed={fastModeIsOn(fastMode)}
-                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
+                  aria-pressed={fastMode.currentValue === fastMode.onValue}
+                  onClick={() =>
+                    fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
+                  }
                 >
                   <span>{fastMode.name}</span>
                   <span className="text-detail text-dim">
-                    {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
+                    {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
                   </span>
                 </button>
               </div>

@@ -77,9 +77,9 @@ export type ModelPickerProps = {
   profiles?: Readonly<Record<string, readonly PickerProfile[]>>;
   /// A short note per harness in place of "New chat" (a harness that failed to start).
   harnessNotes?: Readonly<Record<string, string>>;
-  /// The harnesses this Mac's acpmux found signed out, by acpmux id, with each one's login
-  /// command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; none of their
-  /// models can be picked, so a pick never starts a chat that fails on its first turn.
+  /// The harnesses this Mac's acpmux found signed out or expired, by acpmux id, with each one's
+  /// login command (cx-ae9eb). Their rail tab dims and lists Log In in place of models; the
+  /// selected harness also shows that state and its action on the closed model control.
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;

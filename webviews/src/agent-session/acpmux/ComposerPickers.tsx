@@ -1975,16 +1975,15 @@ export const SlashIcon = () => (
 );
 
 /// Level names the pane writes itself, whatever the agent calls them ("Xhigh" reads Extra High).
-/// The signed-out harnesses the picker blocks: never the one a started chat runs on, whose session
-/// already signed in (a stale or wrong health row must not lock the person out of their chat).
+/// The picker uses the same pre-turn health result for every harness, including the running one.
+/// A signed-out or expired account must be visible before a prompt is sent so the person can sign
+/// in from the model control instead of discovering the problem on the first turn.
 function pickableSignedOut(
   signedOut: Readonly<Record<string, string>>,
   summary: AcpmuxSnapshot["summary"],
 ): Readonly<Record<string, string>> {
-  const running = summary?.sessionId ? summary.harness : undefined;
-  if (!running || !(running in signedOut)) return signedOut;
-  const { [running]: _running, ...rest } = signedOut;
-  return rest;
+  void summary;
+  return signedOut;
 }
 
 const LEVEL_KEYS: Record<string, StringKey> = {
