@@ -442,7 +442,7 @@ public final class AgentPaneModel {
             guard !remoteChat, self.sessionId == sessionId, let socketPath = transport.socketPath else { return Self.unsupported("chat.btw.inline") }
             do {
                 let result = try await AcpmuxStatusClient.call(socketPath: socketPath, method: "_acpmux/btw",
-                    params: ["sessionId": sessionId, "question": question, "inline": true], deadline: .seconds(120))
+                    params: ["sessionId": sessionId, "question": question, "inline": true, "_meta": ["acpmux": ["via": "app"]]], deadline: .seconds(120))
                 guard let text = result["text"] as? String, !text.isEmpty else { return Self.unsupported("chat.btw.inline") }
                 return AgentPaneReply.success(["text": text])
             } catch {
