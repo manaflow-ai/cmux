@@ -35,9 +35,13 @@ export type QueuedMessageActionsValue = {
   /// Moves it to `index` in the whole queue (`_acpmux/queue_edit` move).
   move?: (promptId: string, index: number) => Promise<boolean>;
   /// The owner's Approve (true) or Decline of a guest's held prompt (`_acpmux/queue_approve`,
-  /// `_acpmux/queue_decline`); false when acpmux refused it.
-  answerHeld?: (promptId: string, approve: boolean) => Promise<boolean>;
+  /// `_acpmux/queue_decline`); absent when acpmux serves neither (initialize `queueApproval`).
+  answerHeld?: (promptId: string, approve: boolean) => Promise<HeldAnswer>;
 };
+
+/// How acpmux took an answer: sent; `stale`, the guest edited it since (the new text shows, and
+/// the owner answers again); `gone`, it no longer waits (answered elsewhere); `failed`, anything else.
+export type HeldAnswer = "ok" | "stale" | "gone" | "failed";
 
 /// Where a held message's Approve and Decline sit: in the line's action area (`inline`, the pick),
 /// in a compact bar under the message (`bar`), or in a ⋯ menu beside the label (`menu`). The
@@ -153,16 +157,20 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   const queued = row.queuedMessage!;
   const message = (row.incoming as { message: IncomingMessage }).message;
   const { promptId, held } = queued;
-  // Pressed and not answered yet: both buttons wait, so one click sends one answer.
+  // Pressed and not answered yet: both buttons wait, so one click sends one answer. A refusal
+  // says so quietly in the row's label (`note`), never a toast.
   const [answering, setAnswering] = useState(false);
+  const [note, setNote] = useState<"stale" | "gone">();
   const answer = (approve: boolean) => {
     if (!act?.answerHeld || answering) return;
     setAnswering(true);
-    void act.answerHeld(promptId, approve).then(
-      (ok) => ok || setAnswering(false),
-      () => setAnswering(false),
-    );
+    setNote(undefined);
+    void act.answerHeld(promptId, approve).then((result) => {
+      if (result === "stale" || result === "gone") setNote(result);
+      if (result !== "ok" && result !== "gone") setAnswering(false);
+    });
   };
+  const answers = held && act?.answerHeld !== undefined;
   const look = heldLook();
   const button = (approve: boolean) => (
     <button
@@ -199,7 +207,7 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
   );
   // Return on the focused card approves it; never from a button or a link inside it.
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (!held || event.key !== "Enter" || event.target !== event.currentTarget) return;
+    if (!answers || event.key !== "Enter" || event.target !== event.currentTarget) return;
     event.preventDefault();
     answer(true);
   };
@@ -221,18 +229,28 @@ function PersonMessageCard({ row, act }: { row: AcpmuxRow; act?: QueuedMessageAc
         onOpen={() => undefined}
         actions={
           <>
-            {held && look === "inline" && (
+            {answers && look === "inline" && (
               <span className="cv-held__actions">
                 {button(true)}
                 {button(false)}
               </span>
             )}
-            {held && look === "menu" && menu}
-            <span className="cv-received__queued">{t(held ? "queue.held.waiting" : "message.readAfterTurn")}</span>
+            {answers && look === "menu" && menu}
+            <span className="cv-received__queued">
+              {t(
+                note === "stale"
+                  ? "queue.held.stale"
+                  : note === "gone"
+                    ? "queue.held.gone"
+                    : held
+                      ? "queue.held.waiting"
+                      : "message.readAfterTurn",
+              )}
+            </span>
           </>
         }
       />
-      {held && look === "bar" && (
+      {answers && look === "bar" && (
         <div className="cv-held__actions cv-held__bar">
           {button(true)}
           {button(false)}

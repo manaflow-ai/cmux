@@ -151,6 +151,8 @@ export type QueuedPrompt = {
   /// A guest's prompt that waits for the owner's Approve or Decline (acpmux `awaitingOwner`,
   /// `_acpmux/queue_approve`): it never runs until approved (conversation/QueuedMessageCard.tsx).
   awaitingOwner?: boolean;
+  /// The revision acpmux gives it (a guest's edit makes a new one), which Approve names.
+  revision?: number;
 };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 /// A prompt's image as acpmux names it; `width`/`height` are its natural size when the record
@@ -733,6 +735,8 @@ export type AcpmuxSnapshot = {
   clockOffsetMs?: number;
   /// acpmux serves `acp.session.fork` (operations.ts), so a turn can be forked from.
   canFork?: boolean;
+  /// acpmux serves the owner's Approve and Decline of a guest's prompt (initialize `queueApproval`).
+  queueApproval?: boolean;
   canHandoff?: boolean;
   handoff?: HandoffClientState;
   permissionGroups?: PermissionClientState;

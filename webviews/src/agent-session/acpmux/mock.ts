@@ -382,6 +382,7 @@ export class MockAcpmuxSocket {
             acpmux: {
               origin: "local",
               operations: [FORK_OP, ...Object.values(HANDOFF_OPS)],
+              features: ["queueApproval"],
               handoff: { maxCapsuleBytes: 65536 },
             },
           },
@@ -490,8 +491,10 @@ export class MockAcpmuxSocket {
       case "_acpmux/queue_decline":
         this.emit(target, {
           mux: method === "_acpmux/queue_approve" ? "queue_approved" : "queue_declined",
-          msg: { promptId: params.promptId },
+          msg: { promptId: params.promptId, revision: params.revision ?? 0 },
         });
+        if (method === "_acpmux/queue_decline")
+          this.emit(target, { mux: "queue_removed", msg: { promptId: params.promptId, reason: "declined" } });
         return {};
       case "_acpmux/permission_respond":
         this.closeSeededTurn(target, "completed", String(params.optionId ?? "").startsWith("allow"));

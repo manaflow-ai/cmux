@@ -39,7 +39,7 @@ const THREE = [
   held("g-3", CY, "And log the final failure at warn, with the attempt count."),
 ];
 const here = (...viewing: Participant[]) => ({ presence: { viewing, typing: [] } });
-const title = { title: "Uploader retries" };
+const title = { title: "Uploader retries", queueApproval: true };
 
 const oneHeld = (): AcpmuxSnapshot => chat(done(), { ...title, ...here(CY), queue: [ONE] });
 const looks = {

@@ -9,7 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Participant } from "../multiplayer/participants";
-import { QueuedMessageCard, type QueuedMessageActionsValue } from "./QueuedMessageCard";
+import { QueuedMessageCard, type HeldAnswer, type QueuedMessageActionsValue } from "./QueuedMessageCard";
 import { ownQueue, queuedMessageRows } from "./queuedMessages";
 import { TurnActionsContext } from "./turnActions";
 
@@ -55,13 +55,13 @@ async function render(node: ReactNode): Promise<HTMLElement> {
   return container;
 }
 
-/// The held card with an `answerHeld` that records its calls.
-async function heldCard(row: AcpmuxRow) {
+/// The held card with an `answerHeld` that records its calls and answers `result`.
+async function heldCard(row: AcpmuxRow, result: HeldAnswer = "ok") {
   const calls: [string, boolean][] = [];
   const actions = {
     answerHeld: async (promptId: string, approve: boolean) => {
       calls.push([promptId, approve]);
-      return true;
+      return result;
     },
   } as unknown as QueuedMessageActionsValue;
   const host = await render(
@@ -99,6 +99,17 @@ test("Approve and Decline answer the held prompt by its id, once each press", as
   const again = await heldCard(row);
   await act(async () => again.button("Decline")!.click());
   expect(again.calls).toEqual([["g-1", false]]);
+});
+
+test("a guest's edit since the owner looked is said quietly in the row, and they answer again", async () => {
+  const { host, calls, button } = await heldCard(
+    rowOf([{ id: "g-1", prompt: ASK, author: CY, awaitingOwner: true }]),
+    "stale",
+  );
+  await act(async () => button("Approve")!.click());
+  expect(calls).toEqual([["g-1", true]]);
+  expect(host.querySelector(".cv-received__queued")?.textContent).toBe("Edited since you looked");
+  expect(button("Approve")!.disabled).toBe(false);
 });
 
 test("Return on the focused held card approves it", async () => {
@@ -160,13 +171,24 @@ test("the client sends queue_approve and queue_decline, and a declined prompt le
     const id = mockHost.sessionId!;
     const fromCy = { provenance: { kind: "person_message", from: CY.id, fromName: CY.name } };
     const daemon = socket as unknown as Daemon;
-    daemon.emit(id, { mux: "queued", msg: { promptId: "g-1", text: ASK, awaitingOwner: true, _meta: fromCy } });
+    daemon.emit(id, {
+      mux: "queued",
+      msg: { promptId: "g-1", text: ASK, awaitingOwner: true, revision: 0, _meta: fromCy },
+    });
     daemon.emit(id, { mux: "queued", msg: { promptId: "g-2", text: "Keep it short", awaitingOwner: true, _meta: fromCy } });
     await until(() => shown.queue?.length === 2);
+    expect(shown.queueApproval).toBe(true);
     expect(shown.queue.map((entry) => [entry.id, entry.awaitingOwner, entry.author?.id])).toEqual([
       ["g-1", true, CY.id],
       ["g-2", true, CY.id],
     ]);
+    // The guest edits it: still held, at a new revision, which Approve names.
+    daemon.emit(id, {
+      mux: "queue_updated",
+      msg: { promptId: "g-1", text: "Retry on 429 too", awaitingOwner: true, revision: 1, _meta: fromCy },
+    });
+    await until(() => shown.queue[0]?.revision === 1);
+    expect(shown.queue[0]?.awaitingOwner).toBe(true);
     // Approve: acpmux records `queue_approved`, and the prompt waits as any queued prompt.
     await client.answerHeld("g-1", true);
     await until(() => shown.queue.find((entry) => entry.id === "g-1")?.awaitingOwner === undefined);
@@ -174,9 +196,9 @@ test("the client sends queue_approve and queue_decline, and a declined prompt le
     await client.answerHeld("g-2", false);
     await until(() => shown.queue.length === 1);
     const sent = log.filter((each) => each.method.includes("queue_"));
-    expect(sent.map((each) => [each.method, each.params?.sessionId, each.params?.promptId])).toEqual([
-      ["acpmux _acpmux/queue_approve", id, "g-1"],
-      ["acpmux _acpmux/queue_decline", id, "g-2"],
+    expect(sent.map((each) => [each.method, each.params])).toEqual([
+      ["acpmux _acpmux/queue_approve", { sessionId: id, promptId: "g-1", revision: 1 }],
+      ["acpmux _acpmux/queue_decline", { sessionId: id, promptId: "g-2" }],
     ]);
     const declined = shown.rows.find((row) => row.id === "declined-g-2");
     expect(declined?.queuedMessage).toEqual({ promptId: "g-2", person: CY, declined: true });
