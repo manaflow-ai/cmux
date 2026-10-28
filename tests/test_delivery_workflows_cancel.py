@@ -126,6 +126,9 @@ class LatestWinsTests(unittest.TestCase):
                 ok, why = self.judge([tip_run], tip=sha("b"))
                 self.assertTrue(ok, why)
                 self.assertIn(str(tip_run["id"]), why)
+        rerun = run(sha("b"), ident=4, attempt=2)
+        ok, why = self.judge([rerun], tip=sha("b"), tip_jobs=[job("build-nightly-app", attempt=1), *gates(attempt=2)])
+        self.assertTrue(ok, why)
 
     def test_kept(self):
         failed = run(sha("b"), status="completed", conclusion="failure", ident=2)
@@ -145,6 +148,10 @@ class LatestWinsTests(unittest.TestCase):
                 *gates()[:-1], job("build-nightly-app", "completed", "failure")]),
             "the tip run's jobs are unread": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), tip_jobs=None),
             "its own jobs are unread": dict(runs=[run(sha("b"), ident=2)], tip=sha("b"), old_jobs=None),
+            "the tip re-run built only in an earlier attempt": dict(
+                runs=[run(sha("b"), ident=2, attempt=2)], tip=sha("b"),
+                tip_jobs=[job("build-nightly-app", attempt=1), job("decide", attempt=2)]),
+            "the tip re-run's job attempts are unread": dict(runs=[run(sha("b"), ident=2, attempt=2)], tip=sha("b")),
             "its head repository is unread": dict(runs=[{**run(sha("b"), ident=2), "head_repository": None}],
                                                   tip=sha("b")),
         }

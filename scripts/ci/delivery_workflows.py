@@ -352,7 +352,9 @@ def never_publishes(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]], *
         if not (status in WAITING_JOB_STATUSES or status == "in_progress" or (
                 status == "completed" and other.get("conclusion") == "success")):
             continue
-        problem = builds_the_same(builds, jobs_of(other))
+        # A re-run at the tip is read on its own attempt only: an earlier attempt's build is not this one's.
+        listed = jobs_of(other)
+        problem = builds_the_same(builds, None if listed is None else attempt_jobs(other, listed))
         if problem:
             why_not = f"run {other.get('id')} at the tip {tip[:12]} does not show the same build: {problem}"
             continue
