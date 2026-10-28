@@ -32,7 +32,9 @@ actor AcpmuxLaunchWarm {
                 if !succeeded { failed.append(session) }
             } catch {
                 // Capability refusal happens before dispatch, so it cannot have started a chat.
-                if case .unsupportedFeature = error as? AcpmuxStatusClient.Failure { requested.remove(session) }
+                if let failure = error as? AcpmuxStatusClient.Failure, case .unsupportedFeature = failure {
+                    requested.remove(session)
+                }
                 try Task.checkCancellation()
                 failed.append(session)
                 Logger(subsystem: "com.cmuxterm.app.next", category: "agent.launch")
