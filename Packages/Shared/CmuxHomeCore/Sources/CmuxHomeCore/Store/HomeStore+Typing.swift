@@ -36,18 +36,22 @@ extension HomeStore {
         var timers = myTypingTimers[conversation] ?? (refresh: nil, idle: nil)
         timers.idle?.cancel()
         let clock = self.clock
+        let idle = Self.typingIdle
         // A bounded, cancellable delay (the idle deadline itself), cancelled by the next change.
         timers.idle = Task { [weak self] in
-            do { try await clock.sleep(for: Self.typingIdle) } catch { return }
+            // wakeup-allow: deadline my typing ends `typingIdle` after the last change; the next change cancels it
+            do { try await clock.sleep(for: idle, tolerance: HomeWakeLeeway(delay: idle).tolerance) } catch { return }
             self?.stopTyping(in: conversation)
         }
         if !myTypingFresh.contains(conversation) {
             myTypingFresh.insert(conversation)
             myTyping.insert(conversation)
             sendTyping(true, in: conversation)
+            let refresh = Self.typingRefresh
             // A bounded, cancellable delay: the owner's refresh interval before the next `on` may go.
             timers.refresh = Task { [weak self] in
-                do { try await clock.sleep(for: Self.typingRefresh) } catch { return }
+                // wakeup-allow: deadline the owner's refresh interval before the next `on`, once per `on` sent
+                do { try await clock.sleep(for: refresh, tolerance: HomeWakeLeeway(delay: refresh).tolerance) } catch { return }
                 self?.myTypingFresh.remove(conversation)
             }
         }

@@ -42,6 +42,58 @@ pub struct Limits {
 /// `MAX_KITTY_IMAGE_BYTES`).
 pub const DEFAULT_MAX_FILE_BYTES: u64 = 10_000_000;
 
+/// Where a file-medium command's bytes are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileMedium {
+    /// `t=f`: a regular file.
+    File,
+    /// `t=t`: a temporary file, deleted once read.
+    TempFile,
+    /// `t=s`: a POSIX shared-memory object, unlinked once read.
+    SharedMemory,
+}
+
+impl FileMedium {
+    fn of(medium: command::Medium) -> Option<Self> {
+        match medium {
+            command::Medium::File => Some(Self::File),
+            command::Medium::TempFile => Some(Self::TempFile),
+            command::Medium::SharedMemory => Some(Self::SharedMemory),
+            command::Medium::Direct | command::Medium::Unknown => None,
+        }
+    }
+
+    fn medium(self) -> command::Medium {
+        match self {
+            Self::File => command::Medium::File,
+            Self::TempFile => command::Medium::TempFile,
+            Self::SharedMemory => command::Medium::SharedMemory,
+        }
+    }
+}
+
+/// The read one file-medium command asks for: what a deferring rewriter
+/// ([`KittyMediaRewriter::deferring`]) hands to the process that may open
+/// files.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaRequest {
+    pub medium: FileMedium,
+    /// The command's payload as sent: the base64 path or object name.
+    pub name: Vec<u8>,
+    /// The `O` key: where the bytes start.
+    pub offset: u64,
+    /// The `S` key: how many bytes, 0 for the rest.
+    pub size: u64,
+}
+
+impl MediaRequest {
+    /// The bytes, at most `max_bytes`, with every check the rewriter
+    /// applies when it reads them itself.
+    pub fn read(&self, max_bytes: u64) -> Result<Vec<u8>, MediaRefusal> {
+        media::read(self.medium.medium(), &self.name, self.offset, self.size, max_bytes)
+    }
+}
+
 impl Default for Limits {
     fn default() -> Self {
         Self { max_file_bytes: DEFAULT_MAX_FILE_BYTES, max_held_bytes: 8 * 1024 }

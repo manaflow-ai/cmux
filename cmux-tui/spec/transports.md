@@ -495,6 +495,8 @@ it does for any other capability, and the reply stays `{}`.
 | --- | --- |
 | Direct local peer on the Unix socket, with `api_revision` equal to the daemon's (declared in `set-client-info`) | all four |
 | Direct local peer at any other revision, or with no declared revision | `attach-streams-v1` |
+| Framed bridge (`bridge-hello` with `bridge-frames-v1`, below) with `api_revision` equal to the daemon's | `ipc-frames-v2`, `attach-streams-v1`, `attach-frames-v1` |
+| Framed bridge at any other revision, or with no declared revision | `attach-streams-v1` |
 | Bridge that the daemon identifies at accept | `attach-streams-v1` |
 | Unverified Unix peer | `attach-streams-v1` |
 | WebSocket | none |
@@ -524,6 +526,35 @@ ends come from one build. A bridge that the daemon does not identify reaches
 it as a direct peer. The dialing client knows about the bridge, so it echoes
 only `attach-streams-v1` until the bridge can carry frames
 (`bridge-frames-v1`, p05-ipc-161).
+
+A bridge that reads frames says so on its own connection. When `identify`
+lists `bridge-hello-v1`, the bridge may send
+`{"cmd":"bridge-hello","features":["bridge-frames-v1"]}` as the
+connection's very first line. The reply is `{"features": [...]}`, the
+features that the daemon took. The far client's `client-hello` window stays
+open behind it. The daemon takes `bridge-frames-v1` only from a peer that
+the kernel showed to be of the daemon's user, with no role, and not the
+phone host's lane. The connection is then a framed bridge. It may get
+frames at the daemon's revision, but never `terminal-output-ring-v1`,
+because a bridge cannot pass a descriptor. A `bridge-hello` anywhere else
+is `bridge_hello.window_closed`, and off a local Unix connection it is
+`bridge_hello.local_only`. An error closes the hello window, as for
+`client-hello`. A daemon that does not list `bridge-hello-v1` would take
+the line as the connection's first line, so a bridge never sends it there.
+
+The SSH bridge (`cmux-remote`, service `mux-control`) can carry frames. Its
+remote end lists `bridge-frames-v1` in the open features of the mux stream,
+next to `mux-input-v1`. With it, both ends read a message that starts with
+`0xFF` by its 16-byte header, never as a line. A header that fails
+validation, or a payload over the line budget of its direction, ends the
+connection before any payload byte is read. Every item of one attach
+stream uses one lane per direction: frames, lines that name the stream, and
+replies to requests that name it. A `send` that names a stream stays a JSON
+line. The local end of a bridge whose remote end did not list the feature
+refuses a frame and closes the connection. The remote end opens its daemon
+connection with `bridge-hello` (above) when that daemon lists
+`bridge-hello-v1`, so the far client is a framed bridge there: the daemon
+grants it frames at its revision, and never the ring.
 
 Each `set-client-info` first removes every grant that the connection's
 current state does not allow, for example after an `api_revision` other
