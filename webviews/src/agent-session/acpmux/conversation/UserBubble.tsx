@@ -14,7 +14,7 @@
 // once sent). A long prompt opens collapsed on its first ten lines with Show more, and a pasted
 // block is a chip that opens in place (PromptText.tsx); Copy still copies the whole prompt.
 import { memo, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { AcpmuxRow, PromptImage } from "../model";
+import type { AcpmuxRow, PromptContentPart, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { liftInlineImages, withoutDataUris } from "../inlineImages";
@@ -23,7 +23,7 @@ import { ChevronLeft, ChevronRight, FileDoc, ImageIcon, Pencil, Spinner } from "
 import { ImageViewerContext } from "./imageViewerContext";
 import { useStableImage } from "./imageEntries";
 import { PromptText } from "./PromptText";
-import { InlinePromptContent, orderedMedia } from "./InlinePromptContent";
+import { InlinePromptContent, isStripMedia } from "./InlinePromptContent";
 import { recordedPromptParts } from "../inlinePrompt";
 import { useComposerSettings } from "../composerSettings";
 import { attachmentPath, FileAttachment, type FileAttachmentInfo } from "../FileAttachment";
@@ -51,14 +51,10 @@ export function UserBubble({
   const resend = row.resend ?? row.text ?? text;
   // Only a recorded companion relation or an exact retained original path proves that a
   // file belongs to an image. An unrelated file after an image must remain visible on replay.
-  const originals = new Set(
-    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
-  );
+  // The ordered bubble below skips them by the same rule.
+  const originals = imageOriginals(row);
   const recorded = row.inlineParts?.flatMap((part): FileAttachmentInfo[] =>
-    part.kind === "file" &&
-    part.companionOf === undefined &&
-    !part.mimeType?.startsWith("video/") &&
-    !originals.has(attachmentPath(part.uri) ?? "")
+    part.kind === "file" && !isImageOriginal(part, originals) && !part.mimeType?.startsWith("video/")
       ? [{ ...part, path: attachmentPath(part.uri) }]
       : [],
   );
@@ -74,11 +70,15 @@ export function UserBubble({
   // Edit opens it without the images (the field would draw them full size again); Copy copies it as sent.
   const imageName = t("image.viewer");
   const show = useCallback((part: string) => withoutDataUris(part, imageName), [imageName]);
-  const orderedParts = useMemo(() => recordedPromptParts(row), [row]);
+  const orderedParts = useMemo(() => {
+    const kept = imageOriginals(row);
+    return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
+  }, [row]);
   const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
   const hasInterleaved = firstMedia >= 0 && orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text");
   const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
-  const shownParts = strip ? orderedParts!.filter((part) => part.kind === "text") : orderedParts;
+  const stripMedia = strip ? orderedParts!.filter(isStripMedia) : [];
+  const shownParts = strip ? orderedParts!.filter((part) => !isStripMedia(part)) : orderedParts;
   const renderImage = useCallback((image: PromptImage) => <SentImage image={image} />, []);
   const editable = useMemo(() => (editing ? liftInlineImages(row.text ?? text).text : ""), [editing, row.text, text]);
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
@@ -107,11 +107,13 @@ export function UserBubble({
           ))}
         </div>
       )}
-      {strip && (
+      {stripMedia.length > 0 && (
         <div className="cv-user__files cv-user__inline-strip" data-inline-attachment-strip="true">
-          {orderedMedia(orderedParts!).map((part, index) =>
+          {stripMedia.map((part, index) =>
             part.kind === "image" ? (
-              <span key={`${part.id}-${index}`}>{renderImage(part)}</span>
+              <span key={`${part.id}-${index}`} className="cv-user__inline-image">
+                {renderImage(part)}
+              </span>
             ) : (
               <span
                 key={`${part.kind}-${part.id ?? part.name}-${index}`}
@@ -128,11 +130,11 @@ export function UserBubble({
       {/* No text to read draws no bubble: a prompt of images alone is its images (an empty glass
           bubble under them read as a lost message; Leo 2026-10-21). */}
       {(strip
-        ? shownParts!.some((part) => part.kind === "text" && part.text.trim())
+        ? shownParts!.some((part) => part.kind === "pasted" || (part.kind === "text" && part.text.trim()))
         : hasInterleaved || text.trim()) && (
         <div className="ui-glass cv-user__bubble selectable">
           {hasInterleaved ? (
-            <InlinePromptContent parts={shownParts!} show={show} renderImage={renderImage} />
+            <InlinePromptContent rowId={row.id} parts={shownParts!} show={show} renderImage={renderImage} />
           ) : (
             <PromptText rowId={row.id} text={text} pasted={row.pasted} show={show} />
           )}
@@ -198,6 +200,19 @@ export function UserBubble({
       )}
     </>
   );
+}
+
+/// The paths of the originals a prompt's images kept (an image the composer converted sends its
+/// original file after it).
+function imageOriginals(row: AcpmuxRow): ReadonlySet<string> {
+  return new Set(
+    row.retryAttachments?.flatMap((file) => (file.kind === "image" && file.originalPath ? [file.originalPath] : [])),
+  );
+}
+
+/// A file part that is an image's retained original: drawn as the image, never again as a file.
+function isImageOriginal(part: PromptContentPart, originals: ReadonlySet<string>): boolean {
+  return part.kind === "file" && (part.companionOf !== undefined || originals.has(attachmentPath(part.uri) ?? ""));
 }
 
 function UserFooter({

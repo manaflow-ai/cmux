@@ -28,6 +28,7 @@ function render(parts: PromptContentPart[]): HTMLElement {
     root = createRoot(host);
     root.render(
       <InlinePromptContent
+        rowId="inline-row"
         parts={parts}
         show={(text) => text}
         renderImage={(image) => <span data-kind="image">{image.id}</span>}

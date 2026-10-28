@@ -186,8 +186,9 @@ export function PromptText({
   );
 }
 
-/// One pasted block: the chip, and the paste under it once opened.
-function PasteChip({
+/// One pasted block: the chip, and the paste under it once opened. A sent prompt's inline parts
+/// draw theirs with it too (InlinePromptContent.tsx).
+export function PasteChip({
   rowId,
   index,
   text,
