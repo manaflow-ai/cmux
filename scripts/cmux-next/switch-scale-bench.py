@@ -391,12 +391,30 @@ class Bench:
                                                    build_config="bench")
             self.bench_app.socket = self.socket
             self.bench_app.features = bench_launch.features_snapshot(self.rpc("features.list", timeout=10))
+            self.fix_feature_sources()
         else:
             self.bench_app = bench_launch.BenchApp(self.opts.app, out=self.out, window=WINDOW_FRAME, screen="0",
                                                    log_name="app.log", teardown=True, perf_session="stress")
             self.bench_app.launch(timeout=180)
             self.socket = self.bench_app.socket
+            self.fix_feature_sources()
         self.connect()
+
+    def fix_feature_sources(self):
+        """A build whose features.list names a source result-v1 does not know (5aad318: `build`, a state the build
+        fixes) would have every row refused: such a source is written as `default`, and results.json keeps the
+        build's own words (`feature_sources_mapped`)."""
+        snapshot = self.bench_app.features if self.bench_app else None
+        if not snapshot:
+            return
+        known = ("policy", "env", "local", "remote", "study", "default")
+        mapped = {}
+        for name, value in (snapshot[0] or {}).items():
+            if isinstance(value, dict) and value.get("source") not in known and value.get("source") is not None:
+                mapped[name] = value["source"]
+                value["source"] = "default"
+        if mapped:
+            self.results["feature_sources_mapped"] = mapped
 
     def connect(self):
         info = self.rpc("system.identify")
