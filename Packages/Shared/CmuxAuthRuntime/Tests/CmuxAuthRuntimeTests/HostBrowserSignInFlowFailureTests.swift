@@ -83,12 +83,13 @@ import Testing
         await harness.client.closeUserGate()
         harness.coordinator.start()
         await harness.waitForPendingUserRequest()
-        var callbackStarted = false
+        let started = AsyncStream<Void>.makeStream()
         let callback = Task {
-            callbackStarted = true
+            started.continuation.yield(())
+            started.continuation.finish()
             return await harness.flow.handleCallbackURL(harness.callbackURL(state: "previous-launch"))
         }
-        await harness.waitForCondition { callbackStarted }
+        for await _ in started.stream { break }
         await harness.client.openUserGate()
         await harness.coordinator.awaitBootstrapped()
 
