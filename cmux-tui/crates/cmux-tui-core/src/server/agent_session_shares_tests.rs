@@ -253,6 +253,27 @@ fn a_share_expires_on_its_timer_and_on_every_use() {
 }
 
 #[test]
+fn a_provisioning_share_arms_its_expiry_timer() {
+    let fake = FakeAcpmux::start("share-provisioning-expiry");
+    let mux = mux_with(&fake, "share-provisioning-expiry");
+    let shares = &mux.control_clients.agent_sessions.link_shares;
+    let expires = shares.insert(None, SESSION.into(), 1, 60, 1, true).unwrap()["expires_at"]
+        .as_u64()
+        .unwrap();
+    shares.serve(&mux);
+    shares.settle(&mux);
+    assert_eq!(shares.armed.lock().unwrap().as_ref().map(|(_, at)| *at), Some(expires));
+
+    shares.advance(Duration::from_secs(61));
+    shares.expired(&mux);
+    let state = shares
+        .with(None, |all, _| Ok((all[0].state, false)))
+        .unwrap();
+    assert_eq!(state, ShareState::Expired);
+    assert!(shares.armed.lock().unwrap().is_none());
+}
+
+#[test]
 fn a_share_its_uses_kicks_and_revoke_survive_a_restart() {
     let directory = std::env::temp_dir().join(format!("cmux-shares-{}", std::process::id()));
     std::fs::create_dir_all(&directory).unwrap();

@@ -572,3 +572,102 @@ fn a_room_whose_answer_could_not_be_written_is_still_deleted_with_its_host_token
         (json!("revoked"), json!(room.url))
     );
 }
+
+
+#[test]
+fn invalid_configured_rooms_refuse_creation_but_unset_keeps_local_shares() {
+    let fake = FakeAcpmux::start("room-invalid-config");
+    let mux = mux_with(&fake, "room-invalid-config");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut owner = Client::connect(&mux, "room-invalid-owner");
+    for url in ["http://example.com", "not a url", "", "   "] {
+        start_link_share_bridge(&mux, Some(url));
+        assert_code(&create(&mut owner, surface), "share.room_unreachable");
+        let listed = owner.request(json!({"cmd":"agent-session-share-list"}));
+        assert_eq!(listed["data"]["shares"], json!([]));
+    }
+    start_link_share_bridge(&mux, None);
+    let created = create(&mut owner, surface);
+    assert_eq!(created["ok"], true);
+    assert!(created["data"]["url"].is_null());
+    assert_eq!(state(&mut owner)["state"], "active");
+}
+
+#[test]
+fn retry_exhaustion_keeps_owner_cleanup_when_revocation_cannot_be_written() {
+    let room = FakeRoom::start(&[]);
+    room.shared.deletes.lock().unwrap().push_back(503);
+    let (_fake, mux, surface, _owner) = bridged("room-owner-unsaved", &room);
+    let shares = shares_of(&mux);
+    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.refuse_writes.store(true, Ordering::Relaxed);
+    let mut configured = shares.bridge.room().unwrap();
+    configured.timing.window = Duration::ZERO;
+    // Drive the retry-window exhaustion itself: its attempt to persist the revoke fails.
+    shares.bridge.runtime().unwrap().block_on(retry(
+        Arc::downgrade(&mux), id.clone(), configured,
+        Zeroizing::new(OWNER_TOKEN.to_owned()), json!({}),
+    ));
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, OWNER_TOKEN, "failed persistence must not discard the owner token");
+    assert!(!view(&mux, &id).unwrap().delete, "the failed write left no durable operation");
+    shares.refuse_writes.store(false, Ordering::Relaxed);
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, OWNER_TOKEN, "the retained credential retries cleanup");
+    let stored = shares.with(None, |all, _| Ok((all[0].state, false))).unwrap();
+    assert_eq!(stored, ShareState::Revoked);
+}
+
+#[test]
+fn revoking_before_the_put_answer_persists_cleanup_across_restart() {
+    let room = FakeRoom::start(&[]);
+    let root = std::env::temp_dir()
+        .join(format!("cmux-room-revoke-restart-{}", crate::workspace_registry::new_uuid_v4()));
+    let mux = Mux::open_persistent("revoke-restart", crate::SurfaceOptions::default(), &root)
+        .unwrap();
+    let directory = mux.session_state_directory().unwrap();
+    let shares = shares_of(&mux);
+    shares.serve(&mux);
+    let created = shares.insert(Some(&directory), SESSION.into(), 1, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.end(Some(&directory), &super::super::Named {
+        share_id: id.clone(), guest_id: None,
+    }).unwrap();
+    assert!(view(&mux, &id).unwrap().delete, "revoke persists intent before a PUT answers");
+    mux.shutdown();
+    drop(mux);
+
+    let mux = Mux::open_persistent("revoke-restart", crate::SurfaceOptions::default(), &root)
+        .unwrap();
+    start_link_share_bridge(&mux, Some(&room.url));
+    assert!(view(&mux, &id).unwrap().delete, "restart keeps the revoked provision's cleanup");
+    // A late provision response can now attach its host token to the durable intent.
+    assert!(retire(&mux, &id, &room.url, "late-host-token"));
+    shares_of(&mux).advance(Duration::from_secs(61));
+    shares_of(&mux).expired(&mux);
+    let (_, bearer, _) = room.request("DELETE");
+    assert_eq!(bearer, "late-host-token");
+    mux.shutdown();
+    drop(mux);
+    let _ = std::fs::remove_dir_all(root);
+}
+
+
+#[test]
+fn a_revoked_inflight_provision_is_not_evicted_before_its_late_host_token() {
+    let room = FakeRoom::start(&[]);
+    let (_fake, mux, surface, _owner) = bridged("room-late-capacity", &room);
+    let shares = shares_of(&mux);
+    let created = shares.insert(None, SESSION.into(), surface, 60, 1, true).unwrap();
+    let id = created["share_id"].as_str().unwrap().to_owned();
+    shares.end(None, &super::super::Named { share_id: id.clone(), guest_id: None }).unwrap();
+    for _ in 1..MAX_SHARES {
+        shares.insert(None, SESSION.into(), surface, 60, 1, false).unwrap();
+    }
+    assert_eq!(shares.insert(None, SESSION.into(), surface, 60, 1, false), Err("share.limit"));
+    delete(&mux, &id, Some(Held::Host(room.url.clone(), Zeroizing::new("late-host".into()))));
+    let (path, bearer, _) = room.request("DELETE");
+    assert_eq!(path, format!("/v1/chat-shares/{id}"));
+    assert_eq!(bearer, "late-host");
+}
