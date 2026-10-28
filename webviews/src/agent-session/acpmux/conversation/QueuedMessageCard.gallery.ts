@@ -45,6 +45,8 @@ const ALT_ID = "queued-note-alt";
 const alternate =
   (css: string, mark: (note: HTMLElement) => void): Play =>
   async (ctx) => {
+    // The eleven wait as one card (WaitingMessagesCard.tsx): opened, each draws its note.
+    await ctx.click({ selector: ".cv-waiting__toggle" });
     await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-received__queued").length >= LANES.length);
     ctx.document.getElementById(ALT_ID)?.remove();
     const style = ctx.document.createElement("style");
@@ -81,22 +83,22 @@ export default agentPaneEntry({
   ],
   variants: {
     eleven: {
-      note: "Eleven agents' messages and one prompt of the person's wait for the running turn: each message is its received card after the turn with Read after this turn (A, shipped); the composer's queue is the person's one prompt, with no fold.",
+      note: "Eleven agents' messages and one prompt of the person's wait for the running turn: the messages are one card after the turn with Read after this turn (WaitingMessagesCard.tsx); the composer's queue is the person's one prompt, with no fold.",
       snapshot: elevenAndMine,
     },
     "eleven-minimal": {
-      note: "The same in Minimal Mode: each waiting message is its one line, the note at its end.",
+      note: "The same in Minimal Mode: the card's one line, the note at its end.",
       display: MINIMAL,
       snapshot: elevenAndMine,
     },
     "note-clock": {
-      note: "Gallery only (B): a clock and a shorter After this turn.",
+      note: "Gallery only (B): a clock and a shorter After this turn (the card opened).",
       display: MINIMAL,
       snapshot: elevenAndMine,
       play: clockNote,
     },
     "note-pill": {
-      note: "Gallery only (C): a hairline Queued pill, the rest in its tooltip.",
+      note: "Gallery only (C): a hairline Queued pill, the rest in its tooltip (the card opened).",
       display: MINIMAL,
       snapshot: elevenAndMine,
       play: pillNote,

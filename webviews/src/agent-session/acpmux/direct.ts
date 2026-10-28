@@ -26,6 +26,7 @@ import type {
   PromptDelivery,
   PromptDeliveryHop,
   StartSource,
+  TurnTokenSplit,
 } from "./model";
 import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
@@ -226,6 +227,38 @@ const callOutputTokens = (update: any): number | undefined => {
   const value = Number(update?.outputTokens ?? update?.output_tokens);
   return Number.isFinite(value) && value >= 0 ? value : undefined;
 };
+const tokenCount = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0);
+/// A marked call's split: its output (`callOutputTokens`) apart from what it read, the fresh input,
+/// cache reads and cache writes acpmux sends beside it (claude_stdio/inbound.rs). Unset for a call
+/// that names no output or no input (an older acpmux).
+function callTokenSplit(update: any, output: number | undefined): TurnTokenSplit | undefined {
+  if (output === undefined || typeof update?.inputTokens !== "number") return undefined;
+  return {
+    output,
+    input: tokenCount(update.inputTokens),
+    cacheRead: tokenCount(update.cachedReadTokens),
+    cacheWrite: tokenCount(update.cachedWriteTokens),
+  };
+}
+/// A `turn_result`'s tokens (acpmux hub/turn_usage.rs: Claude Code's main loop for the turn), when
+/// it names its output and has any (an all-zero result is an empty turn, with nothing to show).
+function resultTokenSplit(msg: any): TurnTokenSplit | undefined {
+  if (typeof msg?.outputTokens !== "number") return undefined;
+  const split = {
+    output: tokenCount(msg.outputTokens),
+    input: tokenCount(msg.inputTokens),
+    cacheRead: tokenCount(msg.cacheReadTokens),
+    cacheWrite: tokenCount(msg.cacheWriteTokens),
+  };
+  return split.output + split.input + split.cacheRead + split.cacheWrite > 0 ? split : undefined;
+}
+const addSplit = (sum: TurnTokenSplit, call: TurnTokenSplit): TurnTokenSplit => ({
+  output: sum.output + call.output,
+  input: sum.input + call.input,
+  cacheRead: sum.cacheRead + call.cacheRead,
+  cacheWrite: sum.cacheWrite + call.cacheWrite,
+});
+const NO_TOKENS: TurnTokenSplit = { output: 0, input: 0, cacheRead: 0, cacheWrite: 0 };
 /// acpmux's `contextBreakdown` (a Claude Code chat's /context), or unset when it sent none.
 const contextBreakdownOf = (value: any): AcpmuxContextBreakdown | undefined =>
   value && typeof value === "object" && Array.isArray(value.categories) ? value : undefined;
@@ -1210,6 +1243,10 @@ export class AcpmuxDirectClient {
   /// `turn_started`, the running line's count (conversation/WorkingFor.tsx). Unset outside a
   /// turn, and for a turn whose start this client did not see (it missed calls before it attached).
   private turnTokens: number | undefined;
+  /// The turn's output (`turnTokens`) beside what its calls read, while every call so far named both
+  /// (claude_stdio/inbound.rs); unset from the first that did not (an older acpmux), so the line
+  /// never shows a split that leaves calls out.
+  private turnTokenSplit: TurnTokenSplit | undefined;
   /// The first seq whose usage this client holds: the attach page's first record when acpmux has
   /// older ones (older pages carry no usage), else 0. A turn that started before it has calls this
   /// client never saw, so every rebuild leaves its tokens unset. Infinity until an attach answers:
@@ -1224,7 +1261,9 @@ export class AcpmuxDirectClient {
   private queuedSends = new Set<string>();
   /// The steers the agent has not read yet, by row (the reply that was streaming when one went
   /// still streams above it; a later message means the agent read them).
-  private waitingSteers: { rowId: string; promptId?: string }[] = [];
+  private waitingSteers: readonly { rowId: string; promptId?: string }[] = [];
+  /// The rows of `waitingSteers` as the snapshot names them, made again only when that list changes.
+  private waitingSteerRows: { from: readonly { rowId: string }[]; rows: readonly string[] } | undefined;
   /// A prompt sent now to an agent that cannot steer while a turn ran (acpmux `queue_order`
   /// `next`): acpmux ends that turn (a cancel, or the agent's `end_turn`, acpmux #22808) and runs
   /// the prompt next. That end is not a Stop: its summary is `continued`, and the prompt then
@@ -1857,6 +1896,7 @@ export class AcpmuxDirectClient {
     this.goalSeq = 0;
     this.usage = undefined;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.usageFromSeq = Infinity;
     this.queue = [];
     this.queueWithdrawn = [];
@@ -2680,6 +2720,7 @@ export class AcpmuxDirectClient {
       this.takeRunningLimit(sessionId, result?.subsessionLimits, seen);
       if (this.limitsVersion === seen) return subsessionLimits(result?.subsessionLimits);
     }
+    // l10n-allow: a developer error for the limit's reader; never shown.
     throw new Error("the running limit kept changing while it was read");
   }
 
@@ -3041,6 +3082,7 @@ export class AcpmuxDirectClient {
     // those drawn or held, so nothing drawn is kept, and the session listed now is attached.
     const strayed = () => strayedFrom(watch, replyOf);
     const again = () => {
+      // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
       this.resetSessionState();
       this.copyLive = new Map();
@@ -3048,6 +3090,7 @@ export class AcpmuxDirectClient {
     };
     if (strayed()) return again();
     if (recreated || rowNow?.peer !== askedOf) {
+      // l10n-allow: an attach's internal retry bound; the pane says its own open failure.
       if (tries >= ATTACH_TRIES) throw new Error("the session changed while it was opened");
       return this.attach(sessionId, generation, keptThrough, tries + 1);
     }
@@ -3488,6 +3531,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
@@ -3850,9 +3894,14 @@ export class AcpmuxDirectClient {
       const size = Number(update.size);
       // `used` is the last call's prompt/context size. Only an explicitly reported generated
       // count belongs on the running line; adding `used` here counted the whole context again on
-      // every tool step (for example, 5 × 100K input became 500K instead of 5K output).
-      const output = callOutputTokens(update);
-      if (this.turnTokens !== undefined && isCallUsage(update) && output !== undefined) this.turnTokens += output;
+      // every tool step (for example, 5 × 100K input became 500K instead of 5K output). What the
+      // calls read stays apart, in the split, for the line's "in" and its hover.
+      if (this.turnTokens !== undefined && isCallUsage(update)) {
+        const output = callOutputTokens(update);
+        if (output !== undefined) this.turnTokens += output;
+        const split = callTokenSplit(update, output);
+        this.turnTokenSplit = split && this.turnTokenSplit ? addSplit(this.turnTokenSplit, split) : undefined;
+      }
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) {
         const setup = usageSetup(update, used);
         this.usage = setup === undefined ? { used, size } : { used, size, setup };
@@ -4077,7 +4126,8 @@ export class AcpmuxDirectClient {
         const continues = promptId !== undefined && this.continuations.has(promptId);
         if (continues) this.continueTurn(promptId!);
         else if (this.awaiting !== undefined && msg.steer !== true) this.dropContinuation(this.awaiting);
-        if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
+        // A new list, never one changed in place: the snapshot names its rows by the list's identity.
+        if (steer === "waiting") this.waitingSteers = [...this.waitingSteers, { rowId: `user-${event.seq}`, promptId }];
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
         const knownParts = fallbackPromptId
           ? (this.optimisticPromptParts.get(fallbackPromptId) ??
@@ -4129,6 +4179,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
         this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
+        this.turnTokenSplit = this.turnTokens === undefined ? undefined : NO_TOKENS;
         this.subagents.startTurn();
         this.settleCompactions(event.seq, true);
         // A Stop before this turn never judges it.
@@ -4157,6 +4208,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = false;
         this.silentTurn = false;
         this.turnTokens = undefined;
+        this.turnTokenSplit = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
@@ -4189,6 +4241,7 @@ export class AcpmuxDirectClient {
             kind: "turnSummary",
             seq: event.seq,
             ...this.turnTotals(event.at),
+            ...(event.kind === "turn_result" && resultTokenSplit(msg) ? { tokens: resultTokenSplit(msg) } : {}),
             status,
             ...(continued ? { continued } : {}),
             // An agent that could not start ends its turn with `error` and no `errorText`
@@ -4509,6 +4562,13 @@ export class AcpmuxDirectClient {
     if (this.awaiting === promptId) this.awaiting = undefined;
   }
 
+  /// The rows of the steers that wait (snapshot `waitingSteers`), one array while the list holds.
+  private steerRowIds(): readonly string[] {
+    if (this.waitingSteerRows?.from !== this.waitingSteers)
+      this.waitingSteerRows = { from: this.waitingSteers, rows: this.waitingSteers.map((waiting) => waiting.rowId) };
+    return this.waitingSteerRows.rows;
+  }
+
   /// The waiting steers (or the one `promptId` names) were read: their rows say so.
   private landSteer(promptId?: string): void {
     const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
@@ -4666,6 +4726,9 @@ export class AcpmuxDirectClient {
         // acpmux may still list a paused queue's session as running from before its turn failed.
         (this.turnOpen || (summary?.status === "running" && !this.staleRun(summary))),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
+      ...(this.replayThrough === undefined && this.turnTokens && this.turnTokenSplit
+        ? { turnTokenSplit: this.turnTokenSplit }
+        : {}),
       ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
@@ -4675,6 +4738,8 @@ export class AcpmuxDirectClient {
       permissionGroups: this.permissions.state,
       queue: this.shownQueue(),
       ...(this.queueWithdrawn.length ? { queueWithdrawn: this.queueWithdrawn } : {}),
+      // Two or more steers the agent has not read: the transcript draws other sessions' as one card.
+      ...(this.waitingSteers.length > 1 ? { waitingSteers: this.steerRowIds() } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size }
@@ -5676,6 +5741,7 @@ export class AcpmuxDirectClient {
   ): Promise<void> {
     const sessionId = session ?? this.actingSessionId;
     // Nothing was sent, so the answer is refused: a card that waits on it lets the person answer again.
+    // l10n-allow: refuses the card's answer so it stays answerable; never shown.
     if (!sessionId) throw new Error("no chat to answer in");
     const ticket =
       optionId === undefined
@@ -5807,6 +5873,7 @@ export class AcpmuxDirectClient {
       // selection and leave the client unselected, so a recovered New Tab cannot send into the
       // malformed target through ensureSession's selected-session fast path.
       this.leave();
+      // l10n-allow: a host protocol error for the attach's caller; never shown.
       throw new Error("chat attach did not return a matching session summary");
     }
     return selected;
@@ -6560,6 +6627,7 @@ export class AcpmuxDirectClient {
       turnOpen: this.turnOpen,
       silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
+      turnTokenSplit: this.turnTokenSplit,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
       streamingActivity: this.streamingActivity,
@@ -6590,6 +6658,7 @@ export class AcpmuxDirectClient {
     this.turnOpen = false;
     this.silentTurn = false;
     this.turnTokens = undefined;
+    this.turnTokenSplit = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
