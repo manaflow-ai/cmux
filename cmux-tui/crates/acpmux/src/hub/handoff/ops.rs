@@ -284,6 +284,9 @@ impl Hub {
                         cwd: Some(sm.cwd.clone()),
                         policy: Some(policy),
                         remote,
+                        // Never at the VM boundary (`vm_boundary.rs`): a handoff target runs
+                        // sandboxed; only a caller's own `session/new` asks for it.
+                        vm_boundary: false,
                         // Never wider than the source: full access only
                         // from a full-access source, and never `narrower`.
                         keep_harness_mode: narrower

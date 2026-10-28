@@ -37,9 +37,12 @@ function QuestionCardInPane({ otherText, ...props }: Props) {
     // After the mount's effects, so the card's own update runs as it does for a click.
     const timer = setTimeout(() => {
       root.querySelector<HTMLElement>(".acpmux-question-other-choice")?.click();
-      const field = root.querySelector<HTMLInputElement>(".acpmux-question-other input");
+      const field = root.querySelector<HTMLInputElement | HTMLTextAreaElement>(
+        ".acpmux-question-other :is(input, textarea)",
+      );
       if (!field) return;
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(field, otherText);
+      const prototype = field.tagName === "TEXTAREA" ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, "value")?.set?.call(field, otherText);
       field.dispatchEvent(new Event("input", { bubbles: true }));
     }, 0);
     return () => clearTimeout(timer);

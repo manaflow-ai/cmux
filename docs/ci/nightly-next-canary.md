@@ -14,7 +14,12 @@ gh workflow run nightly-next-rollback.yml -R manaflow-ai/cmux --ref nightly-next
 ```
 
 This takes the newest build off the feed. The feed then serves the build
-before it, whose signed DMG is still on the `nightly-next` release. The run
+before it, whose signed DMG is still on the `nightly-next` release. A pull
+always has one: every publication keeps the live feed's newest earlier build
+beside the new one, so the feed holds at least two builds that passed the
+publish gate (`write-feed` in `scripts/ci/publish-nightly-next-r2.py`), and the
+release asset prune never deletes the two newest builds
+(`ROLLBACK_FLOOR` in `scripts/prune_nightly_release_assets.py`). The run
 takes about a minute. Its summary names the pulled build and the build the
 feed now serves. Choose the target with one of these:
 

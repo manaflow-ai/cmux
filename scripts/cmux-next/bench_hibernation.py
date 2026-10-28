@@ -234,6 +234,11 @@ def percentile(values, q):
 
 
 def main():
+    # --workspaces N: workspace hibernation instead (bench_workspace_hibernation.py), so the reviewed
+    # scripts/measure/tab-hibernation.sh runs it on the fleet: --arg=--workspaces=50.
+    if any(arg == "--workspaces" or arg.startswith("--workspaces=") for arg in sys.argv[1:]):
+        import bench_workspace_hibernation
+        sys.exit(bench_workspace_hibernation.run(sys.argv[1:]))
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True)
     parser.add_argument("--tabs", type=int, default=6, help="tabs per engine")

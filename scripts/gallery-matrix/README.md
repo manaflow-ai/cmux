@@ -104,3 +104,26 @@ rendered again, and fails only when its fastest run is still past it. A state th
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
 raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
+
+## How geometry is measured
+
+- Rules compare CSS px (native points), including tokens, tolerances and reported deltas.
+  Before evaluating any rule, screenshot-pixel measurements are divided by the artifact's
+  `deviceScaleFactor`; evidence already in `css-px` stays unchanged. Raw coordinates and
+  screenshot crops remain available as evidence.
+- “Highlight covers only its control” means four-edge containment, with tolerance `t`:
+  `highlight.minX >= control.minX - t`, `highlight.maxX <= control.maxX + t`, and the
+  same checks for Y. A smaller contained highlight is valid. Comparing x/y/width/height
+  components independently can miss overflowing edges.
+- Optional `control`, `secondary` and `menuOpen` flags must be real booleans when present.
+  Parsing rejects strings such as `"false"`, numbers, null and other non-boolean values.
+- Each of these rules has a regression in [geometry.test.ts](geometry.test.ts) that fails
+  with the old bug: boolean parsing, CSS/scaled-screenshot equivalence, and hover containment
+  (contained highlights, all four overflowing edges, and the tolerance boundary).
+
+Run these regressions through the fleet from the repository root:
+
+```sh
+cmux-ci test --setup webviews --timeout 600 -- bash -c \
+  'cd scripts/gallery-matrix && bun install --frozen-lockfile && bun test geometry.test.ts'
+```

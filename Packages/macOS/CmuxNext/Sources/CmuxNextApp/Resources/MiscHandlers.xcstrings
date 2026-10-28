@@ -18102,6 +18102,137 @@
         }
       }
     },
+    "handlers.computerUse.helperRestarting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Computer Use helper had stopped, so cmux is starting it again. Try again in a moment."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Computer Use ヘルパーが停止していたため、cmux が再起動しています。少し待ってからもう一度お試しください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "توقف مساعد استخدام الكمبيوتر، لذا يعيد cmux تشغيله. حاول مرة أخرى بعد لحظات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use pomoćnik se zaustavio, pa ga cmux ponovo pokreće. Pokušajte ponovo za trenutak."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use-hjælperen var stoppet, så cmux starter den igen. Prøv igen om et øjeblik."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der Computer-Use-Helfer war beendet, daher startet cmux ihn neu. Versuche es gleich noch einmal."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El asistente de Computer Use se había detenido, así que cmux lo está iniciando de nuevo. Inténtalo de nuevo en un momento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’assistant Computer Use s’était arrêté ; cmux le redémarre. Réessayez dans un instant."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’helper di Computer Use si era fermato, quindi cmux lo sta riavviando. Riprova tra un momento."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កម្មវិធីជំនួយ Computer Use បានឈប់ ដូច្នេះ cmux កំពុងចាប់ផ្ដើមវាឡើងវិញ។ សូមព្យាយាមម្ដងទៀតបន្តិចទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use 도우미가 멈춰서 cmux가 다시 시작하고 있습니다. 잠시 후 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use-hjelperen hadde stoppet, så cmux starter den på nytt. Prøv igjen om et øyeblikk."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pomocnik Computer Use zatrzymał się, więc cmux uruchamia go ponownie. Spróbuj ponownie za chwilę."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O auxiliar do Computer Use parou, então o cmux está iniciando-o novamente. Tente de novo em instantes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помощник Computer Use остановился, и cmux запускает его снова. Повторите попытку через несколько секунд."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ตัวช่วย Computer Use หยุดทำงาน cmux จึงกำลังเริ่มใหม่ ลองอีกครั้งในอีกสักครู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use yardımcısı durmuştu, cmux onu yeniden başlatıyor. Birazdan tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Помічник Computer Use зупинився, тож cmux запускає його знову. Спробуйте ще раз за мить."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trình trợ giúp Computer Use đã dừng, nên cmux đang khởi động lại. Hãy thử lại sau giây lát."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use 辅助程序已停止，cmux 正在重新启动它。请稍后再试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Computer Use 輔助程式已停止，cmux 正在重新啟動。請稍後再試。"
+          }
+        }
+      }
+    },
     "handlers.computerUse.hostUnreachable": {
       "extractionState": "manual",
       "localizations": {

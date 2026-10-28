@@ -684,13 +684,18 @@ impl Hub {
                     #[cfg(debug_assertions)]
                     self.claim_off_seam();
                     // A dead or wedged host is ended; the session starts on
-                    // a fresh host (`spawn_hosted_child`).
+                    // a fresh host (`spawn_hosted_child`). So is one whose link
+                    // stopped reading: it still answers a query, but nothing it
+                    // sends from then on is heard (`ChildAgent::is_stopped`).
                     let asked = std::time::Instant::now();
-                    if !p.child.is_alive().await || !p.child.answers_within(CLAIM_PROBE).await {
+                    if !p.child.is_alive().await
+                        || p.child.is_stopped()
+                        || !p.child.answers_within(CLAIM_PROBE).await
+                    {
                         tracing::warn!(
                             harness = %spec.key.harness,
                             waited_ms = asked.elapsed().as_millis() as u64,
-                            "a pooled agent host did not answer; it ends and the session starts on a fresh host"
+                            "a pooled agent host did not answer or is not heard; it ends and the session starts on a fresh host"
                         );
                         self.pool_discard(vec![p]);
                         return None;

@@ -19,6 +19,14 @@ extension WindowController {
         }
     }
 
+    /// Workspace `id` hibernated (plans/cmux-next/workspace-hibernation-DESIGN.md): its parked content
+    /// leaves (views, panes, observations) and mounts again, cold, when shown. Never the shown
+    /// workspace, the one under a top page or one on screen beside it.
+    func releaseParked(_ id: String) {
+        guard id != state.workspaceID, state.viewSet?.contains(id) != true, let controller = parked.removeValue(forKey: id) else { return }
+        controller.teardown()
+    }
+
     func park(_ controller: WorkspaceContentController) {
         parkSerial &+= 1
         controller.park(serial: parkSerial)
