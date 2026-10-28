@@ -24,7 +24,7 @@ public protocol InputCreationStamped: AnyObject {
 @MainActor
 public final class KeyArrivalLedger {
     /// The cmux path that held a key before dispatching it.
-    public nonisolated enum HoldPath: UInt8, Sendable, CustomStringConvertible {
+    public nonisolated enum HoldPath: UInt8, Sendable, CaseIterable, CustomStringConvertible {
         case none
         /// `CreationInputCoordinator`: keys typed after a split or a new terminal tab, until the new terminal has
         /// the keyboard.
@@ -147,6 +147,13 @@ public final class KeyArrivalLedger {
         guard entries[index].heldBy == .none else { return }
         entries[index].heldBy = path
         entries[index].held = nanos
+    }
+
+    /// When `event`'s hold began: when a path held it, else its first arrival; nil when the ledger does not know it.
+    public func holdStart(of event: NSEvent) -> UInt64? {
+        guard let index = index(of: event) else { return nil }
+        let entry = entries[index]
+        return entry.held > 0 ? entry.held : entry.arrived
     }
 
     /// The path that held `event` and how many times `sendEvent` had it.
