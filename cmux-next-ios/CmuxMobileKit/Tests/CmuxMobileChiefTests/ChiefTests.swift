@@ -138,6 +138,17 @@ final class FakeDaemon: @unchecked Sendable {
         }
     }
 
+    /// Chief retracts message `id`: a `message-updated` event after the next reply.
+    func queueRetraction(of id: String) {
+        lock.withLock {
+            guard let index = messages.firstIndex(where: { $0["id"] as? String == id }) else { return }
+            messages[index]["retracted_at"] = "2026-10-12T09:45:00.000Z"
+            rev += 1
+            queued.append(line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev,
+                                "transaction": NSNull(), "change": ["kind": "message-updated", "message": messages[index]]]))
+        }
+    }
+
     /// Chief asks to allow a command (part 1 of its message).
     func seedChiefQuestion() -> String {
         lock.withLock {
