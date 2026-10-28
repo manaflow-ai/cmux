@@ -86,7 +86,7 @@ enum HomeFileCard {
         let fg = Fixture.incomingText
         let side = iconSide
         let iconRect = CGRect(x: body.minX + iconCenterX - side / 2, y: body.midY - side / 2, width: side, height: side)
-        if let icon = icon(a, pixels: Int((side * abs(ctx.ctm.a)).rounded(.up))) {
+        if let icon = icon(a, pixels: CrashGuard.int((side * abs(ctx.ctm.a)).rounded(.up), in: 16...1024)) { // no trap on a NaN scale
             UIImage(cgImage: icon, scale: CGFloat(icon.width) / side).draw(in: iconRect)
         }
         let x = body.minX + textLeft
