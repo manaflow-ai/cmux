@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cloudPageRefusal, cloudStartToasted, startCloudChat } from "./cloudRun";
+import { cloudPageRefusal, cloudStartToasted, oneCloudStart, startCloudChat } from "./cloudRun";
 
 test("a Cloud start sends the prompt, folder, agent and model with a key, and answers ok", async () => {
   const calls: [string, Record<string, unknown>][] = [];
@@ -44,4 +44,20 @@ test("a Cloud chat takes text only for now", () => {
 test("Cloud picked but no longer offered refuses the send, never sending it as a chat here", () => {
   expect(cloudPageRefusal(false, 0)).toBe("cloud_not_now");
   expect(cloudPageRefusal(false, 2)).toBe("cloud_not_now");
+});
+
+test("a second Return while a start waits on the host starts nothing; after the answer one may start again", async () => {
+  const calls: string[] = [];
+  let answer!: () => void;
+  const start = oneCloudStart((_, params) => {
+    calls.push(params.task as string);
+    return new Promise<void>((resolve) => (answer = resolve));
+  });
+  const first = start({ task: "one" });
+  expect(first).toBeDefined();
+  expect(start({ task: "two" })).toBeUndefined();
+  answer();
+  expect(await first).toEqual({ ok: true });
+  expect(start({ task: "three" })).toBeDefined();
+  expect(calls).toEqual(["one", "three"]);
 });

@@ -53,6 +53,21 @@ export async function startCloudChat(
   }
 }
 
+/// One start at a time from a page: while one waits on the host (a new machine boots in minutes),
+/// another Return starts nothing and says nothing, instead of a second start the host refuses.
+export function oneCloudStart(
+  call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): (start: CloudStart) => Promise<CloudStartAnswer> | undefined {
+  let waiting = false;
+  return (start) => {
+    if (waiting) return undefined;
+    waiting = true;
+    return startCloudChat(call, start).finally(() => {
+      waiting = false;
+    });
+  };
+}
+
 /// A failure the host already said in a toast (it ran the start): the page says nothing more.
 export function cloudStartToasted(answer: CloudStartAnswer): boolean {
   return !answer.ok && answer.code === "cloud_start_failed";

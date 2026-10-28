@@ -355,7 +355,7 @@ import { PullRequestDock } from "./summary/PullRequestDock";
 import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
-import { cloudPageRefusal, cloudStartToasted, startCloudChat, type CloudStart } from "./cloudRun";
+import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -5913,12 +5913,13 @@ function AcpmuxPane() {
   /// The host says its own progress and failures (toasts).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
+  const [startCloud] = useState(() => oneCloudStart(callNative));
   const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
     const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (refused) return translate("composer.cloudAttachments");
-    void startCloudChat(callNative, { task: text, ...start }).then((answer) => {
+    void startCloud({ task: text, ...start })?.then((answer) => {
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
