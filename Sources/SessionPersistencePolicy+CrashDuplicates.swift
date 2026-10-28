@@ -23,7 +23,8 @@ extension SessionPersistencePolicy {
     /// A crash can leave the same window in the snapshot twice, sometimes
     /// under a new window ID; restoring both opens every workspace twice.
     /// `CrashWindowSignature.isCrashDuplicate(of:)` decides which windows are the same, using
-    /// agent checkpoints only (see `workspaceCheckpointIDs`). For each pair:
+    /// agent checkpoints, workspace evidence, and complete persisted dock
+    /// fingerprints. For each pair:
     /// - The window with the higher restore-fidelity score keeps its window
     ///   ID, frame, display and sidebar.
     /// - Workspaces are matched whole, by stable ID, workspace ID, agent
@@ -31,7 +32,8 @@ extension SessionPersistencePolicy {
     ///   in the same directory; never by position. A workspace found in only
     ///   one copy is appended.
     /// - A workspace copy is kept whole only when it contains the other's
-    ///   agent checkpoints and non-agent panel identities. Equal evidence
+    ///   agent checkpoints, non-agent panel identities, and preserved content
+    ///   fingerprints. Equal evidence
     ///   chooses the higher fidelity score. Divergent panels, groups, or docks
     ///   stay separate, preserving their complete layouts; one original
     ///   workspace can match at most one workspace in the other generation.

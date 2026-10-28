@@ -35,7 +35,7 @@ public struct CrashWindowSignature: Equatable, Sendable {
         self.dock = dock
     }
 
-    /// Two windows are one when:
+    /// Two windows are one when their persisted window docks are identical and:
     /// - they share a window ID (or both predate window IDs) and either list
     ///   the same workspace IDs with no checkpoints, or hold the same
     ///   checkpoints with the same workspace count, or, with at least three
@@ -47,6 +47,8 @@ public struct CrashWindowSignature: Equatable, Sendable {
     ///   window's checkpoints (at least two) is in the other. One agent
     ///   session runs in one place, so a window whose sessions all live in
     ///   another window is a crash replay of it that was given a new ID.
+    ///   An unhashable dock never matches, so ambiguous dock state stays
+    ///   recoverable in both windows.
     public nonisolated func isCrashDuplicate(of other: CrashWindowSignature) -> Bool {
         guard dock == other.dock, dock == nil || dock?.contentFingerprint != nil else { return false }
         guard mayShareIdentity(with: other) else {
