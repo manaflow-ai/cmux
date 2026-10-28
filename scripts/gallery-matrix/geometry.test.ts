@@ -105,12 +105,19 @@ test("finding IDs preserve element boundaries", async () => {
   second.elements[0]!.id = "a";
   second.elements[1]!.id = "b,c";
   second.elements[1]!.rect.x = 20;
-  const report = await lintGeometry([
-    { file: "first.geometry.json", artifact: first },
-    { file: "second.geometry.json", artifact: second },
-  ], config());
-  expect(report.findings).toHaveLength(2);
-  expect(new Set(report.findings.map((finding) => finding.id)).size).toBe(2);
+  const firstReport = await lint(first);
+  const secondReport = await lint(second);
+  expect(firstReport.findings).toHaveLength(1);
+  expect(secondReport.findings).toHaveLength(1);
+  expect(firstReport.findings[0]!.id).not.toBe(secondReport.findings[0]!.id);
+  const baseline = config();
+  baseline.acceptedFindings = { [firstReport.findings[0]!.id]: { maxDeltaPx: 10, reason: "only the first pair" } };
+  expect((await lintGeometry([{ file: "first.geometry.json", artifact: first }], baseline)).passed).toBe(true);
+  expect((await lintGeometry([{ file: "second.geometry.json", artifact: second }], baseline)).passed).toBe(false);
+  const otherTuple = structuredClone(first);
+  first.capture.caseId = "rows:extra";
+  otherTuple.capture.engine = "extra:chromium";
+  expect((await lint(first)).findings[0]!.id).not.toBe((await lint(otherTuple)).findings[0]!.id);
 });
 
 test("CLI writes a failing report when screenshot evidence is missing", async () => {

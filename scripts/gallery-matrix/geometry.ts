@@ -183,7 +183,7 @@ function measure(rect: Rect, axis: "x" | "y", point: "start" | "center" | "end")
 
 function findingId(rule: GeometryRule, artifact: GeometryArtifact, elementIds: string[]): string {
   // JSON preserves element boundaries; delimiter-joined IDs collide when IDs contain commas.
-  return `${rule.id}:${artifact.capture.caseId}:${artifact.capture.engine}:${artifact.capture.theme}:${JSON.stringify(elementIds)}`;
+  return JSON.stringify([rule.id, artifact.capture.caseId, artifact.capture.engine, artifact.capture.theme, elementIds]);
 }
 
 function pushFinding(findings: GeometryFinding[], rule: GeometryRule, artifact: GeometryArtifact, elementIds: string[], message: string, observedPx?: number, expectedPx?: number, deltaPx?: number): void {
