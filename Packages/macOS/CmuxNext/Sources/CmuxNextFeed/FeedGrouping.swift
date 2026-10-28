@@ -11,7 +11,7 @@ public nonisolated struct FeedListSections: Sendable, Equatable {
             if item.isOpenRequest { requests.append(item) } else { rest.append(item) }
         }
         requests.sort(by: FeedOrder.attention)
-        rest.sort(by: FeedOrder.newest)
+        rest = FeedOrder.sortedNewest(rest)
     }
 
     public var isEmpty: Bool { requests.isEmpty && rest.isEmpty }

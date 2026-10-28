@@ -11,17 +11,29 @@ public import Observation
 public final class FeedModel {
     public private(set) var connection: FeedConnection = .connecting
     /// Owner-confirmed items by id (never written by intents).
-    public private(set) var confirmed: [String: FeedItem] = [:]
+    public private(set) var confirmed: [String: FeedItem] = [:] {
+        didSet { mirrorVersion &+= 1 }
+    }
     /// Quiet local agent reports, read from the ACPMUX reports mailbox.
     /// Reports are intentionally separate from owner-confirmed feed items.
     public private(set) var reports: [FeedReport] = []
     /// Pending intents in send order.
-    public private(set) var pending: [FeedIntent] = []
+    public private(set) var pending: [FeedIntent] = [] {
+        didSet { mirrorVersion &+= 1 }
+    }
+    /// Counts changes of the mirror and the intents: the derived lists below are computed once per
+    /// change, not once per reader (the panel's header, the list and its host each read them).
+    @ObservationIgnored private var mirrorVersion = 0
+    @ObservationIgnored private var memo = FeedModelMemo()
     /// The last refusal, for the panel's notice; cleared on the next send.
     public private(set) var lastReject: FeedReject?
     public private(set) var revision: UInt64 = 0
     public private(set) var user = ""
     public private(set) var device = ""
+    /// What the panel chrome shows (the badge, whether the list is empty), stored and set only when
+    /// it changes: the panel's header and empty state observe this, not the whole mirror, so an
+    /// owner event that changes neither re-evaluates no SwiftUI view.
+    public private(set) var summary = FeedSummary()
     /// The moment relative times render against. It advances only on owner
     /// events and user actions, so an idle panel never wakes up.
     public private(set) var now: Date
@@ -46,6 +58,9 @@ public final class FeedModel {
     /// Resolves client-only GitHub detail for an owner item without storing a
     /// second inbox projection in the view layer.
     public var githubDetail: (@MainActor (FeedItem) -> GitHubFeedDetail?)?
+    /// Names an item's agent, workspace and tab from the App's own store (items carry only ids).
+    /// Read when a row is built, so a renamed tab shows on the item's next change.
+    public var place: (@MainActor (FeedItem) -> FeedPlace?)?
     public var githubActionError: String?
     public var githubActionPending = false
     /// Whether the opt-in GitHub connection is enabled for this owner.
@@ -76,11 +91,16 @@ public final class FeedModel {
 
     /// Mirror + pending intents, newest first.
     public var visibleItems: [FeedItem] {
+        // Read both, so an observer of this property hears them change.
+        let (confirmed, pending) = (confirmed, pending)
+        if let items = memo.visible, memo.visibleVersion == mirrorVersion { return items }
         var items = confirmed
         for intent in pending {
             intent.apply(to: &items, user: user, device: device)
         }
-        return items.values.sorted(by: FeedOrder.newest)
+        let sorted = FeedOrder.sortedNewest(items.values)
+        memo = FeedModelMemo(visible: sorted, visibleVersion: mirrorVersion)
+        return sorted
     }
 
     public func item(_ id: String) -> FeedItem? {
@@ -91,8 +111,30 @@ public final class FeedModel {
         return items[id]
     }
 
-    public var listSections: FeedListSections { FeedListSections(items: visibleItems, now: now) }
-    public var counts: FeedCounts { FeedCounts(items: visibleItems, now: now) }
+    public var listSections: FeedListSections {
+        let items = visibleItems, now = now
+        if let sections = memo.sections, memo.sectionsNow == now { return sections }
+        let sections = FeedListSections(items: items, now: now)
+        (memo.sections, memo.sectionsNow) = (sections, now)
+        return sections
+    }
+
+    public var counts: FeedCounts {
+        let items = visibleItems, now = now
+        if let counts = memo.counts, memo.countsNow == now { return counts }
+        let counts = FeedCounts(items: items, now: now)
+        (memo.counts, memo.countsNow) = (counts, now)
+        return counts
+    }
+
+    /// The Inbox groups of the items `filter` keeps.
+    func inboxGroups(_ filter: FeedInboxFilter) -> FeedInboxGroups {
+        let items = visibleItems, now = now
+        if let groups = memo.groups, let key = memo.groupsKey, key.0 == filter, key.1 == now { return groups }
+        let groups = FeedInboxGroups(items: filter.items(from: items), now: now)
+        (memo.groups, memo.groupsKey) = (groups, (filter, now))
+        return groups
+    }
 
     /// An intent on this item still waits for the owner.
     public func isPending(_ id: String) -> Bool {
@@ -113,6 +155,7 @@ public final class FeedModel {
         let intent = FeedIntent(kind: kind, at: now)
         pending.append(intent)
         source.send(intent)
+        summarize()
         return intent
     }
 
@@ -226,6 +269,12 @@ public final class FeedModel {
                 lastReject = reject
             }
         }
+        summarize()
+    }
+
+    private func summarize() {
+        let next = FeedSummary(counts: counts, listIsEmpty: listSections.isEmpty)
+        if next != summary { summary = next }
     }
 
     /// Writes owner data into the mirror; never moves an item backwards.
@@ -233,4 +282,22 @@ public final class FeedModel {
         if let current = confirmed[item.id], current.revision > item.revision { return }
         confirmed[item.id] = item
     }
+}
+
+/// ``FeedModel``'s derived lists for one mirror version (a new version starts an empty memo).
+struct FeedModelMemo {
+    var visible: [FeedItem]?
+    var visibleVersion = -1
+    var sections: FeedListSections?
+    var sectionsNow: Date?
+    var counts: FeedCounts?
+    var countsNow: Date?
+    var groups: FeedInboxGroups?
+    var groupsKey: (FeedInboxFilter, Date)?
+}
+
+/// The panel chrome's view of the feed: the badge counts and whether the list has anything.
+public nonisolated struct FeedSummary: Sendable, Equatable {
+    public var counts = FeedCounts(items: [], now: .distantPast)
+    public var listIsEmpty = true
 }

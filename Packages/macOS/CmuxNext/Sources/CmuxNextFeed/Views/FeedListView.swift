@@ -10,27 +10,56 @@ struct FeedListView: View {
     @Environment(\.feedColors) private var colors
 
     var body: some View {
-        let sections = model.listSections
         VStack(spacing: 0) {
             FeedHeader(model: model)
-            if sections.isEmpty {
+            if model.summary.listIsEmpty {
                 FeedEmptyState(text: FeedStrings.empty)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(sections.requests) { item in
-                            FeedRequestCard(item: item, model: model)
-                            FeedHairline().padding(.horizontal, 14)
-                        }
-                        ForEach(sections.rest) { item in
-                            FeedNoticeRow(item: item, model: model)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                    .thinScrollers()
-                }
+                FeedRowsHost(model: model, mode: .list)
             }
         }
+    }
+}
+
+/// Puts the AppKit ``FeedRowsView`` in the SwiftUI panel with the panel's colors. An open
+/// request keeps its SwiftUI card (inline answer controls) until those controls are AppKit; the
+/// event rows, which are nearly all of the list, are AppKit (plans/cmux-next/no-swiftui-DESIGN.md).
+struct FeedRowsHost: NSViewRepresentable {
+    let model: FeedModel
+    let mode: FeedRowsView.Mode
+    var filter = FeedInboxFilter()
+    @Environment(\.feedColors) private var colors
+
+    func makeNSView(context: Context) -> FeedRowsView {
+        let view = FeedRowsView(model: model, mode: mode)
+        update(view)
+        return view
+    }
+
+    func updateNSView(_ view: FeedRowsView, context: Context) {
+        update(view)
+    }
+
+    private func update(_ view: FeedRowsView) {
+        let colors = colors, model = model
+        if mode == .list {
+            view.requestCard = { [weak view] item, last in
+                let card = AnyView(VStack(spacing: 0) {
+                    FeedRequestCard(item: item, model: model)
+                    FeedHairline().padding(.horizontal, 14)
+                }
+                .environment(\.feedColors, colors).tint(colors.primary))
+                if let hosting = last as? FeedCardHost {
+                    hosting.rootView = card
+                    return hosting
+                }
+                let hosting = FeedCardHost(rootView: card)
+                hosting.onResize = { [weak view] in view?.cardResized(item.id) }
+                return hosting
+            }
+        }
+        view.filter = filter
+        view.apply(colors.basket)
     }
 }
 
@@ -40,7 +69,7 @@ struct FeedHeader: View {
     @Environment(\.feedColors) private var colors
 
     var body: some View {
-        let counts = model.counts
+        let counts = model.summary.counts
         HStack(spacing: 8) {
             Text(FeedStrings.title).font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.primary)
             if counts.badge > 0 {
@@ -98,3 +127,14 @@ struct FeedRequestCard: View {
     }
 }
 
+
+/// An open request's SwiftUI card in the AppKit list; tells the list when its content resized
+/// (an answer form opened, an error showed), so the row is measured again.
+final class FeedCardHost: NSHostingView<AnyView> {
+    var onResize: (() -> Void)?
+
+    override func invalidateIntrinsicContentSize() {
+        super.invalidateIntrinsicContentSize()
+        onResize?()
+    }
+}
