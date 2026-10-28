@@ -685,7 +685,13 @@ const shellRegressionCases: [string, string, number[]][] = [
     "false && (gh pr edit 41 -R acme/app --title x); gh pr merge 42 -R acme/app",
     [42],
   ],
+  [
+    "concatenated quoted payload stays one word",
+    'gh pr edit 41 -R acme/app --title prefix"x; gh pr close 42 -R acme/app;"',
+    [41],
+  ],
   ["brace group merge", "true && { gh pr merge 41 -R acme/app; }", [41]],
+  ["brace argument is not a group", "echo {gh pr merge 41 -R acme/app}", []],
   ["fallback after skipped and", "false && echo no || gh pr merge 41 -R acme/app", [41]],
   ["false and chain", "false && echo skipped && gh pr merge 41 -R acme/app; true", []],
   ["false and true fallback", "false && true || gh pr merge 41 -R acme/app", [41]],

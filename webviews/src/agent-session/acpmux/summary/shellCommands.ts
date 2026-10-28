@@ -89,9 +89,12 @@ export function shellCommands(text: string): string[] {
       at++;
       status = list(active, ["}"], depth);
       if (tokens[at] === "}") at++;
+    } else if (tokens[at] === "}") {
+      at++;
+      status = undefined;
     } else {
       const words: string[] = [];
-      while (at < tokens.length && ![";", "\n", "&", "&&", "||", "|", "(", ")", "{", "}"].includes(tokens[at]!)) {
+      while (at < tokens.length && ![";", "\n", "&", "&&", "||", "|", "(", ")"].includes(tokens[at]!)) {
         if (tokens[at] === "$(") {
           at++;
           list(active, [")"], depth);
