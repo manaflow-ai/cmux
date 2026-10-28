@@ -233,7 +233,7 @@ export function ProjectChooser({
             }}
             inline
           />
-          {suggestions.length === 0 && (query.trim() || !onNoProject) && (
+          {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
             <div className="acpmux-project-empty">{t(query.trim() ? "project.none" : "project.noneYet")}</div>
           )}
         </div>
