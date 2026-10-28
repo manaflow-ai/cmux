@@ -129,6 +129,11 @@ final class HomeDockTab: InternalPageProvider {
         return views[key]
     }
 
+    /// The live dock view of provider key `key` (``dockKey(_:windowID:page:)``).
+    static func liveView(_ services: AppServices, key: String) -> HomeDockView? {
+        (services.pages.provider(.homeDock) as? HomeDockTab)?.views[key]
+    }
+
     /// The Home view window `windowID` shows as its top page, if it shows one.
     static func windowView(_ services: AppServices, windowID: String) -> HomeDockView? {
         (services.pages.provider(.homeDock) as? HomeDockTab)?.views[windowKey(windowID)]
@@ -152,10 +157,10 @@ final class HomeDockTab: InternalPageProvider {
     }
 
     /// Whether the Home window `windowID` shows (its own page when `page` is Home, else the home workspace's
-    /// dock) shows Channels: the window's sidebar marks its Channels entry by it.
-    static func showsChannels(_ services: AppServices, windowID: String, page: TopPageRoute?) -> Bool {
-        // Only a window that shows Home marks Channels (its own page, or the home workspace it lists).
-        guard page == .home || services.windows.controller(for: windowID)?.state.workspaceID == services.home.dockedHomeID,
+    /// dock, when `workspace` is it) shows Channels: the window's sidebar marks its Channels entry by it.
+    static func showsChannels(_ services: AppServices, windowID: String, page: TopPageRoute?, workspace: String?) -> Bool {
+        // Only a window that shows Home marks Channels (its own page, or the home workspace it shows).
+        guard page == .home || (workspace != nil && workspace == services.home.dockedHomeID),
               let key = dockKey(services, windowID: windowID, page: page) else { return false }
         return services.home.dockModes[key] == .channels
     }

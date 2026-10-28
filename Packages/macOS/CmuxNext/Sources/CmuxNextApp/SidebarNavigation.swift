@@ -96,7 +96,8 @@ enum SidebarNavigation {
                      creationRow: window.state.cloudCreation.flatMap { services.cloud.creations.creation($0)?.rowID }, layout: window.sidebar.model.layout,
                      room: window.state.profileID.rawValue, refs: WorkspaceLayoutRefs(machines: services.machines),
                      home: services.home.dockedHomeID,
-                     channels: HomeDockTab.showsChannels(services, windowID: window.state.id, page: window.state.page))
+                     channels: HomeDockTab.showsChannels(services, windowID: window.state.id, page: window.state.page,
+                                                            workspace: window.state.workspaceID))
     }
 
     /// Selects `item` as a click does: a top item runs (its page opens), a

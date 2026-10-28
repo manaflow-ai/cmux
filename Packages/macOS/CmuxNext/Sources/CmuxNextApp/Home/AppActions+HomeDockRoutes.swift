@@ -20,21 +20,25 @@ extension AppActions {
     /// its top page. A person's Home (the sidebar item, its key, the menu, the palette) shows in the
     /// window they asked in, which takes it from the window that listed it, as a sidebar row's pick
     /// does: a click in one window never brings another forward (multiwindow.md). A request from
-    /// elsewhere (the CLI, a script) shows it where it lives. False when refused.
+    /// elsewhere (the CLI, a script) shows it where it lives (one Home per window). False when refused.
     @discardableResult
-    static func showHome(_ services: AppServices) -> Bool {
+    static func showHome(_ services: AppServices) -> Bool { shownHome(services) != nil }
+
+    /// `home.show`'s work (``showHome(_:)``): the window that shows Home now, nil when refused. Classic Home: the
+    /// run's window. Docked: the run's window for a person's run; else the window that lists the home workspace.
+    static func shownHome(_ services: AppServices) -> WindowController? {
         let classic = services.home.dock.isClassic
-        if classic, TopPages.show(.home, services: services) != nil { return true }
+        if classic, TopPages.show(.home, services: services) != nil { return services.windows.active }
         guard !classic || services.windows.active == nil, classic || ActionRunScope.viewChangeAllowed(), let home = services.home.homeWorkspace else {
             services.registry.refuse(classic || ActionRunScope.viewChangeAllowed() ? RefusalStrings.homeNotReady : RefusalStrings.homeNeedsFocus)
-            return false
+            return nil
         }
         if !classic, let active = services.windows.active {
             showHome(home.id, in: active, services)
-        } else {
-            services.windows.reveal(workspaceID: home.id)
+            let owner = services.windows.registry.value.owner(of: home.id)
+            return owner.flatMap { services.windows.controller(for: $0) }.flatMap { $0.state.workspaceID == home.id ? $0 : nil } ?? active
         }
-        return true
+        return services.windows.reveal(workspaceID: home.id)
     }
 
     /// Home in `window` (one Home per window, multiwindow.md; audit-findings-1 C): the home workspace when
@@ -116,7 +120,7 @@ extension AppActions {
         let view = named.flatMap(HomeDockView.Mode.init(rawValue:))
         guard named == nil || view != nil else { return services.registry.refuse(HomeDockMode.invalidViewMessage) }
         // With no view named, the other one of the Home the run's window shows (one Home per window).
-        let shownChannels = services.windows.active.map { HomeDockTab.showsChannels(services, windowID: $0.state.id, page: $0.state.page) } ?? false
+        let shownChannels = services.windows.active.map { HomeDockTab.showsChannels(services, windowID: $0.state.id, page: $0.state.page, workspace: $0.state.workspaceID) } ?? false
         let target = view ?? (shownChannels ? HomeDockMode.channels : .messages).other
         guard target.isEnabled else { return services.registry.refuse(HomeDockMode.channelsOffMessage) }
         withDock(services) { $0.switchTo(target) }

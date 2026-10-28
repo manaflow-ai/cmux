@@ -222,7 +222,8 @@ final class SidebarBridge {
                                                           creationRow: state.cloudCreation.flatMap { creations.creation($0)?.rowID },
                                                           layout: layout.document, room: state.profileID.rawValue,
                                                           refs: WorkspaceLayoutRefs(machines: machines), home: services.home.dockedHomeID,
-                                                          channels: HomeDockTab.showsChannels(services, windowID: state.id, page: state.page)) }) { [weak self] selected in
+                                                          channels: HomeDockTab.showsChannels(services, windowID: state.id, page: state.page,
+                                                                                    workspace: state.workspaceID)) }) { [weak self] selected in
             self?.selectionHold.offer(selected) // a new workspace's waits for its row (cx-8g3sn)
         }
     }

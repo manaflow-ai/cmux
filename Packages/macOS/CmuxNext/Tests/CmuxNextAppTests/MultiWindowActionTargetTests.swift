@@ -442,8 +442,8 @@ import Testing
         let shell2 = try #require(world.w2.window)
         world.services.windows.dispatching(eventFrom: shell2) { world.w2.sidebar.activate(.builtIn(.home)) }
         world.services.home.dockModes[HomeDockTab.windowKey(world.w2.state.id)] = .channels
-        #expect(HomeDockTab.showsChannels(world.services, windowID: world.w2.state.id, page: world.w2.state.page))
-        #expect(!HomeDockTab.showsChannels(world.services, windowID: world.w1.state.id, page: world.w1.state.page),
+        #expect(HomeDockTab.showsChannels(world.services, windowID: world.w2.state.id, page: world.w2.state.page, workspace: world.w2.state.workspaceID))
+        #expect(!HomeDockTab.showsChannels(world.services, windowID: world.w1.state.id, page: world.w1.state.page, workspace: world.w1.state.workspaceID),
                 "window 2's Channels marked Channels in window 1")
     }
 
