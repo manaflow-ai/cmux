@@ -6,6 +6,16 @@ import type { Play } from "../../../gallery/play";
 type PreviewCardProps = { url: string };
 const docs = "https://docs.example.test/guide";
 const loopback = "http://127.0.0.1:3000/admin?tab=1";
+// A dev server whose address carries its access token (fixture value, not a real secret).
+const tokened = "http://127.0.0.1:47811/?token=fixture-dev-server-token-47811";
+// A gallery stage, served by this same gallery under its other loopback name (localhost and
+// 127.0.0.1 are different origins, so the card does not take it for the pane's own page).
+const stage = (() => {
+  const here = new URL(typeof location !== "undefined" ? location.href : "http://localhost:5173/gallery/frame.html");
+  const host = here.hostname === "127.0.0.1" ? "localhost" : "127.0.0.1";
+  const base = here.pathname.replace(/[^/]*$/, "");
+  return `${here.protocol}//${host}${here.port ? `:${here.port}` : ""}${base}frame.html?entry=agent-pane.effort-picker`;
+})();
 const favicon =
   "data:image/svg+xml," +
   encodeURIComponent(
@@ -58,10 +68,21 @@ export default componentEntry<PreviewCardProps>({
     "not-loaded": { chipHost, props: { url: docs } },
     loaded: { chipHost, props: { url: docs }, play: loadPreview },
     "open-in-menu": { chipHost, props: { url: docs }, play: openMenu },
+    "gallery-stage": {
+      note: "A component gallery stage loads live at its own size and takes input in place.",
+      chipHost,
+      props: { url: stage },
+      play: loadPreview,
+    },
     "loopback-host": {
-      note: "A local dev server address remains unloaded until the reader clicks Load preview.",
+      note: "A local dev server address is one compact row, with no thumbnail box, until the reader clicks Load preview.",
       chipHost,
       props: { url: loopback },
+    },
+    "loopback-token": {
+      note: "A dev server address with an access token reads token=•••, in one compact row whose actions are quiet text buttons.",
+      chipHost,
+      props: { url: tokened },
     },
   },
 });

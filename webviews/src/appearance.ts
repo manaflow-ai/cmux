@@ -1,3 +1,4 @@
+import { applyDiffTints } from "./diffWeight";
 import { contrastBetween, mixColors, withMinimumContrast } from "./syntax-colors";
 import { pageSyntaxVariable, syntaxRoleColors, type SyntaxRoleName } from "./syntax-theme";
 
@@ -159,6 +160,7 @@ export function setDiffChangeColors(colors: DiffChangeColors | undefined) {
   const next = colors ?? "theme";
   if (next === changeColors) return;
   changeColors = next;
+  applyDiffTints(document.documentElement.style, changeColors);
   applyDiffViewerAppearance(appliedAppearance);
 }
 
@@ -190,6 +192,12 @@ export function applyDiffViewerAppearance(appearance?: DiffViewerAppearance) {
     rootStyle.setProperty(
       `--cmux-diff-deletion-fg-${type}`,
       changeColor(theme, type, ["9", "1"], STANDARD_DELETION[type]),
+    );
+    // A modified file in the files list: the palette's blue, else the theme's own text color
+    // (no fixed blue: the page paints the theme).
+    rootStyle.setProperty(
+      `--cmux-diff-modified-fg-${type}`,
+      semanticPaletteColor(theme, ["12", "4"], colorString(theme.foreground, type === "light" ? "#000000" : "#ffffff")),
     );
   }
   rootStyle.setProperty("--cmux-diff-selection-bg-light", colorString(lightTheme.selectionBackground, "#abd8ff"));

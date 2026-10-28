@@ -41,6 +41,17 @@ public nonisolated struct IconLayer: Hashable, Sendable, Decodable {
         }
     }
 
+    /// How a fill layer decides what is inside a path whose subpaths overlap.
+    public nonisolated enum FillRule: String, Hashable, Sendable, Decodable {
+        /// Nonzero winding, the pack's default (SVG `fill-rule: nonzero`).
+        case nonzero
+        /// Even-odd: a region inside an even number of subpaths is outside. Chromium's
+        /// `.icon` files fill this way unless they say `FILL_RULE_NONZERO`.
+        case evenodd
+
+        public var cgFillRule: CGPathFillRule { self == .evenodd ? .evenOdd : .winding }
+    }
+
     /// Path data: absolute M, L, C and Z only (`CGPath.icon`).
     public var d: String
     public var op: Operation
@@ -52,6 +63,8 @@ public nonisolated struct IconLayer: Hashable, Sendable, Decodable {
     public var join: Join
     /// Drawn in the accent color instead of the ink color.
     public var accent: Bool
+    /// The fill rule of a fill or clear-fill layer; strokes ignore it.
+    public var rule: FillRule
 
     public init(
         d: String,
@@ -62,7 +75,8 @@ public nonisolated struct IconLayer: Hashable, Sendable, Decodable {
         dashPhase: CGFloat = 0,
         cap: Cap = .round,
         join: Join = .round,
-        accent: Bool = false
+        accent: Bool = false,
+        rule: FillRule = .nonzero
     ) {
         self.d = d
         self.op = op
@@ -73,10 +87,11 @@ public nonisolated struct IconLayer: Hashable, Sendable, Decodable {
         self.cap = cap
         self.join = join
         self.accent = accent
+        self.rule = rule
     }
 
     private enum CodingKeys: String, CodingKey {
-        case d, op, w, alpha, dash, dashPhase, cap, join, accent
+        case d, op, w, alpha, dash, dashPhase, cap, join, accent, rule
     }
 
     public init(from decoder: any Decoder) throws {
@@ -90,7 +105,8 @@ public nonisolated struct IconLayer: Hashable, Sendable, Decodable {
             dashPhase: try container.decodeIfPresent(CGFloat.self, forKey: .dashPhase) ?? 0,
             cap: try container.decodeIfPresent(Cap.self, forKey: .cap) ?? .round,
             join: try container.decodeIfPresent(Join.self, forKey: .join) ?? .round,
-            accent: try container.decodeIfPresent(Bool.self, forKey: .accent) ?? false
+            accent: try container.decodeIfPresent(Bool.self, forKey: .accent) ?? false,
+            rule: try container.decodeIfPresent(FillRule.self, forKey: .rule) ?? .nonzero
         )
     }
 }

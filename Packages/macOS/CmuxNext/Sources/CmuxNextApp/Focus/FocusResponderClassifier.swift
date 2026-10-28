@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextFocus
 
 /// Maps an AppKit first responder of a cmux window to what the focus state
 /// machine understands (`FocusEvent.Responder`). The field editor of a text

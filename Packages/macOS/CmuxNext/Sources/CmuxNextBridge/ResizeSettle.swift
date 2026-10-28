@@ -1,11 +1,8 @@
-/// Holds terminal grid reports until a view's size has stopped changing.
-///
-/// Every grid report resizes the daemon's PTY, which reflows the program
-/// (SIGWINCH, full redraws) and echoes a `resized` to every attached view,
-/// so sending one per animation frame (layout springs, sidebar width, live
-/// window resize) would be expensive. Reports are submitted as
-/// they happen; `tick` runs once per display frame and releases a size after
-/// it has been stable for `stableFrames` frames and no hold is active.
+/// Coalesces terminal grid reports per view: the newest size replaces an
+/// older pending one. Reports are submitted as they happen; `tick` runs once
+/// per display frame and releases a size after it has been stable for
+/// `stableFrames` frames (1: the next frame, `ResizeCoordinator`) and no hold
+/// is active.
 public struct ResizeSettle<Key: Hashable & Sendable, Size: Equatable & Sendable>: Sendable {
     struct Entry: Sendable {
         var size: Size

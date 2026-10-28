@@ -191,6 +191,7 @@ async fn a_chief_outside_the_app_installs_its_built_in_presets_without_env() {
             "CLAUDE_CODE_DISABLE_CLAUDE_MDS": "1",
             "CLAUDE_CODE_DISABLE_REFUSAL_FALLBACK": "1",
             "DISABLE_AUTOUPDATER": "1",
+            "SUBROUTER_SESSION_HEADER": "1",
             "SUBROUTER_SESSION_KEY": format!("optchat-{id}-compact"),
         })
     );
@@ -428,21 +429,52 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
     let id = home_id(&d.dir.join("mux"));
     let mut chief = Rpc::connect(&d.socket).await;
     let servers = |text: String| -> Vec<String> {
+        // The servers, then (with a "+") those the cmux server runs behind
+        // its code mode (CMUX_MCP_UPSTREAMS).
         let list: Value = serde_json::from_str(&text).unwrap();
-        list.as_array()
-            .unwrap_or_else(|| panic!("mcpServers is a list: {text}"))
-            .iter()
-            .filter_map(|s| s["name"].as_str().map(str::to_owned))
-            .collect()
+        let list = list.as_array().unwrap_or_else(|| panic!("mcpServers is a list: {text}"));
+        let mut names: Vec<String> =
+            list.iter().filter_map(|s| s["name"].as_str().map(str::to_owned)).collect();
+        for server in list {
+            let env = server["env"].as_array().cloned().unwrap_or_default();
+            let Some(upstreams) = env.iter().find(|e| e["name"] == "CMUX_MCP_UPSTREAMS") else {
+                continue;
+            };
+            let upstreams: Value =
+                serde_json::from_str(upstreams["value"].as_str().unwrap()).unwrap();
+            for upstream in upstreams.as_array().unwrap() {
+                names.push(format!("+{}", upstream["name"].as_str().unwrap()));
+            }
+        }
+        names
     };
     for (preset, want) in [
         (Some(format!("optchat-chief-{id}")), vec!["cmux"]),
         (Some(format!("optchat-chief-codex-{id}")), vec!["cmux"]),
         (
             Some(format!("optchat-sub-{id}")),
-            vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"],
+            vec![
+                "cmux",
+                "+cmux-cua",
+                "+cmux-secrets",
+                "+cmux-sessions",
+                "+cmux-subsessions",
+                "+cmux-forum",
+                "+acpmux",
+            ],
         ),
-        (None, vec!["cmux-cua", "cmux-secrets", "cmux-sessions", "cmux"]),
+        (
+            None,
+            vec![
+                "cmux",
+                "+cmux-cua",
+                "+cmux-secrets",
+                "+cmux-sessions",
+                "+cmux-subsessions",
+                "+cmux-forum",
+                "+acpmux",
+            ],
+        ),
     ] {
         let mut params = json!({"cwd": std::env::temp_dir(), "mcpServers": []});
         if let Some(name) = &preset {
@@ -456,6 +488,15 @@ async fn a_chief_turn_gets_only_the_cmux_mcp_server() {
         let r = chief.call("session/new", params).await;
         assert!(r.get("error").is_none(), "{preset:?}: {r}");
         let session = r["result"]["sessionId"].as_str().unwrap().to_owned();
-        assert_eq!(servers(chief.prompt_text(&session, "mcp").await), want, "{preset:?}");
+        let text = chief.prompt_text(&session, "mcp").await;
+        assert_eq!(servers(text.clone()), want, "{preset:?}");
+        // A Chief turn's cmux server gets the Chief's tool list (it lists
+        // only those and refuses `cmux_exec`); a subagent or plain session
+        // gets code mode.
+        let list: Value = serde_json::from_str(&text).unwrap();
+        let cmux = list.as_array().unwrap().iter().find(|s| s["name"] == "cmux").unwrap();
+        let scoped = cmux["env"].to_string().contains("agents_wait,render");
+        let turn = preset.as_deref().is_some_and(|name| name.starts_with("optchat-chief-"));
+        assert_eq!(scoped, turn, "{preset:?}: {cmux}");
     }
 }

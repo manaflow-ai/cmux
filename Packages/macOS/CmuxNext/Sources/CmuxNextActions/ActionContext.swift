@@ -48,22 +48,45 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let codeEditorFocused = ActionContext(rawValue: 1 << 18)
     /// `home.channelsEnabled` is on (cx-frn2y): the Channels actions (Open Channels) are available.
     public static let homeChannelsEnabled = ActionContext(rawValue: 1 << 19)
+    /// A web view has the keyboard, or had it last before the palette
+    /// opened: a browser tab (WebKit or Chromium), the Markdown page, an
+    /// agent chat, or any other `WKWebView` page. The Developer Tools
+    /// commands (`devtools.*`) need it.
+    public static let webViewFocused = ActionContext(rawValue: 1 << 20)
+    /// A markdown page (with ``markdownFocused``) shows a file it cannot
+    /// save: nothing in it takes typing, so it owns bare keys (K1, `g g`).
+    public static let markdownReadOnlyFocused = ActionContext(rawValue: 1 << 21)
+    /// A markdown page (with ``markdownFocused``) edits its file: bare keys
+    /// are typing there.
+    public static let markdownEditorFocused = ActionContext(rawValue: 1 << 22)
 
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a
-    /// binding of a bare key run (the diff viewer's j, k, G, /).
-    public static let bareKeyOwners: ActionContext = [.diffViewerFocused]
+    /// binding of a bare key run or a bare sequence arm (the diff viewer's
+    /// j, k, G, /; a user's `g g` in a read-only markdown page). See ``KeyContext/ownsBareKeys``.
+    public static let bareKeyOwners: ActionContext = [.diffViewerFocused, .markdownReadOnlyFocused]
 }
 
 extension ActionContext {
+    /// A focused markdown page's bits: ``markdownFocused``, and whether it shows a file it
+    /// cannot save (``markdownReadOnlyFocused``, which owns bare keys) or edits it.
+    public nonisolated static func markdown(readOnly: Bool) -> ActionContext {
+        [.markdownFocused, readOnly ? .markdownReadOnlyFocused : .markdownEditorFocused]
+    }
+
     /// Context facts an invocation's explicit target stands in for: a
     /// `machine:` target is the Cloud workspace a focus-scoped machine
-    /// action would otherwise need focused.
+    /// action would otherwise need focused, and an `agent-chat:` target the
+    /// focused agent chat (Archive Chat on a Priority row).
     public static func implied(by invocation: ActionInvocation) -> ActionContext {
         implied(byTargetKind: invocation.target?.kind)
     }
 
     public nonisolated static func implied(byTargetKind kind: ActionTargetKind?) -> ActionContext {
-        kind == .machine ? .cloudWorkspace : []
+        switch kind {
+        case .machine: .cloudWorkspace
+        case .agentChat: .agentPaneFocused
+        default: []
+        }
     }
 }

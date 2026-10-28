@@ -22,8 +22,9 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
     /// while the page is zoomed, as Edge's address bar does.
     case zoom
     case favorites
-    /// The downloads menu (`browser.downloads.show`). Shown once there is
-    /// a download to list, as Edge's toolbar does.
+    /// The downloads menu (`browser.downloads.show`). Shown once the tab
+    /// started a download in this run, or while any download runs, as
+    /// Chrome's toolbar does; never for downloads kept from an earlier run.
     case downloads
     case designMode
     case profile
@@ -66,12 +67,12 @@ public nonisolated enum BrowserToolbarButton: String, CaseIterable, Hashable, Se
 
     /// Whether the button has something to show: the media hub only while a
     /// tab has media, zoom only while the page is zoomed, Downloads only once
-    /// there is a download.
+    /// the tab downloaded something or while a download runs.
     public func hasContent(_ facts: BrowserToolbarFacts) -> Bool {
         switch self {
         case .media: facts.media.sessions > 0
         case .zoom: BrowserZoom.percent(facts.zoom) != 100
-        case .downloads: facts.downloads.count > 0
+        case .downloads: facts.downloads.count > 0 || facts.downloads.inProgress
         default: true
         }
     }
@@ -112,6 +113,9 @@ public nonisolated struct BrowserToolbarButtonState: Hashable, Sendable {
     public var isActive: Bool
     /// Hover shows `label` as a tooltip (`BrowserToolbarPolicy.toolTipInforms`).
     public var showsToolTip = true
+    /// A progress ring around the icon (Downloads while one runs): 0...1, or
+    /// a negative value for a running download of unknown size; nil draws none.
+    public var progress: Double?
 
     public init(icon: IconName, label: String, isEnabled: Bool = true, isActive: Bool = false) {
         self.icon = icon
@@ -134,7 +138,7 @@ public nonisolated struct BrowserToolbarFacts: Hashable, Sendable {
     public var profileName: String?
     /// The page's zoom factor, 1.0 = 100 %.
     public var zoom: Double
-    /// The App's downloads, every tab's.
+    /// The tab's downloads of this run (`count`) and whether any download runs.
     public var downloads: BrowserToolbarDownloads
     /// Media in every tab.
     public var media: BrowserToolbarMedia

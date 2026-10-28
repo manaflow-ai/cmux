@@ -38,12 +38,31 @@ struct HistoryCookieBackupsView: View {
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden).frame(minHeight: 160)
             }
-            HStack {
-                Button(HistoryStrings.cookieBackupsDeleteAll, role: .destructive) { ask(model.cookieBackups.map(\.id)) }
-                    .disabled(model.cookieBackups.isEmpty)
-                Spacer()
-                Button(HistoryStrings.cookieBackupsDone) { model.showsCookieBackups = false }
-                    .keyboardShortcut(.defaultAction)
+            if confirming {
+                // The delete question in place of the actions (u2647: a system confirmation
+                // dialog cannot show its keys): Escape keeps the copies, Return deletes them.
+                VStack(alignment: .leading, spacing: Metrics.space2) {
+                    Text(HistoryStrings.cookieBackupsConfirmTitle).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary)
+                    Text(HistoryStrings.cookieBackupsConfirmMessage).font(Font(Typography.body)).foregroundStyle(colors.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack {
+                        Spacer()
+                        CmuxDialogActionButton(CmuxDialogStrings.cancel, hint: .escape) { confirming = false }
+                        CmuxDialogActionButton(HistoryStrings.cookieBackupsConfirmDelete, hint: .return, role: .destructive) {
+                            confirming = false
+                            model.deleteCookieBackups(pendingDelete)
+                        }
+                    }
+                }
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("cmux.history.cookieBackups.confirm")
+            } else {
+                HStack {
+                    Button(HistoryStrings.cookieBackupsDeleteAll, role: .destructive) { ask(model.cookieBackups.map(\.id)) }
+                        .disabled(model.cookieBackups.isEmpty)
+                    Spacer()
+                    CmuxDialogActionButton(HistoryStrings.cookieBackupsDone, hint: .return) { model.showsCookieBackups = false }
+                }
             }
         }
         .padding(Metrics.panelInset * 3)
@@ -51,11 +70,6 @@ struct HistoryCookieBackupsView: View {
         .background(colors.background)
         // The default button in the theme's selection fill, never the system blue (cx-wqn5).
         .tint(colors.selection)
-        .confirmationDialog(HistoryStrings.cookieBackupsConfirmTitle, isPresented: $confirming) {
-            Button(HistoryStrings.cookieBackupsConfirmDelete, role: .destructive) { model.deleteCookieBackups(pendingDelete) }
-        } message: {
-            Text(HistoryStrings.cookieBackupsConfirmMessage)
-        }
     }
 
     private func ask(_ ids: [String]) {

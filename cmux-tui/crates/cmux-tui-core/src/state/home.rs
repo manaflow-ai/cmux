@@ -45,6 +45,7 @@ impl Mux {
                 None,
                 &mutation,
                 EmptyWorkspaceMark::Home,
+                true,
             )
         })?;
         let (workspace_id, _) = self

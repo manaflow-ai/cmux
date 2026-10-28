@@ -1,3 +1,4 @@
+import CmuxNextPages
 import Foundation
 
 extension AgentPaneSource {
@@ -22,11 +23,32 @@ extension AgentPaneNavigation {
     /// password, and only by spending a real user gesture in the pane (``AgentPaneUserGestures``,
     /// which page script cannot record), so WebKit's link-activated flag is never the only proof.
     /// True when it opened.
-    @MainActor static func openOutside(_ url: URL, gestures: AgentPaneUserGestures, open: (URL) -> Void) -> Bool {
+    /// A cmux app link (``isCmuxAppLink(_:)``) spends the gesture too and goes to `openApp`, the
+    /// app's own `link.open` (``LinkRouter/appLink``), never to the system.
+    @MainActor static func openOutside(_ url: URL, gestures: AgentPaneUserGestures, open: (URL) -> Void,
+                                       openApp: (URL) -> Bool = { LinkRouter.shared.appLink($0) }) -> Bool {
+        if isCmuxAppLink(url) {
+            guard gestures.consume() else { return false }
+            return openApp(url)
+        }
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               url.user == nil, url.password == nil, url.host?.isEmpty == false,
               gestures.consume() else { return false }
         open(url)
         return true
+    }
+}
+
+extension AgentPaneNavigation {
+    /// Whether `url` is a cmux app link a reply may draw and a click hands to the app: the `cmux`
+    /// scheme or a build's `cmux-…` one, a workspace, pane, tab, session, Chief or agent host, and no user
+    /// name, password or port. The app parses the ids again (DeepLink.parse) and opens nothing else.
+    /// The pane's own scheme (`cmux-agent://pane/…`, its page and media) is never one (media-safety R7).
+    nonisolated static func isCmuxAppLink(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased(), scheme == "cmux" || scheme.hasPrefix("cmux-"),
+              scheme != AgentPaneSource.bundledScheme,
+              url.user == nil, url.password == nil, url.port == nil,
+              let host = url.host?.lowercased() else { return false }
+        return ["workspace", "pane", "tab", "session", "chief", "agent"].contains(host)
     }
 }

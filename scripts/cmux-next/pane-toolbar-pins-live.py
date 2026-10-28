@@ -168,7 +168,7 @@ try:
     check((migrated.get("tabs") or {}) == {"toolbarButtons": ["splitRight", "openDiffViewer", "file.open", "toggleSplitZoom"]},
           f"launch moves tabs.hiddenButtons [splitDown] to tabs.toolbarButtons and drops the old key: {migrated}")
     write_config({})
-    quiet_wait(lambda: not (first().get("toolbar") or {}).get("buttons"), 20)
+    quiet_wait(lambda: (first().get("toolbar") or {}).get("buttons") == [], 20)
 
     rpc("action.run", {"action": "splitRight", "origin": "script"})
     quiet_wait(lambda: len(panes()) >= 2, 20)
@@ -176,12 +176,13 @@ try:
     frame = rpc("debug.window_frame") or {}
     height = (frame.get("frame") or [0, 0, 1200, 800])[3] if isinstance(frame, dict) else 800
 
-    # 2. Default: only "…", faded at rest, revealed over the tabs.
+    # 2. Default: "…" only (no Search Tabs chevron), hidden at rest (tabs.restingControlOpacity 0), shown over the tabs.
     hover(None)
     pane = quiet_wait(lambda: (lambda p: p if p.get("toolbar") and not p["toolbar"]["revealed"] else None)(first()), 10) or first()
     print("rest", json.dumps(pane.get("toolbar")), flush=True)
     tool = pane.get("toolbar") or {}
-    check(tool.get("buttons") == [] and tool.get("more_alpha") == 0, f"default at rest: no button, \"…\" faded: {tool}")
+    check(tool.get("buttons") == [] and (tool.get("more_alpha") or 0) == 0,
+          f"default at rest: no buttons, \"…\" hidden: {tool}")
     rest_width = (tool.get("frame") or [0, 0, 0, 0])[2]
     snapshot("default-rest", pane)
     print("hover", hover(strip_point(pane, height)), flush=True)
@@ -194,6 +195,7 @@ try:
     rows = menu_rows(pane)
     print("menu", json.dumps(rows, ensure_ascii=False), flush=True)
     check("Split Right" in rows and "Split Down" in rows, "\"…\" offers Split Right and Split Down")
+    check(any(str(r).startswith("Search Tabs") for r in rows), f"\"…\" offers Search Tabs (was the bar's chevron): {rows}")
     pins = show_in_tab_bar(rows) or []
     check(bool(pins) and not any(str(r).startswith("✓") for r in pins), f"Show in Tab Bar lists the pinnable actions, none checked: {pins}")
     with open(os.path.join(opts.out, "menu-default.json"), "w") as f:
@@ -202,10 +204,11 @@ try:
 
     # 4. Pinned buttons.
     write_config({"tabs": {"toolbarButtons": ["splitDown", "splitRight"]}})
-    pane = quiet_wait(lambda: (lambda p: p if (p.get("toolbar") or {}).get("buttons") else None)(first()), 20) or first()
+    pane = quiet_wait(lambda: (lambda p: p if len((p.get("toolbar") or {}).get("buttons") or []) > 1 else None)(first()), 20) or first()
     tool = pane.get("toolbar") or {}
     print("pinned rest", json.dumps(tool, ensure_ascii=False), flush=True)
-    check(tool.get("buttons") == ["Split Down", "Split Right"], f"pinned: Split Down then Split Right, the order written: {tool.get('buttons')}")
+    check(tool.get("buttons") == ["Split Down", "Split Right"],
+          f"pinned: Split Down and Split Right in the order written, no Search Tabs: {tool.get('buttons')}")
     check(tool.get("revealed") is False, "pinned buttons wait for the pointer too")
     pinned_width = (tool.get("frame") or [0, 0, 0, 0])[2]
     snapshot("pinned-rest", pane)

@@ -1,8 +1,8 @@
 import { experimentArm } from "../../../experiments/experiment";
 import { sessionOffer } from "./sessionOffer.experiment";
 
-/// The Debug toggle `agent.suggestedTasks` (DEV and NIGHTLY) as the host last said
-/// (`applySuggestedTasks`).
+/// Whether suggested tasks are on, as the host last said (`applySuggestedTasks`): the
+/// `sessions.promptSuggestions` setting, or the Debug tunable `agent.suggestedTasks` forcing them on.
 let toggle = false;
 
 /// Records the host's suggested tasks toggle; true when it changed what draws.
@@ -12,8 +12,9 @@ export function setSuggestedTasks(on: boolean): boolean {
   return offersShown() !== before;
 }
 
-/// Whether an agent's offers draw (cx-lo9yf): with the `agent.suggestedTasks` Debug toggle on, or the
-/// `session-offer` experiment's `on` arm. Off by default; off, offers draw nothing.
+/// Whether an agent's offers draw (cx-lo9yf): with the host's suggested tasks on, or the
+/// `session-offer` experiment's `on` arm. The host's value is Settings > Suggest Follow-Up Tasks (on by
+/// default) or the `agent.suggestedTasks` Debug toggle forcing it on; off, offers draw nothing.
 export function offersShown(): boolean {
   return toggle || experimentArm(sessionOffer) === "on";
 }

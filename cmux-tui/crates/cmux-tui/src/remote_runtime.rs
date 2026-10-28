@@ -16,7 +16,7 @@ use std::time::Duration;
 use anyhow::{Context, anyhow};
 use async_trait::async_trait;
 use base64::Engine;
-use cmux_remote::admin::serve_admin_with_shutdown;
+use cmux_remote::admin::{MuxBinding, serve_admin_with_mux_binding};
 use cmux_remote::bridge::serve_mux_bridge;
 use cmux_remote::connection::{
     ClientConnection, ClientConnectionConfig, ConnectionError, ReconnectGroupSource,
@@ -2153,6 +2153,10 @@ async fn run_daemon(
             DaemonSessionPolicy { resume_lease: options.resume_lease },
         )?;
         let workspace = WorkspaceService::new();
+        // The admin proof and service forwarding must use the same resolved
+        // destination, including when the configured path is a symlink.
+        let mux_binding = MuxBinding::new(&mux_socket, &link_socket)?;
+        let mux_socket = mux_binding.mux_socket.clone();
 
         let lifecycle_id = uuid::Uuid::new_v4().to_string();
         let preliminary_runtime = persist_runtime_info(
@@ -2193,10 +2197,10 @@ async fn run_daemon(
                         daemon.clone(),
                         address,
                         MAX_CARRIER_FRAME_BYTES,
-                        DirectWebSocketOptions {
-                            allow_insecure_non_loopback: options.allow_insecure_non_loopback,
-                            trusted_carrier: options.trusted_carrier_websocket,
-                        },
+                        DirectWebSocketOptions::new(
+                            options.allow_insecure_non_loopback,
+                            options.trusted_carrier_websocket,
+                        ),
                     )
                     .await?,
                 ),
@@ -2328,12 +2332,13 @@ async fn run_daemon(
             // host's filesystem path as the default route for mobile clients.
             push_unique_route(&mut routes, unix_route);
 
-            let admin = serve_admin_with_shutdown(
+            let admin = serve_admin_with_mux_binding(
                 daemon,
                 &admin_socket,
                 routes.clone(),
                 Some(lifecycle_id.clone()),
                 Some(owner_shutdown),
+                Some(mux_binding.clone()),
             )
             .await?;
             let info = DaemonRuntimeInfo {

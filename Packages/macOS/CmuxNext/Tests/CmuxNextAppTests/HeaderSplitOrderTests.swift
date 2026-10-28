@@ -71,7 +71,7 @@ struct HeaderSplitOrderTests {
 
         private func publish() {
             let layout = panes.dropFirst().reduce(LayoutNode.leaf(panes[0].pane)) { left, pane in
-                .split(id: nil, direction: .right, ratio: 0.5, a: left, b: .leaf(pane.pane))
+                .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: left, b: .leaf(pane.pane))
             }
             let snapshots = panes.map { pane in
                 var tab = TabSnapshot(surface: pane.surface, kind: pane.kind, cwd: pane.surface == 1 ? cwd : nil)

@@ -6,13 +6,20 @@ extension DaemonStore {
         case none
         /// Refetch `list-workspaces` and apply it.
         case resync
+        /// Refetch `list-personal` alone and apply it (`personal-changed`).
+        case personal
     }
 
     /// Applies one event in place. Returns `.resync` when the event cannot be
     /// applied exactly (revision gap, generation change, coarse invalidation).
     @discardableResult
     public func apply(_ event: DaemonEvent) -> Followup {
-        let followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        var followup = withOverlayLifted { applyEvent(event, sequence: nil) }
+        // One event without a sequence: its personal state is fetched now (no barrier to hold back).
+        if followup == .personal {
+            followup = .none
+            refetchPersonal()
+        }
         workspaceListMayHaveChanged()
         // Waiters see the visible state, so they run once the overlay is back.
         flushAppliedWaiters()
@@ -24,8 +31,10 @@ extension DaemonStore {
     /// needs a resync is decided per event: the echo's own delta applied
     /// exactly holds the intent's result even when another event of the
     /// batch needs a resync.
-    private func applyEvent(_ event: DaemonEvent, sequence: UInt64?) -> Followup {
-        let followup = applyState(event)
+    private func applyEvent(_ event: DaemonEvent, sequence: UInt64?, envelope: DaemonEventEnvelope? = nil) -> Followup {
+        // Before it applies: the workspace it names is found while the records still hold it (a close).
+        noteSnapshotTouch(event)
+        let followup = applyState(event, envelope: envelope)
         if let transaction = event.clientTransactionID {
             confirm(transaction)
             ProvisionalTab.echoed(event, transaction: transaction, in: self)
@@ -40,9 +49,12 @@ extension DaemonStore {
     /// Events superseded by the last snapshot are skipped.
     @discardableResult
     public func apply(batch: [DaemonEventEnvelope]) -> Followup {
+        // A staged script batch keeps the events of the workspaces it touches (DaemonStore+Stage.swift).
+        let batch = stage?.passing(batch, in: self) ?? batch
+        guard !batch.isEmpty else { return .none }
         // An observer that applies events while this batch applies is an
         // update cycle (idle-wakeups.md): counted, logged in debug builds.
-        updateCycles.run { applyBatch(batch) }
+        return updateCycles.run { applyBatch(batch) }
     }
 
     private func applyBatch(_ batch: [DaemonEventEnvelope]) -> Followup {
@@ -57,22 +69,38 @@ extension DaemonStore {
             var followup = Followup.none
             for envelope in batch {
                 if envelope.sequence > snapshotBarrier || envelope.event.outlivesSnapshot {
-                    if applyEvent(envelope.event, sequence: envelope.sequence) == .resync { followup = .resync }
+                    switch applyEvent(envelope.event, sequence: envelope.sequence, envelope: envelope) {
+                    case .resync: followup = .resync
+                    case .personal:
+                        personalRefetch.saw(envelope.sequence)
+                        if followup == .none { followup = .personal }
+                    case .none: break
+                    }
                 } else if let transaction = envelope.event.clientTransactionID {
                     // Superseded by the snapshot (which holds its result),
-                    // but its echo still settles the patch and the intent.
+                    // but its echo still settles the patch and the intent,
+                    // and names a create's tab in the snapshot's records: a
+                    // creation the person closed first keeps hiding (and then
+                    // closes) that tab instead of leaving the log with it
+                    // shown (tab-spam-race: a resync during Cmd-T/Cmd-W spam).
                     confirm(transaction)
+                    ProvisionalTab.echoed(envelope.event, transaction: transaction, in: self)
                     settleIntentOnEcho(transaction, needsResync: false, sequence: envelope.sequence)
                 }
             }
             // A batch that needs a resync is reflected only once the snapshot
-            // lands (`resync` advances to its barrier).
-            if followup == .none, let last = batch.map(\.sequence).max() { advanceAppliedSequence(to: last) }
+            // lands (`resync` advances to its barrier); one with a personal change
+            // only up to that change, until `list-personal` lands (`refetchPersonal`).
+            if followup != .resync, let last = batch.map(\.sequence).max() {
+                advanceAppliedSequence(to: personalRefetch.reachable(applying: last))
+            }
             return followup
         }
     }
 
     func advanceAppliedSequence(to sequence: UInt64) {
+        // Not past an event a stage still holds: nothing it holds counts as applied yet.
+        let sequence = stage?.cappedSequence(sequence) ?? sequence
         guard sequence > appliedSequence else { return }
         appliedSequence = sequence
         // Intents first, so waiters see the visible state without them.
@@ -80,29 +108,14 @@ extension DaemonStore {
         runAppliedWaiters(nil)
     }
 
-    private func applyState(_ event: DaemonEvent) -> Followup {
+    private func applyState(_ event: DaemonEvent, envelope: DaemonEventEnvelope?) -> Followup {
         switch event {
         case .connected(let identity, _):
-            connectionEpoch += 1
-            session.connected(servesStateResources: identity.supports(DaemonCapabilities.shared.stateResources))
-            connectionState = .connected(identity)
-            noteHandshake(identity)
-            return .resync
+            return DaemonConnectionChange.connected(identity, envelope).apply(to: self)
         case .disconnected(let reason):
-            connectionEpoch += 1
-            clearPresence()
-            connectionState = .disconnected(reason)
-            onDisconnected?()
-            // Nothing newer will arrive for commands sent on this connection.
-            drainAppliedWaiters = true
-            flushAppliedWaiters()
-            return .none
+            return DaemonConnectionChange.disconnected(reason).apply(to: self)
         case .daemonShutdown:
-            connectionEpoch += 1
-            clearPresence()
-            connectionState = .disconnected("daemon shut down")
-            onDisconnected?()
-            return .none
+            return DaemonConnectionChange.shutdown.apply(to: self)
 
         case .workspaceAdded(let delta):
             return applyWorkspaceDelta(delta) { store, delta in
@@ -111,7 +124,7 @@ extension DaemonStore {
                     store.indexed(existing)
                 } else {
                     let index = min(max(delta.index ?? store.workspaces.count, 0), store.workspaces.count)
-                    let workspace = WorkspaceModel(delta.entity)
+                    let workspace = store.confirmedWorkspace(delta.entity)
                     store.workspaces.insert(workspace, at: index)
                     store.indexed(workspace)
                 }
@@ -150,8 +163,6 @@ extension DaemonStore {
 
         case .screenAdded(let delta):
             guard let workspace = index.workspacesByHandle[delta.workspace] else { return .resync }
-            // The screen's own delta is newer than any echo held for it.
-            layoutEchoes.heldByScreen[delta.screen] = nil
             if let existing = workspace.screens.first(where: { $0.id == ScreenModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: workspace)
@@ -165,23 +176,18 @@ extension DaemonStore {
         case .screenClosed(let delta):
             guard let workspace = index.workspacesByHandle[delta.workspace],
                   let screen = workspace.screens.first(where: { $0.handle == delta.screen }) else { return .none }
-            layoutEchoes.heldByScreen[delta.screen] = nil
             workspace.screens.removeAll { $0 === screen }
             index.remove(screen)
             session.lay(workspaceOnly: workspace)
             return .none
         case .screenRenamed(let delta):
             guard let screen = screensByHandle[delta.screen], let workspace = index.workspace(holding: screen) else { return .resync }
-            layoutEchoes.heldByScreen[delta.screen] = nil
             screen.update(delta.entity)
             indexed(screen, in: workspace)
             return .none
         case .screenChanged(let delta):
             guard let workspace = index.workspacesByHandle[delta.workspace], let screen = screensByHandle[delta.screen],
                   index.workspace(holding: screen) === workspace else { return .resync }
-            // A screen-changed carries the screen's whole layout, newer than
-            // any echo held for it: the drag's end must not lay the older one.
-            layoutEchoes.heldByScreen[delta.screen] = nil
             screen.update(delta.entity)
             if let index = delta.index {
                 workspace.moveScreen(screen, to: index)
@@ -192,12 +198,14 @@ extension DaemonStore {
 
         case .paneAdded(let delta):
             guard let screen = screensByHandle[delta.screen] else { return .resync }
+            // A pending split's pane, seen once: if it closes before a layout places it, the split settles.
+            if !intentLog.isEmpty { intentLog.noteDaemonPane(PaneModel.identity(delta.entity)) }
             if let existing = screen.panes.first(where: { $0.id == PaneModel.identity(delta.entity) }) {
                 existing.update(delta.entity)
                 indexed(existing, in: screen)
             } else {
                 let index = min(max(delta.index ?? screen.panes.count, 0), screen.panes.count)
-                let pane = PaneModel(delta.entity)
+                let pane = confirmedPane(delta.entity)
                 screen.panes.insert(pane, at: index)
                 indexed(pane, in: screen)
             }
@@ -263,11 +271,13 @@ extension DaemonStore {
             indexed(shown, in: target)
             return .none
 
-        case .layoutChanged(let screen, let layout?, let transaction):
+        case .layoutChanged(let screen, let layout?, _):
             // `layout-delta-v1`: patch that one screen (I3).
-            return applyLayoutChange(screen: screen, layout: layout, transaction: transaction)
+            return applyLayoutChange(screen: screen, layout: layout)
         case .treeChanged, .layoutChanged:
             return .resync
+        case .personalChanged:
+            return .personal
         case .overflow:
             clearPresence()
             return .resync
@@ -296,12 +306,12 @@ extension DaemonStore {
             return .none
 
         case .sessionState(let item): session.apply(item, in: self); return .none
-        case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
+        case .terminalRegistryChanged, .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
              .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown: // .unknown: the `apps-*` events of apps-v1
-            sideEvents.deliver(event)
+            sideEvents.deliver(event, envelope: envelope)
             return .none
 
-        case .scrollChanged, .bell, .frontendProjectionChanged, .terminalRegistryChanged, .client:
+        case .scrollChanged, .bell, .frontendProjectionChanged, .client:
             return .none
         }
     }

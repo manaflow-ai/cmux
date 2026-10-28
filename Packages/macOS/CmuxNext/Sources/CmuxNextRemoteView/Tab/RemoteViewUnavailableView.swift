@@ -16,8 +16,8 @@ public final class RemoteViewUnavailableView: NSView {
     /// Connect pressed (confirm content only).
     public var onConnect: (() -> Void)?
     private let icon: NSImageView
-    private let title: NSTextField
-    private let detail: NSTextField
+    private let title: ChromeLabel
+    private let detail: ChromeLabel
     private let button: RemoteChromeButton?
     private let column = NSStackView()
     private var colors: RemotePaneColors?
@@ -100,6 +100,7 @@ public final class RemoteViewUnavailableView: NSView {
             case .notInThisBuild: RemoteViewStrings.unavailableNotInBuild
             case let .noTransport(host): RemoteViewStrings.unavailableNoTransport(host)
             case let .notLoopback(host): RemoteViewStrings.unavailableNotLoopback(host)
+            case let .notPrivateNetwork(host): RemoteViewStrings.unavailableNotPrivateNetwork(host)
             case .remoteRecord: RemoteViewStrings.unavailableRemoteRecord
             case .invalidAddress: RemoteViewStrings.unavailableInvalidAddress
             }

@@ -34,6 +34,7 @@ fn query_launch(term: &str, env_term: Option<&str>) -> HostLaunch {
             placements: 20,
         },
         seed: Vec::new(),
+        workspace_key: String::new(),
     }
 }
 
@@ -100,6 +101,7 @@ impl QueryHost {
             source_cursor: None,
             acknowledge_with_replay: false,
             targeted_ack: None,
+            pty_previous: None,
             response,
         };
         self.host.parser_commands.send(command).unwrap();

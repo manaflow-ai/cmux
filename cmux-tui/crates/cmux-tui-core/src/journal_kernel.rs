@@ -1,3 +1,4 @@
+use crate::panic_free::RecoverPoison;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
@@ -204,6 +205,9 @@ pub(crate) struct JournalKernel {
     tailer: Mutex<Option<std::thread::JoinHandle<()>>>,
     enabled: bool,
     producers: RwLock<HashMap<String, Arc<CompiledJournalProducer>>>,
+    /// The registry file, so a reader behind the ring opens its own
+    /// read-only connection without the registry lock.
+    database_path: Option<PathBuf>,
 }
 
 struct CompiledJournalProducer {
@@ -254,6 +258,7 @@ impl JournalKernel {
                 tailer: Mutex::new(None),
                 enabled: false,
                 producers: RwLock::new(producers),
+                database_path: None,
             }));
         };
 
@@ -275,6 +280,7 @@ impl JournalKernel {
             tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(producers),
+            database_path: Some(database_path),
         });
         Self::start_tailer(&kernel, reader, head_sequence)?;
         Ok(kernel)
@@ -289,12 +295,20 @@ impl JournalKernel {
         let tailer = std::thread::Builder::new()
             .name("mux-session-journal-fanout".into())
             .spawn(move || run_tailer(weak, reader, head_sequence))?;
-        *kernel.tailer.lock().unwrap() = Some(tailer);
+        *kernel.tailer.lock().recover_poison() = Some(tailer);
         Ok(())
     }
 
     pub(crate) const fn enabled(&self) -> bool {
         self.enabled
+    }
+
+    /// A new read-only journal reader on its own connection, for a consumer
+    /// whose cursor fell behind the ring (a [`SharedJournalRead::Gap`]).
+    /// It takes no registry lock, so a long catch-up never stalls writers.
+    /// `None` for an in-memory registry.
+    pub(crate) fn open_reader(&self) -> anyhow::Result<Option<SessionJournalReader>> {
+        self.database_path.as_deref().map(SessionJournalReader::open).transpose()
     }
 
     /// Wakes the tailer after the writer commits. No SQLite work or record
@@ -303,27 +317,29 @@ impl JournalKernel {
         if !self.enabled {
             return;
         }
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.requested_epoch = state.requested_epoch.wrapping_add(1);
         self.changed.notify_all();
     }
 
     pub(crate) fn epoch(&self) -> u64 {
-        self.state.lock().unwrap().epoch
+        self.state.lock().recover_poison().epoch
     }
 
     /// Like `wait`, but `None` waits with no timeout (a real deadline or
     /// nothing, never a poll period).
     pub(crate) fn wait_until(&self, epoch: u64, deadline: Option<Instant>) -> u64 {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         while state.epoch == epoch {
             match deadline {
-                None => state = self.changed.wait(state).unwrap(),
+                None => {
+                    state = self.changed.wait(state).recover_poison();
+                }
                 Some(deadline) => {
                     let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
                         break;
                     };
-                    state = self.changed.wait_timeout(state, remaining).unwrap().0;
+                    state = self.changed.wait_timeout(state, remaining).recover_poison().0;
                 }
             }
         }
@@ -331,11 +347,11 @@ impl JournalKernel {
     }
 
     pub(crate) fn wait(&self, epoch: u64, timeout: Duration) -> u64 {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if state.epoch != epoch {
             return state.epoch;
         }
-        let (state, _) = self.changed.wait_timeout(state, timeout).unwrap();
+        let (state, _) = self.changed.wait_timeout(state, timeout).recover_poison();
         state.epoch
     }
 
@@ -346,9 +362,9 @@ impl JournalKernel {
         epoch: u64,
         interrupt: &crate::stream_interrupt::StreamInterrupt,
     ) -> u64 {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         while state.epoch == epoch && !interrupt.is_fired() {
-            state = self.changed.wait(state).unwrap();
+            state = self.changed.wait(state).recover_poison();
         }
         state.epoch
     }
@@ -360,7 +376,7 @@ impl JournalKernel {
     }
 
     pub(crate) fn wake_waiters(&self) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         // The generation is the wait predicate. Advancing it makes a wake
         // observable even when the signal arrives just before wait() locks.
         state.epoch = state.epoch.wrapping_add(1);
@@ -369,12 +385,12 @@ impl JournalKernel {
 
     pub(crate) fn shutdown(&self) {
         {
-            let mut state = self.state.lock().unwrap();
+            let mut state = self.state.lock().recover_poison();
             state.shutdown_requested = true;
             state.epoch = state.epoch.wrapping_add(1);
             self.changed.notify_all();
         }
-        if let Some(tailer) = self.tailer.lock().unwrap().take()
+        if let Some(tailer) = self.tailer.lock().recover_poison().take()
             && tailer.join().is_err()
         {
             eprintln!("cmux-tui: session journal tailer panicked during shutdown");
@@ -385,7 +401,7 @@ impl JournalKernel {
         if !self.enabled || limit == 0 {
             return SharedJournalRead::Unavailable;
         }
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if !state.available {
             return SharedJournalRead::Unavailable;
         }
@@ -435,7 +451,7 @@ impl JournalKernel {
     }
 
     pub(crate) fn install_prepared_producer(&self, producer: PreparedJournalProducer) {
-        let mut producers = self.producers.write().unwrap();
+        let mut producers = self.producers.write().recover_poison();
         if producers
             .get(&producer.producer_id)
             .is_some_and(|current| current.manifest_version > producer.compiled.manifest_version)
@@ -452,7 +468,7 @@ impl JournalKernel {
         let producer = self
             .producers
             .read()
-            .unwrap()
+            .recover_poison()
             .get(&ingress.producer_id)
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("journal producer is not installed"))?;
@@ -481,7 +497,7 @@ impl JournalKernel {
 
     #[cfg(test)]
     pub(crate) fn database_reader_count(&self) -> u64 {
-        self.state.lock().unwrap().database_reader_count
+        self.state.lock().recover_poison().database_reader_count
     }
 }
 
@@ -545,7 +561,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
     loop {
         let Some(kernel) = weak.upgrade() else { break };
         let requested_epoch = {
-            let mut state = kernel.state.lock().unwrap();
+            let mut state = kernel.state.lock().recover_poison();
             loop {
                 if state.shutdown_requested {
                     return;
@@ -555,7 +571,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                 }
                 if state.available {
                     retry_at = None;
-                    state = kernel.changed.wait(state).unwrap();
+                    state = kernel.changed.wait(state).recover_poison();
                     continue;
                 }
                 let deadline = *retry_at.get_or_insert_with(|| Instant::now() + retry.next_delay());
@@ -563,7 +579,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
                     retry_at = None;
                     break state.requested_epoch;
                 };
-                state = kernel.changed.wait_timeout(state, remaining).unwrap().0;
+                state = kernel.changed.wait_timeout(state, remaining).recover_poison().0;
             }
         };
         drop(kernel);
@@ -599,7 +615,7 @@ fn run_tailer(weak: Weak<JournalKernel>, reader: SessionJournalReader, mut last_
         }
 
         let Some(kernel) = weak.upgrade() else { break };
-        let mut state = kernel.state.lock().unwrap();
+        let mut state = kernel.state.lock().recover_poison();
         if state.shutdown_requested {
             return;
         }
@@ -723,7 +739,7 @@ mod performance_tests {
     }
 
     fn linear_read_after(kernel: &JournalKernel, sequence: u64, limit: usize) -> SharedJournalRead {
-        let state = kernel.state.lock().unwrap();
+        let state = kernel.state.lock().recover_poison();
         let records: Vec<_> = state
             .records
             .iter()
@@ -772,6 +788,7 @@ mod performance_tests {
             tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
+            database_path: None,
         };
         let observed = kernel.epoch();
         kernel.wake_waiters();
@@ -824,6 +841,7 @@ mod performance_tests {
             tailer: Mutex::new(None),
             enabled: true,
             producers: RwLock::new(HashMap::new()),
+            database_path: None,
         };
 
         let iterations = 100_000_u64;

@@ -60,6 +60,12 @@ extension CloudMachine {
         case "failed": .failed
         default: .unknown
         }
-        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue)
+        // The record's `capabilities` are machine capability names
+        // (`agent_session`, …), not provider operations, so the machine
+        // declares none and every Cloud action stays available.
+        // The idle auto-pause fields, when the backend sends them (`/api/vm` names).
+        let minutes = (value["idlePauseMinutes"]?.doubleValue).flatMap { Int(exactly: $0) }
+        self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue,
+                  pauseReason: value["pauseReason"]?.stringValue.flatMap(PauseReason.init(rawValue:)), idlePauseMinutes: minutes)
     }
 }

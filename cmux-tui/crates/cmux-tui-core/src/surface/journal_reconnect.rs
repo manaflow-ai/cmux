@@ -1,78 +1,53 @@
-//! The journal gap a terminal-host reconnect records (nx-scale step 1).
+//! The journal marker a terminal-host reconnect or respawn records (nx-scale
+//! step 1).
 //!
-//! Bytes a host wrote while no daemon tap existed are not in the journal.
-//! The hosted reader records a `terminal.output.gap` (reason
-//! `host_reconnect`) in the terminal lane after it installed the host's
-//! replacement snapshot and before it reads new output, then marks the
-//! terminal for the coalesced checkpoint (mux/journal_retention.rs).
-//! Capturing a session checkpoint inline here made a wave of N reconnects
+//! Output never enters the session journal (output_store.rs). The
+//! `terminal.output.gap` record stays as a small structural marker: reason
+//! `host_reconnect` after the hosted reader installed the host's replacement
+//! snapshot (bytes the host wrote while no daemon tap existed never reached
+//! the daemon's viewers), reason `host_respawn` at the start of a respawned
+//! terminal's new generation (cx-6so.49 L2). A reconnect also marks the
+//! terminal for the coalesced checkpoint (mux/journal_retention.rs);
+//! capturing a session checkpoint inline here made a wave of N reconnects
 //! O(N^2).
-//!
-//! A respawned terminal (cx-6so.49 L2: its shell was lost with its host)
-//! records the same gap with reason `host_respawn` at the start of its new
-//! generation: output the lost host read but never delivered is not in the
-//! journal, and history must say so.
 
 use std::sync::Arc;
-use std::sync::PoisonError;
-use std::sync::atomic::Ordering;
 
 use super::PtyTerminalRuntime;
 use crate::Mux;
-use crate::journal_ingress::{JournalIngressEvent, JournalIngressTrySendError};
 use crate::resource::TerminalPublicId;
 
 impl PtyTerminalRuntime {
-    /// Enqueue the gap like terminal output: a non-blocking send under the
-    /// capture gate (so a shutdown's final barrier follows it, or it is not
-    /// sent), and a wait for queue space with the gate released, bounded by
-    /// the durable deadline; past it this terminal's capture is disabled.
     pub(super) fn journal_host_reconnect_gap(&self, mux: &Arc<Mux>) {
-        self.journal_output_gap(mux, "host_reconnect");
+        if self.journal_output_gap(mux, "host_reconnect")
+            && let Some(terminal_id) = self.terminal_public_id.clone()
+        {
+            mux.note_terminal_host_reconnect(TerminalPublicId::clone(&terminal_id));
+        }
     }
 
-    fn journal_output_gap(&self, mux: &Arc<Mux>, reason: &'static str) {
+    /// The `screen_cleared` marker after clear-history on a local terminal
+    /// (a hosted one records `host_reconnect` from its resync): a restore or
+    /// respawn starts after the clear.
+    pub(super) fn journal_clear_gap(&self, mux: &Arc<Mux>) {
+        self.journal_output_gap(mux, "screen_cleared");
+    }
+
+    /// Queue the marker on the terminal lane (after this terminal's earlier
+    /// resizes). False when this terminal is not journaled.
+    fn journal_output_gap(&self, mux: &Arc<Mux>, reason: &'static str) -> bool {
         if !mux.terminal_journal_enabled() || !self.journal_capture_supported {
-            return;
+            return false;
         }
-        let Some(terminal_id) = self.terminal_public_id.clone() else { return };
-        let occurred_at_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
-        // A stalled writer must not hold the hosted reader past the durable
-        // deadline (the same bound as terminal output capture).
-        let deadline = mux.terminal_journal_durable_deadline();
-        loop {
-            let space_epoch = {
-                let _gate =
-                    self.journal_capture_gate.lock().unwrap_or_else(PoisonError::into_inner);
-                if !self.journal_capture_open.load(Ordering::Acquire)
-                    || self.journal_capture_disabled.load(Ordering::Acquire)
-                {
-                    return;
-                }
-                let gap = JournalIngressEvent::TerminalOutputGap {
-                    terminal_id: terminal_id.clone(),
-                    generation: self.journal_generation.clone(),
-                    occurred_at_ms,
-                    reason,
-                };
-                match mux.try_journal_terminal_event(gap) {
-                    Ok(()) => break,
-                    Err(JournalIngressTrySendError::Full { space_epoch, .. }) => space_epoch,
-                    Err(JournalIngressTrySendError::Failed { .. }) => return,
-                }
-            };
-            if let Err(error) = mux.wait_for_terminal_journal_space_until(space_epoch, deadline) {
-                self.stop_journal_capture(mux, terminal_id, reason, Some(deadline), &error);
-                return;
-            }
-        }
-        mux.note_terminal_host_reconnect(TerminalPublicId::clone(&terminal_id));
+        let Some(terminal_id) = self.terminal_public_id.clone() else { return false };
+        mux.journal_terminal_output_gap(terminal_id, self.journal_generation.clone(), reason);
+        true
     }
 }
 
 impl super::Surface {
-    /// Record the `host_respawn` gap at the start of a respawned terminal's
-    /// generation (cx-6so.49).
+    /// Record the `host_respawn` marker at the start of a respawned
+    /// terminal's generation (cx-6so.49).
     pub(crate) fn journal_respawn_gap(&self, mux: &Arc<Mux>) {
         if let Some(pty) = self.as_pty() {
             pty.journal_output_gap(mux, "host_respawn");

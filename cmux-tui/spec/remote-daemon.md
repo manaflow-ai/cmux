@@ -91,6 +91,18 @@ Request identifiers, operation identifiers, and cleanup ownership are scoped to 
 
 ## SSH and lifecycle
 
+When `remote-link --mux-socket PATH` selects a supervisor-owned daemon, reuse
+requires an owner-authenticated `mux-binding` read from the live sidecar's
+local admin socket. It reports the immutable mux and link paths used by that
+runtime. Both sockets must have the same peer process, the requested mux must
+answer as the same OS user, and the resolved paths must match. Runtime JSON
+files do not supply this proof. The relay keeps the verified link descriptor
+instead of reopening its pathname. A mismatch or an older sidecar without this
+read is refused; it never stops or retargets the existing sidecar. A different
+daemon can use a separate carrier session. Unqualified links retain their
+existing reuse behavior. This read is internal owner-only transport plumbing,
+not a catalog operation or a remote relay permission.
+
 `cmux-tui remote ssh <host>` preserves normal SSH expectations: SSH is the transport and authentication mechanism. It starts or discovers a durable user-scoped mux owner and replaceable remote sidecar on demand, then runs a stdio proxy to the sidecar's Unix socket. An npm-backed release or nightly binary auto-installs its exact verified npm version under the remote user's home directory when needed. Source, raw commit-addressed, and PyPI-only builds require a matching preinstalled remote binary because they have no npm bootstrap stamp. Automatic bootstrap never substitutes a different published version. It never replaces or restarts a running sidecar without explicit `--upgrade`.
 
 `--agent-hooks claude,codex` passes the same list to each `remote-link`, which runs `agent hook install` for those providers as the remote user before it attaches, so an agent in a remote pane reports state and notifications like a local one. The install is idempotent and a failure is logged without blocking the link. A host that received only the `cmux-tui` binary (SSH bootstrap or `install-self`) has no standalone `cmux-tui-hook`; the installer then writes the helper path as a script that runs `cmux-tui __agent-hook <provider> <event>`, the same helper built into the daemon binary.

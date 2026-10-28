@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
 import type { EditorProps } from "./types";
@@ -8,8 +8,7 @@ import type { EditorProps } from "./types";
  * come from the native validator, which knows this device's home and symbolic links. */
 export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const state = useSettingsState();
-  const live = state.rows.get(row.key);
+  const live = useSettingsSelector((state) => state.rows.get(row.key));
   const folders =
     live?.folders ??
     (Array.isArray(value) ? value.map(String).map((path) => ({ path, managed: false, reason: null })) : []);

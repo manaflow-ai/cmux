@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextCompat
+public import CmuxNextDesignTokens
 
 /// The Liquid Glass tint of a window backdrop moving to a new color with the color transition
 /// (`appearance.colorTransition`, cx-3rf4z). `NSGlassEffectView.tintColor` is not a layer
@@ -11,7 +13,7 @@ import AppKit
 final class GlassTintBlend {
     /// Lies over the glass, under every other backdrop layer; hidden while no blend runs.
     let overlay = NSView()
-    private static let key = "cmux.colorTransition.glassTint"
+    static let key = "cmux.colorTransition.glassTint"
     private var generation = 0
 
     init() {
@@ -48,7 +50,7 @@ final class GlassTintBlend {
         let current = generation
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        CATransaction.setCompletionBlock { [weak self] in
+        CATransaction.setMainCompletion { [weak self] in
             guard let self, self.generation == current else { return }
             self.overlay.isHidden = true
         }

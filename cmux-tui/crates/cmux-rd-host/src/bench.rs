@@ -388,6 +388,8 @@ pub fn run(opts: &Opts) -> Res<()> {
     let addr: SocketAddr = opts.str_or("addr", "127.0.0.1:4103").parse()?;
     let samples: usize = opts.num_or("samples", 300)?;
     let carrier = opts.str_or("carrier", "udp");
+    // key (default) | click | scroll: which input moves the marker (cloud browser page).
+    let input = opts.str_or("input", "key");
     let tcp = TcpStream::connect(addr)?;
     tcp.set_nodelay(true)?;
     tcp.set_nonblocking(true)?;
@@ -499,8 +501,23 @@ pub fn run(opts: &Opts) -> Res<()> {
     while g2g.len() + lost < samples && v.ended.is_none() {
         let expected = v.marker.unwrap_or(0).wrapping_add(1);
         let t0 = now_ns();
-        v.sender.push(InputEvent::Key { usage: KEY_A, down: true });
-        v.sender.push(InputEvent::Key { usage: KEY_A, down: false });
+        match input.as_str() {
+            // The cloud browser's marker page counts mousedown and wheel as well as keydown.
+            "click" => {
+                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                v.sender.push(InputEvent::Button { button: 0, down: true });
+                v.sender.push(InputEvent::Button { button: 0, down: false });
+            }
+            "scroll" => {
+                v.sender.push(InputEvent::Pointer { x: 960, y: 600 });
+                let dy = if g2g.len() % 2 == 0 { -300 } else { 300 };
+                v.sender.push(InputEvent::Scroll { dx: 0, dy, precise: false });
+            }
+            _ => {
+                v.sender.push(InputEvent::Key { usage: KEY_A, down: true });
+                v.sender.push(InputEvent::Key { usage: KEY_A, down: false });
+            }
+        }
         // Send at once; pump() resends until the host acknowledges.
         v.send_input()?;
         loop {
@@ -526,6 +543,7 @@ pub fn run(opts: &Opts) -> Res<()> {
     let report = json!({
         "addr": addr.to_string(),
         "carrier": carrier,
+        "input": input,
         "welcome": v.welcome,
         "g2g_ms": pct(&mut g2g),
         "lost": lost,

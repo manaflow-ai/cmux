@@ -25,6 +25,9 @@ final class WindowState {
     var workspaceID: String? {
         didSet { if workspaceID != oldValue { noteShown(workspaceID, after: oldValue) } }
     }
+    /// The workspaces shown side by side, `workspaceID` focused among them (Debug Settings `sidebar.multiView`,
+    /// `WindowController.arrangeOnScreen`); nil shows `workspaceID` alone. Persisted in the record.
+    var viewSet: WorkspaceViewSet?
     /// The top page this window shows in place of its workspace
     /// (TOP-SECTION-ITEMS-ARE-PAGES); nil shows the workspace. Selecting a
     /// workspace clears it (`showWorkspace(_:)`). Persisted in the record.
@@ -52,12 +55,32 @@ final class WindowState {
     var sidebarHidden = false
     /// Profile this window shows (plans/cmux-next/data-model.md 4). Its
     /// sidebar lists only the window's workspaces of this profile.
-    var profileID: ProfileID = .defaultProfile
+    var profileID: ProfileID = .defaultProfile {
+        didSet { if profileID != oldValue { refreshRoomBrowserProfile() } }
+    }
     /// The workspace last shown in each profile, restored on switching back.
     var profileWorkspaces: [ProfileID: String] = [:]
     /// Profiles this window showed, most recent first (the fallback when the
     /// current profile loses its last workspace here).
     var profileRecency: [ProfileID] = []
+    /// The browser profile of the room this window shows (its `ProfileModel.browserProfileID`),
+    /// changed only when that value changes (`showRoomBrowserProfile`). Tab badges read this, not
+    /// `profileID`: a room switch must not wake every tab of every mounted workspace when the
+    /// rooms share a browser profile (space-switch-fast).
+    private(set) var roomBrowserProfileID: String?
+
+    /// Reads a room's browser profile (the window's controller sets it from the home store).
+    @ObservationIgnored var roomBrowserProfileOf: (@MainActor (ProfileID) -> String?)? {
+        didSet { refreshRoomBrowserProfile() }
+    }
+
+    /// Re-reads the shown room's browser profile: on a room switch (in the same turn) and when the
+    /// room's record changes (`WindowController.observeRoom`).
+    func refreshRoomBrowserProfile() {
+        guard let roomBrowserProfileOf else { return }
+        let id = roomBrowserProfileOf(profileID)
+        if roomBrowserProfileID != id { roomBrowserProfileID = id }
+    }
     /// Durable id of the screen shown in this window's workspace, so a
     /// relaunch returns to it. Persisted.
     var activeScreenID: String?
@@ -89,6 +112,7 @@ extension WindowState {
         id = record.id
         workspaceID = record.workspaceKey?.rawValue
         page = record.page.flatMap(TopPageRoute.init(rawValue:))
+        viewSet = record.multiView.flatMap(WorkspaceViewSet.init(record:)).flatMap { Set($0.ids).count == $0.ids.count ? $0 : nil }
         machineID = record.machine ?? MachineRegistry.localID
         for (pane, tab) in record.selectedTabs { selection.select(tab, in: pane) }
         sidebarWidth = record.sidebarWidth

@@ -11,15 +11,39 @@ enum BrowserPageScripts {
         return String(array.dropFirst().dropLast())
     }
 
-    /// Resolves `sel` (CSS selector, `eN`, or `@eN`) to an element as `el`.
+    /// Resolves `sel` (CSS selector, `eN`, or `@eN`) to an element as `el`:
+    /// the document first, then inside open shadow roots and same-origin
+    /// frames (browser use: an agent's selector reaches a web component or
+    /// an embedded form as Playwright's does).
     static func find(_ selector: String) -> String {
         """
         const raw = \(literal(selector));
         const ref = raw.replace(/^@/, '');
-        const el = /^e\\d+$/.test(ref) ? document.querySelector('[data-cmux-ref="' + ref + '"]') : document.querySelector(raw);
+        \(deepQuery)
+        const el = /^e\\d+$/.test(ref) ? cmuxDeep(document, '[data-cmux-ref="' + ref + '"]', 0) : (document.querySelector(raw) || cmuxDeep(document, raw, 0));
         if (!el) { return { error: 'Element not found: ' + raw }; }
+        \(measure)
         """
     }
+
+    /// `cmuxDeep(root, sel, depth)`: the first match in `root`, then in open
+    /// shadow roots and same-origin frames below it. A snapshot ref inside a
+    /// web component or an embedded frame resolves the same way.
+    static let deepQuery = """
+        const cmuxDeep = (root, sel, depth) => { if (depth > 8) return null; let hit = null; try { hit = root.querySelector(sel); } catch (_) { return null; } if (hit) return hit; \
+        for (const n of root.querySelectorAll('*')) { if (n.shadowRoot) { const h = cmuxDeep(n.shadowRoot, sel, depth + 1); if (h) return h; } \
+        if (n.tagName === 'IFRAME' || n.tagName === 'FRAME') { let d = null; try { d = n.contentDocument; } catch (_) {} if (d) { const h = cmuxDeep(d, sel, depth + 1); if (h) return h; } } } return null; };
+        """
+
+    /// `cmuxAt(el)`: an element's rect in viewport CSS px and whether it
+    /// hides its text, for the agent cursor (`BrowserPageAgentInput`).
+    static let measure = """
+        const cmuxAt = (e) => { try { const r0 = e.getBoundingClientRect(); let ox = 0, oy = 0; \
+        try { let w = e.ownerDocument.defaultView; while (w && w !== window && w.frameElement) { const f = w.frameElement; const fr = f.getBoundingClientRect(); ox += fr.left + f.clientLeft; oy += fr.top + f.clientTop; w = w.parent; } } catch (_) {} \
+        const r = { left: r0.left + ox, top: r0.top + oy, width: r0.width, height: r0.height }; const auto = String((e.getAttribute && e.getAttribute('autocomplete')) || '').toLowerCase(); \
+        let css = 'none'; try { css = getComputedStyle(e).webkitTextSecurity || 'none'; } catch (_) {} \
+        return { x: r.left, y: r.top, w: r.width, h: r.height, secret: String(e.type || '').toLowerCase() === 'password' || /password|one-time-code|cc-number|cc-csc/.test(auto) || css !== 'none' }; } catch (_) { return null; } };
+        """
 
     static func wrap(_ body: String) -> String { "(() => {\n\(body)\n})()" }
 
@@ -37,11 +61,11 @@ enum BrowserPageScripts {
     static let thrownKey = "__cmuxEvalError"
 
     static func click(_ selector: String, _ text: String?) -> String {
-        wrap(find(selector) + "el.scrollIntoView({block: 'center'}); el.click(); return { value: true };")
+        wrap(find(selector) + "el.scrollIntoView({block: 'center'}); const at = cmuxAt(el); el.click(); return { value: true, at };")
     }
 
     static func focus(_ selector: String, _ text: String?) -> String {
-        wrap(find(selector) + "el.focus(); return { value: true };")
+        wrap(find(selector) + "el.focus(); return { value: true, at: cmuxAt(el) };")
     }
 
     static func fill(_ selector: String, _ text: String?) -> String {
@@ -56,13 +80,14 @@ enum BrowserPageScripts {
         wrap(find(selector) + """
         el.focus();
         const next = \(append ? "(el.isContentEditable ? (el.textContent || '') : (el.value || '')) + " : "")\(literal(text));
-        const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+        const W = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+        const proto = el instanceof W.HTMLTextAreaElement ? W.HTMLTextAreaElement.prototype : W.HTMLInputElement.prototype;
         const setter = Object.getOwnPropertyDescriptor(proto, 'value');
-        if (setter && setter.set && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement)) { setter.set.call(el, next); }
+        if (setter && setter.set && (el instanceof W.HTMLInputElement || el instanceof W.HTMLTextAreaElement)) { setter.set.call(el, next); }
         else if (el.isContentEditable) { el.textContent = next; } else { el.value = next; }
         el.dispatchEvent(new Event('input', { bubbles: true }));
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return { value: true };
+        return { value: true, at: cmuxAt(el) };
         """)
     }
 
@@ -73,39 +98,5 @@ enum BrowserPageScripts {
     static func value(_ selector: String, _ text: String?) -> String {
         // A password field's value never leaves the page.
         wrap(find(selector) + "return { value: (el.type === 'password') ? null : (el.value ?? null) };")
-    }
-
-    static func snapshot(selector: String?, maxDepth: Int, interactiveOnly: Bool) -> String {
-        wrap("""
-        const root = \(selector.map { "document.querySelector(\(literal($0)))" } ?? "document.body");
-        if (!root) { return { error: 'Element not found' }; }
-        // Refs address the latest snapshot only.
-        document.querySelectorAll('[data-cmux-ref]').forEach((old) => old.removeAttribute('data-cmux-ref'));
-        const interactive = new Set(['A','BUTTON','INPUT','SELECT','TEXTAREA','SUMMARY','OPTION']);
-        const roleOf = (el) => el.getAttribute('role') || ({A:'link',BUTTON:'button',INPUT:(el.type==='checkbox'?'checkbox':el.type==='radio'?'radio':'textbox'),SELECT:'combobox',TEXTAREA:'textbox',IMG:'img',H1:'heading',H2:'heading',H3:'heading',H4:'heading',H5:'heading',H6:'heading',UL:'list',OL:'list',LI:'listitem',NAV:'navigation',MAIN:'main',FORM:'form',TABLE:'table',P:'paragraph',LABEL:'label'}[el.tagName]);
-        const nameOf = (el) => (el.getAttribute('aria-label') || el.getAttribute('alt') || el.getAttribute('placeholder') || el.getAttribute('title') || (el.tagName==='INPUT' ? (el.type==='password' ? '' : (el.value||'')) : (el.innerText||'')).trim().replace(/\\s+/g,' ')).slice(0, 80);
-        let next = 1; const refs = {}; const lines = [];
-        const visit = (el, depth) => {
-          if (depth > \(max(1, maxDepth)) || !(el instanceof Element)) return;
-          const style = getComputedStyle(el);
-          if (style.display === 'none' || style.visibility === 'hidden') return;
-          const role = roleOf(el);
-          const isInteractive = interactive.has(el.tagName) || el.hasAttribute('onclick') || el.getAttribute('tabindex') === '0';
-          let shown = false;
-          if (role && (!\(interactiveOnly) || isInteractive)) {
-            const ref = 'e' + (next++);
-            el.setAttribute('data-cmux-ref', ref);
-            const name = nameOf(el);
-            Object.assign(refs, { [ref]: { role, name } });
-            lines.push('  '.repeat(depth) + '- ' + role + (name ? ' "' + name.replace(/"/g, "'") + '"' : '') + ' [ref=' + ref + ']');
-            shown = true;
-          }
-          if (role === 'link' || role === 'button' || role === 'textbox') return;
-          for (const child of el.children) visit(child, shown ? depth + 1 : depth);
-        };
-        visit(root, 0);
-        return { snapshot: lines.join('\\n'), refs, title: document.title, url: location.href,
-                 ready_state: document.readyState, text: (document.body ? document.body.innerText : '').slice(0, 20000) };
-        """)
     }
 }

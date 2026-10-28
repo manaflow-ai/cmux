@@ -69,6 +69,12 @@ const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 const LIVE_CAPABILITY = "chief-live-v1";
 /** A Cloud Chief's live frames through the daemon (`cloud-conversation-live`). */
 const CLOUD_LIVE_CAPABILITY = "cloud-chief-live-v1";
+/** The daemon passes a cloud conversation's typing (`cloud-conversation-typing`) to a connection that
+ *  echoes this. */
+const CLOUD_TYPING_CAPABILITY = "cloud-conversation-typing-v1";
+/** `cloud-conversation-presence {conversation, viewing}`, and the `cloud-conversation-presence`
+ *  event the daemon passes only to a connection that echoes this. */
+export const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
@@ -500,6 +506,8 @@ export class DaemonHomeClient implements PageClient {
    * `conversation-inbox-changed`: a snapshot or a conversation change carries none, so a summary
    * from them keeps what the list said. */
   private readonly listState = new Map<string, Json>();
+  // This page's `conversation-inbox-op` calls whose event has not come back, by conversation.
+  private readonly ownInboxOps = new Map<string, number>();
   /** The owner's last `home-inbox` rows by conversation id (home-inbox-v1). */
   private readonly homeRows = new Map<string, Json>();
   /** Cloud summaries the hydration read after the inbox answered (sent on the events stream). */
@@ -518,7 +526,14 @@ export class DaemonHomeClient implements PageClient {
       started = (async () => {
         await socket.request("set-client-info", {
           name: "cmux page: home-channels",
-          capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY, AVATARS_CAPABILITY, LIVE_CAPABILITY],
+          capabilities: [
+            "conversation-draft-events-v1",
+            RUNS_CAPABILITY,
+            AVATARS_CAPABILITY,
+            LIVE_CAPABILITY,
+            CLOUD_TYPING_CAPABILITY,
+            CLOUD_PRESENCE_CAPABILITY,
+          ],
         });
         await socket.request("subscribe");
       })().catch((error) => {
@@ -722,6 +737,13 @@ export class DaemonHomeClient implements PageClient {
           })),
         };
       }
+      case HomeOps.view: {
+        const id = str(params, "conversation");
+        // Only the Cloud owner has viewing presence; an older daemon has no command for it.
+        if (!this.cloud.owns(id) || !(await this.capable(CLOUD_PRESENCE_CAPABILITY, this.daemon)))
+          return { sent: false };
+        return { sent: await this.cloud.presence(id, params.viewing === true) };
+      }
       case HomeOps.read:
         return this.submit(str(params, "conversation"), this.key(params, options), {
           kind: "read_cursor.set",
@@ -904,8 +926,9 @@ export class DaemonHomeClient implements PageClient {
         return {
           chief: await this.people.setChiefAvatar(
             str(params, "chief", 64),
-            str(params, "mediaType", 32),
-            str(params, "data", 1_500_000),
+            params.clear === true
+              ? null
+              : { mediaType: str(params, "mediaType", 32), data: str(params, "data", 1_500_000) },
             this.key(params, options),
           ),
         };
@@ -968,6 +991,7 @@ export class DaemonHomeClient implements PageClient {
       next.pin_position = op.pinned === true ? (op.position ?? before?.pin_position) : undefined;
     } else next.marked_unread = op.unread === true;
     this.listState.set(conversationId, next);
+    this.ownInboxOps.set(conversationId, (this.ownInboxOps.get(conversationId) ?? 0) + 1);
     try {
       const state = await this.local.request<Json>("conversation-inbox-op", { conversation: conversationId, op });
       this.listState.set(conversationId, {
@@ -976,6 +1000,10 @@ export class DaemonHomeClient implements PageClient {
         marked_unread: state.marked_unread,
       });
     } catch (error) {
+      // A refused op sends no event.
+      const own = this.ownInboxOps.get(conversationId) ?? 0;
+      if (own > 1) this.ownInboxOps.set(conversationId, own - 1);
+      else this.ownInboxOps.delete(conversationId);
       if (this.listState.get(conversationId) === next) {
         if (before) this.listState.set(conversationId, before);
         else this.listState.delete(conversationId);
@@ -1128,6 +1156,8 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
+          if (cloud.typing) (batch.typing ??= []).push(cloud.typing);
+          if (cloud.presence) (batch.presence ??= []).push(cloud.presence);
           if (cloud.live) {
             const frame = liveFrame(cloud.live);
             if (frame) (batch.live ??= []).push(frame);
@@ -1167,13 +1197,30 @@ export class DaemonHomeClient implements PageClient {
             markedUnread: event.marked_unread === true,
           };
           if (change.pinned && typeof event.pin_position === "number") change.pinPosition = event.pin_position;
+          // This page's own pin or mark keeps the cheap path; any other is the owner saying a row left
+          // my list (a deleted Chief's), or another view's change: read the rows again.
+          const own = this.ownInboxOps.get(change.conversation) ?? 0;
+          if (own > 1) this.ownInboxOps.set(change.conversation, own - 1);
+          else this.ownInboxOps.delete(change.conversation);
           this.listState.set(change.conversation, {
             pinned: change.pinned,
             pin_position: change.pinPosition,
             marked_unread: change.markedUnread,
           });
           (batch.inbox ??= []).push(change);
+          if (own === 0 && this.homeRows.size > 0) batch.inboxStale = true;
         });
+      } else if (event.event === "conversation-presence") {
+        deliver((batch) =>
+          (batch.presence ??= []).push({
+            conversation: String(event.conversation),
+            participants: Array.isArray(event.participants)
+              ? (event.participants as Json[])
+                  .filter((p) => p && typeof p.participant === "string")
+                  .map((p) => ({ participant: String(p.participant), viewing: p.viewing === true }))
+              : [],
+          }),
+        );
       } else if (event.event === "conversation-typing") {
         deliver((batch) => {
           (batch.typing ??= []).push({
@@ -1221,12 +1268,15 @@ export class DaemonHomeClient implements PageClient {
         // The daemon ended the stream ("resubscribe to continue"): start it again, and refetch
         // what the lost events changed (the inbox and every open window).
         this.streamStarted.delete(socket);
+        // The events of this page's own pins and marks may be lost: the inbox is read again anyway.
+        this.ownInboxOps.clear();
         // Lost cloud events too: the cloud inbox is listed again with the inbox.
         if (fromCloud) this.cloud.reset();
         void this.startSocketStream(socket).catch(() => deliver((batch) => (batch.connection = "offline")));
         deliver((batch) => {
           batch.inboxStale = true;
           batch.stale = [...this.opened];
+          batch.presenceLost = true;
         });
       }
     };

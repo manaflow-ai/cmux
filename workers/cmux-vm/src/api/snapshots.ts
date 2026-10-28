@@ -5,9 +5,9 @@
  */
 import { HttpApiEndpoint, HttpApiGroup, HttpApiSchema } from "@effect/platform";
 import { Schema } from "effect";
-import { Conflict, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
+import { Conflict, Forbidden, NotFound, PaymentRequired, QuotaExceeded } from "../errors.ts";
 import { SnapshotId, VmId } from "../lib/ids.ts";
-import { describe, DisplayName, GroupCreateHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
+import { CreatedByCaller, describe, DisplayName, GroupCreateHeaders, GroupCreationKeyHeaders, GroupTeamHeaders, InvalidRequest } from "./common.ts";
 
 const MAX_RETENTION_SECONDS = 365 * 24 * 60 * 60;
 const RetentionSeconds = Schema.Int.pipe(Schema.between(60, MAX_RETENTION_SECONDS));
@@ -66,6 +66,25 @@ export class SnapshotList extends Schema.Class<SnapshotList>("SnapshotList")({
   nextCursor: Schema.NullOr(Schema.String),
 }) {}
 
+export class SnapshotCreationStatus extends Schema.Class<SnapshotCreationStatus>("SnapshotCreationStatus")({
+  state: Schema.Literal("pending", "committed", "deleted"), id: SnapshotId, receipt: SnapshotSummary,
+  cancellation: Schema.optional(Schema.Literal("requested", "completed")),
+  retryCreate: Schema.optional(Schema.Boolean).annotations({ description: "True only when admission needs the original create request retried with its original key; false for an uncertain capture send." }),
+}) {}
+export class SnapshotKeyCancellation extends Schema.Class<SnapshotKeyCancellation>("SnapshotKeyCancellation")({
+  state: Schema.Literal("fenced", "cancelling", "cancelled"), id: Schema.NullOr(SnapshotId), receipt: Schema.optional(SnapshotSummary),
+}) {}
+export class CancelSnapshotKeyRequest extends Schema.Class<CancelSnapshotKeyRequest>("CancelSnapshotKeyRequest")({
+  expectedSnapshotId: Schema.NullOr(SnapshotId).annotations({ description: "The capture id just inspected; null fences only an absent key. A different current id returns 409 without deleting anything." }),
+}) {}
+export class SnapshotCreationList extends Schema.Class<SnapshotCreationList>("SnapshotCreationList")({
+  items: Schema.Array(SnapshotCreationStatus), nextCursor: Schema.NullOr(Schema.String),
+}) {}
+const CreationListParams = Schema.Struct({
+  limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
+  cursor: Schema.optional(Schema.String.pipe(Schema.pattern(/^[a-f0-9]{16}-snap_[0-9a-hjkmnp-tv-z]{26}$/))),
+});
+
 export class CreateSnapshotRequest extends Schema.Class<CreateSnapshotRequest>("CreateSnapshotRequest")({
   displayName: Schema.optional(DisplayName),
   labels: Schema.optional(Labels),
@@ -76,6 +95,7 @@ export class CreateSnapshotRequest extends Schema.Class<CreateSnapshotRequest>("
 }) {}
 
 export const ListSnapshotsParams = Schema.Struct({
+  createdBy: Schema.optional(CreatedByCaller),
   limit: Schema.optional(Schema.NumberFromString.pipe(Schema.int(), Schema.between(1, 100))),
   cursor: Schema.optional(Schema.String.pipe(Schema.maxLength(512))),
   /** Only snapshots taken from this VM. */
@@ -89,6 +109,25 @@ const SnapshotPath = Schema.Struct({ snapshotId: Schema.String });
 
 /** Endpoints without the Authentication middleware; src/api.ts applies it. */
 export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
+  .add(HttpApiEndpoint.get("listSnapshotCreations", "/v1/snapshot-creations")
+    .setHeaders(GroupTeamHeaders).setUrlParams(CreationListParams).addSuccess(SnapshotCreationList).addError(Forbidden).addError(QuotaExceeded)
+    .annotateContext(describe("List snapshot captures, newest first", "snapshot:read", "Reads retained public intent only. Current service labels apply; resource-allowlisted keys cannot list. Filtered empty pages may have a nextCursor.")))
+  .add(HttpApiEndpoint.post("cancelSnapshotCreationByKey", "/v1/snapshot-creations/by-key/cancel")
+    .setHeaders(GroupCreationKeyHeaders).setPayload(CancelSnapshotKeyRequest).addSuccess(SnapshotKeyCancellation)
+    .addError(NotFound).addError(Conflict).addError(Forbidden).addError(PaymentRequired).addError(QuotaExceeded)
+    .annotateContext(describe("Stop captures under an original key and delete its verified snapshot", "snapshot:write", "Fences before cleanup, including absent keys and already committed captures. Fenced with id:null stops future admission; it does not prove legacy unrecorded effects were deleted. Cancelling retains unknown work. Fencing a never-admitted key requires snapshot entitlement; existing captures and fences can be cancelled after plan loss. Resource-allowlisted keys must use id-addressed controls.")))
+  .add(HttpApiEndpoint.get("getSnapshotCreationByKey", "/v1/snapshot-creations/by-key")
+    .setHeaders(GroupCreationKeyHeaders).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+    .annotateContext(describe("Inspect a capture by its original Idempotency-Key", "snapshot:read", "Read only; never contacts the provider or requires the source VM. Legacy uncertain records return 409; unknown keys return 404.")))
+  .add(HttpApiEndpoint.get("getSnapshotCreation", "/v1/snapshot-creations/:snapshotId")
+    .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(QuotaExceeded)
+    .annotateContext(describe("Inspect a snapshot capture", "snapshot:read", "Read only; never contacts the provider.")))
+  .add(HttpApiEndpoint.post("reconcileSnapshotCreation", "/v1/snapshot-creations/:snapshotId/reconcile")
+    .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(QuotaExceeded)
+    .annotateContext(describe("Reconcile a snapshot capture", "snapshot:write", "Adopts a verified capture or finishes a requested cancellation. Never takes a new snapshot.")))
+  .add(HttpApiEndpoint.post("cancelSnapshotCreation", "/v1/snapshot-creations/:snapshotId/cancel")
+    .setHeaders(GroupTeamHeaders).setPath(SnapshotPath).addSuccess(SnapshotCreationStatus).addError(NotFound).addError(Conflict).addError(QuotaExceeded)
+    .annotateContext(describe("Cancel a pending snapshot capture", "snapshot:write", "Fences before cleanup. An absent provider snapshot does not prove cancellation. Completed captures return 409; delete their snapshot instead.")))
   .add(
     HttpApiEndpoint.post("createSnapshot", "/v1/vms/:vmId/snapshots")
       .setPath(VmPath)
@@ -103,7 +142,7 @@ export class SnapshotsGroupDefinition extends HttpApiGroup.make("snapshots")
         describe(
           "Snapshot a running or paused VM",
           "snapshot:write",
-          `The snapshot captures memory and disk; VMs can boot from it as soon as this returns. ${RESTORE_NOTE}`,
+          `Each capture is journaled before sending. A key permanently identifies one capture; use a fresh key for a new capture. Retained failures return pendingSnapshotId. Inspect, reconcile or cancel it at /v1/snapshot-creations/:snapshotId; reconcile never captures again. Omitted-key requests are separate captures; recover a lost handle from GET /v1/snapshot-creations. Unknown outcomes retain quota. ${RESTORE_NOTE}`,
         ),
       ),
   )

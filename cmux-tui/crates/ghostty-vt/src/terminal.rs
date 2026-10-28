@@ -17,6 +17,9 @@ use crate::mouse::{MouseModeProbe, MouseModeSignature, MouseWireFormat};
 use crate::render::{Cell, CellWidth, CursorShape, read_grid_ref_cell, terminal_palette};
 use crate::{Error, Result, check};
 
+pub(crate) mod byte_scan;
+mod fast_write;
+
 mod prompt_semantic;
 use prompt_semantic::*;
 
@@ -457,6 +460,24 @@ impl Terminal {
             unsafe { sys::ghostty_terminal_free(raw) };
             return Err(error);
         }
+        // Grapheme clustering (DEC mode 2027) defaults on, as Ghostty's
+        // `grapheme-width-method = unicode` default sets it in every viewer
+        // that loads a Ghostty config. With it off here the host grid and the
+        // viewers disagree on emoji widths, so cursors and reflow drift apart.
+        let grapheme_default = sys::GhosttyTerminalModeConfig {
+            mode: sys::ghostty_mode_new(2027, false),
+            value: true,
+        };
+        if let Err(error) = check(unsafe {
+            sys::ghostty_terminal_set(
+                raw,
+                sys::GHOSTTY_TERMINAL_OPT_MODE_DEFAULT,
+                (&grapheme_default as *const sys::GhosttyTerminalModeConfig).cast(),
+            )
+        }) {
+            unsafe { sys::ghostty_terminal_free(raw) };
+            return Err(error);
+        }
 
         let mut term = Terminal {
             raw,
@@ -557,13 +578,7 @@ impl Terminal {
         let history_anchor_missing = previous_history_rows > 0 && self.history_anchor.is_null();
         let normalized = self.c1_normalizer.normalize(data);
         let normalized = self.empty_kitty_probe_filter.write(normalized);
-        self.kitty_inflight.write(&normalized);
-        self.vt_boundary.feed(&normalized);
-        self.prompt_semantic.feed(&normalized);
-        self.cursor_override.write(&normalized);
-        self.palette_override.write(&normalized);
-        self.color_overrides.write(&normalized);
-        let mouse_modes_may_have_changed = self.mouse_mode_change_detector.write(&normalized);
+        let mouse_modes_may_have_changed = self.feed_trackers(&normalized);
         self.history_markers_before_write();
         unsafe { sys::ghostty_terminal_vt_write(self.raw, normalized.as_ptr(), normalized.len()) };
         self.history_markers_after_write();
@@ -1023,9 +1038,9 @@ impl Terminal {
             cell_width: cell_width_px,
             cell_height: cell_height_px,
         };
-        self.bump_history_epoch();
-        self.reset_history_anchor();
         if reflows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
             self.history_markers_reflowed();
         }
         Ok(())
@@ -1299,6 +1314,18 @@ impl Terminal {
         }
     }
 
+    /// Whether shell integration itself marked the primary screen as at a
+    /// prompt (OSC 133 prompt or input), with no guess from cell contents.
+    pub fn prompt_is_marked(&self) -> bool {
+        self.active_screen() != Screen::Alternate
+            && matches!(
+                self.prompt_semantic.semantic(Screen::Primary),
+                PromptSemantic::Prompt
+                    | PromptSemantic::Input
+                    | PromptSemantic::InputUntilEndOfLine
+            )
+    }
+
     /// Whether OSC 133 metadata identifies the cursor as an active shell
     /// prompt. libghostty-vt exposes persisted row/cell semantics but not the
     /// live cursor semantic, so the wrapper also retains OSC 133's current
@@ -1449,6 +1476,44 @@ impl Terminal {
     /// Number of scrollback rows above the viewport.
     pub fn scrollback_rows(&self) -> usize {
         self.get::<usize>(sys::GHOSTTY_TERMINAL_DATA_SCROLLBACK_ROWS).unwrap_or(0)
+    }
+
+    /// Change the primary screen's scrollback storage limit in bytes (the
+    /// same budget [`Terminal::new`] takes). Lowering it drops the oldest
+    /// complete pages at once; raising it lets history grow again.
+    pub fn set_scrollback_max_bytes(&mut self, max_bytes: usize) -> Result<()> {
+        let previous_rows = self.scrollback_rows();
+        check(unsafe {
+            sys::ghostty_terminal_set(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_OPT_SCROLLBACK_MAX_BYTES,
+                (&max_bytes as *const usize).cast(),
+            )
+        })?;
+        if self.scrollback_rows() != previous_rows {
+            self.bump_history_epoch();
+            self.reset_history_anchor();
+        }
+        Ok(())
+    }
+
+    /// Resident bytes of the primary screen's pages (screen and scrollback),
+    /// `None` when libghostty-vt cannot report it.
+    pub fn primary_resident_bytes(&self) -> Option<u64> {
+        // SAFETY: an all-zero GhosttyTerminalMemoryUsage is a valid value of
+        // the plain C struct; `size` is then set to the struct size the
+        // getter requires.
+        let mut usage: sys::GhosttyTerminalMemoryUsage = unsafe { std::mem::zeroed() };
+        usage.size = size_of::<sys::GhosttyTerminalMemoryUsage>();
+        check(unsafe {
+            sys::ghostty_terminal_get(
+                self.raw,
+                sys::GHOSTTY_TERMINAL_DATA_MEMORY_USAGE,
+                (&mut usage as *mut sys::GhosttyTerminalMemoryUsage).cast(),
+            )
+        })
+        .ok()?;
+        Some(usage.primary_resident_bytes)
     }
 
     /// Number of retained history rows, saturated to the protocol's `u32`.

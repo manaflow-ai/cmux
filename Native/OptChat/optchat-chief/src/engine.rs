@@ -35,6 +35,20 @@ pub struct EngineChoice {
     pub speed: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub compactor_speed: Option<String>,
+    /// The reaction classifier's harness (reaction_wake.rs); None: the
+    /// user's `chief.reactionClassifier.harness`, else the host's Claude route.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_harness: Option<String>,
+    /// The reaction classifier's model; None: the user's, else Claude Haiku.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_model: Option<String>,
+    /// The reaction classifier's prompt; None: the user's, else the built-in one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classifier_prompt: Option<String>,
+    /// Whether a user's reaction on a Chief message may wake this Chief;
+    /// None: the user's `chief.reactionsCanWake`, else on.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reactions_can_wake: Option<bool>,
 }
 
 /// The speeds a Chief engine takes: `default` (the harness's) and `fast`
@@ -122,6 +136,92 @@ pub fn save(path: &Path, choice: &EngineChoice) -> std::io::Result<()> {
     std::fs::rename(&tmp, path)
 }
 
+/// One role's harness as the host resolved it at its start: the acpmux
+/// profile, its kind, the executable it runs and that executable's
+/// `--version`.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedHarness {
+    pub harness: String,
+    pub kind: String,
+    pub argv0: String,
+    #[serde(default)]
+    pub version: String,
+}
+
+/// What the running host resolved for its turns, compactor and subagents
+/// (`$MUX_HOME/optchat/engine-resolved.json`, written at each host start),
+/// so `engine show` names the CLI each one runs.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ResolvedEngine {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn: Option<ResolvedHarness>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compactor: Option<ResolvedHarness>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subagent: Option<ResolvedHarness>,
+}
+
+/// `$MUX_HOME/optchat/engine-resolved.json`.
+pub fn resolved_path(home: &Path) -> PathBuf {
+    crate::paths::Paths::new(home)
+        .root
+        .join("engine-resolved.json")
+}
+
+/// Writes what the host resolved (through a temporary file and a rename).
+pub fn save_resolved(home: &Path, resolved: &ResolvedEngine) -> std::io::Result<()> {
+    let path = resolved_path(home);
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let tmp = path.with_extension(format!("json.{}.tmp", std::process::id()));
+    let mut bytes = serde_json::to_vec_pretty(resolved).map_err(std::io::Error::other)?;
+    bytes.push(b'\n');
+    std::fs::write(&tmp, &bytes)?;
+    std::fs::rename(&tmp, path)
+}
+
+/// The last host start's resolution; None when no host wrote one.
+pub fn load_resolved(home: &Path) -> Option<ResolvedEngine> {
+    std::fs::read(resolved_path(home))
+        .ok()
+        .and_then(|b| serde_json::from_slice(&b).ok())
+}
+
+/// The first line of `program --version`, or "" when it does not answer
+/// within 5 s (a wrapper that hangs never holds the host's start).
+pub fn binary_version(program: &str) -> String {
+    let Ok(mut child) = std::process::Command::new(program)
+        .arg("--version")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    else {
+        return String::new();
+    };
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                // Bounded wait for a short-lived child; no async runtime here.
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return String::new();
+            }
+        }
+    }
+    let mut out = String::new();
+    if let Some(mut stdout) = child.stdout.take() {
+        let _ = std::io::Read::read_to_string(&mut stdout, &mut out);
+    }
+    out.lines().next().unwrap_or("").trim().to_owned()
+}
+
 /// The compactor's harness setting at host start: `env`
 /// (`OPTCHAT_COMPACTOR_HARNESS`), else engine.json's `compactor_harness`.
 /// None leaves the compactor on Claude Haiku (Lawrence 2026-10-09) over the
@@ -151,8 +251,10 @@ pub fn resolve(
 }
 
 /// `engine set` flags over the current choice: `--harness`, `--model`,
-/// `--effort`, `--compactor-harness`, `--compactor-model`; the value
-/// `default` clears a field.
+/// `--effort`, `--compactor-harness`, `--compactor-model`, `--speed`,
+/// `--compactor-speed`, and the reaction classifier's
+/// `--reactions-can-wake`, `--classifier-harness`, `--classifier-model`,
+/// `--classifier-prompt`; the value `default` clears a field.
 pub fn apply_flags(
     mut choice: EngineChoice,
     flags: &crate::cli::Flags,
@@ -166,6 +268,9 @@ pub fn apply_flags(
         ("compactor-model", &mut choice.compactor_model),
         ("speed", &mut choice.speed),
         ("compactor-speed", &mut choice.compactor_speed),
+        ("classifier-harness", &mut choice.classifier_harness),
+        ("classifier-model", &mut choice.classifier_model),
+        ("classifier-prompt", &mut choice.classifier_prompt),
     ] {
         if let Some(value) = flags.value(key) {
             changed = true;
@@ -175,6 +280,19 @@ pub fn apply_flags(
             };
         }
     }
+    if let Some(value) = flags.value("reactions-can-wake") {
+        changed = true;
+        choice.reactions_can_wake = match value.trim() {
+            "" | "default" => None,
+            "true" | "on" => Some(true),
+            "false" | "off" => Some(false),
+            other => {
+                return Err(format!(
+                    "--reactions-can-wake is true, false or default, not {other:?}"
+                ));
+            }
+        };
+    }
     if !changed {
         return Err(USAGE.into());
     }
@@ -182,7 +300,7 @@ pub fn apply_flags(
 }
 
 pub const USAGE: &str = "chief engine show
-chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start)";
+chief engine set [--harness H] [--model M] [--effort E] [--compactor-harness H] [--compactor-model M] [--speed default|fast] [--compactor-speed default|fast] [--reactions-can-wake true|false] [--classifier-harness H] [--classifier-model M] [--classifier-prompt TEXT]   (value `default` clears; turns apply it from the next turn, the compactor at the next host start, the reaction classifier at the next reaction)";
 
 /// `engine show|set`; Ok carries what to print.
 pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
@@ -207,6 +325,31 @@ pub fn run(flags: &crate::cli::Flags) -> Result<String, String> {
                 file.display(),
                 serde_json::to_string(&choice).expect("json")
             );
+            // The CLI each role runs, as the host resolved it at its start.
+            match load_resolved(&home) {
+                Some(r) => {
+                    for (role, h) in [
+                        ("turn", &r.turn),
+                        ("compactor", &r.compactor),
+                        ("subagent", &r.subagent),
+                    ] {
+                        if let Some(h) = h {
+                            let version = if h.version.is_empty() {
+                                "version unknown"
+                            } else {
+                                &h.version
+                            };
+                            out.push_str(&format!(
+                                "{role}: {} ({}, {}, {version})\n",
+                                h.harness, h.kind, h.argv0
+                            ));
+                        }
+                    }
+                }
+                None => out.push_str(
+                    "resolved: unknown (the host has not started since it began recording this)\n",
+                ),
+            }
             // The last turn the trace saw: which engine answered, and its stats.
             let since = chrono::Local::now().timestamp_millis().max(0) as u64;
             let events = crate::report::read(

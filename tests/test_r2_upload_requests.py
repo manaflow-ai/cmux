@@ -83,7 +83,7 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertIn("content-type", signed)
         self.assertEqual(signed, sorted(signed))
 
-    def start_endpoint(self, existing=False, *, tls=True, redirects=None):
+    def start_endpoint(self, existing=False, *, tls=True, redirects=None, put_status=200):
         requests = []
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -98,8 +98,11 @@ class R2UploadRequestsTests(unittest.TestCase):
                     self.end_headers()
                     return
                 status = 404 if self.command == "HEAD" and not existing else 200
+                if self.command == "PUT":
+                    status = put_status
                 response = BODY if self.command == "GET" else b""
                 self.send_response(status)
+                self.send_header("ETag", '"etag-1"')
                 self.send_header("Content-Length", str(len(response)))
                 self.end_headers()
                 self.wfile.write(response)
@@ -258,6 +261,40 @@ class R2UploadRequestsTests(unittest.TestCase):
         self.assertEqual([r[0] for r in requests], ["HEAD", "GET"])
         self.assertNotIn("immutable-r2-conflict", result.stdout + result.stderr)
         self.assertIn("another publisher wrote it first", result.stderr)
+
+    def test_replace_writes_with_if_match_on_the_planned_object(self):
+        # nightly-next-rollback.yml: the feed is written only while it still
+        # holds the bytes the pull was planned from.
+        endpoint, requests = self.start_endpoint(existing=True)
+        planned = hashlib.sha256(BODY).hexdigest()
+        result = self.upload("appcast-arm64.xml", "--replace-sha256", planned, endpoint=endpoint, body=b"<rss/>")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["GET", "PUT"])
+        headers = {k.lower(): v for k, v in requests[1][2].items()}
+        self.assertEqual(headers["if-match"], '"etag-1"')
+        self.assertIn(";if-match;", headers["authorization"])
+        self.assertEqual(requests[1][3], b"<rss/>")
+
+    def test_replace_refuses_an_object_that_changed_before_the_read(self):
+        endpoint, requests = self.start_endpoint(existing=True)
+        result = self.upload("appcast-arm64.xml", "--replace-sha256", "0" * 64, "--conflict-exit-code", "3",
+                             endpoint=endpoint, body=b"<rss/>")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["GET"])
+        self.assertIn("changed since it was read", result.stderr)
+
+    def test_replace_refuses_an_object_that_changed_before_the_write(self):
+        endpoint, requests = self.start_endpoint(existing=True, put_status=412)
+        planned = hashlib.sha256(BODY).hexdigest()
+        result = self.upload("appcast-arm64.xml", "--replace-sha256", planned, "--conflict-exit-code", "3",
+                             endpoint=endpoint, body=b"<rss/>")
+        self.assertEqual(result.returncode, 3, result.stderr)
+        self.assertEqual([r[0] for r in requests], ["GET", "PUT"])
+        self.assertIn("changed before the write", result.stderr)
+
+    def test_replace_and_write_once_are_exclusive(self):
+        result = self.upload("appcast-arm64.xml", "--replace-sha256", "0" * 64, "--write-once")
+        self.assertEqual(result.returncode, 2)
 
 
 if __name__ == "__main__":

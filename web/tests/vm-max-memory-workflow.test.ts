@@ -82,6 +82,8 @@ test("a gateway fork method cannot override the provider capability", async () =
   const repo = {
     findUserVm: () => Effect.succeed({ id: "row", userId: "u", billingTeamId: "u", ownerTeamId: "u", coderouterPoolId: null, status: "running", provider: "freestyle",
       providerVmId: "vm", providerMetadata: { cmuxResourceReservation: { memoryMb: 8192, vcpus: 4, diskMb: 32768 } } }),
+    beginSnapshotRequest: () => Effect.succeed({ kind: "started" as const }),
+    finishSnapshotRequest: () => Effect.void,
     beginCreate: () => Effect.sync(() => { creates++; throw new Error("must not reserve a native fork"); }),
   } as unknown as VmRepositoryShape;
   const provider = {

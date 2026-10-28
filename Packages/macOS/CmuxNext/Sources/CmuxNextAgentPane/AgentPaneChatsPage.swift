@@ -98,6 +98,7 @@ extension AgentPaneModel {
         if remoteChat { return AgentPaneReply.success(AgentPaneChatsPage(chats: [], nextCursor: nil, ready: true, enabled: true).reply) }
         guard let onChatsPage else { return Self.unsupported("chats.page") }
         guard let page = await onChatsPage(query) else { return AgentPaneReply.failure(code: "chats.unavailable", message: "chats.unavailable") }
+        AgentPaneNewTabFrame.shared.chatsAnswered(page, query: query, to: self) // the New Tab frame's content
         return AgentPaneReply.success(page.reply)
     }
 }

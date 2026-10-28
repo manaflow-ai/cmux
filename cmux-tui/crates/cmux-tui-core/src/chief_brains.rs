@@ -39,7 +39,9 @@
 //!   types while a main turn runs).
 //! - Stop (SIGTERM to its process group; the host ends its own sessions):
 //!   `chief.profile.delete`, 30 minutes with no message and no turn, and
-//!   daemon shutdown.
+//!   daemon shutdown. After a delete, once the brain and its `end-sessions`
+//!   ended, its folder `<home>/c/<id tail>` (memory, state, token) is removed
+//!   when its `chief-id` names it and no brain holds its lock.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -132,6 +134,12 @@ fn config() -> Option<BrainsConfig> {
             None
         }
     }
+}
+
+/// The Chief home of this daemon's brains config (`home`), when it runs
+/// brains: the default Chief's own brain home, and the root of the others'.
+pub(crate) fn configured_home() -> Option<PathBuf> {
+    config().map(|config| config.home)
 }
 
 /// The brain directory of Chief `chief` under the Chief home `home`: the
@@ -546,6 +554,25 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         })
         .ok()?;
     Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
+}
+
+/// The engine a Chief's record names (`cmux chief new --harness unii`, the
+/// `chiefs` tool's `harness`), as the brain's starting engine: the
+/// `OPTCHAT_CHIEF_*` values it reads before `MUX_HARNESS` and its defaults.
+/// The brain's own `engine.json` (`cmux chief engine`) still wins, so a
+/// switch made later is not undone at the next start.
+pub(crate) fn record_engine_env(engine: &crate::chief_registry::Engine) -> Vec<(String, String)> {
+    [
+        ("OPTCHAT_CHIEF_HARNESS", &engine.harness),
+        ("OPTCHAT_CHIEF_MODEL", &engine.model),
+        ("OPTCHAT_CHIEF_EFFORT", &engine.effort),
+    ]
+    .into_iter()
+    .filter_map(|(key, value)| {
+        let value = value.as_deref()?.trim();
+        (!value.is_empty() && value != "default").then(|| (key.to_owned(), value.to_owned()))
+    })
+    .collect()
 }
 
 /// The record fields the brain renders into its prompt or grant at start.
@@ -987,6 +1014,7 @@ impl Supervisor {
                 Some(&record.display_name),
                 &inherited,
             ))
+            .envs(record_engine_env(&record.engine))
             .current_dir(&mux_home)
             .stdin(std::process::Stdio::null())
             .stdout(log.try_clone()?)
@@ -1036,16 +1064,29 @@ impl Supervisor {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .spawn();
+        // Only a deleted Chief's sessions end here: its folder goes after them, unless a live
+        // Chief shares it (the same id tail).
+        let shared = self.mux.upgrade().is_some_and(|mux| {
+            list_chiefs(&mux).iter().any(|r| brain_home(&self.config.home, &r.id) == mux_home)
+        });
+        let owner = chief.to_owned();
+        let remove = move || {
+            if !shared {
+                remove_brain_home(&mux_home, &owner);
+            }
+        };
         match spawned {
             Ok(mut child) => {
                 let _ = std::thread::Builder::new().name("chief-sessions-end".into()).spawn(
                     move || {
                         let _ = child.wait();
+                        remove();
                     },
                 );
             }
             Err(error) => {
                 eprintln!("cmux-tui: ending the sessions of Chief {chief} did not start: {error}");
+                remove();
             }
         }
     }
@@ -1117,6 +1158,23 @@ fn lock_held(lock: &Path) -> bool {
     {
         let _ = lock;
         false
+    }
+}
+
+/// Removes deleted Chief `chief`'s brain folder: a real folder only (never a link out of the
+/// Chief home), whose `chief-id` names that Chief (never another Chief's with the same id tail),
+/// and never while a brain still holds its lock (a stale holder that has not exited yet keeps
+/// it; the folder then stays).
+fn remove_brain_home(dir: &Path, chief: &str) {
+    let owner = std::fs::read_to_string(dir.join("chief-id")).unwrap_or_default();
+    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
+        || owner.trim() != chief
+        || lock_held(&dir.join("state/host.lock"))
+    {
+        return;
+    }
+    if let Err(error) = std::fs::remove_dir_all(dir) {
+        eprintln!("cmux-tui: removing {}: {error}", dir.display());
     }
 }
 
@@ -1227,4 +1285,27 @@ fn list_chiefs(mux: &Mux) -> Vec<ChiefRecord> {
         }
     }
     store.as_ref().and_then(|s| s.list().ok()).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod record_engine_tests {
+    use super::record_engine_env;
+    use crate::chief_registry::Engine;
+
+    #[test]
+    fn a_record_harness_becomes_the_brains_starting_harness() {
+        let engine =
+            Engine { harness: Some("unii".into()), model: None, effort: Some("default".into()) };
+        assert_eq!(
+            record_engine_env(&engine),
+            vec![("OPTCHAT_CHIEF_HARNESS".to_owned(), "unii".to_owned())]
+        );
+        assert!(record_engine_env(&Engine::default()).is_empty());
+        let full = Engine {
+            harness: Some("codex".into()),
+            model: Some("gpt-5.5".into()),
+            effort: Some("high".into()),
+        };
+        assert_eq!(record_engine_env(&full).len(), 3);
+    }
 }

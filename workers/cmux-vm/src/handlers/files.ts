@@ -6,7 +6,7 @@
  */
 import { HttpApiBuilder, HttpServerResponse } from "@effect/platform";
 import { Effect } from "effect";
-import { CmuxVmApi, FileEntry, FileList, type FileEntryKind } from "../api.ts";
+import { CmuxVmApi, FileEntry, FileList, FileStat, type FileEntryKind } from "../api.ts";
 import { badRequest, conflict, fileNotFound, PayloadTooLarge, unavailable, vmNotFound } from "../errors.ts";
 import { TenantPolicy } from "../policy.ts";
 import { UpstreamClient } from "../upstream/client.ts";
@@ -18,6 +18,15 @@ const NOT_RUNNING = "The VM is not running, or it stopped answering; retry once 
 
 export const filesHandlers = HttpApiBuilder.group(CmuxVmApi, "files", (handlers) =>
   handlers
+    .handle("statFile", ({ path, urlParams }) =>
+      withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) => Effect.gen(function* () {
+        const upstream = yield* UpstreamClient;
+        const stat = yield* upstream.statFile(vm, proofs, urlParams.path).pipe(Effect.mapError((error) =>
+          error.status === 404 ? fileNotFound() : error.status === 400 ? badRequest("The path is not readable") : unavailable(),
+        ));
+        return new FileStat(stat);
+      })),
+    )
     .handle("readFile", ({ path, urlParams, headers }) =>
       withOwnedVm(path.vmId, "vm:files", "files", (_caller, vm, proofs) =>
         Effect.gen(function* () {

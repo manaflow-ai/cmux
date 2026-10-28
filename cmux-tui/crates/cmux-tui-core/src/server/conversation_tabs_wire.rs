@@ -17,6 +17,7 @@
 //! `page-tabs-v1` adds the page source (one of the app's own pages); a
 //! connection without it reads a page tab as `browser` with no record.
 
+use crate::panic_free::JsonFields;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -71,10 +72,64 @@ pub(super) struct NewConversationTabParams {
     rows: Option<u16>,
     #[serde(default)]
     transaction: Option<String>,
+    /// With `pane`: the tab goes in a new pane split from it
+    /// (`conversation-tab-split-v1`).
+    #[serde(default)]
+    split: Option<ConversationTabSplitParams>,
 }
 
 /// The client transaction echo on `new-conversation-tab`.
 pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
+
+/// `new-conversation-tab {pane, split}`: the tab is created in a new pane on
+/// one side of `pane`, in one `pane.split` commit whose one `pane-added`
+/// delta holds the pane with the tab (and carries `transaction`). The
+/// source pane never lists the tab.
+pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-split-v1";
+
+/// The new pane of a conversation tab's split: its side of the source pane
+/// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct ConversationTabSplitParams {
+    direction: String,
+    #[serde(default)]
+    pane_id: Option<String>,
+    /// `split-client-split-id-v1`: caller-minted public id of the new split.
+    #[serde(default)]
+    split_id: Option<String>,
+}
+
+impl ConversationTabSplitParams {
+    fn target(self, pane: Option<PaneId>) -> anyhow::Result<ConversationTabTarget> {
+        let pane = pane.ok_or_else(|| anyhow::anyhow!("bad request: split needs pane"))?;
+        let direction = match self.direction.as_str() {
+            "right" => "right",
+            "down" => "down",
+            "left" => "left",
+            "up" => "up",
+            other => anyhow::bail!(
+                "bad request: split direction {other:?} (want right, down, left or up)"
+            ),
+        };
+        if let Some(pane_id) = &self.pane_id {
+            crate::resource::PanePublicId::parse(pane_id.clone()).map_err(|_| {
+                anyhow::anyhow!("bad request: pane_id {pane_id:?} is not a pane id")
+            })?;
+        }
+        if let Some(split_id) = &self.split_id {
+            crate::resource::SplitPublicId::parse(split_id.clone()).map_err(|_| {
+                anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
+            })?;
+        }
+        Ok(ConversationTabTarget::Split {
+            pane,
+            direction,
+            pane_id: self.pane_id,
+            split_id: self.split_id,
+        })
+    }
+}
 
 /// The acpmux session an agent tab shows: the install that runs it, the
 /// session (absent for a new chat), the agent kind and the display name of
@@ -99,9 +154,10 @@ const MACHINE_HOST_PREFIX: &str = "registry:";
 /// A session for a `registry:` tab from anywhere but that machine's own
 /// `agent-session-start` (cx-k21v): a session never leaves its machine, so
 /// another machine's chat (a Mac's acpmux session or an outside chat it
-/// resumes) is never bound into a tab of this one. The one exception: a chat
-/// this daemon itself landed through `agent-transfer-finish`, which is this
-/// machine's own chat now ([`landed_here`]).
+/// resumes) is never bound into a tab of this one. Two exceptions, both chats
+/// of this machine's own acpmux ([`landed_here`]): a chat this daemon itself
+/// landed through `agent-transfer-finish`, and a chat an attached tab's
+/// session started here as `agent-session-children` listed or followed it.
 #[derive(Debug)]
 pub(crate) struct MachineMismatch;
 
@@ -125,13 +181,17 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     error.downcast_ref::<MachineMismatch>().map(|_| MachineMismatch::CODE.to_string())
 }
 
-/// True when `session` is a chat this daemon landed through a guarded
-/// `agent-transfer-finish` (the id acpmux's finish answered) and `host` is
-/// this store's own: Move to Cloud opens the moved chat that way.
+/// True when `host` is this store's own and `session` is this machine's chat
+/// as this machine's acpmux answered it (the id is never taken from the
+/// request that names it): a chat this daemon landed
+/// through a guarded `agent-transfer-finish` (Move to Cloud opens the moved
+/// chat that way), or a chat an attached tab's session started here, as
+/// `agent-session-children` listed or followed it (the app opens a Cloud
+/// VM chat's child chat that way).
 fn landed_here(mux: &Mux, host: &str, session: &str) -> bool {
     // This store's host, as agent-session-start names it.
     let own = format!("{MACHINE_HOST_PREFIX}{}", mux.registry_identity().0);
-    host == own && landed_agent_session(mux, session)
+    host == own && (landed_agent_session(mux, session) || started_here(mux, session))
 }
 
 #[cfg(unix)]
@@ -142,6 +202,17 @@ fn landed_agent_session(mux: &Mux, session: &str) -> bool {
 /// agent-transfer is unix-only (server.rs), so no chat lands here.
 #[cfg(not(unix))]
 fn landed_agent_session(_mux: &Mux, _session: &str) -> bool {
+    false
+}
+
+#[cfg(unix)]
+fn started_here(mux: &Mux, session: &str) -> bool {
+    mux.control_clients.agent_sessions.known_children.contains(session)
+}
+
+/// Agent session attach is unix-only (server.rs).
+#[cfg(not(unix))]
+fn started_here(_mux: &Mux, _session: &str) -> bool {
     false
 }
 
@@ -195,12 +266,15 @@ pub(super) fn create(
         cols,
         rows,
         transaction,
+        split,
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
-    let target = match (pane, workspace) {
-        (_, None) => ConversationTabTarget::Pane(pane),
-        (None, Some(workspace)) => ConversationTabTarget::Workspace(workspace),
-        (Some(_), Some(_)) => anyhow::bail!("bad request: send pane or workspace, not both"),
+    let target = match (pane, workspace, split) {
+        (_, None, Some(split)) => split.target(pane)?,
+        (_, None, None) => ConversationTabTarget::Pane(pane),
+        (None, Some(workspace), None) => ConversationTabTarget::Workspace(workspace),
+        (_, Some(_), Some(_)) => anyhow::bail!("bad request: split goes with pane, not workspace"),
+        (Some(_), Some(_), None) => anyhow::bail!("bad request: send pane or workspace, not both"),
     };
     let actor = super::origin_gate::connection_actor(mux, client);
     let mutation = match (origin, mutation_id) {
@@ -231,7 +305,7 @@ pub(super) fn create(
         "replayed": outcome.replayed,
     });
     if let Some(transaction) = transaction {
-        result["transaction"] = json!(transaction);
+        result.insert("transaction", json!(transaction));
     }
     Ok(result)
 }
@@ -276,6 +350,10 @@ pub(super) fn bind(
         return Err(MachineMismatch.into());
     }
     let expected = expected_session.as_deref();
+    // No write to or for a teammate's attachment lands between its tab check and its write
+    // (agent_session_attach.rs `while_shared`).
+    #[cfg(unix)]
+    let _rebinding = mux.control_clients.agent_sessions.rebinding();
     let (record, replayed) = mux.bind_conversation_tab_session_as(
         actor,
         surface,
@@ -422,3 +500,7 @@ mod conversation_tab_transaction_tests;
 #[cfg(test)]
 #[path = "page_tabs_tests.rs"]
 mod page_tabs_tests;
+
+#[cfg(test)]
+#[path = "conversation_tab_split_tests.rs"]
+mod conversation_tab_split_tests;

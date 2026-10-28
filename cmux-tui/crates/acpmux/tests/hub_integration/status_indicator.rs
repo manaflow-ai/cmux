@@ -124,3 +124,27 @@ async fn process_death_quotes_the_last_stderr_line() {
     assert!(last.msg["error"].as_str().unwrap().contains("Not logged in"));
     assert_eq!(hub.session_summary(&session)["status"], "disconnected");
 }
+
+/// A harness that dies while it starts (a wrapper such as `sr2 claude` that
+/// refuses, a CLI that is not signed in) fails `session/new` with its own
+/// last stderr line, not a bare "agent process closed" (the Chief's
+/// "session/new: agent process closed", 2026-10-19, said nothing of why).
+#[tokio::test]
+async fn a_harness_that_dies_at_start_fails_session_new_with_its_stderr() {
+    let env = BTreeMap::from([(
+        "FAKE_DIE_AT_START".to_owned(),
+        "subrouter: no account can serve this session".to_owned(),
+    )]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let err = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "dies"}}}),
+        )
+        .await
+        .unwrap_err();
+    assert!(
+        err.contains("agent process closed (fake): subrouter: no account can serve this session"),
+        "{err}"
+    );
+}

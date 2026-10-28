@@ -1,0 +1,25 @@
+These fixtures are copied unchanged from tmux's regression suite
+(https://github.com/tmux/tmux, regress/, commit
+e5a694618bdb74f7007ad23f88c837610e8d47a2). tmux is distributed under the ISC
+license reproduced in COPYING in this directory:
+
+  Copyright (c) Various Authors
+
+  Permission to use, copy, modify, and distribute this software for any
+  purpose with or without fee is hereby granted, provided that the above
+  copyright notice and this permission notice appear in all copies.
+
+  THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+  WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+  MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+  ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+  WHATSOEVER RESULTING FROM LOSS OF MIND, USE, DATA OR PROFITS, WHETHER
+  IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING
+  OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+UTF-8-test.txt is Markus Kuhn's UTF-8 decoder capability and stress test
+(https://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt, CC BY 4.0), as
+shipped in tmux's regress/ directory.
+
+Files: cursor-test.txt, cursor-test{1,2,3,4}.result, combine-test.result,
+UTF-8-test.txt, utf8-test.result. Used by ../../tmux_conformance.rs.

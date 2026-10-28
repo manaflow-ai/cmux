@@ -38,8 +38,12 @@ extension LayoutRootView {
             if view.frame.origin != frame.rect.origin { view.setFrameOrigin(frame.rect.origin) }
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
-            if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 {
+            if id != model.activeScreenID && frame.alpha.value <= 0.001 && frame.alpha.target == 0 && !view.isHidden {
                 view.isHidden = true
+                // No frame steps a hidden screen: its pane springs land now, not when it shows again.
+                view.settleMotion()
+                // Nor does it land a resize drag: its pages lay out now.
+                view.finishResizeGesture()
             }
             guard shown != (view.frame, view.alphaValue, view.isHidden) else { continue }
             setNeedsOverlaySync()

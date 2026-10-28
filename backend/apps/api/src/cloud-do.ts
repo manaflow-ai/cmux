@@ -14,6 +14,7 @@ import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
 import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
+import type { MachineExecReply } from "./automation-machine.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -29,6 +30,8 @@ const STATE_CHECK_EVERY_MS = 30_000
 export class CloudDO extends CloudIdle {
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> {
     if (principal.team !== entity) return { ok: false, code: "auth.forbidden", message: "not this team's machines" }
+    // cloud.plan.get answers the team's current paid plan (cloud-entitlements.ts).
+    if (op === "cloud.plan.get") await this.entitlements.refresh(entity, principal)
     // G8 (cx-wb5.65): the person's own session reads the exact Cloud request it is asked to approve.
     if (op === "integration.approval.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(readCloudApproval(this.ctx.storage.sql, principal, params))
     if (op === "cloud.vm.self.get") return ((r) => (r.ok ? { ...r, revision: String(this.boundEngine?.currentSeq ?? 0) } : r))(vmSelfGet(entity, principal, params, this.isBound(entity) ? this.bind(entity).rows : undefined))
@@ -89,10 +92,11 @@ export class CloudDO extends CloudIdle {
    * token is hashed here, so the committed op, its event and the ledger never see it. Any token
    * problem is one auth.forbidden; an object nobody created answers the same without being created.
    */
-  /** TeamDO's member-only read for `user` (tests replace it). */
+  /** TeamDO's fresh resource-membership read for `user` (tests replace it). */
   creatorIsMember = async (team: string, user: string): Promise<boolean> => {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
-    return (await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 1 })).ok
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { memberRole(e: string, u: string): Promise<string | null> }
+    const role = await stub.memberRole(team, user)
+    return roleHas(role ?? undefined, "team.resources")
   }
 
   async bindMachine(entity: string, body: unknown): Promise<BindReply> {
@@ -144,12 +148,13 @@ export class CloudDO extends CloudIdle {
   private readonly stateChecks = new Map<string, number>()
   private async checkRealState(entity: string, sel: { machine?: string; host?: string }): Promise<void> {
     const row = sel.machine !== undefined || sel.host !== undefined ? machineBySelector(this.bind(entity).rows, sel) : undefined
-    const driver = row?.status === "running" ? cloudDriver(this.env, this.sqlStore) : null
-    if (!row || !driver) return
+    if (row?.status !== "running") return
     // At most one provider read per machine per 30 s (review P2-3: the API key is shared by every team).
     const now = Date.now() + this.skewMs
     const last = this.stateChecks.get(row.id)
     if (last !== undefined && now - last < STATE_CHECK_EVERY_MS) return
+    const driver = await this.driverFor(row)
+    if (!driver) return
     this.stateChecks.set(row.id, now)
     const r = await driver.stateOf(row.provider_name, { team: entity, machine: row.id }).catch(() => undefined)
     // Only a VM known gone, or explicitly paused or stopped, changes the record (review P2-2): any other or missing value is no change.
@@ -211,6 +216,33 @@ export class CloudDO extends CloudIdle {
     return host ? acpmuxPersonHoldsOn(host, principal, machine, nonce) : { ok: false, refusal: "not_found" }
   }
 
+  /**
+   * Org workflows (plans/cmux-next/org-workflows-DESIGN.md): one machine or agent step of an
+   * automation run of this team, from AutomationRunWorkflow. NOT an op: the run's own journal
+   * (the Workflow's durable step) is the record. The machine must be a running machine of THIS
+   * team: the object is per team, so another team's machine id is not found. Only a run charged
+   * to the machine's creator may use it (a teammate's automation cannot run commands, with root,
+   * on someone else's machine). No answer carries a provider error; stdout and stderr go back to
+   * the run only.
+   */
+  async automationExec(entity: string, user: string | null, machine: string, command: string, stdin: Uint8Array | null, timeoutMs: number): Promise<MachineExecReply> {
+    if (!this.isBound(entity)) return { ok: false, refusal: "not_found" }
+    const row = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
+    if (!row) return { ok: false, refusal: "not_found" }
+    if (!user || row.creator !== user) return { ok: false, refusal: "forbidden" }
+    if (entity !== personalTeamIdFor(user)) {
+      const started = Date.now()
+      const member = await this.creatorIsMember(entity, user).catch(() => false)
+      if (!member || (this.leftAt.get(user) ?? -1) >= started) return { ok: false, refusal: "forbidden" }
+    }
+    if (row.status !== "running") return { ok: false, refusal: "not_running" }
+    const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
+    if (!driver) return { ok: false, refusal: "provider_failed" }
+    const r = await driver.execStdin(row.provider_name, { team: entity, machine: row.id }, command, stdin, timeoutMs).catch(() => null)
+    this.audit.record({ action: "automation.exec", machine, who: `automation:${entity}`, at: Date.now(), outcome: r ? `exit ${r.exitCode}` : "provider_failed" })
+    return r ? { ok: true, exitCode: r.exitCode, stdout: r.stdout, stderr: r.stderr } : { ok: false, refusal: "provider_failed" }
+  }
+
   private readonly acpmuxStarting = new Set<string>()
   /** null for an object nobody created (it is never created here). */
   private acpmuxHost(entity: string): AcpmuxHost | null {
@@ -219,7 +251,7 @@ export class CloudDO extends CloudIdle {
     return {
       team: entity,
       machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
-      driver: () => cloudDriver(this.env, this.sqlStore),
+      driver: (row) => this.driverFor(row),
       members: async (team, user) => {
         const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { member_count?: unknown; members?: Array<{ user?: unknown }> } }> }
         const r = await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 2 })
@@ -246,7 +278,7 @@ export class CloudDO extends CloudIdle {
     if (!engine || this.boundEntity() !== entity) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
     const stored = engine.rows.range<LedgerRow>(TABLE_LEDGER, { limit: 1000 }).find((l) => l.row.machine === machine && l.row.state === "abandoned")
     if (!stored) return { ok: false, code: "not_abandoned", message: "no abandoned ledger row for that machine" }
-    const driver = cloudDriver(this.env, this.sqlStore)
+    const driver = await this.driverFor(stored.row, "cleanup")
     if (!driver) return { ok: false, code: "provider_unavailable", message: "no Cloud provider is configured, so the recorded name cannot be checked" }
     const found = await driver.peek(stored.row.provider_name).catch(() => undefined)
     if (found === undefined) return { ok: false, code: "provider_unavailable", message: "the provider lookup failed; try again" }
@@ -259,9 +291,10 @@ export class CloudDO extends CloudIdle {
   }
 
   /** Test only (ENVIRONMENT=test): drive the fake provider and the object's clock. */
-  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null }) {
+  async fakeControl(cmd: { snapshot_delete_refuse?: number; power_refuse?: number; vm_state?: { name: string; state: string }; image_size?: { cpu: number; memory: number; storage: number }; resize_partial?: number; resize_refuse?: number; power_then_fail?: number; fail_revokes?: number; link_keys?: string; unset?: ReadonlyArray<"CLOUD_API_ORIGIN" | "ENVIRONMENT_TAG" | "CLOUD_ALLOWED_TEAMS">; fail_next?: number; drop_results?: number; advance_ms?: number; delete_vm?: string; fail_list?: boolean; add_vm?: { name: string; team: string; machine: string }; edge_host?: string | null; entitlements?: "on" | "off" }) {
     if (this.env.ENVIRONMENT !== "test") throw new Error("fakeControl is test only")
     cloudDriver(this.env, this.sqlStore)
+    if (cmd.entitlements !== undefined) this.entitlements.enabled = cmd.entitlements === "on"
     if (cmd.edge_host !== undefined) this.edge.testHost = cmd.edge_host
     if (cmd.unset) this.testUnset = new Set(cmd.unset)
     if (cmd.link_keys !== undefined) this.testLinkKeys = cmd.link_keys

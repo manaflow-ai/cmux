@@ -1,3 +1,5 @@
 title: Chats on SSH machines ask to trust their folder
+category: fixed
+action: palette.newAgentChat | New Agent Chat
 
-A new chat in an SSH workspace now asks whether you trust its folder on that machine, the same question a chat on this Mac asks. Choose Trust and the chat starts there. Before, the send failed with "not a trusted folder" and the app had no way to answer. New Agent Chat from an SSH workspace also starts in a folder of that workspace on the machine, not with "Open a terminal in a folder first".
+A new chat in an SSH workspace now asks whether you trust its folder on that machine, instead of failing with “not a trusted folder”. It also starts in that workspace's folder on the machine.

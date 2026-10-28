@@ -15,6 +15,7 @@
   color-scheme: light dark;
   font-size: var(--text-body);
   color: var(--cmux-text, CanvasText);
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 * {
@@ -52,6 +53,7 @@ nav strong {
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);
   font-weight: 600;
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 nav input {
@@ -65,6 +67,7 @@ nav input {
   background: var(--activity-well);
   font-size: var(--text-control);
   outline: none;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 nav input:focus {
@@ -89,6 +92,7 @@ nav input:focus {
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .segment input {
@@ -112,9 +116,11 @@ nav input:focus {
   outline-offset: -1px;
 }
 
+/* The session list gives up width first in a narrow pane (down to 200px, from 46% of the page), so
+   the selected agent's detail keeps room for its title and actions. */
 .split {
   display: grid;
-  grid-template-columns: 270px 1fr;
+  grid-template-columns: clamp(200px, 46%, 270px) minmax(0, 1fr);
   min-height: 0;
   flex: 1;
 }
@@ -130,6 +136,7 @@ section h3 {
   line-height: var(--text-caption--line-height);
   font-weight: 600;
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .connection {
@@ -137,6 +144,7 @@ section h3 {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .session {
@@ -178,17 +186,20 @@ section h3 {
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   font-weight: 500;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 
 .session-text small {
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .status {
   font-size: var(--text-caption);
   color: var(--activity-text-2);
+  letter-spacing: var(--text-caption--letter-spacing);
 }
 
 .status.live {
@@ -203,10 +214,21 @@ section h3 {
 
 .detail header {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 6px 10px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--activity-line);
+}
+
+/* The agent's title keeps one line and ellipsizes; the actions wrap under it when the header runs
+   out of room, never squeezing it to a word per line. */
+.detail header strong {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .actions {
@@ -223,6 +245,7 @@ section h3 {
   background: transparent;
   font-size: var(--text-control);
   cursor: default;
+  letter-spacing: var(--text-control--letter-spacing);
 }
 
 .preview {
@@ -280,6 +303,7 @@ section h3 {
   padding: 4px 14px;
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 
 .event.bad {
@@ -366,6 +390,7 @@ section h3 {
   line-height: var(--text-title--line-height);
   font-weight: 600;
   color: var(--cmux-text, CanvasText);
+  letter-spacing: var(--text-title--letter-spacing);
 }
 
 .empty span {
@@ -375,105 +400,4 @@ section h3 {
 .error {
   padding: 14px;
   color: var(--activity-error);
-}
-
-/* The lanes view (cx-v9k2f): every acpmux session by machine and coordinator. A first draft
-   behind Labs preview features until it is styled. */
-.lanes {
-  flex: 1;
-  overflow: auto;
-  padding: 8px 12px 16px;
-}
-
-.lanes-attention {
-  margin: 4px 0 8px;
-  font-size: var(--text-caption);
-  font-weight: 600;
-  color: var(--activity-error);
-}
-
-.lanes section + section {
-  margin-top: 12px;
-}
-
-.lanes h2 {
-  margin: 0 0 4px;
-  font-size: var(--text-body);
-  font-weight: 600;
-}
-
-.lanes h3 {
-  margin: 8px 0 2px;
-  font-size: var(--text-caption);
-  font-weight: 600;
-  color: var(--activity-text-2);
-}
-
-.lanes ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.lane {
-  display: grid;
-  grid-template-columns: 8px minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: 8px;
-  width: 100%;
-  min-height: 26px;
-  padding: 3px 6px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: var(--text-body);
-  text-align: start;
-  cursor: default;
-}
-
-.lane:hover {
-  background: var(--activity-well);
-}
-
-.lane-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--activity-text-2);
-  opacity: 0.5;
-}
-
-.lane[data-state="working"] .lane-dot {
-  background: var(--activity-live);
-  opacity: 1;
-}
-
-.lane[data-state="input"] .lane-dot,
-.lane[data-state="failed"] .lane-dot,
-.lane[data-state="lost"] .lane-dot {
-  background: var(--activity-error);
-  opacity: 1;
-}
-
-.lane-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lane-status {
-  font-size: var(--text-caption);
-  color: var(--activity-text-2);
-  white-space: nowrap;
-}
-
-.lane-error {
-  grid-column: 2 / -1;
-  font-size: var(--text-caption);
-  color: var(--activity-error);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }

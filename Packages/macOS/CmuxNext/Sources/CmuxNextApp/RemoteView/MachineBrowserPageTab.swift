@@ -102,7 +102,7 @@ final class MachineBrowserPageTab: BrowserTab {
         return image
     }
 
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue { throw BrowserTabError.unsupported("machine browser") }
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue { throw BrowserTabError.unsupported("machine browser") }
     func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult { .none }
     func clearFind() {}
     func setZoom(_ zoom: Double) {}
@@ -134,7 +134,7 @@ final class MachineBrowserStateView: NSView {
         queued.ink = .secondary
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
-        openLocallyButton.keyEquivalent = "\r"
+        openLocallyButton.keyHint = .return
         retryButton.target = self
         retryButton.action = #selector(retryPressed)
         let buttons = NSStackView(views: [retryButton, openLocallyButton])

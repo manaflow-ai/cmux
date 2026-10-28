@@ -20,8 +20,9 @@ runs the tiers its changed files reach (docs/ci/cmux-next-tiers.md):
   daemon      the daemon, Rust core, FFI or control paths: the same-tree
               cmux-tui fetch and the live-daemon suites
 
-Pushes, dispatches and pull requests labeled `full-ci` (a batch integration
-PR) run every tier. A changed file this script cannot place selects every
+Pushes, dispatches and pull requests labeled `full-ci` run every tier. The
+workflow runs the tiers picked here on every same-repository pull request; a
+fork pull request runs the heavier Mac tiers only with `full-ci`. A changed file this script cannot place selects every
 tier, so an unknown input never skips a check.
 
 Usage: cmux_next_route.py --event NAME [--changed-files FILE] [--labels a,b]
@@ -81,6 +82,14 @@ DAEMON_PATHS = (
     "scripts/cmux-next/check-daemon-capabilities.sh",
     "scripts/cmux-next/cmux-tui.pin",
     PACKAGE + "Tests/CmuxNextAppTests/FirstLaunchTests.swift",
+    # The classic import and migration suites start the live daemon too.
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicImportTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicMigrationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeHugeSimulationTests.swift",
+    PACKAGE + "Tests/CmuxNextAppTests/ClassicUpgradeSimulator.swift",
+    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicSessions.swift",
+    PACKAGE + "Sources/CmuxNextApp/Onboarding/AppOnboardingServices+ClassicMigration.swift",
 )
 
 # Scripts the swift test job runs before the package tests.
@@ -117,15 +126,42 @@ GENERATED_INPUTS = (
     "plans/cmux-next/",
     "scripts/cmux-next/regenerate-action-contracts.sh",
     "scripts/cmux-next/check-action-surfaces.sh",
-    # The settings exports and their source stamp
-    # (defaults_guard.py check-fresh; regenerate-settings-exports.sh). The
-    # CmuxNextSettings sources and the export tests are under PACKAGE.
+    # The settings exports (regenerate-settings-exports.sh; the generated
+    # files job exports them fresh and compares). The CmuxNextSettings sources
+    # and the export tests are under PACKAGE.
     # (The defaults snapshot and defaults_guard.py are checked on Linux.)
     "schemas/settings/settings-schema.json",
-    "schemas/settings-export/",
     "docs/mdm/",
     "scripts/cmux-next/regenerate-settings-exports.sh",
+    "scripts/cmux-next/check-settings-exports.sh",
+    "scripts/cmux-next/settings-exports.txt",
 )
+
+# The PR's Mac Release compile (check-release-compile.sh) builds the CmuxNext package, scheme
+# CmuxNextApp, with xcodebuild: not the Xcode app target (App/, Resources/, cmux.xcodeproj and its
+# build phases are the scheme compile's). The fleet Release compile check (cmux-next/compile)
+# builds the same package sources with SwiftPM and compiles its string catalogs. What
+# only xcodebuild sees: how it resolves the package graph (every local package's Package.swift and
+# Package.resolved), actool on package asset catalogs, package plists, xcconfigs and entitlements,
+# and the Xcode pin and the compile scripts. A same-repository pull request runs the Mac Release
+# compile only when it changes one of these. Xcode's own Swift (26.6) against the check's
+# toolchain, -O codegen and tests are caught after the merge by the base push's Mac Release
+# compile.
+MAC_RELEASE_INPUTS = (
+    "Packages/*/Package.swift", "Packages/*/Package.resolved", "Packages/*.xcassets/*",
+    "Packages/*.plist", "Packages/*.xcconfig", "Packages/*.entitlements",
+    # check-release-compile.sh and what it sources or runs. (scripts/ci/ files are CI-only: the
+    # router sends them to the Linux CI tests, never to a Mac tier, before and after this.)
+    "scripts/cmux-next/check-release-compile.sh", "scripts/cmux-next/release-derived-data-path.sh",
+    "scripts/cmux-next/lib/*", "scripts/cmux-next/stale-pcm-retry-needed.sh",
+    "scripts/cmux-next/clear-stale-scheme-build-state.sh",
+    "scripts/select-ci-xcode.sh", ".xcode-version",
+)
+
+
+def mac_release_input(path: str) -> bool:
+    return any(fnmatch.fnmatch(path, pattern) for pattern in MAC_RELEASE_INPUTS)
+
 
 # The path classes of the original routing: these never need a Mac.
 WEB_ONLY = (
@@ -154,6 +190,9 @@ BUNDLE_INPUTS = (
     # Files outside webviews/ that webviews sources import (web-bundle-key.py --inputs;
     # tests/test_web_bundle_key_inputs.sh keeps this list complete).
     "web/data/model-catalog/*", "Resources/markdown-viewer/viewer-navigation.js", "config/vite-plus/*",
+    "schemas/sync-motion/*",
+    # The UI font the gallery frame imports (src/gallery/frame/uiFont.ts).
+    "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2",
 )
 BUNDLE_TARGETS = ("CmuxNextAgentPane", "CmuxNextPages", "CmuxNextAgentActivity", "CmuxNextPalette")
 # Committed web bundles that ci-web rebuilds and compares (`--check`) on every pull request,
@@ -174,6 +213,13 @@ CI_ONLY = (
 # The CI files that route themselves (the router reads them; the replay checks them).
 CI_SELF = (".github/workflows/cmux-next.yml", "scripts/ci/cmux_next_route.py", "scripts/ci/select_package_tests.py")
 
+# These suites already have dedicated workflow steps after the broad package
+# pass. Running them in the priority shard would execute the same coverage
+# twice and make the job more likely to hit its total deadline.
+ISOLATED_PRIORITY_SUITES = frozenset((
+    "CmuxNextControlTests", "BranchStateResourcesTests", "CLISurfaceParityTests",
+))
+
 
 def web_fast(path: str) -> bool:
     """Web sources, their checked bundles, docs: ci-web and the checks job cover them all."""
@@ -184,6 +230,30 @@ def web_fast(path: str) -> bool:
 
 def ci_only(path: str) -> bool:
     return any(fnmatch.fnmatch(path, pattern) for pattern in CI_ONLY)
+
+
+# The Python test registry. A tests/test_*.py file whose lane there is linux-guard runs only on
+# Linux (scripts/ci/run_python_test_lane.py; the macOS lanes are ci-macos.yml's), so a change to it
+# needs no Mac tier unless a Mac tier reads it (consumed()). Its lane is read from the registry,
+# never from a list here: a file moved to a macOS lane routes to the Mac tiers again. No cmux-next
+# Mac tier reads the registry itself.
+REGISTRY = "tests/test-execution.toml"
+LINUX_LANE = "linux-guard"
+
+
+def linux_guard_tests(root: Path) -> frozenset[str]:
+    """The registry's linux-guard test files; none when it or its reader cannot be read, so they keep their tiers."""
+    try:
+        from test_execution_registry import load_registry  # noqa: PLC0415 - a copied router may come without it
+        entries = load_registry(root / REGISTRY)
+    except (ImportError, OSError, ValueError, SyntaxError):
+        return frozenset()
+    return frozenset(str(entry.get("path")) for entry in entries
+                     if entry.get("lane") == LINUX_LANE and fnmatch.fnmatch(str(entry.get("path")), "tests/test_*.py"))
+
+
+def linux_only_test(path: str, linux_tests: frozenset[str]) -> bool:
+    return path in linux_tests or (path == REGISTRY and bool(linux_tests))
 
 
 def consumed(path: str, tree_inputs: list[str], read) -> bool:
@@ -203,6 +273,11 @@ class Route:
     full: bool = False
     native: bool = False
     swift_canary: bool = False
+    # Any .swift file under the CmuxNext package (Sources or Tests): the PR runs the Release compile.
+    cmuxnext_swift: bool = False
+    # An input only the Mac Release compile sees changed (MAC_RELEASE_INPUTS): a same-repository
+    # pull request runs it. Every tier sets it.
+    mac_release: bool = False
     webview: bool = False
     scheme: bool = False
     generated: bool = False
@@ -210,11 +285,15 @@ class Route:
     daemon: bool = False
     vendored_pin: bool = False
     tests: set[str] = field(default_factory=set)
+    # Suites named by changed Swift files get a first, narrow invocation so a
+    # later broad target run cannot hide the PR's own signal.
+    priority_suites: set[str] = field(default_factory=set)
     swift_canary_targets: set[str] = field(default_factory=set)
     reasons: list[str] = field(default_factory=list)
 
     def everything(self, reason: str) -> None:
         self.full = self.native = self.scheme = self.generated = self.swift = self.daemon = True
+        self.mac_release = True
         self.reasons.append(reason)
 
 
@@ -269,8 +348,36 @@ def owning_target(graph: dict, path: str) -> str | None:
     return best
 
 
+def priority_suites(root: Path, graph: dict, changed: list[str]) -> set[str]:
+    """Find test suites whose Swift source or test file changed in this diff."""
+    test_dirs = [root / target["path"] for target in graph["targets"].values()
+                 if target["kind"] == "test" and target.get("path")]
+    names: set[str] = set()
+    for path in changed:
+        if not path.startswith(PACKAGE) or not path.endswith(".swift"):
+            continue
+        stem = Path(path).stem
+        candidate = stem if stem.endswith("Tests") else stem + "Tests"
+        if candidate in ISOLATED_PRIORITY_SUITES:
+            continue
+        if any((directory / f"{candidate}.swift").is_file() or
+               any(directory.rglob(f"{candidate}.swift")) for directory in test_dirs):
+            names.add(candidate)
+    return names
+
+
 def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -> Route:
     result = Route()
+    mac_inputs = [path for path in changed or [] if mac_release_input(path)]
+    if mac_inputs:
+        result.mac_release = True
+        more = f" and {len(mac_inputs) - 3} more" if len(mac_inputs) > 3 else ""
+        result.reasons.append(f"{', '.join(mac_inputs[:3])}{more} only the Mac Release compile sees: it runs")
+    # Release-only optimizer crashes (cx-ebm.59.5) are invisible to the Debug tiers, so a PR that
+    # changes any CmuxNext package Swift file runs the Release compile, whatever else it changes.
+    result.cmuxnext_swift = any(path.startswith(PACKAGE) and path.endswith(".swift") for path in changed or [])
+    if result.cmuxnext_swift and event == "pull_request":
+        result.reasons.append("a CmuxNext package Swift file changed: the Release compile runs")
     if event != "pull_request":
         result.everything(f"{event}: base coverage runs every tier")
         return result
@@ -281,17 +388,28 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.everything("the diff is unknown or empty: every tier")
         return result
 
+    # The workflow defines the native build and its routing contract. A change
+    # to it must exercise the release compile even though other CI-only files
+    # can stay on the Linux fast tier.
+    if ".github/workflows/cmux-next.yml" in changed:
+        result.everything("cmux-next workflow changed: run every tier")
+        return result
+
     graph = load_graph(root)
     tests = {name for name, target in graph["targets"].items() if target["kind"] == "test"}
+    result.priority_suites = priority_suites(root, graph, changed)
     read = lambda path: any(matches(path, r) for name in tests for r in graph["targets"][name].get("reads", []))  # noqa: E731
     # The fast tiers: a web nit or a CI change lands in minutes. ci-web's bundle --check stands in for
     # the app compile; actionlint, the CI tests and the routing replay check CI changes. A file a Mac
     # tier reads keeps its tier, and a dev-build PR still compiles its dogfood app.
     tree_inputs_early = tree_input_paths(root)
+    linux_tests = linux_guard_tests(root)
     if "dev-build" not in labels and all(
-        (web_fast(path) or ci_only(path)) and not consumed(path, tree_inputs_early, read) for path in changed
+        (web_fast(path) or ci_only(path) or linux_only_test(path, linux_tests))
+        and not consumed(path, tree_inputs_early, read) for path in changed
     ):
-        kinds = sorted({"CI" if ci_only(path) else "web" for path in changed})
+        kinds = sorted({"CI" if ci_only(path) else "Linux-lane test" if linux_only_test(path, linux_tests) else "web"
+                        for path in changed})
         result.reasons.append(f"only {' and '.join(kinds)} files changed: Linux checks cover them (no Mac tier)")
         return result
     packages = package_inputs(root, graph)
@@ -372,7 +490,7 @@ def route(root: Path, event: str, changed: list[str] | None, labels: set[str]) -
         result.swift_canary = bool(result.swift_canary_targets)
         if result.swift_canary:
             result.reasons.append(
-                "small CmuxNext Swift-only diff: the canary gates this pull request; Release remains advisory"
+                "small CmuxNext Swift-only diff: the canary gates this pull request"
             )
     if result.webview:
         result.scheme = True
@@ -388,6 +506,13 @@ def swift_filter(result: Route) -> str:
     if result.full:
         return ""
     return "^(" + "|".join(sorted(result.tests)) + ")\\." if result.tests else ""
+
+
+def swift_priority_filter(result: Route) -> str:
+    """A regex matching only suites named by changed Swift files."""
+    # SwiftPM names a suite as Target.Suite.Test; unlike the target filter,
+    # this shard must allow the target prefix before the changed suite.
+    return ".*(" + "|".join(sorted(result.priority_suites)) + ")\\." if result.priority_suites else ""
 
 
 def canary_swift_path(path: str) -> bool:
@@ -418,6 +543,8 @@ def outputs(result: Route) -> dict[str, str]:
     return {
         "native": flag(result.native),
         "swift_canary": flag(result.swift_canary),
+        "cmuxnext_swift": flag(result.cmuxnext_swift),
+        "mac_release": flag(result.mac_release),
         "macos": flag(macos),
         "scheme": flag(result.scheme or result.webview or result.full),
         "generated": flag(result.generated),
@@ -426,6 +553,7 @@ def outputs(result: Route) -> dict[str, str]:
         "full": flag(result.full),
         "vendored_pin": flag(result.vendored_pin),
         "swift_filter": swift_filter(result),
+        "swift_priority_filter": swift_priority_filter(result),
         "swift_targets": "all" if result.full else " ".join(sorted(result.tests)),
         "swift_canary_targets": " ".join(sorted(result.swift_canary_targets)),
     }
@@ -455,7 +583,7 @@ def main(argv: list[str]) -> int:
     if args.summary:
         with args.summary.open("a", encoding="utf-8") as stream:
             stream.write("### cmux-next tiers\n\n| tier | runs |\n| --- | --- |\n")
-            for key in ("generated", "native", "swift_canary", "scheme", "swift", "daemon", "full"):
+            for key in ("generated", "native", "swift_canary", "cmuxnext_swift", "mac_release", "scheme", "swift", "daemon", "full"):
                 stream.write(f"| {key} | {values[key]} |\n")
             stream.write(f"\nSwift test targets: {values['swift_targets'] or 'none'}\n\n")
             stream.write(f"Swift canary targets: {values['swift_canary_targets'] or 'none'}\n\n")

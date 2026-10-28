@@ -1,5 +1,10 @@
 use super::*;
 
+// Raw `send` guards; declared here because `cli.rs` is at its size baseline.
+#[cfg(unix)]
+#[path = "send_expect_foreground.rs"]
+mod send_expect_foreground;
+
 #[cfg(unix)]
 #[test]
 fn host_terminal_disconnect_exits_frontend_without_stopping_server() {
@@ -670,6 +675,11 @@ fn noun_first_cli_covers_resources_output_errors_and_private_raw_escape() {
     assert_success(&agents);
     let agents = json_output(&agents);
     assert_eq!(agents[0]["state"].as_str(), Some("idle"));
+    let counted = json_cli(&server, &["agent", "list", "--terminal", &terminal, "--counts"]);
+    assert_success(&counted);
+    let counted = json_output(&counted);
+    assert_eq!(counted["agents"][0]["state"].as_str(), Some("idle"));
+    assert_eq!(counted["counts"]["idle"], 1);
 
     let send_key = cli(&server, &["--quiet", "terminal", &terminal, "keys", "enter"]);
     if !send_key.status.success() {

@@ -20,7 +20,7 @@ const removeInStack = async (t: Awaited<ReturnType<typeof mirroredTeam>>) => {
 
 /** A socket and a way to wait (bounded) for its close. */
 const openSocket = async (scope: "team" | "cloud", token: string, team: string) => {
-  const res = await worker.fetch(`https://api.test/v1/wire/${scope}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${token}, team.${team}` } })
+  const res = await worker.fetch(`https://api.test/v1/wire/${scope}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, team.${team}`, authorization: `Bearer ${token}` } })
   expect(res.status, `${scope} socket`).toBe(101)
   const ws = res.webSocket!
   let closed: number | undefined
@@ -127,7 +127,7 @@ describe("Stack team webhook review fixes (cx-3bi.43)", { timeout: 60_000 }, () 
   it("an outsider session cannot open the Stack team's socket", async () => {
     const t = await mirroredTeam()
     const outsider = await sessionToken(crypto.randomUUID(), "Eve")
-    const res = await worker.fetch("https://api.test/v1/wire/team", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${outsider}, team.${t.team}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/team", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, team.${t.team}`, authorization: `Bearer ${outsider}` } })
     expect(res.status).toBe(403)
   })
 })

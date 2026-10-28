@@ -48,6 +48,10 @@ trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
+# The same secret-bearing macOS lane also exercises the Sparkle key helper's
+# stdin-only contract. It uses a fixed non-secret seed and touches no keychain.
+"$ROOT_DIR/tests/test_derive_sparkle_public_key.sh" || fail "Sparkle public key derivation failed"
+
 # 1. Throwaway identity. /usr/bin/openssl (LibreSSL) writes a PKCS#12 that
 # `security import` reads; the explicit PBE and MAC also suit OpenSSL 3.
 OPENSSL=/usr/bin/openssl

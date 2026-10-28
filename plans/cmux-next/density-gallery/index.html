@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Density settings — 3 designs</title>
+<style>
+  :root { color-scheme: dark; --bg:#1c1c1e; --card:#2a2a2d; --line:#3a3a3e; --text:#e8e8ea; --dim:#9a9aa1; --accent:#0a84ff; --sel:#3a3a40; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font: 13px -apple-system, system-ui, sans-serif; padding: 28px 32px 60px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .lede { color: var(--dim); margin: 0 0 28px; max-width: 760px; line-height: 1.45; }
+  section.design { background: #222225; border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px 22px; margin-bottom: 26px; }
+  .design h2 { font-size: 15px; margin: 0 0 4px; display:flex; align-items:center; gap:8px; }
+  .badge { font-size: 11px; font-weight: 600; background: var(--accent); color: white; padding: 2px 8px; border-radius: 999px; }
+  .why { color: var(--dim); margin: 0 0 16px; line-height: 1.45; max-width: 780px; }
+  .settings { background: var(--card); border-radius: 10px; padding: 14px 16px; border: 1px solid var(--line); }
+  .row-label { font-weight: 600; margin-bottom: 8px; }
+  .help { color: var(--dim); font-size: 12px; margin: 2px 0 12px; }
+  /* preview */
+  .pv { background:#161618; border-radius: 8px; border:1px solid var(--line); overflow:hidden; }
+  .pv .side { padding: var(--top) var(--inset); }
+  .pv .item { height: var(--row); display:flex; align-items:center; gap: calc(var(--inset) * .8); padding: 0 var(--inset); border-radius: var(--radius); font-size: var(--body); color: var(--text); white-space: nowrap; overflow:hidden; }
+  .pv .item.sel { background: var(--sel); }
+  .pv .item .ic { width: var(--icon); height: var(--icon); border-radius: 3px; background: #6b6b74; flex: none; }
+  .pv .item.group { color: var(--dim); font-weight: 600; font-size: calc(var(--body) * .92); }
+  .pv .strip { display:flex; gap: 4px; padding: 0 var(--inset); height: var(--strip); align-items:center; border-bottom:1px solid var(--line); }
+  .pv .tab { height: var(--tab); padding: 0 calc(var(--inset) * 1.3); display:flex; align-items:center; gap:6px; border-radius: var(--radius); font-size: var(--body); background: #2c2c30; white-space:nowrap; }
+  .pv .tab.on { background:#3d3d43; }
+  .pv .caption { font-size: var(--caption); color: var(--dim); padding: 6px var(--inset) 8px; }
+  /* A: tiles */
+  .tiles { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+  .tile { border: 1px solid var(--line); border-radius: 10px; padding: 8px; background: #1f1f22; cursor: pointer; }
+  .tile.on { outline: 2px solid var(--accent); outline-offset: -1px; }
+  .tile .name { display:flex; justify-content:space-between; margin-top: 8px; font-weight:600; }
+  .tile .name small { color: var(--dim); font-weight: 400; }
+  .tile .pv { height: 92px; }
+  .actions { display:flex; gap: 8px; margin-top: 12px; }
+  button { background:#3a3a40; color:var(--text); border:0; border-radius:6px; padding:5px 11px; font: inherit; cursor:pointer; }
+  button.primary { background: var(--accent); color:white; }
+  .editor { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 14px; display:grid; grid-template-columns: 1fr 320px; gap: 18px; }
+  .field { display:grid; grid-template-columns: 110px 1fr 46px; align-items:center; gap: 10px; margin-bottom: 8px; }
+  .field label { color: var(--dim); }
+  .field output { text-align:right; font-variant-numeric: tabular-nums; color: var(--dim); }
+  input[type=text] { background:#1c1c1f; border:1px solid var(--line); border-radius:6px; color:var(--text); padding:5px 8px; font:inherit; }
+  details summary { color: var(--dim); cursor:pointer; margin: 8px 0; }
+  /* B: slider */
+  .scale { position:relative; margin: 10px 4px 26px; }
+  .scale input { width: 100%; }
+  .ticks { display:flex; justify-content:space-between; font-size: 11px; color: var(--dim); margin-top: 4px; }
+  .ticks span.on { color: var(--text); font-weight:600; }
+  .bpreview { display:grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  /* C: list */
+  .split { display:grid; grid-template-columns: 210px 1fr; gap: 0; border:1px solid var(--line); border-radius: 10px; overflow:hidden; }
+  .list { background:#1f1f22; border-right:1px solid var(--line); padding: 6px; }
+  .list .li { padding: 6px 8px; border-radius: 6px; display:flex; justify-content:space-between; cursor:pointer; }
+  .list .li.on { background: var(--accent); color: white; }
+  .list .li small { opacity:.7 }
+  .list .sep { color: var(--dim); font-size: 11px; padding: 10px 8px 4px; }
+  .detail { padding: 14px; }
+  .note { color: var(--dim); font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<h1>Settings › Appearance › Density — 3 designs</h1>
+<p class="lede">One density token set sizes rows, padding, corners, icons and text together. Compact stays exactly as today. Built-ins: Ultra-compact, Compact (default), Cozy, Comfortable, Spacious. Any density can be duplicated into a custom one (name, level, spacing, text size, exact tokens), saved in cmux.json, exported and imported. Every preview below is drawn from the same token math the app uses.</p>
+
+<section class="design" id="a">
+  <h2>A · Tiles with an inline editor <span class="badge">Recommended</span></h2>
+  <p class="why">Each density is a tile that shows a real sidebar row, a tab and caption text at its size, so you pick by looking, not by name. Custom densities sit beside the built-ins. Duplicate opens the editor right under the tiles with a large live preview. It reuses the background picker's tile pattern, so it reads as part of Settings.</p>
+  <div class="settings">
+    <div class="row-label">Density</div>
+    <div class="help">Row height, padding, corners, icons and text size together. Compact is the default.</div>
+    <div class="tiles" id="a-tiles"></div>
+    <div class="actions"><button class="primary" id="a-dup">Duplicate…</button><button>Import…</button><button>Export</button></div>
+    <div class="editor" id="a-editor">
+      <div>
+        <div class="field"><label>Name</label><input type="text" id="a-name" value="My Tight"><span></span></div>
+        <div class="field"><label>Density</label><input type="range" id="a-level" min="-1" max="2.5" step="0.05" value="-0.25"><output id="a-level-o"></output></div>
+        <div class="field"><label>Spacing</label><input type="range" id="a-spacing" min="0.5" max="2" step="0.05" value="0.9"><output id="a-spacing-o"></output></div>
+        <div class="field"><label>Text size</label><input type="range" id="a-font" min="9" max="20" step="0.5" value="11.5"><output id="a-font-o"></output></div>
+        <details><summary>Exact sizes</summary>
+          <div class="field"><label>Row height</label><input type="range" id="a-row" min="16" max="48" step="1" value="22"><output id="a-row-o"></output></div>
+          <div class="field"><label>Corner radius</label><input type="range" id="a-radius" min="0" max="14" step="1" value="5"><output id="a-radius-o"></output></div>
+        </details>
+      </div>
+      <div class="pv" id="a-big"></div>
+    </div>
+  </div>
+</section>
+
+<section class="design" id="b">
+  <h2>B · One density slider</h2>
+  <p class="why">A single slider from Ultra-compact to Spacious with the built-ins as snap points, plus before/after previews. It is fast to use, but a custom density has to live under a separate "Custom…" button, and text size gets lost.</p>
+  <div class="settings">
+    <div class="row-label">Density</div>
+    <div class="scale"><input type="range" id="b-level" min="0" max="4" step="1" value="1"><div class="ticks" id="b-ticks"></div></div>
+    <div class="bpreview"><div><div class="help">Compact (today)</div><div class="pv" id="b-before"></div></div><div><div class="help" id="b-label"></div><div class="pv" id="b-after"></div></div></div>
+    <div class="actions"><button>Custom…</button></div>
+  </div>
+</section>
+
+<section class="design" id="c">
+  <h2>C · List and detail</h2>
+  <p class="why">A macOS-style source list of densities (built-ins, then yours) with the preview and editor on the right. Good for many custom densities, but it is the heaviest of the three, and it pushes the preview away from the other Appearance rows.</p>
+  <div class="split">
+    <div class="list" id="c-list"></div>
+    <div class="detail"><div class="pv" id="c-pv"></div><div class="note">Selecting a built-in previews it; Duplicate makes an editable copy.</div><div class="actions"><button class="primary">Use</button><button>Duplicate…</button><button>Export</button></div></div>
+  </div>
+</section>
+
+<script>
+// Same rule as DensityTokens.resolve / textSize (Swift): level 0 = Compact, 1 = Comfortable.
+const M = { row:[24,32], tab:[24,30], strip:[28,36], radius:[6,7], icon:[14,16], body:[12,13], caption:[10.5,11], inset:[6,6], top:[4,4] };
+const half = v => Math.round(v*2)/2;
+function resolve(d){
+  const lerp = ([c,f], round) => d.level===0 ? c : d.level===1 ? f : round(c + (f-c)*d.level);
+  const t = (k, r=Math.round) => d.tokens?.[k] ?? lerp(M[k], r);
+  const bodyAt = lerp(M.body, half);
+  const fs = d.fontSize ? (v => half(v * d.fontSize / bodyAt)) : (v => v);
+  const sp = v => d.spacing===1 ? v : half(v*d.spacing);
+  return { row:t('row'), tab:t('tab'), strip:t('strip'), radius:t('radius'), icon:t('icon'),
+           body: d.fontSize ?? bodyAt, caption: fs(lerp(M.caption, half)), inset: sp(6), top: sp(4) };
+}
+const PRESETS = [
+  {id:'ultraCompact', name:'Ultra-compact', level:-0.5, spacing:0.75},
+  {id:'compact', name:'Compact', level:0, spacing:1},
+  {id:'cozy', name:'Cozy', level:0.5, spacing:1},
+  {id:'comfortable', name:'Comfortable', level:1, spacing:1},
+  {id:'spacious', name:'Spacious', level:1.75, spacing:1.25},
+];
+const custom = {id:'my-tight', name:'My Tight', level:-0.25, spacing:0.9, fontSize:11.5, tokens:{row:22, radius:5}, custom:true};
+function preview(el, d, big){
+  const r = resolve(d);
+  el.style.cssText += `;--row:${r.row}px;--tab:${r.tab}px;--strip:${r.strip}px;--radius:${r.radius}px;--icon:${r.icon}px;--body:${r.body}px;--caption:${r.caption}px;--inset:${r.inset}px;--top:${r.top}px`;
+  el.innerHTML = `<div class="strip"><div class="tab on"><span class="ic" style="width:${r.icon}px;height:${r.icon}px;background:#6b6b74;border-radius:3px;display:inline-block"></span>zsh</div><div class="tab">README.md</div></div>
+    <div class="side"><div class="item group">cmux-next app</div><div class="item sel"><span class="ic"></span>density rethink</div>${big?'<div class="item"><span class="ic"></span>redesigning source control</div><div class="item"><span class="ic"></span>Home</div>':''}</div>
+    <div class="caption">${r.row} pt rows · ${r.body} pt text</div>`;
+}
+// A
+let selected = 'compact';
+function drawTiles(){
+  const host = document.getElementById('a-tiles'); host.innerHTML='';
+  for (const d of [...PRESETS, custom]) {
+    const tile = document.createElement('div'); tile.className = 'tile' + (d.id===selected?' on':'');
+    const pv = document.createElement('div'); pv.className='pv'; preview(pv, d, false);
+    tile.append(pv); tile.insertAdjacentHTML('beforeend', `<div class="name">${d.name}<small>${d.custom?'Custom':d.id===selected?'In use':''}</small></div>`);
+    tile.onclick = () => { selected = d.id; drawTiles(); };
+    host.append(tile);
+  }
+}
+function bindEditor(){
+  const ids = {level:'a-level', spacing:'a-spacing', fontSize:'a-font'};
+  const apply = () => {
+    custom.name = document.getElementById('a-name').value || 'Custom';
+    custom.level = +document.getElementById('a-level').value;
+    custom.spacing = +document.getElementById('a-spacing').value;
+    custom.fontSize = +document.getElementById('a-font').value;
+    custom.tokens = { row: +document.getElementById('a-row').value, radius: +document.getElementById('a-radius').value };
+    for (const [k, id] of Object.entries({...ids, row:'a-row', radius:'a-radius'})) document.getElementById(id+'-o').textContent = document.getElementById(id).value;
+    preview(document.getElementById('a-big'), custom, true); drawTiles();
+  };
+  document.querySelectorAll('#a-editor input').forEach(i => i.addEventListener('input', apply)); apply();
+}
+drawTiles(); bindEditor();
+// B
+const bl = document.getElementById('b-level'), ticks = document.getElementById('b-ticks');
+function drawB(){ const d = PRESETS[+bl.value]; ticks.innerHTML = PRESETS.map((p,i)=>`<span class="${i==bl.value?'on':''}">${p.name}</span>`).join('');
+  document.getElementById('b-label').textContent = d.name; preview(document.getElementById('b-after'), d, true); }
+preview(document.getElementById('b-before'), PRESETS[1], true); bl.oninput = drawB; drawB();
+// C
+let cSel = 'cozy';
+function drawC(){ const list = document.getElementById('c-list');
+  list.innerHTML = '<div class="sep">Built-in</div>' + PRESETS.map(p=>`<div class="li ${p.id===cSel?'on':''}" data-id="${p.id}">${p.name}<small>${p.id==='compact'?'default':''}</small></div>`).join('') +
+    '<div class="sep">Yours</div>' + `<div class="li ${cSel===custom.id?'on':''}" data-id="${custom.id}">${custom.name}<small>custom</small></div>`;
+  list.querySelectorAll('.li').forEach(li => li.onclick = () => { cSel = li.dataset.id; drawC(); });
+  preview(document.getElementById('c-pv'), [...PRESETS, custom].find(d=>d.id===cSel), true); }
+drawC();
+</script>
+</body>
+</html>

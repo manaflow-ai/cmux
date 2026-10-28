@@ -590,7 +590,13 @@ impl Mux {
                             mux,
                             state,
                             members[0],
-                            TabDragDestination::Split { pane, edge, ratio, keep_focus: false },
+                            TabDragDestination::Split {
+                                pane,
+                                edge,
+                                ratio,
+                                keep_focus: false,
+                                around: None,
+                            },
                             &ids,
                             false,
                         )?;
@@ -646,6 +652,8 @@ impl Mux {
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
                             name: mux.default_workspace_name(state),
+                            name_source: crate::resource_name::NameSource::Auto,
+                            name_revision: 0,
                             screens: vec![Screen {
                                 id: screen_id,
                                 public_id: ScreenPublicId::random()?,

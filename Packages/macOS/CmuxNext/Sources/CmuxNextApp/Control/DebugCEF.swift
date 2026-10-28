@@ -1,12 +1,16 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextChromiumRuntime
 import CmuxNextSettings
 import Darwin
 
 /// `debug.cef`: how Chromium started in this process (lazy tab, or a warm
 /// start and why), its timings, the app's memory footprint, the default
 /// engine, why Chromium is unavailable (`unavailable`: `notBundled`,
-/// `startFailed`, `shutDown`) and the WebKit fallbacks so far. Helper
+/// `downloading`, `downloadFailed`, `startFailed`, `shutDown`), where the
+/// runtime came from (`runtime`: Chromium on demand) and the WebKit
+/// fallbacks so far, the external pump's counters (`pump`) and what the
+/// fork's page tracker read from host views (`tracker`). Helper
 /// processes are separate; measure them with `ps`.
 @MainActor
 enum DebugCEF {
@@ -18,10 +22,17 @@ enum DebugCEF {
             "likely": services.chromiumWarmup.reason.map { .string($0.rawValue) } ?? .null,
             "trigger": report.trigger.map { .string($0) } ?? .null,
             "footprint_mb": .number(footprintMegabytes()),
+            "spare_window": .string(services.cache.cef.spareWindowState),
+            "engine_start_main_ms": .number(milliseconds(services.cache.cef.engineStartMainThreadTime)),
+            "start_steps": .array(services.cache.cef.startMarks.map {
+                .object(["name": .string($0.name), "start_uptime_ns": .number(Double($0.startUptimeNanos)), "ms": .number($0.milliseconds)])
+            }),
+            "prefetch": services.cache.cef.frameworkPrefetchFields.map { .object($0.mapValues { .number($0) }) } ?? .null,
         ]
         if case let browserTabs = services.cache.browserTabs {
             object["default_engine"] = .string(browserTabs.preference.defaultEngine.rawValue)
-            object["unavailable"] = unavailable(browserTabs.cefUnavailable())
+            // The engine's reason, not `browserTabs.cefUnavailable()`: that read asks for the download.
+            object["unavailable"] = unavailable(services.cache.cef.unavailableReason)
             let fallbacks = browserTabs.fallbacks
             object["fallback"] = fallbacks.count == 0 ? .null : .object([
                 "count": .number(Double(fallbacks.count)),
@@ -30,8 +41,10 @@ enum DebugCEF {
                 "notified": .bool(fallbacks.notified),
             ])
         }
+        object["runtime"] = runtime(services.chromiumRuntime)
         object["devtools"] = .array(devTools(services))
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
+        object["tracker"] = trackerReport(services.cache.cef.trackerStats)
         object["windows"] = windows(services.cache.cef.windowReport)
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
@@ -118,9 +131,40 @@ enum DebugCEF {
             "reentrant_fires": .number(Double(stats.reentrantFires)),
             "long_work_runs": .number(Double(stats.longWorkRuns)),
             "follow_up_runs": .number(Double(stats.followUpRuns)),
+            "kept_cross_thread_requests": .number(Double(stats.keptCrossThreadRequests)),
             "work_ms": .number(stats.workSeconds * 1_000),
             "fallback_ms": .number(stats.fallbackInterval * 1_000),
         ])
+    }
+
+    /// Per action = the change of each counter over it (scripts/cmux-next/pane-perf-terminal.py --browser).
+    private static func trackerReport(_ stats: CEFTrackerStats) -> JSONValue {
+        .object([
+            "clip_reads": .number(Double(stats.clipReads)),
+            "occlusion_reads": .number(Double(stats.occlusionReads)),
+            "clip_builds": .number(Double(stats.clipBuilds)),
+            "clip_hits": .number(Double(stats.clipHits)),
+            "clip_ms": .number(stats.clipSeconds * 1_000),
+            "geometry_posts": .number(Double(stats.geometryPosts)),
+            "hosted_pages": .number(Double(stats.hostedPages)),
+            "hosting_refused": .number(Double(stats.hostingRefused)),
+            "geometry_skips": .number(Double(stats.geometrySkips)),
+        ])
+    }
+
+    /// Where the runtime came from and the download state (Chromium on demand).
+    private static func runtime(_ service: ChromiumRuntimeService) -> JSONValue {
+        var object: [String: JSONValue] = [
+            "origin": .string(service.origin.rawValue),
+            "pinned_key": service.pinnedKey.map { .string($0) } ?? .null,
+            "install": .string(service.state.name),
+            "fraction": service.state.fraction.map { .number($0) } ?? .null,
+            "frameworks": service.source.layout.map { .string($0.frameworksDirectory.path) } ?? .null,
+        ]
+        if case .failed(let error, let attempt) = service.state {
+            object["error"] = .object(["code": .string(error.code), "detail": .string(error.detail), "attempt": .number(Double(attempt))])
+        }
+        return .object(object)
     }
 
     private static func unavailable(_ reason: CEFUnavailableReason?) -> JSONValue {

@@ -25,8 +25,12 @@ public final class DictationAudioLevelMeter: @unchecked Sendable {
     public let levels: AsyncStream<Float>
     private let continuation: AsyncStream<Float>.Continuation
 
+    /// Keeps the session's audio as well, when its harness takes voice input.
+    public let recording: DictationAudioRecording?
+
     /// Creates a meter reading zero.
-    public init() {
+    public init(recording: DictationAudioRecording? = nil) {
+        self.recording = recording
         (levels, continuation) = AsyncStream.makeStream(of: Float.self, bufferingPolicy: .bufferingNewest(1))
     }
 
@@ -39,6 +43,7 @@ public final class DictationAudioLevelMeter: @unchecked Sendable {
 
     /// Folds one tap buffer into the meter.
     public func record(_ buffer: AVAudioPCMBuffer) {
+        recording?.record(buffer)
         guard let channels = buffer.floatChannelData, buffer.frameLength > 0 else { return }
         let samples = UnsafeBufferPointer(start: channels[0], count: Int(buffer.frameLength))
         update(rms: Self.rootMeanSquare(samples))

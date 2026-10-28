@@ -1,15 +1,16 @@
 import { useSyncExternalStore } from "react";
 
-/// Codex-style tool runs in a running turn (cx-ncc.108; conversation/turns.ts `codexRuns`): a
-/// Debug toggle (`agentPane.debug.codexToolRuns`, CmuxNextAgentPane AgentPaneTunables), off by
-/// default, which the app pushes with the theme (`theme.codexToolRuns`, AgentPaneTheme.swift) and
-/// again when it changes, as it does the chat width (chatWidth.ts).
-let current = false;
+/// Codex-style tool runs (cx-ncc.108; conversation/turns.ts `codexRuns`): finished runs fold into
+/// summary lines between the paragraphs and the call in flight is the live line. On by default;
+/// the native host sends the Debug toggle's value with the theme, and only an explicit false turns
+/// it off.
+let current = true;
 const listeners = new Set<() => void>();
 
 /// The host pushed the theme: the transcript follows at once.
 export function configureCodexToolRuns(value: unknown): void {
-  const next = value === true;
+  // Native AgentPaneTunables sends true by default; missing theme data keeps the default.
+  const next = value !== false;
   if (next === current) return;
   current = next;
   for (const listener of listeners) listener();

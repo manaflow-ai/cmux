@@ -9,8 +9,15 @@ public enum AgentCursorCommand: Equatable, Sendable {
     case place(session: String, point: CGPoint)
     /// Travel along `plan` (one keyframe animation on the render server).
     case glide(session: String, plan: GlidePlan)
+    /// The visible page the session's cursor is in, in overlay coordinates:
+    /// its name tag and caption stay inside it (``AgentCursorTagLayout``).
+    /// Sent before each place or glide into a visible target.
+    case confine(session: String, bounds: CGRect)
     /// Click feedback at the cursor's current point.
     case pulse(session: String)
+    /// Show `text` in the keystroke caption beside the cursor (what the
+    /// agent types, ``AgentKeystrokeCaption``); it fades when typing stops.
+    case caption(session: String, text: String)
     /// The target is hidden: point at its tab chip or column edge.
     case indicate(session: String, anchor: CGPoint)
     /// The target is not in this window.

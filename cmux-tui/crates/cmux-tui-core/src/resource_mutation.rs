@@ -135,14 +135,18 @@ impl ResourceMutationPlan {
         // `permanent-dock-v1`: with a permanent column anywhere, every plan is
         // staged before the commit and refused if it removed one. With an
         // agent chat dock anywhere, it is refused if it split that dock.
+        // `pinned-dock-v1`: with a pinned column (the Home dock), it is refused
+        // if its pinned tab went away or a tab entered it while it takes none.
         let permanent = crate::mux::permanent_columns(state);
         let chat = crate::mux::agent_chat_columns(state);
+        let pinned = crate::mux::pinned_columns(state);
         let docks_kept = |operation: &str, state: &State| -> anyhow::Result<()> {
             crate::mux::ensure_permanent_columns_kept(operation, &permanent, state)?;
+            crate::mux::ensure_pinned_columns_kept(operation, &pinned, state)?;
             crate::mux::ensure_agent_chat_columns_unsplit(operation, &chat, state)
         };
         if !layout::conserves_tabs(operation) {
-            if permanent.is_empty() && chat.is_empty() {
+            if permanent.is_empty() && chat.is_empty() && pinned.is_empty() {
                 return Ok(None);
             }
             let before = self.stage(state);

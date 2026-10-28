@@ -1,13 +1,16 @@
 import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { afterEach, describe, expect, it } from "vitest"
+import { SETTLE_MS } from "../src/chief-brain/brain-do.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 
 /**
- * A turn never waits on the compactor (parity run 2026-10-16: 48 of 52 turns waited the full 60 s
- * while a rate-limited compactor failed). With the compactor hanging on every call, a person's
- * messages are still answered at once, on the frozen view plus the delta (OptChat 5a): each run's
- * wake path (admitted -> settled) stays under a second. Fake model, real Worker boundary.
+ * A turn never waits long on the compactor (parity run 2026-10-16: 48 of 52 turns waited the full 60 s
+ * while a rate-limited compactor failed). A turn waits for the summaries of the messages before it
+ * (the reference client's Memory.settle) at most SETTLE_MS; with the compactor hanging on every call,
+ * a person's messages are still answered, on the last rendered view plus the unsummarized messages
+ * whole (OptChat 5a): each run's wake path (admitted -> settled) stays within SETTLE_MS. Fake model,
+ * real Worker boundary.
  */
 const testEnv = env as unknown as Record<string, any>
 const worker = (exports as unknown as { default: Fetcher }).default
@@ -51,6 +54,6 @@ describe("a Cloud Chief turn never waits on the compactor", { timeout: 120_000 }
     }
     const runs = (await http("GET", `/v1/chiefs/${chief.id}/runs?conversation=${chief.main_conversation}`, token)).json.value.runs as Array<any>
     expect(runs).toHaveLength(3)
-    for (const r of runs) expect(r.timing.settled_at - r.timing.admitted_at, JSON.stringify(r.timing)).toBeLessThan(1_000)
+    for (const r of runs) expect(r.timing.settled_at - r.timing.admitted_at, JSON.stringify(r.timing)).toBeLessThan(SETTLE_MS + 1_000)
   })
 })

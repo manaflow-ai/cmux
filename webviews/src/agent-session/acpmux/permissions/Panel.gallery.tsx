@@ -101,6 +101,14 @@ const refreshErrorState: PermissionClientState = {
   error: "Permission service is temporarily unavailable.",
 };
 
+// A chat on another machine whose acpmux allows only from its own app (Leo 2026-10-21: "this
+// literally doesn't work"): only Deny, which counts, and where to approve.
+const allowRefusedState: PermissionClientState = {
+  ...baseState,
+  groups: [{ ...pendingGroup, items: pendingGroup.items.slice(0, 1) }],
+  allowRefused: "permission.person_required",
+};
+
 const uncertainState: PermissionClientState = {
   ...baseState,
   groups: [],
@@ -162,8 +170,12 @@ const openReceipt: Play = async (ctx) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".acpmux-permission-receipt[open]")));
 };
 
+/// A chat-wide allowance alone draws no card: its remove lives in the composer's access menu
+/// (ComposerPickers.gallery `access-grants`). The panel still answers the Revoke menu action, which
+/// the app relays as `cmux-acpmux-permissionRevoke`.
 const revokeAllowance: Play = async (ctx) => {
-  await ctx.click({ role: "button", name: "Revoke" });
+  if (ctx.document.querySelector(".acpmux-permission-panel")) throw new Error("An allowance alone drew a card");
+  window.dispatchEvent(new CustomEvent("cmux-acpmux-permissionRevoke"));
   await ctx.waitFor(() => ctx.document.querySelector('[data-permission-action="revoke"]'));
 };
 
@@ -264,6 +276,10 @@ export default componentEntry<Props>({
       props: { state: baseState, ...callbacks },
       play: allowOnce,
     },
+    "allow-refused": {
+      note: "A chat on another machine that allows only from its own app: no Allow or Always that could not count, only Deny, and where to approve instead.",
+      props: { state: allowRefusedState, ...callbacks },
+    },
     collecting: {
       note: "A batching group announces that requests are still being collected.",
       props: { state: collectingState, ...callbacks },
@@ -274,7 +290,7 @@ export default componentEntry<Props>({
       play: openReceipt,
     },
     allowance: {
-      note: "Chat-wide allowance exposes a quiet revoke affordance after approval.",
+      note: "A chat-wide allowance draws no card (its remove is in the composer's access menu); the Revoke menu action still revokes it.",
       props: { state: allowanceState, ...callbacks },
       play: revokeAllowance,
     },

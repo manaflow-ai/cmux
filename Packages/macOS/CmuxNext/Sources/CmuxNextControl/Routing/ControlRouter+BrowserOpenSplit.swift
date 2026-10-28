@@ -106,7 +106,7 @@ struct BrowserOpenSplitRun {
     private func forwarding(_ call: ControlCall, method: String, _ params: [String: JSONValue],
                             snapshot: ControlSnapshot? = nil) -> ControlCall {
         ControlCall(request: ControlRequest(id: call.request.id, method: method, params: params), snapshot: snapshot ?? call.snapshot,
-                    connection: call.connection, deadline: call.deadline, progress: call.progress)
+                    connection: call.connection, deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark)
     }
 }
 
@@ -245,12 +245,7 @@ struct BrowserOpenSplitPlacement: Sendable, Equatable {
 
     /// The tab of `terminal` (daemon id or public `term_…` id).
     static func terminalTab(_ terminal: String, in topology: ControlTopology) -> String? {
-        for workspace in topology.workspaces {
-            for pane in workspace.panes {
-                if let tab = pane.tabs.first(where: { $0.terminalID == terminal || $0.terminalResourceID == terminal }) { return tab.id }
-            }
-        }
-        return nil
+        topology.tabID(ofTerminal: terminal)
     }
 
     /// A tab of `workspace`'s pane for a new tab: the pane a window shows

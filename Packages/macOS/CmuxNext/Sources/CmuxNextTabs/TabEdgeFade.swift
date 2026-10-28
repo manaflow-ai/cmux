@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import QuartzCore
 
@@ -28,7 +29,7 @@ import QuartzCore
         let fadeMask = mask, tabsClip = strip.tabsClip
         let width = strip.viewportWidth
         let edges = width > 0
-            ? TabScrollMath.fadedEdges(offset: strip.scroll.value, contentWidth: strip.result.contentWidth, viewportWidth: width)
+            ? TabScrollMath.fadedEdges(offset: strip.scrollOffset, contentWidth: strip.result.contentWidth, viewportWidth: width)
             : (leading: false, trailing: false)
         // The leading fade starts after the fixed pinned band, which never fades.
         let band = min(strip.scrollMapping.band, width)
@@ -46,19 +47,17 @@ import QuartzCore
         if isFaded, tabsClip.layer?.mask !== fadeMask { tabsClip.layer?.mask = fadeMask }
         let animates = strip.window != nil && (wasFaded || isFaded) && !Motion.isLiveResizing // in a live resize the edge follows at once
         CATransaction.begin()
-        CATransaction.setCompletionBlock { [weak self] in
-            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
-                guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }
-                if strip.tabsClip.layer?.mask != nil { strip.tabsClip.layer?.mask = nil }
-            }
+        CATransaction.setMainCompletion { [weak self] in
+            guard let self, let strip = self.strip, !(self.edges.leading || self.edges.trailing) else { return }
+            if strip.tabsClip.layer?.mask != nil { strip.tabsClip.layer?.mask = nil }
         }
         if animates {
             // A freshly installed mask starts from fully opaque, not from
             // the colors it had when it came off.
-            Motion.set(fadeMask, "colors", to: colors, fade: .hover, from: wasFaded ? nil : Array(repeating: opaque, count: colors.count))
+            Motion.tabs.set(fadeMask, "colors", to: colors, fade: .hover, from: wasFaded ? nil : Array(repeating: opaque, count: colors.count))
         } else {
             fadeMask.removeAnimation(forKey: "colors")
-            Motion.transaction(nil) { fadeMask.colors = colors }
+            Motion.tabs.transaction(nil) { fadeMask.colors = colors }
         }
         CATransaction.commit()
     }

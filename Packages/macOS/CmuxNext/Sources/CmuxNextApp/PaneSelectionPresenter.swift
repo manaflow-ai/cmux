@@ -8,10 +8,12 @@
 ///   selected by then, so held Ctrl-Tab makes no surface for a tab it passed.
 extension PaneController {
     func presentSelection() {
+        guard !isSuspended else { return } // its workspace draws nothing: `resume` shows the selection
         guard !selectedContentIsAlive else {
             services.presentation.showNow(self)
             return
         }
+        DebugTabSwitch.kind(self, "cold")
         if let key = currentTabKey {
             services.cache.withdraw(key, by: self)
             letGo(key, parks: true) // what showed stays parked here

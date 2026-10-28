@@ -2,6 +2,9 @@
 //! dispatch with its cancellation, and the VT-state command reply. Moved out of
 //! server.rs unchanged (cx-6so.3).
 
+#[cfg(unix)]
+mod machine_catalog;
+
 use super::*;
 
 /// One frame of a connection. `transport` is the connection's own value
@@ -33,6 +36,16 @@ pub(super) fn handle_connection_frame(
     // without being executed and the connection stays open.
     if mux.daemon_handoff_in_progress() {
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
+    }
+    // An older client's line, upgraded to this daemon's API revision before
+    // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
+    let upgraded = writer.api_revision.upgrade_request(message);
+    let message: &str = &upgraded;
+    // A host proxy's link for a teammate reaches the shared chat's verbs and nothing else the
+    // daemon serves (agent_session_proxy.rs).
+    #[cfg(unix)]
+    if agent_session_attach::proxy_bound(mux, client) {
+        return agent_session_attach::handle_bound(mux, client, message, writer);
     }
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
         // A v2 line the catalog parse refuses may name a routed namespace
@@ -76,7 +89,15 @@ pub(super) fn handle_connection_frame(
     #[cfg(unix)]
     if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
         .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
+        .or_else(|| agent_inventory::try_handle(mux, client, message, writer))
+        .or_else(|| agent_cli_job::try_handle(mux, client, message, writer))
+        .or_else(|| agent_cli_intents::try_handle(mux, client, message, writer))
+        .or_else(|| agent_inventory::watch::try_handle(mux, client, message, writer))
     {
+        return keep_open;
+    }
+    #[cfg(unix)]
+    if let Some(keep_open) = machine_catalog::try_handle(mux, client, message, writer) {
         return keep_open;
     }
     #[cfg(unix)]
@@ -98,7 +119,10 @@ pub(super) fn handle_connection_frame(
     let mut pending = Some(request);
     match scheduler.dispatch(mux.clone(), client, &mut pending, message.len(), writer.clone()) {
         Some(keep_open) => keep_open,
-        None => handle_request(mux, client, pending.take().unwrap(), writer),
+        None => match pending.take() {
+            Some(request) => handle_request(mux, client, request, writer),
+            None => true,
+        },
     }
 }
 
@@ -186,6 +210,9 @@ pub(super) fn handle_request_with_cancellation(
     let details = details.filter(|_| !mux.is_remote_client(client));
     let response_ok = response.ok;
     let sent = responses::send_response_with_details(writer, response, reason, retryable, details);
+    // The reply is out; the request's registry commits (already in the WAL)
+    // go to disk now, in one flush that none of them waited for.
+    mux.request_registry_flush();
     // Flush the successful acknowledgement before making the owning loop
     // leave, so process teardown cannot race the response writer.
     if shutdown_daemon && response_ok {

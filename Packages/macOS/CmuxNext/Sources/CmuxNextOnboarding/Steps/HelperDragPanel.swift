@@ -16,7 +16,7 @@ final class HelperDragPanel: NSPanel {
         hasShadow = true
         isReleasedWhenClosed = false
         level = .floating
-        animationBehavior = .utilityWindow
+        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none
         collectionBehavior = [.canJoinAllSpaces, .ignoresCycle, .fullScreenAuxiliary]
         let tile = HelperAppTile(appURL: appURL)
         let line = OnboardingLabel.make(OnboardingStrings.computerUseHelperDrag, font: OnboardingMetrics.captionFont,
@@ -37,7 +37,7 @@ final class HelperDragPanel: NSPanel {
         surface.layoutSubtreeIfNeeded()
         stack.frame = NSRect(origin: .zero, size: size)
         contentView = surface
-        ThemeStore.shared.adopt(self)
+        ThemeScope.app.store.adopt(self)
         setContentSize(size)
         close.target = self
         close.action = #selector(closePressed)

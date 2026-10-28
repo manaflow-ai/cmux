@@ -68,12 +68,13 @@ Older clients send none.
 A participant **counts toward size** when it is attached, has a viewport, and:
 
 - `counts_override` is set: use it (tmux `attach -f ignore-size` is `false`).
-- otherwise, in `smallest` and `largest`, every attached participant counts.
-- otherwise, in `latest`, `priority` and `fixed`, a phone or tablet does not count
-  while a desktop participant (`mac`, `tui`, `linux` or `windows`) of the same
-  `user_id` is attached and itself counts (it has a viewport and is not
-  viewer-only). With two Macs of one user, the phone defers while either
-  counts. Every other participant counts.
+- otherwise, in `smallest`, `largest`, `latest` and `fixed`, every attached
+  participant counts.
+- otherwise, in `priority`, a phone or tablet does not count while a desktop
+  participant (`mac`, `tui`, `linux` or `windows`) of the same `user_id` is
+  attached and itself counts (it has a viewport and is not viewer-only). With
+  two Macs of one user, the phone defers while either counts. Every other
+  participant counts.
 
 The priority key is `<user_id or "anon:" + id>/<device_kind>/<device_id>`, or
 `<user_id or "anon:" + id>/<device_kind>` for a device without an id, so a
@@ -89,11 +90,15 @@ keys.
 
 `mode` is one of:
 
-- `smallest` (default, "Fit everyone"): component-wise min over counting
+- `latest` (default, "Last active"; tmux 3.1+ `window-size latest`): the
+  counting participant with the newest activity. Activity is a desktop's
+  attach, explicit focus-click, Take over, and keyboard, paste or mouse input.
+  A phone's or tablet's attach is not activity, so a glance never takes the
+  grid; its input does. Hover, scroll, window resizes and background tabs are
+  not activity. Ties between handhelds that only attached go to the later
+  attach. Why this default: plans/cmux-next/sync-ux/DESIGN.md part 2.
+- `smallest` ("Fit everyone"): component-wise min over counting
   participants, so every attached device sees the whole grid.
-- `latest` (tmux 3.1+ `window-size latest`): the counting participant with
-  the newest activity. Activity is attach, explicit focus-click, and keyboard,
-  paste or mouse input. Hover and background tabs are not activity.
 - `largest`: component-wise max over counting participants.
 - `priority`: the first key in `priority` that matches a counting participant
   (newest activity breaks ties inside one key). No match falls back to `latest`
@@ -111,10 +116,70 @@ Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
 
+### Per-Mac policy (cmux-next)
+
+The cmux-tui daemon adds a third, lowest scope: the **host policy**, one
+preference of the Mac (or other host) that runs it, stored in its settings
+file as `mobile.terminalSizing` (`smallest`, the default, "Fit the smallest
+viewer"; `mac`, "Prefer this Mac"; `latest`, "Prefer the active device";
+`priority`, "Priority order") and `mobile.terminalSizingOrder` (device tokens,
+`mac` or `device:<id>`, highest first). A terminal with neither an override
+nor a workspace default follows it. The daemon expands it into an engine
+policy for each terminal from that terminal's participants, again on every
+attach, detach, identity change and settings change, so the reducer and the
+fixtures are unchanged: `mac` becomes `priority` over this host's own views
+(a desktop device kind on a local connection the daemon verified: not a link, WebSocket or remote-entry peer, not a phone lane accepted from the bundled cmux-mobile-host, not marked `remote`), and `priority`
+becomes `priority` over the views each token names. With no listed view
+counting, `priority-fallback` picks the latest active one. Only views that
+claim a size count, so a phone that stops showing a terminal drops out of the
+choice. Commands: `get-host-size-policy` and `set-host-size-policy`
+(cmux-tui/spec/commands.md); the phone's side is cmux-next-ios/PROTOCOL.md
+"Terminal sizing policy".
+
+A cmux-next daemon that reads the settings file defaults to `smallest` (Fit
+the smallest viewer) for every terminal without an override or workspace
+default; the engine default `latest` applies only before the file is read
+(`get-host-size-policy` then answers `latest` too). Under that default a
+phone that lists `host-grid-view-v1` still narrows the Mac's pane while it
+claims: the handheld ceiling ("Phone viewers") only stops capping a grid the policy
+made larger than the phone, as under Prefer this Mac.
+
+A phone's lane relays no other device: the daemon drops `user_id` and
+`device_id` from the identity of every relay sub-view a phone's lane opens
+(cmux-mobile-host does too), so a sub-view gets its own priority key and no
+`device:` token ranks it. A relay that is one of this host's own
+connections keeps its sub-views' identity.
+
+## Creation size
+
+A new terminal's PTY starts at the grid of the view that asked for it, so its
+first frame is already final: no shell prompt printed at the wrong width, no
+snap when the view's first report arrives.
+
+- The creating client sends `cols`/`rows` with the create (`new-tab`, and the
+  other creates that take them). The cmux-next Mac app works the grid out
+  before it asks (`NewTerminalGrid`): the fitted grid of the terminal its pane
+  shows (Ghostty's own fit of the same content area), else the pane's content
+  size, backing scale, a live terminal's cell size and the configured padding
+  through Ghostty's formula (`TerminalGridEstimate`). A zoomed terminal's fit
+  does not count: a new terminal starts at the configured font size.
+- At creation the creating view is the only participant, so its grid is what
+  `smallest`, `latest`, `largest` and `priority` choose anyway; under `fixed`
+  the host's fixed grid still applies.
+- A create without a size gets the latest explicit or reported grid of any
+  terminal (`creation_size`), the old behavior. It is a fallback for clients
+  that cannot know their size yet (a CLI spawn, the app's first terminal).
+- A view renders only grids the host announced (`TerminalGridPolicy`). A view
+  that attaches later never makes the others draw a wrong frame: under
+  `smallest` its smaller viewport shrinks the grid for everyone in one
+  announced step (each view reflows on the same output), under `latest` it
+  takes the grid on attach and later activity (also one announced step), and a larger view shows the hatch
+  around the grid. A view that is not an owner pins to the host grid.
+
 ## Phone viewers
 
-Phones and tablets follow three rules so that "Fit everyone" never shrinks
-a Mac user's grid without reason (plans/cmux-next/ghostty-next.md section 6):
+Phones and tablets follow three rules so that no policy resizes a Mac user's
+grid without reason (plans/cmux-next/ghostty-next.md section 6):
 
 - A phone view reports its viewport only while the terminal is on screen in
   the foreground app. When the app goes to the background, the device locks,
@@ -127,10 +192,66 @@ a Mac user's grid without reason (plans/cmux-next/ghostty-next.md section 6):
 - A preview (a Home list thumbnail, a tab switcher) attaches with
   `counts_override: false`.
 
+A phone or tablet view never gets a PTY grid larger than its own unless it
+lists `host-grid-view-v1` in `set-client-info` (it shows a larger grid itself,
+by letterbox or pan). No phone build does yet: each renders the PTY's output
+into its own grid, so a wider PTY overprints and cuts its rows. While such a
+view is attached with a reported size and counts (a preview with
+`counts_override: false` does not), the daemon caps the grid it applies, per
+dimension, at that size, under every policy and whoever is active. Under the
+default `latest` a Mac that was active last therefore keeps its own grid only
+up to the phone's size while the phone shows the terminal; it gets it back when
+the phone releases its size, its size lease ends, or it leaves (after the
+departed-view hold below). The published size state stays the engine's
+decision, as during a hold, so a Mac's size chip can name itself as the owner
+while the PTY is the phone's size (known limitation: the cap is not in the
+size state yet). The cap also applies under `fixed` and to a phone deferring
+under `priority`. When such a phone's link drops, the departed-view hold keeps
+the capped grid for its 30 seconds. A relayed phone is capped unless its relay
+lists the capability, so a relay lists it only when every leaf it forwards
+shows a larger grid. An old phone that recorded an overrule under an older
+daemon may reattach claiming the Mac's size as its own (it then shows the
+garbled screen until the app is relaunched); current phones never claim a Mac
+size larger than their grid. This is the daemon applying the engine's decision
+late, so the fixtures do not change.
+
 Rotation, split view and pinch report once, at the end of the transition or
 gesture. The fixtures "phone grid walkthrough", "a preview attach with counts
 off never shrinks the grid" and "a hidden phone stops counting and counts
 again on its next report" check these rules in both engines.
+
+When a phone or tablet view leaves without being disconnected by someone (its
+link dropped, its connection closed), the cmux-tui daemon keeps the PTY grid
+from growing for 30 seconds; it may still shrink. A reattach inside that
+window finds the grid it left, so the PTY is not resized away and back: an
+inline TUI such as Codex, which rebuilds its scrollback (capped) on every width
+change, would otherwise lose history on each link drop. After 30 seconds the
+grid follows the remaining views. A disconnect by another participant
+(`detach-client`, a view detach, `detach-attached-view`) ends the hold at once.
+This is the daemon applying the engine's decision late, not an engine rule, so
+the fixtures do not change. A phone that opted into the size lease
+(`size-lease-v1`, cmux-tui/spec/commands.md "release-surface-size") refreshes
+its size every 15 s while its terminal is on screen; a size not refreshed for
+45 s is released, and a dropped phone's hold ends when its lease would have
+ended, so a phone that can no longer say anything never pins a Mac's grid for
+longer than its lease. The phone releases its size itself
+(`release-surface-size`) when the terminal leaves the screen, and
+cmux-mobile-host releases it for a phone channel that closes on purpose, a
+removed phone and its own exit (cmux-next-ios/PROTOCOL.md, "Terminal size
+claims"). A Mac, TUI or desktop view that leaves never holds
+the grid.
+
+- The hold covers only the terminals the departed view showed; a disconnect
+  ends the holds of the terminals it touched, not every hold.
+- A phone or tablet view that arrives with a size (the same phone back, or
+  another) ends the hold at once: its own size counts, larger or not.
+- During a hold the published size state is the engine's decision, so a Mac
+  can read a wider size than the PTY has for up to 30 seconds.
+- A phone that closes its attach stream to show another terminal also
+  holds the first terminal's grid; the daemon cannot tell that from a drop.
+- A relay that retires a leaf (`detach-attached-view {view}`) ends the hold,
+  because the relay does not say whether the leaf's link dropped. Relayed
+  phones therefore get no hold yet.
 
 ## Size state (wire format)
 

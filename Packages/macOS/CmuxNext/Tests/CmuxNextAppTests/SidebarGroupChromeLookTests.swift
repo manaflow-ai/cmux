@@ -9,7 +9,7 @@ import Testing
 
 /// cg-design-judge's fixes to the shipped Chrome-style group look (2026-10-14, the sidebar
 /// groups Thunderdome): a collapsed header says how many workspaces it holds, the members' line
-/// starts under the header bar instead of cutting its rounded corner, the header's ink is white
+/// starts under the header bar instead of cutting its rounded corner (flat-ended since Leo's Chrome reference), the header's ink is white
 /// or near-black on the group's color, and the header's name starts on the ungrouped rows' column.
 @MainActor @Suite(.serialized) struct SidebarGroupChromeLookTests {
     static let open = GroupID("grp-open")
@@ -39,13 +39,13 @@ import Testing
         #expect(laidOut >= roomy * 0.999, "the count draws \(laidOut) of its \(roomy) ink in a \(count.frame.width) pt frame")
     }
 
-    @Test func theMembersLineStartsUnderTheHeaderBarRounded() throws {
+    @Test func theMembersLineStartsUnderTheHeaderBarFlat() throws {
         let (sidebar, _) = try Self.sidebar()
         let header = try #require(sidebar.list.rowViews[.group(Self.open)] as? GroupHeaderRowView)
         let line = try #require(GroupPaletteDefaultTests.views(GroupLineView.self, in: sidebar).first)
         let head = sidebar.convert(header.bounds, from: header)
         let drawn = sidebar.convert(line.bounds, from: line)
-        let bar = SidebarStyle.groupHeaderBarHeight(rowHeight: head.height)
+        let bar = head.height // the bar fills the header's row (SidebarGroupHeaderHeightTests)
         // The sidebar is flipped or not; the bar's edge nearest the members is the one the line meets.
         let flipped = sidebar.isFlipped
         let barEdge = flipped ? head.midY + bar / 2 : head.midY - bar / 2
@@ -53,7 +53,11 @@ import Testing
         #expect(flipped ? lineStart > barEdge : lineStart < barEdge,
                 "the line starts at \(lineStart), inside the header bar that ends at \(barEdge)")
         line.layoutSubtreeIfNeeded()
-        #expect(abs((line.layer?.cornerRadius ?? 0) - drawn.width / 2) < 0.01, "the line's ends are not round")
+        // Chrome's square left edge and body keep their flat geometry; the top-right edge is the cut/taper.
+        #expect(line.layer?.cornerRadius == 0 && line.layer?.masksToBounds == true && line.railShape.path != nil,
+                "the line has the clipped Chrome corner cut")
+        #expect(line.railShape.frame.width == 2 && line.railShape.frame.height >= 4096,
+                "the cut shape preserves coverage while the parent rail shrinks")
     }
 
     @Test func aHeaderInkIsWhiteOrNearBlackWhicheverReadsBetter() throws {
@@ -83,18 +87,16 @@ import Testing
         header.layoutSubtreeIfNeeded()
         row.layoutSubtreeIfNeeded()
         let name = sidebar.convert(header.titleFrame, from: header).minX + Metrics.space1
-        // An ungrouped row's leading column: its icon when it shows one, else where its title's text
-        // starts, measured as the header's is (the label frame plus its text inset).
-        let column = row.icon.isHidden
-            ? sidebar.convert(row.titleFrame, from: row).minX + Metrics.space1
-            : sidebar.convert(row.icon.frame, from: row).minX
+        // An ungrouped row's leading column: its icon slot, drawn or empty (every row keeps one,
+        // Lawrence 2026-10-21), so the header's name and every row's icon share one x.
+        let column = sidebar.convert(row.icon.frame, from: row).minX
         #expect(abs(name - column) < 0.5, "the header's name starts at \(name), the ungrouped rows at \(column)")
     }
 
     // MARK: Fixtures
 
     /// How much a label draws (its pixels' summed alpha) at `width`; the label keeps its frame.
-    static func ink(_ label: NSTextField, width: CGFloat) -> Double {
+    static func ink(_ label: NSView, width: CGFloat) -> Double {
         let frame = label.frame
         defer { label.frame = frame }
         label.frame.size.width = width
@@ -122,10 +124,17 @@ import Testing
             .group(SidebarGroup(id: open, name: "Backend", color: .green, workspaces: [w[1], w[2]])),
             .group(SidebarGroup(id: closed, name: "Infra", color: .orange, isCollapsed: true, workspaces: [w[3], w[4]])),
         ]
+        // The member count is opt-in (`sidebar.groupHeader.memberCount`, Lawrence 2026-10-20).
+        let design = DesignSettings()
+        design.sidebarSections.groupHeaderMemberCount = true
         let sidebar = SidebarView(model: SidebarModel(sections: [CmuxNextSidebar.SidebarSection(kind: section.kind, nodes: nodes)]),
-                                  design: DesignSettings())
+                                  design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
+        // The settings reach the list on an observation a turn later; draw them in this turn.
+        sidebar.renderNow()
         sidebar.layoutSubtreeIfNeeded()
+        sidebar.list.reload(animated: false)
+        sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
         return (sidebar, w[0].id)
     }
 }

@@ -11,4 +11,5 @@ public struct OnboardingStepContext {
 
     public func next() { model.next() }
     public func skip() { model.skipStep() }
+    public func back() { model.goBack() }
 }

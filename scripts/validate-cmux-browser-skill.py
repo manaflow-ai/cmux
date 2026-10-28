@@ -60,7 +60,7 @@ TAB_PROFILE_VERBS = frozenset({"set-profile"})
 # browser and take no target (`cmux action list --noun browser`).
 UI_ACTIONS = frozenset(
     {
-        "delete-site-data", "new-profile", "screenshot-page",
+        "delete-site-data", "import-cookies", "new-profile", "screenshot-page",
         "screenshot-section", "show-javascript-console", "split-down", "split-right",
         "toggle-design-mode", "toggle-developer-tools", "toggle-focus-mode",
         "toggle-react-grab", "zoom-in", "zoom-out",

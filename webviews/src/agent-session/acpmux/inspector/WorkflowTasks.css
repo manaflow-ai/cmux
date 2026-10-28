@@ -1,0 +1,122 @@
+/* The Inspector's workflows (WorkflowTasks.tsx), in Background tasks: a block per workflow, its
+   phases with a dot per agent. The rows use the task rows' type and spacing (inspector.css). */
+.acpmux-workflow-tasks {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 4px;
+}
+.acpmux-workflow-tasks__group {
+  margin: 4px 0 0;
+  padding: 0 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-weight: inherit;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-workflow-task {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0 8px;
+}
+.acpmux-workflow-task + .acpmux-workflow-task {
+  border-top: 1px solid var(--agent-hairline, color-mix(in oklab, currentColor 10%, transparent));
+}
+.acpmux-workflow-task__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  padding: 0 4px 0 8px;
+}
+.acpmux-workflow-task__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 600;
+}
+.acpmux-workflow-task__meta,
+.acpmux-workflow-task__description,
+.acpmux-workflow-task__next {
+  margin: 0;
+  padding: 0 8px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-workflow-task__next {
+  padding-top: 4px;
+}
+.acpmux-workflow-task__phases {
+  margin-top: 4px;
+}
+.acpmux-workflow-phase__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 24px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: start;
+}
+.acpmux-workflow-phase__head > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-phase__head:hover {
+  background: color-mix(in oklab, currentColor 6%, transparent);
+}
+.acpmux-workflow-phase__head:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-workflow-phase__name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+/* A dot per agent: done is filled, running is the accent, queued is an outline, failed is red.
+   Fixed size, so a change of state never moves the rows. */
+/* Indented under the phase; each agent's time lines up under the phase's counts (the chevron's room). */
+.acpmux-workflow-phase__agents {
+  padding-left: 16px;
+  padding-right: 24px;
+}
+.acpmux-workflow-phase__model {
+  padding: 0 8px;
+  color: var(--agent-muted);
+  font-size: var(--text-detail);
+  letter-spacing: var(--text-detail--letter-spacing);
+}
+.acpmux-workflow-agent {
+  min-height: 24px;
+}
+.acpmux-workflow-agent__icon {
+  flex: none;
+  display: inline-flex;
+  width: 12px;
+  color: var(--agent-muted);
+}
+.acpmux-workflow-agent[data-state="failed"] .acpmux-workflow-agent__icon {
+  color: var(--agent-status-failure);
+}
+.acpmux-workflow-agent__model {
+  color: var(--agent-muted);
+}
+.acpmux-workflow-agent[data-state="waiting"],
+.acpmux-workflow-agent[data-state="pending"] {
+  color: var(--agent-muted);
+}

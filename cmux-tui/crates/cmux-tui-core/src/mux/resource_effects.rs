@@ -103,6 +103,28 @@ impl Mux {
         )
     }
 
+    /// One durable commit that records a new effect intent as `executing`
+    /// (`WorkspaceRegistry::prepare_resource_effect_executing_for`).
+    pub(crate) fn prepare_resource_effect_executing(
+        &self,
+        mutation: &WorkspaceMutation,
+        operation: &str,
+        fingerprint: &Value,
+        intent: &Value,
+        expected_revision: Option<u64>,
+    ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .prepare_resource_effect_executing_for(
+                mutation,
+                operation,
+                fingerprint,
+                intent,
+                expected_revision,
+            )
+    }
+
     pub(crate) fn mark_resource_effect_executing(
         &self,
         idempotency_key: &str,
@@ -163,7 +185,9 @@ impl Mux {
     ) -> anyhow::Result<ResourcePatchCommit> {
         let mut registry = self.workspace_registry.lock().unwrap();
         let mut state = self.lock_state_pinned(&registry).unwrap();
+        crate::debug_spans::mark("projection.locked");
         let mut projection = project(&registry, &mut state)?;
+        crate::debug_spans::mark("projection.built");
         persist_public_topology_result(operation, &mut projection.result, &projection.changes)?;
         #[cfg(test)]
         if let Some(hook) = self.resource_projection_before_commit.lock().unwrap().clone() {
@@ -180,13 +204,16 @@ impl Mux {
         )?;
         drop(projection);
         drop(state);
+        crate::debug_spans::mark("projection.intent_prepared");
         let commit =
             self.commit_effect_intent(&mut registry, intent, finish)?.into_patch_commit()?;
+        crate::debug_spans::mark("projection.writer_committed");
         self.state.lock().unwrap_or_else(PoisonError::into_inner).resource_revision =
             commit.revision;
         drop(registry);
         self.publish_resource_event();
         self.publish_pending_terminal_directories();
+        crate::debug_spans::mark("projection.published");
         Ok(commit)
     }
 

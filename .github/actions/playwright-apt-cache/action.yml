@@ -1,0 +1,50 @@
+name: Cache Playwright's apt packages
+description: >-
+  Restore the .deb files `playwright install --with-deps` downloaded on an earlier run into apt's
+  archive. Put it before the install step. Push runs also save them when the job ends; pull
+  requests only read. Linux only; a no-op elsewhere.
+
+inputs:
+  engines:
+    description: The engines the job installs, as a key part (for example `chromium-webkit`).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # --with-deps fetched 129 MB of system packages from the Ubuntu mirror on every run, 38 s of a
+    # 48 s step (react-apps-check, job 119051224848). apt takes a .deb already in its archive when
+    # its file name (package, version, architecture) and size match the index, and downloads only
+    # what changed, so a stale cache costs a download. apt does not hash a cached file, so the
+    # trust is in who writes the cache: only push runs on this repository's branches save it.
+    # The key rolls weekly so security updates come back in; a new week starts from last week's
+    # entry, since most packages are unchanged.
+    - name: Open apt's archive to the cache
+      id: week
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        sudo chown "$(id -u):$(id -g)" /var/cache/apt/archives
+        echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+    # A cache a pull request saves is visible only to that pull request and pushes the base's
+    # entries out of the size-capped store (test_ci_pull_request_caches_are_read_only.py), so
+    # pushes seed it and everything else reads. A pull request reads its base branch's entries.
+    - name: Cache Playwright's apt packages
+      if: runner.os == 'Linux' && github.event_name == 'push'
+      uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: /var/cache/apt/archives/*.deb
+        key: playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-${{ inputs.engines }}
+        restore-keys: |
+          playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
+          playwright-apt-${{ runner.os }}-${{ runner.arch }}-
+    - name: Restore Playwright's apt packages
+      if: runner.os == 'Linux' && github.event_name != 'push'
+      uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+      with:
+        path: /var/cache/apt/archives/*.deb
+        key: playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-${{ inputs.engines }}
+        restore-keys: |
+          playwright-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}-
+          playwright-apt-${{ runner.os }}-${{ runner.arch }}-

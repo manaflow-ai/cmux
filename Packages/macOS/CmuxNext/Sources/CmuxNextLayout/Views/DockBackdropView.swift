@@ -32,7 +32,7 @@ final class DockBackdropView: NSView {
         fatalError("init(coder:) is not supported")
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     /// `cover` is the backdrop's frame in the superview; `column` the

@@ -7,6 +7,7 @@ import { QueryClient } from "@tanstack/react-query";
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 import type {
   AccountsState,
+  DevicesState,
   Diagnostic,
   Domains,
   HarnessesState,
@@ -25,6 +26,7 @@ export const settingsKeys = {
   host: ["settings", "host"] as const,
   accounts: ["settings", "accounts"] as const,
   harnesses: ["settings", "harnesses"] as const,
+  devices: ["settings", "devices"] as const,
   themeColors: ["settings", "theme-colors"] as const,
   write: ["settings", "write"] as const,
 };
@@ -43,6 +45,7 @@ export type ScopeData = {
 export type HostData = HostLists;
 export type AccountsData = AccountsState;
 export type HarnessesData = HarnessesState;
+export type DevicesData = DevicesState;
 export type ThemeColorsData = ReadonlyMap<string, GhosttyTheme>;
 
 export function createSettingsQueryClient(): QueryClient {
@@ -50,8 +53,11 @@ export function createSettingsQueryClient(): QueryClient {
     defaultOptions: {
       // The owner pushes every change (settings-changed, host-changed): data is fresh until then,
       // and a failed read is shown, not retried behind the user's back.
+      // No component observes the cache (useSettingsState reads the store), so nothing would keep
+      // a query alive: cached data never expires.
       queries: {
         staleTime: Number.POSITIVE_INFINITY,
+        gcTime: Number.POSITIVE_INFINITY,
         retry: false,
         refetchOnWindowFocus: false,
         structuralSharing: false,
@@ -76,6 +82,41 @@ export function scopeData({ rows, snapshot }: ScopeRead): ScopeData {
   };
 }
 
+/**
+ * `next` with every row, managed entry, diagnostic list and domain list that reads the same as in
+ * `previous` kept as `previous`'s object. A re-read after one key changed then changes one row's
+ * object, so only that row's subscribers render again.
+ */
+export function shareScope(previous: ScopeData | undefined, next: ScopeData): ScopeData {
+  if (!previous) return next;
+  return {
+    revision: next.revision,
+    rows: shareMap(previous.rows, next.rows),
+    managed: shareMap(previous.managed, next.managed),
+    diagnostics: shareMap(previous.diagnostics, next.diagnostics),
+    problems: same(previous.problems, next.problems) ? previous.problems : next.problems,
+    domains: same(previous.domains, next.domains) ? previous.domains : next.domains,
+  };
+}
+
+function same(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
+}
+
+function shareMap<V>(previous: ReadonlyMap<string, V>, next: ReadonlyMap<string, V>): ReadonlyMap<string, V> {
+  let changed = previous.size !== next.size;
+  const out = new Map<string, V>();
+  for (const [key, value] of next) {
+    const old = previous.get(key);
+    if (old !== undefined && same(old, value)) out.set(key, old);
+    else {
+      out.set(key, value);
+      changed = true;
+    }
+  }
+  return changed ? out : previous;
+}
+
 export type Write =
   | { kind: "set"; key: string; value: unknown }
   | { kind: "reset"; key: string }
@@ -97,7 +138,12 @@ export function optimistic(data: ScopeData, write: Write): ScopeData {
 
 function publishedDomains(snapshot: SnapshotResult): Domains {
   const domains = snapshot.domains ?? {};
-  return { themes: domains.themes ?? [], font_families: domains.font_families ?? [], sounds: domains.sounds ?? [] };
+  return {
+    themes: domains.themes ?? [],
+    font_families: domains.font_families ?? [],
+    sounds: domains.sounds ?? [],
+    recent_fonts: domains.recent_fonts ?? [],
+  };
 }
 
 /** Diagnostics keyed by schema row: the row whose key equals the path or is its prefix. */

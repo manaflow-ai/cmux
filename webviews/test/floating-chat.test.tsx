@@ -109,9 +109,21 @@ test("the floating chat's header and compact bar follow the App and ask it to ch
   expect(bar.textContent).toContain("Retrying the third upload.");
   expect(button("Keep on top").getAttribute("aria-pressed")).toBe("false");
   act(() => host.querySelector<HTMLButtonElement>(".acpmux-floating-bar-open")!.click());
-  act(() => {
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "P", metaKey: true, shiftKey: true, bubbles: true }));
+  // Cmd-Shift-P is the app's command palette in every web view (Lawrence 2026-10-19): the page
+  // leaves it alone (the app takes it before the page in the real panel); the pin button keeps the
+  // panel on top.
+  const palette = new KeyboardEvent("keydown", {
+    key: "P",
+    metaKey: true,
+    shiftKey: true,
+    bubbles: true,
+    cancelable: true,
   });
+  act(() => {
+    document.dispatchEvent(palette);
+  });
+  expect(palette.defaultPrevented).toBe(false);
+  act(() => button("Keep on top").click());
   expect(asked.slice(1)).toEqual(["collapsed false", "onTop true"]);
 
   // Moved to a tab: the App lets go, and the next chat is Start Agent's composer again.

@@ -22,7 +22,7 @@ public struct SetTerminalCommandHistoryRequest: DaemonRequest {
     }
 
     public static let command = "set-terminal-command-history"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.terminalCommandHistory
+    public static let requiredCapability: String? = DaemonCapability.terminalCommandHistory.rawValue
     public var enabled: Bool
     public var retentionDays: Int?
 

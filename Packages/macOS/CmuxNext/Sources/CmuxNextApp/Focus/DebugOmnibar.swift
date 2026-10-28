@@ -50,11 +50,14 @@ enum DebugOmnibar {
             "notice_placement": entry(params, services: services)?.chrome.noticePlacement.map(JSONValue.string) ?? .null,
             "notice_dismissal": dismissal,
             "notice_layout": entry(params, services: services)?.chrome.noticeLayout.map { .array($0.map(JSONValue.string)) } ?? .null,
+            // How the field editor draws its selection (omnibar highlight on macOS 15).
+            "editor": .object(bar.debugEditorInfo.mapValues(JSONValue.string)),
+            "field_frame": rect(bar.debugFieldFrameInWindow),
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
             "pressed_row": pressed, "pointer": entry(params, services: services).flatMap { JSONValue(foundation: $0.chrome.debugPointerObject(probeX: params["probe_x"]?.doubleValue, probeY: params["probe_y"]?.doubleValue)) } ?? .null,
             "card": bar.debugCard.map { card in
                 .object([
-                    "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar),
+                    "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar), "flush_above_bar": .bool(card.isFlushAboveBar),
                     "card_in_window": rect(card.cardInWindow), "bar_in_window": rect(card.barInWindow),
                     "row_kinds": .array(card.rowKinds.map(JSONValue.string)),
                 ])
@@ -66,7 +69,7 @@ enum DebugOmnibar {
         .array([rect.minX, rect.minY, rect.width, rect.height].map { .number(Double($0)) })
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Params: `character` (index the press lands on), optional `drag_to`,
     /// `click_count` (1-3), `button` (`left` or `right`; a right-click skips
     /// the context menu), `pane`, `window`.
@@ -98,7 +101,7 @@ enum DebugOmnibar {
     }
     #endif
 
-    private static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
+    static func addressBar(_ params: [String: JSONValue], services: AppServices) -> AddressBarView? {
         entry(params, services: services)?.chrome.addressBar
     }
 

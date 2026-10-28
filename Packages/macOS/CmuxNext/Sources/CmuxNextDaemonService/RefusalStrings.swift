@@ -42,6 +42,8 @@ public nonisolated enum RefusalStrings {
     public static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
     public static var columnStaysDocked: String { text("handlers.refusal.columnStaysDocked", "This column stays docked and can't be closed.") }
+    /// The user's close of Home's tab in its pinned dock column (cmux-tui `dock-column-pinned`).
+    public static var homeTabStays: String { text("handlers.refusal.homeTabStays", "Home stays open in its column.") }
     /// The user's close the daemon refused for another reason.
     public static var closeRefused: String { text("handlers.refusal.closeRefused", "The tab could not be closed.") }
     /// A Home action that opens the page or a sheet, run by automation that may not change the view.
@@ -62,6 +64,12 @@ public nonisolated enum RefusalStrings {
     public static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
     }
+    public static var homeReplyNoSelection: String {
+        text("handlers.refusal.homeReplyNoSelection", "Select text in one message of a Home conversation to reply to it.")
+    }
+    public static var homeQuoteNoHome: String {
+        text("handlers.refusal.homeQuoteNoHome", "Open a Home conversation to quote in chat.")
+    }
     public static var homeFlightRecorderOff: String {
         text("handlers.refusal.homeFlightRecorderOff", "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home.")
     }
@@ -79,12 +87,12 @@ public nonisolated enum RefusalStrings {
     static var directionDown: String { text("handlers.refusal.directionDown", "down") }
     /// Why an action that needs the local daemon's `capability` is off. The
     /// bundled daemon is built from this tree and serves every capability in
-    /// `DaemonCapabilities.required` and `optional` (check-daemon-capabilities.sh),
+    /// `DaemonCapability.required` and `optional` (check-daemon-capabilities.sh),
     /// so a running daemon without one is an older build: restarting cmux
     /// updates it. Any other capability has no daemon half in this build yet.
     /// The id itself is never shown.
     public static func needsDaemonCapability(_ capability: String) -> String {
-        DaemonCapabilities.shared.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
+        DaemonCapability.isServedByBundledDaemon(capability) ? restartToUpdateDaemon : notInThisVersion
     }
     /// The running local daemon is older than the app.
     public static var restartToUpdateDaemon: String {
@@ -93,7 +101,7 @@ public nonisolated enum RefusalStrings {
     /// A feature with no implementation in this build.
     static var notInThisVersion: String { text("handlers.refusal.notInThisVersion", "Not available in this version of cmux yet.") }
     /// The local daemon has not answered yet (first connection or a restart).
-    static var daemonConnecting: String {
+    public static var daemonConnecting: String {
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
     }
     /// The local daemon could not start (the window shows why).
@@ -160,12 +168,23 @@ public nonisolated enum RefusalStrings {
     public static var screenHasOnePane: String { text("handlers.refusal.screenHasOnePane", "the screen has one pane") }
     public static func noDividerToMove(_ direction: String) -> String { format("handlers.refusal.noDividerToMove", "no divider to move %@ (or it is at its limit)", direction) }
     public static var screenHasNoSplits: String { text("handlers.refusal.screenHasNoSplits", "the screen has no splits") }
-    public static var canvasUnported: String { text("handlers.refusal.canvasUnported", "needs canvas layout, which cmux-next does not have yet") }
-    public static var simulatorUnported: String { text("handlers.refusal.simulatorUnported", "needs simulator panes, which cmux-next does not have yet") }
-    public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
-    public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
-    public static var vaultPaneUnported: String { text("handlers.refusal.vaultPaneUnported", "needs the Vault panel as a pane (not in cmux-next yet)") }
-    public static var cloudPaneUnported: String { text("handlers.refusal.cloudPaneUnported", "needs the Cloud panel as a pane (not in cmux-next yet)") }
+    /// A canvas action on a screen that shows its split or column layout.
+    public static var canvasNotShown: String { text("handlers.refusal.canvasNotShown", "this screen is not a canvas; use Toggle Canvas Layout first") }
+    /// A canvas arrangement with nothing to move, or an overview of an empty canvas.
+    public static var canvasNothingToArrange: String {
+        text("handlers.refusal.canvasNothingToArrange", "nothing to arrange: the canvas needs two panes that this would move")
+    }
+    /// A canvas zoom that is already at its limit (or at actual size).
+    public static var canvasZoomLimit: String { text("handlers.refusal.canvasZoomLimit", "the canvas is already at that zoom") }
+    public static var controlListenerNotRunning: String {
+        text("handlers.refusal.controlListenerNotRunning", "The CLI listener is not running in this app.")
+    }
+    public static func controlListenerRestartFailed(_ reason: String) -> String {
+        format("handlers.refusal.controlListenerRestartFailed", "The CLI listener could not restart: %@", reason)
+    }
+    public static var noWorkspacePullRequestLinks: String {
+        text("handlers.refusal.noWorkspacePullRequestLinks", "This workspace has no pull request links.")
+    }
     public static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     public static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
@@ -178,11 +197,11 @@ public nonisolated enum RefusalStrings {
     public static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     public static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     public static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
+    /// A Close Tab press aimed at a pane the press before it emptied (`PaneCloseAim` in the app).
+    public static var closeAimedAtClosedPane: String { text("handlers.refusal.closeAimedAtClosedPane", "That pane closed. Press again to close a tab in this pane.") }
     public static var pinnedTabKept: String { text("handlers.refusal.pinnedTabKept", "Pinned tabs stay open. Right-click the tab and choose Close Tab to close it.") }
     public static var sessionLocalCannotPin: String { text("handlers.refusal.sessionLocalCannotPin", "session-local tabs cannot be pinned") }
-    public static var markUnreadUnsupported: String {
-        text("handlers.refusal.markUnreadNotAvailable", "Marking as unread is not available yet. Only marking as read is.")
-    }
+    public static var neverHibernateNoSite: String { text("handlers.refusal.neverHibernateNoSite", "This tab shows no website.") }
     public static var hibernateVisibleTab: String { text("handlers.refusal.hibernateVisibleTab", "Only a hidden tab can hibernate.") }
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
@@ -192,8 +211,8 @@ public nonisolated enum RefusalStrings {
     }
     public static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     public static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
-    public static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
     public static var audioMuteNeedsPage: String { text("handlers.refusal.audioMuteNeedsPage", "only a loaded browser tab can be muted") }
+    public static var workspaceHasNoAudio: String { text("handlers.refusal.workspaceHasNoAudio", "No tab in this workspace plays sound") }
     public static func noColumnShown(_ id: String) -> String { text("handlers.refusal.columnNotShown", "That column isn't shown.") }
     public static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     public static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
@@ -207,9 +226,6 @@ public nonisolated enum RefusalStrings {
     public static var openSecondTabToDock: String { text("handlers.refusal.openSecondTabToDock", "Open a second tab to dock this one") }
     public static var lastScrollingColumn: String { text("handlers.refusal.lastScrollingColumn", "at least one column must scroll") }
     public static func noColumnInDirection(_ direction: String) -> String { format("handlers.refusal.noColumnInDirection", "no column to the %@", direction) }
-    public static func moveColumnUnsupported(_ count: Int) -> String {
-        format("handlers.refusal.moveColumnNotAvailable", "Moving a whole column is not available yet. This column has %lld panes; move them one at a time.", count)
-    }
     public static var columnAtEdge: String { text("handlers.refusal.columnAtEdge", "the column is already at the edge") }
     public static func paneHasNoDaemonHandle(_ id: String) -> String { text("handlers.refusal.paneNotReady", "That pane isn't ready yet.") }
 }

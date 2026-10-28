@@ -195,7 +195,13 @@ keys. The AST lands with the fix; the text grammar is the next slice.
   defaults in the default layer, so in their context they win and elsewhere the global key
   runs; the last-entry rule is unchanged. First use: Home's Cmd-Shift-[ / ]
   (`home.previousConversation`, `home.nextConversation`, `when: topPage == home`), which
-  stop at the ends of the list like Messages. In cmux.json a user entry with the same
+  stop at the ends of the list like Messages. Since 2026-10-21 (Lawrence: "ctrl 1-9 and cmd
+  shift [] and ctrl tab ... cycling through chiefs (only for home chief)") the tab keys
+  Ctrl-Tab / Ctrl-Shift-Tab, Cmd-Shift-] / [ and Ctrl-1…9 move through Home's chat list,
+  wrapping, with `when: topPage == home || surfaceKind == home-dock`
+  (`KeyBindingDefaults.homeChatSwitching`, after the Chrome tab keys); a Home chat opened
+  as a pane tab keeps the tab keys, and a rebind of the Home actions stays Home-scoped
+  (`homeChatScoped`). In cmux.json a user entry with the same
   `when` overrides them; `KeyBindingTable.conflicts()` reports entries of one layer on the
   same keys and the same `when` that run different actions (a scoped entry over a global
   one is a scope, not a conflict).
@@ -297,6 +303,9 @@ CmuxNextActions) so every client resolves the same way:
   wins over an entry the same key completes (VS Code rule, as at the first key);
 - else the key completes the entry that wins for the whole sequence; else nothing;
 - the Cmd-J leader arms as a first key whenever any entry sits under it;
+- a bare first key (no Command, Control or Option: `g g`, `] f`) arms only where the
+  context owns bare keys (`KeyContext.ownsBareKeys`: `diffViewerFocused` or
+  `markdownReadOnlyFocused`, and no `textInputFocus`; K1); elsewhere it is typing;
 - a fifth key never arms (`KeyBindingTable.maxSequenceLength` = 4).
 The which-key overlay shows for every armed prefix (`KeyBindingTable.nextKeys`): each
 next key once, what it runs now, "more keys…" for a key that only leads on, dimmed when
@@ -308,7 +317,9 @@ prefix it goes on to the view (unchanged).
 8.2 **Arguments.** `KeyBindingLoader.load` loads app and keybindings.json
 entries through `validated(_:)`: canonical id, each argument exists in the schema and fits
 its kind (text that fits is parsed), at most four keys, first key with Command or Control
-(only those reach the dispatcher). A bad entry is left out with a `KeyBindingIssue`
+(only those reach the dispatcher), or a bare first key under a `when` whose `&&` terms
+require a bare-key context and no text-field context (`BareKeys`, K1; the daemon's
+keybindings.json reader, cmux-config `keybindings::bare`, applies the same rule). A bad entry is left out with a `KeyBindingIssue`
 (layer, position, kind); the others load (K4). A missing required argument loads: running
 the binding asks for it, as the palette does.
 

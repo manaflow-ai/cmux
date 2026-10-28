@@ -4,7 +4,7 @@ import Foundation
 /// (cmux-tui/spec/commands.md `home-inbox`), so the Messages view and the Channels page show one list.
 public struct HomeInboxRequest: DaemonRequest {
     /// One row, already in list order (pinned rows by position, then newest activity first).
-    public struct Row: Decodable, Sendable, Equatable {
+    public struct Row: Codable, Sendable, Equatable {
         public var id: String
         /// `chief`, `direct`, `channel` or `group`.
         public var kind: String
@@ -33,14 +33,14 @@ public struct HomeInboxRequest: DaemonRequest {
             case markedUnread = "marked_unread"
         }
     }
-    public struct Response: Decodable, Sendable, Equatable {
+    public struct Response: Codable, Sendable, Equatable {
         public var me: String
         public var rows: [Row]
         /// The Cloud rows: `included`, `signed_out`, `unavailable` or `not_asked`.
         public var cloud: String?
     }
     public static let command = "home-inbox"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.homeInbox
+    public static let requiredCapability: String? = DaemonCapability.homeInbox.rawValue
     /// Which owners' rows (`local`, `cloud`); nil is both. In the app the Chief home's daemon owns the
     /// local conversations and the build's daemon holds the Cloud lease, so each is asked for its own.
     public var owners: [String]?
@@ -52,7 +52,7 @@ public struct HomeInboxRequest: DaemonRequest {
 public struct CloudInboxOpRequest: DaemonRequest {
     public struct Response: Decodable, Sendable {}
     public static let command = "cloud-inbox-op"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationInboxState
+    public static let requiredCapability: String? = DaemonCapability.conversationInboxState.rawValue
     public var conversation: String
     public var idempotencyKey: String
     public var op: ConversationInboxOpRequest.Op
@@ -76,6 +76,9 @@ public struct ConversationInboxOpRequest: DaemonRequest {
         public var pinned: Bool?
         public var position: UInt64?
         public var unread: Bool?
+        public var muted: Bool?
+        /// Unix ms the mute ends; nil mutes until unmuted.
+        public var until: UInt64?
 
         /// `inbox.pin`; a pin without `position` goes after the caller's last pin.
         public static func pin(_ pinned: Bool, position: UInt64? = nil) -> Op {
@@ -84,6 +87,11 @@ public struct ConversationInboxOpRequest: DaemonRequest {
 
         /// `inbox.mark_unread`.
         public static func markUnread(_ unread: Bool) -> Op { Op(kind: "inbox.mark_unread", pinned: nil, position: nil, unread: unread) }
+
+        /// `inbox.mute` (Cloud rows only: `cloud-inbox-op`): Hide Alerts, until `until` when set.
+        public static func mute(_ muted: Bool, until: UInt64? = nil) -> Op {
+            Op(kind: "inbox.mute", pinned: nil, position: nil, unread: nil, muted: muted, until: muted ? until : nil)
+        }
     }
     public struct Response: Decodable, Sendable, Equatable {
         public var conversation: String
@@ -95,7 +103,7 @@ public struct ConversationInboxOpRequest: DaemonRequest {
         }
     }
     public static let command = "conversation-inbox-op"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.conversationInboxState
+    public static let requiredCapability: String? = DaemonCapability.conversationInboxState.rawValue
     public var conversation: String
     public var op: Op
     public init(conversation: String, op: Op) {

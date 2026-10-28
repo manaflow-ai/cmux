@@ -36,16 +36,16 @@ extension ScreenContentView {
             let overlapping = front.filter { $0.intersection(host.frame).width > 0.5 && $0.intersection(host.frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            // A host a spring rect reveals hides only what shows of it, not its whole (final-size) frame.
-            front.append(host.revealRect.map(host.frame.intersection) ?? host.frame)
+            front.append(host.frame)
         }
         return covers
     }
 
     /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
     /// and the panes in front of it (`above`, from `panesAbove()`).
+    /// The zooming pane is above the docks (`rank`): they hide none of it.
     func ringCovers(of host: PaneHostView, docks: [CGRect], above: [ObjectIdentifier: [CGRect]]) -> [CGRect] {
-        (isStripHost(host) ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
+        (isStripHost(host) && host.pane != zoomMotion.pane ? docks : []) + (above[ObjectIdentifier(host)] ?? [])
     }
 
     /// True when the scroll moves this divider or column edge.
@@ -58,7 +58,7 @@ extension ScreenContentView {
 
     /// A geometry rect for `pane` in local coordinates.
     func displayedRect(_ rect: CGRect, pane: PaneID) -> CGRect {
-        rect.offsetBy(dx: geometry.scrolls(pane: pane) ? stripShift : 0, dy: -rowOffset(of: pane))
+        rect.offsetBy(dx: (geometry.scrolls(pane: pane) ? stripShift : 0) - areaOffset(of: pane), dy: -rowOffset(of: pane))
     }
 
     /// True when `host` belongs to the scrolling strip.
@@ -70,21 +70,46 @@ extension ScreenContentView {
     /// outer edge beside an overlay (under the rim and the column the strip
     /// stays, so the glass has content to refract).
     /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
-    /// growing in); a pane growing in from an edge is also masked to
-    /// `revealing`, the part its spring shows.
-    /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too.
-    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil, above: [ObjectIdentifier: [CGRect]]) {
-        var visible = revealing.map(host.frame.intersection) ?? host.frame
-        if scrolls, let clip { visible = visible.intersection(clip) }
-        for cover in above[ObjectIdentifier(host)] ?? [] { visible = visible.remainder(outside: cover) }
-        // A split's presented rect is the content itself: rounded as at rest.
-        let changed = visible == host.frame
+    /// growing in).
+    /// Any part under a pane in front (`above`, from `panesAbove()`) is cut off too: a pane over one
+    /// whole side narrows the clip; one over a corner or the middle (a zoom growing over a grid) is a
+    /// cutout the mask leaves out (the pane in front has transparent padding) and a Chromium page
+    /// reads (its child window draws above every view).
+    /// Returns true when the host's clip changed. A host whose frame, clip range, area window and
+    /// covers are what they were last time keeps its clip without recomputing it (`force` recomputes).
+    @discardableResult
+    func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, above: [ObjectIdentifier: [CGRect]], force: Bool = false) -> Bool {
+        // A pane scrolled partly out of its scroll area shows only inside the area's window.
+        let areaWindow = displayedAreaWindow(of: host.pane)
+        let input = StripClipInput(frame: host.frame, clip: scrolls ? clip : nil, areaWindow: areaWindow,
+                                   covers: above[ObjectIdentifier(host)] ?? [])
+        guard force || host.stripClipInput != input else { return false }
+        host.stripClipInput = input
+        stripClipsComputed += 1
+        // Everything below is in the host's own coordinates: the input's clip, area window and covers
+        // are already local and cut to the host's bounds (a screen-space rect met with a local one
+        // cut a right pane's mask to its width minus its x, Leo 2026-10-24).
+        let bounds = CGRect(origin: .zero, size: input.size)
+        var visible = bounds
+        if let clip = input.clip { visible = visible.intersection(clip) }
+        if let areaWindow = input.areaWindow { visible = visible.intersection(areaWindow) }
+        host.areaHitClip = input.areaWindow
+        var cutouts: [CGRect] = []
+        for cover in input.covers {
+            let rest = visible.remainder(outside: cover), shared = visible.intersection(cover)
+            if rest == visible, !shared.isNull, shared.width > 0.5, shared.height > 0.5 {
+                cutouts.append(shared)
+            } else {
+                visible = rest
+            }
+        }
+        let changed = visible == bounds && cutouts.isEmpty
             ? host.setStripClip(nil)
-            : host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY),
-                                cornerRadius: revealing == nil ? 0 : host.cornerRadius)
+            : host.setStripClip(visible.isNull ? .zero : visible, cutouts: cutouts)
         // A clip can change while the pane stays put (a dock growing over it): the window's
         // Chromium pages re-read their clip shapes, which carry this mask.
         if changed { context.stripClipsDidChange() }
+        return changed
     }
 
     /// Glass backdrops for overlay columns and the stacking order: strip
@@ -112,10 +137,12 @@ extension ScreenContentView {
     /// Strip hosts and dividers, then the docks that do not own the corners
     /// (backdrop, hosts, dividers), then the docks that do, then the scrollbar
     /// (layout-model.md F4: column-major side docks draw above bands,
-    /// row-major bands above side docks).
+    /// row-major bands above side docks). A zooming or unzooming pane is above
+    /// all of them until it lands (DESIGN Z2, Z4).
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
+            if host.pane == zoomMotion.pane { return 10 }
             // A zoom's covered panes stay under every pane.
             if covered.contains(host.pane) { return -1 }
             return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
@@ -143,7 +170,7 @@ extension ScreenContentView {
     /// Reorders subviews only when the order is wrong. `sortSubviews`
     /// keeps every view in the window (no detach), so terminal surfaces and
     /// page windows are not torn down.
-    private func ensureStacking() {
+    func ensureStacking() {
         let ranks = subviews.enumerated().map { rank($1) * 100_000 + $0 }
         guard ranks != ranks.sorted() else { return }
         let table = StackingTable(ranks: Dictionary(uniqueKeysWithValues: zip(subviews.map(ObjectIdentifier.init), ranks)))
@@ -188,7 +215,11 @@ extension ScreenContentView {
     var navigationFrames: [PaneID: CGRect] {
         let gap = context.style.stripGap
         var result: [PaneID: CGRect] = [:]
-        for (pane, rect) in geometry.panes {
+        for (pane, shown) in geometry.panes {
+            // In a scroll area: x mapped into the area's window, whatever its offset (K1); y as
+            // shown (a row's vertical offset applies).
+            let mapped = baseGeometry.scrollAreaOfPane[pane] == nil ? nil : baseGeometry.navigationRect(of: pane)
+            let rect = mapped.map { CGRect(x: $0.minX, y: shown.minY, width: $0.width, height: shown.height) } ?? shown
             guard let entry = geometry.dockFrame(containing: pane) else {
                 result[pane] = rect
                 continue
@@ -209,13 +240,13 @@ extension ScreenContentView {
 }
 
 /// Sort keys for `ensureStacking`, passed through `sortSubviews`' context.
-private nonisolated final class StackingTable: Sendable {
+nonisolated final class StackingTable: Sendable {
     let ranks: [ObjectIdentifier: Int]
     init(ranks: [ObjectIdentifier: Int]) { self.ranks = ranks }
 }
 
 /// `sortSubviews` comparator: reads only the table's immutable ranks.
-private nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
+nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: UnsafeMutableRawPointer?) -> ComparisonResult {
     guard let context else { return .orderedSame }
     let table = Unmanaged<StackingTable>.fromOpaque(context).takeUnretainedValue()
     let x = table.ranks[ObjectIdentifier(a)] ?? 0

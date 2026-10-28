@@ -18,7 +18,7 @@ import type { PluginOption } from "vite-plus";
 import base from "./vite.config";
 import { galleryHost, galleryModules } from "./dev-server/galleryHost";
 import { galleryLive } from "./dev-server/galleryLive";
-import { cmuxDevServer } from "./dev-server/plugins";
+import { cmuxDevServer, diffWorkerEntry } from "./dev-server/plugins";
 
 const webviewsRoot = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.join(webviewsRoot, "..");
@@ -39,6 +39,8 @@ export default {
   plugins: [
     ...plugins.filter((plugin) => !(named(plugin) && devServerPlugins.has(plugin.name))),
     galleryModules(),
+    // The pages.diff states spawn the diff page's highlight worker.
+    diffWorkerEntry(),
     // The shell at the base itself: /live/ is the gallery, /live/frame.html a stage.
     galleryHost({ mount: urlBase }),
     galleryLive({ webviewsRoot, repoRoot }),
@@ -48,7 +50,11 @@ export default {
     port: Number(process.env.CMUX_GALLERY_DEV_PORT) || 4210,
     strictPort: true,
     allowedHosts,
-    fs: { strict: true, allow: [webviewsRoot] },
+    // The UI font's WOFF2 lives with the app's resources (src/gallery/frame/uiFont.ts).
+    fs: {
+      strict: true,
+      allow: [webviewsRoot, path.join(repoRoot, "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts")],
+    },
     // Behind tailscale serve the page is https://<host>:<public port>/<base>; the socket goes there too.
     ws: publicPort ? { protocol: "wss", clientPort: publicPort } : {},
     hmr: { overlay: true },

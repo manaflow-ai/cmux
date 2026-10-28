@@ -1,4 +1,5 @@
 import type { AcpmuxPermission } from "./model";
+import type { PermissionClientState } from "./permissions/protocol";
 
 type PermissionOption = AcpmuxPermission["options"][number];
 
@@ -31,4 +32,13 @@ export function permissionOption(
 ): PermissionOption | undefined {
   const position = /^[1-9]$/.test(key) ? Number(key) - 1 : -1;
   return position >= 0 ? options[position] : options.find((option) => keys.get(option.id) === key);
+}
+
+/// Whether the single permission card answers the permission shortcuts: not while a permission
+/// group waits (pending, or still collecting), whose panel answers them, so one ⌥⌘1 never allows
+/// a group and an ungrouped ask at once.
+export function cardTakesShortcuts(groups: PermissionClientState | undefined): boolean {
+  return (
+    !groups?.supported || !groups.groups.some((group) => group.state === "pending" || group.state === "collecting")
+  );
 }

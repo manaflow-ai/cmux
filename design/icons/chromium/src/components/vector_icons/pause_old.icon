@@ -1,0 +1,16 @@
+// Copyright 2018 The Chromium Authors
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
+MOVE_TO, 12, 38,
+R_H_LINE_TO, 8,
+V_LINE_TO, 10,
+R_H_LINE_TO, -8,
+R_V_LINE_TO, 28,
+CLOSE,
+R_MOVE_TO, 16, -28,
+R_V_LINE_TO, 28,
+R_H_LINE_TO, 8,
+V_LINE_TO, 10,
+R_H_LINE_TO, -8,
+CLOSE

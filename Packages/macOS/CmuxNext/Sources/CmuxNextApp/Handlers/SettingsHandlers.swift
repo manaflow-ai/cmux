@@ -14,6 +14,8 @@ enum SettingsHandlers {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.actions")
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        let previewTitle = SettingsSchema.descriptor(for: CmuxConfigSnapshot.previewFeaturesPath)?.title
+            ?? CmuxConfigSnapshot.previewFeaturesPath.joined(separator: ".")
         registry.bind("palette.openCmuxSettingsFile", run: { _ in try openCmuxConfig(context) })
         registry.bind("palette.openGhosttySettings", run: { _ in try openGhosttyConfig(context) })
         // R92: Settings > Terminal shows the Ghostty config diagnostics.
@@ -31,25 +33,46 @@ enum SettingsHandlers {
         registry.bind("browser.defaultEngine.webkit", run: { _ in try setDefaultEngine(.webkit, context) })
         registry.bind("sendFeedback", run: { _ in try context.open(StaticURL.feedback.url) })
         registry.bind("help.showCrashLogs", run: { _ in context.services.crashRecovery.showCrashLogs() })
+        HangReportsHandlers.bind(into: registry, context: context)
         registry.bind("help.documentation", run: { invocation in try context.open(documentationURL(topic: invocation["topic"]?.stringValue)) })
         registry.bind("app.shareCmux", run: { [weak services = context.services] _ in services.map(ShareCmuxPresenter.present) })
         // The changelog page's provider exists from launch, so a What's New tab that the session
         // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
-                            openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false })
+                            openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
+                            whatsNewUnavailable: { [weak services = context.services] in
+                                services?.settings?.snapshot.previewFeatures == true ? nil : previewTitle
+                            },
+                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
+        // Keep preview surfaces out of menus and the palette while Labs is off. Compose this
+        // with the browser import gate installed above so unrelated settings remain intact.
+        let previousSettingOffReason = registry.settingOffReason
+        registry.settingOffReason = { [weak services = context.services] id in
+            if services?.settings?.snapshot.previewFeatures != true,
+               id == "appStore.show" || id == "appStore.showInstalled" || id == "updates.whatsNew" {
+                return previewTitle
+            }
+            return previousSettingOffReason(id)
+        }
+        SessionMoveFromBuild.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)
 
-        let unbuilt: [(ActionID, String)] = [
-            ("palette.restartSocketListener", "control-socket-restart"),
-            ("palette.pro.upgrade", "account-billing"),
-            ("help.featureFlags", "feature-flags"),
-        ]
-        for (id, feature) in unbuilt {
-            registry.bindUnavailable([id], ActionFailure.needsAppCapability(feature))
-        }
+        registry.bind("palette.restartSocketListener", run: { [weak services = context.services] _ in
+            guard let restart = services?.restartControlListener else {
+                throw ActionFailure(message: RefusalStrings.controlListenerNotRunning)
+            }
+            do { try restart() } catch {
+                throw ActionFailure(message: RefusalStrings.controlListenerRestartFailed(String(describing: error)))
+            }
+        })
+        registry.bind("help.featureFlags", run: { [weak services = context.services] invocation in
+            guard let services else { return }
+            try FeatureFlagsPage(services: services).open(invocation)
+        })
+        UpgradeToPro.bind(into: registry, context: context)
     }
 
     static func requireSettings(_ context: AppActionContext) throws -> SettingsController {
@@ -67,23 +90,33 @@ enum SettingsHandlers {
     /// reads for every terminal: the file Ghostty.app would open
     /// (`GhosttyRuntime.editableConfigPath`), so a user whose config is
     /// `config.ghostty` or in Application Support gets that file, not a new
-    /// empty `~/.config/ghostty/config` (R92).
+    /// empty `~/.config/ghostty/config` (R92). It opens in cmux's code editor,
+    /// editable: no app may claim a `.ghostty` file, and then the system open
+    /// refused it ("Could not open file").
     private static func openGhosttyConfig(_ context: AppActionContext) throws {
         let environment = ProcessInfo.processInfo.environment
         let base = environment["XDG_CONFIG_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
             ?? FileManager.default.homeDirectoryForCurrentUser.appending(path: ".config")
         let url = GhosttyRuntime.editableConfigPath().map { URL(fileURLWithPath: $0) }
             ?? base.appending(path: "ghostty/config")
-        try openCreatingIfMissing(url, contents: "", context)
+        try createIfMissing(url, contents: "")
+        // With no window to open it in, the system open is the only way; a refusal by the editor
+        // already showed its reason, so it is not tried again.
+        guard let pane = context.services.windows.active?.focusedPane else { return try context.open(url) }
+        context.services.linkOpener.openFile(url, from: pane, asText: true)
     }
 
     private static func openCreatingIfMissing(_ url: URL, contents: String, _ context: AppActionContext) throws {
+        try createIfMissing(url, contents: contents)
+        try context.open(url)
+    }
+
+    private static func createIfMissing(_ url: URL, contents: String) throws {
         let manager = FileManager.default
         if !manager.fileExists(atPath: url.path) {
             try manager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try Data(contents.utf8).write(to: url, options: .withoutOverwriting)
         }
-        try context.open(url)
     }
 
     /// Writes a boolean setting at a dotted cmux-next.json path. Without `on`,

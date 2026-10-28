@@ -8,12 +8,16 @@ import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
 import { setAgentDiffColors } from "./diffColors";
+import { setChatDisplay } from "./chatDisplay";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
+import { setNowPlaying } from "./newtab/nowPlaying";
 import { setHeaderState } from "./header/headerState";
 import { setTabRow } from "./header/tabRow";
 import { setFloatingState } from "./floatingState";
+import { configureNativeSidebarPreviewVariant } from "./sidebarPreview";
+import { setSessionStatus } from "./sessionStatus";
 
 export const HOST_EVENTS = "cmux.agent.host.events";
 /// NewTabPage's FOCUS_LOCATION_EVENT, kept here so the transport does not load the new tab page.
@@ -37,8 +41,9 @@ export function pageHostClient(): PageClient | null {
 
 /// Calls `method` on the page host. Rejects with a `NativeError` as the old bridge did: the host's
 /// code, message, retryable, and the `origin` and `details` the host put in the error's details. A
-/// request the host refused before it reached the pane is origin `native`; a lost link leaves code
-/// and origin unset, because nothing tells whether the request ran.
+/// request the host refused before it reached the pane is origin `native`, with the protocol's own
+/// code in `details.protocol` (`cmux.protocol.unknown_op`: this host has no such op); a lost link
+/// leaves code and origin unset, because nothing tells whether the request ran.
 export async function callPageHost<T>(
   page: PageClient,
   method: string,
@@ -49,7 +54,12 @@ export async function callPageHost<T>(
   } catch (error) {
     if (!isPageError(error)) throw new NativeError(undefined, String(error));
     if (error.code === "cmux.protocol.unknown_op" || error.code === "cmux.protocol.invalid_params")
-      throw new NativeError({ code: "native.invalid_request", origin: "native", userMessage: error.message });
+      throw new NativeError({
+        code: "native.invalid_request",
+        origin: "native",
+        userMessage: error.message,
+        details: { protocol: error.code },
+      });
     if (error.code.startsWith("cmux.protocol.")) throw new NativeError({ userMessage: error.message });
     const details = (error as { details?: { origin?: unknown; details?: unknown } }).details;
     throw new NativeError({
@@ -81,6 +91,15 @@ export function applyHostEvent(event: HostEvent): void {
       return bridge?.applyShortcuts?.(value);
     case "preview":
       return bridge?.applyPreview?.(event.value === true);
+    case "workflowLabs":
+      // Separate from the existing preview environment toggle. The host can opt the
+      // experimental workflow summary in without changing preview semantics.
+      return bridge?.applyWorkflowLabs?.(event.value === true);
+    case "sidebarPreviewVariant":
+      return configureNativeSidebarPreviewVariant(event.value);
+    case "sessionStatus":
+      // Direct, like editedFiles: a push before the chat mounts is kept.
+      return setSessionStatus(event.value);
     case "editedFiles":
       // Direct, not through window.cmuxAcpmuxEditedFiles: an event that arrives before the card
       // module loads still sets the value the card then reads.
@@ -89,11 +108,17 @@ export function applyHostEvent(event: HostEvent): void {
       return setComposerSettings(event.value);
     case "diffColors":
       return setAgentDiffColors(event.value);
+    case "display":
+      // Direct, like composer: a push before the chat mounts is kept (chatDisplay.ts).
+      return setChatDisplay(event.value);
     case "deviceChats":
       // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
       return setDeviceChats(event.value);
     case "recentlyClosed":
       return setRecentlyClosed(event.value);
+    case "nowPlaying":
+      // Direct, like recentlyClosed: a push before the New Tab screen mounts is kept.
+      return setNowPlaying(event.value);
     case "toolCards":
       // Direct, like deviceChats: a push before the chat mounts is kept.
       return setToolCards(event.value);
@@ -107,10 +132,14 @@ export function applyHostEvent(event: HostEvent): void {
       return setFloatingState(event.value);
     case "dictation":
       return bridge?.dictation?.(value);
+    case "designSelection":
+      return bridge?.designSelection?.(value);
     case "revealTurn":
       return bridge?.revealTurn?.(String(event.value));
     case "command":
       return bridge?.command?.(String(event.value));
+    case "stopTurn":
+      return bridge?.command?.("stopTurn", String(event.value));
     case "focusLocation":
       window.dispatchEvent(new Event(FOCUS_LOCATION));
       return;

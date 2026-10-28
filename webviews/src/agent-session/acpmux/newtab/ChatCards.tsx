@@ -1,5 +1,6 @@
 import React, { useRef, useState } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
+import { pressToOpen } from "../../../ui/pressToOpen";
 import { useT } from "../i18n";
 import { AgentMark } from "../NewTabPage";
 import { useListMotion } from "./listMotion";
@@ -47,7 +48,7 @@ export function ChatCards({
       data-state={card.state}
       data-child={child ? "" : undefined}
       aria-label={nt("card.open", { title: card.title })}
-      onClick={() => onOpen(card.sessionId)}
+      {...pressToOpen(() => onOpen(card.sessionId))}
     >
       <span className="nt-card-meta">
         <AgentMark harness={card.harness} />
@@ -68,7 +69,8 @@ export function ChatCards({
   useListMotion(
     list,
     ".nt-card-host > .nt-card, .nt-card-family > .nt-card",
-    cards.map((card) => card.sessionId),
+    // A chat keeps its row when acpmux's session takes its device chat's slot (one active chat).
+    cards.map((card) => (card.chatId ? `chat:${card.chatId}` : card.sessionId)),
   );
   return (
     <section className="nt-chats" aria-label={nt("sections")}>

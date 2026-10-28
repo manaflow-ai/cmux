@@ -159,7 +159,10 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     assert_eq!(record["id"], "agent_release", "{record}");
     assert_eq!(record["display_name"], "Release Chief");
     assert_eq!(record["role"], "Release trains");
-    assert_eq!(record["self_edit"], json!(["avatar"]));
+    assert_eq!(
+        record["self_edit"],
+        json!(["avatar", "display_name", "engine", "instructions", "personality", "role"])
+    );
     assert_eq!(record["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]));
     assert_eq!(record["instructions"], "");
     assert_eq!(record["is_default"], false);
@@ -258,19 +261,21 @@ fn the_person_adopts_an_agent_and_it_keeps_its_dm_history_and_credential() {
     ok(&v2(&mut home, "chief.profile.delete", json!({"chief": gone}), Some("rm")));
     assert_eq!(refusal(&mut home, &gone, "r-deleted"), "deleted_chief");
 
-    // The CLI refuses an agent caller before it connects; nothing is written.
+    // The CLI refuses a Chief's own turn (its owner socket marker) before it
+    // connects; nothing is written. A person-authorized agent session
+    // (ACPMUX_SESSION_ID alone) may manage Chiefs since #24634.
     let dm_design = dm_with(&mut home, "agent_design", "Design Chief");
     let output = chief_cli_as(
         &server,
         &["adopt", "agent_design", "--json"],
         "",
-        &[("ACPMUX_SESSION_ID", "s_chief_turn")],
+        &[("CMUX_CHIEF_OWNER_SOCKET", "/tmp/chief-owner.sock")],
     );
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let error = json_error(&output);
     assert_eq!(error["code"], "origin.forbidden", "{error}");
     assert_eq!(error["details"]["reason"], "agent_caller", "{error}");
-    assert_eq!(error["details"]["marker"], "ACPMUX_SESSION_ID", "{error}");
+    assert_eq!(error["details"]["marker"], "CMUX_CHIEF_OWNER_SOCKET", "{error}");
     let listed = ok(&v2(&mut home, "chief.profile.list", json!({}), None));
     assert!(
         !listed["chiefs"].as_array().unwrap().iter().any(|c| c["id"] == "agent_design"),

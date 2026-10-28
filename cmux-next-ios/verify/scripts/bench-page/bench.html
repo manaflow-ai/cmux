@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bench</title>
+<style>
+  body { margin: 0; font: 15px -apple-system, sans-serif; background: #fff; }
+  .row { height: 44px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid #ddd; }
+  .row:nth-child(odd) { background: #f3f6fb; }
+  .row b { width: 64px; }
+  .stripe { height: 10px; background: linear-gradient(90deg, #e33, #3a3, #33e, #e3e); }
+  #hud { position: fixed; left: 0; right: 0; top: 0; background: #111; color: #fff; padding: 6px 10px;
+         font: 600 26px ui-monospace, Menlo, monospace; z-index: 9; }
+  #hud div { line-height: 32px; }
+  #tap { background: #fd0; color: #000; }
+</style></head>
+<body>
+<div id="hud"><div id="clock">mac 00:00.000</div><div id="tap">taps 0 at --:--.---</div></div>
+<div id="list" style="padding-top: 80px"></div>
+<script>
+  // Mac wall clock to the millisecond, the same format as the phone overlay (MM:SS.mmm).
+  const fmt = (ms) => { const m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60, x = Math.floor(ms % 1000);
+    return String(m).padStart(2, "0") + ":" + String(s).padStart(2, "0") + "." + String(x).padStart(3, "0"); };
+  const list = document.getElementById("list");
+  for (let i = 0; i < 400; i++) {
+    const r = document.createElement("div"); r.className = "row";
+    r.innerHTML = "<b>" + i + "</b><span>row " + i + " · " + "lorem ipsum dolor sit amet ".repeat(2) + "</span>";
+    list.appendChild(r);
+    if (i % 5 == 0) { const st = document.createElement("div"); st.className = "stripe"; list.appendChild(st); }
+  }
+  // ?scroll=PX: scroll PX css px per frame continuously (every frame differs), wrapping.
+  const speed = Number(new URLSearchParams(location.search).get("scroll") || 0);
+  let taps = 0;
+  addEventListener("pointerdown", () => { taps++; document.getElementById("tap").textContent = "taps " + taps + " at " + fmt(Date.now()); });
+  function frame() {
+    document.getElementById("clock").textContent = "mac " + fmt(Date.now());
+    if (speed) { const max = document.body.scrollHeight - innerHeight; window.scrollTo(0, (scrollY + speed) % Math.max(1, max)); }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body></html>

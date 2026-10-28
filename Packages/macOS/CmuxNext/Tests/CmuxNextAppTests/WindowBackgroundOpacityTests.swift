@@ -44,7 +44,7 @@ import Testing
             window.close()
             GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
             GhosttyConfigBackground.loaded = GhosttyConfigBackground()
-            ThemeStore.shared.apply(original)
+            ThemeScope.app.store.apply(original)
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
     }
@@ -59,13 +59,13 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
 
-        let original = ThemeStore.shared.input
+        let original = ThemeScope.app.store.input
         GhosttyRuntime.backgroundOverride = WindowBackgroundOverride()
         // The config files' own values, as `GhosttyRuntime.loadConfig` records them.
         GhosttyConfigBackground.loaded = GhosttyConfigBackground(opacity: colors.backgroundOpacity, blur: colors.backgroundBlur)
-        ThemeStore.shared.apply(ThemeBridge.input(colors))
+        ThemeScope.app.store.apply(ThemeBridge.input(colors))
         let terminal = TerminalThemeSetting(backdropScope: ThemeScope(level: .room))
-        terminal.reload = { ThemeStore.shared.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
+        terminal.reload = { ThemeScope.app.store.apply(ThemeBridge.input(colors, background: GhosttyRuntime.backgroundOverride)) }
         terminal.follow(settings)
 
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 200), styleMask: [.titled],
@@ -211,8 +211,8 @@ import Testing
         // The resolved blur says frosted (a material preview); Ghostty's own is glass.
         _ = try await harness.page.call("cmux.settings.preview", params: ["key": "appearance.backgroundBlur", "value": "frosted"],
                                         context: Self.gesture)
-        await settle { ThemeStore.shared.input.backgroundBlur != -1 }
-        #expect(ThemeStore.shared.input.backgroundBlur != -1)
+        await settle { ThemeScope.app.store.input.backgroundBlur != -1 }
+        #expect(ThemeScope.app.store.input.backgroundBlur != -1)
         try await set(harness, Self.opacityKey, 0.5)
         #expect(harness.settings.snapshot.windowBackground.material == .glass)
         _ = try await harness.page.call("cmux.settings.preview.end", params: [:], context: Self.gesture)
@@ -252,5 +252,50 @@ import Testing
         _ = try await harness.page.call("cmux.settings.preview.end", params: [:], context: Self.gesture)
         await settle { harness.window.isOpaque }
         #expect(harness.window.isOpaque)
+    }
+
+    /// Leo's report: dragging Opacity "reverts to Ghostty". Neither the slider's preview steps nor
+    /// its write touch the theme or the background picture: both stay what cmux.json names, and
+    /// the Ghostty override keeps the theme through the reloads the drag causes.
+    @Test func draggingOpacityKeepsTheThemeAndTheBackground() async throws {
+        let work = "van-gogh-starry-night"
+        let harness = try await make(#"{"appearance": {"theme": "Dracula", "background": "\#(work)"}}"#)
+        defer { harness.tearDown() }
+        #expect(harness.settings.snapshot.appTheme == "Dracula")
+        #expect(harness.settings.snapshot.backdropSelection?.id == work)
+
+        for step in [0.6, 0.55, 0.5, 0.45] {
+            _ = try await harness.page.call("cmux.settings.preview", params: ["key": .string(Self.opacityKey), "value": .number(step)],
+                                            context: Self.gesture)
+            await settle { abs(harness.tintOpacity - step) < 0.001 }
+            #expect(harness.settings.applied.appTheme == "Dracula")
+            #expect(harness.settings.applied.backdropSelection?.id == work)
+            #expect(GhosttyRuntime.themeOverride == "Dracula")
+        }
+        try await set(harness, Self.opacityKey, 0.45)
+        _ = try await harness.page.call("cmux.settings.preview.end", params: ["key": .string(Self.opacityKey)], context: Self.gesture)
+        await settle { harness.settings.previewingKey == nil }
+
+        #expect(harness.settings.snapshot.windowBackground.opacity == 0.45)
+        #expect(harness.settings.snapshot.appTheme == "Dracula")
+        #expect(harness.settings.snapshot.backdropSelection?.id == work)
+        #expect(GhosttyRuntime.themeOverride == "Dracula")
+        #expect(harness.file.contains("Dracula"))
+        #expect(harness.file.contains(work))
+    }
+
+    /// Over a background picture the unset slider sits on the tint the window shows (the work's
+    /// own, above the legibility floor), not on the theme's opaque 100%: the click that used to
+    /// jump from 100% now starts where the window is.
+    @Test func overArtTheUnsetSliderSitsOnTheShownTint() throws {
+        let scope = ThemeScope(level: .room)
+        #expect(scope.shownWindowOpacity == scope.input.backgroundOpacity)
+        let work = try #require(BackdropSelection(id: "van-gogh-starry-night"))
+        scope.setBackdropSelection(work)
+        let shown = WindowBackdrop(scope.tokens, art: scope.backdropArt, selection: scope.backdropSelection,
+                                   tuning: scope.appearanceTuning, tintOpacity: scope.backdropTintOpacity)
+        #expect(!shown.isOpaque)
+        #expect(scope.shownWindowOpacity == shown.tintOpacity)
+        #expect(scope.shownWindowOpacity < 1)
     }
 }

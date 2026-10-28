@@ -50,7 +50,7 @@ struct FileOpenRun {
             let snapshot = index == 0 ? call.snapshot : router.snapshots.current
             let ran = try await router.runAction(ControlCall(request: ControlRequest(id: call.request.id, method: "action.run", params: params),
                                                              snapshot: snapshot, connection: call.connection,
-                                                             deadline: call.deadline, progress: call.progress))
+                                                             deadline: call.deadline, progress: call.progress, engineStartMark: call.engineStartMark))
             opened.append(["path": .string(path), "replayed": ran["replayed"] ?? false])
         }
         var reply: [String: JSONValue] = ["opened": .array(opened), "placement": .string(placement.kind.rawValue)]

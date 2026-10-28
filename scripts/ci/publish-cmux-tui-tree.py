@@ -6,9 +6,8 @@ after source.json or the daemon has been written.  This helper verifies the
 commit manifest for every companion, writes only missing objects, and records
 completion separately so legacy source metadata is never overwritten.
 
-The caller supplies the uploader from a trusted checkout.  In particular, a
-pull_request_target job must pass the uploader checked out from its base ref;
-the assets are opaque build outputs and are never executed here.
+The caller supplies the uploader from a trusted checkout; the assets are
+opaque build outputs and are never executed here.
 """
 
 from __future__ import annotations

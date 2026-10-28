@@ -8,10 +8,22 @@ import CmuxNextTabs
 /// profile differs from its workspace's shows a dot.
 extension BrowserProfileService {
     /// The tab strip dot of `tab`, nil when its profile is the one its
-    /// workspace gives new tabs.
-    func tabBadge(for tab: TabModel, workspaceID: String?) -> TabProfileBadge? {
+    /// workspace gives new tabs. `room`: the room of the strip's window (`roomDefault`).
+    func tabBadge(for tab: TabModel, workspaceID: String?, room: ProfileID?) -> TabProfileBadge? {
+        tabBadge(for: tab, workspaceEffective: effectiveProfile(forWorkspace: workspaceID, room: room))
+    }
+
+    /// `tabBadge` with the room's browser profile already resolved (`WindowState.roomBrowserProfileID`).
+    func tabBadge(for tab: TabModel, workspaceID: String?, roomBrowserProfile: String?) -> TabProfileBadge? {
+        let workspaceEffective = BrowserProfileCascade.resolve(explicit: nil, workspace: workspaceDefault(workspaceID), room: roomBrowserProfile,
+                                                               known: isKnown)
+        return tabBadge(for: tab, workspaceEffective: workspaceEffective)
+    }
+
+    private func tabBadge(for tab: TabModel, workspaceEffective: String) -> TabProfileBadge? {
         let id = profileID(ofTab: tab)
-        guard BrowserProfileCascade.showsTabBadge(tabProfile: id, workspaceEffective: effectiveProfile(forWorkspace: workspaceID)) else {
+        guard BrowserProfileCascade.showsTabBadge(tabProfile: id, workspaceEffective: workspaceEffective)
+        else {
             return nil
         }
         let record = record(id)
@@ -29,12 +41,11 @@ extension BrowserProfileService {
                                    name: record?.name ?? displayName(id))
     }
 
-    /// Re-renders every tab strip and omnibar after a profile or a default
-    /// changed (names, colors, which tabs differ from their workspace).
+    /// Re-renders every omnibar after a profile or a default changed. Tab strips follow by
+    /// themselves: a pane snapshot reads `tabBadge` (observed: the book, the home records), so
+    /// only the strips whose badge changed map again. Pushing every strip here re-ran every pane
+    /// snapshot twice at each launch, with nothing changed (cx-8w027.23, I2).
     func refreshPresentation() {
-        for controller in services.windows.controllers {
-            for pane in controller.content?.panes.values.map({ $0 }) ?? [] { pane.resyncStrip() }
-        }
         for (key, entry) in services.cache.browsers {
             entry.chrome.addressBar.setProfileBadge(omnibarBadge(forTab: key))
             entry.chrome.toolbarButtons.profileName = BrowserToolbarHandlers.profileName(forTab: key, services: services)

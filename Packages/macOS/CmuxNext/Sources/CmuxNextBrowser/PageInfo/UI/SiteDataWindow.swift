@@ -32,7 +32,7 @@ final class SiteDataWindow: PageInfoWindow {
         let subtitle = PageInfoStyle.label(PageInfoStrings.siteDataSubtitle, font: PageInfoStyle.captionFont,
                                            color: PageInfoStyle.secondaryText, wraps: true)
         let done = ThemedDefaultButton(title: PageInfoStrings.done, target: self, action: #selector(finish))
-        done.keyEquivalent = "\r"
+        done.keyHint = .return
         done.translatesAutoresizingMaskIntoConstraints = false
         let root = NSView()
         [subtitle, scroll, done].forEach(root.addSubview)
@@ -87,5 +87,5 @@ final class SiteDataWindow: PageInfoWindow {
 
 /// Scroll document laid out from the top.
 final class FlippedDocumentView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

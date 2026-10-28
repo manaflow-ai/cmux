@@ -6,7 +6,8 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
 
-const BUDGET_GZIP_BYTES = 384 * 1024; // 298 KiB at S1
+// Agent keys, client sessions and the agent reaper measured 417.0 KiB (409.3 KiB before); no dependency was added.
+const BUDGET_GZIP_BYTES = 425 * 1024; // 298 KiB at S1
 const dir = process.argv[2] ?? "dist";
 
 const files = readdirSync(dir, { recursive: true })

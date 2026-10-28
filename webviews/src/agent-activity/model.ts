@@ -1,5 +1,3 @@
-import type { Lane } from "./lanes";
-
 export type ActivityStatus = "active" | "idle" | "paused" | { ended: string };
 export type ActivityConnection = "connected" | "not_started" | "not_set_up" | "unreachable";
 export type ActivityFrame = { blob: string; width: number; height: number; expired?: boolean };
@@ -50,8 +48,6 @@ export type ActivityState = {
   watching: string[];
   lastOperationError?: string;
   layout: "split" | "timeline" | "grid";
-  /** Every acpmux session with its lane (cx-v9k2f) while the lanes view is on; absent when off. */
-  lanes?: Lane[] | null;
   strings: {
     title: string;
     filter: string;
@@ -75,19 +71,6 @@ export type ActivityState = {
     notStarted: string;
     notSetUp: string;
     unreachable: string;
-    lanes: string;
-    computerUse: string;
-    pageView: string;
-    laneWorking: string;
-    laneInput: string;
-    laneIdle: string;
-    laneFailed: string;
-    laneLost: string;
-    lanesOwn: string;
-    lanesAttention: string;
-    lanesEmpty: string;
-    lanesNoMatch: string;
-    laneStatus: string;
   };
 };
 
@@ -186,17 +169,15 @@ export function step(state: ActivityState, delta: number, framesOnly = false): A
   return reduceActivity(state, { type: "scrub", seq: events[clamped].seq });
 }
 
-export function scrubToStart(state: ActivityState): ActivityState {
-  return reduceActivity(state, { type: "scrub", seq: selectedEvents(state)[0]?.seq });
-}
-
-export function scrubToEnd(state: ActivityState): ActivityState {
-  return reduceActivity(state, { type: "scrub", seq: undefined });
-}
-
 export function reduceActivity(state: ActivityState, action: any): ActivityState {
   let next = state;
-  if (action.type === "snapshot") next = { ...state, ...action.state, filter: state.filter, layout: state.layout };
+  if (action.type === "snapshot")
+    next = {
+      ...state,
+      ...action.state,
+      filter: state.filter,
+      layout: state.layout,
+    };
   if (action.type === "sessions") {
     const sessionsByMachine = { ...state.sessionsByMachine, [action.machine]: action.sessions };
     const all = (Object.values(sessionsByMachine) as ActivitySession[][]).flat();
@@ -272,18 +253,5 @@ export const initialActivityState = (): ActivityState => ({
     notStarted: "Computer use has not run here yet",
     notSetUp: "Computer use needs Accessibility and Screen Recording",
     unreachable: "Machine unreachable",
-    lanes: "Lanes",
-    computerUse: "Computer use",
-    pageView: "View",
-    laneWorking: "Working",
-    laneInput: "Waiting on you",
-    laneIdle: "Idle",
-    laneFailed: "Failed",
-    laneLost: "Lost",
-    lanesOwn: "On their own",
-    lanesAttention: "Needs you: {count}",
-    lanesEmpty: "No agent sessions",
-    lanesNoMatch: "No matching sessions",
-    laneStatus: "{state} · {duration}",
   },
 });

@@ -20,6 +20,49 @@ pub fn new_tab_page_url_is_valid(text: &str) -> bool {
     trimmed.contains('.') && has_host(&format!("https://{trimmed}"))
 }
 
+/// Swift `SettingDescriptor.httpOrigin`: an http or https address with a
+/// host and nothing else (no user info, no path other than `/`, no query, no
+/// fragment, no whitespace), such as `http://mini.tail1234.ts.net:7320`.
+pub fn is_http_origin(text: &str) -> bool {
+    if text.chars().any(|c| c.is_whitespace() || matches!(c, '?' | '#' | '@')) {
+        return false;
+    }
+    let lower = text.to_ascii_lowercase();
+    let Some(rest) = lower.strip_prefix("http://").or_else(|| lower.strip_prefix("https://"))
+    else {
+        return false;
+    };
+    let (authority, path) =
+        rest.split_once('/').map_or((rest, ""), |(authority, path)| (authority, path));
+    if !path.is_empty() {
+        return false;
+    }
+    let (host, port) = if let Some(bracketed) = authority.strip_prefix('[') {
+        let Some((host, after)) = bracketed.split_once(']') else { return false };
+        match after {
+            "" => (host, None),
+            _ => match after.strip_prefix(':') {
+                Some(port) => (host, Some(port)),
+                None => return false,
+            },
+        }
+    } else {
+        match authority.rsplit_once(':') {
+            Some((host, port)) => (host, Some(port)),
+            None => (authority, None),
+        }
+    };
+    // An empty port (`http://host:`) is no port, as Swift `URLComponents` reads it.
+    let port_ok =
+        port.is_none_or(|port| port.len() <= 5 && port.bytes().all(|byte| byte.is_ascii_digit()));
+    let host_ok = if authority.starts_with('[') {
+        !host.is_empty()
+    } else {
+        !host.is_empty() && !host.contains(':')
+    };
+    host_ok && port_ok
+}
+
 /// The RFC 3986 scheme of `text`, as `URL(string:)` finds it: a letter, then
 /// letters, digits, `+`, `-` or `.`, then `:`.
 fn scheme(text: &str) -> Option<&str> {

@@ -66,6 +66,7 @@ export interface Principal {
     readonly shared_team: boolean
     readonly connected: boolean
     readonly allow_requests_from: "anyone" | "teams" | "nobody"
+    readonly same_domain?: boolean
     readonly blocked?: boolean
   }>
   /** Op classes of the principal's grant, resolved by the grant's owner (UserDO) for other owners. */

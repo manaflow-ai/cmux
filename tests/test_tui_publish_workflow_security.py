@@ -204,14 +204,10 @@ def test_raw_binary_manifests_use_canonical_runtime_schema() -> None:
 def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -> None:
     artifacts = workflow("cmux-tui-artifacts.yml")
     triggers = workflow_triggers(artifacts)
-    assert "pull_request_target" in triggers
-    pr_trigger = triggers["pull_request_target"]
-    assert pr_trigger.get("branches") == ["feat-cmux-next"]
-    # The filter is the tree key's input list (checked item by item in
-    # test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths); here only
-    # that it starts with the cmux-tui sources.
-    paths = pr_trigger.get("paths")
-    assert paths and paths[0] == "cmux-tui/**"
+    # Pull request trees publish through the cmux-tui-pin-<merge sha> push
+    # (main's cmux-next-pr-merge-tree.yml). pull_request_target reads the
+    # default branch's workflow file, so a trigger here never ran.
+    assert "pull_request_target" not in triggers
     push_trigger = triggers["push"]
     # Every branch of this repository (forks never push here); tree-preflight
     # is the filter: a push whose tree is published builds nothing.
@@ -246,7 +242,8 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert "refs/heads/main" in preflight
     for job in ("build", "cmux-next-daemon-tests"):
         body = workflow_job(artifacts, job)
-        assert "needs: [tree-preflight, tree-owner-wait]" in body
+        # The daemon tests also wait on their runner pick.
+        assert "needs: [tree-preflight, tree-owner-wait" in body
         assert "needs.tree-preflight.outputs.run_macos == 'true'" in body
         assert "needs.tree-owner-wait.outputs.takeover == 'true'" in body
     daemon = workflow_job(artifacts, "cmux-next-daemon-tests")
@@ -254,9 +251,6 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     assert 'CARGO_HTTP_TIMEOUT: "120"' in daemon
     assert 'CARGO_HTTP_MULTIPLEXING: "false"' in daemon
     assert "cache-all-crates: true" in daemon
-    publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "trusted helper" in publisher
-    assert "already published with a different binary" not in publisher
     assert "for attempt in 1 2 3" in daemon
     assert 'cargo test "${members[@]}" --locked cmux_next_' in daemon
     assert "scripts/ci/cmux-next-daemon-test-packages.sh" in daemon
@@ -265,21 +259,13 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
     # is already running"); cmux-tui-artifacts-retry.yml retries completed
     # failed runs (policy: tests/test_cmux_tui_artifacts_retry.py).
     assert "/rerun" not in (ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text()
-    pr_publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "github.event_name == 'pull_request_target'" in pr_publisher
-    assert "github.event.pull_request.head.repo.full_name == github.repository" in pr_publisher
-    assert 'git fetch --no-tags origin "$BASE_COMMIT"' in pr_publisher
-    assert "git show \"$BASE_COMMIT:scripts/ci/upload-r2-object.py\"" in pr_publisher
-    assert "CF_R2_SECRET_ACCESS_KEY" in pr_publisher
-    assert "cmux_tui_tree_key.py" in pr_publisher
-    assert "cmux-tui/tree/$KEY" in pr_publisher
-    assert "missing opaque build companion" in pr_publisher
+    assert "publish-pr-tree" not in artifacts
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "publish-cmux-tui-tree.py" in tree_publisher
     assert "complete tree" in tree_publisher
     assert "trusted helper" in tree_publisher
     # 4f37f3577ce2: the companion list lives in publish-cmux-tui-tree.py
-    # (--list-companions), which both tree jobs read; it must keep the macOS
+    # (--list-companions), which the tree job reads; it must keep the macOS
     # app host and Cloud server beside the daemon.
     assert "publish-cmux-tui-tree.py --list-companions" in tree_publisher
     companions = subprocess.check_output(
@@ -290,14 +276,14 @@ def test_cmux_next_daemon_artifact_fetch_retries_cargo_and_requeues_failures() -
 
 
 def test_same_repo_branch_pushes_publish_their_trees() -> None:
-    # A pull request head's tree is published by its branch push, so its
-    # same-tree checks need no hand-pushed cmux-tui-pin-* ref.
+    # Trusted branch pushes publish their trees; synthetic merge refs are
+    # refused before preflight and never reach a credentialed publisher.
     artifacts = workflow("cmux-tui-artifacts.yml")
-    trusted = ("github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || "
-               "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')")
+    trusted = "github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next'"
     for job in ("publish", "publish-tree", "notify-unpublished-tree"):
         body = workflow_job(artifacts, job)
-        assert f"github.event_name == 'push' || {trusted})" in body, job
+        assert trusted in body, job
+        assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in body, job
     # A dispatch from another branch stays build-only.
     notice = workflow_job(artifacts, "publish-ref-notice")
     assert f"!(github.event_name == 'push' || {trusted})" in notice
@@ -305,6 +291,46 @@ def test_same_repo_branch_pushes_publish_their_trees() -> None:
     tree = workflow_job(artifacts, "publish-tree")
     assert '"family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch"' in tree
     assert '"ref": os.environ["GITHUB_REF"]' in tree
+
+
+def test_pin_refs_are_refused_before_claim_or_build() -> None:
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    guard = workflow_job(artifacts, "reject-untrusted-pin-ref")
+    assert "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in guard
+    assert "permissions: {}" in guard
+    assert "re-run after a trusted feat-cmux-next publication" in guard
+    preflight = workflow_job(artifacts, "tree-preflight")
+    assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in preflight
+    pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
+    assert "pin_tree_ref" not in pin
+    assert "refs/heads/cmux-tui-pin-" not in pin
+    request = workflow("cmux-tui-tree-request.yml")
+    assert "startsWith(\"cmux-tui-pin-\")" not in request
+    assert '"workflow_dispatch" and .head_branch == "feat-cmux-next"' in request
+
+
+def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
+    """A PR merge commit must not be turned into a privileged pin push."""
+    unsafe = re.compile(r"git\s+push\s+origin\b[^\n]*(?:cmux-tui-pin|refs/heads/cmux-tui-pin)", re.IGNORECASE)
+    offenders: list[str] = []
+    for root in (ROOT / ".github" / "workflows", ROOT / "scripts"):
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                continue
+            if unsafe.search(text):
+                offenders.append(str(path.relative_to(ROOT)))
+    assert not offenders, "CI guidance must use trusted publication, not pin pushes: " + ", ".join(offenders)
+
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    tree_request = workflow("cmux-tui-tree-request.yml")
+    pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
+    assert "This tree has no artifact yet; re-run after" in artifacts
+    assert "This tree has no artifact yet; re-run after" in tree_request
+    assert "This tree has no artifact yet; re-run after" in pin
 
 
 def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
@@ -344,24 +370,7 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     tree_publisher = workflow_job(artifacts, "publish-tree")
     assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
-    pr_tree_publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
-    assert "cancel-in-progress: false" in pr_tree_publisher
     assert "replaces an older pending job" in artifacts
-
-
-def test_cmux_tui_tree_key_inputs_are_the_pr_trigger_paths() -> None:
-    input_file = ROOT / "scripts/cmux-next/cmux-tui-tree-inputs.txt"
-    key_paths = []
-    for line in input_file.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        kind, path = line.split(maxsplit=1)
-        key_paths.append(f"{path}/**" if kind == "tree" else path)
-    triggers = workflow_triggers(workflow("cmux-tui-artifacts.yml"))
-    assert triggers["pull_request_target"]["paths"] == key_paths
-    assert "cmux_tui_tree_key.py" in workflow("cmux-tui-artifacts.yml")
 
 
 def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
@@ -381,16 +390,10 @@ def test_cmux_next_pull_request_fetch_waits_for_base_or_own_tree() -> None:
     assert len(fetching) >= 2
     assert all(int(step.get("env", {}).get("CMUX_TUI_TREE_WAIT_SECONDS", "0")) <= 120 for step in fetching)
     probes = [step for step in jobs["path_route"]["steps"] if "pin-cmux-tui.sh probe" in step.get("run", "")]
-    # A pull request's merge tree has no publisher of its own: a same-repository
-    # PR's probe dispatches one; a fork PR's never does. The scheduled DEV run
-    # (a workflow_dispatch with dev_daily) dispatches its cold tree too.
-    dispatch_gate = (
-        "${{ (github.event_name == 'pull_request' && "
-        "github.event.pull_request.head.repo.full_name == github.repository || "
-        "github.event_name == 'workflow_dispatch' && inputs.dev_daily == true) && '1' || '' }}"
-    )
-    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == dispatch_gate for step in probes)
-    assert "github.event_name == 'pull_request' && '0'" not in next_workflow
+    # Checked-out pull-request and dispatched revisions never acquire a write
+    # token or start the publisher. A cold tree fails closed until trusted
+    # default-branch controls publish it.
+    assert probes and all(step.get("env", {}).get("CMUX_TUI_TREE_DISPATCH") == "" for step in probes)
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "pull_request_base_key" in pin
     assert "HEAD^1" in pin
@@ -1746,7 +1749,7 @@ def test_sdk_publish_conformance_runs_live_against_exact_built_binary() -> None:
         ) in text
 
     typescript = workflow("sdk-publish-npm.yml")
-    assert 'node-version: "22.14.0"' in typescript
+    assert 'node-version: "22.23.4"' in typescript
     assert (
         "cache-dependency-path: cmux-tui/bindings/typescript/package-lock.json"
         in typescript
@@ -2277,6 +2280,27 @@ def _evaluate_concurrency_group(template: str, context: dict[str, object]) -> st
     return re.sub(r"\$\{\{(.*?)\}\}", evaluate, template)
 
 
+def test_daemon_gate_tests_only_the_newest_published_feat_tree() -> None:
+    # 2026-10-21: 26 feat-cmux-next daemon-test jobs queued for 2 h, one per
+    # key, and nightly-next did not move. When the job gets a Mac, attempt 1 of
+    # a feat-cmux-next push skips its tests if the branch head has a different
+    # key whose tree is published (the head's run tests that one). A rerun and
+    # any read failure test as before, and the skip reuses the superseded
+    # output, so publish-tree-tested acts on no key.
+    daemon = workflow_job(workflow("cmux-tui-artifacts.yml"), "cmux-next-daemon-tests")
+    assert 'if [[ "$REF" == refs/heads/feat-cmux-next && "$RUN_ATTEMPT" == 1 ]]' in daemon
+    assert "git fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next" in daemon
+    assert 'scripts/cmux-next/pin-cmux-tui.sh key --rev FETCH_HEAD' in daemon
+    assert '"$head_sha" != "$SHA"' in daemon and '"$head_key" != "$KEY"' in daemon
+    assert "https://files.cmux.com/cmux-tui/tree/$head_key/completion.json" in daemon
+    assert 'echo "stale=true" >> "$GITHUB_OUTPUT"' in daemon
+    assert "superseded: ${{ steps.current.outputs.stale }}" in daemon
+    assert "key: ${{ steps.key.outputs.key }}" in daemon
+    assert "if: steps.current.outputs.stale != 'true'" in daemon
+    # No branch-wide group: an older push arriving late must never replace the head's job.
+    assert "feat-cmux-next-gate" not in daemon
+
+
 def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     # 2026-10-10 (cx-73f2): one group for every feat-cmux-next push let GitHub
     # replace each pending run with the next push, so merge train tips such as
@@ -2284,8 +2308,7 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     # not install cmux-tui on an SSH host. Each feat-cmux-next push now has its
     # own group; a run whose tree is published stops at tree-preflight.
     # Other branches (cmux-tui-pin-*) keep one group per ref, main keeps one
-    # group, a new push to a PR cancels that PR's previous pull_request_target
-    # run, and push and dispatch runs are never cancelled once started.
+    # group, and push and dispatch runs are never cancelled once started.
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     concurrency = document["concurrency"]
     group = concurrency["group"]
@@ -2302,7 +2325,6 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     cancel = concurrency["cancel-in-progress"]
     for event_name in ("push", "workflow_dispatch"):
         assert render(cancel, event_name, "refs/heads/feat-cmux-next", "a" * 40).lower() == "false", event_name
-    assert render(cancel, "pull_request_target", "refs/heads/feat-cmux-next", "a" * 40, pr=7).lower() == "true"
 
     feat = "refs/heads/feat-cmux-next"
     assert evaluate("push", feat, "a" * 40) != evaluate("push", feat, "b" * 40)
@@ -2312,56 +2334,25 @@ def test_cmux_tui_artifacts_never_drops_a_feat_cmux_next_push() -> None:
     assert pin_a != evaluate("push", "refs/heads/cmux-tui-pin-bbbb", "b" * 40)
     assert evaluate("push", feat, "a" * 40) != pin_a
     assert evaluate("push", "refs/heads/main", "a" * 40) == "cmux-tui-artifacts-main"
-    assert evaluate("pull_request_target", feat, "a" * 40, pr=7) == "cmux-tui-artifacts-pr-7"
-    assert evaluate("pull_request_target", feat, "a" * 40, pr=7) != evaluate("pull_request_target", feat, "a" * 40, pr=8)
     # A manual republish of one commit never shares a group with a branch push.
     dispatched = evaluate("workflow_dispatch", feat, "c" * 40)
     assert dispatched != evaluate("push", feat, "c" * 40)
     assert "c" * 40 in dispatched
 
-def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -> None:
-    # 2026-10-11: the daemon tests named MACOS_RUNNER_PR directly while the
-    # build legs beside them take the owned side lane on attempt 1. Once every
-    # same-repo branch push ran this workflow (#19169), 16 daemon-test jobs sat
-    # queued on Blacksmith macOS at its cap while the minis had room. The first
-    # attempt uses the same route as the build legs. 2026-10-14: a rerun stays
-    # on the minis too; it fell through to MACOS_RUNNER_PR, the nightly build's
-    # 12 vCPU macOS 26 label (tests/test_ci_tui_routes_avoid_nightly_label.py).
+def test_cmux_next_daemon_tests_take_blacksmith_linux_and_the_mac_shadow_never_the_promote_pool() -> None:
+    # 2026-10-26 (Leo: "I THOUGHT THESE COULD JUST GO ON LINUX"): the
+    # promotion gate runs on Blacksmith Linux on every event and attempt; the
+    # macOS-only tests run in a shadow that gates nothing and never takes the
+    # promote pool or the nightly label (tests/test_cmux_tui_daemon_tests_gate.py).
     document = yaml.load(workflow("cmux-tui-artifacts.yml"), Loader=yaml.BaseLoader)
     jobs = document["jobs"]
-    build_route = jobs["build"]["with"]["macos_runner"]
-    retry_route = jobs["build"]["with"]["macos_retry_runner"]
     daemon = jobs["cmux-next-daemon-tests"]["runs-on"]
-    assert "vars.CI_SIDE_LANE_RUNNER" in build_route
-    # cx-km8nz: the daemon tests gate the nightly-next promotion, so attempt 1
-    # of a feat-cmux-next push takes the reserved promote runners, after the
-    # fork gate; otherwise the build legs' route.
-    fork_gate = "github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-    # 2026-10-15: the daemon tests' own pool, when set, comes first in that
-    # slot; one mini serves the promote pool and the Release compile.
-    promote = (
-        "vars.CI_NEXT_DAEMON_POOL != '' && github.repository_owner == 'manaflow-ai' && "
-        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
-        "github.run_attempt == 1 && vars.CI_NEXT_DAEMON_POOL || "
-        "vars.CI_NEXT_PROMOTE_POOL != '' && github.repository_owner == 'manaflow-ai' && "
-        "github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && "
-        "github.run_attempt == 1 && vars.CI_NEXT_PROMOTE_POOL || "
-    )
-    assert fork_gate in build_route
-    side_attempt_one = "github.run_attempt == 1 && vars.CI_SIDE_LANE_RUNNER"
-    assert side_attempt_one in build_route
-    # cx-urd.50: through the bot's attempt 3; its attempt 4 is the rescue's
-    # last resort and goes to Blacksmith macOS 15, never the nightly label.
-    every_attempt = build_route.replace(
-        side_attempt_one,
-        "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && "
-        "vars.CI_SIDE_LANE_RUNNER",
-        1,
-    )
-    assert daemon == every_attempt.replace(fork_gate, fork_gate + promote, 1), daemon
-    assert "MACOS_RUNNER_PR" not in daemon
-    assert retry_route.split("|| ", 1)[1] in daemon  # owned pools off: Blacksmith macOS 15
-
+    assert daemon == "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}", daemon
+    assert "cmux-next-daemon-macos-shadow" not in jobs
+    shadow_doc = yaml.load(workflow("cmux-next-daemon-macos-shadow.yml"), Loader=yaml.BaseLoader)
+    shadow = shadow_doc["jobs"]["cmux-next-daemon-macos-shadow"]["runs-on"]
+    assert "MACOS_RUNNER_PR" not in shadow and "inputs.macos_runner" not in shadow
+    assert "vars." not in shadow, shadow
 
 if __name__ == "__main__":
     unittest.main()
@@ -2381,7 +2372,7 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
     marker_script = "scripts/ci/cmux-tui-mark-daemon-tested.sh"
     assert "publish-tree-daemon-tested" not in jobs
-    for name in ("publish-tree", "publish-pr-tree"):
+    for name in ("publish-tree",):
         job = jobs[name]
         assert "cmux-next-daemon-tests" not in job["needs"], name
         assert "cmux-next-daemon-tests" not in job["if"], name
@@ -2389,7 +2380,7 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
         assert marker_script not in str(job["steps"]), name
         assert '"daemonTests": "separate"' in str(job["steps"]), name
     marker = jobs["publish-tree-tested"]
-    assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
+    assert {"publish-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
     assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
     assert "needs.cmux-next-daemon-tests.outputs.key == needs.tree-preflight.outputs.key" in marker["if"]
     assert marker["environment"] == "artifacts"
@@ -2402,6 +2393,61 @@ def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> Non
     assert "publish-tree-tested" in promote["needs"]
     assert "needs.publish-tree.result" not in promote["if"]
     assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
+    # request-nightly-next.sh checks the marker through tree-commit-marker.sh
+    # daemon-tested, the same check the tree-commit marker writer uses.
     script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
-    assert "daemon-tests.json" in script and '"separate"' in script
+    assert "tree-commit-marker.sh\" daemon-tested" in script
+    checker = (ROOT / "scripts/cmux-next/tree-commit-marker.sh").read_text()
+    assert "daemon-tests.json" in checker and '"separate"' in checker
 
+
+
+def test_publish_attestation_uses_the_release_app_token_with_a_fallback() -> None:
+    # The first attestation try spends the release App's installation budget,
+    # not the github.token budget that ran out ("API rate limit exceeded for
+    # installation"). Both refusals fall back to github.token: a failed mint
+    # (the App lacks attestations:write) or absent credentials leave the
+    # step's token empty, and a minted token GitHub refuses (403) or an App
+    # budget that ran out fails only that try; tries 2 to 4 use github.token.
+    artifacts = workflow("cmux-tui-artifacts.yml")
+    document = yaml.load(artifacts, Loader=yaml.BaseLoader)
+    jobs = document["jobs"]
+    for name in ("publish", "publish-windows"):
+        job = jobs[name]
+        assert job["environment"] == "artifacts", name
+        assert job["env"]["CMUX_RELEASE_APP_CONFIGURED"] == (
+            "${{ secrets.CMUX_RELEASE_APP_ID != '' && secrets.CMUX_RELEASE_APP_KEY != '' }}"
+        ), name
+        steps = job["steps"]
+        mint = next(step for step in steps if step.get("id") == "attest_app_token")
+        assert mint["uses"] == "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1"
+        assert mint["if"] == "env.CMUX_RELEASE_APP_CONFIGURED == 'true'"
+        # A failed mint never fails the job.
+        assert mint["continue-on-error"] == "true"
+        assert mint["with"] == {
+            "app-id": "${{ secrets.CMUX_RELEASE_APP_ID }}",
+            "private-key": "${{ secrets.CMUX_RELEASE_APP_KEY }}",
+            "owner": "${{ github.repository_owner }}",
+            "repositories": "${{ github.event.repository.name }}",
+            "permission-attestations": "write",
+        }
+        attests = [step for step in steps if "attest-build-provenance" in step.get("uses", "")]
+        assert len(attests) == 4, name
+        first, *retries = attests
+        assert steps.index(mint) < steps.index(first)
+        # Path 1: no token minted, so the first try uses github.token.
+        assert first["with"]["github-token"] == "${{ steps.attest_app_token.outputs.token || github.token }}", name
+        assert first["continue-on-error"] == "true", name
+        # Path 2: the App token was refused; every retry uses github.token.
+        for step in retries:
+            assert step["with"]["github-token"] == "${{ github.token }}", name
+            assert step["if"].endswith(".outcome == 'failure'"), name
+        assert "continue-on-error" not in retries[-1], name
+        # The App secrets appear only in the mint step and the presence flag.
+        for step in steps:
+            if step is not mint:
+                assert "CMUX_RELEASE_APP" not in yaml.dump(step), name
+                assert "attest_app_token" not in yaml.dump(step) or step is first, name
+    for name, job in jobs.items():
+        if name not in ("publish", "publish-windows"):
+            assert "CMUX_RELEASE_APP" not in yaml.dump(job), name

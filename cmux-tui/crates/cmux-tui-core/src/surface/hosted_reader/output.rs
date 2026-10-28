@@ -24,6 +24,7 @@ impl HostedReader {
         if crate::debug_spans::following() {
             follow_marks(pty, &output);
         }
+        cmux_flow_trace::hop("daemon.output.host", 0, pty.flow_terminal_id());
         let mut scroll_changed = None;
         let mut title_update = None;
         let terminal_notifications;
@@ -91,9 +92,14 @@ impl HostedReader {
                 journal_enabled.then_some(output)
             };
             if self.title_changed.swap(false, Ordering::Relaxed) {
-                let title = term.title().unwrap_or_default();
-                *pty.title.lock().unwrap() = title.clone();
-                title_update = Some(title);
+                // A program that rewrites the same title (a spinner's
+                // resting frame, a prompt redraw) announces nothing.
+                let title = crate::terminal_title::read(&term);
+                let mut stored = pty.title.lock().unwrap();
+                if *stored != title {
+                    *stored = title.clone();
+                    title_update = Some(title);
+                }
             }
             pty.record_directory(term.pwd());
             if before != after {
@@ -111,7 +117,7 @@ impl HostedReader {
         if let (Some(journal_target), Some(journal_output)) =
             (journal_target.take(), journal_output)
         {
-            pty.journal_output_if_open(journal_target, journal_output);
+            pty.record_output(journal_target, &journal_output);
         }
         drop(journal_update.take());
         surface.publish_pending_directory();
@@ -143,18 +149,10 @@ impl HostedReader {
     }
 }
 
-/// OSC 133;A, the shell's prompt start (`ShellMark::PromptStart`).
-const PROMPT_START: &[u8] = b"\x1b]133;A";
-
-/// The first host output and first prompt mark of a terminal its create
-/// follows (`CMUX_TUI_DEBUG_SPANS`). A mark split across two chunks is
-/// missed.
+/// The first host output, first printable output and first prompt mark of
+/// a terminal its create follows (`CMUX_TUI_DEBUG_SPANS`).
 fn follow_marks(pty: &PtySurface, output: &[u8]) {
-    let Some(identity) = pty.host_identity.as_ref() else { return };
-    crate::debug_spans::terminal_mark(&identity.terminal_id, "host.first_output");
-    if crate::debug_spans::owes(&identity.terminal_id, "first_prompt_mark")
-        && output.windows(PROMPT_START.len()).any(|window| window == PROMPT_START)
-    {
-        crate::debug_spans::terminal_mark(&identity.terminal_id, "first_prompt_mark");
+    if let Some(identity) = pty.host_identity.as_ref() {
+        crate::debug_spans::output_marks(&identity.terminal_id, output);
     }
 }

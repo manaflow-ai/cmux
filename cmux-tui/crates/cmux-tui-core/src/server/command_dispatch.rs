@@ -58,7 +58,9 @@ pub(super) fn handle_command_with_cancellation(
         | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
-        Command::Identify => cmd_server::identify(mux),
+        Command::Identify { machine_metadata, revisions } => {
+            cmd_server::identify(mux, machine_metadata, revisions)
+        }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
                 mux,
@@ -80,6 +82,10 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
+            version,
+            install,
+            remote,
         } => cmd_server::set_client_info(
             mux,
             client,
@@ -91,6 +97,10 @@ pub(super) fn handle_command_with_cancellation(
             device_kind,
             device_name,
             device_id,
+            api_revision,
+            version,
+            install,
+            remote.unwrap_or(false),
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
@@ -151,6 +161,10 @@ pub(super) fn handle_command_with_cancellation(
             cmd_attach::reattach_view(mux, client, surface, counts)
         }
         Command::GetSizeState { surface } => cmd_sizing::get_size_state(mux, client, surface),
+        Command::GetHostSizePolicy { surface } => cmd_sizing::get_host_size_policy(mux, surface),
+        Command::SetHostSizePolicy { policy } => {
+            cmd_sizing::set_host_size_policy(mux, client, policy.mode, policy.order)
+        }
         Command::ReloadConfig => cmd_server::reload_config(mux),
         Command::SetWindowTitle { title } => cmd_server::set_window_title(mux, title),
         Command::ClearWindowTitle => cmd_server::clear_window_title(mux),
@@ -184,9 +198,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::ApplyLayout { workspace, name, layout, cols, rows } => {
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
-        Command::Send { surface, terminal_id, text, bytes, paste } => {
-            cmd_terminal_io::send(mux, client, writer, surface, terminal_id, text, bytes, paste)
-        }
+        Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
         Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
         Command::ClearHistory { surface, fallback_key } => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
@@ -228,7 +240,9 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReportAgent { surface, state, source, session } => {
             cmd_frontend::report_agent(mux, surface, state, source, session)
         }
-        Command::VtState { .. } => unreachable!("vt-state uses its streaming response path"),
+        Command::VtState { .. } => {
+            anyhow::bail!("vt-state is served by its streaming response path")
+        }
         Command::MintTerminalRenderer { surface, ttl_ms } => {
             cmd_terminals::mint_terminal_renderer(mux, client, surface, ttl_ms)
         }
@@ -246,6 +260,9 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::SetTerminalKeep { surface, terminal_id, keep } => {
             cmd_terminals::set_terminal_keep(mux, surface, terminal_id, keep)
+        }
+        Command::TerminalResumeCommand { surface, terminal_id, command } => {
+            cmd_terminals::terminal_resume_command(mux, surface, terminal_id, command)
         }
         Command::NewTab { pane, cwd, env, cols, rows, keep, terminal_id, shell_args } => {
             cmd_tabs::new_tab(
@@ -267,6 +284,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
         Command::RestartTab(params) => tab_restart::restart(mux, params),
+        Command::ParkTabs(params) => tab_park::park(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }
@@ -394,7 +412,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::SetViewportPaneWidth { pane, width, transaction } => {
             cmd_panes::set_viewport_pane_width(mux, client, actor, pane, width, transaction)
         }
-        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, transaction } => {
+        Command::SetColumnDock { pane, dock, edge, mode, role, permanent, pinned, transaction } => {
             cmd_panes::set_column_dock(
                 mux,
                 client,
@@ -405,6 +423,7 @@ pub(super) fn handle_command_with_cancellation(
                 mode,
                 role,
                 permanent,
+                pinned,
                 transaction,
             )
         }
@@ -418,6 +437,7 @@ pub(super) fn handle_command_with_cancellation(
         }
         Command::ZoomPane { pane, mode } => cmd_panes::zoom_pane(mux, actor, pane, mode),
         Command::ProcessInfo { surface } => cmd_terminals::process_info(mux, surface),
+        Command::TerminalPorts { surface } => terminal_ports::terminal_ports(mux, surface),
         Command::TerminalResources { surfaces } => cmd_terminals::terminal_resources(mux, surfaces),
         Command::MoveTerminal { terminal_id, workspace_key, terminal_incarnation, mutation } => {
             cmd_terminals::move_terminal(
@@ -454,6 +474,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::MoveTabToColumn(params) => cmd_tabs::move_tab_to_column(mux, client, params),
         Command::NewRow(params) => cmd_panes::new_row(mux, client, params),
         Command::SetRowHeights(params) => cmd_panes::set_row_heights(mux, client, params),
+        Command::MoveColumn(params) => column_move::move_column(mux, client, params),
         Command::MoveTabToNewWorkspace { surface, group, index, name, transaction } => {
             cmd_tabs::move_tab_to_new_workspace(
                 mux,
@@ -589,9 +610,14 @@ pub(super) fn handle_command_with_cancellation(
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
+        Command::CloudHostReplicaSet(params) => cloud_host_replica::set(mux, client, params),
+        Command::CloudHostReplicaClear(params) => cloud_host_replica::clear(mux, client, params),
+        Command::CloudHostReplicaStatus => cloud_host_replica::status(mux, client),
         Command::PageCredential(params) => page_credential::page_credential(mux, client, params),
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
+        Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
+        Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }
@@ -620,6 +646,12 @@ pub(super) fn handle_command_with_cancellation(
             cloud_conversations::unsubscribe(mux, client, Some(params))
         }
         Command::CloudConversationLive(params) => cloud_conversations::live(mux, client, params),
+        Command::CloudConversationTyping(params) => {
+            cloud_conversations::typing(mux, client, params)
+        }
+        Command::CloudConversationPresence(params) => {
+            cloud_conversations::presence(mux, client, params)
+        }
         Command::ConversationAttachmentUpload(p) => conversation_attachments::put(mux, client, p),
         Command::ConversationAttachmentRead(p) => conversation_attachments::read(mux, client, p),
         Command::ConversationAttachmentLink(p) => conversation_attachments::link(mux, client, p),
@@ -818,8 +850,8 @@ pub(super) fn handle_command_with_cancellation(
         Command::RenameScreen { screen, name } => {
             cmd_screens::rename_screen(mux, actor, screen, name)
         }
-        Command::RenameWorkspace { workspace, key, name, mutation } => {
-            cmd_workspaces::rename_workspace(mux, client, workspace, key, name, mutation)
+        Command::RenameWorkspace { request, mutation } => {
+            cmd_workspaces::rename_workspace(mux, client, request, mutation)
         }
         Command::RenameProviderManagedWorkspace { workspace, key, name, authority } => {
             cmd_workspaces::rename_provider_managed_workspace(
@@ -874,17 +906,24 @@ pub(super) fn handle_command_with_cancellation(
             expected_generation,
             expected_terminal_id,
             snapshot,
-        } => cmd_attach::attach_surface(
-            mux,
-            client,
-            writer,
-            surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        ),
+        } => {
+            // A sized attach is a size report: it starts (or renews) the
+            // lease before the size applies.
+            if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {
+                size_lease::renew_size_lease(mux, client, surface);
+            }
+            cmd_attach::attach_surface(
+                mux,
+                client,
+                writer,
+                surface_id,
+                mode,
+                cols,
+                rows,
+                expected_generation,
+                expected_terminal_id,
+                snapshot,
+            )
+        }
     }
 }

@@ -12,6 +12,9 @@ public final class FeedModel {
     public private(set) var connection: FeedConnection = .connecting
     /// Owner-confirmed items by id (never written by intents).
     public private(set) var confirmed: [String: FeedItem] = [:]
+    /// Quiet local agent reports, read from the ACPMUX reports mailbox.
+    /// Reports are intentionally separate from owner-confirmed feed items.
+    public private(set) var reports: [FeedReport] = []
     /// Pending intents in send order.
     public private(set) var pending: [FeedIntent] = []
     /// The last refusal, for the panel's notice; cleared on the next send.
@@ -33,8 +36,6 @@ public final class FeedModel {
     /// Opens an item's context with focus (the App: terminal, browser tab,
     /// sign-in pane). Called only from user actions.
     public var onOpenItem: (@MainActor (FeedItem) -> Void)?
-    /// Opens the feed panel (the menu bar's "Open Feed").
-    public var onOpenFeed: (@MainActor () -> Void)?
     /// Refreshes integration sources such as GitHub. The owner remains the
     /// authority for feed state; this is only a user-triggered source wakeup.
     public var onRefresh: (@MainActor () -> Void)?
@@ -68,6 +69,7 @@ public final class FeedModel {
 
     public func stop() {
         source.stop()
+        reports.removeAll()
     }
 
     // MARK: - Visible state
@@ -90,7 +92,6 @@ public final class FeedModel {
     }
 
     public var listSections: FeedListSections { FeedListSections(items: visibleItems, now: now) }
-    public var menubarItems: [FeedItem] { FeedOrder.menubar(visibleItems, now: now) }
     public var counts: FeedCounts { FeedCounts(items: visibleItems, now: now) }
 
     /// An intent on this item still waits for the owner.
@@ -183,10 +184,6 @@ public final class FeedModel {
         if let item = item(id) { onOpenItem?(item) }
     }
 
-    public func openFeed() {
-        onOpenFeed?()
-    }
-
     public func refresh() {
         onRefresh?()
     }
@@ -194,6 +191,12 @@ public final class FeedModel {
     /// The user dismissed the refusal notice.
     public func clearReject() {
         lastReject = nil
+    }
+
+    /// Replaces the local reports projection after a durable mailbox read.
+    /// This does not alter feed owner state or triage intents.
+    public func replaceReports(_ reports: [FeedReport]) {
+        self.reports = reports.sorted { $0.createdAt > $1.createdAt }
     }
 
     // MARK: - Owner data

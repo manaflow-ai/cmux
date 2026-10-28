@@ -8,6 +8,9 @@
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
+# Waits run on a virtual clock: `took` is the time the script would have waited, exactly.
+source "$ROOT/scripts/cmux-next/tests/lib/fake-clock.sh"
+fake_clock_install "$TMP/clock"
 git_q() { git -c user.name=t -c user.email=t@example.com -c init.defaultBranch=main "$@" >/dev/null 2>&1; }
 
 git_q init "$TMP/src"
@@ -105,6 +108,13 @@ fleet_fetch 40 60
 [[ "$status" == 1 ]] || fail "fleet, cancelled run: fetch did not fail"
 (( took < 30 )) || fail "fleet, cancelled run: waited instead of failing fast"
 grep -qF 'cancelled: https://github.com/o/r/actions/runs/15' <<<"$out" || fail "fleet, cancelled run: reason missing"
+# The log says how the run list was read, so a rate-limited unauthenticated read shows at once (2026-10-25:
+# a fleet measure step gave up on tree b61483ae while a same-tree run was still publishing it).
+grep -qF 'reads the GitHub API without a token (60 requests an hour per address)' <<<"$out" \
+  || fail "fleet: no line that the run check has no token"
+set_runs "$active_runs"
+fetch 4
+grep -qF 'reads the GitHub API with a token' <<<"$out" || fail "CI: no line that the run check has a token"
 
 # An unreadable API fails open: the bounded wait decides.
 rm -f "$runs_dir/runs"

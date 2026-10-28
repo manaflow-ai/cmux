@@ -9,11 +9,16 @@ import Foundation
 nonisolated extension SidebarSection {
     /// The daemon root index for local index `localIndex` into `local` (the
     /// window's remaining workspaces of one machine, in order), given that
-    /// machine's full remaining order `global`: before the workspace at that
-    /// slot, after the window's last one, or at the end when it has none.
+    /// machine's full remaining order `global`: before the first workspace at
+    /// or after that slot that `global` lists, else after the last one before
+    /// it, or at the end when it lists none. A shown workspace `global` does
+    /// not list yet (a new one whose own placement is still in flight) is no
+    /// anchor: placing before it once sent quick Cmd-N presses to the bottom.
     public static func globalIndex(localIndex: Int, local: [String], global: [String]) -> Int {
-        if localIndex < local.count, let anchor = global.firstIndex(of: local[localIndex]) { return anchor }
-        if let last = local.last, let index = global.firstIndex(of: last) { return index + 1 }
+        let slot = min(max(localIndex, 0), local.count)
+        let position = Dictionary(global.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        if let anchor = local[slot...].lazy.compactMap({ position[$0] }).first { return anchor }
+        if let index = local[..<slot].reversed().lazy.compactMap({ position[$0] }).first { return index + 1 }
         return global.count
     }
 

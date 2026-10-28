@@ -3,7 +3,7 @@
 schemas/settings/chrome-styles.json (the language-neutral style table).
 
 Writes three files under Packages/macOS/CmuxNext/Sources:
-  CmuxNextDesign/ChromeStyle.swift                       the enum and what each style implies
+  CmuxNextDesignTokens/ChromeStyle.swift                       the enum and what each style implies
   CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift  one palette action per style
   CmuxNextSettings/ChromeStyleSetting+Choices.swift      the Settings picker titles
 
@@ -152,7 +152,7 @@ def main():
     doc = json.loads(TABLE.read_text())
     validate(doc)
     outputs = {
-        SOURCES / "CmuxNextDesign/ChromeStyle.swift": design(doc),
+        SOURCES / "CmuxNextDesignTokens/ChromeStyle.swift": design(doc),
         SOURCES / "CmuxNextActions/Catalog/ChromeStyleActionCatalog.swift": catalog(doc),
         SOURCES / "CmuxNextSettings/ChromeStyleSetting+Choices.swift": choices(doc),
     }

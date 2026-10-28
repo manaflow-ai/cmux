@@ -1,28 +1,36 @@
 import AppKit
+import CmuxNextDesign
+import CmuxNextCompat
 
 /// The pane's input surface, over the video. It takes keyboard focus on
 /// click; while it is first responder in control mode, keys, pointer,
 /// buttons and scroll go to the host. Coordinates are flipped like stream
 /// pixels. The local cursor stays the system arrow (control mode draws the
 /// native cursor locally, RD6).
-final class RemoteInputCaptureView: NSView {
+final class RemoteInputCaptureView: NSView, MouseButtonForwarding {
     let controller = RemoteInputController()
     /// The current image placement, from the video view.
     var geometry: () -> RemoteViewGeometry? = { nil }
     /// Called when focus or the mode changes so the pane can update chrome.
     var onFocusChange: ((Bool) -> Void)?
+    /// A mouse button went down on the surface (before it is sent).
+    var onMouseDown: (() -> Void)?
     var controlMode = false {
         didSet { updateActive() }
     }
+    /// False: clicks and scrolls pass through to what is under the surface
+    /// (a state card over the picture), never to the host.
+    var acceptsPointer = true
 
     private var isFirstResponder = false
     private var markedText = NSAttributedString()
     /// The key event being interpreted by the input method.
     private var interpretingEvent: NSEvent?
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { acceptsPointer ? super.hitTest(point) : nil }
 
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
@@ -47,23 +55,26 @@ final class RemoteInputCaptureView: NSView {
         return true
     }
 
-    private var keyObservers: [any NSObjectProtocol] = []
+    private var keyObservers: [MainActorObservation] = []
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        for observer in keyObservers { NotificationCenter.default.removeObserver(observer) }
-        keyObservers = []
+        keyObservers.removeAll()
         if window == nil, isFirstResponder { isFirstResponder = false }
         if let window {
             // A window that stops being key takes the keyboard with it: release held keys.
             keyObservers = [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification].map { name in
-                NotificationCenter.default.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                    MainActor.assumeIsolated { self?.updateActive() } // main-proof: observer on queue: .main
+                MainActorObservation(name, object: window) { [weak self] in
+                    self?.updateActive()
                 }
             }
         }
         updateActive()
     }
+
+    /// Read by mouse Back and Forward (`MouseSideButtons`): in control mode buttons 4 and 5 go
+    /// to the host like every other button, so cmux does not navigate on them.
+    var forwardsMouseButtons: Bool { controlMode }
 
     private func updateActive() {
         controller.isActive = controlMode && isFirstResponder && window?.isKeyWindow != false
@@ -130,8 +141,9 @@ final class RemoteInputCaptureView: NSView {
     }
 
     private func press(_ event: NSEvent, down: Bool) {
+        if down { onMouseDown?() }
         if down, window?.firstResponder !== self { window?.makeFirstResponder(self) }
-        guard let geometry = geometry(), let button = RemoteMouseButton(appKitButtonNumber: event.buttonNumber) else { return }
+        guard let geometry = geometry(), let button = RemoteMouseButton(event: event) else { return }
         let point = convert(event.locationInWindow, from: nil)
         if down {
             guard let pixel = geometry.streamPixel(at: point) else { return }

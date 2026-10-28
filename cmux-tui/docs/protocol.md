@@ -124,6 +124,27 @@ mark (Mark Workspace as Unread), separate from notification markers and
 app does when the user types into one of the workspace's terminals (on this Mac) or uses Mark
 as Read or Clear Notifications; focusing or opening the workspace keeps it.
 
+`tab-mark-unread-v1` adds `marked_unread` (boolean) to `tab.update` and, while
+set, `marked_unread: true` to the tab's `extra`. It is a manual mark (Mark Tab
+Unread) on any tab, separate from notification markers. The daemon keeps it on
+the tab record until a frontend clears it, which the Mac app does when the tab
+comes into view.
+
+`tab-attention-v1` adds `attention` (a one-line reason, or null to clear) to
+`tab.update` and, while set, `attention: {reason, at_ms}` to the tab's `extra`.
+An agent sets it when the person must act in that tab (confirm, log in,
+approve, pick); `cmux attention request --tab <tab_…> --reason <text>` and
+`cmux attention clear --tab <tab_…>` send it. It never moves focus. Viewing
+the tab keeps it; the agent's clear, a browser tab's navigation to another
+URL, or the tab's close clears it.
+
+`workspace-description-v1` adds `description` (string, 1-4096 characters, line
+breaks allowed; null clears it) to `workspace.update` and, while set,
+`description` to the workspace's `extra`. `workspace-status-v1` adds
+`task_status` the same way: one of the classic cmux task lanes `todo`,
+`working`, `needs-attention`, `review`, `done`, or null for automatic. Both live
+in the shared workspace presentation, so every client shows them.
+
 `tab-metadata-v1` adds `pinned`, `cwd`, `git_branch`, and `git_detached` to
 every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from

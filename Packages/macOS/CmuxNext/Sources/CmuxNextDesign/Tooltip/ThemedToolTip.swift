@@ -109,7 +109,7 @@ final class TooltipTracker: NSResponder {
         guard region == nil, shortcut == nil, let text = text?.trimmingCharacters(in: .whitespacesAndNewlines), let view else { return false }
         let label: String? = switch view {
         case let button as NSButton where button.imagePosition != .imageOnly: button.title
-        case let field as NSTextField: field.stringValue
+        case let field as any ShownText: field.stringValue
         default: nil
         }
         guard let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty else { return false }

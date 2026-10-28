@@ -1,3 +1,4 @@
+import { PERSONAL_TENANT_METADATA_KEY } from "./team-vm-api-personal-stack.ts"
 import type { Env } from "./env.ts"
 
 /**
@@ -23,7 +24,7 @@ export interface StackServer {
    * `plan` is the team's client_read_only_metadata.cmuxPlan (web billing's team plan mirror,
    * inference-plans.ts), null when absent or not a string.
    */
-  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null } | null>
+  getTeam(teamId: string): Promise<{ display_name: string; plan: string | null; vm_personal_tenant?: boolean } | null>
   /**
    * A user's client_read_only_metadata.cmuxPlan (web billing's personal plan mirror,
    * inference-plans.ts): the plan id, null when absent, "user_gone" for USER_NOT_FOUND.
@@ -150,8 +151,12 @@ export const stackServer = (
   }
   return {
     getTeam: async (teamId) => {
-      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
-      return isGone(r) ? null : { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata) }
+      const r = await lookup<{ display_name?: unknown; client_read_only_metadata?: unknown; server_metadata?: unknown }>(`/teams/${encodeURIComponent(teamId)}`, "team", ["TEAM_NOT_FOUND"])
+      if (isGone(r)) return null
+      // Server-only metadata: a cmux VM personal tenant (team-vm-api-personal-stack.ts) is never mirrored as a cmux team.
+      const meta = r.server_metadata
+      const vm_personal_tenant = !!meta && typeof meta === "object" && !Array.isArray(meta) && (meta as Record<string, unknown>)[PERSONAL_TENANT_METADATA_KEY] != null
+      return { display_name: typeof r.display_name === "string" ? r.display_name : "", plan: readOnlyPlan(r.client_read_only_metadata), vm_personal_tenant }
     },
     getUserPlan: async (userId) => {
       const r = await lookup<{ client_read_only_metadata?: unknown }>(`/users/${encodeURIComponent(userId)}`, "user", ["USER_NOT_FOUND"])

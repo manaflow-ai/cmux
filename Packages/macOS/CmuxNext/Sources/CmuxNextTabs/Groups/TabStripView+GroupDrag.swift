@@ -8,7 +8,10 @@ extension TabStripView {
     func beginGroupDrag(_ press: TabStripGroupState.Press) {
         let group = press.groupID
         let chipID = TabID.groupChip(group)
-        guard let chip = motion[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        guard var chip = placed[chipID], let first = displayed.firstIndex(where: { $0.groupID == group }) else { return }
+        // The block is lifted where its chip shows now (a move may be in flight).
+        if let shown = shownMaxX(chipID) { chip.x = shown - max(0, chip.width) }
+        placed[chipID] = chip
         groups.holdTask?.cancel()
         let members = displayed.filter { $0.groupID == group }.map(\.id)
         let local = convert(press.start, to: tabsClip)
@@ -16,10 +19,10 @@ extension TabStripView {
         groups.drag = TabStripGroupState.Drag(
             groupID: group,
             memberIDs: members,
-            grabOffset: contentX - chip.x.value,
+            grabOffset: contentX - chip.x,
             originalTabIndex: first,
             currentTabIndex: first,
-            blockX: chip.x.value,
+            blockX: chip.x,
             lastPoint: press.start,
             grabY: local.y
         )
@@ -62,10 +65,9 @@ extension TabStripView {
             relayout(animated: !reduceMotion)
         } else {
             for slot in block {
-                if let target = groupDragX(for: slot) { motion[slot.id]?.x.snap(to: target) }
+                if let target = groupDragX(for: slot) { placed[slot.id]?.x = target }
             }
             applyFrames()
-            startAnimating()
         }
     }
 
@@ -110,6 +112,7 @@ extension TabStripView {
         var layers: [CALayer] = []
         if let band = groups.bands[drag.groupID] { layers += [band.washLayer, band.lineLayer] }
         layers += memberCells.map(\.layer) + [chip.layer]
+        let image = snapshot(of: layers, frame: frame)
         let start = TabGroupDragStart(
             groupID: drag.groupID,
             tabIDs: drag.memberIDs,
@@ -120,7 +123,8 @@ extension TabStripView {
             grabOffset: DragGrabPoint.screenOffset(of: CGPoint(x: frame.minX + drag.grabOffset, y: drag.grabY), in: frame,
                                                    flipped: tabsClip.isFlipped),
             screenPoint: pointer,
-            snapshot: snapshot(of: layers, frame: frame)
+            snapshot: image.image,
+            snapshotOnGlass: image.onGlass
         )
         groups.drag = nil
         escapeMonitor.remove()

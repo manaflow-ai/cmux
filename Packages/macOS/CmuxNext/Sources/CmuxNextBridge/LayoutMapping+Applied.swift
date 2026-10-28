@@ -9,9 +9,10 @@ public struct LayoutAppliedTree {
 
     public init() {}
 
-    /// Records the tree; true when it differs from the last one.
+    /// Records the tree; true when what it lays out differs from the last one. Handles alone do
+    /// not count: the daemon's echo of an optimistic split renumbers the new pane, not the tree.
     public mutating func update(_ result: LayoutMapping.Result, edgeDocks: Bool, rows: Bool) -> Bool {
         defer { (self.result, self.edgeDocks, self.rows) = (result, edgeDocks, rows) }
-        return self.result != result || self.edgeDocks != edgeDocks || self.rows != rows
+        return self.result?.screens != result.screens || self.edgeDocks != edgeDocks || self.rows != rows
     }
 }

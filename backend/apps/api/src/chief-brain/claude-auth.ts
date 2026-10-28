@@ -1,5 +1,6 @@
 import type { Env } from "../env.ts"
 import { bedrockBody, eventStreamToSse } from "../model-gateway/bedrock-stream.ts"
+import { CACHE_BLOCKS_HEADER } from "./cache-prefix.ts"
 import { BEDROCK_IDS, claudeRoute, claudeRouteReady, meteredOwner, offers, OPUS, type RouteAuth } from "../model-gateway/routes.ts"
 
 /**
@@ -210,7 +211,9 @@ export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<
   (async (input: RequestInfo | URL, init?: RequestInit) => {
     const headers = new Headers(init?.headers)
     const betas = (headers.get("anthropic-beta") ?? "").split(",").map((b) => b.trim()).filter(Boolean)
-    for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length"]) headers.delete(h)
+    // The brain's cache mark indices (cache-prefix.ts) shape the body; they never leave as a header.
+    const cacheBlocks = (headers.get(CACHE_BLOCKS_HEADER) ?? "").split(",").filter((x) => /^\d+$/.test(x)).map(Number)
+    for (const h of ["x-api-key", "authorization", "anthropic-beta", "anthropic-version", "content-length", CACHE_BLOCKS_HEADER]) headers.delete(h)
     const service = route.auth === "service-key"
     // The payer and call headers are the service-key route's contract; no other route gets them.
     if (!service) for (const h of ["x-cmux-team-id", "x-cmux-chief-id", "x-request-id"]) headers.delete(h)
@@ -223,7 +226,7 @@ export const signedFetch = (auth: () => Promise<string>, refused: () => Promise<
     headers.set("user-agent", "cmux-cloud-chief/1")
     // The Chatmux session route names Opus in its own Bedrock URL; a service-key or multi-model route reads `model` (the Bedrock id).
     const model = service ? (id: string) => BEDROCK_IDS[id] ?? id : undefined
-    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: service || route.models.length > 1, ...(model ? { modelId: model } : {}), effort: route.effortBody === true, ...(route.forwardBetas ? { betas } : {}), ...(route.log ? { dropped: route.log } : {}), ...(route.ttl ? { ttl: route.ttl } : {}) }) : init?.body
+    const body = typeof init?.body === "string" ? bedrockBody(init.body, { keepModel: service || route.models.length > 1, ...(model ? { modelId: model } : {}), effort: route.effortBody === true, ...(route.forwardBetas ? { betas } : {}), ...(route.log ? { dropped: route.log } : {}), ...(route.ttl ? { ttl: route.ttl } : {}), ...(cacheBlocks.length > 0 ? { cacheBlocks } : {}) }) : init?.body
     let res = await fetch(input, { ...init, headers, ...(body === undefined ? {} : { body }) })
     if (res.status === 401) {
       await refused().catch(() => undefined)

@@ -36,7 +36,9 @@ extension LayoutRootView {
 
     /// Syncs the overlay when it is stale.
     func flushOverlaySync() {
-        guard overlayIsStale else { return }
+        // A parked or hidden root keeps its overlay stale: nothing shows it, and it syncs once when it goes
+        // live again (`setLive`).
+        guard overlayIsStale, isLive else { return }
         syncOverlay()
     }
 
@@ -54,31 +56,47 @@ extension LayoutRootView {
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
     /// Callers mark it stale and flush (`setNeedsOverlaySync`).
+    ///
+    /// O(what moved): a host whose frame, screen placement, covers, alpha and visibility, and this
+    /// view's place in the window, are what they were at the last sync keeps its ring, dim and
+    /// window frame as they are (no conversion, no strip notice). The hosts that changed are
+    /// ``panesMovedInLastOverlaySync`` for the observers (`observeOverlaySync`).
     private func syncOverlay() {
+        overlaySyncs += 1
         overlayIsStale = false
         let plane = overlayPlane
+        let inWindow = window == nil ? nil : convert(bounds, to: nil)
         var shown: Set<ObjectIdentifier> = []
+        var moved: Set<PaneID> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
             let above = screen.panesAbove()
             for host in screen.displayedHosts {
                 let chrome = host.chrome
+                shown.insert(ObjectIdentifier(chrome))
+                // A ring never draws over a docked column (strip panes) or a pane in front of it.
+                let covers = screen.ringCovers(of: host, docks: docks, above: above)
+                let alpha = host.alphaValue * screenAlpha
+                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
+                                             rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
+                if chrome.superview === plane, host.overlaySyncKey == key { continue }
+                host.overlaySyncKey = key
+                moved.insert(host.pane)
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
-                // A ring never draws over a docked column (strip panes) or a pane in front of it.
-                chrome.setExcluded(screen.ringCovers(of: host, docks: docks, above: above).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
-                let alpha = host.alphaValue * screenAlpha
+                chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
                 host.noteWindowFrame()
-                shown.insert(ObjectIdentifier(chrome))
+                overlayHostsPlaced += 1
             }
         }
         for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) {
             view.removeFromSuperview()
         }
+        panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
     }
@@ -115,13 +133,25 @@ extension LayoutRootView {
         screenViews[active]?.refreshDividerHover()
     }
 
-    private func reportInteractiveRects() {
+    /// Whether a layout motion runs (a split, close, zoom, New Column, column scroll): its springs
+    /// move panes and dividers on every display frame until they land, including the frame they
+    /// land in (``isLayoutInMotion``), or a change has started springs the display link has not
+    /// stepped yet. A divider drag moves them under the pointer, not on a spring. The window keeps
+    /// what follows the dividers only at rest (`WindowOverlayLayer`: divider catcher panels over
+    /// pages), and hears the end once, after the landing frame's last sync (`setLayoutInMotion`).
+    public var isInLayoutMotion: Bool {
+        isLayoutInMotion || screenViews.values.contains { !$0.isHidden && $0.hasMotion }
+    }
+
+    func reportInteractiveRects() {
         guard let planeHost else { return }
         let rects = interactiveOverlayRects
         let areas = dividerMouseAreas
-        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas else { return }
+        let moving = isInLayoutMotion
+        guard rects != reportedInteractiveRects || areas != reportedDividerMouseAreas || moving != reportedLayoutMotion else { return }
         reportedInteractiveRects = rects
         reportedDividerMouseAreas = areas
+        reportedLayoutMotion = moving
         planeHost.interactiveOverlayRectsDidChange(overlayPlane)
     }
 
@@ -143,6 +173,19 @@ extension LayoutRootView {
             return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
                     ring, content, Self.ringRectsMatch(ring, content))
         }
+    }
+
+    /// The first shown ring off its pane's content rect (``overlayRings`` filtered), converting only
+    /// the rings that show: the overlay layer reads it after every layout pass of the root.
+    public var laggingRing: (pane: String, ringInWindow: CGRect, contentInWindow: CGRect)? {
+        guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return nil }
+        for host in screen.displayedHosts where host.chrome.showsRing && !host.chrome.isHidden {
+            let chrome = host.chrome
+            let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
+            let content = host.convert(host.roundedRect, to: nil)
+            if !Self.ringRectsMatch(ring, content) { return (host.pane.rawValue, ring, content) }
+        }
+        return nil
     }
 
     /// Far below a device pixel (0.5 pt at 2x), far above conversion noise.

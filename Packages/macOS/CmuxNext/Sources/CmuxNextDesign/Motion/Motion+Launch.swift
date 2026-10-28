@@ -1,14 +1,15 @@
 public import QuartzCore
+public import CmuxNextDesignTokens
 
 /// The launch mark's entrance and exit (`LaunchMarkView`), here so their
 /// timing stays with the other Motion tokens.
-extension Motion {
+extension MotionGate {
     /// Resolves the mark in with `style` over the `launch` fade: `trace`
     /// draws the outline, then fills the body over its second half;
     /// `bloom` condenses the mark from a soft glow, 6% larger, to its crisp
     /// size. No overshoot in either. Under Reduce Motion both are a plain
     /// fade (`duration` caps it); with animation off the mark just shows.
-    public static func revealLaunchMark(_ style: LaunchMarkStyle, mark: CALayer, outline: CAShapeLayer, body: CAShapeLayer) {
+    public func revealLaunchMark(_ style: LaunchMarkStyle, mark: CALayer, outline: CAShapeLayer, body: CAShapeLayer) {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         mark.opacity = 1
@@ -32,7 +33,7 @@ extension Motion {
             }
             layer.add(animation, forKey: "launch.\(keyPath)")
         }
-        guard !reduceMotion else {
+        guard !policy.reduceMotion else {
             fade(mark, "opacity", from: 0, to: 1, length: total)
             return
         }
@@ -49,7 +50,7 @@ extension Motion {
     }
 
     /// Fades the mark out (`fadeOut`) when content replaces it.
-    public static func concealLaunchMark(_ mark: CALayer) {
+    public func concealLaunchMark(_ mark: CALayer) {
         for key in mark.animationKeys() ?? [] where key.hasPrefix("launch.") { mark.removeAnimation(forKey: key) }
         set(mark, "opacity", to: Float(0), fade: .fadeOut)
     }

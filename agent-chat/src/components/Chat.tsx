@@ -56,7 +56,7 @@ function useStickToBottom(scrollRef: RefObject<HTMLDivElement | null>, stickRef:
 }
 
 export function Chat() {
-  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, fileDiffErrors, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestProviderCommands, requestFiles, requestFileDiff } = useCtx();
+  const { ready, connectionEpoch, providers, capabilities, providerOptions, session, routing, blocks, options, actions, commands, filesByCwd, fileDiffs, fileDiffErrors, ctrlJ, forkPending, handoffPending, reply, stop, focusTerminal, setOption, fork, handoff, compose, requestProviderOptions, requestFiles, requestFileDiff } = useCtx();
   const [text, setText] = useState(() => draftStorage.getItem(composerDraftKey) || "");
   const [openOptionId, setOpenOptionId] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
@@ -81,7 +81,9 @@ export function Chat() {
 
   useRestoreModelScopedOptions({ provider: session?.provider, options: resolvedOptions, setOption, pendingModelRestoreRef });
   usePersistSessionOptions(session?.provider, resolvedOptions, pendingModelRestoreRef.current !== null);
-  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", catalogCwd, requestProviderOptions, requestProviderCommands);
+  // Chat gets live slash commands from the session stream. Do not fetch the
+  // composer-only provider command catalog for every opened transcript.
+  useProviderCatalogs(ready, connectionEpoch, providers, session?.provider ?? "", catalogCwd, requestProviderOptions);
   useFileCatalog(ready, connectionEpoch, catalogCwd, requestFiles);
   useStickToBottom(scrollRef, stickRef, blocks, running);
   useEffect(() => {

@@ -16,6 +16,12 @@ test("ordinary matrix cards include settled interaction latency", () => {
   expect(html).toContain("playCells(r)");
 });
 
+test("motion review cards include an opt-in video", () => {
+  const html = renderIndex([{ id: "motion", engine: "webkit", screenshot: "motion.png", video: "motion.webm" }]);
+  expect(html).toContain("r.video");
+  expect(html).toContain("motion.webm");
+});
+
 test("parses and validates a manifest", () => {
   expect(parseManifest([{ id: "a", path_or_url: "index.html", params: { width: 10, dark: true } }])).toHaveLength(1);
   expect(() => parseManifest([{ id: "a", path_or_url: "x" }, { id: "a", path_or_url: "y" }])).toThrow("duplicate");
@@ -97,7 +103,7 @@ test("a matrix reuses its browser while isolating and closing every case context
         contexts++;
         return {
           newPage: async () => ({
-            exposeFunction: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async () => {},
+            exposeFunction: async () => {}, addInitScript: async () => {}, goto: async (_url: string, options: unknown) => { navigationWaits.push(options); }, waitForFunction: async () => {},
             evaluate: async () => null,
             screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
           }),
@@ -132,7 +138,7 @@ test("recycles a crashed renderer and keeps the matrix moving", async () => {
       return {
         newContext: async () => ({
           newPage: async () => ({
-            exposeFunction: async () => {}, goto: async () => {}, waitForFunction: async () => {},
+            exposeFunction: async () => {}, addInitScript: async () => {}, goto: async () => {}, waitForFunction: async () => {},
             evaluate: async () => { if (attempt === 1) throw new Error("Target crashed"); return null; },
             screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
           }),
@@ -168,7 +174,7 @@ test("records a hung case after both bounded attempts and captures later cases",
           let target = "";
           return {
             newPage: async () => ({
-              exposeFunction: async () => {}, goto: async (url: string) => { target = url; }, waitForFunction: async () => {},
+              exposeFunction: async () => {}, addInitScript: async () => {}, goto: async (url: string) => { target = url; }, waitForFunction: async () => {},
               evaluate: async () => target.includes("hung") ? new Promise(() => {}) : null,
               screenshot: async ({ path }: { path: string }) => writeFileSync(path, "fixture screenshot"),
             }),
@@ -203,7 +209,7 @@ test("records a navigation failure and continues the matrix", async () => {
   const browserTypes = { chromium: { launch: async () => ({
     newContext: async () => ({
       newPage: async () => ({
-        exposeFunction: async () => {},
+        exposeFunction: async () => {}, addInitScript: async () => {},
         goto: async (url: string) => { if (url.includes("stuck")) throw new Error("goto: Timeout 30000ms exceeded."); },
         waitForFunction: async () => {},
         evaluate: async () => null,

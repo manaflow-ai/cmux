@@ -12,11 +12,10 @@ pub const ASK: &str = "ask";
 
 /// `remote.autoApprove` from a Chief's settings (`{"remote": {"autoApprove":
 /// bool}}`): a remote-origin turn (the owner's own paired device) runs with
-/// the configured policy instead of `ask`. Default true (Lawrence,
-/// 2026-10-06: "i dont want stuff to require my approval"); a missing,
-/// unreadable or non-bool value is the default.
+/// the configured policy instead of `ask`. The secure default is false; a
+/// missing, unreadable or non-bool value asks.
 pub fn remote_auto_approve(settings: &Value) -> bool {
-    settings.pointer("/remote/autoApprove").and_then(Value::as_bool).unwrap_or(true)
+    settings.pointer("/remote/autoApprove").and_then(Value::as_bool).unwrap_or(false)
 }
 
 /// The policy a turn runs with: `ask` when a paired device's message drives
@@ -30,14 +29,11 @@ pub fn turn_policy(remote: bool, auto_approve: bool, configured: &str) -> String
 /// while an `ask` child or subagent is live, unless remote.autoApprove is on;
 /// None leaves the child its own policy.
 pub fn spawn_floor(
-    auto_approve: bool,
+    _auto_approve: bool,
     turn_ask: bool,
     ask_child_live: bool,
     ask_subagent_live: bool,
 ) -> Option<&'static str> {
-    if auto_approve {
-        return None;
-    }
     (turn_ask || ask_child_live || ask_subagent_live).then_some(ASK)
 }
 
@@ -172,17 +168,25 @@ pub mod harness {
     /// The family of `harness` in an `_acpmux/harnesses` answer: the one
     /// acpmux reports, else derived from its kind and its command's words
     /// (acpmux's order: codex before claude), never from its name.
+    ///
+    /// A `claude-stdio` profile is Claude Code whatever family it declares:
+    /// `claude-sr2` (Claude Code through subrouter2, Lawrence 2026-10-18)
+    /// keeps its own family so acpmux's `-m claude` never resolves to it,
+    /// but the Chief must still give it the Claude turn and subagent
+    /// presets, the cached prompt layout and CLAUDE.md.
     pub fn family(answer: &Value, harness: &str) -> Result<String, String> {
         let Some(profile) = answer.get("harnesses").and_then(|h| h.get(harness)) else {
             return Err(format!("acpmux has no harness named {harness}"));
         };
+        let claude_stdio = profile.get("kind").and_then(Value::as_str) == Some(CLAUDE_STDIO);
         if let Some(family) = profile.get("family").and_then(Value::as_str) {
             return Ok(match family {
                 "claude" | "codex" => family.to_owned(),
+                _ if claude_stdio => "claude".to_owned(),
                 _ => "other".to_owned(),
             });
         }
-        if profile.get("kind").and_then(Value::as_str) == Some(CLAUDE_STDIO) {
+        if claude_stdio {
             return Ok("claude".into());
         }
         let words: Vec<String> =

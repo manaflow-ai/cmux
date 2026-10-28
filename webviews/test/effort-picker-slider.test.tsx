@@ -43,6 +43,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { EffortPicker } = await import("../src/agent-session/acpmux/EffortPicker");
+const { effortStopCenterX, effortStopShare } = await import("../src/agent-session/acpmux/EffortTrack");
 const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
 const { readComposerSettings, DEFAULT_COMPOSER } = await import("../src/agent-session/acpmux/composerSettings");
 
@@ -68,7 +69,7 @@ const levels = [
   { id: "high", name: "High", recommended: true },
   { id: "max", name: "Max" },
 ];
-const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 20))));
+const settle = () => act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
 
 async function openMenu(props: Partial<Parameters<typeof EffortPicker>[0]> & { picks?: string[] }) {
   const picks = props.picks ?? [];
@@ -80,6 +81,7 @@ async function openMenu(props: Partial<Parameters<typeof EffortPicker>[0]> & { p
         efforts={props.efforts ?? levels}
         current={"current" in props ? props.current : "medium"}
         slider={props.slider}
+        sliderStyle={props.sliderStyle}
         speed={props.speed}
         onPick={(value) => picks.push(value)}
       />,
@@ -100,6 +102,21 @@ test("the composer setting defaults the slider off and reads the host's flag", (
   expect(readComposerSettings({}).reasoningSlider).toBe(false);
   expect(readComposerSettings({ reasoningSlider: "yes" }).reasoningSlider).toBe(false);
   expect(readComposerSettings({ reasoningSlider: true }).reasoningSlider).toBe(true);
+  expect(DEFAULT_COMPOSER.reasoningSliderStyle).toBe("accent");
+  expect(readComposerSettings({}).reasoningSliderStyle).toBe("accent");
+  expect(readComposerSettings({ reasoningSliderStyle: "minimal" }).reasoningSliderStyle).toBe("minimal");
+  expect(readComposerSettings({ reasoningSliderStyle: "unknown" }).reasoningSliderStyle).toBe("accent");
+});
+
+test("the thumb center and every stop share endpoint-inclusive track geometry", () => {
+  const left = 24;
+  const width = 232;
+  const stopCount = 4;
+  const stops = Array.from({ length: stopCount }, (_, index) => effortStopCenterX(left, width, index, stopCount));
+  expect(stops).toEqual([left, left + width / 3, left + (2 * width) / 3, left + width]);
+  for (let index = 0; index < stopCount; index++) {
+    expect(effortStopCenterX(left, width, index, stopCount)).toBe(left + width * effortStopShare(index, stopCount));
+  }
 });
 
 test("off: the reasoning menu is the list of levels, no slider", async () => {
@@ -126,6 +143,15 @@ test("on: the Reasoning section is the slider on the current level, and moving i
   expect(picks).toEqual(["max"]);
   // A pick keeps the menu open: the slider is for trying levels.
   expect(doc.querySelector(".acpmux-effort-menu")).not.toBeNull();
+});
+
+test("on: the current accent treatment is explicit and minimal is opt-in", async () => {
+  await openMenu({ slider: true });
+  expect(range()!.closest(".acpmux-effort-track")?.getAttribute("data-slider-style")).toBe("accent");
+  act(() => root?.unmount());
+  root = undefined;
+  await openMenu({ slider: true, sliderStyle: "minimal" });
+  expect(range()!.closest(".acpmux-effort-track")?.getAttribute("data-slider-style")).toBe("minimal");
 });
 
 test("on: the slider's stepping keys never reach the menu's row navigation", async () => {

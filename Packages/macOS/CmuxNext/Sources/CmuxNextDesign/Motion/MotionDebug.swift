@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextWakeups
+public import CmuxNextDesignTokens
 
 /// `debug.motion` (DEBUG builds register it; `DebugMotion` in CmuxNextApp is its wiring):
 /// `start` begins recording animation spans, `read` returns them, `stop` returns them and
@@ -23,17 +24,23 @@ import CmuxNextWakeups
 /// Takes and returns `JSONSerialization` object graphs.
 public struct MotionDebug {
     public init() {}
+    /// Samplers other modules add for `trace_*` (the layout's pane hosts), after the caller's.
+    @MainActor public static var registeredSamplers: [@MainActor (NSView) -> [String: [Any]]?] = []
     /// `samplers` read the animated geometry of the views they know (DEBUG builds: ``MotionFrameTrace``).
-    public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = []) -> [String: Any] {
+    /// `commitProbe` (the handler's own) times each Core Animation commit from `start` to `stop`
+    /// (`work` `ca.commit`).
+    public static func handle(_ params: [String: Any], windows: [NSWindow], samplers: [@MainActor (NSView) -> [String: [Any]]?] = [],
+                              commitProbe: MotionCommitProbe? = nil) -> [String: Any] {
         let action = params["action"] as? String ?? "read"
         #if DEBUG
         if action.hasPrefix("trace_") {
-            return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers)
+            return MotionFrameTrace.shared.handle(String(action.dropFirst("trace_".count)), params, windows: windows, samplers: samplers + registeredSamplers)
         }
         #endif
         switch action {
         case "start":
             MotionTrace.start()
+            commitProbe?.start()
         case "speed":
             if let value = params["value"] as? String, let speed = MotionSpeed(rawValue: value) {
                 DesignSettings.shared.animationSpeed = speed
@@ -54,6 +61,7 @@ public struct MotionDebug {
             }
         case "stop":
             let report = self.report
+            commitProbe?.stop()
             MotionTrace.stop()
             return report
         default:
@@ -63,13 +71,15 @@ public struct MotionDebug {
     }
 
     private static var report: [String: Any] {
-        let policy = Motion.policy
+        let policy = Motion.basePolicy
         return [
             "recording": MotionTrace.isEnabled,
             "speed": policy.speed.rawValue,
             "reduce_motion": policy.reduceMotion,
             "bounce": policy.bounce.rawValue,
             "enabled_kinds": policy.enabledKinds.map(\.rawValue).sorted(),
+            "animations_enabled": policy.animationsEnabled,
+            "disabled_categories": policy.disabledCategories.map(\.rawValue).sorted(),
             "pane_animations": DesignSettings.shared.paneAnimations,
             "display_links": FrameScheduler.all.filter(\.hasLink).count,
             "active_clients": FrameScheduler.all.flatMap(\.activeClients),

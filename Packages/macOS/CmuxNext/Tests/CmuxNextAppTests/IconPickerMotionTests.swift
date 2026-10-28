@@ -1,14 +1,12 @@
 import AppKit
 @testable import CmuxNextApp
-import CmuxNextDesign
+@testable import CmuxNextDesign
 import Testing
 
 /// POLISH audit, batch 4 (cx-2grmt): the icon picker appeared and left in one frame. It opens and
 /// closes like every native popup (`PopupFade`).
 @MainActor @Suite(.serialized) struct IconPickerMotionTests {
-    static func hasDisplay() -> Bool { !NSScreen.screens.isEmpty }
-
-    @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
+    @Test(.enabled("needs an awake display and animations on, or every picker snaps anyway") { await GUIAnimationTestSupport.animatesHere() })
     func thePickerOpensAndClosesWithMotion() async throws {
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 600, height: 600), styleMask: [.titled],
                               backing: .buffered, defer: false)

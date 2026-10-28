@@ -26,7 +26,8 @@
 //! like the rest of that log.
 //!
 //! `branches` rolls the range's turns, working time and spend up by the git
-//! branch each session started on (`stats/branches.rs`).
+//! branch each turn ended on, else the one its session started on
+//! (`stats/branches.rs`).
 
 mod attention;
 mod branches;
@@ -106,9 +107,10 @@ pub struct StatsSummary {
     pub permission_wait_ms: u64,
     pub permission_wait_max_ms: u64,
     /// Times an agent could not serve on its account (`hub::is_limit_error`,
-    /// the failover rule: usage, rate or credit limits, rejected credentials,
-    /// an overloaded provider): a turn that failed on one, or a failover to
-    /// the fallback (which may fail too, and then counts again).
+    /// the failover rule: usage, rate or credit limits, rejected credentials;
+    /// not an overloaded provider, which retries in place): a turn that failed
+    /// on one, or a failover to the fallback (which may fail too, and then
+    /// counts again).
     pub limit_errors: u64,
     /// Agent turn time, summed over sessions (two agents for an hour = 2h).
     pub working_ms: u64,
@@ -224,6 +226,8 @@ struct Turn {
     copied: bool,
     /// The spend its `turn_result` recorded.
     usage: TurnUsage,
+    /// The branch its `turn_result` recorded it ended on (`hub/turn_git.rs`).
+    branch: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -341,6 +345,7 @@ impl SessionFold {
                 }
                 if let Some(turn) = self.turns.last_mut() {
                     turn.usage = branches::turn_usage(&record.msg);
+                    turn.branch = branches::turn_branch(&record.msg);
                 }
             }
             // Everything before it in a fork's log is a copy of the parent's:
@@ -407,7 +412,8 @@ impl SessionFold {
     /// when the open turn began before its `forked` record.
     fn push_turn(&mut self, start: Option<u64>, end: u64, status: TurnStatus) {
         let copied = std::mem::take(&mut self.open_copied);
-        self.turns.push(Turn { start, end, status, copied, usage: TurnUsage::default() });
+        let usage = TurnUsage::default();
+        self.turns.push(Turn { start, end, status, copied, usage, branch: None });
     }
 
     fn take_open(&mut self) -> Option<(u64, bool)> {
@@ -539,18 +545,19 @@ impl Fold {
         s.waiting_ms += session.waiting_ms;
 
         // A fork's copies of its parent's turns count in the parent's log.
-        let mut share = branches::BranchShare::default();
+        let (mut turns, mut working) = (0, 0);
+        let mut shares = branches::BranchShares::default();
         for turn in session.turns.iter().filter(|turn| !turn.copied) {
             // A turn's working time may reach into the range whether or not
             // the turn itself counts in it.
-            share.working_ms += turn.start.map_or(0, |start| self.work(start, turn.end));
-            if self.count_turn(turn) {
-                share.turns += 1;
-                share.usage.add(&turn.usage);
-            }
+            let work = turn.start.map_or(0, |start| self.work(start, turn.end));
+            let counted = self.count_turn(turn);
+            (turns, working) = (turns + u64::from(counted), working + work);
+            // The branch the turn ended on; an older log's, the session's start.
+            let branch = turn.branch.as_deref().or(meta.git_branch.as_deref());
+            shares.add(branch, work, counted.then_some(&turn.usage));
         }
-        let (turns, working) = (share.turns, share.working_ms);
-        self.branches.add(meta, share);
+        self.branches.add(meta, shares);
         if turns == 0 && working == 0 {
             return;
         }

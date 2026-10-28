@@ -1,4 +1,5 @@
 import CmuxNextSidebar
+import CmuxNextFocus
 
 /// Previous / Next (Leo 2026-10-09, rapid switching): what the
 /// browser-style keys step from the window's keyboard focus. A focused pane

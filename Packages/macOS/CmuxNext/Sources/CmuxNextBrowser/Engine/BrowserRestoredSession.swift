@@ -14,7 +14,7 @@ protocol BrowserRestoredSessionHost {
     /// Shows Back and Forward as available or not.
     func applyHistoryAvailability(canGoBack: Bool, canGoForward: Bool)
     func currentScrollY() async -> Double?
-    func evaluate(_ script: String, world: BrowserScriptWorld) async throws -> BrowserJSValue
+    func evaluate(_ script: String, world: BrowserScriptWorld, gesture: BrowserScriptGesture) async throws -> BrowserJSValue
     func load(_ url: URL)
 }
 
@@ -199,7 +199,7 @@ class BrowserRestoredSession {
         restoringEntry = entry
         let literal = Self.javaScriptString(entry.url.absoluteString)
         do {
-            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated)
+            _ = try await tab.evaluate("location.replace(\(literal)); true", world: .isolated, gesture: .cmux)
         } catch {
             tab.load(entry.url)
         }
@@ -212,7 +212,19 @@ class BrowserRestoredSession {
         restoringEntry = nil
         // Another page committed (the replace did not navigate): its scroll
         // position is not the saved entry's.
-        if url == entry.url { pendingScrollY = entry.scrollY }
+        if Self.sameDocumentURL(url, entry.url) { pendingScrollY = entry.scrollY }
+    }
+
+    /// File URLs can differ only by the macOS `/private` alias or symlink
+    /// spelling even though they identify the same document. Keep the saved
+    /// scroll restore attached to that commit; web URLs still require exact
+    /// identity so a different navigation cannot inherit the position.
+    private static func sameDocumentURL(_ actual: URL?, _ expected: URL) -> Bool {
+        guard let actual else { return false }
+        if actual == expected { return true }
+        guard actual.isFileURL, expected.isFileURL else { return false }
+        return actual.standardizedFileURL.resolvingSymlinksInPath()
+            == expected.standardizedFileURL.resolvingSymlinksInPath()
     }
 
     /// A main-frame document committed; `formPost` when its request was a
@@ -267,7 +279,7 @@ class BrowserRestoredSession {
           return true;
         })(\(y))
         """
-        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated) }
+        Task { @MainActor [weak self] in _ = try? await self?.tab?.evaluate(script, world: .isolated, gesture: .cmux) }
     }
 
     static func isWebPage(_ url: URL) -> Bool {

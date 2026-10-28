@@ -15,6 +15,8 @@ import Observation
 /// cmux user instead and the menu says who it is, with Sign Out (#17601).
 @MainActor struct SidebarProfileControl {
     let services: AppServices
+    /// The sidebar's window: its room (`profileID`, observed) gives the avatar's room default.
+    weak var state: WindowState?
 
     /// Keeps `model.profileAvatar` current and gives `sidebar` its menu.
     func install(model: SidebarModel, sidebar: SidebarView) {
@@ -31,7 +33,7 @@ import Observation
 
     func avatar(workspace: String?) -> SidebarAvatar {
         let profiles = services.browserProfiles
-        let id = profiles.effectiveProfile(forWorkspace: workspace)
+        let id = profiles.effectiveProfile(forWorkspace: workspace, room: state?.profileID)
         let record = profiles.record(id)
         return SidebarAvatar(name: record?.name ?? profiles.displayName(id), color: record?.color.flatMap(GroupColor.init(rawValue:)))
     }
@@ -49,7 +51,8 @@ import Observation
 
     func menu(workspace: String?) -> NSMenu {
         let avatar = avatar(workspace: workspace)
-        let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name))
+        // Show Chief / Hide Chief reads the `home.chiefPetEnabled` that applies now (the menu is built at each open).
+        let menu = ProfileMenuBuilder(registry: services.registry).make(profile: ProfileMenuProfile(name: avatar.name), avatar: avatar.image(diameter: Double(Metrics.smallIconSize)), chiefPetShown: services.settings?.snapshot.homeChiefPetEnabled)
         SidebarAccount.addRows(to: menu, account: account, registry: services.registry)
         return menu
     }

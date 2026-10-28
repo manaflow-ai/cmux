@@ -3,16 +3,18 @@
 //! socket per subscribed target with resume and reconnect.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use cmux_cloud_wire::SnapshotBackoff;
 use serde_json::{Value, json};
 
 use super::CloudError;
 use super::contract::{
     self, InboxOpRequest, MAX_PAGE, MAX_TAIL, OpRequest, Target, history_data, inbox_list_data,
-    mutation_data, read_body, read_value, require_agent, require_conversation, snapshot_data,
+    mutation_data, read_body, read_value, requests_list_data, require_agent, require_conversation,
+    snapshot_data,
 };
 use super::session::{CloudSession, SessionParams};
 use super::stream::{CloudEvent, StreamAction, StreamState};
@@ -68,12 +70,13 @@ pub trait CloudWire: Send {
 /// The HTTP and WebSocket seam. Calls block; the daemon runs them off the
 /// connection's request loop.
 pub trait CloudBackend: Send + Sync {
-    /// `POST url` with `authorization: Bearer <bearer>`, the JSON `body` and,
-    /// when given, `x-cmux-client-version`.
+    /// `POST url` with `authorization: Bearer <bearer>` (no Authorization
+    /// header when `bearer` is `None`: a self-hosted server on the tailnet),
+    /// the JSON `body` and, when given, `x-cmux-client-version`.
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
@@ -83,7 +86,7 @@ pub trait CloudBackend: Send + Sync {
     fn get(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
         let _ = (url, bearer, client_version);
@@ -107,11 +110,12 @@ pub trait CloudBackend: Send + Sync {
         Err(TransportError("this cloud backend reads no byte ranges".into()))
     }
     /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
-    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
+    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old
+    /// Worker); no Authorization header when `bearer` is `None`.
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError>;
 }
@@ -146,6 +150,8 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// How a stream asks again for a snapshot that did not decode.
+    pub snapshot_backoff: SnapshotBackoff,
     /// API origins beyond the built-in cmux Cloud ones that a lease from a
     /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
     pub api_origins: Vec<String>,
@@ -167,6 +173,7 @@ impl Default for ServiceOptions {
                 .filter(|entry| !entry.is_empty())
                 .map(str::to_string)
                 .collect(),
+            snapshot_backoff: SnapshotBackoff::default(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -191,12 +198,27 @@ struct Lease {
 }
 
 struct Subscription {
+    /// The driver thread this entry started (unique per entry): a retired
+    /// driver's late cleanup never touches the entry that replaced it.
+    driver: u64,
     clients: BTreeSet<u64>,
     idle_since: Option<Instant>,
     /// The shared socket's current state, which a later subscriber is told.
     state: SocketState,
-    /// Frames a client asked the driver to send on the socket (`run.live.get`).
+    /// Frames a client asked the driver to send on the socket (`run.live.get`,
+    /// `typing`).
     outbox: Vec<String>,
+    /// The client whose `cloud-conversation-typing` is on: the indicator is
+    /// sent again after a reconnect (the owner turned it off when the old
+    /// socket closed), and turned off when that client's connection closes.
+    typing_by: Option<u64>,
+    /// The clients whose `cloud-conversation-presence` is viewing: the
+    /// person views while any does. Sent again after a reconnect, and off
+    /// when the last one closes or unsubscribes.
+    viewing: BTreeSet<u64>,
+    /// The live socket's last `conversation-presence` set (none while no
+    /// socket is live), replayed after a subscribe ([`CloudConversations::announce_state`]).
+    presence: Option<CloudEvent>,
 }
 
 /// One `cloud-subscription-state`: the state, its reason and the account of
@@ -247,6 +269,13 @@ struct Inner {
     shutdown: AtomicBool,
     /// Cloud HTTP requests running now (bounded by `max_concurrent_requests`).
     requests_in_flight: AtomicUsize,
+    /// Held across each presence cache change or replay and its emit, so the
+    /// emits go out in cache order: a replay never follows the socket's empty
+    /// set, nor an owner set newer than it. Taken before `subscriptions`; the
+    /// sink only queues the event.
+    presence_order: Mutex<()>,
+    /// The next [`Subscription::driver`].
+    next_driver: AtomicU64,
 }
 
 /// The daemon's cloud link. Cheap to clone; all clones share one state.
@@ -286,6 +315,8 @@ impl CloudConversations {
                 wake: Condvar::new(),
                 shutdown: AtomicBool::new(false),
                 requests_in_flight: AtomicUsize::new(0),
+                presence_order: Mutex::new(()),
+                next_driver: AtomicU64::new(0),
             }),
         }
     }
@@ -308,7 +339,10 @@ impl CloudConversations {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
             check_lease_holder(&lease, by_app)?;
-            if !by_app {
+            // A self-hosted server is admitted by its tailnet origin
+            // (CloudSession::new); a bearer lease from another connection
+            // must name a known cmux Cloud origin.
+            if !by_app && params.lease_auth()? == super::session::LeaseAuth::Bearer {
                 super::session::check_known_origin(
                     &params.api_base_url,
                     &self.inner.options.api_origins,
@@ -324,11 +358,7 @@ impl CloudConversations {
             lease.generation = session.generation;
             lease.expiring_sent = false;
             lease.expired_sent = false;
-            let reply = json!({
-                "state": "active",
-                "api_base_url": session.origin(),
-                "expires_at": session.expires_at,
-            });
+            let reply = session.status("active");
             lease.session = Some(session);
             lease.app_held = by_app;
             (reply, fresh_account)
@@ -373,11 +403,9 @@ impl CloudConversations {
         let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         match &lease.session {
             None => json!({"state": "signed_out"}),
-            Some(session) => json!({
-                "state": if session.is_expired(now) { "expired" } else { "active" },
-                "api_base_url": session.origin(),
-                "expires_at": session.expires_at,
-            }),
+            Some(session) => {
+                session.status(if session.is_expired(now) { "expired" } else { "active" })
+            }
         }
     }
 
@@ -414,6 +442,14 @@ impl CloudConversations {
         let reply = self.post("/v1/read", &read_body("inbox.list", params))?;
         let (value, revision) = read_value(reply)?;
         inbox_list_data(value, revision)
+    }
+
+    /// `cloud-requests-list`: the lease person's open message requests
+    /// (`home.requests.list`), rows without a valid conversation id dropped.
+    pub fn requests_list(&self) -> Result<Value, CloudError> {
+        let reply = self.post("/v1/read", &read_body("home.requests.list", json!({})))?;
+        let (value, _revision) = read_value(reply)?;
+        requests_list_data(value)
     }
 
     /// `cloud-conversation-snapshot`.
@@ -514,10 +550,83 @@ impl CloudConversations {
     pub fn lease_person(&self) -> Option<(String, String)> {
         let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
         let session = lease.session.as_ref()?;
-        if session.agent.is_some() {
+        if session.agent.is_some() || session.is_tailscale() {
             return None;
         }
         Some((session.account.clone()?, session.audience.clone()?))
+    }
+
+    /// The origin and the person's user id (once `cloud-selfhost-info`
+    /// learned it) of a self-hosted lease (`auth: "tailscale"`); `None` for
+    /// a bearer lease or no lease.
+    pub fn lease_selfhost(&self) -> Option<(String, Option<String>)> {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = lease.session.as_ref().filter(|session| session.is_tailscale())?;
+        Some((session.origin().to_string(), session.account.clone()))
+    }
+
+    /// `cloud-selfhost-info`: `GET /v1/selfhost/info` of the self-hosted
+    /// server (no Authorization header: it identifies the caller by
+    /// Tailscale), `{kind: "selfhost", user_id, login, display_name,
+    /// server_name}`. The person's `user_id` becomes the lease's account, so
+    /// every later event is tagged with it; open sockets reconnect to carry
+    /// it. Refused (`not_selfhost`) for a bearer lease.
+    pub fn selfhost_info(&self) -> Result<Value, CloudError> {
+        let session = self.inner.usable_session()?;
+        if !session.is_tailscale() {
+            return Err(CloudError::daemon_reject(
+                "not_selfhost",
+                "cloud-selfhost-info needs a self-hosted lease (auth \"tailscale\")",
+            ));
+        }
+        let reply = self.get("/v1/selfhost/info")?;
+        let not_selfhost =
+            || CloudError::Unavailable("the server is not a cmux self-hosted server".into());
+        if reply.status != 200 {
+            return Err(match reply.status {
+                404 => not_selfhost(),
+                status => CloudError::Unavailable(format!("selfhost info answered HTTP {status}")),
+            });
+        }
+        let body = &reply.body;
+        let text = |name: &str| -> Option<String> {
+            body.get(name)
+                .and_then(Value::as_str)
+                .filter(|value| value.len() <= 256)
+                .map(str::to_string)
+        };
+        let user = text("user_id").filter(|user| valid_selfhost_user(user));
+        let (Some("selfhost"), Some(user)) = (body.get("kind").and_then(Value::as_str), user)
+        else {
+            return Err(not_selfhost());
+        };
+        let mut info = json!({"kind": "selfhost", "user_id": user});
+        for field in ["login", "display_name", "server_name"] {
+            if let Some(value) = text(field) {
+                info[field] = json!(value);
+            }
+        }
+        let changed = {
+            let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            let generation = lease.generation;
+            match lease.session.as_mut() {
+                Some(current)
+                    if generation == session.generation
+                        && current.is_tailscale()
+                        && current.account.as_deref() != Some(user.as_str()) =>
+                {
+                    current.account = Some(user);
+                    current.generation = generation + 1;
+                    lease.generation = generation + 1;
+                    true
+                }
+                _ => false,
+            }
+        };
+        if changed {
+            self.inner.notify();
+        }
+        Ok(info)
     }
 
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is
@@ -638,6 +747,11 @@ impl CloudConversations {
             .backend
             .get(&session.http_url(path), session.bearer(), session.client_version.as_deref())
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        // A self-hosted server refuses a login it does not admit: no Stack
+        // lease would help, so nothing is asked for.
+        if reply.status == 401 && session.is_tailscale() {
+            return Err(CloudError::Unauthenticated);
+        }
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
                 reason: "unauthenticated",
@@ -669,6 +783,9 @@ impl CloudConversations {
                 body,
             )
             .map_err(|TransportError(detail)| CloudError::Unavailable(detail))?;
+        if reply.status == 401 && session.is_tailscale() {
+            return Err(CloudError::Unauthenticated);
+        }
         if reply.status == 401 {
             self.inner.emit(CloudEvent::SessionNeeded {
                 reason: "unauthenticated",
@@ -693,7 +810,7 @@ impl CloudConversations {
             if let Some(subscription) = subscriptions.get_mut(&target) {
                 subscription.clients.insert(client);
                 subscription.idle_since = None;
-                (false, subscription.state.reply(&target))
+                (None, subscription.state.reply(&target))
             } else {
                 let conversations = subscriptions
                     .keys()
@@ -708,24 +825,29 @@ impl CloudConversations {
                     ));
                 }
                 let reply = initial.reply(&target);
+                let driver = self.inner.next_driver.fetch_add(1, Ordering::Relaxed);
                 subscriptions.insert(
                     target.clone(),
                     Subscription {
+                        driver,
                         clients: BTreeSet::from([client]),
                         idle_since: None,
                         state: initial,
                         outbox: Vec::new(),
+                        typing_by: None,
+                        viewing: BTreeSet::new(),
+                        presence: None,
                     },
                 );
-                (true, reply)
+                (Some(driver), reply)
             }
         };
-        if start {
+        if let Some(driver) = start {
             let inner = self.inner.clone();
             let driver_target = target.clone();
             let spawned = std::thread::Builder::new()
                 .name("mux-cloud-stream".into())
-                .spawn(move || run_driver(&inner, driver_target));
+                .spawn(move || run_driver(&inner, driver_target, driver));
             if let Err(error) = spawned {
                 self.inner
                     .subscriptions
@@ -767,20 +889,100 @@ impl CloudConversations {
         Ok(subscription.state.reply(&target))
     }
 
+    /// `cloud-conversation-typing` (`cloud-conversation-typing-v1`): the
+    /// lease's participant is typing (`on`) or stopped, as the owner's
+    /// ephemeral `typing {on, conversation}` frame on the conversation's
+    /// shared socket (the owner's `onFrame`, conversation-do.ts); the owner
+    /// broadcasts it as `conversation-typing` and turns it off when the socket
+    /// closes. Any client of this daemon may send it while some client
+    /// subscribes the conversation (a Chief brain reads and writes on two
+    /// connections), else `not_subscribed`. The newest state replaces one
+    /// that has not gone out yet; it goes out once the socket is live, again
+    /// after a reconnect while on, and off when `client` closes while on.
+    pub fn typing(&self, client: u64, conversation: &str, on: bool) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) =
+            subscriptions.get_mut(&target).filter(|subscription| !subscription.clients.is_empty())
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        subscription.typing_by = on.then_some(client);
+        queue_typing(subscription, conversation, on);
+        Ok(subscription.state.reply(&target))
+    }
+
+    /// `cloud-conversation-presence` (`cloud-conversation-presence-v1`):
+    /// `client` views the conversation (`viewing`) or stopped, as the
+    /// owner's ephemeral `presence.set {conversation, viewing}` frame on the
+    /// shared socket; the person views while any client of this daemon
+    /// does, so only a change of that goes out. Like `typing`: while some
+    /// client subscribes the conversation (else `not_subscribed`), the
+    /// newest state replaces one not yet sent, it goes out again after a
+    /// reconnect while viewing, and off when the last viewing client
+    /// closes or unsubscribes.
+    pub fn presence(
+        &self,
+        client: u64,
+        conversation: &str,
+        viewing: bool,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        let target = Target::Conversation(conversation.to_string());
+        let mut subscriptions =
+            self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) =
+            subscriptions.get_mut(&target).filter(|subscription| !subscription.clients.is_empty())
+        else {
+            return Err(CloudError::daemon_reject(
+                "not_subscribed",
+                "subscribe to the cloud conversation first",
+            ));
+        };
+        let was_viewing = !subscription.viewing.is_empty();
+        if viewing {
+            subscription.viewing.insert(client);
+        } else {
+            subscription.viewing.remove(&client);
+        }
+        let now_viewing = !subscription.viewing.is_empty();
+        if was_viewing != now_viewing {
+            queue_presence(subscription, conversation, viewing);
+        }
+        Ok(subscription.state.reply(&target))
+    }
+
     /// Emits `target`'s current socket state. The daemon calls it after it
     /// sent a subscribe reply: replies and events travel on different queues
     /// of a connection, so a change that raced the reply could otherwise
     /// arrive before it and leave the client on the reply's older state.
+    /// The live socket's last presence set follows, so a page that lost
+    /// events and subscribes again has the current set without a change.
     pub fn announce_state(&self, target: &Target) {
-        let event = self
+        let _order = self.inner.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
+        let events = self
             .inner
             .subscriptions
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .get(target)
-            .map(|subscription| subscription.state.event(target));
-        if let Some(event) = event {
-            self.inner.emit(event);
+            .map(|subscription| {
+                // Only a live socket's set: a socket that is going away has none to tell.
+                // `presence_order` orders this replay with the socket's end (which clears
+                // the cache and emits the empty set) and with a newer owner set.
+                let live = subscription.state.state == "live";
+                (subscription.state.event(target), subscription.presence.clone().filter(|_| live))
+            });
+        if let Some((state, presence)) = events {
+            self.inner.emit(state);
+            if let Some(presence) = presence {
+                self.inner.emit(presence);
+            }
         }
     }
 
@@ -790,11 +992,11 @@ impl CloudConversations {
         {
             let mut subscriptions =
                 self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-            if let Some(subscription) = subscriptions.get_mut(target)
-                && subscription.clients.remove(&client)
-                && subscription.clients.is_empty()
-            {
-                subscription.idle_since = Some(Instant::now());
+            if let Some(subscription) = subscriptions.get_mut(target) {
+                if subscription.clients.remove(&client) && subscription.clients.is_empty() {
+                    subscription.idle_since = Some(Instant::now());
+                }
+                stop_viewing(subscription, target, client);
             }
         }
         self.inner.notify();
@@ -805,10 +1007,19 @@ impl CloudConversations {
         {
             let mut subscriptions =
                 self.inner.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-            for subscription in subscriptions.values_mut() {
+            for (target, subscription) in subscriptions.iter_mut() {
                 if subscription.clients.remove(&client) && subscription.clients.is_empty() {
                     subscription.idle_since = Some(Instant::now());
                 }
+                // Its indicator ends with it (another subscriber may keep
+                // the socket, so the owner's close-time off would not come).
+                if subscription.typing_by == Some(client)
+                    && let Target::Conversation(conversation) = target
+                {
+                    subscription.typing_by = None;
+                    queue_typing(subscription, conversation, false);
+                }
+                stop_viewing(subscription, target, client);
             }
         }
         self.inner.notify();
@@ -984,11 +1195,70 @@ impl Inner {
     }
 
     /// Time left before an idle subscription retires, capped at `cap`.
+    /// Unix milliseconds as the mirror counts them.
+    fn now(&self) -> i64 {
+        i64::try_from((self.options.now_ms)()).unwrap_or(i64::MAX)
+    }
+
     fn idle_wait(&self, target: &Target, cap: Duration) -> Duration {
         let subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
         match subscriptions.get(target).and_then(|subscription| subscription.idle_since) {
             Some(since) => self.options.linger.saturating_sub(since.elapsed()).min(cap),
             None => cap,
+        }
+    }
+
+    /// A socket of `target` went live: an indicator that is on, and the
+    /// person's viewing, go out again (the owner ended them when the
+    /// previous socket closed).
+    fn resend_ephemeral(&self, target: &Target) {
+        let Target::Conversation(conversation) = target else { return };
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        let Some(subscription) = subscriptions.get_mut(target) else { return };
+        if subscription.typing_by.is_some() {
+            queue_typing(subscription, conversation, true);
+        }
+        if !subscription.viewing.is_empty() {
+            queue_presence(subscription, conversation, true);
+        }
+    }
+
+    /// The live socket's new owner set of `target`: kept for later
+    /// subscribers and emitted, in order with replays (`presence_order`).
+    /// A driver whose entry is gone or replaced shows nothing.
+    fn show_presence(&self, target: &Target, driver: u64, event: CloudEvent) {
+        let _order = self.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.keep_presence(target, driver, Some(event.clone())) == Kept::Mine {
+            self.emit(event);
+        }
+    }
+
+    /// `driver`'s socket of `target` ended: nothing is kept, and the set it
+    /// showed empties (`ended`), in order with replays (`presence_order`). A
+    /// driver that retired after its entry was replaced keeps its hands off
+    /// the replacement's set, and empties the clients only while the
+    /// replacement has shown none.
+    fn end_presence(&self, target: &Target, driver: u64, ended: Option<CloudEvent>) {
+        let _order = self.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
+        if self.keep_presence(target, driver, None) == Kept::Replaced {
+            return;
+        }
+        if let Some(event) = ended {
+            self.emit(event);
+        }
+    }
+
+    /// Keeps `target`'s last presence set for later subscribers (`None`: its
+    /// socket is no longer live), when the entry is still `driver`'s.
+    fn keep_presence(&self, target: &Target, driver: u64, presence: Option<CloudEvent>) -> Kept {
+        let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
+        match subscriptions.get_mut(target) {
+            Some(subscription) if subscription.driver == driver => {
+                subscription.presence = presence;
+                Kept::Mine
+            }
+            Some(subscription) if subscription.presence.is_some() => Kept::Replaced,
+            _ => Kept::Gone,
         }
     }
 
@@ -1003,11 +1273,23 @@ impl Inner {
     }
 }
 
+/// Whose entry [`Inner::keep_presence`] found: the driver's own, a
+/// replacement that has shown a set, or none (gone, or a replacement that
+/// has shown nothing yet).
+#[derive(Debug, PartialEq, Eq)]
+enum Kept {
+    Mine,
+    Replaced,
+    Gone,
+}
+
 /// Records the shared socket's state for later subscribers and emits it to
 /// subscribers whenever it changes.
 struct StateReporter<'a> {
     inner: &'a Inner,
     target: Target,
+    /// The driver it reports for ([`Subscription::driver`]).
+    driver: u64,
     last: Option<SocketState>,
 }
 
@@ -1043,9 +1325,42 @@ enum Ended {
     Unauthenticated,
 }
 
-fn run_driver(inner: &Arc<Inner>, target: Target) {
-    let mut stream = StreamState::new(target.clone());
-    let mut reporter = StateReporter { inner, target: target.clone(), last: None };
+/// Queues the owner's `typing` frame; the outbox holds at most one, the
+/// newest state.
+fn queue_typing(subscription: &mut Subscription, conversation: &str, on: bool) {
+    subscription.outbox.retain(|frame| {
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "typing")
+    });
+    subscription
+        .outbox
+        .push(json!({"t": "typing", "on": on, "conversation": conversation}).to_string());
+}
+
+/// Queues the owner's `presence.set` frame; the outbox holds at most one,
+/// the newest state.
+fn queue_presence(subscription: &mut Subscription, conversation: &str, viewing: bool) {
+    subscription.outbox.retain(|frame| {
+        !serde_json::from_str::<Value>(frame).is_ok_and(|frame| frame["t"] == "presence.set")
+    });
+    subscription.outbox.push(
+        json!({"t": "presence.set", "conversation": conversation, "viewing": viewing}).to_string(),
+    );
+}
+
+/// `client` no longer views `target`: the person stops viewing when it was
+/// the last (another subscriber may keep the socket open).
+fn stop_viewing(subscription: &mut Subscription, target: &Target, client: u64) {
+    if let Target::Conversation(conversation) = target
+        && subscription.viewing.remove(&client)
+        && subscription.viewing.is_empty()
+    {
+        queue_presence(subscription, conversation, false);
+    }
+}
+
+fn run_driver(inner: &Arc<Inner>, target: Target, driver: u64) {
+    let mut stream = StreamState::new(target.clone(), inner.options.snapshot_backoff);
+    let mut reporter = StateReporter { inner, target: target.clone(), driver, last: None };
     let mut backoff = inner.options.backoff_min;
     let poll = inner.options.poll;
     loop {
@@ -1071,7 +1386,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
             Err(ConnectError::Unavailable(_)) => Ended::Dropped,
             Ok(mut wire) => {
                 stream.on_connect();
-                pump(
+                let ended = pump(
                     inner,
                     &target,
                     &mut stream,
@@ -1079,7 +1394,19 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     wire.as_mut(),
                     &session,
                     &mut backoff,
-                )
+                );
+                // The owner's `off` for anyone still typing could only come
+                // on this socket.
+                for event in stream.typing_ended() {
+                    inner.emit(event.with_account(account));
+                }
+                // The owner sends who views again only to the next socket.
+                inner.end_presence(
+                    &target,
+                    driver,
+                    stream.presence_ended().map(|event| event.with_account(account)),
+                );
+                ended
             }
         };
         match ended {
@@ -1090,6 +1417,23 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                 break;
             }
             Ended::Reconnect => {}
+            // A self-hosted server that does not admit this login: no lease
+            // to ask for; try again after the backoff (the owner may admit it).
+            Ended::Unauthenticated if session.is_tailscale() => {
+                reporter.report("disconnected", Some("unauthenticated"), account);
+                let until = Instant::now() + backoff;
+                while Instant::now() < until
+                    && inner.generation() == session.generation
+                    && !inner.retire(&target)
+                {
+                    let seen = inner.signal_now();
+                    inner.wait(
+                        seen,
+                        inner.idle_wait(&target, until.saturating_duration_since(Instant::now())),
+                    );
+                }
+                backoff = (backoff * 2).min(inner.options.backoff_max);
+            }
             Ended::Unauthenticated => {
                 inner.emit(CloudEvent::SessionNeeded {
                     reason: "unauthenticated",
@@ -1142,9 +1486,9 @@ fn pump(
         if inner.stream_session().is_err() {
             return Ended::Reconnect;
         }
-        // A client's request on the socket (`run.live.get`) goes out once
-        // the stream is live; a failed send drops the socket, and the
-        // owner's join snapshot answers instead.
+        // A client's request on the socket (`run.live.get`, `typing`,
+        // `presence.set`) goes out once the stream is live; a failed send
+        // drops the socket, and the owner's join snapshot answers instead.
         if stream.is_live() {
             for frame in inner.take_outbox(target) {
                 if wire.send(&frame).is_err() {
@@ -1152,27 +1496,202 @@ fn pump(
                 }
             }
         }
-        match wire.recv(inner.idle_wait(target, inner.options.poll)) {
+        let now = inner.now();
+        // A snapshot that did not decode is asked for again when its backoff ends.
+        for action in stream.snapshot_retry_due(now) {
+            if let StreamAction::Send(frame) = action
+                && wire.send(&frame).is_err()
+            {
+                return Ended::Dropped;
+            }
+        }
+        let mut wait = inner.idle_wait(target, inner.options.poll);
+        if let Some(at) = stream.snapshot_retry_at() {
+            let until = u64::try_from(at.saturating_sub(now)).unwrap_or(0);
+            wait = wait.min(Duration::from_millis(until));
+        }
+        match wire.recv(wait) {
             WireRecv::Idle => {}
             WireRecv::Closed { code: Some(4401) } => return Ended::Unauthenticated,
             WireRecv::Closed { .. } => return Ended::Dropped,
             WireRecv::Text(text) => {
-                for action in stream.on_text(&text) {
+                for action in stream.on_text(&text, inner.now()) {
                     match action {
                         StreamAction::Send(frame) => {
                             if wire.send(&frame).is_err() {
                                 return Ended::Dropped;
                             }
                         }
-                        StreamAction::Emit(event) => inner.emit(event.with_account(account)),
-                        StreamAction::Live => {
-                            *backoff = inner.options.backoff_min;
-                            reporter.report("live", None, account);
+                        StreamAction::Emit(event) => {
+                            let event = event.with_account(account);
+                            if matches!(event, CloudEvent::Presence { .. }) {
+                                inner.show_presence(target, reporter.driver, event);
+                            } else {
+                                inner.emit(event);
+                            }
                         }
+                        StreamAction::Live => {
+                            reporter.report("live", None, account);
+                            inner.resend_ephemeral(target);
+                        }
+                        StreamAction::Drop => return Ended::Dropped,
                         StreamAction::Forbidden => return Ended::Forbidden,
                     }
                 }
+                // The backoff resets only when the stream works: a snapshot or
+                // an event reached clients and no snapshot is failing. A
+                // welcome alone, or a snapshot that keeps failing, keeps it,
+                // so those reconnects slow down.
+                if stream.take_progress() && stream.is_healthy() {
+                    *backoff = inner.options.backoff_min;
+                }
             }
         }
+    }
+}
+
+/// A self-hosted server's user id (`user_ts_...`): `user_` and 6-80
+/// characters of `[A-Za-z0-9_.-]` in all.
+fn valid_selfhost_user(user: &str) -> bool {
+    (6..=80).contains(&user.len())
+        && user.starts_with("user_")
+        && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+}
+
+#[cfg(test)]
+mod presence_order_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    struct NoBackend;
+
+    impl CloudBackend for NoBackend {
+        fn post(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+            _: &Value,
+        ) -> Result<HttpReply, TransportError> {
+            Err(TransportError("offline".into()))
+        }
+        fn connect(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<Box<dyn CloudWire>, ConnectError> {
+            Err(ConnectError::Unavailable("offline".into()))
+        }
+    }
+
+    fn presence(viewing: bool) -> CloudEvent {
+        let participants = if viewing { vec![("user_ana".to_string(), true)] } else { Vec::new() };
+        CloudEvent::Presence { conversation: "conv_1".into(), participants, account: None }
+    }
+
+    fn entry(driver: u64, shown: Option<CloudEvent>) -> Subscription {
+        Subscription {
+            driver,
+            clients: BTreeSet::from([1]),
+            idle_since: None,
+            state: SocketState { state: "live", reason: None, account: None },
+            outbox: Vec::new(),
+            typing_by: None,
+            viewing: BTreeSet::new(),
+            presence: shown,
+        }
+    }
+
+    fn recording(service: &CloudConversations) -> Arc<Mutex<Vec<CloudEvent>>> {
+        let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
+        let log = emitted.clone();
+        service.set_sink(Arc::new(move |event| log.lock().unwrap().push(event)));
+        emitted
+    }
+
+    /// A driver that retires after a new subscribe replaced its entry
+    /// (`retire` removes the entry before the driver cleans up) leaves the
+    /// replacement's set alone; with no replacement, or one that has shown
+    /// nothing yet, it empties the clients.
+    #[test]
+    fn a_retired_drivers_cleanup_never_erases_its_replacements_set() {
+        let service = CloudConversations::new(Arc::new(NoBackend));
+        let target = Target::Conversation("conv_1".into());
+        let emitted = recording(&service);
+        let entries = || service.inner.subscriptions.lock().unwrap();
+        entries().insert(target.clone(), entry(1, Some(presence(true))));
+        service.inner.end_presence(&target, 0, Some(presence(false)));
+        assert!(emitted.lock().unwrap().is_empty(), "the replacement's set stands");
+        assert_eq!(entries()[&target].presence, Some(presence(true)));
+        // A replaced driver shows nothing either.
+        service.inner.show_presence(&target, 0, presence(false));
+        assert!(emitted.lock().unwrap().is_empty());
+        entries().insert(target.clone(), entry(2, None));
+        service.inner.end_presence(&target, 0, Some(presence(false)));
+        assert_eq!(*emitted.lock().unwrap(), [presence(false)], "nothing newer to keep");
+        entries().remove(&target);
+        service.inner.end_presence(&target, 0, Some(presence(false)));
+        assert_eq!(emitted.lock().unwrap().len(), 2, "no entry: the clients empty");
+        // The driver's own entry: cleared and emptied.
+        entries().insert(target.clone(), entry(3, Some(presence(true))));
+        service.inner.end_presence(&target, 3, Some(presence(false)));
+        assert_eq!(entries()[&target].presence, None);
+        assert_eq!(emitted.lock().unwrap().len(), 3);
+    }
+
+    /// A replay that is mid-emit when the socket ends still goes out before
+    /// the socket's empty set: the clients end on no viewers, never on the
+    /// dead socket's set.
+    #[test]
+    fn a_replay_racing_the_socket_end_goes_out_before_the_empty_set() {
+        let service = CloudConversations::new(Arc::new(NoBackend));
+        let target = Target::Conversation("conv_1".into());
+        service
+            .inner
+            .subscriptions
+            .lock()
+            .unwrap()
+            .insert(target.clone(), entry(0, Some(presence(true))));
+        let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
+        let (paused_tx, paused) = mpsc::channel::<()>();
+        let (resume, resume_rx) = mpsc::channel::<()>();
+        let resume_rx = Mutex::new(resume_rx);
+        let log = emitted.clone();
+        service.set_sink(Arc::new(move |event| {
+            let pause = matches!(event, CloudEvent::SubscriptionState { .. });
+            log.lock().unwrap().push(event);
+            // The replay pauses after the state, before its presence set.
+            if pause {
+                let _ = paused_tx.send(());
+                let _ = resume_rx.lock().unwrap().recv();
+            }
+        }));
+        let replay = {
+            let (service, target) = (service.clone(), target.clone());
+            std::thread::spawn(move || service.announce_state(&target))
+        };
+        paused.recv().unwrap();
+        let (ended_tx, ended) = mpsc::channel::<()>();
+        let end = {
+            let (inner, target) = (service.inner.clone(), target.clone());
+            std::thread::spawn(move || {
+                inner.end_presence(&target, 0, Some(presence(false)));
+                let _ = ended_tx.send(());
+            })
+        };
+        assert!(
+            ended.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the socket's end waits for the replay in flight"
+        );
+        resume.send(()).unwrap();
+        replay.join().unwrap();
+        end.join().unwrap();
+        let emitted = emitted.lock().unwrap();
+        assert!(matches!(emitted[0], CloudEvent::SubscriptionState { .. }));
+        assert_eq!(emitted[1..], [presence(true), presence(false)]);
+        // Nothing is kept for a later subscribe: the socket is gone.
+        drop(emitted);
+        assert!(service.inner.subscriptions.lock().unwrap()[&target].presence.is_none());
     }
 }

@@ -12,6 +12,9 @@ knowledge_base:
 reviews:
   profile: assertive
   request_changes_workflow: false
+  # No "Review skipped" notice on pull requests it does not auto-review (feat-cmux-next and
+  # other non-default bases); reviews themselves are unchanged.
+  review_status: false
   path_instructions:
     - path: "**/*"
       instructions: |

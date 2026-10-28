@@ -43,6 +43,7 @@ fn paths(d: &Path) -> Paths {
         codex_config: d.join("home").join("config.toml"),
         record: d.join("home").join("trust.json"),
         agent_home: Some(d.join("agent-home")),
+        cmux_worktrees: Some(d.join("home").join(".cmux").join("worktrees")),
     }
 }
 
@@ -151,6 +152,117 @@ async fn the_local_app_sends_no_prompt_while_the_folders_trust_is_pending() {
     let r = app.prompt(&s, "hello-after-trust").await;
     assert!(r.get("error").is_none(), "{r}");
     assert!(app.agent_saw(&s, "hello-after-trust").await);
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// "Trust this repo" answers every worktree of it: a worktree cmux made for a chat (outside the
+/// repository, as `~/.cmux/worktrees/...` is) starts and prompts with no second question. A
+/// `.git` file the repository does not name back proves nothing and still waits.
+#[tokio::test]
+async fn a_worktree_of_a_trusted_repo_starts_and_prompts_with_no_question() {
+    let d = dir("worktree");
+    let hub = hub(&d);
+    let main = d.join("work");
+    let tree = d.join("worktrees").join("work").join("fix-retry");
+    let gitdir = main.join(".git").join("worktrees").join("fix-retry");
+    std::fs::create_dir_all(&gitdir).unwrap();
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display())).unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+    let forged = d.join("forged");
+    std::fs::create_dir_all(&forged).unwrap();
+    std::fs::write(forged.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    // A gitdir of its own that names the file back and claims the repository as its commondir.
+    let own = d.join("forged-own");
+    std::fs::create_dir_all(own.join("meta")).unwrap();
+    std::fs::write(own.join(".git"), "gitdir: meta\n").unwrap();
+    std::fs::write(own.join("meta/gitdir"), format!("{}\n", own.join(".git").display())).unwrap();
+    std::fs::write(own.join("meta/commondir"), format!("{}\n", main.join(".git").display()))
+        .unwrap();
+
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let new = |cwd: &Path| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
+    assert_eq!(reason(&app.call("session/new", new(&tree)).await), "trust.pending");
+    app.trust(&main, "trusted").await;
+    let r = app.call("session/new", new(&tree)).await;
+    assert!(r.get("error").is_none(), "worktree session/new after Trust this repo: {r}");
+    let s = r["result"]["sessionId"].as_str().unwrap().to_owned();
+    let r = app.prompt(&s, "hello-from-the-worktree").await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(app.agent_saw(&s, "hello-from-the-worktree").await);
+    let r = app.call("acp.trust.get", json!({"cwd": tree})).await;
+    assert_eq!(r["result"]["via"], json!(main.to_string_lossy()), "{r}");
+
+    assert_eq!(reason(&app.call("session/new", new(&forged)).await), "trust.pending");
+    assert_eq!(reason(&app.call("session/new", new(&own)).await), "trust.pending");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A worktree cmux made (`~/.cmux/worktrees/<project>/<name>`) starts and prompts with no
+/// question, though nobody answered for its repository: on 2026-10-21 a lane's chat in
+/// `~/.cmux/worktrees/cmux/directional-motion` refused every send with `trust.pending`.
+#[tokio::test]
+async fn a_worktree_cmux_made_starts_and_prompts_with_no_question() {
+    let d = dir("cmux-worktree");
+    let hub = hub(&d);
+    let main = d.join("work");
+    let tree = d.join("home/.cmux/worktrees/work/directional-motion");
+    let gitdir = main.join(".git").join("worktrees").join("directional-motion");
+    std::fs::create_dir_all(&gitdir).unwrap();
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display())).unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let new = json!({"cwd": tree, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
+    let r = app.call("session/new", new).await;
+    assert!(r.get("error").is_none(), "session/new in a cmux worktree: {r}");
+    let s = r["result"]["sessionId"].as_str().unwrap().to_owned();
+    let r = app.prompt(&s, "hello-from-a-cmux-worktree").await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(app.agent_saw(&s, "hello-from-a-cmux-worktree").await);
+    // Its repository is still asked about.
+    let r = app
+        .call(
+            "session/new",
+            json!({"cwd": main, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}}),
+        )
+        .await;
+    assert_eq!(reason(&r), "trust.pending");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
+/// A chat whose agent already runs is never held up by an open trust question: a lane a
+/// coordinator started over the unix socket in a folder nobody answered for takes the person's
+/// prompts from the app's pane. Only an explicit Don't trust refuses them.
+#[tokio::test]
+async fn a_running_chat_is_not_held_by_an_open_trust_question() {
+    let d = dir("running");
+    let hub = hub(&d);
+    let folder = d.join("work").join("other");
+    let mut cli = Client::new(&hub, Origin::Local);
+    let s = cli.new_session(&folder, "fclaude").await;
+    let r = cli.prompt(&s, "started-by-the-coordinator").await;
+    assert!(r.get("error").is_none(), "{r}");
+
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let r = app.prompt(&s, "sent-from-the-pane").await;
+    assert!(r.get("error").is_none(), "a running chat refused the pane's prompt: {r}");
+    assert!(app.agent_saw(&s, "sent-from-the-pane").await);
+    let r = app.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert_ne!(reason(&r), "trust.pending", "{r}");
+
+    app.trust(&folder, "untrusted").await;
+    assert_eq!(reason(&app.prompt(&s, "after-dont-trust").await), "trust.untrusted");
+    // A reconnect starts an MCP server's command again in the folder: gated as set_tools is.
+    let r = app.call("_acpmux/mcp/reconnect", json!({"sessionId": s, "server": "github"})).await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
+    let r = app
+        .call("_acpmux/set_tools", json!({"sessionId": s, "id": "mcp:github", "enabled": true}))
+        .await;
+    assert_eq!(reason(&r), "trust.untrusted", "{r}");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -360,7 +472,8 @@ async fn a_fork_into_a_folder_without_trust_waits_for_it() {
     // Its own (trusted) folder: the fork goes.
     let r = app.call("session/fork", json!({"sessionId": s})).await;
     assert!(r.get("error").is_none(), "{r}");
-    // Another folder with no answer: refused before any agent runs there.
+    // Another folder with no answer (a plain folder's answer covers only itself): refused
+    // before any agent runs there.
     let r = app.call("session/fork", json!({"sessionId": s, "cwd": other})).await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
     assert_eq!(r["error"]["data"]["cwd"], json!(other.to_string_lossy()), "{r}");

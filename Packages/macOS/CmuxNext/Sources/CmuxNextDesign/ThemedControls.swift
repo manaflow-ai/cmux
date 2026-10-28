@@ -41,8 +41,46 @@ public class ThemedBezelButton: NSButton {
         applyTheme()
     }
 
+    /// The key that presses this button in its sheet or panel (u2647), shown after the title
+    /// as in every cmux dialog and bound as the button's key equivalent: Return, Escape or
+    /// Command plus a character. nil shows and binds none.
+    public var keyHint: CmuxDialogKeyHint? {
+        willSet { if keyHint == nil { plainTitle = super.title } }
+        didSet {
+            keyEquivalent = keyHint?.keyEquivalent ?? ""
+            keyEquivalentModifierMask = keyHint?.modifierMask ?? []
+            setAccessibilityHelp(keyHint?.spokenName)
+            applyTitle()
+        }
+    }
+
+    /// The title without the keycap while a ``keyHint`` shows (what callers set and read).
+    private var plainTitle = ""
+
+    public override var title: String {
+        get { keyHint == nil ? super.title : plainTitle }
+        set {
+            plainTitle = newValue
+            applyTitle()
+        }
+    }
+
+    public override var isEnabled: Bool {
+        didSet { if keyHint != nil { applyTitle() } }
+    }
+
     private func applyTheme() {
         bezelColor = performWithTheme { themeBezel }
+        if keyHint != nil { applyTitle() }
+    }
+
+    private func applyTitle() {
+        guard let keyHint else { return super.title = plainTitle }
+        let font = self.font ?? Typography.body
+        attributedTitle = performWithTheme {
+            keyHint.attributedTitle(plainTitle, font: font, color: isEnabled ? Palette.textPrimary : Palette.textTertiary)
+        }
+        setAccessibilityLabel(plainTitle)
     }
 }
 

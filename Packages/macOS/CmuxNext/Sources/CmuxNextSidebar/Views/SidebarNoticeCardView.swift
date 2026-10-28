@@ -17,13 +17,13 @@ final class SidebarNoticeCardView: NSView {
     var onAction: ((String, String) -> Void)?
     var onDismiss: ((String) -> Void)?
     private(set) var notice: SidebarNoticeCard?
-    private let eyebrowLabel = NSTextField(labelWithString: "")
-    private let titleLabel = NSTextField(labelWithString: "")
-    private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let shortcutLabel = NSTextField(labelWithString: "")
+    let eyebrowLabel = ChromeLabel(labelWithString: "")
+    let titleLabel = ChromeLabel(labelWithString: "")
+    private let detailLabel = ChromeLabel(wrappingLabelWithString: "")
+    private let shortcutLabel = ChromeLabel(labelWithString: "")
     /// List lines under the detail (a changelog), one label each.
-    private var lineLabels: [NSTextField] = []
-    private let icon = NSImageView()
+    private var lineLabels: [ChromeLabel] = []
+    private let icon = DecorativeImageView() // the card's title says what it is
     private let spinner = StatusIndicatorView.spinner()
     private let track = CALayer()
     private let bar = CALayer()
@@ -39,10 +39,19 @@ final class SidebarNoticeCardView: NSView {
     /// `hiddenAction` (sent when that notice leaves the card).
     private var reportedShown: (id: String, hiddenAction: String?)?
     private var occlusionObserver: NSObjectProtocol?
+    /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
+    private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
+    private let motionPolicy: @MainActor () -> MotionPolicy
+    /// The card plays its exit: the slot keeps it in place until it has gone.
+    var isLeaving: Bool { presence.isLeaving }
 
-    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
+    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
+    init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
         surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
+        self.motionPolicy = motionPolicy
         super.init(frame: frame)
+        wantsLayer = true
         addSubview(surface)
         addSubview(content)
         for label in [eyebrowLabel, titleLabel, shortcutLabel] {
@@ -51,19 +60,23 @@ final class SidebarNoticeCardView: NSView {
         }
         detailLabel.maximumNumberOfLines = 2
         detailLabel.lineBreakMode = .byWordWrapping
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         shortcutLabel.alignment = .right
         icon.imageScaling = .scaleProportionallyDown
         content.wantsLayer = true
         track.cornerRadius = 1.5
         bar.cornerRadius = 1.5
+        // The bar lives in the track, which clips it: the unmeasured sweep never leaves the track.
+        track.masksToBounds = true
         content.layer?.addSublayer(track)
-        content.layer?.addSublayer(bar)
+        track.addSublayer(bar)
         closeButton.takesKeyFocus = true
         closeButton.onPress = { [weak self] in self?.closePressed() }
         dismissButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
         [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton, dismissButton].forEach(content.addSubview)
+        closeButton.setAccessibilityIdentifier("cmux.sidebar.notice.close")
+        dismissButton.setAccessibilityIdentifier("cmux.sidebar.notice.dismiss")
         setAccessibilityElement(false)
         isHidden = true
     }
@@ -71,7 +84,7 @@ final class SidebarNoticeCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
     /// Shows `notice`, or hides the view for nil.
@@ -84,10 +97,16 @@ final class SidebarNoticeCardView: NSView {
             reportedShown = nil
             if let hidden = shown.hiddenAction { onAction?(shown.id, hidden) }
         }
-        isHidden = notice == nil
+        let wasShowing = !isHidden && !isLeaving
+        presence.setShown(notice != nil)
         guard let notice else {
+            // The exit shows the last notice as it was; only its spinner stops.
             spinner.spin(false)
             return
+        }
+        // A new message in a card already on screen (Checking… to Up to Date) crossfades.
+        if let previous, wasShowing, Self.changesMessage(from: previous, to: notice) {
+            presence.transition.crossfade(content.layer)
         }
         eyebrowLabel.stringValue = notice.eyebrow ?? ""
         eyebrowLabel.isHidden = notice.eyebrow == nil
@@ -97,7 +116,7 @@ final class SidebarNoticeCardView: NSView {
         if previous?.lines != notice.lines {
             lineLabels.forEach { $0.removeFromSuperview() }
             lineLabels = notice.lines.prefix(Self.maxLines).map { line in
-                let label = NSTextField(labelWithString: "• " + line)
+                let label = ChromeLabel(labelWithString: "• " + line)
                 label.lineBreakMode = .byTruncatingTail
                 label.maximumNumberOfLines = 1
                 label.themedToolTip = line
@@ -191,6 +210,8 @@ final class SidebarNoticeCardView: NSView {
         actionButtons = actions.prefix(2).map { action in
             let button = SidebarUpdateButton()
             button.isQuiet = !action.prominent
+            button.fixedStyle = .inverted
+            button.setAccessibilityIdentifier("cmux.sidebar.notice.action.\(action.id)")
             button.onPress = { [weak self] in
                 guard let id = self?.notice?.id else { return }
                 self?.onAction?(id, action.id)
@@ -198,6 +219,15 @@ final class SidebarNoticeCardView: NSView {
             content.addSubview(button)
             return button
         }
+    }
+
+    /// Whether `old` to `new` changes what the card says (not only its progress).
+    /// A download's byte count ticking in the detail is progress, not a new message: it never crossfades.
+    static func changesMessage(from old: SidebarNoticeCard, to new: SidebarNoticeCard) -> Bool {
+        let ticking = old.progress != nil && new.progress != nil && old.title == new.title
+        return old.id != new.id || old.title != new.title || (old.detail != new.detail && !ticking) || old.symbol != new.symbol
+            || old.eyebrow != new.eyebrow || old.lines != new.lines || old.actions != new.actions
+            || (old.progress == nil) != (new.progress == nil)
     }
 
     // MARK: Geometry
@@ -219,7 +249,9 @@ final class SidebarNoticeCardView: NSView {
         if notice.eyebrow != nil { height += line.caption }
         if notice.detail != nil { height += Metrics.space1 + 2 * line.caption }
         if !notice.lines.isEmpty { height += Metrics.space1 + CGFloat(min(notice.lines.count, maxLines)) * line.caption }
-        if case .fraction = notice.progress { height += Metrics.space2 + barHeight }
+        // Every loading stage keeps the bar's row (Lawrence 2026-10-20: "needs better loading
+        // indicator"): Checking to Downloading to Installing never changes the card's height.
+        if notice.progress != nil { height += Metrics.space2 + barHeight }
         if !notice.actions.isEmpty { height += Metrics.space2 + SidebarUpdateButton.height }
         return ceil(height)
     }
@@ -236,7 +268,6 @@ final class SidebarNoticeCardView: NSView {
         titleLabel.font = Typography.bodyEmphasized
         detailLabel.font = Typography.caption
         shortcutLabel.font = Typography.caption
-        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: pad / 2, width: close, height: close)
         let dismissWidth = dismissButton.fittingWidth, dismissHeight = SidebarCardTextButton.height
         let titleY = pad + (eyebrowLabel.isHidden ? 0 : line.caption)
         dismissButton.frame = NSRect(x: b.width - pad / 2 - dismissWidth, y: titleY + (line.body - dismissHeight) / 2,
@@ -254,6 +285,13 @@ final class SidebarNoticeCardView: NSView {
         spinner.frame = icon.frame
         let titleWidth = max(0, b.width - pad - textX - (eyebrowLabel.isHidden || !dismissButton.isHidden ? closeRoom : 0))
         titleLabel.frame = NSRect(x: textX, y: y, width: titleWidth, height: line.body)
+        // The x centers on the first line's capitals, the heading's or else the title's (live-qa
+        // 2026-10-21: centered in the padding corner it sat a point above the heading).
+        let first = eyebrowLabel.isHidden ? titleLabel : eyebrowLabel
+        let capMid = first.frame.minY + first.firstBaselineOffsetFromTop - (first.font?.capHeight ?? 0) / 2
+        let scale = window?.backingScaleFactor ?? 2
+        closeButton.frame = NSRect(x: b.width - pad / 2 - close, y: ((capMid - close / 2) * scale).rounded() / scale,
+                                   width: close, height: close)
         y += line.body
         let textWidth = max(0, b.width - pad - textX)
         if !detailLabel.isHidden {
@@ -267,19 +305,12 @@ final class SidebarNoticeCardView: NSView {
             label.frame = NSRect(x: textX, y: y, width: textWidth, height: line.caption)
             y += line.caption
         }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        if case .fraction(let progress) = notice?.progress {
+        if notice?.progress != nil {
             y += Metrics.space2
-            track.isHidden = false
-            bar.isHidden = false
-            track.frame = CGRect(x: textX, y: y, width: textWidth, height: Self.barHeight)
-            bar.frame = CGRect(x: textX, y: y, width: textWidth * CGFloat(min(1, max(0.03, progress))), height: Self.barHeight)
+            layoutProgress(CGRect(x: textX, y: y, width: textWidth, height: Self.barHeight))
         } else {
-            track.isHidden = true
-            bar.isHidden = true
+            layoutProgress(nil)
         }
-        CATransaction.commit()
         let rowY = b.height - pad - SidebarUpdateButton.height
         var x = pad
         for button in actionButtons {
@@ -292,6 +323,88 @@ final class SidebarNoticeCardView: NSView {
                                      width: max(0, b.width - pad - x), height: line.caption)
         // A window that shows after the card was filled lays it out: the hint is on screen now.
         reportShownIfOnScreen()
+        presence.didLayout()
+    }
+
+    /// The bar's last measured fraction, so a new one fills toward it smoothly.
+    private var shownFraction: Double?
+
+    /// Shows the progress row in `frame` (nil hides it): a measured fraction
+    /// fills smoothly from the last one; unmeasured work sweeps a short
+    /// segment across the track (still under Reduce Motion: the spinner
+    /// glyph alone moves then).
+    private func layoutProgress(_ frame: CGRect?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let frame, let progress = notice?.progress else {
+            track.isHidden = true
+            bar.removeAnimation(forKey: Self.sweepKey)
+            shownFraction = nil
+            return
+        }
+        track.isHidden = false
+        track.frame = frame
+        bar.isHidden = false
+        switch progress {
+        case .fraction(let value):
+            bar.removeAnimation(forKey: Self.sweepKey)
+            let target = CGRect(x: 0, y: 0, width: frame.width * CGFloat(min(1, max(0.03, value))), height: frame.height)
+            bar.anchorPoint = .zero
+            bar.position = .zero
+            if let shown = shownFraction, shown != value, motionPolicy().animatesFades, !isHidden {
+                // Fills toward the new value instead of jumping (a download reports often and unevenly).
+                Motion.overlays.set(bar, "bounds.size.width", to: target.width, fade: .highlight)
+                bar.bounds.size.height = target.height
+            } else {
+                bar.removeAnimation(forKey: "bounds.size.width")
+                bar.frame = target
+            }
+            shownFraction = value
+        case .indeterminate:
+            shownFraction = nil
+            bar.removeAnimation(forKey: "bounds.size.width")
+            bar.anchorPoint = .zero
+            let segment = frame.width * Self.sweepWidth
+            bar.frame = CGRect(x: 0, y: 0, width: segment, height: frame.height)
+            guard motionPolicy().animatesLoops else {
+                bar.removeAnimation(forKey: Self.sweepKey)
+                bar.isHidden = true
+                return
+            }
+            if bar.animation(forKey: Self.sweepKey) != nil, sweptTravel == frame.width { return }
+            guard let sweep = Motion.indicators.sweepAnimation(segment: segment, travel: frame.width, policy: motionPolicy()) else {
+                bar.isHidden = true
+                return
+            }
+            sweptTravel = frame.width
+            bar.add(sweep, forKey: Self.sweepKey)
+        }
+    }
+
+    /// The track width the running sweep crosses.
+    private var sweptTravel: CGFloat = 0
+
+    private static let sweepKey = "notice.progress.sweep"
+    /// The unmeasured segment's share of the track.
+    private static let sweepWidth: CGFloat = 0.32
+
+    /// The progress row as shown, for tests: hidden, sweeping (unmeasured) or the bar's fraction of the track.
+    var progressShown: ProgressShown {
+        guard !track.isHidden else { return .none }
+        if bar.animation(forKey: Self.sweepKey) != nil { return .sweeping }
+        if notice?.progress == .indeterminate { return .still }
+        return .fraction(track.bounds.width > 0 ? Double(bar.frame.width / track.bounds.width) : 0)
+    }
+
+    /// What ``progressShown`` reports.
+    enum ProgressShown: Equatable {
+        case none
+        /// Unmeasured work with Reduce Motion (or motion off): the track alone; the spinner glyph moves.
+        case still
+        /// Unmeasured work: a segment sweeps across the track.
+        case sweeping
+        case fraction(Double)
     }
 
     private func applyColors() {
@@ -346,5 +459,5 @@ private final class SidebarNoticeCardContent: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

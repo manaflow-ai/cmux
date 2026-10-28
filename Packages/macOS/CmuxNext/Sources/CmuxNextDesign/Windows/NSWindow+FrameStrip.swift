@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
 import Foundation
 
@@ -73,6 +73,15 @@ extension NSWindow {
             "mean_interval_ms": frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0,
         ]
         return report.merging(motion.mapValues { $0 as Any }) { first, _ in first }
+    }
+
+    /// `host`'s rect as fractions of the window's captured image (top-left origin), for `WindowFrame.record(crop:)`.
+    public func unitRect(of host: NSView) -> CGRect? {
+        guard host.window === self, frame.width > 0,
+              let windowHeight = contentView?.superview?.bounds.height ?? contentView?.bounds.height, windowHeight > 0
+        else { return nil }
+        let rect = host.convert(host.bounds, to: nil)
+        return CGRect(x: rect.minX / frame.width, y: (windowHeight - rect.maxY) / windowHeight, width: rect.width / frame.width, height: rect.height / windowHeight)
     }
 
     /// `host`'s bounds in `frame` pixels (top-left origin).

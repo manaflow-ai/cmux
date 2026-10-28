@@ -282,7 +282,7 @@ Every action has a key tier (`ActionKeyTier`), default from the catalog, overrid
 
 | Tier | Meaning | Default members |
 | --- | --- | --- |
-| 0 system | Always runs, no content can capture it, also in browser focus mode and text fields | quit, closeTab, closeWorkspace, closeWindow, newWindow, commandPalette, toggleBrowserFocusMode, openSettings, showHideAllWindows, toggleFullScreen |
+| 0 system | Always runs, no content can capture it, also in text fields; in browser focus mode only toggleBrowserFocusMode and quit (the page gets the rest, Esc Esc also exits) | quit, closeTab, closeWorkspace, closeWindow, newWindow, commandPalette, toggleBrowserFocusMode, openSettings, showHideAllWindows, toggleFullScreen |
 | 1 navigation | Beats terminal keybinds, page shortcuts and text fields | window, workspace, pane, tab, sidebar, notification and cloud categories without a content requirement: focus pane (Cmd-Opt-arrows), next/previous tab, Cmd-1..9, Ctrl-1..9, workspaces, sidebar toggle, new tab, split, column focus, Cmd-L (`focusBrowserAddressBar`) |
 | 2 content | Runs only when its content has the keyboard; never in a text field | actions that require a content context (`terminalFocused`, `browserFocused`, viewer contexts): Copy, Paste, reload, back/forward, zoom |
 | 3 raw | Not a registry action | the focused view: Ghostty keybinds and input, the page, the text field |
@@ -295,6 +295,10 @@ CEF pre-key hook, which run tier 2 only, so nothing runs twice. Only Command or
 Control chords are candidates, so typing, Option characters and IME input pass):
 1. Tier 0 registry actions.
 2. Browser focus mode on the focused page: stop, the page gets the key (then AppKit menus).
+   Esc Esc leaves it (classic cmux parity, `KeyRouter.routesFocusModeEscape`): the first
+   plain Escape still reaches the page and arms the exit (the omnibar badge reads "Esc
+   again to exit"), a second within 1.6 s leaves and is consumed; a held Escape's repeats
+   never count. Toggling focus mode on moves the keyboard into the page.
 3. Tier 1 registry actions. When the registry has no action for the chord and no
    terminal has the keyboard, the user's Ghostty keybinds for window, tab and split
    actions (`cmd+ctrl+h=goto_split:left`, read with `ghostty_config_trigger`, one chord
@@ -508,6 +512,39 @@ Enter), `hover`, `source` (keyboard or mouse), `pointer` (last pointer location 
 - A search engine switch re-queries and keeps an arrowed row.
 - Enter with modifiers reports `.open(url, disposition)`, and the page stays. The chrome calls
   `onOpenURL` (the App must wire it; until then, the current tab loads the URL).
+- Every commit (Enter with or without modifiers, a row click, Paste and Go, an extension
+  keyword) hands the keyboard back to the page once (`onReturnFocusToPage`); the omnibar
+  never keeps focus after Enter (Lawrence 2026-10-19, u2573).
+- Control-Enter adds `www.` and `.com` to a typed host without a dot (`example`,
+  `google/maps`); other text commits as Enter does (Chromium's desired TLD).
+- A leading `?` forces a search for the rest of the text.
+- Scheme-less private and intranet addresses load over `http`, never `https`: private,
+  CGNAT/tailnet and link-local IPv4, unique-local IPv6, `.local`, `.internal`, `.lan`,
+  `.home.arpa` and other non-unique names, and a single label with a port or path
+  (`devbox:8080`, `router/`). A single word alone still searches.
+- The card's rows change their text in place while the user types (Chromium
+  `OmniboxResultView::SetMatch`); typing never rebuilds the card's views.
+- Dragging the page-info chip drags the page out as a link (URL, text, title as
+  `public.url-name`) while the field is not focused.
+- A browser tab left while its address bar had the keyboard gets the address bar back when a
+  tab, pane or workspace change returns to it (Chrome `RestoreState`); a click into its page
+  forgets that. `OmnibarFocusMemory` in `FocusCoordinator` asks for `focusTarget(.addressBar)`
+  after the core reduced the return; the core still drops chrome targets on a tab change.
+- Search engines are keywords too (Chrome's tab to search): the default and built-in engines
+  and YouTube, Wikipedia and GitHub, by host (`youtube.com`). The keyword with Tab or a space
+  starts a session with no extension: no rows, the chip says "Search YouTube", Enter searches
+  there (with no text, it opens the site). An extension's own keyword wins over an engine's.
+- Search the Web (`browser.focusSearch`, Chrome's `IDC_FOCUS_SEARCH`) focuses the address bar
+  in a session of the default engine. It has no default key: Opt-Cmd-F stays Search All
+  Windows everywhere (a default key moves only with the user's OK); run it from the palette or
+  bind it in cmux.json.
+- `browser.omnibar.showFullURLs` (the field's menu: Always Show Full URLs) makes the resting
+  text the full URL, so nothing elides. The menu also has Manage Search Engines… (Settings).
+- Enter on a scheme-less address that loads over https (`example.com`) marks the load an
+  upgrade: if https cannot connect (not a name error), the chrome loads it once over http.
+- Page rows (history, bookmark, open tab) show the site's icon once it loads. The typed-address row keeps its globe, as in Chrome, so a half-typed host is never fetched.
+
+Chrome comparison, behavior by behavior: plans/cmux-next/omnibar-parity/PARITY.md.
 
 ### Selection and focus
 
@@ -621,9 +658,13 @@ the user."):
   settings; `focus.inactiveTabStyle` overrides the cmux.json key of the same name (`fade` default: text, icons
   and pills fade toward the background; `tonal`: every text tier steps down, the selected
   pill takes the hover fill; `quiet`: no pill, the selection is the text tier);
-  `focus.inactiveTabStrength` (0.35). Subtle text never drops below 3.5:1 (selected),
+  `focus.inactiveTabStrength` (0.4; 0.35 until 2026-10-21, when Leo could not tell which pane Cmd-W would close, then 0.6 for a few hours, until he found the shift on a focus change jarring). Subtle text never drops below 3.5:1 (selected),
   2.5:1 and 2:1 against the page (`ThemeTokens.subtle*Floor`). Panels and hover cards
   opened from a subtle strip adopt `ThemeScope.fullStrength`, so they draw at full strength.
+- Debug Settings (Focus) `focus.flashOnMove` (off; Leo 2026-10-21, to judge live): when focus moves
+  without a click (`ColumnFocusSource.programmatic`: a link open, the pane after a close, an agent
+  handoff) and no ring already marks the pane, the ring shows on it at once at standard contrast and
+  at least 2 pt, then fades over `focusFlash` (0.5 s). Its own layer, a stroke only (glass stays clear).
 - With `appearance.borders` none the unfocused panes' dim stands in for the ring only when
   `focusIndicator` is `border`; with `tabs` or `both` the tab cue is the focus cue.
 - Chrome lane (WindowBackdrop, cc-pane-chrome) reads `DesignSettings.shared

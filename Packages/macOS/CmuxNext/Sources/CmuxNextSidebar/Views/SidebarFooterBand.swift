@@ -72,6 +72,7 @@ final class SidebarFooterBand {
     func placeSpaces(top: CGFloat, height: CGFloat) {
         guard let host else { return }
         let bar = host.profileBar, footer = host.footer, bounds = host.bounds
+        let searchMaxX = placeSearch()
         if host.spacesPosition == .top {
             if bar.superview !== host { host.addSubview(bar) }
             bar.leadingInset = nil
@@ -79,24 +80,82 @@ final class SidebarFooterBand {
             bar.centerX = bounds.midX
         } else if let row = bandFirstRow {
             if bar.superview !== host { host.addSubview(bar) }
-            // The bar starts right after the control (the strip never covers
-            // it; the slots carry the gap) and centers on the sidebar's middle.
+            // The bar starts right after the control and the Search button (the
+            // strip never covers them; the slots carry the gap) and centers on
+            // the sidebar's middle.
+            let lead = max(row.itemsMaxX, searchMaxX ?? 0)
             bar.leadingInset = 0
-            bar.frame = NSRect(x: row.itemsMaxX, y: row.frame.minY, width: max(0, bounds.width - row.itemsMaxX), height: row.frame.height)
-            bar.centerX = bounds.midX - row.itemsMaxX
+            bar.frame = NSRect(x: lead, y: row.frame.minY, width: max(0, bounds.width - lead), height: row.frame.height)
+            bar.centerX = bounds.midX - lead
         } else {
             if bar.superview !== footer { footer.addSubview(bar) }
-            bar.leadingInset = nil
-            bar.frame = NSRect(x: 0, y: 0, width: footer.bounds.width, height: footer.bounds.height)
-            bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x
+            // The Search button holds the leading slot; the strip starts after it.
+            let lead = searchMaxX.map { footer.convert(NSPoint(x: $0, y: 0), from: host).x } ?? 0
+            bar.leadingInset = searchMaxX == nil ? nil : 0
+            bar.frame = NSRect(x: lead, y: 0, width: max(0, footer.bounds.width - lead), height: footer.bounds.height)
+            bar.centerX = footer.convert(NSPoint(x: bounds.midX, y: 0), from: host).x - lead
         }
         bar.refresh()
+    }
+
+    // MARK: Search button
+
+    /// The Search button's side: the footer row's height (one slim row, no extra padding; it was a
+    /// 28 pt HIG minimum that added 2 pt under the line). Lawrence 2026-10-27: footer too tall.
+    static var searchButtonSide: CGFloat { Metrics.sidebarRowHeight }
+
+    /// The pinned footer section's padding under its last row. The footer is one line, the
+    /// account control and the Search button centered on it, whose taller control ends on
+    /// `SidebarStyle.bottomInset` (Leo 2026-10-20: the line sat too high, the section's own
+    /// padding stacked on the margin): no padding under a row as tall as the button, half the
+    /// difference under a shorter one, which the button overhangs.
+    func footerBottomPadding(rowHeight: CGFloat) -> CGFloat {
+        guard host?.design.sidebarSections.showSearchButton == true else { return 0 }
+        return max(0, (Self.searchButtonSide - rowHeight) / 2 + searchLensDrop)
+    }
+
+    /// How far the Search button sits under the avatar's center line: one device pixel. The eye
+    /// centers the magnifying glass on its lens, which rides above the glyph's middle with the
+    /// handle hanging below (half a point at 14 pt, measured in #23717's capture), so a button
+    /// centered on the line read as floating high (Leo 2026-10-21: "move the magnifying glass a
+    /// bit lower").
+    var searchLensDrop: CGFloat { 1 / (host?.window?.backingScaleFactor ?? 2) }
+
+    /// Places the Search button (plans/cmux-next/sidebar-search.md) right after the
+    /// footer band's first-row items (the profile avatar), on their line, or
+    /// leading in the footer when the band shows none. Returns its maxX in the
+    /// sidebar's coordinates, or nil when `sidebar.showSearchButton` hides it.
+    @discardableResult
+    func placeSearch() -> CGFloat? {
+        guard let host else { return nil }
+        let button = host.searchButton
+        guard host.design.sidebarSections.showSearchButton else {
+            button.isHidden = true
+            return nil
+        }
+        button.isHidden = false
+        let side = Self.searchButtonSide
+        let x: CGFloat, midY: CGFloat
+        if let row = bandFirstRow {
+            // Flush after the avatar's square, the lens on its center: the two controls' own
+            // insets are the gap between them, as a toolbar's buttons (Leo 2026-10-21: "this
+            // stupid space").
+            (x, midY) = (row.itemsMaxX, row.frame.midY + searchLensDrop)
+        } else {
+            let footer = host.footer.frame
+            // An empty band: the footer row, or on the bottom inset when the footer has no height.
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - side / 2)
+        }
+        let scale = host.window?.backingScaleFactor ?? 2
+        button.frame = NSRect(x: x, y: ((midY - side / 2) * scale).rounded() / scale, width: side, height: side)
+        return button.frame.maxX
     }
 
     // MARK: Profile menu
 
     // SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2: the sidebar's bottom-left is
-    // one control, the current profile's avatar with a chevron. A click (or
+    // one control, the current profile's avatar. A click (or
     // the `sidebar.profileMenu` action) opens the one profile menu the App
     // builds from registry actions (`profileMenuProvider`).
 
@@ -105,7 +164,13 @@ final class SidebarFooterBand {
     var profileControl: (id: LayoutItemID, view: SidebarItemRowView)? {
         for region in host?.bandRegions ?? [] {
             for row in region.layoutResult.rows {
-                guard case .tile(let id, _) = row.kind, let view = region.itemView(id), view.showsAvatar, !view.isHidden else { continue }
+                // The profile control draws the avatar alone, as a tile or a chip.
+                let id: LayoutItemID
+                switch row.kind {
+                case .tile(let tile, _), .chip(let tile, _): id = tile
+                default: continue
+                }
+                guard let view = region.itemView(id), view.showsAvatar, !view.isHidden else { continue }
                 return (id, view)
             }
         }
@@ -137,6 +202,11 @@ final class SidebarFooterBand {
             // Flipped anchor: the menu's top-left goes above the control by
             // the menu's height, so the whole menu shows over the footer.
             let origin = NSPoint(x: 0, y: anchor.isFlipped ? -menu.size.height - gap : anchor.bounds.height + menu.size.height + gap)
+            // The control holds its selected fill while the menu is open
+            // (popUp returns when the menu closes).
+            let control = anchor as? SidebarItemRowView
+            control?.showsMenu = true
+            defer { control?.showsMenu = false }
             menu.popUp(positioning: nil, at: origin, in: anchor)
         }
     }

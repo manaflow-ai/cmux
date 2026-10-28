@@ -1,4 +1,4 @@
-//! Replies the host filters itself (CmuxNextAgentPane AcpmuxPaneMethods.swift
+//! Replies the host filters itself (CmuxNextAgentPane AcpmuxPaneMethods+ReplyShapes.swift
 //! `replyShapes`, `filtered`, `filteredReply`): only the fields the pane
 //! renders, at every depth.
 

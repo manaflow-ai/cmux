@@ -12,7 +12,7 @@ import type { Strings } from "../shared/i18n";
 import { Avatar, ChannelMark } from "./Avatar";
 import { HomeIcon } from "./icons";
 import { activityAt, chiefState, conversationName, isUnread, listOrder, type ChiefState } from "./model";
-import type { HomeConversation, HomeParticipant } from "./types";
+import { chiefBackendChip, type HomeChief, type HomeConversation, type HomeParticipant } from "./types";
 
 /** What a row's menu does; the page owns the actions. */
 export interface ListRowActions {
@@ -36,7 +36,11 @@ export interface ConversationListProps {
   onOpenPalette(): void;
   /** New message or channel: opens the page's #/new/message sheet (absent: the owner cannot). */
   onCompose?(): void;
+  /** New Chief: opens the page's #/new/chief page (absent: the owner has no Chief registry). */
+  onNewChief?(): void;
   actions: ListRowActions;
+  /** The Chief records by id: a Chief's row names its engine when it is not the default. */
+  chiefs?: ReadonlyMap<string, HomeChief>;
 }
 
 export function ConversationList({
@@ -50,13 +54,17 @@ export function ConversationList({
   onSelect,
   onOpenPalette,
   onCompose,
+  onNewChief,
   actions,
+  chiefs,
 }: ConversationListProps) {
   const { t } = strings;
   const { pinned, rest } = useMemo(() => listOrder(conversations.values()), [conversations]);
   const stamp = useStamp(strings.language);
   const renderRow = (row: HomeConversation) => {
     const channel = channels.has(row.id);
+    const other = channel ? undefined : row.participants.find((p) => p.id !== me);
+    const backend = other?.chief ? chiefBackendChip(t, chiefs?.get(other.id)) : undefined;
     return (
       <li key={row.id}>
         <ListRow
@@ -66,6 +74,7 @@ export function ConversationList({
           me={me}
           active={row.id === selected}
           state={channel ? undefined : chiefState(row, me, activity.get(row.id))}
+          backend={backend}
           stamp={stamp}
           strings={strings}
           onSelect={onSelect}
@@ -87,6 +96,18 @@ export function ConversationList({
             onClick={onCompose}
           >
             <HomeIcon name="compose" size={16} />
+          </button>
+        )}
+        {onNewChief && (
+          <button
+            type="button"
+            className="hc-icon-button"
+            aria-label={t("action.newChief")}
+            title={t("action.newChief")}
+            data-new-chief=""
+            onClick={onNewChief}
+          >
+            <HomeIcon name="chiefAdd" size={16} />
           </button>
         )}
       </header>
@@ -138,6 +159,7 @@ function ListRow({
   me,
   active,
   state,
+  backend,
   stamp,
   strings,
   onSelect,
@@ -149,6 +171,8 @@ function ListRow({
   me?: string;
   active: boolean;
   state?: ChiefState;
+  /** A Chief's engine when it is not the default (its chip by the name). */
+  backend?: string;
   stamp(at: number): string;
   strings: Strings;
   onSelect(id: string): void;
@@ -195,9 +219,10 @@ function ListRow({
         <span className="lg-row-mark">
           {channel ? <ChannelMark /> : <Avatar participant={other} size={20} state={state} />}
         </span>
-        <span className="lg-row-name">
+        <span className={`lg-row-name${backend ? " with-backend" : ""}`}>
           {channel && <span className="lg-visually-hidden">#</span>}
-          {name}
+          {backend ? <span className="lg-row-name-text">{name}</span> : name}
+          {backend && <span className="hc-tag">{backend}</span>}
           {unread && badge === 0 && (
             <span className="lg-visually-hidden">
               , {row.unread > 0 ? format("unread.messages", String(row.unread)) : t("unread.marked")}

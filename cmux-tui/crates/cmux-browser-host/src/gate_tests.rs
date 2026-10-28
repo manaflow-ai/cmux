@@ -33,6 +33,10 @@ struct FakeDriver {
     /// Runs inside the next `tab.screenshot` (what another session does
     /// while the capture is taken).
     during_capture: Mutex<Option<DuringCapture>>,
+    /// The focused-input probe's answer (`FOCUSED_INPUT`).
+    focused_input: Mutex<Value>,
+    /// frame.observe answers by method (`describe`, `rect`).
+    observed: Mutex<std::collections::HashMap<String, Value>>,
 }
 
 /// What another session does while a capture is taken (`during_capture`).
@@ -128,7 +132,18 @@ impl Driver for FakeDriver {
         match method {
             "frame.evaluate" => {
                 let source = params["source"].as_str().unwrap_or("");
-                if source.contains("cmux-capture-") && !self.page_fields.lock().unwrap().is_empty()
+                if source.contains("cmux-press-check") {
+                    Ok(self
+                        .observed
+                        .lock()
+                        .unwrap()
+                        .get("hitTarget")
+                        .cloned()
+                        .unwrap_or(Value::Null))
+                } else if source.contains("cmux-focused-input") {
+                    Ok(self.focused_input.lock().unwrap().clone())
+                } else if source.contains("cmux-capture-")
+                    && !self.page_fields.lock().unwrap().is_empty()
                 {
                     Ok(self.capture_step(source, &params["args"]))
                 } else if source.contains("cmux-capture-held") {
@@ -140,6 +155,10 @@ impl Driver for FakeDriver {
                 }
             }
             "frame.focused" => Ok(self.focused_frame.lock().unwrap().clone()),
+            "frame.observe" => Ok(params["method"]
+                .as_str()
+                .and_then(|m| self.observed.lock().unwrap().get(m).cloned())
+                .unwrap_or(Value::Null)),
             "tab.screenshot" => {
                 let during = self.during_capture.lock().unwrap().take();
                 if let Some(during) = during {
@@ -252,6 +271,8 @@ fn make_gate(focused_url: Value, raw_cdp: bool) -> (Gate, Arc<FakeDriver>) {
         page_fields: Mutex::new(Vec::new()),
         mask_needles: Mutex::new(std::collections::HashMap::new()),
         during_capture: Mutex::new(None),
+        focused_input: Mutex::new(Value::Null),
+        observed: Mutex::new(std::collections::HashMap::new()),
     });
     (Gate::new(driver.clone(), Grants { raw_cdp, ..Grants::default() }), driver)
 }
@@ -1468,3 +1489,46 @@ fn a_proxied_session_is_refused_a_name_that_resolves_to_metadata() {
 
 #[path = "gate_isolated_tests.rs"]
 mod isolated;
+
+#[path = "gate_typing_tests.rs"]
+mod typing;
+
+/// An `input.mouse` press that names its target (`expect`) is checked right
+/// before it is sent: when the page put another element at the point, no
+/// press reaches the engine and the call fails `stale` (classic cmux
+/// BrowserReplPressTarget). The engine never sees `expect`.
+#[test]
+fn a_press_on_a_changed_target_is_never_sent() {
+    let (gate, driver) = make_gate(Value::Null, false);
+    let press = |handle: &str| {
+        gate.driver_call(
+            "input.mouse",
+            json!({"targetId": "T", "type": "down", "x": 10, "y": 20, "button": "left", "clickCount": 1,
+                   "expect": {"frameId": null, "handle": handle, "x": 10, "y": 20, "owners": []}}),
+        )
+    };
+    driver.observed.lock().unwrap().insert("hitTarget".into(), json!("<div id=\"cover\"></div>"));
+    let error = press("h1").unwrap_err();
+    assert_eq!(error.code, ErrorCode::Stale);
+    assert_eq!(
+        error.message,
+        "no press was sent: <div id=\"cover\"></div> intercepts pointer events when the press was about to be sent (the page changed under the pointer)"
+    );
+    assert!(!methods(&driver).contains(&"input.mouse".to_owned()), "{:?}", methods(&driver));
+    driver.observed.lock().unwrap().insert("hitTarget".into(), json!("done"));
+    press("h1").unwrap();
+    let calls = driver.calls.lock().unwrap();
+    let (_, sent) =
+        calls.iter().rev().find(|(m, _)| m == "input.mouse").expect("the press was sent");
+    assert!(sent.get("expect").is_none(), "{sent}");
+    let (_, check) = calls
+        .iter()
+        .rev()
+        .find(|(m, p)| {
+            m == "frame.evaluate"
+                && p["source"].as_str().is_some_and(|s| s.contains("cmux-press-check"))
+        })
+        .expect("the check ran");
+    assert_eq!(check["world"], "agent");
+    assert_eq!(check["args"], json!(["h1", {"x": 10, "y": 20}, "button-link", null]));
+}

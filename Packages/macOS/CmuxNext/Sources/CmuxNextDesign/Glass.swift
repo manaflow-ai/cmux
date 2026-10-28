@@ -28,18 +28,32 @@ public struct Glass {
     }()
 
     /// A floating panel over content that carries text (palette, dialogs,
-    /// hover cards, find and prompt bars, page info, popovers, toasts) and
-    /// hosts `content` edge to edge: the solid popup surface
-    /// (`Palette.popupSurface`) with a hairline, never glass, so the text
-    /// under it never shows through (Leo, 2026-10-12). It follows the theme
-    /// live. Use this for every overlay; it takes clicks unless
-    /// `interactive` is false.
+    /// hover cards, find and prompt bars, page info, popovers, menus) and
+    /// hosts `content` edge to edge: Liquid Glass tinted with the theme, with
+    /// its own refracting rim, like iOS's menus and folders (Leo, 2026-10-18,
+    /// replacing the solid surface of 2026-10-12); the frosted vibrancy
+    /// material before macOS 26, and the solid popup surface only under
+    /// Reduce Transparency. It follows the theme live. Use this for every
+    /// overlay; it takes clicks unless `interactive` is false. `tone`
+    /// `.neutral` draws the shared neutral glass with its rim
+    /// (``FloatingGlassStyle``: dialogs, prompts, toasts) instead of the theme
+    /// tint.
+    ///
+    /// Glass, never a solid card (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE
+    /// GLASS, SO JUST USE GLASS."): `cardFill` defaults to false. True lays the
+    /// mostly opaque ``CardMaterial`` fill on the glass (ccde782cb51, 2026-10-20),
+    /// which no overlay uses now; `check-overlay-glass.py` refuses a new one
+    /// without a `glass-opaque-allow:` reason, and `FloatingSurfacesStayGlassTests`
+    /// fails when an overlay paints denser than the shared glass.
     public static func makeOverlayPanel(
         content: NSView? = nil,
         cornerRadius: CGFloat = Metrics.panelCornerRadius,
-        interactive: Bool = true
+        interactive: Bool = true,
+        tone: OverlayTone = .theme,
+        cardFill: Bool = false
     ) -> OverlaySurfaceView {
-        let surface = OverlaySurfaceView(material: .opaque, interactive: interactive, cornerRadius: cornerRadius)
+        let surface = OverlaySurfaceView(interactive: interactive, cornerRadius: cornerRadius,
+                                         card: tone.style == nil && cardFill, tone: tone)
         surface.translatesAutoresizingMaskIntoConstraints = false
         if let content {
             content.translatesAutoresizingMaskIntoConstraints = true

@@ -1,4 +1,4 @@
-import type { Adapter, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
+import type { Adapter, AgentEvent, CommandEntry, OptionChoice, OptionValue, SessionCtx, SessionOption } from "../types";
 import { readLines, tryParse, truncate } from "./lines";
 import { prettifyModelLabel } from "./model-label";
 import { agentModelCatalog } from "../catalog";
@@ -8,11 +8,14 @@ import { agentModelCatalog } from "../catalog";
 // session. Options are thread settings and turn overrides; mid-turn sends use
 // turn/steer with the active turn id.
 
-interface AppServer {
-  proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
-  request(method: string, params?: unknown): Promise<any>;
+interface AppServerRouting {
   write(msg: unknown): void;
   sessionsByThread: Map<string, SessionCtx>;
+}
+
+interface AppServer extends AppServerRouting {
+  proc: Bun.Subprocess<"pipe", "pipe", "pipe">;
+  request(method: string, params?: unknown): Promise<any>;
 }
 
 interface ModelInfo {
@@ -66,6 +69,19 @@ const TURN_START_WAIT_TIMEOUT_MS = 30_000;
 const STEER_TURN_ID_WAIT_TIMEOUT_MS = 5_000;
 
 const STOP_DEADLINE_ERROR = "codex turn did not start before the stop deadline";
+
+function compactCommand(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+export function codexCommandActivity(item: { command?: unknown; description?: unknown; commandDescription?: unknown }): { name: "shell"; detail: string; description?: string } {
+  const detail = typeof item.command === "string" ? compactCommand(item.command) : "";
+  const rawDescription = item.description ?? item.commandDescription;
+  const description = typeof rawDescription === "string" && rawDescription.trim().length > 0
+    ? rawDescription.trim()
+    : undefined;
+  return { name: "shell", detail, description };
+}
 
 let shared: AppServer | null = null;
 let sharedStarting: Promise<AppServer> | null = null;
@@ -389,7 +405,7 @@ function approvalResponse(method: string, approve: boolean): { result: unknown }
   }
 }
 
-function handleServerMessage(srv: AppServer, msg: any) {
+function handleServerMessage(srv: AppServerRouting, msg: any) {
   const p = msg.params ?? {};
   const threadKey = p.threadId ?? p.conversationId;
   const sess = threadKey ? srv.sessionsByThread.get(threadKey) : undefined;
@@ -472,11 +488,46 @@ function handleServerMessage(srv: AppServer, msg: any) {
   }
 }
 
+/**
+ * Feed captured app-server notifications through the production dispatcher.
+ *
+ * This deliberately exposes only the normalized event list for fixtures: raw
+ * notification bodies stay in the test input, and the app-server process or
+ * transport is never constructed by a test. Keeping this seam here prevents
+ * parity tests from growing a second notification mapper.
+ */
+export function codexEventsForTest(messages: readonly unknown[]): AgentEvent[] {
+  const events: AgentEvent[] = [];
+  const sess: SessionCtx = {
+    id: "parity",
+    provider: "codex",
+    cwd: "/tmp",
+    title: "parity",
+    autoApprove: true,
+    startOptions: {},
+    status: "running",
+    events,
+    internal: { deltaItems: new Set<string>() },
+    emit(evt) {
+      events.push(evt);
+    },
+    setStatus(status) {
+      sess.status = status;
+    },
+  };
+  const server: AppServerRouting = {
+    sessionsByThread: new Map([["thread-parity", sess]]),
+    write() {},
+  };
+  for (const message of messages) handleServerMessage(server, message);
+  return events;
+}
+
 function itemStarted(sess: SessionCtx, item: any) {
   if (!item) return;
   switch (item.type) {
     case "commandExecution":
-      sess.emit({ kind: "tool-start", toolId: item.id, name: "shell", detail: truncate(item.command ?? "") });
+      sess.emit({ kind: "tool-start", toolId: item.id, ...codexCommandActivity(item) });
       break;
     case "fileChange":
     case "patchApply":

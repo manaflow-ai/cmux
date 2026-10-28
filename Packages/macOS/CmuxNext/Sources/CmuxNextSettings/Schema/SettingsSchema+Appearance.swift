@@ -73,7 +73,9 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.backdropArt.summary", "Painting behind the window"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None"))] + artChoices),
                 default: "none", keywords: ["painting", "art", "wallpaper", "backdrop", "attribution", "legacy"]
-            ),
+            // A second painting chooser beside the wallpaper card (Leo, 10-19: "it just doesn't make
+            // sense"). The key still loads; appearance.background wins when both are set.
+            ).hiddenFromSettingsPage("legacy: the wallpaper card's appearance.background replaces it; the key still loads"),
             SettingDescriptor(
                 BackdropSelectionSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.background", "Background"),
@@ -82,17 +84,30 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                                SettingChoice(BackdropSelectionSetting.dailyID,
-                                             SettingsText.keyed("settings.choice.shuffleDaily", "Shuffle Daily"))] + backgroundChoices),
+                                             SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
-                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
             ),
+            SettingDescriptor(
+                BackdropSelectionSetting.rotationPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture."),
+                summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
+                kind: .choice([SettingChoice("15m", SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
+                               SettingChoice("hourly", SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
+                               SettingChoice("daily", SettingsText.keyed("settings.choice.everyDay", "Every Day"))]),
+                default: .string(BackdropRotation.defaultRotation.rawValue),
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
+            ),
+            PaneBackgroundsSetting.descriptor(group: window),
+            ReducedBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
                 help: SettingsText.keyed("settings.appearance.experimentalControls.help",
-                                        "Show the wallpaper grid and live appearance tuner while they are being integrated."),
+                                        "Applies Hue and Saturation to the window's tint. Off, they have no effect."),
                 kind: .toggle, default: .bool(false),
-                keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
+                keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,
@@ -109,6 +124,8 @@ nonisolated enum AppearanceSettingsSchema {
                 title: SettingsText.keyed("settings.appearance.backgroundBlur", "Material"),
                 help: SettingsText.keyed("settings.appearance.backgroundBlur.help",
                                         "Unset, the window follows Ghostty's background-opacity and background-blur."),
+                summary: SettingsText.keyed("settings.appearance.backgroundBlur.summary",
+                                           "Clear Glass shows the desktop through the wallpaper"),
                 kind: .choice([
                     SettingChoice(WindowMaterialChoice.frosted.rawValue, SettingsText.keyed("settings.choice.frosted", "Frosted")),
                     SettingChoice(WindowMaterialChoice.glass.rawValue, SettingsText.keyed("settings.choice.glass", "Glass")),
@@ -119,6 +136,23 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
             ),
             SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help",
+                                        "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(0),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
+                WallpaperTintSetting().configPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.wallpaperTint", "Tint with Desktop Wallpaper"),
+                help: SettingsText.keyed("settings.appearance.wallpaperTint.help",
+                                        "The glass takes the colors of your desktop picture and follows it when the picture or Space changes."),
+                kind: .toggle, default: .bool(WallpaperTintSetting.fallback),
+                keywords: ["wallpaper", "desktop", "tint", "tinting", "glass", "color", "colour", "space", "background"]
+            ),
+            SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
                 help: SettingsText.keyed("settings.appearance.glassTransparency.help",
@@ -126,7 +160,9 @@ nonisolated enum AppearanceSettingsSchema {
                 kind: .number(SettingNumber(AppearanceTuningSetting.glassTransparencyRange, step: 0.05, unit: .fraction, placeholder: 0)),
                 default: .number(AppearanceTuningSetting.fallback.glassTransparency),
                 keywords: ["glass", "transparency", "alpha", "clear"]
-            ),
+            // A second opacity over the wallpaper card's Opacity (Leo, 10-19: "this other
+            // transparency situation"). It still applies with Experimental Appearance Controls on.
+            ).hiddenFromSettingsPage("duplicates appearance.backgroundOpacity; the key still loads"),
             SettingDescriptor(
                 AppearanceTuningSetting.huePath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.hue", "Hue"),
@@ -146,12 +182,21 @@ nonisolated enum AppearanceSettingsSchema {
             SettingDescriptor(
                 ["appearance", "density"], section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.density", "Density"),
-                kind: .choice([
-                    SettingChoice("compact", SettingsText.keyed("settings.choice.compact", "Compact")),
-                    SettingChoice("comfortable", SettingsText.keyed("settings.choice.comfortable", "Comfortable")),
-                ]),
-                default: "compact", keywords: ["size", "spacing"]
+                help: SettingsText.keyed("settings.appearance.density.help",
+                                        "Row height, padding, corners, icons and text size together. Compact is the default."),
+                kind: .choice(DensityPreset.allCases.map { SettingChoice($0.rawValue, DensityNames.title($0)) }),
+                default: "compact", keywords: ["size", "spacing", "compact", "comfortable", "cozy", "spacious", "dense", "font"]
             ),
+            SettingDescriptor(
+                CustomDensitySelectionSetting().configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.customDensity", "Custom Density"),
+                kind: .text, default: nil, keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card and the palette's density rows pick it"),
+            SettingDescriptor(
+                CustomDensitiesSetting().configPath, section: .appearance, group: look,
+                title: SettingsText.keyed("settings.appearance.customDensities", "Custom Densities"),
+                kind: .text, default: .array([]), keywords: ["density", "custom"]
+            ).hiddenFromPalette("the Density card edits them: a list of density objects"),
             SettingDescriptor(
                 uiScale.configPath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.appearance.uiScale", "Interface Scale"),
@@ -181,6 +226,10 @@ nonisolated enum AppearanceSettingsSchema {
                    keywords: ["sidebar", "width", "size", "sidebarWidth"]),
             metric(.columnGap, SettingsText.keyed("settings.appearance.columnGap", "Column Gap"), look, densityDefault,
                    keywords: ["column", "gap", "spacing", "columnGap"]),
+            metric(.dividerThickness, SettingsText.keyed("settings.appearance.dividerThickness", "Divider Thickness"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "line", "thickness", "dividerThickness"]),
+            metric(.dividerHitWidth, SettingsText.keyed("settings.appearance.dividerHitWidth", "Divider Drag Width"), look, densityDefault,
+                   consumers: [.cmuxNext], keywords: ["divider", "split", "pane", "drag", "hit", "width", "dividerHitWidth"]),
             metric(.titlebarHeight, SettingsText.keyed("settings.appearance.titlebarHeight", "Titlebar Height"), look, densityDefault,
                    keywords: ["titlebar", "title bar", "header", "height", "titlebarHeight"]),
             SettingDescriptor(
@@ -211,7 +260,7 @@ nonisolated enum AppearanceSettingsSchema {
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
-                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),
@@ -363,11 +412,11 @@ nonisolated enum AppearanceSettingsSchema {
     /// An `appearance.metrics.*` size row: its default is the density's (the compact one is the
     /// placeholder). cmux-next and cmux-browser read it.
     private static func metric(_ metric: LayoutMetricSetting, _ title: SettingText, _ group: SettingText, _ densityDefault: SettingText,
-                               keywords: [String]) -> SettingDescriptor {
+                               consumers: Set<SettingConsumer> = [.cmuxNext, .cmuxBrowser], keywords: [String]) -> SettingDescriptor {
         SettingDescriptor(
             metric.configPath, section: .appearance, group: group, title: title,
             kind: .number(SettingNumber(metric.range, step: 1, unit: .points, placeholder: metric.compact)),
             default: nil, defaultLabel: densityDefault, keywords: keywords
-        ).consumed(by: [.cmuxNext, .cmuxBrowser])
+        ).consumed(by: consumers)
     }
 }

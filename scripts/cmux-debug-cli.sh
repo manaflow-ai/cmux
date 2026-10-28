@@ -9,7 +9,7 @@ Usage:
   CMUX_TAG=<tag> scripts/cmux-debug-cli.sh <cmux-command> [args...]
 
 Example:
-  CMUX_TAG=codext scripts/cmux-debug-cli.sh list-workspaces
+  CMUX_TAG=codext scripts/cmux-debug-cli.sh workspace list
 EOF
   exit 2
 fi

@@ -158,7 +158,7 @@ fn wait(global: &GlobalArgs, wait: &WaitPlan) -> i32 {
             );
         }
     };
-    if let Err(error) = resolve::apply_global_route(global, &mut plan.params) {
+    if let Err(error) = resolve::apply_global_route(global, &mut plan) {
         eprintln!("cmux: {error}");
         return 2;
     }
@@ -182,7 +182,7 @@ fn wait(global: &GlobalArgs, wait: &WaitPlan) -> i32 {
         .and_then(|stream| {
             let _ = stream.set_read_timeout(Some(ANSWER_TIMEOUT));
             let mut reader = BufReader::new(stream);
-            let route = SocketRoute { path: &socket, derived };
+            let route = SocketRoute::new(&socket, derived, global);
             if !plan.resolve.is_empty() {
                 resolve::apply(&mut reader, &mut plan, caller_route, &route)?;
             }

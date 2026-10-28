@@ -31,8 +31,17 @@ jobs:
           REPO: ${{ github.repository }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          run_id="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
-            --jq '.workflow_runs[0].id // empty')"
+          error_file="$(mktemp)"
+          trap 'rm -f "$error_file"' EXIT
+          if ! run_id="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
+            --jq '.workflow_runs[0].id // empty' 2>"$error_file")"; then
+            if grep -Eq 'HTTP 404|404 Not Found' "$error_file"; then
+              echo "No defaults guard run on $HEAD_SHA yet; the runs endpoint returned 404."
+              exit 0
+            fi
+            cat "$error_file" >&2
+            exit 1
+          fi
           if [[ -z "$run_id" ]]; then
             echo "No defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
             exit 0

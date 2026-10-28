@@ -48,7 +48,9 @@ use windows_sys::Win32::System::Threading::{
 #[cfg(test)]
 mod claude_worktree_tests;
 mod message_hooks;
+mod status_conflict;
 use message_hooks::{delivers_messages, hook_command, journal_hook_command};
+use status_conflict::{conflict_row, ensure_replaceable_target};
 
 const COMMAND_MARKER: &str = "cmux-tui-journal-hook";
 const PLUGIN_MARKER: &str = "cmux-tui-journal-plugin";
@@ -628,6 +630,12 @@ fn run_with_context(plan: &Plan, context: &Context) -> RunResult {
         for provider in selected {
             let path = context.provider_path(provider);
             let from_env_override = context.provider_path_from_env_override(provider);
+            if plan.action == Action::Status
+                && let Some(row) = conflict_row(provider, &path)
+            {
+                results.push(row);
+                continue;
+            }
             let outcome = if provider.id == "hermes-agent" {
                 run_hermes_provider(plan.action, provider, &path, context)
             } else {
@@ -2023,7 +2031,9 @@ fn emit_hook_command(quoted_binary: &str, provider: &str, event: &str) -> String
 }
 
 /// Codex's shared app-server may run hooks without the launching terminal's
-/// environment. Carry that route in the command, using the embedded helper
+/// environment. Carry that route in the command (`CMUX_TUI_HOOK_ROUTE=launch`
+/// marks it as this launch's own, which the helper still trusts below the
+/// daemon), using the embedded helper
 /// so hosts deployed with only the cmux-tui binary work too. Like
 /// `hook_command`, an event that delivers messages lets the helper print the
 /// reply itself and echoes `{}` only when the helper fails.
@@ -2036,7 +2046,7 @@ fn codex_contextual_hook_command(
 ) -> String {
     let reply = if delivers_messages("codex", event) { "||echo {}" } else { "||:;echo {}" };
     format!(
-        "CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
+        "CMUX_TUI_HOOK_ROUTE=launch CMUX_TUI_SOCKET={} CMUX_TUI_TERMINAL_ID={} {} {HOOK_MODE_ARG} codex {} 2>/dev/null{reply};#{COMMAND_MARKER}",
         shell_quote(&socket.to_string_lossy()),
         shell_quote(terminal),
         shell_quote(&launcher.to_string_lossy()),
@@ -2502,6 +2512,9 @@ fn codex_owned_entry_keys(key_hooks_path: &Path, root: &Map<String, Value>) -> B
 /// can sequence it BEFORE mutating hooks.json and commit it afterwards.
 struct PreparedCodexTrustWrite {
     edit: CodexTrustEdit,
+    /// `config.toml.cmux-lock` beside the unresolved config.toml (see
+    /// `lock_codex_config`).
+    lock_path: PathBuf,
     original: Option<String>,
     updated: String,
     mode: u32,
@@ -2606,6 +2619,7 @@ fn prepare_codex_trust_state(
         edit.config_path.parent().context("codex config path has no parent")?.to_path_buf();
     ensure_writable_directory(&target_parent)?;
     Ok(Some(PreparedCodexTrustWrite {
+        lock_path: parent.join(CODEX_CONFIG_LOCK_FILE),
         mode: existing_file_mode(&edit.config_path).unwrap_or(0o600),
         edit,
         original,
@@ -2614,6 +2628,10 @@ fn prepare_codex_trust_state(
 }
 
 fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<()> {
+    // The re-read, compare and rename below run under the lock every other
+    // cmux writer of this config.toml takes, so neither write is built on a
+    // read the other one replaced. Released when `_lock` drops.
+    let _lock = lock_codex_config(&write.lock_path);
     // Close the preflight-to-commit window: if config.toml changed in between
     // (codex's own trust review or a user edit), re-render against the fresh
     // content instead of clobbering the concurrent edit with the stale
@@ -2631,6 +2649,53 @@ fn commit_codex_trust_state(write: &PreparedCodexTrustWrite) -> anyhow::Result<(
         // The concurrent edit already satisfies the trust entries.
         (_, None) => Ok(()),
     }
+}
+
+/// The advisory lock every cmux writer of a codex config.toml takes for its
+/// read-modify-rename: this installer and the Cloud devbox shell-start merge
+/// (web/services/vms/images/devbox/agent-config.sh, which flocks the same
+/// file name in the same directory). Without it, two writers that each re-read
+/// before their rename can still drop the other's keys (the provider block or
+/// the hook trust state) in the window between read and rename.
+const CODEX_CONFIG_LOCK_FILE: &str = "config.toml.cmux-lock";
+
+/// How long the installer waits for another writer's lock. The shell-start
+/// holders keep it for one bounded read and rename and give up after 5 s, but
+/// a stopped or hung holder must not stall an install forever.
+const CODEX_CONFIG_LOCK_WAIT: Duration = Duration::from_secs(15);
+
+/// Returns once this process holds `lock_path` exclusively, or `None` when it
+/// cannot: a directory that refuses the lock file, a filesystem without flock,
+/// or a holder that keeps it past `CODEX_CONFIG_LOCK_WAIT`. The write then
+/// goes ahead unlocked, as before the lock existed, instead of failing or
+/// hanging the install; the commit's own re-read still guards that case.
+#[cfg(unix)]
+fn lock_codex_config(lock_path: &Path) -> Option<fs::File> {
+    use std::os::unix::fs::OpenOptionsExt as _;
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .mode(0o600)
+        .custom_flags(libc::O_CLOEXEC)
+        .open(lock_path)
+        .ok()?;
+    let deadline = Instant::now() + CODEX_CONFIG_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Some(file),
+            Err(fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                // Lock contention, not synchronization: flock has no
+                // wait-with-timeout, so poll at a short interval to a deadline.
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+#[cfg(not(unix))]
+fn lock_codex_config(_lock_path: &Path) -> Option<fs::File> {
+    None
 }
 
 /// Captures a file's rollback snapshot (bytes and mode) before mutation.
@@ -2800,21 +2865,6 @@ pub fn atomic_write(path: &Path, bytes: &[u8], mode: Option<u32>) -> anyhow::Res
         let _ = fs::remove_file(&temporary);
     }
     result
-}
-
-fn ensure_replaceable_target(path: &Path) -> anyhow::Result<()> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error).with_context(|| format!("inspect {}", path.display())),
-    };
-    anyhow::ensure!(
-        !metadata.file_type().is_symlink(),
-        "refusing to replace symlink {}",
-        path.display()
-    );
-    anyhow::ensure!(metadata.is_file(), "refusing to replace non-file {}", path.display());
-    Ok(())
 }
 
 #[cfg(test)]
@@ -3708,6 +3758,27 @@ mod tests {
         );
         assert!(state.contains_key(&canonical_key), "{text}");
         assert!(!state.keys().any(|key| key.starts_with(&format!("{}", link.display()))), "{text}");
+    }
+
+    /// Claude Code shows a `SessionStart` hook's `systemMessage` only when it
+    /// waits for the hook: cmux's startup line (how the session compacts)
+    /// needs a synchronous hook whose output the helper writes.
+    #[test]
+    fn claude_session_start_waits_for_the_helper_output() {
+        let root = tempfile::tempdir().unwrap();
+        let context = context(root.path());
+        let install = Plan { action: Action::Install, providers: vec!["claude".into()] };
+        let result = run_with_context(&install, &context);
+        assert!(!result.failed, "{}", result.value);
+
+        let settings: Value =
+            serde_json::from_slice(&fs::read(context.home.join(".claude/settings.json")).unwrap())
+                .unwrap();
+        let hook = &settings["hooks"]["SessionStart"][0]["hooks"][0];
+        assert_eq!(hook.get("async").and_then(Value::as_bool), None, "{hook}");
+        let command = hook["command"].as_str().unwrap();
+        assert!(command.ends_with(&format!("||echo {{}};#{COMMAND_MARKER}")), "{command}");
+        assert!(!command.contains(";echo {};"), "{command}");
     }
 
     #[test]

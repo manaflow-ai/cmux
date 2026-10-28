@@ -14,12 +14,19 @@ class SidebarRowView: NSView {
     var isSelected = false {
         didSet {
             guard isSelected != oldValue else { return }
+            updateAccessibilitySelection()
             fadesNextFill = false
             needsDisplay = true
             // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
+
+    /// The row shows as selected, the one source of its AXSelected. A row with more
+    /// selection state overrides it and calls `updateAccessibilitySelection()` when that changes.
+    var showsSelection: Bool { isSelected }
+
+    func updateAccessibilitySelection() { setAccessibilitySelected(showsSelection) }
 
     required init(key: SidebarRowKey) {
         self.key = key
@@ -33,7 +40,7 @@ class SidebarRowView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
@@ -92,17 +99,29 @@ class SidebarRowView: NSView {
     @objc dynamic func setTitleHidden(_ hidden: Bool) {}
 
     @objc dynamic func hoverChanged() {
-        fadesNextFill = true
-        fadesNextHover = true
+        // Hover entry is immediate; clearing a row's fill uses the `hoverOut` token (instant by
+        // default). Its hover controls clear at once too: a pointer moving to the next row never
+        // leaves the old row's buttons behind (Leo 2026-10-20: no exit delay on hover-out).
+        fadesNextFill = !isHovered
+        fadesNextHover = false
         needsDisplay = true
     }
 
-    /// The next fill change came from hover, so it fades in and out
-    /// (`MotionFade.hover` both ways, Leo 2026-10-13: moving between rows
-    /// snapped); reloads and theme changes apply at once.
+    /// Clears hover state before a row leaves the realized list. This avoids
+    /// carrying its fill or hover controls through the close/recycle motion.
+    func clearHoverImmediately() {
+        isHovered = false
+        fadesNextFill = false
+        fadesNextHover = false
+        needsDisplay = true
+        needsLayout = true
+    }
+
+    /// The next fill change came from hover. Hover entry is immediate and the
+    /// default hover-out token clears it without leaving a trail.
     var fadesNextFill = false
-    /// The next layout came from hover: the row's hover controls fade in
-    /// place (the row's `layout()` clears it).
+    /// The next layout came from hover: the row's hover controls reveal or
+    /// clear in place (the row's `layout()` clears it).
     var fadesNextHover = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
@@ -110,7 +129,7 @@ class SidebarRowView: NSView {
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hover)
+        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hoverOut)
         fadesNextFill = false
     }
 
@@ -124,6 +143,8 @@ class SidebarRowView: NSView {
     /// The leading icon the row's view draws now for debug.sidebar_rows `icon`
     /// (`symbol`, `swatch`, `emoji`, `favicon`, `agentMark`); nil when it draws none.
     var debugIcon: String? { nil }
+    /// The row draws the archived look (plans/cmux-next/archiving-DESIGN.md).
+    var debugArchived: Bool { false }
     /// The address of the favicon the row draws (a link row), for proofs.
     var debugIconAddress: String? { nil }
 
@@ -159,8 +180,14 @@ class SidebarRowView: NSView {
     }
 
     /// A one-line label. Its color is set in the row's `updateLayer`, inside
-    /// `performWithTheme`, so it follows the row's theme scope.
-    static func label(font: NSFont) -> NSTextField {
+    /// `performWithTheme`, so it follows the row's theme scope; it is a layer
+    /// color, so a theme change blends it (`ChromeLabel`, I5).
+    static func label(font: NSFont) -> ChromeLabel {
+        ChromeLabel(font: font)
+    }
+
+    /// A one-line AppKit label for attributed text with its own run colors.
+    static func attributedLabel(font: NSFont) -> NSTextField {
         let field = NSTextField(labelWithString: "")
         field.font = font
         field.lineBreakMode = .byTruncatingTail

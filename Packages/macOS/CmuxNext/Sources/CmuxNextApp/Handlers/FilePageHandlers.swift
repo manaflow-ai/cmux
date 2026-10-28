@@ -27,7 +27,7 @@ enum FilePageHandlers {
         // R96: a recovered draft of a local file opens as an unsaved edit (the launch notice's Open),
         // in the page of its file type (D11): a markdown file in the markdown page, others in the
         // code editor page. The page compares the file with the draft's base itself.
-        RecoveryDraftStore.shared.restoreHandler = { [weak services] draft in
+        services.recoveryDrafts.restoreHandler = { [weak services] draft in
             // task-owner: one restore per launch notice Open; it ends when the tab opens
             Task { @MainActor in
                 guard let restore = await FilePageRecovery.restore(draft), let services,
@@ -55,6 +55,25 @@ enum FilePageHandlers {
                 try page(.editor, context, invocation).send(command: command, arguments: arguments)
             })
         }
+        // Copies the defaults taken from another editor into cmux.json, as the person's own keys.
+        registry.bind("fileEditor.importEditorSettings", run: { invocation in
+            let settings = try SettingsHandlers.requireSettings(context)
+            let look = services.viewers.editorPages.look
+            let writer = SettingWriter(invocation.origin)
+            registry.track(Task { @MainActor in
+                guard let from = look.importedFrom?.name else { return ActionWorkFailure(FilePageStrings.noEditorSettings) }
+                do {
+                    let written = try await settings.copyEditorSettings(look.importedSection, by: writer)
+                    if let window = services.windows.active?.window {
+                        _ = CmuxToastCenter.shared.show(CmuxToast(id: "editor-settings-copied",
+                                                                  message: FilePageStrings.editorSettingsCopied(written, from: from)), in: window)
+                    }
+                    return nil
+                } catch {
+                    return ActionWorkFailure(error.localizedDescription)
+                }
+            })
+        })
         // The word wrap toggle is the `editor.wordWrap` setting (PAGE-PREFS); the page follows its look.
         registry.bind("toggleFileEditorWordWrap", run: { invocation in
             _ = try page(.editor, context, invocation)

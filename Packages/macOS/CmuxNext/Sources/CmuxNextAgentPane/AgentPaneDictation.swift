@@ -12,13 +12,22 @@ public nonisolated enum AgentPaneDictationCommand: Equatable, Sendable {
     case cancel
     /// The denied state's link: the System Settings privacy pane.
     case openSettings(DictationPermission)
+    /// Whether the chat's harness takes voice input (ACP `promptCapabilities.audio`): sessions
+    /// started from then on keep their audio for the prompt. The page says so whenever it changes.
+    case recordAudio(Bool)
 }
 
 /// The microphone the agent panes share: at most one listens at a time.
 final class DictationMicrophone {
-    static let shared = DictationMicrophone()
+    static let shared = DictationMicrophone(claims: .shared)
     /// The pane that listens now, if any.
     weak var listening: AgentPaneDictation?
+    /// The app-wide claim the panes share with Home's message box (nil: panes only, tests).
+    let claims: DictationMicrophoneClaims?
+
+    init(claims: DictationMicrophoneClaims? = nil) {
+        self.claims = claims
+    }
 
     /// Stops whichever pane listens, keeping its words. False when none does.
     @discardableResult
@@ -43,6 +52,9 @@ final class AgentPaneDictation {
     private var session: DictationSession?
     /// Delivers an update to the page (a script on the old host, an event on the page host).
     private let send: (DictationUpdate) -> Void
+    /// The chat's harness takes voice input (``AgentPaneDictationCommand/recordAudio(_:)``), so
+    /// every start, from the mic, its shortcut, the palette or the CLI, keeps the session's audio.
+    private var recordsAudio = false
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -52,9 +64,9 @@ final class AgentPaneDictation {
     private var held: (keyCode: UInt16, chord: NSEvent.ModifierFlags, pressedAt: TimeInterval)?
     private var keyUpMonitor: Any?
     /// Ends the hold when the app loses focus: the release goes elsewhere.
-    private var resignObserver: (any NSObjectProtocol)?
+    private var resignObserver: MainActorObservation?
     /// Stops the session when the Mac sleeps; observed only while a session runs.
-    private var sleepObserver: (any NSObjectProtocol)?
+    private var sleepObserver: MainActorObservation?
     /// Where sleep is announced (tests post their own).
     var sleepNotifications: NotificationCenter = NSWorkspace.shared.notificationCenter
     /// The event clock (`NSEvent.timestamp`'s), for telling a fresh key press from a stale one.
@@ -105,6 +117,8 @@ final class AgentPaneDictation {
             session?.cancel()
         case .openSettings(let permission):
             if let url = Self.settingsURL(permission) { open(url) }
+        case .recordAudio(let on):
+            recordsAudio = on
         }
     }
 
@@ -124,8 +138,8 @@ final class AgentPaneDictation {
             if event.type == .flagsChanged { self?.flagsChanged(event) } else { self?.keyUp(event) }
             return event
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.endHold() } // main-proof: observer on queue: .main
+        resignObserver = MainActorObservation(NSApplication.didResignActiveNotification) { [weak self] in
+            self?.endHold()
         }
     }
 
@@ -165,7 +179,6 @@ final class AgentPaneDictation {
         held = nil
         if let keyUpMonitor { NSEvent.removeMonitor(keyUpMonitor) }
         keyUpMonitor = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
@@ -185,16 +198,19 @@ final class AgentPaneDictation {
     private func start() {
         if let other = microphone.listening, other !== self { other.session?.stop() }
         microphone.listening = self
-        activeSession().start()
+        // Home's message box listening stops first (one microphone across surfaces).
+        microphone.claims?.claim(self) { [weak self] in self?.session?.stop() }
+        let session = activeSession()
+        session.recordsAudio = recordsAudio
+        session.start()
         if !phase.isStartable, sleepObserver == nil {
-            sleepObserver = sleepNotifications.addObserver(forName: NSWorkspace.willSleepNotification, object: nil, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.session?.stop() } // main-proof: observer on queue: .main
+            sleepObserver = MainActorObservation(NSWorkspace.willSleepNotification, center: sleepNotifications) { [weak self] in
+                self?.session?.stop()
             }
         }
     }
 
     private func endSleepWatch() {
-        if let sleepObserver { sleepNotifications.removeObserver(sleepObserver) }
         sleepObserver = nil
     }
 
@@ -211,6 +227,7 @@ final class AgentPaneDictation {
             endHold()
             endSleepWatch()
             if microphone.listening === self { microphone.listening = nil }
+            microphone.claims?.release(self)
         }
         send(update)
     }
@@ -234,6 +251,12 @@ final class AgentPaneDictation {
             value["message"] = failureMessage(failure)
         default:
             break
+        }
+        if let audio = update.audio {
+            value["audio"] = ["mimeType": "audio/wav", "data": audio.base64EncodedString()] as [String: any Sendable]
+        }
+        if let omitted = update.audioOmitted {
+            value["audioOmitted"] = omitted.rawValue
         }
         return value
     }

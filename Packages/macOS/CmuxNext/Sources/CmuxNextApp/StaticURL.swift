@@ -7,6 +7,7 @@ import Foundation
 nonisolated enum StaticURL: String, CaseIterable {
     case feedback = "https://github.com/manaflow-ai/cmux/issues/new"
     case documentation = "https://cmux.com/docs"
+    case pricing = "https://cmux.com/pricing"
     case blank = "about:blank"
 
     var url: URL { URL(string: rawValue) ?? URL(fileURLWithPath: rawValue) }

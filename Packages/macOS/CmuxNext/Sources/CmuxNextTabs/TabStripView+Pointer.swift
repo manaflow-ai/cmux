@@ -28,6 +28,16 @@ extension TabStripView {
         return rect.insetBy(dx: -2, dy: -2).contains(inCell)
     }
 
+    /// Whether `point` (strip coordinates) is on tab `id`'s speaker, with a
+    /// little slack around the small glyph.
+    func isInAudioButton(_ id: TabID, _ point: CGPoint) -> Bool {
+        // The close button wins where the slack reaches it.
+        guard let cell = cells[id], let rect = cell.audioButtonRect, !isInCloseButton(id, point) else { return false }
+        let local = convert(point, to: tabsClip)
+        let inCell = CGPoint(x: local.x - cell.frame.minX, y: local.y - cell.frame.minY)
+        return rect.insetBy(dx: -3, dy: -4).contains(inCell)
+    }
+
     func isInNewTabButton(_ point: CGPoint) -> Bool {
         !newTabButton.isHidden && newTabButton.frame.contains(convert(point, to: contentView))
     }
@@ -39,6 +49,7 @@ extension TabStripView {
         if let hoveredID { cells[hoveredID]?.isHovered = false }
         hoveredID = id
         if let id { cells[id]?.isHovered = true }
+        onHoverTab?(id)
         TabSeparatorVisibility.apply(to: self)
     }
 
@@ -58,10 +69,24 @@ extension TabStripView {
             closeHoveredID = closeID
             if let closeID { cells[closeID]?.isCloseHovered = true }
         }
+        setAudioHovered(id.flatMap { isInAudioButton($0, point) ? $0 : nil })
         newTabButton.isHovered = !dragging && isInNewTabButton(point)
 
         // The coordinator hit-tests the pointer itself (`TabHoverCardController.target`).
         if moved, let window { hoverCards.pointerMoved(to: window.convertPoint(toScreen: convert(point, to: nil))) }
+    }
+
+    /// The speaker under the pointer: its fill, and a tooltip naming what a click does.
+    func setAudioHovered(_ id: TabID?) {
+        if id != audioHoveredID {
+            if let audioHoveredID { cells[audioHoveredID]?.isAudioHovered = false }
+            audioHoveredID = id
+            if let id { cells[id]?.isAudioHovered = true }
+        }
+        let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+        // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
+        // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
+        if toolTip != tip { toolTip = tip }
     }
 
     /// Shows tab `id`'s hover card now (with its CPU and memory) until the
@@ -116,6 +141,10 @@ extension TabStripView {
             return
         }
         if isInNewTabButton(point) {
+            if opensNewTabMenuOnPress, !event.modifierFlags.contains(.option) {
+                showNewTabMenu()
+                return
+            }
             pressedNewTab = true
             newTabButton.isPressed = true
             newTabHold.start()
@@ -133,22 +162,27 @@ extension TabStripView {
                 cells[id]?.isClosePressed = true
                 return
             }
-            if event.clickCount == 2, renamesOnDoubleClick {
-                beginInlineRename(id)
+            // The speaker is a button: the press neither selects nor drags the
+            // tab, and the release on it mutes or unmutes (Chrome).
+            if isInAudioButton(id, point) {
+                pressedAudioID = id
+                cells[id]?.isAudioPressed = true
                 return
             }
-            // Select on mouse down.
-            if model.selectedID != id { model.send(.select(id)) }
+            // The first click selected the tab; the second renames it (the screen bar) or zooms its pane.
+            if event.clickCount == 2, Self.selectionClick(event.modifierFlags) == .plain {
+                if renamesOnDoubleClick { beginInlineRename(id) } else { model.send(.toggleZoom(id)) }
+                return
+            }
+            // Select on mouse down; Cmd and Shift add to the selection (`selectOnPress`).
             press = TabStripPress(id: id, start: point)
+            selectOnPress(id, modifiers: event.modifierFlags)
             return
         }
-        // Between tabs or trailing buttons: the strip's, never the window's.
-        guard titlebarHit(at: point) == .empty else { return }
-        // In the window's top row empty space is the titlebar: the window
-        // already moved it or ran the double-click action
-        // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
-        if actsAsTitlebar { return }
-        if event.clickCount == 2 { model.send(.newTab(after: nil, opensWorkspace: event.modifierFlags.contains(.option))) }
+        // Empty strip space does nothing here: only the + button opens a tab
+        // (Leo 2026-10-12). In the window's top row it is the titlebar, which
+        // the window already moved or ran its double-click action for
+        // (`TitlebarDragPolicy`).
     }
 
     public override func mouseDragged(with event: NSEvent) {
@@ -159,6 +193,10 @@ extension TabStripView {
         }
         if pressedNewTab {
             newTabButton.isPressed = isInNewTabButton(point)
+            return
+        }
+        if let id = pressedAudioID {
+            cells[id]?.isAudioPressed = isInAudioButton(id, point)
             return
         }
         if drag != nil {
@@ -188,8 +226,16 @@ extension TabStripView {
             if isInCloseButton(id, point) || arrivingCloseTab(at: point) == id { close(id, source: .mouse, at: point) }
             return
         }
+        if let id = pressedAudioID {
+            pressedAudioID = nil
+            cells[id]?.isAudioPressed = false
+            if isInAudioButton(id, point) { model.send(.toggleAudioMute(id)) }
+            updateHover(at: point, moved: false)
+            return
+        }
         if endNewTabPress(at: point, modifiers: event.modifierFlags) { return }
         if drag != nil { endDrag() }
+        if press?.collapsesSelection == true { model.clearMultiSelection() }
         press = nil
         if groups.drag != nil {
             endGroupDrag()
@@ -239,7 +285,7 @@ extension TabStripView {
             return nil
         }
         if let id = tabID(at: point) {
-            return contextMenuProvider?(.tab(id, selection: [id]))
+            return contextMenuProvider?(.tab(id, selection: model.contextSelection(for: id)))
         }
         return contextMenuProvider?(.emptyStrip)
     }
@@ -250,7 +296,8 @@ extension TabStripView {
         // Vertical wheels scroll the strip too.
         if abs(event.scrollingDeltaY) > abs(delta) { delta = event.scrollingDeltaY }
         if !event.hasPreciseScrollingDeltas { delta *= 12 }
-        scroll.snap(to: TabScrollMath.clamp(scroll.value - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth))
+        settleScroll()
+        scrollOffset = TabScrollMath.clamp(scrollOffset - delta, contentWidth: result.contentWidth, viewportWidth: viewportWidth)
         hoverCards.dismiss(.action)
         applyFrames()
     }
@@ -268,15 +315,14 @@ extension TabStripView {
         return true
     }
 
-    /// The new tab menu (which kind of tab: terminal, WebKit, Chromium)
-    /// under the + button. Right-click and press-and-hold open it; a plain
-    /// click opens a terminal tab.
+    /// The pane type menu under +. Pane strips open it on press; other strips
+    /// retain their hold and right-click entry points.
     func showNewTabMenu() {
         guard let menu = contextMenuProvider?(.newTabButton), !menu.items.isEmpty else { return }
         hoverCards.dismiss(.action)
         let origin = CmuxPopoverAnchor.menuPoint(for: newTabButton, in: self, gap: 2)
         menuTracking.begin(menu)
-        menu.popUp(positioning: nil, at: origin, in: self)
+        presentNewTabMenu(menu, origin, self)
         menuTracking.end()
     }
 

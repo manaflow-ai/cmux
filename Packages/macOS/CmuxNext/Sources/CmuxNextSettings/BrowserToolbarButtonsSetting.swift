@@ -5,7 +5,7 @@
 /// ```
 ///
 /// By default the toolbar keeps only what a page needs: Back, Forward, Reload, the address bar,
-/// the Extensions button while an extension is pinned, and More. Of the other buttons, the media
+/// the Extensions button (Chromium tabs), and More. Of the other buttons, the media
 /// hub, the zoom level and Downloads show by default, each only while it has something to show
 /// (media playing, a zoomed page, a download). Every other action (Favorites, design mode, the
 /// profile, the page theme, DevTools) is in the More menu, whose Show in Toolbar items pin it

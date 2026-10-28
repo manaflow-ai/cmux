@@ -12,9 +12,27 @@ import { describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
 import pendingFile from "./theme-colors.pending.json";
+import { prScope } from "./support/prScope";
 
 const SRC = path.resolve(import.meta.dir, "../src");
 const NATIVE = path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources");
+
+// This ratchet scans every shipped page stylesheet. Keep inherited findings visible on a pull
+// request, but make a finding fail only when its source file (or the pending list/check itself)
+// belongs to the change. Base pushes and local runs still check every finding.
+const scope = prScope({
+  rules: ["webviews/test/theme-colors.test.ts", "webviews/test/support/prScope.ts"],
+  lists: ["webviews/test/theme-colors.pending.json"],
+});
+
+const at = (file: string) => ({ files: [`webviews/src/${file}`], names: [file] });
+const findingFile = (finding: string) => finding.slice(0, finding.indexOf(":"));
+const owned = (findings: readonly string[]) =>
+  scope.owned(
+    findings,
+    (finding) => at(findingFile(finding)),
+    (finding) => finding,
+  );
 
 /** A line marked `theme-fixed: <reason>` keeps its literal color (e.g. white on a media scrim). */
 const ALLOW = /theme-fixed:\s*\S/;
@@ -31,7 +49,7 @@ function files(dir: string, ext: RegExp): string[] {
 
 /** Page stylesheets: gallery fixtures and prototypes never ship. */
 const pageCSS = files(SRC, /\.css$/).filter(
-  (file) => !/\/(gallery|prototype)\//.test(file) && !file.endsWith(".gallery.css"),
+  (file) => !/\/(gallery|prototypes?)\//.test(file) && !file.endsWith(".gallery.css"),
 );
 
 /** Every custom property a stylesheet, the page scripts or the native theme payloads set. */
@@ -40,7 +58,7 @@ function definedVariables(): { names: Set<string>; prefixes: string[] } {
   const prefixes: string[] = [];
   // The gallery sets variables for its fixtures; the app never does.
   const pages = files(SRC, /\.(css|ts|tsx)$/).filter(
-    (file) => !/\/(gallery|prototype)\//.test(file) && !/\.gallery\./.test(file),
+    (file) => !/\/(gallery|prototypes?)\//.test(file) && !/\.gallery\./.test(file),
   );
   const sources = [...pages, ...files(NATIVE, /\.swift$/)];
   for (const file of sources) {
@@ -105,7 +123,7 @@ describe("page colors follow the theme", () => {
           .map((name) => `${where} ${name}`),
       ),
     );
-    expect(unset).toEqual([]);
+    expect(owned(unset)).toEqual([]);
   });
 
   test("text never paints literal white or black, or the page background", () => {
@@ -116,7 +134,7 @@ describe("page colors follow the theme", () => {
         .filter(({ text }) => fixedInk.test(text))
         .map(({ where, text }) => `${where} ${text.trim()}`),
     );
-    expect(found).toEqual([]);
+    expect(owned(found)).toEqual([]);
   });
 
   test("an element never fills or rings itself with the clear page background", () => {
@@ -130,7 +148,7 @@ describe("page colors follow the theme", () => {
         .filter(({ text }) => !pageFill.test(text) && !alias.test(text))
         .map(({ where, text }) => `${where} ${text.trim()}`),
     );
-    expect(found).toEqual([]);
+    expect(owned(found)).toEqual([]);
   });
 
   test("a ring, pill or glyph on a fill takes the opaque page color", () => {
@@ -141,7 +159,7 @@ describe("page colors follow the theme", () => {
         .filter(({ text }) => /var\(--cmux-surface-token\b/.test(text))
         .map(({ where, text }) => `${where} ${text.trim()}`),
     );
-    expect(found).toEqual([]);
+    expect(owned(found)).toEqual([]);
   });
 
   describe("literal colors only go down", () => {
@@ -156,17 +174,29 @@ describe("page colors follow the theme", () => {
     }
 
     test("a migrated stylesheet takes its colors from the theme", () => {
-      expect(fresh).toEqual([]);
+      expect(owned(fresh)).toEqual([]);
     });
 
     test("a pending stylesheet never gains literal colors", () => {
       const grown = Object.entries(actual).filter(([file, count]) => file in pending && count > Number(pending[file]));
-      expect(grown.map(([file, count]) => `${file}: ${count} > ${pending[file]}`)).toEqual([]);
+      expect(
+        scope.owned(
+          grown,
+          ([file]) => at(file),
+          ([file, count]) => `${file}: ${count} > ${pending[file]}`,
+        ),
+      ).toEqual([]);
     });
 
     test("the pending list shrinks with the migration (lower a count, delete a clean file)", () => {
       const stale = Object.entries(pending).filter(([file, count]) => (actual[file] ?? 0) < Number(count));
-      expect(stale.map(([file, count]) => `${file}: ${actual[file] ?? 0} < ${count}`)).toEqual([]);
+      expect(
+        scope.owned(
+          stale,
+          ([file]) => at(file),
+          ([file, count]) => `${file}: ${actual[file] ?? 0} < ${count}`,
+        ),
+      ).toEqual([]);
     });
   });
 });

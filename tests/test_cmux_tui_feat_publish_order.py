@@ -16,6 +16,13 @@ published only after the tests passed, so a pin's tree waited ~1 h for the
 macOS runner. Nightly-next promotion still needs the daemon-tests marker,
 which only publish-tree-tested writes, after this run's tests of the key pass.
 
+No tree publication waits for the Windows build either (2026-10-21): the
+Windows leg (24 min median, 32 p90) ended last in 217 of 219 published trees,
+so every nightly-next promotion waited for a target the nightly does not
+ship. build-windows is its own call, and publish-windows and
+publish-tree-windows (the same steps, CMUX_TUI_PUBLISH_PASS=windows) add the
+Windows daemon to the tree the first pass published.
+
 This evaluates each publishing job's `if` with GitHub's expression rules for
 a feat-cmux-next push and for other refs, and walks its `needs`.
 """
@@ -103,7 +110,6 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
         "github.event_name": event,
         "github.ref": ref,
         "github.repository": "manaflow-ai/cmux",
-        "github.event.pull_request.head.repo.full_name": "manaflow-ai/cmux" if event == "pull_request_target" else "",
         "needs.tree-preflight.result": "success",
         "needs.tree-preflight.outputs.key": KEY,
         "needs.tree-preflight.outputs.daemon_tests": daemon_tests,
@@ -114,13 +120,21 @@ def context(ref, event="push", daemon_tests="true", daemon_result="success"):
     if daemon_result is not None:
         values[f"needs.{DAEMON}.result"] = daemon_result
         values[f"needs.{DAEMON}.outputs.key"] = KEY if daemon_result == "success" else ""
+        # The feat-cmux-next promotion gate runs the tests on its Mac pool.
+        values[f"needs.{DAEMON}.outputs.runner_os"] = "macOS"
     return values
 
 
-def publishers(all_jobs):
+def windows_pass(job):
+    return (job.get("env") or {}).get("CMUX_TUI_PUBLISH_PASS") == "windows"
+
+
+def publishers(all_jobs, windows=False):
+    """The jobs that publish the tree; windows=True: the Windows passes that add to it."""
     return [name for name, job in all_jobs.items()
-            if any(step.get("name", "").startswith("Publish the") and "trusted helper" in step.get("name", "")
-                   for step in job.get("steps", []))]
+            if windows_pass(job) == windows
+            and any(step.get("name", "").startswith("Publish the") and "trusted helper" in step.get("name", "")
+                    for step in job.get("steps", []))]
 
 
 def runs(all_jobs, name, values):
@@ -156,12 +170,9 @@ def main():
     # Every other ref that runs the daemon tests publishes as soon as it is
     # built, whatever they do (cx-y0nf2), and no publisher writes the marker.
     tested_refs = [
-        ("push", "refs/heads/cmux-tui-pin-0123456789ab"),
         ("push", "refs/heads/next-batch/abc"),
         ("push", "refs/heads/main"),
         ("push", "refs/heads/codex/opted-in-lane"),
-        ("workflow_dispatch", "refs/heads/cmux-tui-pin-0123456789ab"),
-        ("pull_request_target", "refs/heads/feat-cmux-next"),
     ]
     for event, ref in tested_refs:
         for result in (None, "failure", "cancelled", "skipped", "success"):
@@ -169,6 +180,11 @@ def main():
             starting = [name for name in tree_publishers if runs(all_jobs, name, values)]
             _check(len(starting) == 1,
                    f"{event} {ref} publishes once with its daemon tests {result or 'queued'} ({starting})")
+    for event in ("push", "workflow_dispatch"):
+        for result in (None, "failure", "cancelled", "skipped", "success"):
+            values = context("refs/heads/cmux-tui-pin-0123456789ab", event=event, daemon_result=result)
+            starting = [name for name in tree_publishers if runs(all_jobs, name, values)]
+            _check(not starting, f"{event} on a pin ref never publishes ({starting})")
     for name in tree_publishers:
         _check(DAEMON not in all_needs(all_jobs, name), f"{name} does not need the daemon tests")
         _check("cmux-tui-mark-daemon-tested.sh" not in str(all_jobs[name]["steps"]),
@@ -186,8 +202,7 @@ def main():
     marker = all_jobs["publish-tree-tested"]
     _check(DAEMON in needs(marker) and f"needs.{DAEMON}.result == 'success'" in str(marker["if"]),
            "publish-tree-tested writes the marker only after the daemon tests pass")
-    for ref, event in (("refs/heads/feat-cmux-next", "push"), ("refs/heads/cmux-tui-pin-0123456789ab", "push"),
-                       ("refs/heads/feat-cmux-next", "pull_request_target")):
+    for ref, event in (("refs/heads/feat-cmux-next", "push"), ("refs/heads/cmux-tui-pin-0123456789ab", "push")):
         base = context(ref, event=event, daemon_result="success")
         base.update({"needs.tree-owner-wait.outputs.unmarked": "false",
                      **{f"needs.{name}.result": "success" for name in tree_publishers}})
@@ -224,6 +239,28 @@ def main():
     for name in tree_publishers:
         _check(name in needs(notify) and f"needs.{name}.result != 'success'" in str(notify["if"]),
                f"notify-unpublished-tree waits for {name} and stays quiet when it published")
+
+    # Nothing on the path to the tree and nightly-next waits for the Windows build.
+    _check("build-windows" in all_jobs, "Windows builds in its own job, build-windows")
+    for name in [*tree_publishers, "publish", "publish-tree-tested", "request-nightly-next"]:
+        _check("build-windows" not in all_needs(all_jobs, name), f"{name} does not wait for build-windows")
+    _check(all_jobs["build"]["with"].get("include_windows") is False,
+           "the macOS and Linux build call builds no Windows target")
+    windows_with = all_jobs["build-windows"]["with"]
+    _check(windows_with.get("include_windows") is True and windows_with.get("target_set") == "windows",
+           "build-windows builds only the Windows target")
+    windows_publishers = publishers(all_jobs, windows=True)
+    _check(windows_publishers == ["publish-tree-windows"], f"one Windows tree pass ({windows_publishers})")
+    for name in windows_publishers:
+        job = all_jobs[name]
+        _check({"publish-tree", "publish-windows"} <= set(needs(job)) and "build-windows" in all_needs(all_jobs, name),
+               f"{name} adds to the tree publish-tree published, after build-windows")
+        _check(job["steps"] is all_jobs["publish-tree"]["steps"], f"{name} runs publish-tree's own steps")
+        _check(name in needs(all_jobs["notify-unpublished-tree"]), f"notify-unpublished-tree stays the run's last job ({name})")
+    _check(all_jobs["publish-windows"]["steps"] is all_jobs["publish"]["steps"]
+           and windows_pass(all_jobs["publish-windows"])
+           and "needs.build-windows.outputs.windows_built == 'true'" in str(all_jobs["publish-windows"]["if"]),
+           "publish-windows runs publish's own steps, only for a Windows build that uploaded its artifact")
 
     if FAILURES:
         print(f"{len(FAILURES)} failure(s)")

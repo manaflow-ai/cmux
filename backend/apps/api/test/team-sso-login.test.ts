@@ -254,7 +254,7 @@ describe("OIDC sign-in (workerd)", { timeout: 30_000 }, () => {
 
     // pat's token names pat's personal team; the domain's team still requires its SSO.
     expect((await op(pat, "user.ensure", {})).code).toBe("auth.sso_required")
-    const patWire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${pat}` } })
+    const patWire = await worker.fetch("https://api.test/v1/wire/user", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${pat}` } })
     expect(patWire.status).toBe(403)
     expect((await mint(patInstall)).status).toBe(403)
     // The SSO session and the install it registered pass; users of other domains and the owner are not bound.

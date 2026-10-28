@@ -7,19 +7,23 @@ import Foundation
 public struct SetColumnDockRequest: DaemonRequest {
     public typealias Response = EmptyResponse
     public static let command = "set-column-dock"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.dockColumns
+    public static let requiredCapability: String? = DaemonCapability.dockColumns.rawValue
     public var pane: PaneID
     public var dock: Bool
     public var edge: String?
     public var mode: String?
     public var role: String?
+    /// `pinned-dock-v1`: true marks the column pinned (the Home dock); nil
+    /// keeps what the column has (the daemon never clears a pin).
+    public var pinned: Bool?
     public var transaction: UInt64?
-    public init(pane: PaneID, dock: DockSnapshot?, transaction: UInt64? = nil) {
+    public init(pane: PaneID, dock: DockSnapshot?, pinned: Bool? = nil, transaction: UInt64? = nil) {
         self.pane = pane
         self.dock = dock != nil
         self.edge = dock?.edge.rawValue
         self.mode = dock?.mode.rawValue
         self.role = dock?.role?.rawValue
+        self.pinned = pinned
         self.transaction = transaction
     }
 }

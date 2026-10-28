@@ -1,27 +1,42 @@
-// The controls row's labels/icons switch must settle (hq#1957 item 15 review). With labels shown,
-// a shortening label's overflow is read from scrollWidth - clientWidth, whole pixels, so a 0.4px
-// squeeze counts as 1px and the row goes to icons; with icons shown the same row measures
-// room + 0.4 and would go back. Each switch resizes the row and runs the check again: it must not
-// flip every frame. Leaving icons needs clear room.
+// The controls row's steps (composerRowFit.ts, the compact-composer verdict) must settle: each step
+// change resizes the row and runs the check again, so a row resized across a boundary by a
+// fraction of a pixel must not flip every frame. A pane's width sets the least step it takes.
 import { describe, expect, test } from "bun:test";
-import { showsIcons } from "../src/agent-session/acpmux/composerRowFit";
+import { fitForms, fitStep, ROW_FIT_STEPS } from "../src/agent-session/acpmux/composerRowFit";
 
 describe("composer row fit", () => {
   const room = 400;
+  const last = ROW_FIT_STEPS.length;
+  // The widths the row takes at each step, 40 px less a step.
+  const widths = (base: number) => (step: number) => base - 40 * step;
 
-  test("labels give way when the row is over by more than half a pixel", () => {
-    expect(showsIcons(false, room + 1, room)).toBe(true);
-    expect(showsIcons(false, room + 0.4, room)).toBe(false);
+  test("a row too long for its width takes the fewest extra steps that fit", () => {
+    expect(fitStep(0, widths(room), room)).toBe(0);
+    expect(fitStep(0, widths(room + 1), room)).toBe(1);
+    expect(fitStep(0, widths(room + 0.4), room)).toBe(0);
+    expect(fitStep(0, widths(room + 1000), room)).toBe(last);
   });
 
-  test("icons stay through the sub-pixel band that sent the row to icons", () => {
-    // Labels measured room + 1 (rounded), so the row is at icons; icons measure room + 0.4.
-    expect(showsIcons(false, room + 1, room)).toBe(true);
-    expect(showsIcons(true, room + 0.4, room)).toBe(true);
+  test("a lower step comes back only with clear room", () => {
+    expect(fitStep(1, widths(room - 1), room)).toBe(1);
+    expect(fitStep(1, widths(room - 8), room)).toBe(0);
   });
 
-  test("icons give way to labels once there is clear room", () => {
-    expect(showsIcons(true, room - 1, room)).toBe(true);
-    expect(showsIcons(true, room - 8, room)).toBe(false);
+  test("the composer's width shortens labels first and drops controls last; the mic stays", () => {
+    const at = (width: number) => fitForms(width);
+    expect(at(760)).toEqual({ access: "full", effort: "full", mic: "full", model: "full" });
+    expect(at(470)).toEqual({ access: "full", effort: "short", mic: "full", model: "full" });
+    expect(at(440)).toEqual({ access: "full", effort: "short", mic: "full", model: "family" });
+    expect(at(420)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family" });
+    expect(at(371)).toEqual({ access: "icon", effort: "short", mic: "full", model: "family" });
+    expect(at(370)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+    expect(at(340)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+    expect(at(240)).toEqual({ access: "icon", effort: "short", mic: "full", model: "icon" });
+  });
+
+  test("a row too long for its width gives up the model's name last and never the mic", () => {
+    expect(fitForms(760, ROW_FIT_STEPS.length - 1).model).toBe("family");
+    expect(fitForms(760, ROW_FIT_STEPS.length)).toMatchObject({ model: "icon", mic: "full" });
+    expect(fitForms(760, ROW_FIT_STEPS.length + 4).mic).toBe("full");
   });
 });

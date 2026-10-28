@@ -3,10 +3,9 @@ import Foundation
 import Testing
 @testable import MessagesLabHome
 
-/// Drag selection in a markdown bubble (the Chief's replies): a markdown row's `text` is a
-/// one-line proxy of its display string, so the selection must map points and draw the
-/// highlight from the markdown layout, or every point lands on the first line and the
-/// highlight is one line as wide as the whole message.
+/// Drag selection in a markdown bubble with a table (the Chief's replies): the selection maps
+/// points and draws the highlight from the row's markdown geometry, so a point in a table row
+/// below the first line lands on that row's text and every line and table row is highlighted.
 @MainActor @Suite struct TranscriptSelectionMarkdownTests {
     static let source = """
     You have 3 workspaces in this cmux session:
@@ -20,30 +19,29 @@ import Testing
     Home has a single browser tab that shows about:blank.
     """
 
-    static func row() throws -> (PartRow, MarkdownLayout) {
-        let md = try #require(Markdown.layout(source, message: "msg_md", format: .markdown, width: Fixture.windowWidth))
-        let row = PartRow(ref: PartRef(messageId: "msg_md", partIndex: 0), part: .text(source, runs: []), outgoing: false, tail: true,
-                          reactions: [], failed: false, size: md.size, text: md.proxy, connectorRoot: nil, markdown: md, markdownFormat: true)
-        return (row, md)
+    static func layout() -> MarkdownLayout {
+        MarkdownLayoutEngine.layout(Markdown.parse(source), source: source, maxWidth: Fixture.windowWidth)
     }
 
-    @Test func aPointBelowTheFirstLineMapsToTheTextUnderIt() throws {
-        let (row, md) = try Self.row()
-        let ns = md.plain as NSString
-        let target = ns.range(of: "workspace-2")
+    @Test func aPointInATableRowBelowTheFirstLineMapsToTheTextUnderIt() throws {
+        let md = Self.layout()
+        let body = CGRect(x: 10, y: 50, width: md.size.width, height: md.size.height)
+        let target = (md.plain as NSString).range(of: "workspace-2")
+        try #require(target.location != NSNotFound)
         let frag = try #require(md.frags.first { NSLocationInRange(target.location, $0.range) })
         let x = CTLineGetOffsetForStringIndex(frag.line, target.location - frag.range.location, nil) + 2
-        let p = CGPoint(x: frag.origin.x + x, y: frag.origin.y + frag.height / 2)
-        let offset = try #require(TranscriptSelection.offset(in: row, at: p))
-        #expect(NSLocationInRange(offset, NSRange(location: target.location, length: target.length + 1)),
-                "offset \(offset) is not in \"workspace-2\" at \(target)")
+        let p = CGPoint(x: body.minX + frag.origin.x + x, y: body.minY + frag.origin.y + frag.height / 2)
+        let pos = TranscriptSelection.position(at: p, body: body, key: "row", geometry: md)
+        #expect(NSLocationInRange(pos.offset, NSRange(location: target.location, length: target.length + 1)),
+                "offset \(pos.offset) is not in \"workspace-2\" at \(target)")
     }
 
-    @Test func theHighlightFollowsTheMarkdownLinesInsideTheBubble() throws {
-        let (row, md) = try Self.row()
-        let rects = TranscriptSelection.highlightRects(in: row, range: NSRange(location: 0, length: md.length))
+    @Test func theHighlightFollowsTheMarkdownLinesAndTableRowsInsideTheBubble() throws {
+        let md = Self.layout()
+        let body = CGRect(x: 0, y: 0, width: md.size.width, height: md.size.height)
+        let rects = TranscriptSelection.highlightRects(NSRange(location: 0, length: md.length), body: body, geometry: md, visible: 0...body.maxY)
         // The heading line, the table's rows and the closing paragraph each draw their own rect.
         #expect(Set(rects.map(\.minY)).count >= 5)
-        for r in rects { #expect(r.maxX <= md.size.width + 1, "rect \(r) runs past the bubble (\(md.size.width) pt)") }
+        for r in rects { #expect(body.contains(r), "rect \(r) leaves the bubble \(body)") }
     }
 }

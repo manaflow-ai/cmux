@@ -12,13 +12,14 @@ Implemented event lines can appear on subscribe, attach, or control lifecycle st
 
 | Stream | How to start | Event names |
 | --- | --- | --- |
-| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
+| Subscribe stream | `subscribe` command | `tree-changed`, all workspace/screen/pane/tab deltas, `frontend-projection-changed`, `personal-changed`, `conversation-changed`, `conversation-typing`, `conversation-inbox-changed`, `conversation-run-changed`, `conversation-live`, `cloud-conversation-changed`, `cloud-conversation-resynced`, `cloud-conversation-run-changed`, `cloud-conversation-live`, `cloud-conversation-typing`, `cloud-conversation-presence`, `cloud-inbox-changed`, `cloud-inbox-reset`, `cloud-subscription-state`, `cloud-session-needed`, `cloud-host-replica-needed`, `bookmarks-changed`, `settings-changed`, `keybindings-changed`, `history-changed`, `terminal-registry-changed`, `terminal-reaped`, `layout-changed`, `surface-output`, `scroll-changed`, `surface-resized`, `surface-resize-failed`, `surface-exited`, `title-changed`, `agent-changed`, `agent-presence-changed`, `bell`, `program-status-changed`, `notification`, `status`, `config-reload-requested`, `window-title-requested`, `machine-usage-changed`, `client-attached`, `client-changed`, `client-detached`, `client-list-invalidated`, `pairing-requested`, `pairing-resolved`, `empty`, `overflow` |
 | Attach stream v5 | `attach-surface` command | `vt-state`, `output`, `detached`, `overflow` |
 | Attach stream v6 PTY | `attach-surface` command | `vt-state`, `resized`, `output`, `colors-changed`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Attach stream v7 render mode | `attach-surface` command | `render-state`, `render-delta`, `scroll-changed`, `detached`, `overflow` |
 | Browser attach v6 | `attach-surface` command on a browser | `browser-state`, `frame`, `notification`, `scroll-changed`, `detached`, `overflow` |
 | Control lifecycle notice | No command; sent after a successful `shutdown-daemon` or `session.shutdown` acknowledgment | `daemon-shutdown` |
 | Control input notice | No command; sent to a connection whose queued input for a creating terminal was not written | `terminal-input-unclaimed` |
+| Native owner inventory watch | Trusted Unix `agent-inventory-watch` with `agent-inventory-watch-v1` | `agent-inventory-changed`, `agent-inventory-watch-ended` |
 
 Events and command responses share one full-duplex connection. Each event or response is a complete transport message: a JSON line on Unix or a text frame on WebSocket. Clients must route messages by checking for `event`. If `event` is absent, the message is a command response and should be matched by `id`.
 
@@ -54,10 +55,13 @@ Control lifecycle notices are sent on the authenticated control queue. They do n
 | `cloud-conversation-resynced` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-conversation-run-changed` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-runs-v1` |
 | `cloud-conversation-live` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-chief-live-v1` |
+| `cloud-conversation-typing` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-typing-v1` |
+| `cloud-conversation-presence` | subscribe | `conversation` | protocol 12 additive extension; capability `cloud-conversation-presence-v1` |
 | `cloud-inbox-changed` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-inbox-reset` | subscribe | inbox | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-subscription-state` | subscribe | `scope`, `conversation` | protocol 12 additive extension; capability `cloud-conversations-v1` |
 | `cloud-session-needed` | subscribe | session lease | protocol 12 additive extension; capability `cloud-conversations-v1` |
+| `cloud-host-replica-needed` | subscribe | host replica lease | protocol 12 additive extension; capability `cloud-host-replica-v1` |
 | `screen-added` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-closed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
 | `screen-renamed` | subscribe (`deltas`) | `screen` | protocol 7; parent `workspace` |
@@ -518,7 +522,14 @@ seq:uint64, transaction:string, change:Change, account?:string}` with the
 `cloud-inbox-changed` (`entries`, `account?`), `cloud-inbox-reset`
 (`account?`), `cloud-subscription-state` (`scope`, `state`, `reason?`,
 `account?`) and `cloud-session-needed` (`reason`, `expires_at?`) are specified
-in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
+in plans/cmux-next/home-cloud-proxy.md section 5. `cloud-host-replica-needed`
+(`reason`: `expiring` or `unauthenticated`, `expires_at?`) asks the verified
+app for a new `cloud-host-replica-set` lease (spec/commands.md); only the
+verified app connection hears it. A refused token is asked for again every 30
+seconds until a new lease comes, also while a purge waits for one. Asks with
+the same `reason` come at most every 30 seconds across leases (a Mac clock
+ahead of the cloud's would otherwise find every new token expiring, and a cloud
+that refuses every new token would otherwise cause a loop of token mints). `account` is the cloud user
 id (the JWT `sub`) of the lease the daemon used for the upstream socket that
 produced the event, absent when that lease has no readable `sub`; a client
 drops an event whose `account` is present and differs from the account
@@ -649,6 +660,51 @@ a Cloud Chief's live frame in a subscribed Cloud conversation (the owner's
 `step.delta`, `run.activity` or `run.live`, with both `type` and `t`, unchanged), only to
 the person's connections that echoed `chief-live-v1`. Never stored or
 replayed.
+
+### cloud-conversation-typing
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-typing` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-typing-v1` |
+
+`object{event:"cloud-conversation-typing", conversation:string, participant:string, on:bool, account?:string}`,
+someone in a subscribed Cloud conversation started or stopped typing (the
+owner's `conversation-typing` broadcast: a Cloud Chief's reply, or another
+person), only to the person's connections that echoed
+`cloud-conversation-typing-v1`. A frame without a participant or a boolean
+`on` is dropped. Ephemeral: never stored or replayed. The owner turns the
+sender's typing off when the sender's socket closes; when the daemon's own
+socket for the conversation ends, the daemon sends `on: false` for everyone
+that socket heard typing, because their `off` can no longer come on it.
+
+### cloud-conversation-presence
+
+| Field | Value |
+| --- | --- |
+| event | `cloud-conversation-presence` |
+| status | implemented |
+| since | protocol 12 additive extension; capability `cloud-conversation-presence-v1` |
+
+`object{event:"cloud-conversation-presence", conversation:string, participants:array<object{participant:string, viewing:bool}>, account?:string}`,
+who views a subscribed Cloud conversation now (the owner's
+`conversation-presence`: always the whole set, on every change and once after
+each subscribe), only to the person's connections that echoed
+`cloud-conversation-presence-v1`. Another conversation's set, a participant
+without an id or a boolean `viewing`, and a set of more than 256 participants
+or with an id over 256 bytes are dropped. Ephemeral: never written to disk or
+to any log, and kept in memory only as the live socket's last set (below).
+When the daemon's own socket for the conversation ends after a non-empty set,
+the daemon sends an empty set, because the owner sends the set again only to
+the next socket. The daemon keeps the live socket's last set and sends it again
+right after each `cloud-conversation-subscribe` reply (after the
+`cloud-subscription-state` event) while the socket is `live`, so a client that
+lost events and subscribes again gets the current set without waiting for a
+change. A replay, a new owner set and a socket's end go out one at a time, in
+the order they change that kept set: a replay that races the socket's end goes
+out before the empty set, never after it, and never after a newer owner set. An old socket that ends after a new subscribe replaced it leaves the new
+socket's set alone, and sends the empty set only while the new one has shown none.
 
 ### terminal-registry-changed
 
@@ -1699,6 +1755,7 @@ object{
   source:"plugin"|"detected"|"socket"|"hook",
   session:string|null,
   agent?:string|null,
+  agent_session_id?:string|null,
   updated_at_ms:uint64,
   since_ms?:uint64,
   last_prompt?:string|null
@@ -1706,7 +1763,8 @@ object{
 ```
 
 `last_prompt` is the agent's last prompt (at most 200 characters, memory only; see
-`list-agents`).
+`list-agents`). `agent_session_id` is the harness's own session id its hooks reported
+(see `list-agents`).
 
 Meaning: The current agent state for a surface changed. `agent` is the
 adapter identity when the producer knows it. `since_ms` is when the agent
@@ -1818,3 +1876,21 @@ Request:
 ```
 
 Filtering applies only to events produced after the subscription is registered. Non-surface events are included only when their event name matches `events` or when `events` is absent.
+
+## agent-inventory-changed
+
+A targeted invalidation on the control connection that enabled the watch:
+`{event:"agent-inventory-changed", machine:"machine_…", watch_id:"inventory_watch_…", revision:2}`.
+The canonical owner, opaque lease ID and unsigned revision identify the current
+subscription. Rows, account labels, paths and commands are not included. Match
+the receipt and captured connection epoch before re-reading an admitted owner's
+cache. Tree snapshots do not supersede this event.
+
+## agent-inventory-watch-ended
+
+`{event:"agent-inventory-watch-ended", machine:"machine_…", watch_id:"inventory_watch_…", reason:"agent_inventory.unavailable"}`
+retires that lease after owner-feed loss, socket replacement or an invalid feed.
+Disable/disconnect also retire the lease; disable does not send an ended event.
+A new connection must negotiate and enable a new watch. See
+[the native inventory carrier](../../docs/cmux-next-agent-inventory.md) for
+admission, bounds and cancellation ordering.

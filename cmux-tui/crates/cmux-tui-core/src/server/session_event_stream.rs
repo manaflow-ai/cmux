@@ -12,6 +12,7 @@ use super::resource_stream_id;
 use super::send_resource_stream_item;
 use super::session_stream;
 use crate::Mux;
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource::ResourceOperation;
 use crate::resource::StreamPublicId;
@@ -46,20 +47,27 @@ pub(super) fn prepare_session_event_stream(
     let stream_id = resource_stream_id(request)?;
     let epoch = mux.resource_event_epoch();
     let snapshot = resource_session_snapshot(mux, client, &request.selectors)?;
-    let snapshot_cursor = snapshot["cursor"].clone();
-    let snapshot_generation = snapshot_cursor["generation"]
-        .as_str()
-        .expect("public snapshot cursor generation")
-        .to_string();
-    let snapshot_revision = snapshot_cursor["revision"]
+    let snapshot_cursor = snapshot.field("cursor").clone();
+    let cursor_missing = || {
+        ResourceError::operation_failed(
+            request.envelope.operation.wire_name(),
+            "the session snapshot has no valid cursor",
+            json!({}),
+        )
+    };
+    let snapshot_generation =
+        snapshot_cursor.field("generation").as_str().ok_or_else(cursor_missing)?.to_string();
+    let snapshot_revision = snapshot_cursor
+        .field("revision")
         .as_str()
         .and_then(|revision| revision.parse::<u64>().ok())
-        .expect("public snapshot cursor revision");
+        .ok_or_else(cursor_missing)?;
     let requested_cursor = request
         .fields
         .get("cursor")
         .map(|cursor| {
-            let generation = cursor["generation"]
+            let generation = cursor
+                .field("generation")
                 .as_str()
                 .ok_or_else(|| {
                     ResourceError::validation_invalid(
@@ -68,7 +76,7 @@ pub(super) fn prepare_session_event_stream(
                     )
                 })?
                 .to_string();
-            let revision = serde_json::from_value::<WireDecimal>(cursor["revision"].clone())
+            let revision = serde_json::from_value::<WireDecimal>(cursor.field("revision").clone())
                 .map(WireDecimal::get)
                 .map_err(|_| {
                     ResourceError::validation_invalid(Some("cursor"), "cursor revision is invalid")
@@ -303,6 +311,16 @@ pub(super) fn run_session_event_stream(
         stream.next_sequence = stream.next_sequence.saturating_add(1);
     }
 
+    // Every journal commit (terminal output too) wakes every stream. Reading
+    // pages on the stream's own read-only connection keeps those reads off
+    // the registry lock, which every request and the journal writer need.
+    let mut reader = match mux.resource_event_reader() {
+        Ok(reader) => reader,
+        Err(error) => {
+            eprintln!("cmux-tui: session.events: open resource event reader: {error:#}");
+            None
+        }
+    };
     let interrupt = StreamInterrupt::new();
     writer.register_interrupt(&interrupt);
     stream.outbound.register_interrupt(&interrupt);
@@ -317,7 +335,23 @@ pub(super) fn run_session_event_stream(
         }
         stream.epoch = epoch;
         loop {
-            let page = match mux.resource_events_after(stream.last_revision) {
+            let read = match &reader {
+                Some((reader, generation)) => {
+                    reader.resource_events_after(generation, stream.last_revision)
+                }
+                None => mux.resource_events_after(stream.last_revision),
+            };
+            // A reader error (a busy or replaced file) falls back to the
+            // registry, which decides between a page and a gap.
+            let read = match read {
+                Err(error) if reader.is_some() => {
+                    eprintln!("cmux-tui: session.events: resource event reader: {error:#}");
+                    reader = None;
+                    mux.resource_events_after(stream.last_revision)
+                }
+                read => read,
+            };
+            let page = match read {
                 Ok(page) => page,
                 Err(error) => {
                     let end = resource_stream_end(
@@ -422,7 +456,7 @@ fn delta_item(
     {
         let all = current_placements(mux, generation)?;
         for mut change in crate::state::placement_shift::restatement(&all, shift) {
-            change["sequence"] = json!(array.len());
+            change.insert("sequence", json!(array.len()));
             array.push(change);
         }
     }

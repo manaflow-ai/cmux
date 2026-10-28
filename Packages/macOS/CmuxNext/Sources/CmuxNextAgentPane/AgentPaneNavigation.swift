@@ -3,7 +3,7 @@ import Foundation
 import WebKit
 
 /// Keeps the web view on its page (`AgentPaneSource`): the main frame shows only the page
-/// document. A clicked http(s) link opens outside the pane after a real user gesture
+/// document. A clicked http(s) link, or a cmux app link (opened in the app), opens outside the pane after a real user gesture
 /// (``openOutside(_:gestures:open:)``); a frame inside the page may show a loopback web page (a
 /// turn's preview card, `URL.isAgentPanePreview`) or the render frame (a render card,
 /// `AgentPaneRenderFrame`); every other navigation is cancelled.
@@ -25,8 +25,8 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         case .allow:
             decisionHandler(.allow)
         case .openOutside(let url):
-            let other = LinkRouter.isOtherTarget(action.modifierFlags)
-            _ = Self.openOutside(url, gestures: view.model.transport.gestures) { view.openURL($0, other) }
+            let modifiers = action.modifierFlags
+            _ = Self.openOutside(url, gestures: view.model.transport.gestures) { view.openURL($0, modifiers) }
             decisionHandler(.cancel)
         case .cancel:
             decisionHandler(.cancel)
@@ -51,6 +51,7 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         view?.applyZoom()
         view?.applyShortcuts()
         view?.applyPreviewFeatures()
+        if let view { AgentPaneSessionStatus.push(to: view) }
         if let view { AgentPaneSuggestedTasks.shared.push(to: view) }
         view?.applyEditedFiles()
         view?.replayCustomization()
@@ -76,9 +77,13 @@ final class AgentPaneNavigation: NSObject, WKNavigationDelegate {
         // it same-origin with the pane.
         if !mainFrame {
             if case .bundled = source, AgentPaneRenderFrame.isFrame(url) { return .allow }
+            // A question's HTML option preview (question/HtmlPreview.tsx): the pane's own
+            // document, written into a sandboxed frame with no scripts. It loads nothing itself.
+            if url.absoluteString == "about:srcdoc" { return .allow }
             return url.isAgentPanePreview && !source.isTrusted(url) ? .allow : .cancel
         }
         if userClicked, let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" { return .openOutside(url) }
+        if userClicked, isCmuxAppLink(url) { return .openOutside(url) }
         return .cancel
     }
 }

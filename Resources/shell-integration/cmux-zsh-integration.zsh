@@ -972,15 +972,24 @@ _cmux_git_resolve_git_dir() {
     print -r -- "${head_path:h}"
 }
 
-_cmux_git_head_signature() {
+# Sets REPLY rather than printing, so the per-second HEAD watcher does not fork
+# a subshell on every poll.
+_cmux_git_head_signature_into_reply() {
+    REPLY=""
     local head_path="$1"
     [[ -n "$head_path" && -r "$head_path" ]] || return 1
     local line=""
     if IFS= read -r line < "$head_path"; then
-        print -r -- "$line"
+        REPLY="$line"
         return 0
     fi
     return 1
+}
+
+_cmux_git_head_signature() {
+    local REPLY
+    _cmux_git_head_signature_into_reply "$1" || return 1
+    print -r -- "$REPLY"
 }
 
 _cmux_git_branch_for_path() {
@@ -2040,8 +2049,9 @@ _cmux_start_git_head_watch() {
     watch_head_path="$(_cmux_git_resolve_head_path "$watch_pwd" 2>/dev/null || true)"
     [[ -n "$watch_head_path" ]] || return 0
 
-    local watch_head_signature
-    watch_head_signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
+    local REPLY watch_head_signature
+    _cmux_git_head_signature_into_reply "$watch_head_path" 2>/dev/null || true
+    watch_head_signature="$REPLY"
 
     _CMUX_GIT_HEAD_LAST_PWD="$watch_pwd"
     _CMUX_GIT_HEAD_PATH="$watch_head_path"
@@ -2059,7 +2069,8 @@ _cmux_start_git_head_watch() {
             _cmux_sleep_cs 100
 
             local signature
-            signature="$(_cmux_git_head_signature "$watch_head_path" 2>/dev/null || true)"
+            _cmux_git_head_signature_into_reply "$watch_head_path" 2>/dev/null || true
+            signature="$REPLY"
             if [[ -n "$signature" && "$signature" != "$last_signature" ]]; then
                 last_signature="$signature"
                 _cmux_pr_cache_clear
@@ -2121,8 +2132,27 @@ _cmux_command_starts_nested_shell() {
     return 1
 }
 
+# True when a command line runs Claude Code. Claude reports its own cwd through
+# hooks while it runs (`claude --worktree` moves it to another checkout), so the
+# next prompt must re-report $PWD even though the shell never left it. Extra
+# matches only cost one redundant report_pwd.
+_cmux_command_runs_claude() {
+    [[ "$1" == *claude* ]] || return 1
+    local word
+    for word in ${(z)1}; do
+        case "${word:t}" in
+            claude|cmux-claude-wrapper) return 0 ;;
+        esac
+    done
+    return 1
+}
+
 _cmux_preexec() {
     local cmd="${1## }"
+    # $3 is the alias-expanded command line.
+    if _cmux_command_runs_claude "$cmd" || _cmux_command_runs_claude "${3:-}"; then
+        _CMUX_PWD_LAST_PWD=""
+    fi
     _cmux_halt_pr_poll_loop
     _cmux_stop_git_head_watch
     _cmux_zsh_job_table_saturated && return 0

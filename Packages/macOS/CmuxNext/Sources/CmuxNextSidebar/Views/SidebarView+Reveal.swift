@@ -2,9 +2,10 @@ import AppKit
 import CmuxNextDesign
 
 // The pointer over the sidebar reveals its titlebar buttons, the spaces
-// strip (`sidebar.spacesVisibility` hover, cx-5k3r) and, in minimal mode
-// (`sidebar.minimalMode`, R54), the chosen pinned bands.
-extension SidebarView {
+// strip (`sidebar.spacesVisibility` hover, cx-5k3r), in minimal mode
+// (`sidebar.minimalMode`, R54) the chosen pinned bands and, with the thin
+// scrollers' opt-in auto-hide, the scrollers.
+extension SidebarViewComponents {
     /// Fades the titlebar buttons in or out. Keyboard and VoiceOver users
     /// reach the same actions through the palette and the registry menus.
     /// Minimal mode's bands hide with the buttons; they stay in the view and
@@ -16,6 +17,12 @@ extension SidebarView {
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
+        // With the auto-hide (the default), the pointer arriving shows the thin scrollers a moment.
+        if changed, revealed, SystemScrollers.thinScrollersAutoHide {
+            for scroll: NSScrollView in [scrollView, aboveScroll, belowScroll] {
+                (scroll.verticalScroller as? ThinScroller)?.flash()
+            }
+        }
         let alpha: CGFloat = revealed ? 1 : 0
         let mode = design.sidebarSections.minimalMode
         let above: CGFloat = revealed || !mode.hidesTop ? 1 : 0
@@ -23,7 +30,7 @@ extension SidebarView {
         let hidden = (top: above == 0, bottom: below == 0)
         guard changed || hidden != minimalHiddenBands else { return }
         minimalHiddenBands = hidden
-        Motion.animate(.hover, in: self) {
+        Motion.feedback.animate(.hover, in: self) {
             if changed {
                 newButton.animator().alphaValue = alpha
                 profileBar.animator().alphaValue = spacesAlpha(revealed: revealed)
@@ -31,6 +38,7 @@ extension SidebarView {
             aboveFade.animator().alphaValue = above
             belowFade.animator().alphaValue = belowRegion.restAlpha(hiddenByMode: below == 0)
             footerRegion.animator().alphaValue = below
+            searchButton.animator().alphaValue = below
         }
         fadeLine(aboveLine, to: above)
     }
@@ -47,9 +55,9 @@ extension SidebarView {
         let opacity = Float(alpha)
         guard line.opacity != opacity else { return }
         if Motion.canAnimate(in: self) {
-            Motion.set(line, "opacity", to: opacity, fade: .hover)
+            Motion.sidebar.set(line, "opacity", to: opacity, fade: .hover)
         } else {
-            Motion.transaction(nil) { line.opacity = opacity }
+            Motion.sidebar.transaction(nil) { line.opacity = opacity }
         }
     }
 }

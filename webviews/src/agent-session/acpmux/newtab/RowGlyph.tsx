@@ -5,7 +5,8 @@ import type { TabKind } from "../NewTabPage";
 import type { ClosedItem } from "./recentlyClosed";
 import type { ScreenRow } from "./screenModel";
 
-type GlyphKind = ScreenRow["type"] | TabKind | ClosedItem["kind"];
+/// A create row draws its kind's glyph (New chat the agent's), so "create" itself has none.
+type GlyphKind = Exclude<ScreenRow["type"], "create"> | TabKind | ClosedItem["kind"];
 
 const NAMES: Record<GlyphKind, string> = {
   // A suggestion row's type.

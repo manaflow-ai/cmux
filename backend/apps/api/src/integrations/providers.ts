@@ -32,7 +32,30 @@ const appJwt = async (env: Env) => {
   return new SignJWT({}).setProtectedHeader({ alg: "RS256" }).setIssuer(env.GITHUB_APP_CLIENT_ID!).setIssuedAt(now - 60).setExpirationTime(now + 540).sign(key)
 }
 
-/** Installation tokens live one hour; reuse until five minutes before expiry. Per isolate, never stored. */
+/** GitHub narrows an installation token to repository names inside the installation's account and exact permissions (it mints that or refuses). */
+export type TokenNarrowing = { readonly repositories: ReadonlyArray<string>; readonly permissions: Readonly<Record<string, "read" | "write">> }
+
+/** POST /app/installations/{id}/access_tokens with a narrowing body: the raw response, whose refusals github-tokens.ts maps. */
+export const requestInstallationToken = async (env: Env, http: Http, installation: number, narrow: TokenNarrowing): Promise<Response> =>
+  http(new Request(`${GH_API}/app/installations/${installation}/access_tokens`, { method: "POST", headers: { ...ghHeaders(await appJwt(env)), "content-type": "application/json" }, body: JSON.stringify(narrow) }))
+
+/** A 201's token (never logged), its expiry and the permissions GitHub granted. */
+export const mintedToken = async (res: Response) => {
+  const body = await json(res)
+  const perms = (body.permissions && typeof body.permissions === "object" ? body.permissions : {}) as Record<string, unknown>
+  return { token: String(body.token ?? ""), expires_at: Date.parse(String(body.expires_at ?? "")) || Date.now() + 50 * 60_000, permissions: Object.fromEntries(Object.entries(perms).filter((e): e is [string, string] => typeof e[1] === "string")) }
+}
+
+/** DELETE /installation/token with the token itself: true when GitHub revoked it or it is already dead. */
+export const revokeInstallationToken = async (http: Http, token: string): Promise<boolean> => {
+  const res = await http(new Request(`${GH_API}/installation/token`, { method: "DELETE", headers: ghHeaders(token) })).catch(() => null)
+  return res !== null && (res.status === 204 || res.status === 401 || res.status === 404)
+}
+
+/**
+ * Installation tokens for the gateway's own ops (github.issue.comment) live one hour; reuse until five minutes before expiry.
+ * Per isolate, never stored. Tokens handed to callers are narrowed and kept per principal in the ledger (github-tokens.ts).
+ */
 const installationTokens = new Map<number, { token: string; expires_at: number }>()
 const installationToken = async (env: Env, http: Http, installation: number) => {
   const cached = installationTokens.get(installation)

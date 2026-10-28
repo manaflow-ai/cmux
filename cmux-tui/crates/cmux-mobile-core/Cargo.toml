@@ -11,6 +11,7 @@ description = "Sans-I/O logic shared by the cmux iOS and Android apps (plans/cmu
 workspace = true
 
 [dependencies]
+cmux-cloud-wire.workspace = true
 cmux-terminal-sizing.workspace = true
 
 [dev-dependencies]

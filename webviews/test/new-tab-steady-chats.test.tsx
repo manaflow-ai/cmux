@@ -9,6 +9,8 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
+import { recentSessions } from "../src/agent-session/acpmux/NewTabPage";
+import { recentChatCards } from "../src/agent-session/acpmux/newtab/screenModel";
 import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const scope = globalThis as Record<string, unknown>;
@@ -124,6 +126,18 @@ test("two New Tabs drawn at different moments of one minute show the same age", 
   } finally {
     now.mockRestore();
   }
+});
+
+test("same-time chats keep a deterministic order when the snapshot order changes", () => {
+  const sessions = [
+    lane({ sessionId: "chat-b", updatedAt: T0, name: "Second chat" }),
+    lane({ sessionId: "chat-a", updatedAt: T0, name: "First chat" }),
+  ];
+  expect(recentSessions(sessions, 2, false).map((session) => session.sessionId)).toEqual(["chat-a", "chat-b"]);
+  expect(recentSessions([...sessions].reverse(), 2, false).map((session) => session.sessionId)).toEqual([
+    "chat-a",
+    "chat-b",
+  ]);
 });
 
 test("a lane shows once, by its name, not again by its transcript's first prompt", async () => {
@@ -250,4 +264,14 @@ test("the age is a fixed, right-aligned column after the harness icon, and rows 
     edge: "-10px",
     rowPadding: "0px 10px",
   });
+});
+
+test("same-time device chats keep a deterministic order when the host's push order changes", () => {
+  const chats = [
+    { key: "claude:chat-b", harness: "claude", title: "Second chat", updatedAt: T0 },
+    { key: "claude:chat-a", harness: "claude", title: "First chat", updatedAt: T0 },
+  ];
+  const order = (device: typeof chats) => recentChatCards([], T0, undefined, device).map((card) => card.title);
+  expect(order(chats)).toEqual(["First chat", "Second chat"]);
+  expect(order([...chats].reverse())).toEqual(["First chat", "Second chat"]);
 });

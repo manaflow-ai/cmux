@@ -152,9 +152,9 @@ impl Hub {
             harness: name.to_owned(),
             ms: req.timeout.as_millis() as u64,
         };
-        // The profile's env with its bound route (claude-sr, claude-cr, a cmux route).
+        // The profile's env with its bound route (claude-sr, claude-cr, a route file).
         let mut env = profile.env.clone();
-        self.apply_route_for(name, None, None, profile, &mut env)
+        self.apply_route_for(name, None, None, false, profile, &mut env)
             .await
             .map_err(|e| failed(e.message))?;
         // Codex runs without the user's config: their provider comes back.

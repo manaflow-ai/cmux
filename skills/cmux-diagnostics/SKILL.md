@@ -21,18 +21,18 @@ Add `--include-context` only when the app identity and the caller terminal recor
 
 ## What to check
 
-1. **CLI and sockets**: `command -v cmux`, `cmux app ping` (the app), `cmux session list` (the cmux-tui daemon), `cmux app capabilities`. Exit code 3 is a transport failure. Inside a cmux terminal, `CMUX_TUI_TERMINAL_ID`, `CMUX_TUI_SOCKET` and `CMUX_SOCKET_PATH` are set.
-2. **Settings**: `cmux settings get terminal.autoResumeAgentSessions` with the app running. When it is false, cmux restores panes but does not resume saved agent sessions.
+1. **CLI and sockets**: `command -v cmux`, `cmux app ping` (the app), `cmux workspace list` (the cmux-tui daemon; `cmux` has no `session` scope), `cmux app capabilities`. Exit code 3 is a transport failure. Inside a cmux terminal, `CMUX_TUI_TERMINAL_ID`, `CMUX_TUI_SOCKET` and `CMUX_SOCKET_PATH` are set.
+2. **Settings**: cmux-next reads `~/.config/cmux/cmux-next.json`, not classic `cmux.json`. With the app running, `cmux settings get` prints the values it uses; after the first launch, a key edited only in `cmux.json` has no effect.
 3. **Agent hooks**: `cmux agent hook status` lists each provider as installed, partial or absent. Install with `cmux agent hook install codex` (or another provider; bare `install` covers every provider found on PATH) only after the user agrees. Providers load hooks at start, so restart the agent inside a cmux terminal afterwards.
 4. **Notification path**: `cmux notify --title "cmux diagnostic test"`, only when the user is ready for a visible test notification.
 
-The script no longer checks per-provider hook config markers, `~/.cmuxterm/*-hook-sessions.json` session stores, or `cmux-settings validate`. Those belonged to the Swift CLI's hooks; `cmux agent hook status` replaces the first, and the new `cmux` has no config validator yet.
+The script no longer checks per-provider hook config markers, `~/.cmuxterm/*-hook-sessions.json` session stores, or `cmux-settings validate`. Those belonged to the Swift CLI's hooks; `cmux agent hook status` replaces the first, and `cmux settings validate` replaces the second.
 
 ## Interpretation
 
 - `cmux` not found: the CLI is not installed or not on PATH for this shell.
 - `cmux app ping` fails: the app is closed, its socket is unreachable from this shell, or socket automation is off.
-- `cmux session list` fails: no cmux-tui daemon is reachable through `--socket`, `CMUX_TUI_SOCKET`, or the app's session.
+- `cmux workspace list` fails: no cmux-tui daemon is reachable through `--socket`, `CMUX_TUI_SOCKET`, or the app's session.
 - No `CMUX_TUI_TERMINAL_ID`: the command is running outside a cmux terminal. Hooks and `cmux notify` then have no caller terminal.
 - A provider shows `partial`: rerun `cmux agent hook install <provider>` after the user agrees.
 - Hooks installed but no agent state: the agent started before the install, or outside a cmux terminal. Restart it inside one.

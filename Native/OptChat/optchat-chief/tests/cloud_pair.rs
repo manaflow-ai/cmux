@@ -23,7 +23,7 @@ use tungstenite::protocol::CloseFrame;
 use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, accept_hdr};
 
-const INSTALL: &str = "inst_01PAIRED";
+const INSTALL: &str = "inst_00000000000000000001";
 const CHIEF: &str = "agent_01CHIEFPLACED";
 const OTHER: &str = "agent_01CHIEFDEFAULT";
 
@@ -247,7 +247,7 @@ fn serve_wait(frames: Vec<Value>, close: Option<u16>) -> (String, std::thread::J
 }
 
 fn paired_frame() -> Value {
-    json!({"t": "paired", "host": "host_01BRAIN", "team": "team_1", "user": "user_1", "install": INSTALL})
+    json!({"t": "paired", "host": "host_00000000000000000001", "team": "team_00000000000000000001", "user": "user_00000000000000000001", "install": INSTALL})
 }
 
 #[test]
@@ -263,9 +263,9 @@ fn the_wait_socket_sends_the_collect_secret_and_returns_the_pairing() {
     match waited {
         Waited::Paired(p) => {
             assert_eq!(p.install, INSTALL);
-            assert_eq!(p.host, "host_01BRAIN");
-            assert_eq!(p.team, "team_1");
-            assert_eq!(p.user, "user_1");
+            assert_eq!(p.host, "host_00000000000000000001");
+            assert_eq!(p.team, "team_00000000000000000001");
+            assert_eq!(p.user, "user_00000000000000000001");
         }
         other => panic!("expected paired, got {other:?}"),
     }
@@ -329,7 +329,7 @@ fn pair_begins_waits_and_stores_the_install_and_the_placed_chief() {
     let placed = json!({"chiefs": [
         {"id": OTHER, "is_default": true, "archived_at": null, "main_conversation": "conv_D", "brain_place": null},
         {"id": CHIEF, "is_default": false, "archived_at": null, "main_conversation": "conv_P",
-         "brain_place": {"host": "host_01BRAIN", "install": INSTALL}}]});
+         "brain_place": {"host": "host_00000000000000000001", "install": INSTALL}}]});
     let http = FakeApi::new(vec![unplaced, placed]);
     let mut out = Vec::new();
     let summary = pair::pair(
@@ -356,9 +356,9 @@ fn pair_begins_waits_and_stores_the_install_and_the_placed_chief() {
 
     let file = InstallFile::load(&path).unwrap();
     assert_eq!(file.install.as_deref(), Some(INSTALL));
-    assert_eq!(file.user.as_deref(), Some("user_1"));
-    assert_eq!(file.host.as_deref(), Some("host_01BRAIN"));
-    assert_eq!(file.team.as_deref(), Some("team_1"));
+    assert_eq!(file.user.as_deref(), Some("user_00000000000000000001"));
+    assert_eq!(file.host.as_deref(), Some("host_00000000000000000001"));
+    assert_eq!(file.team.as_deref(), Some("team_00000000000000000001"));
     assert_eq!(file.chief.as_deref(), Some(CHIEF));
     assert_eq!(file.conversation.as_deref(), Some("conv_P"));
     #[cfg(unix)]

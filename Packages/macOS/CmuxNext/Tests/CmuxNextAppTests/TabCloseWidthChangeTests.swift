@@ -26,7 +26,13 @@ import Testing
         // Synchronous from here to the reset: the override is process-wide.
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
-        try #require(Motion.animatesMovement, "animation speed is off on this host")
+        // Closing tabs share the structural `newTab` motion switch. Keep this
+        // test explicit so it verifies the in-flight spring when that switch is
+        // enabled without changing the product default (off on this branch).
+        let enabledAnimations = DesignSettings.shared.enabledAnimations
+        DesignSettings.shared.enabledAnimations.insert(.newTab)
+        defer { DesignSettings.shared.enabledAnimations = enabledAnimations }
+        try #require(Motion.tabs.animatesMovement, "animation speed is off on this host")
 
         model.tabs.removeLast()
         strip.sync(fromModel: true)

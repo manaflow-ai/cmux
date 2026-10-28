@@ -39,6 +39,10 @@
             "type": "string",
             "description": "Variant name (lower kebab case)."
           },
+          "source": {
+            "type": "string",
+            "description": "The real gallery entry source path, used to keep direct frames lazy and provenance-bound."
+          },
           "locale": {
             "type": "string",
             "description": "One of the 21 shipped languages, or en-XA / ar-XB."

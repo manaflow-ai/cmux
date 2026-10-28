@@ -60,6 +60,11 @@ export type Body = {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
 } | {
+  readonly type: "chief"
+  readonly chief: string
+  readonly conversation: ConversationId
+  readonly prompt: string
+} | {
   readonly type: "code"
   readonly ref: CodeRef
   readonly egress?: ReadonlyArray<EgressHost>
@@ -109,6 +114,26 @@ export type CloudConnectInfo = {
 }
 
 export type CloudConnectServices = ReadonlyArray<"daemon" | "ssh">
+
+export type CloudGroup = {
+  readonly id: GroupId
+  readonly name: string
+  readonly created_by: UserId
+  readonly created_at: number
+  readonly archived: boolean
+  readonly default_placement: "local" | "mini" | "cloud_vm"
+  readonly item_count: number
+  readonly role: "owner" | "edit" | "view"
+}
+
+export type CloudGroupItem = {
+  readonly workspace: GroupWorkspaceId
+  readonly title?: string
+  readonly placement: GroupPlacement
+  readonly position: number
+  readonly added_by: UserId
+  readonly added_at: number
+}
 
 export type CloudMachine = {
   readonly id: MachineId
@@ -398,6 +423,17 @@ export type Grant = {
 /** A server-side grant; tokens carry only its id. */
 export type GrantId = string
 
+/** A cloud group, minted by TeamDO (grp_ + 20 lowercase hex). */
+export type GroupId = string
+
+export type GroupPlacement = {
+  readonly kind: "local" | "mini" | "cloud_vm"
+  readonly host?: string
+  readonly machine?: string
+}
+
+export type GroupWorkspaceId = string
+
 /** Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: "poster"}. */
 export type HomeAttachmentPoster = {
   readonly hash: HomeSha256
@@ -462,9 +498,13 @@ export type HomeConversationSummary = {
   readonly settings?: HomeConversationSettings
   readonly invites?: ReadonlyArray<HomeInvite>
   readonly retention_days?: number
+  /** A large group (more than 64 members): participants is a roster of at most 16 humans plus the owner and agents; this counts every current participant, and conversation.members pages them. */
+  readonly member_count?: number
 }
 
 export type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
+
+export type HomeGrantableRole = "admin" | "member" | "read_only"
 
 export type HomeInboxEntry = {
   readonly conversation: ConversationId
@@ -481,6 +521,9 @@ export type HomeInboxEntry = {
   }
   readonly dm_peer?: ParticipantId
   readonly removed: boolean
+  /** A large group: inbox.list pulls this row from the conversation, and the inbox stream bumps it only when you are named (a mention, your own message, being added or removed). */
+  readonly large?: boolean
+  readonly member_count?: number
   readonly unread: number
   readonly mentions: number
   readonly counts_rev: number
@@ -575,7 +618,7 @@ export type HomeParticipant = {
   readonly agent_class?: "mux" | "agent"
   readonly acp_session?: string
   readonly owner_user?: string
-  readonly role?: "owner" | "member"
+  readonly role?: HomeParticipantRole
   readonly joined_seq?: number
   readonly added_by?: string
   readonly left_at?: Timestamp
@@ -588,6 +631,8 @@ export type HomeParticipantInput = {
   readonly agent_class?: "mux" | "agent"
   readonly owner_user?: string
 }
+
+export type HomeParticipantRole = "owner" | "admin" | "member" | "read_only"
 
 export type HomePartRef = {
   readonly message_id: MessageId
@@ -655,6 +700,7 @@ export type Host = {
   readonly kind?: HostKind
   readonly wg_public_key?: WgPublicKey
   readonly tags?: ReadonlyArray<string>
+  readonly network?: ServerNetworkState
   readonly orphaned?: {
     readonly at: number
     readonly former_owner: UserId
@@ -708,6 +754,12 @@ export type MessageId = string
 
 export type Meter = "automation.steps" | "automation.cpu_ms" | "automation.invocations" | "automation.dynamic_workers" | "egress.requests" | "model.spend_usd"
 
+export type NativeDeviceId = string
+
+export type NativeMeshId = string
+
+export type NativeTenantId = string
+
 export type OpClass = "read" | "mutate-own" | "mutate-shared" | "execute" | "send-external" | "money" | "destructive" | "cloud-link" | "vm-self"
 
 /** A normalized pairing code: 8 Crockford base32 symbols, no hyphen. */
@@ -745,7 +797,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -840,6 +892,29 @@ export type RunWithBody = {
 
 export type ServerCapability = string
 
+export type ServerNetworkBinding = {
+  readonly state: "confirmed"
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+  readonly confirmed_at: number
+}
+
+export type ServerNetworkProof = {
+  readonly signedAt: number
+  readonly nonce: string
+  readonly signature: string
+}
+
+export type ServerNetworkReservation = {
+  readonly state: "reserved"
+  readonly tenant: NativeTenantId
+  readonly mesh: NativeMeshId
+  readonly device: NativeDeviceId
+}
+
+export type ServerNetworkState = ServerNetworkReservation | ServerNetworkBinding
+
 /** A Cloud machine snapshot. */
 export type SnapshotId = string
 
@@ -888,6 +963,19 @@ export type Step = {
   readonly type: "op"
   readonly op: "automation.list" | "automation.get" | "automation.runs.list" | "automation.run" | "usage.summary"
   readonly params: unknown
+} | {
+  readonly type: "machine"
+  readonly machine: MachineId
+  readonly command: string
+  readonly input_from?: number
+  readonly timeout_seconds: number
+} | {
+  readonly type: "agent"
+  readonly machine: MachineId
+  readonly harness: "claude" | "codex" | "opencode"
+  readonly prompt: string
+  readonly input_from?: number
+  readonly timeout_seconds: number
 }
 
 export type TargetPolicy = {
@@ -951,6 +1039,7 @@ export type TeamIntegrationPolicy = {
     readonly scope: "linking_user_repos" | "installation"
     readonly require_org_admin: boolean
     readonly repo_allowlist: ReadonlyArray<RepoPattern> | null
+    readonly allow_workflows?: boolean
   }
   readonly source: "default" | "admin" | "sso" | "mdm" | "team_policy"
   readonly locked: boolean
@@ -985,6 +1074,10 @@ export type TeamPolicyValues = {
   }
   readonly "github.repoAllowList"?: {
     readonly value: "none" | ReadonlyArray<RepoPattern>
+    readonly mode: PolicyMode
+  }
+  readonly "github.allowWorkflows"?: {
+    readonly value: boolean
     readonly mode: PolicyMode
   }
   readonly "integrations.allowedProviders"?: {
@@ -1426,6 +1519,14 @@ export interface CloudOps {
     }
     readonly result: HomeChief
   }
+  /** Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore. */
+  readonly "chief.delete": {
+    readonly params: {
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
+    }
+    readonly result: HomeChief
+  }
   /** The user's chiefs (active first, the default marked), archived ones on request, and tombstones. */
   readonly "chief.list": {
     readonly params: {
@@ -1721,7 +1822,7 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. */
+  /** Promote a Mac conversation (home-messaging.md section 22). The first call names its source; the Worker derives the id from the signed-in user and the source. Later calls send {id, after_seq, messages}. At most 500 messages and 1 MiB per batch. {id, fill: true, source, messages} instead fills the owner's own empty chief conversation (a Mac Chief's history into the hosted Chief's main conversation); continuations and the commit are the same. */
   readonly "conversation.import": {
     readonly params: {
       readonly id?: ConversationId
@@ -1734,6 +1835,7 @@ export interface CloudOps {
       readonly title?: string
       readonly participants?: ReadonlyArray<HomeParticipantInput>
       readonly after_seq?: number
+      readonly fill?: boolean
       readonly messages: ReadonlyArray<unknown>
       readonly read_cursors?: unknown
     }
@@ -1746,6 +1848,19 @@ export interface CloudOps {
       readonly last_seq: number
     }
     readonly result: HomeConversationCommit
+  }
+  /** Page the current members in join order (default 200, at most 1000); pass next as after for the next page. Works for every conversation; a large group's head carries only a roster. */
+  readonly "conversation.members": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly after?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly members: ReadonlyArray<HomeParticipant>
+      readonly member_count: number
+      readonly next?: number
+    }
   }
   /** Change the chief wake policy, agent turn budget or history visibility (conversation owner). */
   readonly "conversation.settings.set": {
@@ -2174,6 +2289,105 @@ export interface CloudOps {
     }
     readonly result: unknown
   }
+  /** Make a group link: whoever signs in and opens it joins with role (default member, at most your own; admin only from the owner) for expires_in_hours (default 168) and max_uses joins (default 20). Only this answer carries the secret (in link's fragment). It closes when revoked, used up, or when you leave, are removed or lose the role it grants. At most 50 open links per group. */
+  readonly "grant.create": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly role?: HomeGrantableRole
+      readonly expires_in_hours?: number
+      readonly max_uses?: number
+    }
+    readonly result: {
+      readonly rev: number
+      readonly change: unknown
+      readonly grant_id: string
+      readonly code: string
+      readonly secret: string
+      readonly link?: string
+    }
+  }
+  /** Close a group link at once: its maker, or an admin or the owner above the maker. Open links are in the conversation head's grants. */
+  readonly "grant.revoke": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly grant_id: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Put a workspace in a cloud group and record where it runs (placement: local, mini or cloud_vm). A workspace is in at most one cloud group; adding it again updates its placement and title. The group's owner only. */
+  readonly "group.add_workspace": {
+    readonly params: {
+      readonly group: GroupId
+      readonly workspace: GroupWorkspaceId
+      readonly placement: GroupPlacement
+      readonly title?: string
+    }
+    readonly result: CloudGroupItem
+  }
+  /** Archive a cloud group (its owner only). The id stays; links to it still open, read-only. */
+  readonly "group.archive": {
+    readonly params: {
+      readonly group: GroupId
+    }
+    readonly result: CloudGroup
+  }
+  /** Make a cloud group: a sidebar group whose record lives in cmux Cloud, so its link (cmux://group/<id>) opens on every Mac, iPhone and Chief, also while your Mac sleeps. The server picks the id; read it back with group.get or group.list before you link it. */
+  readonly "group.create": {
+    readonly params: {
+      readonly name: string
+      readonly default_placement?: "local" | "mini" | "cloud_vm"
+    }
+    readonly result: CloudGroup
+  }
+  /** One cloud group with its workspaces (each with its placement) and its links. Link a group only by an id read back here or from group.list. */
+  readonly "group.get": {
+    readonly params: {
+      readonly group: GroupId
+    }
+    readonly result: {
+      readonly group: CloudGroup
+      readonly items: ReadonlyArray<CloudGroupItem>
+      readonly link: string
+      readonly web_link: string
+    }
+  }
+  /** The cloud groups you are a member of, in id order. Archived groups only with include_archived. */
+  readonly "group.list": {
+    readonly params: {
+      readonly cursor?: string
+      readonly limit?: number
+      readonly include_archived?: boolean
+    }
+    readonly result: {
+      readonly team: string
+      readonly groups: ReadonlyArray<CloudGroup>
+      readonly next_cursor: string | null
+    }
+  }
+  /** Rename a cloud group (its owner only). */
+  readonly "group.rename": {
+    readonly params: {
+      readonly group: GroupId
+      readonly name: string
+    }
+    readonly result: CloudGroup
+  }
+  /** Your message requests: open invites to your verified email from people you are not connected to, newest first (at most 20). trusted marks a sender with your company email domain. */
+  readonly "home.requests.list": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly requests: ReadonlyArray<{
+        readonly conversation: ConversationId
+        readonly inviter: string
+        readonly kind: "dm" | "group"
+        readonly title?: string
+        readonly preview: string
+        readonly created_at: string
+        readonly expires_at: string
+        readonly trusted: boolean
+      }>
+    }
+  }
   /** Search Home messages in conversations you are a current human participant of (newest first, with a short Top section). */
   readonly "home.search": {
     readonly params: {
@@ -2202,19 +2416,21 @@ export interface CloudOps {
       readonly cursor?: string
     }
   }
-  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), and whether a message request also sends an email. */
+  /** Choose who can find you by email or phone, who may start a conversation with you or add you to one (anyone, teams, nobody), whether a message request also sends an email, and whether people with your company email domain reach you directly (trust_same_domain, default on). */
   readonly "home.settings.set": {
     readonly params: {
       readonly discoverable_by_email?: boolean
       readonly discoverable_by_phone?: boolean
       readonly allow_requests_from?: "anyone" | "teams" | "nobody"
       readonly email_requests?: boolean
+      readonly trust_same_domain?: boolean
     }
     readonly result: {
       readonly discoverable_by_email: boolean
       readonly discoverable_by_phone: boolean
       readonly allow_requests_from: "anyone" | "teams" | "nobody"
       readonly email_requests: boolean
+      readonly trust_same_domain: boolean
     }
   }
   /** Enroll the calling install's machine as a host in the team directory. */
@@ -2225,8 +2441,31 @@ export interface CloudOps {
     }
     readonly result: Host
   }
+  /** Bind the calling client install's own host to a network device using a fresh policy read signed by that install key. Verify the authoritative team tenant and both public keys. This records identity only; current transport policy and serving permissions remain separate. */
+  readonly "host.network.bind": {
+    readonly params: {
+      readonly host: HostId
+      readonly mesh: NativeMeshId
+      readonly device: NativeDeviceId
+      readonly wg_public_key: WgPublicKey
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly network: ServerNetworkBinding
+    }
+  }
   /** Remove a host from the team directory (its owner or a team admin). */
   readonly "host.remove": {
+    readonly params: {
+      readonly host: HostId
+    }
+    readonly result: {
+      readonly host: HostId
+    }
+  }
+  /** Delete the cloud copy of a host's read replica (its owner only), also while the host is off. The host stays enrolled; it publishes again only while its own app keeps the replica on. */
+  readonly "host.replica.purge": {
     readonly params: {
       readonly host: HostId
     }
@@ -2399,6 +2638,7 @@ export interface CloudOps {
         readonly scope?: "linking_user_repos" | "installation"
         readonly require_org_admin?: boolean
         readonly repo_allowlist?: ReadonlyArray<RepoPattern> | null
+        readonly allow_workflows?: boolean
       }
     }
     readonly result: TeamIntegrationPolicy
@@ -2410,11 +2650,18 @@ export interface CloudOps {
     }
     readonly result: Connection
   }
-  /** Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval. */
+  /** Accept an invite or a group link from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval; a link from grant.create joins at once with the link's role. */
   readonly "invite.accept": {
     readonly params: {
       readonly code: string
       readonly secret: string
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Accept a message request in Home: the open email invite to your verified email joins you, with no link. Anyone else gets unknown_invite. */
+  readonly "invite.accept_verified": {
+    readonly params: {
+      readonly conversation: ConversationId
     }
     readonly result: HomeConversationCommit
   }
@@ -2594,6 +2841,14 @@ export interface CloudOps {
       }>
     }
   }
+  /** Hand a group to another current person (the owner only). You stay as an admin. */
+  readonly "ownership.transfer": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+    }
+    readonly result: HomeConversationCommit
+  }
   /** A participant's avatar with its bytes, or null. The participant reads their own and an owner its Chief's; anyone else names a conversation both are in. Any other read is selector.not_found, the same answer as an unknown participant. */
   readonly "participant.avatar.get": {
     readonly params: {
@@ -2625,16 +2880,35 @@ export interface CloudOps {
       readonly avatar: AvatarRef | null
     }
   }
-  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows (max 64). Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
+  /** Add a user who shares a team with you or is connected to you, when their allow_requests_from setting allows it, or a chief its reachability allows. role (default member) is at most your own; only the owner adds an admin. A group past 64 members becomes a large group (member rows, a roster in the head). A banned person needs participants.unban first. Anyone else needs invite.create. At most 120 per hour per caller (home.rate_limited, with details.retry_after_ms); home.user_not_ready (not retryable) until the caller ran user.ensure once. */
   readonly "participants.add": {
     readonly params: {
       readonly conversation: ConversationId
       readonly participant: HomeParticipantInput
+      readonly role?: HomeGrantableRole
     }
     readonly result: HomeConversationCommit
   }
-  /** Leave (yourself), or remove a participant (conversation owner; a chief's owner for that chief). Removing the last human archives the conversation. */
+  /** Leave (yourself), or remove someone below you (an admin or the owner; a chief's owner for that chief). ban: true (admins and the owner) keeps them out of adds and invites until participants.unban. A removed person's sockets close at once. Removing the last human archives the conversation. */
   readonly "participants.remove": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+      readonly ban?: boolean
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Set a group member's role: admin (the owner only), member or read_only. You change only people below you; an admin never changes another admin. A read_only member reads, moves its read cursor and leaves, and never writes. */
+  readonly "participants.set_role": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly participant: ParticipantId
+      readonly role: HomeGrantableRole
+    }
+    readonly result: HomeConversationCommit
+  }
+  /** Lift a ban (admins and the owner), so the person may be added or invited again. */
+  readonly "participants.unban": {
     readonly params: {
       readonly conversation: ConversationId
       readonly participant: ParticipantId
@@ -2689,6 +2963,17 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
+  /** Hide a message request; with block, also hide and never email later invites from its sender. The sender is not told. */
+  readonly "request.dismiss": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly block?: boolean
+    }
+    readonly result: {
+      readonly dismissed: boolean
+      readonly blocked: boolean
+    }
+  }
   /** Read one kept run with the body of the automation version that fired it. */
   readonly "run.get": {
     readonly params: {
@@ -2710,18 +2995,33 @@ export interface CloudOps {
       readonly revision: string
     }
   }
-  /** Approve a pairing code: register the server's install key under you and add the server to the team directory. */
+  /** The paired daemon confirms its approved network reservation with a fresh signed policy read. Tenant, device and public keys must match the current owners. This records identity only; it does not activate transport or serving roles. */
+  readonly "server.network.confirm": {
+    readonly params: {
+      readonly host: HostId
+      readonly mesh: NativeMeshId
+      readonly device: NativeDeviceId
+      readonly proof: ServerNetworkProof
+    }
+    readonly result: {
+      readonly host: HostId
+      readonly network: ServerNetworkBinding
+    }
+  }
+  /** Approve a pairing code and register its install and host. With a Native mesh, pin the network request and deliver a short-lived key-bound enrollment code only to the waiting server. The result contains public network ids; pairing does not activate a role or grant execution. */
   readonly "server.pair.approve": {
     readonly params: {
       readonly code: PairingCode
       readonly team: TeamId
       readonly name: string
+      readonly mesh?: NativeMeshId
     }
     readonly result: {
       readonly host: HostId
       readonly team: TeamId
       readonly user: UserId
       readonly install: InstallId
+      readonly network?: ServerNetworkReservation
     }
   }
   /** Show what a pending pairing code would add: the server's name, platform, key thumbprint and location. */
@@ -3382,6 +3682,7 @@ export const cloudOpMeta = {
   "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },
@@ -3412,6 +3713,7 @@ export const cloudOpMeta = {
   "conversation.history": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.import": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "conversation.members": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "conversation.thread": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
@@ -3440,10 +3742,21 @@ export const cloudOpMeta = {
   "firewall.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "firewall.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "github.issue.comment": { class: "mutation", owner: "cloud:ConnectionDO", risk: "send-external" },
+  "grant.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "grant.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "group.add_workspace": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.archive": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.create": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "group.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "group.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "group.rename": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
+  "home.requests.list": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "home.search": { class: "read", owner: "cloud:planetscale", risk: "read" },
   "home.settings.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "host.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
+  "host.network.bind": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "host.remove": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "host.replica.purge": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
   "inbox.archive": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "inbox.dm_peer": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "inbox.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
@@ -3463,6 +3776,7 @@ export const cloudOpMeta = {
   "integration.policy.set": { class: "mutation", owner: "cloud:ConnectionDO", risk: "mutate-shared" },
   "integration.revoke": { class: "mutation", owner: "cloud:ConnectionDO", risk: "destructive" },
   "invite.accept": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "invite.accept_verified": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "invite.approve_join": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "invite.create": { class: "mutation", owner: "cloud:ConversationDO", risk: "send-external" },
   "invite.revoke": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
@@ -3480,17 +3794,22 @@ export const cloudOpMeta = {
   "mux.ack": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "mux.configure": { class: "mutation", owner: "cloud:MuxDO", risk: "mutate-own" },
   "network.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
+  "ownership.transfer": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
   "participant.avatar.get": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "participant.avatar.set": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "participants.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "participants.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "destructive" },
+  "participants.set_role": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
+  "participants.unban": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "push.target.register": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "push.target.remove": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "reaction.add": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "reaction.remove": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "read_cursor.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
+  "request.dismiss": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-own" },
   "run.get": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
   "run.list": { class: "read", owner: "cloud:SchedulerDO", risk: "read" },
+  "server.network.confirm": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },
   "server.pair.approve": { class: "mutation", owner: "cloud:PairingDO", risk: "mutate-shared" },
   "server.pair.preview": { class: "read", owner: "cloud:PairingDO", risk: "read" },
   "server.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },

@@ -3,6 +3,7 @@ import CmuxNextAgentCursor
 import CmuxNextAgentPane
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextDaemonRecovery
 import CmuxNextHistory
 import CmuxNextBridge
 import CmuxNextBrowser
@@ -25,25 +26,45 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// Built in init (lazy because it holds self; no IUO).
     private(set) lazy var focusApplier = FocusEffectApplier(controller: self)
     private(set) var content: WorkspaceContentController?
-    /// Recently shown workspaces kept mounted and paused, oldest first
-    /// (plans/cmux-next/tab-lifecycle.md): switching back to one swaps its
-    /// view in within the frame, with no surface re-attach or blank frame.
-    private(set) var parked: [WorkspaceContentController] = []
-    private var parkedBudget = WarmSetBudget.standard
+    /// Every workspace this window showed, by id, kept mounted and paused (plans/cmux-next/tab-lifecycle.md):
+    /// a switch back swaps its view in within the frame. Only its GPU surfaces leave, under the one memory
+    /// budget (`SurfaceLedger`'s LRU of hidden surfaces); the tree, panes and strips stay (perf I6).
+    /// With `sidebar.multiView` the ones `state.viewSet` shows beside `content` stay on screen (`arrangeOnScreen`).
+    var parked: [String: WorkspaceContentController] = [:]
+    /// Orders `parked` by when each was parked (`mountedContents`).
+    var parkSerial: UInt64 = 0
     unowned let services: AppServices
     private var workspaceObservation: Task<Void, Never>?
     private var titleObservation: Task<Void, Never>?
     private var startupObservation: Task<Void, Never>?
+    private var previewFeaturesObservation: Task<Void, Never>?
     /// The room theme: every workspace without its own theme. The window's
     /// own chrome (sidebar, titlebar, backdrop) draws in the shown
     /// workspace's colors at any light/dark, so it matches the content beside
     /// it (with the color transition).
     let themeScope = ThemeScope(level: .room)
     private var roomObservation: Task<Void, Never>?
+    private var roomBrowserProfileObservation: Task<Void, Never>?
     /// Shown while the window has no workspace (first connect, or failure).
     private(set) var connectingView: DaemonConnectingView?
+    /// What the window shows, for `debug.daemon`: `content` (a workspace), `connecting` (the connecting view) or `none`.
+    var recoveryShows: String { content != nil ? "content" : connectingView != nil ? "connecting" : "none" }
     /// Agent cursors on this window's cursor layer (made on the first input it draws).
     private(set) lazy var agentCursor = AgentCursorWiring.slot(for: self)
+    /// This window's clickable agent cursor tags (the overlay host holds it weakly).
+    private(set) lazy var agentCursorTags = AgentCursorWindowTags(links: services.agentCursorTagLinks) { [weak self] in
+        self?.agentCursor.stack?.host
+    }
+    /// This window's right sidebar (`WindowController+RightSidebar`).
+    let rightSidebar: RightSidebarModel
+    /// Its view, made the first time it shows.
+    var rightSidebarView: RightSidebarView?
+    /// A fullscreen page that has the whole screen (`WindowController+FullScreen`).
+    var pagePresentation: BrowserPagePresentation?
+    /// A full screen enter is under way (AppKit ignores a toggle until it ends).
+    var isEnteringFullScreen = false
+    /// The page that entered full screen left during the enter: the window leaves once it ends.
+    var pageFullScreenExitPending = false
     /// This window's top pages (TOP-SECTION-ITEMS-ARE-PAGES), one view per route.
     private(set) lazy var topPages = TopPageHost(services: services)
 
@@ -52,7 +73,12 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         self.services = services
         let sidebar = SidebarBridge(services: services, state: state)
         self.sidebar = sidebar
-        SidebarProfileControl(services: services).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        rightSidebar = RightSidebarModel(defaults: services.rightSidebarDefaults)
+        SidebarProfileControl(services: services, state: state).install(model: sidebar.model, sidebar: sidebar.container.sidebarView)
+        // The footer's Search button runs the one palette.open path (plans/cmux-next/sidebar-search.md).
+        sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
+            _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
+        }
         root = WindowRootView(sidebar: sidebar.container)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
@@ -85,12 +111,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.delegate = self
         window.focus = focus
         focus.applier = focusApplier
+        focus.window = window
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
+        observePreviewFeatures()
         observeRoom()
         observeSidebarHidden()
         followContentChanges()
+        if rightSidebar.isVisible { showRightSidebar() }
     }
 
     @available(*, unavailable)
@@ -104,13 +133,32 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebarObservation?.cancel()
         titleObservation?.cancel()
         startupObservation?.cancel()
+        previewFeaturesObservation?.cancel()
         roomObservation?.cancel()
+        roomBrowserProfileObservation?.cancel()
+        state.roomBrowserProfileOf = nil
         content?.teardown()
         content = nil
-        parked.forEach { $0.teardown() }
+        parked.values.forEach { $0.teardown() }
         parked.removeAll()
         topPages.teardown()
         sidebar.teardown()
+    }
+
+    /// Preview pages are removed immediately when Labs is switched off,
+    /// including when another window currently shows one.
+    private func observePreviewFeatures() {
+        guard let settings = services.settings else { return }
+        previewFeaturesObservation = Task { [weak self, weak settings] in
+            guard let settings else { return }
+            await settings.waitForLoad(atLeast: 1)
+            for await enabled in ObservationStream({ settings.snapshot.previewFeatures }) {
+                guard !enabled, let self,
+                      let page = self.state.page,
+                      page == .page(.appStore) || page == .page(.changelog) else { continue }
+                _ = self.leaveTopPage()
+            }
+        }
     }
 
     // MARK: Workspace
@@ -124,10 +172,14 @@ final class WindowController: NSWindowController, NSWindowDelegate {
                 services.themes.windowDidChange(self)
             }
         }
+        // The room's browser profile for tab badges: set in the switch's own turn (`WindowState.profileID`),
+        // and again when the room's record changes.
+        let home = services.machines.local.store
+        state.roomBrowserProfileOf = { [weak home] room in home?.profile(room)?.browserProfileID?.rawValue }
+        roomBrowserProfileObservation = Task {
+            for await _ in ObservationStream({ home.profile(state.profileID)?.browserProfileID }) { state.refreshRoomBrowserProfile() }
+        }
     }
-
-    /// The shown workspace and the parked ones, each with its theme scope.
-    var mountedContents: [WorkspaceContentController] { (content.map { [$0] } ?? []) + parked }
 
     private func observeWorkspace() {
         let machines = services.machines
@@ -137,13 +189,15 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         workspaceObservation = Task { [weak self] in
             for await _ in ObservationStream({ Self.readShowInputs(state, cloud: cloud, machines: machines, windows: windows) }) {
                 self?.showWorkspace(requested: state.workspaceID)
+                // A parked terminal (the classic migration's background workspaces) starts on its first show.
+                if let id = state.workspaceID, let (workspace, daemon) = machines.workspace(id: id) { daemon.wakeParkedTabs(in: workspace) }
             }
         }
     }
 
     /// Reads what `showWorkspace` depends on (the request, each machine's workspace list): O(machines), no id list.
     private static func readShowInputs(_ state: WindowState, cloud: CloudService, machines: MachineRegistry, windows: WindowManager) {
-        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines)
+        _ = (state.workspaceID, state.page, state.machineID, cloud.hasLoadedMachines, multiViewEnabled)
         _ = creationKey(state, cloud, machines)
         _ = windows.registry.members(of: state.id)
         for daemon in machines.daemons { _ = (daemon.store.isLoaded, daemon.store.workspaces.count) }
@@ -158,13 +212,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// (launch, a Cloud machine reconnecting) the connecting state shows.
     func showWorkspace(requested: String?) {
         let machines = services.machines
-        // A parked workspace that closed (or whose machine left) goes now.
-        parked.removeAll { controller in
-            guard machines.workspace(id: controller.workspace.id)?.0 !== controller.workspace else { return false }
+        // A parked workspace that closed, whose machine left, or that moved to another window goes now.
+        let listed = Set(services.windows.registry.members(of: state.id))
+        for (id, controller) in parked where !listed.contains(id) || machines.workspace(id: id)?.0 !== controller.workspace {
+            parked[id] = nil
             controller.teardown()
-            return true
         }
-        if state.page.map(showTopPage) == true || showCreation() { return }
+        if state.page.map(showTopPage) == true || showCreation() { return arrangeOnScreen() }
         if let requested, let (workspace, daemon) = machines.workspace(id: requested) {
             if !showsHomePage(instead: workspace) { show(workspace, on: daemon) }
             return
@@ -180,10 +234,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         if content == nil { showConnecting() }
     }
 
-    /// The connecting (or unavailable) state of the local daemon's first
-    /// connection, until a workspace can be shown.
+    /// The local daemon's first connection, connecting or unavailable, until a workspace shows.
     private func showConnecting() {
-        let view = connectingView ?? DaemonConnectingView(frame: .zero)
+        let view = connectingView ?? DaemonConnectingView(frame: .zero, recovery: services.daemon.recovery)
         if connectingView == nil { DebugTimings.markLaunch("connecting_view_shown") }
         connectingView = view
         root.show(view)
@@ -208,41 +261,56 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private func show(_ workspace: WorkspaceModel, on daemon: DaemonService) {
         if state.workspaceID != workspace.id { state.workspaceID = workspace.id }
         if state.machineID != daemon.machineID { state.machineID = daemon.machineID }
-        guard content?.workspace !== workspace else { return }
+        guard content?.workspace !== workspace else { return arrangeOnScreen() }
         if let current = content { park(current) }
-        let controller: WorkspaceContentController, index = parked.firstIndex { $0.workspace === workspace && $0.daemon === daemon }
-        if let index {
-            controller = parked.remove(at: index)
+        DebugWorkspaceSwitch.mark(self, "park")
+        let controller: WorkspaceContentController, kept = parked.removeValue(forKey: workspace.id)
+        if let kept, kept.workspace === workspace, kept.daemon === daemon {
+            controller = kept
             controller.unpark()
         } else {
+            kept?.teardown()
             controller = WorkspaceContentController(workspace: workspace, daemon: daemon, services: services, state: state)
         }
         content = controller
+        // Panes pan and spring per display frame: shortcut chips over them follow.
+        controller.layoutView.onFramePlaced = { [weak self] in self?.shortcutHints?.scrollDidChange() }
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
-        // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
-        sidebar.sameTurn.syncNow(rows: index == nil)
+        // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
+        DebugWorkspaceSwitch.kind(self, controller === kept ? "warm" : "cold")
+        DebugWorkspaceSwitch.mark(self, "content")
+        sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
+        DebugWorkspaceSwitch.mark(self, "sidebar")
         root.show(controller.contentView)
+        DebugWorkspaceSwitch.mark(self, "root")
+        arrangeOnScreen() // with `sidebar.multiView`, the workspaces shown beside it
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
         // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on
         // screen (appearance.colorTransition); the content swap itself never blends.
         services.themes.contentDidShow(controller)
         themeScope.show(controller.themeScope, animated: true)
-        trimParked()
+        DebugWorkspaceSwitch.mark(self, "theme")
         startupObservation?.cancel()
         startupObservation = nil
         if connectingView != nil { DebugTimings.markLaunch("connecting_view_left") }
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
-        titleObservation = Task { [weak self] in
-            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
+        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
+        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
+        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
+            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
+        DebugWorkspaceSwitch.mark(self, "did_show")
         if let pane = focus.state.pane { focus.send(.contentPresented(pane: pane)) }
         services.windows.recordSaver.stateDidChange(state)
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
         services.windows.contentDidAppear(self)
+        DebugWorkspaceSwitch.shown(self, in: window)
+        revalidatePagePresentation()
     }
 
     var focusedPane: PaneController? { content?.focusedPane }
@@ -252,30 +320,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         titleObservation?.cancel()
         if let current = content { park(current) }
         content = nil
-    }
-
-    // MARK: Parked workspaces
-
-    private func park(_ controller: WorkspaceContentController) {
-        controller.park()
-        parked.removeAll { $0 === controller }
-        parked.append(controller)
-    }
-
-    /// Memory pressure or the budget changed.
-    func setParkedBudget(_ budget: WarmSetBudget) {
-        parkedBudget = budget
-        trimParked()
-    }
-
-    /// Drops the least recently shown parked workspaces until both the
-    /// workspace count and their total panes fit the budget.
-    private func trimParked() {
-        var panes = parked.reduce(0) { $0 + $1.panes.count }
-        while let oldest = parked.first, parked.count > parkedBudget.parkedWorkspaces || panes > parkedBudget.parkedPanes {
-            panes -= oldest.panes.count
-            parked.removeFirst().teardown()
-        }
+        arrangeOnScreen()
+        revalidatePagePresentation()
     }
 
     // MARK: NSWindowDelegate
@@ -287,6 +333,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         Task { await snapshots.touch(window: id) }
         focus.send(.windowKey(true))
         services.cloudContextDidChange()
+        services.canvasContextDidChange()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -306,6 +353,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
     func windowDidEndLiveResize(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
+    /// A resize with no live resize (Zoom, macOS tiling, an Accessibility client such as Rectangle,
+    /// a display change) keeps the origin and never ends a live resize: it saves here (#25568).
+    func windowDidResize(_ notification: Notification) {
+        guard window?.inLiveResize != true else { return }
+        services.windows.recordSaver.geometryDidChange(state)
+    }
+    func windowDidChangeScreen(_ notification: Notification) { services.windows.recordSaver.geometryDidChange(state) }
 
     var sidebarObservation: Task<Void, Never>?
 
@@ -317,16 +371,38 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// An incognito window closes its workspaces: it asks first while one
     /// of its terminals runs a program (`IncognitoCloseConfirmation`).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return true }
+        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return !fadeOutThenClose(sender) }
         IncognitoCloseConfirmation.confirm(windows: [state.id], sheetOn: sender, services) { [weak self, weak sender] ok in
-            guard ok, let self else { return }
+            guard ok, let self, let sender else { return }
             closeConfirmed = true
-            sender?.close()
+            if !fadeOutThenClose(sender) { sender.close() }
         }
         return false
     }
 
+    /// The window fading out before it closes (`WindowCloseMotion`), from the person's close.
+    private var closeMotion: WindowCloseMotion?
+
+    /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
+    /// Motion, not on screen, a second close while it fades, or the launch restore still runs).
+    private func fadeOutThenClose(_ window: NSWindow) -> Bool {
+        if let closeMotion {
+            closeMotion.finish()
+            return true
+        }
+        // Before the restore finished the close lands at once: a fade could outlive the restore,
+        // which would then not know the window was closed and open it again.
+        let windows = services.windows
+        guard windows.restored, !windows.restoring, WindowCloseMotion.fades(window) else { return false }
+        let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
+        closeMotion = motion
+        let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }
+        motion.start(handingKeysTo: next)
+        return true
+    }
+
     func windowWillClose(_ notification: Notification) {
+        pagePresentation = nil
         services.keyRouter.cancelChord()
         removeHistoryObserver()
         services.windows.windowWillClose(self)
@@ -339,7 +415,27 @@ final class WindowController: NSWindowController, NSWindowDelegate {
 /// (`FocusResponderClassifier`), and keeps app overlays above Chromium page
 /// windows (`WindowOverlayLayer`).
 final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionProviding, TitlebarAccessoryHosting, WindowChromeHosting,
-    CursorRectHoldHosting {
+    CursorRectHoldHosting, TrafficLightsResting, ContentAreaMotionHosting, WindowZoomFinishing {
+    /// The traffic lights' last windowed place: their left edge, their top's
+    /// distance from the window's top, and their size (the window may come
+    /// back from full screen at another height).
+    private var windowedLights: (x: CGFloat, fromTop: CGFloat, size: CGSize)?
+    /// Between `willExitFullScreen` and its end (WindowController+FullScreen).
+    var isLeavingFullScreen = false
+
+    /// Where the lights come back to while the window leaves full screen.
+    var restingTrafficLights: CGRect? {
+        guard isLeavingFullScreen, let windowedLights else { return nil }
+        return CGRect(x: windowedLights.x, y: frame.height - windowedLights.fromTop - windowedLights.size.height,
+                      width: windowedLights.size.width, height: windowedLights.size.height)
+    }
+
+    /// The root's layout reports the lights it found (window coordinates).
+    func noteTrafficLights(_ lights: CGRect) {
+        guard !styleMask.contains(.fullScreen), !isLeavingFullScreen else { return }
+        windowedLights = (lights.minX, frame.height - lights.maxY, lights.size)
+    }
+
     /// A pane policy that may hold cursor-rect invalidations (ShellWindow+Events.swift).
     weak var cursorRectHold: (any CursorRectHoldPolicy)?
     /// The incognito badge in the top row while the sidebar is hidden.
@@ -350,10 +446,25 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     weak var focus: FocusCoordinator?
     private(set) lazy var overlayLayer = WindowOverlayLayer(window: self)
 
+    /// Zoom without AppKit's blocking animation (``WindowZoom``): every entrypoint comes here.
+    private var zoomState = WindowZoom()
+    override func zoom(_ sender: Any?) { if !zoomState.zoom(self) { super.zoom(sender) } }
+    override var isZoomed: Bool { zoomState.isZoomingIn ?? super.isZoomed }
+    func windowZoomFinished(_ generation: Int) { zoomState.end(generation) }
+
     /// In an agent screenshot launch every frame stays on the test screen
     /// (`WindowPlacement.containedOnTestScreen`), whichever path sets it.
     override func setFrame(_ frameRect: NSRect, display flag: Bool) {
         super.setFrame(WindowPlacement.containedOnTestScreen(frameRect), display: flag)
+    }
+
+    /// The traffic lights, found once (`StandardWindowButtons`, cx-8w027.25).
+    private var standardButtons = StandardWindowButtons()
+    override func standardWindowButton(_ b: NSWindow.ButtonType) -> NSButton? {
+        if let button = standardButtons.cached(b, in: self) { return button }
+        let button = super.standardWindowButton(b)
+        standardButtons.store(button, for: b, in: self)
+        return button
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -385,6 +496,11 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     /// their home's place here, so a pane ring follows a pane that moved
     /// because an ancestor moved (sidebar width), not only its own layout.
     override func layoutIfNeeded() {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let traced = DebugWindowTransition.shared.isActive && overlayLayer.layoutDepth == 0
+        let began = traced ? CACurrentMediaTime() : 0
+        defer { if traced { DebugWindowTransition.shared.noteLayoutPass(self, seconds: CACurrentMediaTime() - began) } }
+        #endif
         overlayLayer.windowWillLayout()
         super.layoutIfNeeded()
         // The outermost pass only, and before the overlay layer's own
@@ -431,9 +547,9 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
-        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
-        let accepted = super.makeFirstResponder(responder)
-        if accepted { cursorRectHold?.firstResponderDidChange(in: self); reportResponder() }
+        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
+        let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
+        if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }
         return accepted
     }
 }

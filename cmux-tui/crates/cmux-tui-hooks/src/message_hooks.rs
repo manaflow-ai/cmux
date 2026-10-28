@@ -1,5 +1,7 @@
-//! Hook commands for the events that hand an agent its pending messages
-//! (`cmux agent message`) and the journal-only shape every other event keeps.
+//! Hook commands for the events whose output the helper writes: the ones
+//! that hand an agent its pending messages (`cmux agent message`), and
+//! claude's `SessionStart`, which carries cmux's startup line (how the
+//! session compacts). Every other event keeps the journal-only shape.
 
 use super::{COMMAND_MARKER, shell_quote};
 
@@ -10,7 +12,10 @@ use super::{COMMAND_MARKER, shell_quote};
 pub(super) fn delivers_messages(provider: &str, event: &str) -> bool {
     matches!(
         (provider, event),
-        ("claude", "UserPromptSubmit") | ("codex", "UserPromptSubmit") | ("codex", "Stop")
+        ("claude", "UserPromptSubmit")
+            | ("claude", "SessionStart")
+            | ("codex", "UserPromptSubmit")
+            | ("codex", "Stop")
     )
 }
 

@@ -301,7 +301,10 @@ class SwiftSyntaxTests(unittest.TestCase):
                 return {"id": item[0], "phase": item[1], "argv": item[3], "tests": None,
                         "cancelled": False, "status": "passed", "executed": True,
                         "elapsed_seconds": 0}, ""
-            with patch.object(verify, "execute", side_effect=changed):
+            # execute is faked, so no real swiftc runs; a host without one
+            # (a Linux dev box) must still reach it instead of "unsupported".
+            with patch.object(verify, "execute", side_effect=changed), \
+                    patch.object(verify.shutil, "which", return_value="/nonexistent/swiftc"):
                 result = verify.run(repo, ["swift-syntax"], 5, io.StringIO(),
                                     swift_files=["Example.swift"])
             self.assertEqual(result["outcome"]["status"], "interrupted")
@@ -597,6 +600,34 @@ class AutomaticSelectionTests(unittest.TestCase):
             for env in ({"CI": "true"}, {"GITHUB_ACTIONS": "true"}):
                 self.assertEqual(verify.automatic_scope(repo, env)["mode"], "ci_full")
             self.assertEqual(verify.automatic_scope(repo, {"CI": "false"})["mode"], "affected")
+
+    def test_a_feat_cmux_next_branch_diffs_against_feat_cmux_next(self):
+        # feat-cmux-next split from main long ago: main's merge base with a feat-cmux-next branch is
+        # that old split, so every check (and every unrelated base failure) ran on a one-file change.
+        with repo_fixture() as repo:
+            git = ["git", "-C", str(repo)]
+            def commit(name):
+                (repo / name).write_text(name)
+                subprocess.run(git + ["add", name], check=True)
+                subprocess.run(git + ["-c", "user.name=t", "-c", "user.email=t@example.com",
+                                      "commit", "-qm", name], check=True)
+            split = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True,
+                                   check=True).stdout.strip()
+            commit("main-only.txt")
+            subprocess.run(git + ["update-ref", "refs/remotes/origin/main", "HEAD"], check=True)
+            subprocess.run(git + ["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
+                           check=True)
+            subprocess.run(git + ["checkout", "-q", "--detach", split], check=True)
+            commit("next-1.txt")
+            commit("next-2.txt")
+            subprocess.run(git + ["update-ref", "refs/remotes/origin/feat-cmux-next", "HEAD"], check=True)
+            commit("my-change.txt")
+            scope = verify.automatic_scope(repo, {})
+            self.assertEqual((scope["mode"], scope["base_ref"]), ("affected", "refs/remotes/origin/feat-cmux-next"))
+            # A branch off main still diffs against main.
+            subprocess.run(git + ["checkout", "-q", "--detach", "refs/remotes/origin/main"], check=True)
+            commit("main-change.txt")
+            self.assertEqual(verify.automatic_scope(repo, {})["base_ref"], "refs/remotes/origin/main")
 
     def test_stale_remote_default_uses_full_recipe(self):
         with repo_fixture() as repo:

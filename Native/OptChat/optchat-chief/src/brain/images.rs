@@ -16,9 +16,12 @@ use crate::daemon::ConversationPort;
 
 /// Image types every vision model the Chief runs on reads.
 const VIEWABLE: [&str; 4] = ["image/jpeg", "image/png", "image/gif", "image/webp"];
-/// Largest original sent as is: the Messages API takes at most 5 MB of
-/// base64 per image (3.75 MB of bytes), and one owner read is at most 4 MiB.
+/// Largest image sent as is: the Messages API takes at most 5 MB of
+/// base64 per image (3.75 MB of bytes). A larger one goes as a smaller
+/// copy (`image_fit`).
 pub const MAX_ORIGINAL_BYTES: u64 = 3_750_000;
+/// Longest side the Messages API takes; a larger image goes as a copy.
+pub const MAX_ORIGINAL_SIDE: u32 = 8000;
 
 /// One image of a turn, its bytes already base64 (as the owner sends them).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -33,6 +36,10 @@ pub struct TurnImage {
     pub height: Option<u32>,
     /// None when the image could not be read; the log still names it.
     pub data: Option<String>,
+    /// How the model got it when not as the original ("sent as 2000x1139
+    /// JPEG"), or why it did not ("not readable: ..."). Logged in the
+    /// reference, so the Chief (and zoom) knows what it saw.
+    pub note: Option<String>,
 }
 
 impl TurnImage {
@@ -42,17 +49,25 @@ impl TurnImage {
             (Some(w), Some(h)) => format!(" {w}x{h}"),
             _ => String::new(),
         };
-        let unread = if self.data.is_none() {
-            ", not readable"
-        } else {
-            ""
+        let note = match (&self.note, &self.data) {
+            (Some(note), _) => format!(", {note}"),
+            (None, None) => ", not readable".to_owned(),
+            (None, Some(_)) => String::new(),
         };
         format!(
-            "[image sha256:{} \"{}\"{size} {}{unread}]",
+            "[image sha256:{} \"{}\"{size} {}{note}]",
             short(&self.hash),
             self.name,
-            self.mime_type
+            self.original_mime_type()
         )
+    }
+
+    /// The type of the original (the part's), not of the bytes sent.
+    fn original_mime_type(&self) -> &str {
+        match &self.source.part {
+            Part::Attachment { mime_type, .. } => mime_type,
+            _ => &self.mime_type,
+        }
     }
 
     /// The ACP prompt block (acpmux turns it into an Anthropic image).
@@ -67,9 +82,7 @@ pub fn short(hash: &str) -> &str {
     &hash[..hash.len().min(12)]
 }
 
-/// The image parts of `message`, read from the owner: the original when the
-/// model reads its type and size, else the image's preview (a JPEG of at
-/// most 1024 px and 512 KB), else a reference without bytes.
+/// The image parts of `message`, read from the owner (see [`read_image`]).
 pub fn read_images(port: &mut dyn ConversationPort, message: &Message) -> Vec<TurnImage> {
     message
         .parts
@@ -86,7 +99,11 @@ pub fn read_images(port: &mut dyn ConversationPort, message: &Message) -> Vec<Tu
         .collect()
 }
 
-/// One image part read from the owner (None when it is not an image part).
+/// One image part read from the owner (None when it is not an image part),
+/// best first: the original when the model takes its type, bytes and size;
+/// else a copy made here from the original (at most 2000 px, a JPEG under
+/// the byte limit); else the client's preview (1024 px); else a reference
+/// without bytes whose note says why. Never silently dropped.
 pub fn read_image(port: &mut dyn ConversationPort, source: &ImageRef) -> Option<TurnImage> {
     let Part::Attachment {
         hash,
@@ -104,32 +121,82 @@ pub fn read_image(port: &mut dyn ConversationPort, source: &ImageRef) -> Option<
     if !mime_type.starts_with("image/") {
         return None;
     }
-    let mut data = None;
-    let mut mime = mime_type.clone();
-    if VIEWABLE.contains(&mime_type.as_str()) && *byte_count <= MAX_ORIGINAL_BYTES {
-        data = port
-            .attachment(&source.conversation, hash, "original", *byte_count)
-            .ok();
-    }
-    if data.is_none()
-        && let Some(preview) = preview
-    {
-        data = port
-            .attachment(&source.conversation, hash, "preview", preview.byte_count)
-            .ok();
-        if data.is_some() {
-            mime = preview.mime_type.clone();
-        }
-    }
-    Some(TurnImage {
+    let mut image = TurnImage {
         source: source.clone(),
         hash: hash.clone(),
         name: name.clone(),
-        mime_type: mime,
+        mime_type: mime_type.clone(),
         width: *width,
         height: *height,
-        data,
-    })
+        data: None,
+        note: None,
+    };
+    let mut why: Vec<String> = Vec::new();
+    let viewable = VIEWABLE.contains(&mime_type.as_str());
+    let side_ok = width.unwrap_or(0).max(height.unwrap_or(0)) <= MAX_ORIGINAL_SIDE;
+    if viewable && *byte_count <= MAX_ORIGINAL_BYTES && side_ok {
+        match port.attachment(&source.conversation, hash, "original", *byte_count) {
+            Ok(data) => {
+                image.data = Some(data);
+                return Some(image);
+            }
+            Err(e) => why.push(format!("original: {e}")),
+        }
+    } else if viewable && *byte_count <= super::image_fit::MAX_SOURCE_BYTES {
+        match fitted_copy(port, &source.conversation, hash, *byte_count) {
+            Ok((data, w, h)) => {
+                image.data = Some(data);
+                image.mime_type = "image/jpeg".into();
+                image.note = Some(format!("sent as {w}x{h} JPEG"));
+                return Some(image);
+            }
+            Err(e) => why.push(format!("copy: {e}")),
+        }
+    } else if viewable {
+        why.push(format!(
+            "original is {byte_count} bytes, over {}",
+            super::image_fit::MAX_SOURCE_BYTES
+        ));
+    } else {
+        why.push(format!("the model does not read {mime_type}"));
+    }
+    match preview {
+        Some(preview) => {
+            match port.attachment(&source.conversation, hash, "preview", preview.byte_count) {
+                Ok(data) => {
+                    image.data = Some(data);
+                    image.mime_type = preview.mime_type.clone();
+                    image.note = Some(format!("sent as its {} preview", preview.mime_type));
+                    return Some(image);
+                }
+                Err(e) => why.push(format!("preview: {e}")),
+            }
+        }
+        None => why.push("no preview".into()),
+    }
+    image.note = Some(format!("not readable: {}", why.join("; ")));
+    Some(image)
+}
+
+/// The original read whole and made small enough for the model: its
+/// base64, width and height.
+fn fitted_copy(
+    port: &mut dyn ConversationPort,
+    conversation: &str,
+    hash: &str,
+    byte_count: u64,
+) -> Result<(String, u32, u32), String> {
+    use base64::Engine as _;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let data = port
+        .attachment(conversation, hash, "original", byte_count)
+        .map_err(|e| format!("reading the original failed: {e}"))?;
+    let bytes = b64
+        .decode(data.as_bytes())
+        .map_err(|e| format!("bad base64: {e}"))?;
+    drop(data);
+    let fitted = super::image_fit::fit(&bytes, MAX_ORIGINAL_BYTES)?;
+    Ok((b64.encode(&fitted.jpeg), fitted.width, fitted.height))
 }
 
 /// An image part and its conversation: what the host keeps (pending turn,
@@ -296,5 +363,164 @@ impl super::Brain {
         if let Err(e) = spawned {
             (self.log)(&format!("starting an image description failed: {e}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::Engine as _;
+    use cmux_conversation::{Change, DerivedImage, Op, Summary};
+    use std::collections::BTreeMap;
+
+    use crate::daemon::OpError;
+
+    /// An owner holding attachment variants by (hash, variant).
+    #[derive(Default)]
+    struct Owner {
+        files: BTreeMap<(String, String), Vec<u8>>,
+        reads: Vec<(String, String)>,
+    }
+
+    impl ConversationPort for Owner {
+        fn snapshot(&mut self, _: &str, _: u32) -> Result<(Summary, Vec<Message>), OpError> {
+            unreachable!()
+        }
+        fn history(&mut self, _: &str, _: u64, _: u32) -> Result<Vec<Message>, OpError> {
+            unreachable!()
+        }
+        fn op(&mut self, _: &str, _: &str, _: &Op) -> Result<Option<Change>, OpError> {
+            unreachable!()
+        }
+        fn typing(&mut self, _: &str, _: bool) -> Result<(), OpError> {
+            unreachable!()
+        }
+        fn draft(&mut self, _: &str, _: &crate::draft::Draft) -> Result<(), OpError> {
+            unreachable!()
+        }
+        fn attachment(
+            &mut self,
+            _: &str,
+            hash: &str,
+            variant: &str,
+            _: u64,
+        ) -> Result<String, OpError> {
+            self.reads.push((hash.into(), variant.into()));
+            self.files
+                .get(&(hash.to_owned(), variant.to_owned()))
+                .map(|b| base64::engine::general_purpose::STANDARD.encode(b))
+                .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+        }
+    }
+
+    fn part(mime: &str, bytes: u64, size: (u32, u32), preview: Option<DerivedImage>) -> ImageRef {
+        ImageRef {
+            conversation: "c1".into(),
+            part: Part::Attachment {
+                hash: "ab".repeat(32),
+                name: "Screenshot 2026-10-19 at 1.16.06 AM.png".into(),
+                mime_type: mime.into(),
+                byte_count: bytes,
+                width: Some(size.0),
+                height: Some(size.1),
+                duration_ms: None,
+                poster: None,
+                preview,
+            },
+        }
+    }
+
+    fn decoded(image: &TurnImage) -> image::DynamicImage {
+        let b = base64::engine::general_purpose::STANDARD
+            .decode(image.data.as_ref().unwrap())
+            .unwrap();
+        image::load_from_memory(&b).unwrap()
+    }
+
+    /// The bug: a 5344x3044 Retina window screenshot (transparent shadow, so
+    /// the app made no preview) was over 3.75 MB and reached the Chief as
+    /// `not readable`.
+    #[test]
+    fn a_6k_screenshot_without_preview_reaches_the_model_as_a_copy() {
+        let png = super::super::image_fit::tests::screenshot_png(5344, 3044);
+        assert!(png.len() as u64 > MAX_ORIGINAL_BYTES);
+        let source = part("image/png", png.len() as u64, (5344, 3044), None);
+        let mut owner = Owner::default();
+        owner
+            .files
+            .insert(("ab".repeat(32), "original".into()), png);
+        let image = read_image(&mut owner, &source).unwrap();
+        assert!(image.data.is_some(), "{:?}", image.note);
+        assert_eq!(image.mime_type, "image/jpeg");
+        let shown = decoded(&image);
+        assert_eq!(shown.width(), 2000);
+        assert!(image.block().is_some());
+        let reference = image.reference();
+        assert!(
+            reference.contains("5344x3044 image/png, sent as 2000x"),
+            "{reference}"
+        );
+        assert!(!reference.contains("not readable"), "{reference}");
+        // The base64 the model gets is under the API's 5 MB.
+        assert!(image.data.as_ref().unwrap().len() <= 5_000_000);
+    }
+
+    #[test]
+    fn a_small_image_goes_as_the_original() {
+        let png = super::super::image_fit::tests::screenshot_png(300, 200);
+        let source = part("image/png", png.len() as u64, (300, 200), None);
+        let mut owner = Owner::default();
+        owner
+            .files
+            .insert(("ab".repeat(32), "original".into()), png.clone());
+        let image = read_image(&mut owner, &source).unwrap();
+        assert_eq!(image.mime_type, "image/png");
+        assert_eq!(image.note, None);
+        assert_eq!(decoded(&image).width(), 300);
+        assert!(!image.reference().contains(", "), "{}", image.reference());
+    }
+
+    #[test]
+    fn an_undecodable_large_image_falls_back_to_its_preview() {
+        let preview = super::super::image_fit::fit(
+            &super::super::image_fit::tests::screenshot_png(1024, 600),
+            512_000,
+        )
+        .unwrap();
+        let source = part(
+            "image/heic",
+            9_000_000,
+            (4032, 3024),
+            Some(DerivedImage {
+                hash: "cd".repeat(32),
+                mime_type: "image/jpeg".into(),
+                byte_count: preview.jpeg.len() as u64,
+            }),
+        );
+        let mut owner = Owner::default();
+        owner
+            .files
+            .insert(("ab".repeat(32), "preview".into()), preview.jpeg);
+        let image = read_image(&mut owner, &source).unwrap();
+        assert_eq!(image.mime_type, "image/jpeg");
+        assert!(
+            image
+                .reference()
+                .contains("image/heic, sent as its image/jpeg preview")
+        );
+    }
+
+    #[test]
+    fn an_unreadable_image_says_why_in_its_reference() {
+        let source = part("image/png", 9_000_000, (5344, 3044), None);
+        let mut owner = Owner::default();
+        let image = read_image(&mut owner, &source).unwrap();
+        assert!(image.data.is_none());
+        let reference = image.reference();
+        assert!(
+            reference.contains("not readable: copy: reading the original failed"),
+            "{reference}"
+        );
+        assert!(reference.contains("no preview"), "{reference}");
     }
 }

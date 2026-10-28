@@ -55,6 +55,8 @@ export interface Env {
   readonly HOST_DO: DurableObjectNamespace<HostDO>
   /** Chief hands (hand-do.ts): one object per installed hand (`h:<hand>`) and one index per owner (`owner:<user>`). */
   readonly HAND_DO: DurableObjectNamespace<HandDO>
+  /** "1": Chief hands are on (the /hand and /v1/hands routes, and the brain's hands tools). Off by default; production keeps it off until hands are ready (decision 2026-10-19). */
+  readonly HANDS_ENABLED?: string
   /** "1": Cloud requests may reach a `mac` profile hand. Off until the Mac hand trust post (#13742) is confirmed. */
   readonly HANDS_MAC_ENABLED?: string
   /** Comma list of user ids: with HANDS_MAC_ENABLED, only their mac hands take Cloud requests (a scoped test). */
@@ -96,6 +98,12 @@ export interface Env {
   readonly TEAM_VM_SLUG_PREFIX?: string
   /** Test only: `fake` selects the in-object fake provider when ENVIRONMENT=test. */
   readonly TEAM_VM_DRIVER?: string
+  /** Operator opt-in for NEW intents only. Existing ledger rows retain their transport. */
+  readonly TEAM_VM_TRANSPORT?: string
+  readonly TEAM_VM_API_ORIGIN?: string
+  readonly TEAM_VM_API_SERVICE_KEY?: string
+  readonly TEAM_VM_API_IMAGE?: string
+  readonly TEAM_VM_API_IMAGE_REVISION?: string
   /** One CloudDO per team: Cloud machines, the provider-call ledger and plan checks (state-placement.md 5). */
   readonly CLOUD_DO: DurableObjectNamespace<CloudDO>
   /**
@@ -103,6 +111,13 @@ export interface Env {
    * Never logged. Without it, or without CLOUD_FREESTYLE_SNAPSHOT, create and delete answer cloud.provider.unavailable.
    */
   readonly CLOUD_FREESTYLE_API_KEY?: string
+  /** Operator opt-in for new Cloud machines only. Existing rows keep their recorded transport. */
+  readonly CLOUD_VM_TRANSPORT?: string
+  readonly CLOUD_VM_API_ORIGIN?: string
+  /** Service credential stays in this Worker; never returned or stored with a machine. */
+  readonly CLOUD_VM_API_SERVICE_KEY?: string
+  readonly CLOUD_VM_API_IMAGE?: string
+  readonly CLOUD_VM_API_IMAGE_REVISION?: string
   /** The https API origin written into each VM's bind file (the image's bind agent calls it). */
   readonly CLOUD_API_ORIGIN?: string
   /** Secret: the operator key for /v1/admin/cloud/abandoned/clear (also needs a person's session token). */
@@ -118,6 +133,8 @@ export interface Env {
   readonly CLOUD_CODEROUTER_EDGE_HOST?: string
   /** Var: comma-separated team ids that get the stub plan and provider calls outside production (P1-1); unset = nobody. */
   readonly CLOUD_ALLOWED_TEAMS?: string
+  /** Var: "on" = Cloud machine limits follow the team's paid plan (cloud-entitlements.ts); anything else = off (stub plan only). Production stays off until go-live. */
+  readonly CLOUD_PLAN_ENTITLEMENTS?: string
   /**
    * Secret: link-token signing keys (LINK-TOKEN-FORMAT) as JSON {active: kid, keys: {kid: private Ed25519 JWK}}, at most 2 kids.
    * Per environment; never logged, never in a response, error, event or storage. Without it bind and link_token refuse.
@@ -257,6 +274,12 @@ export interface Env {
   readonly CHIEF_BRAIN_CLAUDE_MODELS?: string
   /** "1": send effort + thinking display in the Claude route's Bedrock body ("0" off; default on only for a bearer route). */
   readonly CHIEF_BRAIN_CLAUDE_EFFORT_BODY?: string
+  /** The most a turn waits for the compactor before it runs (ms; default 5000, "0": never waits). Staging A/B knob. */
+  readonly CHIEF_BRAIN_SETTLE_MS?: string
+  /** The most a compaction waits for another call writing its prefix (ms; default 20000, "0": never waits). Staging A/B knob. */
+  readonly CHIEF_BRAIN_PREFIX_WAIT_MS?: string
+  /** The Claude compactor's effort: "low" or "medium" (default "high"). Staging A/B knob. */
+  readonly CHIEF_BRAIN_COMPACT_EFFORT?: string
   /** Prompt cache TTL on the Claude route (default "1h"; "5m" keeps the short default). */
   readonly CHIEF_BRAIN_CACHE_TTL?: string
   /** Secret: OpenRouter key for `openrouter:<id>` Chief models; OPENROUTER_BASE_URL overrides the endpoint. */
@@ -286,12 +309,46 @@ export interface Env {
   readonly CHIEF_FAULT_HOOKS?: string
   /** The work folder a new sandbox hand starts in (the Chief's continuation names it; default /root/proj). */
   readonly HAND_SANDBOX_WORKDIR?: string
+  /**
+   * "1": Chiefs of owners on CHIEF_BRAIN_CLAUDE_OWNERS run each turn as Claude Code in a Freestyle VM whose model
+   * calls go to the team's sr2 gateway over the tailnet (chief-brain-cc/, personal use, Lawrence 2026-10-20). Needs
+   * the two secrets and the snapshot below; off otherwise. Not charged to Cloud credits.
+   */
+  readonly CHIEF_CC_ENABLED?: string
+  /** The chief-cc VM snapshot id (backend/chief-cc/bake.sh). */
+  readonly CHIEF_CC_SNAPSHOT?: string
+  /** Comma-separated exact owner ids (team_ or user_) whose Chiefs use the Claude Code route; each must also be on CHIEF_BRAIN_CLAUDE_OWNERS. */
+  readonly CHIEF_CC_OWNERS?: string
+  /** Secret: the Freestyle key of the account that holds CHIEF_CC_SNAPSHOT (no other code reads it). */
+  readonly CHIEF_CC_FREESTYLE_API_KEY?: string
+  /** Test only: the Freestyle API base for the Claude Code route. */
+  readonly CHIEF_CC_FREESTYLE_API_URL?: string
+  /** Secret: {"client_id","client_secret"} of the Tailscale OAuth client that mints one-use tag:agent-cloud keys (scope auth_keys). */
+  readonly CHIEF_CC_TS_OAUTH?: string
+  /** The tag of each turn machine's tailnet node (default tag:agent-cloud); the OAuth client above must own it. Production: tag:lawrence-chief. */
+  readonly CHIEF_CC_TS_TAG?: string
+  /** Secret: JSON {"path under /home/chief": "content"}, the Chief's tool files (Mac gate and hub tokens) written for the agent user each turn (mode 600). */
+  readonly CHIEF_CC_TURN_FILES?: string
+  /** Secret: the GitHub token the agent user's gh and git use on each turn machine (fine-grained, the Chief's repos only). */
+  readonly CHIEF_CC_GITHUB_TOKEN?: string
+  /** The shortest `chief-wake` timer in seconds (chief-brain-cc/wake.ts; default 30, tests 0). */
+  readonly CHIEF_CC_WAKE_MIN_SECONDS?: string
+  /** The Freestyle plan of CHIEF_CC_FREESTYLE_API_KEY's account (free, hobby or pro; default pro): its per-VM maximums bound the Chief's sandbox sizes. */
+  readonly CHIEF_CC_FREESTYLE_PLAN?: string
+  /** How many live sandbox VMs each Chief may keep (default 2, at most 10). */
+  readonly CHIEF_CC_SANDBOX_CAP?: string
+  /** Per-Chief caps over CHIEF_CC_SANDBOX_CAP: "agent_id=N,agent_id=N". */
+  readonly CHIEF_CC_SANDBOX_CAPS?: string
   /** The host model gateway's Anthropic Messages base URL for O brains (default: O's own stub route). */
   readonly CHIEF_OPENCODE_GATEWAY_URL?: string
   /** One AddressDO per invited address (HMAC id): suppression, limits, provider sends. */
   readonly ADDRESS_DO: DurableObjectNamespace<AddressDO>
   /** Secret: HMAC key that turns a normalized email or phone into its `addr_` id. */
   readonly HOME_ADDRESS_KEY?: string
+  /** Secret: the Sentry project DSN for the Cloud Home health check-ins (home-health.ts); absent = log only. */
+  readonly SENTRY_DSN?: string
+  /** Secret, staging or development only: `open`, `send` or `read` fails that Cloud Home probe step (the alert drill, home-health.ts); production ignores it. */
+  readonly HOME_HEALTH_FAULT?: string
   /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
   readonly HOME_ATTACHMENTS?: R2Bucket
   /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */

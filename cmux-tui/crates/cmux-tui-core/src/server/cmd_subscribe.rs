@@ -13,6 +13,7 @@ use crate::GraphicsStatus;
 use crate::Mux;
 use crate::MuxEvent;
 use crate::SurfaceId;
+use crate::panic_free::JsonFields;
 use crate::stream_interrupt::StreamInterrupt;
 use serde_json::Value;
 use serde_json::json;
@@ -182,11 +183,22 @@ pub(super) fn subscribe_command(
                 }
                 // The person's own clients: Unix, or an authenticated page
                 // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
+                // The host replica's renewal only to the verified app: it holds the install token.
+                MuxEvent::CloudConversation(event)
+                    if host_replica_needed(event)
+                        && !matches!(
+                            super::origin_gate::connection_actor(&event_mux, client),
+                            crate::workspace_registry::Actor::Frontend { .. }
+                        ) =>
+                {
+                    continue;
+                }
                 MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
-                MuxEvent::CloudConversation(_)
-                    if !super::cloud_conversations::delivers(&event_mux, client) =>
+                MuxEvent::CloudConversation(event)
+                    if !host_replica_needed(event)
+                        && !super::cloud_conversations::delivers(&event_mux, client) =>
                 {
                     continue;
                 }
@@ -212,6 +224,32 @@ pub(super) fn subscribe_command(
                     ) && !event_mux.control_clients.supports_capability(
                         client,
                         super::conversation_live::CHIEF_LIVE_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
+                // Typing in a Cloud conversation only to a connection that
+                // asked for it (`cloud-conversation-typing-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::Typing { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::cloud_conversations::CLOUD_TYPING_CAPABILITY,
+                    ) =>
+                {
+                    continue;
+                }
+                // Who views a Cloud conversation only to a connection that
+                // asked for it (`cloud-conversation-presence-v1`).
+                MuxEvent::CloudConversation(event)
+                    if matches!(
+                        event.as_ref(),
+                        crate::cloud_conversations::CloudEvent::Presence { .. }
+                    ) && !event_mux.control_clients.supports_capability(
+                        client,
+                        super::cloud_conversations::CLOUD_PRESENCE_CAPABILITY,
                     ) =>
                 {
                     continue;
@@ -248,7 +286,10 @@ pub(super) fn subscribe_command(
                 _ => subscribed_event_json(&event),
             };
             if let Some(events) = page_events
-                && !value["event"].as_str().is_some_and(|name| events.iter().any(|e| e == name))
+                && !value
+                    .field("event")
+                    .as_str()
+                    .is_some_and(|name| events.iter().any(|e| e == name))
             {
                 continue;
             }
@@ -305,6 +346,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             source,
             session,
             agent,
+            agent_session_id,
             updated_at_ms,
             since_ms,
             last_prompt,
@@ -315,6 +357,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "source": source.as_ref(),
             "session": session.as_deref(),
             "agent": agent.as_deref(),
+            "agent_session_id": agent_session_id.as_deref(),
             "updated_at_ms": updated_at_ms,
             "since_ms": since_ms,
             "last_prompt": last_prompt.as_deref(),
@@ -346,8 +389,14 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "subtitle": notification.subtitle,
             "body": notification.body,
             "preview": notification.preview,
+            "id": notification.id,
+            "message": notification.message,
+            "prompt": notification.prompt,
+            "session": notification.session,
+            "question": notification.question.as_deref(),
             "level": notification.level.as_str(),
             "surface": notification.surface,
+            "workspace_id": notification.workspace_id,
             "source": notification.source.as_str(),
             "desktop": notification.desktop,
             "reply": notification.reply,
@@ -380,7 +429,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
         MuxEvent::Status(message) => json!({"event": "status", "message": message}),
         MuxEvent::MachineUsageChanged(usage) => {
             let mut payload = machine_usage_json(usage.as_ref());
-            payload["event"] = json!("machine-usage-changed");
+            payload.insert("event", json!("machine-usage-changed"));
             payload
         }
         MuxEvent::ConfigReloadRequested => json!({"event": "config-reload-requested"}),
@@ -456,12 +505,12 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             let mut value = json!({"event": "layout-changed", "screen": screen});
             // `layout-delta-v1`: the screen's layout fields, flat, as in `Screen`.
             if let Some(delta) = delta {
-                value["workspace"] = json!(delta.workspace);
+                value.insert("workspace", json!(delta.workspace));
                 if let (Value::Object(value), Value::Object(layout)) = (&mut value, &delta.layout) {
                     value.extend(layout.iter().map(|(key, field)| (key.clone(), field.clone())));
                 }
                 if let Some(transaction) = &delta.transaction {
-                    value["transaction"] = json!(transaction.as_ref());
+                    value.insert("transaction", json!(transaction.as_ref()));
                 }
             }
             value
@@ -502,4 +551,8 @@ pub(super) fn subscription_overflow_json() -> Value {
         "event": "overflow",
         "error": "subscriber fell behind; resubscribe to continue receiving events",
     })
+}
+
+fn host_replica_needed(event: &crate::cloud_conversations::CloudEvent) -> bool {
+    matches!(event, crate::cloud_conversations::CloudEvent::HostReplicaNeeded { .. })
 }

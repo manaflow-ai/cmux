@@ -32,7 +32,9 @@ mod env_refs;
 #[path = "profile_sessions.rs"]
 mod sessions;
 use env_refs::is_reference;
-pub use env_refs::{file_secret, has_env_refs, keychain_lookup, resolve_env_refs};
+pub use env_refs::{
+    file_secret, has_env_refs, has_keychain_refs, keychain_lookup, resolve_env_refs,
+};
 pub use sessions::{
     FieldSelector, SESSION_BUILTIN_ADAPTERS, SESSION_DATA_ADAPTERS, SESSION_FIELDS, SessionsResume,
     SessionsSpec, check_sessions,
@@ -40,9 +42,10 @@ pub use sessions::{
 
 /// Largest profile file read, in bytes.
 pub const MAX_PROFILE_BYTES: u64 = 64 * 1024;
-/// Largest icon file accepted, in bytes.
-pub const MAX_ICON_BYTES: u64 = 256 * 1024;
-/// Built-in icon names a profile may use instead of a file.
+pub use super::harness_icon::MAX_ICON_BYTES;
+use super::harness_icon::{IconValue, LoadedIcon};
+/// Built-in icon names a profile may use instead of a file (any agent mark id
+/// from design/agent-icons works too; see `harness_icon`).
 pub const BUILTIN_ICONS: &[&str] =
     &["claude", "openai", "codex", "opencode", "pi", "gemini", "meta", "terminal", "generic"];
 /// Effort ids a profile may declare (the catalog's protocol ids).
@@ -60,10 +63,12 @@ pub struct ProfileSources {
 }
 
 impl ProfileSources {
-    /// The folders of this user and machine.
+    /// The folders of this user and machine. A DEV build keeps its user
+    /// folder in its own acpmux home ([`build_harness_dir`]).
     pub fn current() -> Self {
-        let config_dir = std::env::var_os("XDG_CONFIG_HOME")
-            .filter(|v| !v.is_empty())
+        let xdg = std::env::var_os("XDG_CONFIG_HOME").filter(|v| !v.is_empty());
+        let explicit_config = xdg.is_some();
+        let config_dir = xdg
             .map(|v| PathBuf::from(v).join("cmux"))
             .or_else(|| dirs::home_dir().map(|home| home.join(".config").join("cmux")));
         let managed = if std::env::consts::OS == "macos" {
@@ -71,9 +76,13 @@ impl ProfileSources {
         } else {
             PathBuf::from("/etc/cmux/harnesses")
         };
+        // A run that names its config root (a test, a capture script) gets it.
+        let build_dir = (!explicit_config)
+            .then(|| build_harness_dir(&crate::config::home(), &crate::config::default_home()))
+            .flatten();
         Self {
             managed: vec![managed],
-            user_dir: config_dir.as_ref().map(|d| d.join("harnesses")),
+            user_dir: build_dir.or_else(|| config_dir.as_ref().map(|d| d.join("harnesses"))),
             cmux_json: config_dir.map(|d| d.join("cmux.json")),
         }
     }
@@ -82,6 +91,37 @@ impl ProfileSources {
     pub fn none() -> Self {
         Self::default()
     }
+}
+
+/// The user harness folder of a DEV build: `<home>/harnesses` when the acpmux
+/// home `home` is a DEV or staging build's own (`<root>/builds/<key>`, see
+/// `BuildIdentity::acpmux_home`) or an old tag home (`<root>/tags/<tag>`);
+/// `root` is the default acpmux home. `None` for every other home: NIGHTLY,
+/// cmux NEXT, RC, release and a standalone acpmux keep the person's folder.
+///
+/// The user folder (`~/.config/cmux/harnesses`) is per person, not per
+/// build, so a profile a DEV build or a dogfood script wrote there showed in
+/// every shipped build's model picker (hq#2569 item 11: a fake agent "P"
+/// with models m1 and m2 in cmux NEXT). A DEV build neither reads nor writes
+/// it.
+pub fn build_harness_dir(home: &Path, root: &Path) -> Option<PathBuf> {
+    use cmux_agent_pane_policy::build_identity::{BuildIdentity, BuildKind};
+    let parent = home.parent()?;
+    let key = home.file_name()?.to_str()?;
+    let dev = if parent == root.join("tags") {
+        true
+    } else if parent == root.join("builds") {
+        // A key is the bundle id, plus `--<hash>` and/or `--<tag>` (a bundle
+        // that ships a tag its id does not end in, `com.cmuxterm.app.rc--lab`).
+        // `component` and `tag_slug` collapse runs of `-`, so `--` is only
+        // ever a separator and the part before it is the id whose kind decides.
+        let bundle_id = key.split("--").next().unwrap_or(key);
+        let kind = BuildIdentity::new(Some(bundle_id), None).kind();
+        !matches!(kind, BuildKind::Nightly | BuildKind::Release | BuildKind::Rc)
+    } else {
+        false
+    };
+    dev.then(|| home.join("harnesses"))
 }
 
 /// Where a loaded profile came from.
@@ -187,9 +227,13 @@ pub struct ProfileMeta {
     pub source_path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
-    /// A built-in icon name, or an absolute path to the icon file.
+    /// The `icon` value: an agent mark id, a glyph, an emoji, an SF Symbol
+    /// name, or an absolute path to the icon file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// The parsed icon and a file's bytes, for `iconSpec` (`harness_icon`).
+    #[serde(skip)]
+    pub loaded_icon: LoadedIcon,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Capabilities>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -736,24 +780,35 @@ fn build(
     if models.iter().any(|m| m.id().trim().is_empty()) {
         errors.push(Diagnostic::error(&shown, idr, "a model has an empty id".into(), None));
     }
-    let icon = match file.icon {
+    let mut loaded_icon = LoadedIcon::default();
+    let icon = match file.icon.as_deref().map(IconValue::parse) {
         None => None,
-        Some(icon) if BUILTIN_ICONS.contains(&icon.as_str()) => Some(icon),
-        Some(icon) if icon.contains('.') || icon.contains('/') => match check_icon(path, &icon) {
-            Ok(p) => Some(p),
+        Some(Ok(IconValue::File(name))) => match super::harness_icon::read_icon_file(path, &name) {
+            Ok((abs, mime, data)) => {
+                loaded_icon = LoadedIcon {
+                    value: Some(IconValue::File(abs.clone())),
+                    image: Some((mime, data)),
+                };
+                Some(abs)
+            }
             Err(message) => {
                 errors.push(Diagnostic::error(&shown, idr, message, None));
                 None
             }
         },
-        Some(icon) => {
+        Some(Ok(value)) => {
+            let wire = value.wire();
+            loaded_icon = LoadedIcon { value: Some(value), image: None };
+            Some(wire)
+        }
+        Some(Err(message)) => {
             warnings.push(Diagnostic::warning(
                 &shown,
                 idr,
-                format!("unknown built-in icon {icon:?}; the generic icon is shown"),
+                format!("{message}; cmux picks the icon"),
                 Some(format!(
-                    "use a file (icon = \"{id}.svg\") or one of {}",
-                    BUILTIN_ICONS.join(", ")
+                    "set it with `cmux harness icon {id} VALUE` (an emoji, an SF Symbol, an agent \
+                     mark or an .svg/.png file), or remove the icon line"
                 )),
             ));
             None
@@ -799,6 +854,7 @@ fn build(
         source_path: shown,
         display_name: file.name,
         icon,
+        loaded_icon,
         capabilities: file.capabilities,
         auth: file.auth,
         sessions: file.sessions,
@@ -807,22 +863,6 @@ fn build(
         hooks: file.hooks,
     };
     Ok((id, profile, meta, warnings))
-}
-
-/// The icon file next to the profile: absolute path when it is a small
-/// svg or png.
-fn check_icon(profile: &Path, icon: &str) -> Result<String, String> {
-    let dir = profile.parent().unwrap_or(Path::new("."));
-    let path = dir.join(icon);
-    let ext = path.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
-    if ext != "svg" && ext != "png" {
-        return Err(format!("icon {icon:?} must be an .svg or .png file"));
-    }
-    let meta = std::fs::metadata(&path).map_err(|_| format!("icon file {icon:?} is missing"))?;
-    if !meta.is_file() || meta.len() > MAX_ICON_BYTES {
-        return Err(format!("icon {icon:?} must be a file of at most {MAX_ICON_BYTES} bytes"));
-    }
-    Ok(path.to_string_lossy().into_owned())
 }
 
 pub fn valid_id(id: &str) -> bool {

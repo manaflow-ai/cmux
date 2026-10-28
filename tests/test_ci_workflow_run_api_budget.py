@@ -38,6 +38,9 @@ HEAD = "a" * 40
 # ---------------------------------------------------------------- CI failure attribution
 
 
+os.environ["PR_STATUS_SETTLE_SECONDS"] = "0"  # no wait before the status comment's check
+
+
 class CountingGitHub:
     """classify_failures' GitHub with every read recorded."""
 
@@ -75,6 +78,13 @@ class CountingGitHub:
 
     def request(self, method: str, path: str, body: object = None) -> dict:
         self.writes.append((method, path))
+        # Kept as GitHub would, so the status comment's check after a write reads what it wrote.
+        if method == "POST" and path.endswith("/issues/7/comments"):
+            self._comments = [*self._comments, {"id": 1000, "body": body["body"], "user": {"login": cf.BOT}}]  # type: ignore[index]
+        elif method == "PATCH" and "/issues/comments/" in path:
+            cid = int(path.rsplit("/", 1)[1])
+            self._comments = [dict(c, body=body["body"]) if c["id"] == cid else c  # type: ignore[index]
+                              for c in self._comments]
         return {}
 
 
@@ -115,7 +125,9 @@ class FailureAttributionCalls(unittest.TestCase):
     def test_a_green_run_with_a_comment_still_updates_it(self) -> None:
         gh = CountingGitHub(comments=[BOT_COMMENT])
         act(gh, report([], conclusion="success"))
-        self.assertEqual(gh.reads, ["comments 7", "pull 7"])  # the comments are read once
+        # The comments are read once before the write, and once after it: the status comment's
+        # other lines belong to other jobs, so a write is checked (scripts/ci/pr_status.py).
+        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])
         self.assertEqual(gh.writes, [("PATCH", f"repos/{REPO}/issues/comments/99")])
 
     def test_a_green_run_with_a_comment_on_a_moved_head_marks_it_pending(self) -> None:
@@ -159,7 +171,7 @@ class FailureAttributionCalls(unittest.TestCase):
         gh = CountingGitHub(comments=[{**BOT_COMMENT, "body": cf.MARKER + "\n" + cf.head_marker("c" * 40, "failed")}])
         writer = cf.Writer(gh, dry_run=False)  # type: ignore[arg-type]
         self.assertTrue(cf.act_requested(gh, writer, run)["line"].startswith("marked pending"))  # type: ignore[arg-type]
-        self.assertEqual(gh.reads, ["comments 7", "pull 7"])
+        self.assertEqual(gh.reads, ["comments 7", "pull 7", "comments 7"])  # the last checks the write
         gh = CountingGitHub(comments=[BOT_COMMENT], state="closed")
         writer = cf.Writer(gh, dry_run=False)  # type: ignore[arg-type]
         self.assertEqual(cf.act_requested(gh, writer, run)["line"],  # type: ignore[arg-type]
@@ -186,10 +198,11 @@ class GuardAttributionCalls(unittest.TestCase):
         {"number": 7, "base": {"repo": {"url": f"https://api.github.com/repos/{REPO}"}}}]}
 
     def test_a_green_pr_with_a_guard_comment_reads_the_comments_once(self) -> None:
-        gh = GuardGitHub([{"id": 3, "body": ga.PR_MARKER + "\nold"}, {"id": 4, "body": "unrelated"}])
+        bot = {"login": "github-actions[bot]"}
+        gh = GuardGitHub([{"id": 3, "body": ga.PR_MARKER + "\nold", "user": bot}, {"id": 4, "body": "unrelated", "user": bot}])
         rep = ga.analyze_pr(gh, self.RUN, ROOT, "")  # type: ignore[arg-type]
         self.assertEqual(rep["state"], "green")
-        self.assertEqual(rep["comments"], [{"id": 3, "body": ga.PR_MARKER + "\nold"}])
+        self.assertEqual(rep["comments"], [{"id": 3, "body": ga.PR_MARKER + "\nold", "user": bot}])
         rep = json.loads(json.dumps(rep))  # the artifact between analyze and report
         writer = ga.Writer(None, True)
         ga.report_pr(writer, gh, REPO, rep)  # type: ignore[arg-type]

@@ -9,7 +9,8 @@ import { brainName } from "./chief-brain/brain-do.ts"
  * MuxDO's alarm sends the row again with backoff (1 s doubling to 60 s) for up to 6 hours. Both brains
  * take a repeated wake idempotently (keyed by conversation + seq, and a seq at or below the brain's
  * cursor is already answered), so a resend never answers twice. Within one conversation wakes go in
- * seq order: a newer wake waits while an older one is undelivered (a brain's first wake sets its cursor).
+ * seq order: a newer wake waits while an older one is undelivered (a brain's first wake sets its cursor), and
+ * goes right after the older is delivered.
  * Each send has a time limit, so one hung brain never holds the alarm (and the outbox drain) for long.
  */
 const GIVE_UP_MS = 6 * 3600_000
@@ -47,7 +48,8 @@ const table = (sql: SqlStorage) => {
 
 /**
  * Records a wake as undelivered before the first send. Returns false when an older wake of the same
- * conversation is still undelivered: then this one waits for the alarm (sent after the older, in order).
+ * conversation is still undelivered: then this one goes after the older, in order (MuxDO sends it as soon as
+ * the older is delivered, see nextWaiting; the alarm, if that send fails).
  */
 export const pendWake = (sql: SqlStorage, w: Wake, now: number): boolean => {
   table(sql)
@@ -63,11 +65,12 @@ export const nextDeliveryAt = (sql: SqlStorage): number | null => {
   return r.at === null ? null : Number(r.at)
 }
 
-/** One send to the Chief's own brain; true when the brain answered (it holds the wake now). */
+/** One send to the Chief's own brain; true when the brain answered (it holds the wake now). A skip the
+ * brain marks `retry` (brain-turn.ts `skip`: a passing refusal) is not delivered: sent again with backoff. */
 export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<boolean> => {
   const pi = () => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
   const o = opencode && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined
-  type Answer = { queued: number } | { skipped: string }
+  type Answer = { queued: number } | { skipped: string; retry?: true }
   const limit = (p: Promise<unknown>): Promise<Answer> => {
     let timer: ReturnType<typeof setTimeout> | undefined
     return Promise.race([p as Promise<Answer>, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error("wake send timed out")), SEND_TIMEOUT_MS)))]).finally(() => clearTimeout(timer))
@@ -75,7 +78,11 @@ export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<bo
   try {
     const r = o ? await limit(o.wake(w)) : await limit(pi())
     // An opencode Chief on a deployment without the container (or switched back to pi) is answered by P.
-    if (o && "skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container")) await limit(pi())
+    const answer = o && "skipped" in r && (r.skipped === "impl_pi" || r.skipped === "no_container") ? await limit(pi()) : r
+    if ("skipped" in answer && answer.retry) {
+      console.warn(JSON.stringify({ msg: "chief_brain.wake_retry", agent: w.agent, conversation: w.conversation, seq: w.seq, reason: answer.skipped }))
+      return false
+    }
     return true
   } catch (e) {
     console.warn(JSON.stringify({ msg: "chief_brain.wake_failed", agent: w.agent, conversation: w.conversation, seq: w.seq, error: String(e).slice(0, 200) }))
@@ -98,6 +105,21 @@ export const settleWake = (sql: SqlStorage, w: Pick<Wake, "conversation" | "seq"
   // Newer wakes of the conversation wait behind this one (order kept).
   sql.exec(`UPDATE mux_wake_delivery SET tries = ?, next_at = ? WHERE conversation = ? AND seq = ?`, tries, at, w.conversation, w.seq)
   sql.exec(`UPDATE mux_wake_delivery SET next_at = MAX(next_at, ?) WHERE conversation = ? AND seq > ?`, at, w.conversation, w.seq)
+}
+
+/**
+ * After `w` was delivered: the conversation's next undelivered wake (it waited behind `w`, see pendWake),
+ * now due again FIRST_RETRY_MS from `now` (its send starts at once; the alarm resends it only if that send dies).
+ * Without this a message that came while an earlier wake's RPC was in flight waited for the alarm (about 30 s).
+ */
+export const nextWaiting = (sql: SqlStorage, w: Pick<Wake, "conversation" | "seq">, now: number): { conversation: string; seq: number; reason: string; at: number } | null => {
+  table(sql)
+  const r = sql.exec<{ seq: number; reason: string; first_at: number }>(`SELECT seq, reason, first_at FROM mux_wake_delivery WHERE conversation = ? AND seq > ? ORDER BY seq LIMIT 1`, w.conversation, w.seq).toArray()[0]
+  if (!r) return null
+  // Every newer row too: the alarm must not send one of them while the chain is still on an older one (order kept).
+  sql.exec(`UPDATE mux_wake_delivery SET next_at = MAX(next_at, ?) WHERE conversation = ? AND seq >= ?`, now + FIRST_RETRY_MS, w.conversation, r.seq)
+  // `at`: when MuxDO took it (Run.timing mux_at; the brain ignores a value older than 60 s).
+  return { conversation: w.conversation, seq: Number(r.seq), reason: String(r.reason), at: Number(r.first_at) }
 }
 
 /** The undelivered wakes due now, grouped by conversation in seq order (at most `limit`). */

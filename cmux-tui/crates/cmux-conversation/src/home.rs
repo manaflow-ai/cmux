@@ -68,6 +68,10 @@ pub struct HomeInboxInput<'a> {
     pub typing: HashMap<String, Vec<String>>,
     /// Authors of agent runs that run now (not stale), by conversation id.
     pub running: HashMap<String, Vec<String>>,
+    /// Deleted Chiefs (the registry's tombstones): a deleted Chief's direct
+    /// conversation leaves the list, on every device that reads it, as Delete
+    /// Chief promises.
+    pub deleted_chiefs: BTreeSet<String>,
 }
 
 /// One row of the Home list.
@@ -116,6 +120,17 @@ fn is_chief(summary: &Summary, id: &str, input: &HomeInboxInput<'_>) -> bool {
             && (participant.agent_class == Some(AgentClass::Mux)
                 || input.chief_names.contains_key(id))
     })
+}
+
+/// A deleted Chief's direct conversation (the one Delete Chief says leaves the
+/// list): not in the list. Its channels and groups stay, with their history.
+fn is_deleted_chiefs_direct(
+    summary: &Summary,
+    input: &HomeInboxInput<'_>,
+    channels: &BTreeSet<&str>,
+) -> bool {
+    matches!(others(summary, input.me).as_slice(), [one] if input.deleted_chiefs.contains(*one))
+        && !channels.contains(summary.id.as_str())
 }
 
 /// The ids of the participants other than the person.
@@ -190,6 +205,7 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
     }
     let mut rows: Vec<HomeRow> = summaries
         .iter()
+        .filter(|summary| !is_deleted_chiefs_direct(summary, input, &channels))
         .map(|summary| {
             let others = others(summary, me);
             let direct = others.len() == 1 && !channels.contains(summary.id.as_str());
@@ -204,15 +220,14 @@ pub fn home_inbox(summaries: &[Summary], input: &HomeInboxInput<'_>) -> Vec<Home
                 .and_then(|id| input.chief_names.get(id).filter(|name| !name.is_empty()).cloned())
                 .or_else(|| (!summary.title.is_empty()).then(|| summary.title.clone()))
                 .unwrap_or_else(|| {
+                    // A participant with no name is left out: an id is never a name.
                     others
                         .iter()
-                        .map(|id| {
+                        .filter_map(|id| {
                             participant(summary, id)
                                 .map(|p| p.display_name.clone())
                                 .filter(|name| !name.is_empty())
-                                .unwrap_or_else(|| {
-                                    if chief == Some(*id) { CHIEF_NAME } else { *id }.to_string()
-                                })
+                                .or_else(|| (chief == Some(*id)).then(|| CHIEF_NAME.to_string()))
                         })
                         .collect::<Vec<_>>()
                         .join(", ")
@@ -299,8 +314,10 @@ pub struct CloudInboxEntry {
 
 /// A Cloud inbox entry as a Home row; none for a removed or archived entry.
 /// The Cloud owner's kind (`dm` is `direct`; a `group` is a `channel` when it
-/// has a title); the name is the title, else the direct peer's id; a Cloud
-/// Chief's live state is not known here (no `chief_state`).
+/// has a title); the name is the title, else "Chief" for a Chief, else empty
+/// (the entry has no names, and an id is never a name: the page fills it from
+/// the people once it reads the head); a Cloud Chief's live state is not
+/// known here (no `chief_state`).
 pub fn cloud_row(entry: &CloudInboxEntry, now_ms: u64) -> Option<HomeRow> {
     if entry.removed || entry.archived {
         return None;
@@ -316,7 +333,7 @@ pub fn cloud_row(entry: &CloudInboxEntry, now_ms: u64) -> Option<HomeRow> {
     } else if kind == HomeKind::Chief {
         CHIEF_NAME.to_string()
     } else {
-        entry.dm_peer.clone().unwrap_or_default()
+        String::new()
     };
     Some(HomeRow {
         id: entry.conversation.clone(),

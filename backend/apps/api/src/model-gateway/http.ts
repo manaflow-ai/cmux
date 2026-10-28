@@ -1,6 +1,7 @@
 import { Effect } from "effect"
 import { claudeAuthFor, forgetClaudeAuth, HOLDER, signedFetch } from "../chief-brain/claude-auth.ts"
 import { claudeModel } from "../chief-brain/models.ts"
+import { costOf } from "./bedrock-price.ts"
 import { Credits, CreditsLive, creditsRequired, maxCallCostUsd, payerTeam, type Reservation } from "../credits.ts"
 import type { Env } from "../env.ts"
 import { claudeRoute, HAIKU, isClaude, meteredOwner, offers, OPUS, SONNET } from "./routes.ts"
@@ -41,6 +42,7 @@ interface Usage {
   output: number
   cacheRead: number
   cacheWrite: number
+  cacheWrite1h?: number
 }
 
 /** Reads the Messages stream's usage as it passes (message_start, message_delta); calls `end` once at the end or on cancel. */
@@ -53,12 +55,13 @@ const usageTap = (end: (u: Usage) => Promise<void>): TransformStream<Uint8Array,
     const data = block.split("\n").find((l) => l.startsWith("data:"))
     if (!data) return
     try {
-      const e = JSON.parse(data.slice(5)) as { type?: string; message?: { usage?: Record<string, number> }; usage?: Record<string, number> }
+      const e = JSON.parse(data.slice(5)) as { type?: string; message?: { usage?: Record<string, number> & { cache_creation?: Record<string, number> } }; usage?: Record<string, number> & { cache_creation?: Record<string, number> } }
       const x = e.type === "message_start" ? e.message?.usage : e.type === "message_delta" ? e.usage : undefined
       if (!x) return
       if (typeof x.input_tokens === "number") u.input = x.input_tokens
       if (typeof x.cache_read_input_tokens === "number") u.cacheRead = x.cache_read_input_tokens
       if (typeof x.cache_creation_input_tokens === "number") u.cacheWrite = x.cache_creation_input_tokens
+      if (typeof x.cache_creation?.ephemeral_1h_input_tokens === "number") u.cacheWrite1h = x.cache_creation.ephemeral_1h_input_tokens
       if (typeof x.output_tokens === "number") u.output = Math.max(u.output, x.output_tokens)
     } catch {}
   }
@@ -125,7 +128,7 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
   if (!isClaude(name)) return err(400, "invalid_request_error", "this gateway serves Claude models (opus, sonnet, haiku)")
   if (body.stream !== true) return err(400, "invalid_request_error", "stream must be true")
   if (!offers(env, name) || !meteredOwner(env, who.owner)) return err(403, "permission_error", `${name} is not available for this account here`)
-  const model = claudeModel(name, claudeRoute(env).url)
+  const model = claudeModel(name, claudeRoute(env).url, "1h")
   const maxTokens = typeof body.max_tokens === "number" && body.max_tokens > 0 ? Math.min(body.max_tokens, 128_000) : model.maxTokens
   const team = who.team
   const request_id = safeId(`gw:${who.run}:${crypto.randomUUID()}`)
@@ -150,7 +153,8 @@ export const gatewayMessages = async (env: Env, who: Who, request: Request, ctx?
     held = r.res
   }
   const settle = async (u: Usage): Promise<void> => {
-    const usd = (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
+    // The Bedrock price (bedrock-price.ts): 1-hour writes as the response counts them; with no split, the 1-hour rate (never short).
+    const usd = costOf(name, u, "1h")?.total ?? (u.input * model.cost.input + u.output * model.cost.output + u.cacheRead * model.cost.cacheRead + u.cacheWrite * model.cost.cacheWrite) / 1_000_000
     await unhold(usd)
     if (!held) return
     const h = held

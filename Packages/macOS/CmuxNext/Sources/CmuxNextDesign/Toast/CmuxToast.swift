@@ -22,12 +22,22 @@ public nonisolated struct CmuxToast: Equatable, Sendable {
     /// A new toast with the same id replaces the one showing.
     public var id: String
     public var message: String
+    /// More about the message, shown in a tooltip when the pointer is on the
+    /// message (and read by VoiceOver as the toast's help); nil: none.
+    /// Keeps the toast short when the details are long (which subagents
+    /// could not be stopped, and why).
+    public var detail: String?
     public var action: Action?
     public var duration: Duration
 
-    public init(id: String, message: String, action: Action? = nil, duration: Duration = .seconds(6)) {
+    /// A duration that never times out: the toast stays until its action or close button
+    /// (the server-update prompt, which asks for a decision).
+    public static let untilClosed: Duration = .zero
+
+    public init(id: String, message: String, detail: String? = nil, action: Action? = nil, duration: Duration = .seconds(6)) {
         self.id = id
         self.message = message
+        self.detail = detail?.isEmpty == false ? detail : nil
         self.action = action
         self.duration = duration
     }

@@ -18,6 +18,9 @@ public struct SidebarDocDrag {
     public var drop: ([String], SidebarDocTarget) -> Void
     /// The adopt ref (`session_id`, `workspace_id`, `workspace_key`) of a workspace the document does not place yet.
     public var adoptRef: (WorkspaceID) -> [String: String]?
+    /// Whether another window lists this open workspace (the App's window registry): a Pinned or custom group
+    /// holding it belongs to that window and is not drawn here (#25776). Without a window: every open one.
+    public var listedElsewhere: (SidebarDocWorkspaceRef) -> Bool = { _ in true }
 
     public init(item: @escaping (SidebarRowKey) -> String?, section: @escaping (SectionID) -> String?,
                 begin: @escaping ([String]) -> [String: SidebarDocAcceptance], drop: @escaping ([String], SidebarDocTarget) -> Void,
@@ -59,6 +62,8 @@ public struct SidebarDocDrag {
                          blocks: [String: SidebarRegionLayout] = [:]) -> (SidebarDragGeometry, [String: SidebarRow]) {
         var slots: [SidebarDragGeometry.Slot] = []
         var rows: [String: SidebarRow] = [:]
+        // The group header open at each depth, so a subgroup's slot names the group it sits in.
+        var headerAtDepth: [Int: GroupID] = [:]
         for row in layout.rows {
             guard let section = section(row.section) else { continue }
             let frame = CGRect(x: 0, y: row.y, width: width, height: row.height)
@@ -67,16 +72,34 @@ public struct SidebarDocDrag {
                 guard let id = item(row.key) else { continue }
                 var parent: String?
                 var kind = SidebarDragGeometry.Slot.Kind.row
-                if case .group = row.key { kind = .group } else { parent = row.group.flatMap { item(.group($0)) } }
+                if case let .group(group) = row.key {
+                    kind = .group
+                    headerAtDepth = headerAtDepth.filter { $0.key < row.depth }
+                    headerAtDepth[row.depth] = group
+                    parent = row.depth > 0 ? headerAtDepth[row.depth - 1].flatMap { item(.group($0)) } : nil
+                } else {
+                    parent = row.group.flatMap { item(.group($0)) }
+                }
                 slots.append(.init(key: id, item: id, section: section, parent: parent, frame: frame, kind: kind))
                 rows[id] = row
             case .section, .emptySection:
                 slots.append(.init(key: section, item: nil, section: section, frame: frame, kind: .section))
                 rows[section] = row
+            case .emptyGroup(let group):
+                // Its own key, the group as item and parent: a drop goes into the group, by the group's acceptance.
+                guard let id = item(.group(group)) else { continue }
+                let key = "empty:" + id
+                slots.append(.init(key: key, item: id, section: section, parent: id, frame: frame, kind: .emptyGroup))
+                rows[key] = row
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .tab, .folder:
+            case .tab(let owner, _):
+                // A workspace's tab rows are part of its row: the drag's midpoint rule takes the middle of both.
+                if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
+                    slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
+                }
+            case .folder, .status, .doneFold, .showMore:
                 continue
             }
         }
@@ -86,24 +109,81 @@ public struct SidebarDocDrag {
     /// The anchor target of a list position (index counted without the moved items; in a group, among its
     /// member rows: workspaces and link, tab and app items, as `SidebarRow.siblingIndex` counts them).
     public func target(_ position: DropPosition, moving: [String], model: SidebarModel) -> SidebarDocTarget? {
+        anchoredTarget(position, moving: moving, model: model)?.target
+    }
+
+    /// ``target(_:moving:model:)`` and the adopt ref of its anchor when the document this client holds does not
+    /// place that row yet.
+    ///
+    /// Every row the list shows counts, as the position counts it. A workspace row with no item here takes the
+    /// item id its adopt gives it (`SidebarDocStore.adoptedID`, the id the daemon uses), and `adopt` names it when
+    /// it is the anchor, so the move sends its adopt first. Leaving such a row out of the count moved the position
+    /// past it: Move to Top over rows the client had no item for landed right above the first group.
+    public func anchoredTarget(_ position: DropPosition, moving: [String], model: SidebarModel) -> (target: SidebarDocTarget, adopt: [[String: String]])? {
         guard let section = section(position.section), let shown = model.section(position.section) else { return nil }
+        var pending: [String: [String: String]] = [:]
+        func workspaceItem(_ id: WorkspaceID) -> String? {
+            if let placed = item(.workspace(id)) { return placed }
+            guard let ref = adoptRef(id), let session = ref["session_id"], let workspace = ref["workspace_id"] else { return nil }
+            let adopted = SidebarDocStore.adoptedID(SidebarDocWorkspaceRef(sessionID: session, workspaceID: workspace))
+            pending[adopted] = ref
+            return adopted
+        }
         let siblings: [String] = if let group = position.group {
             (model.group(group)?.members ?? []).compactMap { member in
                 switch member {
-                case .workspace(let workspace): item(.workspace(workspace.id))
+                case .workspace(let workspace): workspaceItem(workspace.id)
                 case .item(let listed): listed.id
                 }
             }
         } else {
             shown.nodes.compactMap { node in
                 switch node {
-                case .workspace(let workspace): item(.workspace(workspace.id))
+                case .workspace(let workspace): workspaceItem(workspace.id)
                 case .group(let group): group.id.rawValue
                 case .item(let listed): listed.id
                 }
             }
         }
-        return SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings, moving: Set(moving))
+        var target = SidebarDocStore.target(section: section, parent: position.group?.rawValue, index: position.index, siblings: siblings,
+                                            moving: Set(moving))
+        if position.group == nil { target = Self.topLevelAnchor(target, siblings: siblings, nested: Self.nestedGroups(shown), moving: Set(moving)) }
+        let adopt = (target.before ?? target.after).flatMap { pending[$0] }.map { [$0] } ?? []
+        return (target, adopt)
+    }
+
+    /// The groups in `section` that sit in another group (nested groups list flat, after their parent).
+    static func nestedGroups(_ section: SidebarSection) -> Set<String> {
+        Set(section.nodes.compactMap { node in
+            if case let .group(group) = node, group.parent != nil { group.id.rawValue } else { nil }
+        })
+    }
+
+    /// `target` with its anchor moved off a nested group: a top-level slot counts the section's
+    /// rows flat, so the slot before a subgroup (or after the last row, when that is a subgroup)
+    /// named the subgroup as a top-level sibling, a move the document refuses. Such a slot is the
+    /// gap before the next top-level row, or after the last one.
+    static func topLevelAnchor(_ target: SidebarDocTarget, siblings: [String], nested: Set<String>, moving: Set<String>) -> SidebarDocTarget {
+        guard let anchor = target.before ?? target.after, nested.contains(anchor) else { return target }
+        let staying = siblings.filter { !moving.contains($0) }
+        if target.before != nil, let start = staying.firstIndex(of: anchor),
+           let next = staying[start...].first(where: { !nested.contains($0) }) {
+            return SidebarDocTarget(section: target.section, before: next)
+        }
+        guard let last = staying.last(where: { !nested.contains($0) }) else { return SidebarDocTarget(section: target.section, index: 0) }
+        return SidebarDocTarget(section: target.section, after: last)
+    }
+
+    /// Where Move to Top (or a list reorder) sends workspace rows the document does not place when their
+    /// list section has no document section here (a machine the client holds no section for yet): `index` of
+    /// that machine's section, `sec_m_<session>`, which the rows' adopt (sent first) makes. Nil unless every
+    /// moving row is a live workspace of one session with no item, outside a group.
+    public func unplacedTarget(_ position: DropPosition, moving ids: [WorkspaceID]) -> SidebarDocTarget? {
+        guard position.group == nil, !ids.isEmpty, ids.allSatisfy({ item(.workspace($0)) == nil }) else { return nil }
+        let sessions = Set(ids.compactMap { adoptRef($0)?["session_id"] })
+        guard sessions.count == 1, let session = sessions.first, !session.isEmpty,
+              ids.allSatisfy({ adoptRef($0)?["session_id"] != nil }) else { return nil }
+        return SidebarDocTarget(section: SidebarDocStore.machineSectionPrefix + session, index: position.index)
     }
 
     /// The anchor target of a band position: `index` among `section`'s items in `layout`.

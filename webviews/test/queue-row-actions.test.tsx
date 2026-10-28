@@ -1,6 +1,6 @@
-// A queued prompt's row (Leo dogfood 2026-10-13: hover buttons everywhere): it offers one action on
-// hover, Send now; Edit and Remove are on its right-click menu and its keys (Return, Delete). The
-// `hover-actions` experiment's "all" arm keeps all three.
+// A queued prompt's row shows Steer, Delete and More (ChatGPT's order) in both arms of the
+// `hover-actions` experiment (Leo, 2026-10-20); they are on its right-click menu and its keys
+// (Return, Delete) too.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -48,7 +48,7 @@ afterAll(() => {
   }
 });
 
-test("a queued row's one hover action is Send now; Edit and Remove are on its menu and keys", async () => {
+test("a queued row shows Steer, Delete and More in both arms, and keeps its keys", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ComposerQueue } = await import("../src/agent-session/acpmux/ComposerQueue");
   const t = translatorFor("en");
@@ -59,11 +59,14 @@ test("a queued row's one hover action is Send now; Edit and Remove are on its me
         <ComposerQueue queue={queued as never} t={t} onRemove={async () => true} onChange={async () => true} />,
       ),
     );
+  // The row's actions; its text is a button too (it opens the prompt whole), not an action.
   const labels = () =>
-    [...main.querySelectorAll(".acpmux-queued button")].map((button) => button.getAttribute("aria-label"));
+    [...main.querySelectorAll(".acpmux-queued .acpmux-queued-action")].map((button) =>
+      button.getAttribute("aria-label"),
+    );
   root = createRoot(main.querySelector<HTMLElement>("#root")!);
   await draw();
-  expect(labels()).toEqual([t("composer.queueSendNow")]);
+  expect(labels()).toEqual([t("composer.queueSteer"), t("composer.queueDelete"), t("composer.queueActions")]);
   const row = main.querySelector(".acpmux-queued")!;
   expect(row.getAttribute("aria-keyshortcuts")).toContain("Enter");
   expect(row.getAttribute("aria-keyshortcuts")).toContain("Delete");
@@ -73,7 +76,7 @@ test("a queued row's one hover action is Send now; Edit and Remove are on its me
     await act(async () => root!.unmount());
     root = createRoot(main.querySelector<HTMLElement>("#root")!);
     await draw();
-    expect(labels()).toEqual([t("composer.queueSendNow"), t("composer.queueEdit"), t("composer.queueRemove")]);
+    expect(labels()).toEqual([t("composer.queueSteer"), t("composer.queueDelete"), t("composer.queueActions")]);
   } finally {
     delete (globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments;
   }

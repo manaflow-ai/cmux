@@ -1,23 +1,25 @@
 ---
 name: cmux-markdown
-description: Open markdown files in a formatted viewer panel with live reload. Use when you need to display plans, documentation, or notes alongside the terminal with rich rendering (headings, code blocks, tables, lists).
+description: Open markdown files in cmux's rendered Markdown page. Use when you need to display plans, documentation, or notes alongside the terminal with rich rendering (headings, code blocks, tables, lists).
 ---
 
 # Markdown Viewer with cmux
 
-The Markdown viewer panel and `cmux markdown open` are not available in cmux-next. The Swift CLI that provided the command was removed, and the app has no Markdown viewer yet (its Markdown zoom actions report it unavailable). Do not run `cmux markdown`.
-
-## Closest supported path
-
-Show the file in a terminal tab next to the caller, with a pager or renderer the user has installed:
+Open the file with `cmux open`. The app shows a Markdown file in its Markdown
+page, in a tab in the caller's pane:
 
 ```bash
-cmux pane pane_… run --name plan -- less plan.md
+cmux open plan.md
 ```
 
-Find the caller's pane first (see [../cmux-workspace/SKILL.md](../cmux-workspace/SKILL.md)). A terminal tab does not re-render when the file changes; rerun the command after large edits.
+A relative path resolves against the CLI's working directory. Several paths
+open in order. `cmux open` sends the app's `file.open` action, the same path the
+palette and the File menu take.
+
+Whether the page re-renders when the file changes on disk has not been verified
+on cmux-next; if the user needs to see a large edit, reopen the file.
 
 ## Removed
 
-- `cmux markdown open <path>` and its `--workspace`, `--surface`, `--window` flags.
-- The live-reloading panel described in [references/live-reload.md](references/live-reload.md), kept as a record of the old behavior.
+- `cmux markdown open <path>` and its `--workspace`, `--surface`, `--window` flags. Do not run `cmux markdown`.
+- The classic live-reloading panel described in [references/live-reload.md](references/live-reload.md), kept as a record of the old behavior.

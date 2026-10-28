@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextLayout
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -84,8 +85,9 @@ extension WindowManager {
             var wanted = preferred[window.id] ?? []
             if state.profileID != room, let remembered = state.profileWorkspaces[state.profileID] { wanted.append(remembered) }
             let prior = WindowProfiles.visible(previous[window.id] ?? window.workspaceIDs, profile: state.profileID, machines: machines)
-            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior,
-                                                        members: visible, preferred: wanted)
+            // "The next row" is the sidebar's next drawn row, not the next member to have joined.
+            let pick = WindowRegistry.repairedSelection(current: state.workspaceID, previous: prior, members: visible, preferred: wanted, orders:
+                (controller(for: window.id)?.sidebar.model).map { [$0.drawnWorkspaceOrder().map(\.rawValue), $0.allWorkspaces.map(\.id.rawValue)] } ?? [])
             if state.workspaceID != pick { select(pick, in: state, keepsCreation: true) }
         }
     }
@@ -94,7 +96,7 @@ extension WindowManager {
     private func handOffKey(to receivers: [String]) {
         guard ordersWindowsIn, !services.environment.noActivate else { return }
         let next = receivers.lazy.compactMap { self.controller(for: $0) }.first
-            ?? NSApp.orderedWindows.lazy.compactMap { window in self.controllers.first { $0.window === window } }.first
+            ?? registry.value.recency.lazy.compactMap { self.controller(for: $0) }.first { $0.window?.isVisible == true }
         if let next { bringToFront(next) }
     }
 
@@ -116,13 +118,19 @@ extension WindowManager {
     // MARK: Entry points
 
     /// Shows `workspaceID`: in the window that lists it (brought forward),
-    /// else in `state`'s window, which takes it.
+    /// else in `state`'s window, which takes it. With `origin` `.thisWindow`
+    /// (a person's pick in `state`'s own sidebar) it always shows in `state`'s
+    /// window, which takes it from the window that listed it: a click in one
+    /// window never acts in another (Lawrence 2026-10-23).
     /// An action run without view-change permission shows nothing. The window
     /// swaps its content in this turn, not on its observation hop (I6).
-    func show(workspaceID: String, in state: WindowState) {
+    func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
-        if let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
+        if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
+            DebugWorkspaceSwitch.began(timed)
+        }
+        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
            let target = controller(for: owner) {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
@@ -175,6 +183,9 @@ extension WindowManager {
             if shows { select(workspaceID, in: state) }
             return
         }
+        // A workspace of another room: the window enters that room first, so the selection repair
+        // after the move finds it shown there and picks it (Home took a second click otherwise).
+        if shows { enterProfile(of: workspaceID, in: state) }
         transition(select: shows ? [state.id: [workspaceID]] : [:]) { $0.move([workspaceID], to: state.id) }
     }
 
@@ -223,15 +234,29 @@ extension WindowManager {
         return controller
     }
 
+    /// Move to New Window's one landing, for every kind of content (tabs, tab groups, panes,
+    /// screens, workspaces, workspace groups): `ids` in a new window beside the window they
+    /// left (`MovedWindowPlacement`), which takes the focus when `select`. When they are all of
+    /// that window's workspaces, the window itself moves there: none opens, none is left empty.
+    func openMovedWindow(_ ids: [String], from origin: MoveOrigin, select: Bool) {
+        let source = origin.window.flatMap(controller(for:))
+        let frame = source?.window.map { MovedWindowPlacement().frame(beside: $0.frame, on: ($0.screen ?? NSScreen.main)?.visibleFrame ?? .infinite) }
+        let whole = source.map { Set(ids) == Set(registry.members(of: $0.state.id)) } == true
+        if whole, let source, let frame { source.window?.setFrame(frame, display: true); recordSaver.stateDidChange(source.state) }
+        guard let moved = whole ? source : openWindow(workspaces: ids, frame: frame, incognito: origin.incognito, behind: !select) else { return }
+        if select { bringToFront(moved) }
+    }
+
     /// The user closed window `id`: it stays registered, closed, with its
     /// workspaces, as one closed group (Cmd-Shift-T, History, a Dock click).
     /// A daemon without window records records no group: a non-last window's
     /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
+        if restoring || !restored { closedDuringRestore.insert(id) } // the restore must not open it again
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
-        let keepsGroup = services.daemon.supports(DaemonCapabilities.shared.windowRecords)
+        let keepsGroup = services.daemon.supports(DaemonCapability.windowRecords.rawValue)
         let changes = transition { $0.close(id, keepsGroup: keepsGroup) }
         discard(changes.discarded)
     }
@@ -243,6 +268,7 @@ extension WindowManager {
         var reopened: String?
         transition { registry in
             reopened = registry.reopen()
+            if let reopened { closedDuringRestore.remove(reopened) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard let reopened, let controller = controller(for: reopened) else { return false }
@@ -252,7 +278,12 @@ extension WindowManager {
 
     /// Closed window `id`'s group was deleted (`WindowRegistry.releaseClosed`).
     func releaseClosedWindow(id: String) {
-        transition { $0.releaseClosed(id) }
+        transition { registry in
+            let changes = registry.releaseClosed(id)
+            // Released with no heir it opens again, on purpose: the restore keeps it open.
+            if registry.window(id)?.isOpen == true { closedDuringRestore.remove(id) }
+            return changes
+        }
         if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
     }
 
@@ -263,6 +294,7 @@ extension WindowManager {
         var reopened = false
         transition { registry in
             reopened = registry.reopen(id: id)
+            if reopened { closedDuringRestore.remove(id) } // reopened on purpose: the restore keeps it open
             return WindowRegistry.Changes()
         }
         guard reopened, let controller = controller(for: id) else { return false }
@@ -284,8 +316,12 @@ extension WindowManager {
 
     // MARK: Reconcile with the daemons
 
-    /// Re-runs `reconcileMembership` whenever any machine's workspace list,
-    /// load state, or the Cloud machine list changes.
+    /// Re-runs `reconcileMembership` whenever a machine joins, leaves or
+    /// loads, the Cloud machine list changes, or a room's rules change. A
+    /// loaded machine's workspace set reaches it through the store's
+    /// `onWorkspaceListChanged` hook, never through its order: a move or a
+    /// group change keeps every window's membership, and this pass visits
+    /// every workspace (sidebar churn B).
     func observeMembership() {
         let machines = services.machines
         let cloud = services.cloud
@@ -293,7 +329,7 @@ extension WindowManager {
         membershipObservation = Task { [weak self] in
             for await _ in ObservationStream({ () -> [String] in
                 [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded):\(Self.order(of: $0, machines: machines))" }
+                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
                     + [Self.profileTags(of: machines.local)]
             }) {
                 self?.reconcileMembership()
@@ -347,10 +383,12 @@ extension WindowManager {
         for id in live where !held.contains(id) { quietClaims.remove(id) }
         let members = before.windows.flatMap(\.workspaceIDs)
         let dead = Set(members.filter(isDead))
-        let fallback = launchWindowID ?? UUID().uuidString.lowercased()
+        let fallback = launchWindowID ?? closedLaunchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
-                               fallbackWindow: fallback)
+            let changes = registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                                             fallbackWindow: fallback)
+            keepClosedDuringRestore(&registry)
+            return changes
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }
@@ -375,6 +413,12 @@ extension WindowManager {
         return services.machines.local.store.isLoaded && cloudSettled
     }
 
+    /// Where a previous launch last saw each saved workspace (`WindowStateDocument.workspaceMachines`),
+    /// for those this launch has not seen: a workspace on a paused or connecting Cloud machine keeps its window.
+    func rememberMachines(of document: WindowStateDocument) {
+        seenMachine.merge(document.workspaceMachines) { seen, _ in seen }
+    }
+
     /// Every Cloud machine that could still report workspaces has loaded.
     private var cloudSettled: Bool {
         guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }
@@ -397,13 +441,15 @@ extension WindowManager {
         return sidebar + daemon.store.workspaces.map(\.id).filter { !listed.contains($0) }
     }
 
-    /// Each workspace's profile and the profile list, so a profile move or
-    /// a new profile re-runs reconcile.
+    /// The room rules (each room's followed sessions, each workspace pin)
+    /// and the profile list, so a profile move or a new profile re-runs
+    /// reconcile. Not the personal revision: a group change or a placement
+    /// bumps it and leaves every window's membership as it was.
     private static func profileTags(of daemon: DaemonService) -> String {
-        "\(daemon.store.personal.revision)|" + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
-    }
-
-    private static func order(of daemon: DaemonService, machines: MachineRegistry) -> String {
-        orderedIDs(of: daemon, machines: machines).joined(separator: ",")
+        let personal = daemon.store.personal
+        let pins = personal.pins.map { "\($0.sessionID)/\($0.workspaceKey.rawValue)=\($0.profile.rawValue)" }
+        let follows = personal.follows.map { "\($0.key.rawValue)>\($0.value.sorted().joined(separator: "+"))" }.sorted()
+        return "\(personal.isLoaded)|" + pins.joined(separator: ",") + "|" + follows.joined(separator: ",") + "|"
+            + daemon.store.profileIDs.map(\.rawValue).joined(separator: ",")
     }
 }

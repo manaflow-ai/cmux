@@ -8,12 +8,22 @@
 /// cmux's custom forwarding and error text.
 pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "ack",
+    // `setup trust --dry-run`: plan only; without this it would swallow a following `--json`.
+    "dry-run",
+    // `workspace create --no-focus`: accepted and ignored (creation does not
+    // move focus without `--focus`); agents pass it out of habit.
+    "no-focus",
+    // `agent list`: only the agents waiting on the person.
+    "needs-me",
+    // `agent list --json`: the agents and their counts by state.
+    "counts",
     // `agent message release`: the person's decision on a held message.
     "approve",
     "decline",
     "collapse",
     "patch",
     "candidates",
+    "catalog",
     "expand",
     "clear",
     "reply",
@@ -23,6 +33,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "right",
     "up",
     "down",
+    // `pane split --focus`: the new pane takes the focus.
+    "focus",
     "force",
     "end-terminals",
     // `server ensure`: private app contract, the install key comes on stdin.
@@ -62,6 +74,9 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "clear-default-session",
     "clear-zoom",
     "clear-top-index",
+    "clear-description",
+    "clear-task-status",
+    "report-closed-ids",
     "include-untracked",
     "amend",
     "no-verify",
@@ -73,6 +88,10 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "to-right",
     "to-left",
     "include-pinned",
+    // `workspace rename`: hand the name back to the automatic namer.
+    "release-to-auto",
+    // `run --sandboxed <task>` (cli/sandbox_run.rs): without it a following `--json` would be eaten.
+    "sandboxed",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

@@ -6,7 +6,7 @@ extension DaemonConnection {
     /// once the main thread is free. Events stay buffered meanwhile, and
     /// those past its barrier still apply, so it is as current as a later one.
     public func prefetchSnapshot() {
-        guard prefetchedSnapshot == nil, let (_, serial) = ready else { return }
+        guard prefetchedSnapshot == nil, let serial = ready?.serial else { return }
         // task-owner: one read per connection, taken (or dropped) by the first snapshot()
         prefetchedSnapshot = (serial, Task { try await self.fetchSnapshot() })
     }
@@ -24,19 +24,19 @@ extension DaemonConnection {
     }
 
     private func fetchSnapshot() async throws -> (tree: DaemonTree, barrier: UInt64) {
-        guard let (transport, serial) = ready else { throw DaemonError.notConnected }
+        guard let ready else { throw DaemonError.notConnected }
         DaemonLaunchTimings.shared.mark("daemon.snapshot_start")
         defer { DaemonLaunchTimings.shared.mark("daemon.snapshot_end") }
         // Saved groups and personal state are their own reads, sent with
         // the tree in one round trip. Their changes emit `tree-changed` and
         // `personal-changed`, which trigger this snapshot again; an event
         // between the replies is past the tree's barrier, so it still applies.
-        let savedGroups = identity?.supports(DaemonCapabilities.shared.savedTabGroups) == true
-        let personal = identity?.supports(DaemonCapabilities.shared.profiles) == true
+        let savedGroups = identity?.supports(DaemonCapability.savedTabGroups.rawValue) == true
+        let personal = identity?.supports(DaemonCapability.profiles.rawValue) == true
         var lines = [PipelinedLine(ListWorkspacesRequest())]
         if savedGroups { lines.append(PipelinedLine(ListSavedTabGroupsRequest())) }
         if personal { lines.append(PipelinedLine(ListPersonalRequest())) }
-        var replies = await transport.pipeline(lines, timeout: configuration.snapshotTimeout)[...]
+        var replies = await ready.transport.pipeline(lines, timeout: configuration.snapshotTimeout)[...]
         let response = try replies.removeFirst().get()
         var tree = try WireCoding.decodeResponse(DaemonTree.self, from: response.line)
         if savedGroups {
@@ -49,6 +49,6 @@ extension DaemonConnection {
         if personal {
             tree.personal = try WireCoding.decodeResponse(ListPersonalRequest.Response.self, from: replies.removeFirst().get().line)
         }
-        return (tree, DaemonEventEnvelope.sequence(serial: serial, index: response.eventBarrier))
+        return (tree, DaemonEventEnvelope.sequence(serial: ready.serial, index: response.eventBarrier))
     }
 }

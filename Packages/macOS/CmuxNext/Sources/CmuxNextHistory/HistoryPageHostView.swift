@@ -29,7 +29,7 @@ public final class HistoryPageHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    public override var wantsUpdateLayer: Bool { true }
+    nonisolated public override var wantsUpdateLayer: Bool { true }
 
     public override func updateLayer() {
         resolveColors()
@@ -46,16 +46,21 @@ public final class HistoryPageHostView: NSView {
     }
 
     private func resolveColors() {
-        let colors = performWithTheme {
-            let background = Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
-            layer?.backgroundColor = nil
-            return HistoryPageColors(
-                background: Color(nsColor: Self.fixed(background)), primary: Color(nsColor: Self.fixed(Palette.textPrimary)),
-                secondary: Color(nsColor: Self.fixed(Palette.textSecondary)), tertiary: Color(nsColor: Self.fixed(Palette.textTertiary)),
-                hover: Color(nsColor: Self.fixed(Palette.hoverFill)), selection: Color(nsColor: Self.fixed(Palette.selectionFill)),
-                separator: Color(nsColor: Self.fixed(Palette.separator)), danger: Color(nsColor: Self.fixed(Palette.danger)))
-        }
+        let colors = Self.colors(in: self)
         if appearanceState.colors != colors { appearanceState.colors = colors }
+    }
+
+    /// The page colors in `view`'s theme scope (the Stashed page resolves them the same way).
+    static func colors(in view: NSView) -> HistoryPageColors {
+        view.performWithTheme {
+            let background = Palette.surfaceOverride(.internalPage) ?? Palette.paneFill
+            view.layer?.backgroundColor = nil
+            return HistoryPageColors(
+                background: Color(nsColor: fixed(background)), primary: Color(nsColor: fixed(Palette.textPrimary)),
+                secondary: Color(nsColor: fixed(Palette.textSecondary)), tertiary: Color(nsColor: fixed(Palette.textTertiary)),
+                hover: Color(nsColor: fixed(Palette.hoverFill)), selection: Color(nsColor: fixed(Palette.selectionFill)),
+                separator: Color(nsColor: fixed(Palette.separator)), danger: Color(nsColor: fixed(Palette.danger)))
+        }
     }
 
     /// A static color: dynamic ones would re-resolve in SwiftUI's own

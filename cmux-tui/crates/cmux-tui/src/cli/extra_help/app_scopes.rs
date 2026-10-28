@@ -30,6 +30,7 @@ fn process_help(args: &[String]) -> Option<i32> {
         "link" => Some(crate::link::run(&["--help".to_owned()])),
         "mcp" => super::super::mcp::run_if_requested(&flag()),
         "coderouter" => super::super::coderouter::run_if_requested(&flag()),
+        "billing" => super::super::billing::run_if_requested(&flag()),
         _ => None,
     }
 }
@@ -47,11 +48,34 @@ fn text(args: &[String]) -> Option<String> {
     };
     let messages = &crate::localization::catalog().app_control;
     let usage = match words {
-        ["browser", target, ..] if *target == "page" || target.starts_with("tab_") => {
+        ["browser", target, ..]
+            if *target == "page" || *target == "right" || target.starts_with("tab_") =>
+        {
             format!("{}\n", messages.browser_page_usage)
         }
         ["notify", ..] => return Some(super::super::scope_help::NOTIFY_HELP.to_owned()),
         ["status", ..] => return Some(super::super::scope_help::STATUS_HELP.to_owned()),
+        ["agent", "open"] => return Some(messages.agent_open_usage.to_owned()),
+        ["agent", "open-tab"] => return Some(messages.agent_open_tab_usage.to_owned()),
+        ["cloud", "exec"] => {
+            return Some(
+                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
+                    "usage: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
+                } else {
+                    "使い方: cmux cloud exec --target machine:MACHINE_ID --command COMMAND"
+                }
+                .into(),
+            );
+        }
+        ["cloud", ..] => {
+            return Some(
+                if crate::localization::catalog().local_server.cmux_root_help.contains("SCOPES") {
+                    super::super::CLOUD_HELP.to_owned()
+                } else {
+                    super::super::CLOUD_HELP_JA.to_owned()
+                },
+            );
+        }
         // The classic `cmux identify|ping|capabilities` are `cmux app …`.
         ["identify" | "ping" | "capabilities"] => {
             return Some(format!("{APP_HELP}\n\n{}", APP_FOOTER.replace("{scope}", "app")));
@@ -65,7 +89,7 @@ fn text(args: &[String]) -> Option<String> {
 
 fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) -> Option<String> {
     let text = match scope {
-        "settings" => messages.settings_usage,
+        "settings" | "config" => messages.settings_usage,
         "keybinding" => messages.keybinding_usage,
         "app" => APP_HELP,
         "window" => WINDOW_HELP,
@@ -81,6 +105,7 @@ fn app_usage(scope: &str, messages: &crate::localization::AppControlMessages) ->
         "accounts" => ACCOUNTS_HELP,
         "open" => OPEN_HELP,
         "ghostty" => GHOSTTY_HELP,
+        "errors" => ERRORS_HELP,
         _ => return None,
     };
     Some(format!("{}\n", text.trim_end()))
@@ -133,10 +158,30 @@ Lists the app's AI provider accounts; secrets are never printed.";
 const OPEN_HELP: &str = "\
 usage: cmux open <path|url>... [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
        cmux open - [--workspace <ws_…>] [--focus [true|false]] [--no-focus]
+       cmux open --link [--caller <names>] [--target <target>] (<url>... | -)
 URLs open as a browser tab in the caller's pane (or the --workspace pane),
 folders in a new workspace, files in the app. `open -` reads one http(s) URL
 per stdin line, so a URL with a token never appears in argv; it checks every
-line first and stops at the first URL the app refuses.";
+line first and stops at the first URL the app refuses.
+--link opens each URL the way a program's browser in a cmux terminal does
+(BROWSER=cmux-open-url): where the terminal.linkOpener setting says, a cmux
+browser tab beside the caller by default. --caller names the programs that
+asked (comma-separated, matched by caller: rules); --target picks the target
+(cmux, system, chrome, app:<name>, ...) over the setting. A command: target
+runs in this shell with the URL in CMUX_LINK_URL and on stdin; it opens the URL
+itself, or prints a target on its first line.";
+
+const ERRORS_HELP: &str = "\
+usage: cmux errors [list] [--since <90s|15m|2h|3d>] [--source <source>]... [--level <level>]
+                   [--text <text>] [--top] [--limit <n>] [--no-harvest]
+       cmux errors clear [--fingerprint <fingerprint>]...
+The app's error journal: its warnings, errors, faults and crashes, one entry
+per kind with a count, first and last seen, and one redacted sample. Sources:
+app, page:<page>, acpmux, acpmux-app, chief, crash, system:<subsystem>,
+journal (`--source page` matches every page). --level shows that level and
+worse (warning, error, fault, crash); --top orders by count instead of most
+recent. Each list reads new log lines first unless --no-harvest. The journal
+is under ~/Library/Application Support/<bundle id>/errors, at most about 8 MB.";
 
 const GHOSTTY_HELP: &str = "\
 usage: cmux ghostty diagnostics

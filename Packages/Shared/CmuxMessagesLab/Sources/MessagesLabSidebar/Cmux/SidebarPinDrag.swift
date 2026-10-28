@@ -64,5 +64,11 @@ final class SidebarPinDragState {
     var landingID: ConversationID?
     /// The grid's drawn bottom at the drop (the rows below were shifted to it).
     var drawnGridBottom: CGFloat = 0
+    /// Where each list row's top was drawn at the drop, for the landing after the reload.
+    var drawnRows: [ConversationID: CGFloat] = [:]
+    /// The drag's movement animates (`CmuxSidebarView.animatesMovement`, read when it begins).
+    var animates = true
     static let lift: CGFloat = 1.08
+    /// A lifted row dims to this while it is over the list (its place closes over the grid).
+    static let liftedRowOpacity: Float = 0.35
 }

@@ -34,7 +34,7 @@ struct AgentCursorIdleHideTests {
             host.apply(.place(session: "s", point: CGPoint(x: 10, y: 10)))
             let root = try #require(host.cursorLayer(for: "s")).root
             let fade = try #require(root.animation(forKey: "agentCursor.idleHide") as? CABasicAnimation)
-            return (fade.duration, Motion.duration(.crossfade))
+            return (fade.duration, Motion.cursor.duration(.crossfade))
         }()
         #expect(duration <= ceiling)
     }

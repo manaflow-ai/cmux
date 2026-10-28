@@ -25,44 +25,57 @@ const DOLLARS_CLOSE = /\$\$/;
 export class IncrementalMarkdown {
   private source = "";
   private streaming = false;
+  private messageAt?: number;
   private closed: KeyedBlock[] = [];
   private closedEnd = 0;
   private tail: KeyedBlock[] = [];
+  /// The fence lines before `closedEnd`, counted as `fenceLines` counts them. It can be odd: a
+  /// fence line inside a `$$` display counts here but does not open a fence for the boundary.
+  private closedFences = 0;
+  /// The source has an odd number of fence lines: its last block is a fence still arriving.
+  fenceOpen = false;
   /// The characters the last update parsed (for tests and the debug perf report).
   lastParsedLength = 0;
 
   /// `streaming`: the tail draws only what is safe to draw half-written (safeTail.ts).
-  update(source: string, options: { streaming?: boolean } = {}): KeyedBlock[] {
+  update(source: string, options: { streaming?: boolean; messageAt?: number } = {}): KeyedBlock[] {
     const streaming = options.streaming ?? false;
-    if (source === this.source && streaming === this.streaming) return [...this.closed, ...this.tail];
+    const messageAt = options.messageAt;
+    if (source === this.source && streaming === this.streaming && messageAt === this.messageAt)
+      return [...this.closed, ...this.tail];
     this.streaming = streaming;
-    if (!source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
+    if (messageAt !== this.messageAt || !source.startsWith(this.source.slice(0, this.closedEnd))) this.reset();
+    this.messageAt = messageAt;
     this.source = source;
     this.lastParsedLength = 0;
     const boundary = lastBlockBoundary(source, this.closedEnd);
     if (boundary > this.closedEnd) {
-      this.closed.push(...this.parse(source.slice(this.closedEnd, boundary), this.closed.length));
+      const closing = source.slice(this.closedEnd, boundary);
+      this.closed.push(...this.parse(closing, this.closed.length));
+      this.closedFences += fenceLines(closing);
       this.closedEnd = boundary;
     }
-    const previous = new Map(this.tail.map((entry) => [entry.key, entry]));
     const rest = source.slice(this.closedEnd);
-    this.tail = this.parse(streaming ? safeTail(rest) : rest, this.closed.length).map((entry) => {
-      const before = previous.get(entry.key);
-      return before && sameBlock(before.block, entry.block) ? before : entry;
-    });
+    // A boundary starts a line with a non-space character, so no fence line spans it and the
+    // count of the whole source is the closed count plus the tail's.
+    this.fenceOpen = (this.closedFences + fenceLines(rest)) % 2 === 1;
+    // `parse` already keeps each tail block's object when it draws the same.
+    this.tail = this.parse(streaming ? safeTail(rest) : rest, this.closed.length);
     return [...this.closed, ...this.tail];
   }
 
   private reset(): void {
     this.source = "";
+    this.messageAt = undefined;
     this.closed = [];
     this.closedEnd = 0;
     this.tail = [];
+    this.closedFences = 0;
   }
 
   private parse(text: string, first: number): KeyedBlock[] {
     this.lastParsedLength += text.length;
-    return parseMarkdown(text).map((block, index) => {
+    return parseMarkdown(text, { messageAt: this.messageAt }).map((block, index) => {
       const key = String(first + index);
       // A tail block that closes now keeps the object it had, so it does not render again.
       const open = this.tail.find((entry) => entry.key === key);
@@ -100,6 +113,12 @@ export function lastBlockBoundary(source: string, from: number): number {
     start = newline + 1;
   }
   return boundary;
+}
+
+const FENCE_LINES = /^\s*```/gm;
+/// The fence lines of `text`, counted the way Markdown counts them for an open fence.
+export function fenceLines(text: string): number {
+  return text.match(FENCE_LINES)?.length ?? 0;
 }
 
 /// Whether two parsed blocks draw the same (blocks are plain data).

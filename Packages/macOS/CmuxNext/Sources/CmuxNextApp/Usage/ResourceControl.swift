@@ -100,6 +100,7 @@ enum ResourceControl {
         let targetJSON: JSONValue = switch target {
         case .tab(let id): ["kind": "tab", "id": .string(id)]
         case .workspace(let id): ["kind": "workspace", "id": .string(id)]
+        case .everything: ["kind": "everything"]
         }
         return [
             "target": targetJSON,

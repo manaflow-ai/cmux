@@ -27,7 +27,7 @@ Lawrence states these repeatedly. Apply all of them without being asked; list in
 - No polling in cmux runtime (events, one-shot timers); 0% idle CPU; no crashes; RAM/CPU/disk efficient. No god files (`check-no-godfiles.sh`; split by responsibility).
 
 ## Process
-- Own worktree; land on feat-cmux-next with the full gate; review subagent before daemon/store/protocol landings; record shared-surface changes in `plans/cmux-next/COORDINATION.md`; clean up tags/worktrees.
+- Own worktree; land on feat-cmux-next by adding `ready-to-land` after review (no red of its own; base reds don't hold it); review subagent before daemon/store/protocol landings; record shared-surface changes in `plans/cmux-next/COORDINATION.md`; clean up tags/worktrees.
 - Only the coordinator writes the spec repo (manaflow-ai/cmux-next-spec). Put proposals in `plans/cmux-next/<area>.md` and send "spec proposal: <area>" to the coordinator (mailbox inbox/lawrence-coordinator or SendMessage). Everything Lawrence decides must reach the spec through the coordinator.
 - Questions for Lawrence go through the coordinator (AskUserQuestion), never as prose at the end. Cross-team agents (Leo, Aziz, Austin) are reached through the agent mailbox on `<dev-host>` (`~/agent-mailbox/README.md`; `<dev-host>` is the team router Mac named in your local agent instructions).
 - Never poll the GitHub API in loops (the shared REST limit runs out): one blocking `gh run watch` or a foreground verify script, `gh api rate_limit` before batches, local git for repo data.

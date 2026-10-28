@@ -69,7 +69,50 @@ fi
 
 "$XCRUN_TOOL" stapler validate "$DMG"
 MOUNT_DIR="$(mktemp -d)"
+# The app the smoke launched leaves daemons (cmux-tui owners, the acpmux
+# daemon, helper hosts) that run from the mount. A forced detach takes their
+# executables away while they run; in run 39481846284 every step after the
+# DMG smoke was then 10 to 100 times slower (bundle size 13 min, a one-file
+# upload 8 min) and the verify job hit its 30-minute limit. Stop them right
+# after the launches, and again before every detach (an error path):
+# SIGTERM the exact PIDs of this user whose command runs from this mount,
+# wait at most 5 s (kill -0, no new ps per check), then SIGKILL a listed PID
+# that still runs from it.
+mount_pids() {
+  local real pid args
+  real="$(cd -P "$MOUNT_DIR" 2>/dev/null && pwd)" || real="$MOUNT_DIR"
+  ps -ww -o pid= -o args= -U "$(id -u)" 2>/dev/null | while read -r pid args; do
+    case "$args" in
+      *"$MOUNT_DIR/"* | *"$real/"*) echo "$pid" ;;
+    esac
+  done || true
+}
+stop_mount_processes() {
+  local pids pid alive grace survivors
+  pids="$(mount_pids)"
+  [ -n "$pids" ] || return 0
+  echo "SIGTERM to the processes still running from the DMG mount: $(echo $pids)"
+  # shellcheck disable=SC2086 # one PID per word
+  kill -TERM $pids 2>/dev/null || true
+  grace=$((SECONDS + 5))
+  while [ "$SECONDS" -lt "$grace" ]; do
+    alive=""
+    for pid in $pids; do kill -0 "$pid" 2>/dev/null && alive="$alive $pid"; done
+    [ -n "$alive" ] || break
+    sleep 0.2
+  done
+  survivors=""
+  for pid in $(mount_pids); do
+    case " $(echo $pids) " in *" $pid "*) survivors="$survivors $pid" ;; esac
+  done
+  if [ -n "$survivors" ]; then
+    echo "SIGKILL to the processes that outlived SIGTERM:$survivors"
+    # shellcheck disable=SC2086
+    kill -KILL $survivors 2>/dev/null || true
+  fi
+}
 detach() {
+  stop_mount_processes || true
   "$HDIUTIL_TOOL" detach "$MOUNT_DIR" >/dev/null 2>&1 \
     || "$HDIUTIL_TOOL" detach -force "$MOUNT_DIR" >/dev/null 2>&1 || true
   rmdir "$MOUNT_DIR" 2>/dev/null || true
@@ -91,8 +134,16 @@ fi
 "$SPCTL_TOOL" -a -vv --type execute "$APP"
 SMOKE_LOG="$(mktemp)"
 # The app must not inherit the fd that carries the tested line.
-CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee "$SMOKE_LOG"
-CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee -a "$SMOKE_LOG"
+if [ "${CMUX_SKIP_LAUNCH_SMOKES:-false}" = true ]; then
+  echo "launch smoke skipped by CMUX_SKIP_LAUNCH_SMOKES=true"
+else
+  CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee "$SMOKE_LOG"
+  CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 "$SMOKE_TOOL" "$APP" 3>&- 4>&- 2>&1 | tee -a "$SMOKE_LOG"
+fi
+# The launches are done; the checks below only read files. Stop the daemons
+# the app left on the mount now: in run 39490194618 they ran on through the
+# metadata and license checks, which then took 6.5 min instead of seconds.
+stop_mount_processes || true
 if grep -q '^SKIP: cannot smoke-launch' "$SMOKE_LOG"; then
   # The same policy the in-job smokes had: an x86_64 app on a runner without
   # Rosetta is an environment gap. The stapler, Gatekeeper, metadata and

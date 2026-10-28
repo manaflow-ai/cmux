@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextPalette
+import CmuxNextLayout
 
 /// Palette target lists for screen actions: the focused workspace's screen
 /// groups (Add Screen to Group…) and every workspace (Move Screen to
@@ -31,5 +32,10 @@ final class ScreenTargetSource: PaletteTargetSource {
         default:
             return next.targets(of: kind)
         }
+    }
+
+    /// Descriptions belong to kinds `next` lists.
+    func currentDescription(of target: ActionTargetRef) -> String? {
+        next.currentDescription(of: target)
     }
 }

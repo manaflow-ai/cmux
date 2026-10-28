@@ -114,7 +114,7 @@ not the default image, so they keep its older cmux-tui and belong in the
 inventory like any other running machine.
 
 1. **Inventory.** List running machines and their owners (read-only):
-   `select provider_vm_id, provider_metadata->>'cmuxTuiContract', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.
+   `select provider_vm_id, provider_metadata->>'cmuxTuiContract', provider_metadata->>'cmuxRemoteAuth', image_version from cloud_vms where destroyed_at is null and provider = 'freestyle' and status = 'running'`.
 2. **Canary.** Run one machine you own, then attach to it from the Mac:
 
    ```bash
@@ -129,7 +129,7 @@ inventory like any other running machine.
 
    ```sql
    update cloud_vms
-      set provider_metadata = provider_metadata || '{"cmuxTuiContract":"snapshot-v2"}'::jsonb,
+      set provider_metadata = provider_metadata || '{"cmuxTuiContract":"snapshot-v2","cmuxRemoteAuth":"trusted-carrier"}'::jsonb,
           updated_at = now()
     where provider_vm_id = any($1)
       and destroyed_at is null
@@ -151,8 +151,9 @@ runs its `ensure` path, so a running machine receives the bounded state-image
 growth fix even when its daemon is crash-looping. If the daemon upgrade needs
 to roll back, the previous helper is restored with the binary.
 
-- `SKIP no-trusted-carrier`: the supervisor starts a pre-carrier daemon. A new
-  binary would not make it attachable; the machine is image-only (below).
+- `SKIP unsupported-cloud-auth`: the supervisor starts neither a trusted-carrier
+  daemon nor a `freestyle-edge-grant` host-configured daemon. A new binary
+  would not make it attachable; the machine is image-only (below).
 - `SKIP disk-free=<n>MB`, `SKIP no-daemon`, `SKIP daemon-not-listening`:
   nothing changed. A no-daemon machine usually crash-loops or has a full
   disk; inspect it.

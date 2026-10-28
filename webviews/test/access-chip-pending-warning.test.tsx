@@ -3,7 +3,9 @@
 // cx-uq9xi) draws its pending access chip in the warning treatment, as the live chip does, never
 // neutral first. The mode is the one acpmux answers it will start the chat in (`_acpmux/start_mode`,
 // cx-wx93i), not the one the harness's last chat showed: the answer this viewer kept draws on the
-// first frame, the one acpmux gives now replaces it, and with no answer the chip names none.
+// first frame, the one acpmux gives now replaces it, and when acpmux sets none the chip names none
+// but keeps its place as "Mode" (Leo 2026-10-23, cx-ncc.113.116: the New Tab row "keeps switching
+// around"). Before acpmux has ever answered for the harness, it names the harness's highest level.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -69,12 +71,13 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
+  const { setStartModeSource, resetStartModesForTests } = await import("../src/agent-session/acpmux/startMode");
   setStartModeSource(undefined);
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
+  resetStartModesForTests();
 });
 
 afterAll(() => {
@@ -86,6 +89,9 @@ afterAll(() => {
 });
 
 type Summary = Record<string, unknown> | undefined;
+type PermissionAccess = {
+  grants: readonly { id: string; label: string; onRemove(): void }[];
+};
 
 function reported(sessionId: string, currentModeId: string): Summary {
   return {
@@ -104,7 +110,7 @@ function reported(sessionId: string, currentModeId: string): Summary {
 }
 
 /// Renders the composer's chips for `summary` (undefined: a new chat whose session has not reported).
-async function render(summary: Summary, cwd?: string) {
+async function render(summary: Summary, cwd?: string, permissionAccess?: PermissionAccess, holdsModePick = true) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -134,12 +140,14 @@ async function render(summary: Summary, cwd?: string) {
     return (
       <ComposerPickers
         snapshot={snapshot}
+        permissionAccess={permissionAccess}
         pickerCatalog={picker.catalog}
         onModel={() => undefined}
         onMode={() => undefined}
         onEffort={() => undefined}
         onHarness={() => undefined}
         showPlan={false}
+        holdsModePick={holdsModePick}
       />
     );
   }
@@ -190,22 +198,26 @@ async function kept(answer: Answer) {
   rememberStartMode("claude", undefined, answer);
 }
 
-async function fresh(cwd?: string) {
+async function fresh(cwd?: string, holdsModePick = true) {
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
-  await render(undefined, cwd);
+  await render(undefined, cwd, undefined, holdsModePick);
 }
 
 test("a new chat acpmux starts in full access draws its warning chip on the first frame", async () => {
   await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
   const answer = await acpmux({ modeId: "bypassPermissions", name: "Bypass permissions" });
   await render(reported("earlier", "default"));
-  expect(access()).toEqual({ label: "Ask before edits", warning: false });
+  expect(access()).toEqual({ label: "Manual", warning: false });
 
   // A new chat, before acpmux answers again: its kept answer, warning included.
   await fresh();
-  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+  // The remembered mode is a live access menu while the new session is pending, so the person
+  // can change it before the harness answers. It is no longer an inert pending chip.
+  const pendingAccess = host.querySelector<HTMLButtonElement>(".acpmux-access-trigger");
+  expect(pendingAccess).not.toBeNull();
+  expect(pendingAccess?.disabled).toBe(false);
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
   await answer();
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
@@ -215,16 +227,33 @@ test("a new chat acpmux starts in full access draws its warning chip on the firs
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
 });
 
+test("the access chip keeps grant details in its menu without a count in the pill", async () => {
+  await render(reported("chat", "default"), undefined, {
+    grants: [{ id: "grant-1", label: "Always allow shell", onRemove: () => undefined }],
+  });
+  const chip = host.querySelector<HTMLElement>(".acpmux-mode")!;
+  expect(chip.querySelector(".acpmux-access-grant-count")).toBeNull();
+  expect(chip.querySelector(".acpmux-mode-text")?.textContent?.trim()).toBe("Manual");
+  await act(async () => {
+    const trigger = chip.querySelector<HTMLButtonElement>(".acpmux-access-trigger")!;
+    const press = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1, clientY: 1 });
+    Object.defineProperties(press, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+    trigger.dispatchEvent(press);
+  });
+  expect(document.querySelector(".acpmux-access-grant-label")?.textContent).toBe("Always allow shell");
+  expect(document.querySelector<HTMLButtonElement>(".acpmux-access-grant-remove")).not.toBeNull();
+});
+
 test("a kept answer that is wrong gives way to acpmux's answer", async () => {
   await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
   const answer = await acpmux({ modeId: "default", name: "Ask before edits" });
   await fresh();
   expect(access()).toEqual({ label: "Bypass permissions", warning: true });
   await answer();
-  expect(access()).toEqual({ label: "Ask before edits", warning: false });
+  expect(access()).toEqual({ label: "Manual", warning: false });
 });
 
-test("without an answer from acpmux a new chat names no mode, whatever the last chat showed", async () => {
+test("when acpmux sets no mode a new chat names none, whatever the last chat showed, and keeps the chip's place", async () => {
   await render(reported("earlier", "bypassPermissions"));
   localStorage.setItem("cmux.acpmux.lastChips", JSON.stringify({ claude: { mode: "Bypass permissions" } }));
   await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
@@ -232,23 +261,22 @@ test("without an answer from acpmux a new chat names no mode, whatever the last 
   const answer = await acpmux(undefined);
   await fresh();
   await answer();
-  expect(access()).toBeNull();
+  expect(access()).toEqual({ label: "Mode", warning: false });
 });
 
-test("a folder acpmux has not answered for never names another folder's mode, nor its warning", async () => {
+test("a folder acpmux has not answered for names another folder's mode until its own answer replaces it", async () => {
   const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
   // Another folder's chats start in full access; this folder's profile pins its own mode, so
-  // acpmux sets none here (it answers none). Until it answers, the chip holds its place unnamed.
+  // acpmux sets none here (it answers none). Until it answers, the chip names the mode a chat most
+  // likely starts in (Lucas 2026-10-24: never a bare "Mode" on this Mac), still a menu; this
+  // folder's answer then replaces it.
   rememberStartMode("claude", "/elsewhere", { modeId: "bypassPermissions", name: "Bypass permissions" });
   const answer = await acpmux(undefined);
   await fresh("/here");
-  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
-  const first = access()!;
-  expect(first.label).not.toBe("Bypass permissions");
-  expect(first.label).not.toBe("bypassPermissions");
-  expect(first.warning).toBe(false);
+  expect(host.querySelector("button.acpmux-access-trigger")).not.toBeNull();
+  expect(access()!.label).toBe("Bypass permissions");
   await answer();
-  expect(access()).toBeNull();
+  expect(access()).toEqual({ label: "Mode", warning: false });
 });
 
 test("a harness switch never draws another folder's start mode as the chat's current mode", async () => {
@@ -285,4 +313,73 @@ test("a harness switch never draws another folder's start mode as the chat's cur
   // acpmux's answer for this very folder is drawn.
   rememberStartMode("claude", "/unanswered", { modeId: "bypassPermissions", name: "Bypass permissions" });
   expect(applySwitch(raw, view, [], profiles).summary?.modes?.currentModeId).toBe("bypassPermissions");
+});
+
+test("a pending chat whose pane cannot hold a mode pick keeps the inert chip", async () => {
+  // No New Tab start and no harness switch running: a pick would reach no session, so the chip
+  // names the start mode without offering a menu.
+  await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  const answer = await acpmux({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  await fresh(undefined, false);
+  await answer();
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+  expect(host.querySelector("button.acpmux-access-trigger")).toBeNull();
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+});
+
+test("a pending chat that starts in Plan keeps the inert chip: Plan is never an access row", async () => {
+  await kept({ modeId: "plan", name: "Plan" });
+  const answer = await acpmux({ modeId: "plan", name: "Plan" });
+  await fresh();
+  await answer();
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).not.toBeNull();
+});
+
+test("a New Tab chat with no start mode to name still offers the harness's modes, at none", async () => {
+  // acpmux sets none here: the chip says "Mode", and a click opens the harness's own menu.
+  const answer = await acpmux(undefined);
+  await fresh();
+  await answer();
+  expect(access()).toEqual({ label: "Mode", warning: false });
+  const trigger = host.querySelector<HTMLButtonElement>("button.acpmux-access-trigger");
+  expect(trigger).not.toBeNull();
+  expect(host.querySelector(".acpmux-chip-pending.acpmux-mode")).toBeNull();
+  await act(async () => {
+    const press = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1, clientY: 1 });
+    Object.defineProperties(press, { pointerId: { value: 1 }, pointerType: { value: "mouse" } });
+    trigger!.dispatchEvent(press);
+  });
+  const rows = [...document.querySelectorAll(".acpmux-access-item")];
+  const text = rows.map((row) => row.textContent ?? "").join("|");
+  expect(text).toContain("Bypass permissions");
+  expect(text).not.toContain("Plan");
+});
+
+test("an ask that fails is not acpmux's answer: the chip keeps what it showed", async () => {
+  const { setStartModeSource } = await import("../src/agent-session/acpmux/startMode");
+  // The socket closed under the ask: nothing was answered, so nothing is kept as "sets none".
+  setStartModeSource(async () => {
+    throw new Error("not connected");
+  });
+  await fresh();
+  await act(async () => {
+    await new Promise((done) => setTimeout(done, 0));
+  });
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+});
+
+// Last: it fills the shared profile store (`harnessProfiles` keeps no reset), which every
+// test above relies on being empty.
+test("a pending chat's access menu names acpmux's start mode, never the mode this harness's last chat showed", async () => {
+  const { harnessProfiles } = await import("../src/agent-session/acpmux/harnessProfiles");
+  type Snapshot = import("../src/agent-session/acpmux/model").AcpmuxSnapshot;
+  // The last Claude chat sat in "Ask before edits"; new chats start in full access.
+  harnessProfiles.observe(reported("earlier", "default") as Snapshot["summary"]);
+  await kept({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  const answer = await acpmux({ modeId: "bypassPermissions", name: "Bypass permissions" });
+  await fresh();
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
+  expect(host.querySelector<HTMLButtonElement>(".acpmux-access-trigger")?.disabled).toBe(false);
+  await answer();
+  expect(access()).toEqual({ label: "Bypass permissions", warning: true });
 });

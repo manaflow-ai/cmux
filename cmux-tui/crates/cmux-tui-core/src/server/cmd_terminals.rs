@@ -165,13 +165,14 @@ pub(super) fn set_terminal_idle_policy(
     }))
 }
 
-pub(super) fn set_terminal_keep(
+/// The host id of the terminal named by exactly one of a PTY `surface` or a
+/// `terminal_id` (host id or public `term_` id).
+fn hosted_terminal_id(
     mux: &Arc<Mux>,
     surface: Option<SurfaceId>,
     terminal_id: Option<String>,
-    keep: bool,
-) -> anyhow::Result<Value> {
-    let terminal_id = match (surface, terminal_id) {
+) -> anyhow::Result<String> {
+    Ok(match (surface, terminal_id) {
         (Some(surface), None) => {
             let surface = get_surface(mux, surface)?;
             require_pty(&surface)?;
@@ -184,7 +185,32 @@ pub(super) fn set_terminal_keep(
             resolution.terminal.terminal_id
         }
         _ => anyhow::bail!("bad request: exactly one of surface or terminal_id"),
+    })
+}
+
+/// `terminal-resume-command`: an absent `command` reads, a string sets and
+/// null clears the terminal's resume command (`resume-command`).
+pub(super) fn terminal_resume_command(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+    command: Option<Option<String>>,
+) -> anyhow::Result<Value> {
+    let terminal_id = hosted_terminal_id(mux, surface, terminal_id)?;
+    let command = match command {
+        None => mux.terminal_resume_command(&terminal_id)?,
+        Some(command) => mux.set_terminal_resume_command(&terminal_id, command.as_deref())?,
     };
+    Ok(json!({ "terminal_id": terminal_id, "command": command }))
+}
+
+pub(super) fn set_terminal_keep(
+    mux: &Arc<Mux>,
+    surface: Option<SurfaceId>,
+    terminal_id: Option<String>,
+    keep: bool,
+) -> anyhow::Result<Value> {
+    let terminal_id = hosted_terminal_id(mux, surface, terminal_id)?;
     mux.set_terminal_keep(&terminal_id, keep)?;
     // `remote-terminal-tabs-v1`: the public id an attach by identity needs
     // (a remote-terminal reference knows only the host id).
@@ -216,7 +242,8 @@ pub(super) fn create_terminal(
     detached: bool,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
-    let env = env.as_ref().map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
+    let mut env =
+        env.as_ref().map(crate::mux::validate_terminal_env).transpose()?.unwrap_or_default();
     if argv.is_some() && command.is_some() {
         anyhow::bail!("argv and command are mutually exclusive");
     }
@@ -228,7 +255,11 @@ pub(super) fn create_terminal(
         (None, Some(command)) if !command.is_empty() => {
             Some(vec![platform::default_shell(), "-lc".to_string(), command])
         }
-        (None, None) => shell_argv(&env, shell_args, frontend_shell(mux, client)),
+        (None, None) => {
+            let argv = shell_argv(&env, shell_args, frontend_shell(mux, client));
+            crate::login_shell::mark(&mut env, argv.as_deref());
+            argv
+        }
         _ => anyhow::bail!("argv or command must be non-empty when provided"),
     };
     let size = paired_surface_size("create-terminal", cols, rows)?;
@@ -338,6 +369,7 @@ pub(super) fn process_info(mux: &Arc<Mux>, surface: SurfaceId) -> anyhow::Result
         "command": surface.spawn_command(),
         "cwd": surface.local_cwd(),
         "foreground_cwd": surface.process_id().and_then(platform::foreground_cwd),
+        "foreground_pid": surface.process_id().and_then(platform::foreground_leader),
         "foreground_executable": surface
             .process_id()
             .and_then(platform::foreground_process_name),
@@ -418,7 +450,7 @@ fn resolve_workspace(
             (Some(_), Some(_), _, _) => {
                 anyhow::bail!("workspace id and key do not identify the same workspace")
             }
-            _ => unreachable!("workspace selector cases are exhaustive"),
+            _ => anyhow::bail!("workspace id and key do not identify a workspace"),
         };
         Ok((workspace.id, workspace.key.clone()))
     })

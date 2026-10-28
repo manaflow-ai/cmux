@@ -11,6 +11,7 @@ import Foundation
 ///     "suggest": "https://example.com/suggest?q=%s"   // optional, OpenSearch JSON
 ///   },
 ///   "omnibar": { "remoteSuggestions": true, "inlineAutocomplete": true, "maxRows": 8, "calculator": true,
+///                "showFullURLs": false,         // the whole address, scheme and www. included
 ///                // the bar's look (cx-gkz5):
 ///                "glass": "off",                // transparent, regular, clear
 ///                "glassTint": "background",     // accent, none
@@ -31,6 +32,8 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let inlineAutocompletePath = ["browser", "omnibar", "inlineAutocomplete"]
     public static let maxRowsPath = ["browser", "omnibar", "maxRows"]
     public static let calculatorPath = ["browser", "omnibar", "calculator"]
+    /// Chrome's "Always show full URLs" (the address bar's right-click menu).
+    public static let showFullURLsPath = ["browser", "omnibar", "showFullURLs"]
     public static let glassPath = ["browser", "omnibar", "glass"]
     public static let glassTintPath = ["browser", "omnibar", "glassTint"]
     public static let glassTintStrengthPath = ["browser", "omnibar", "glassTintStrength"]
@@ -64,6 +67,8 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public var inlineAutocomplete = true
     public var maxRows = 8
     public var calculator = true
+    /// The bar shows the whole address at rest (no elided `https://` or `www.`).
+    public var showFullURLs = false
     public var glass = "off"
     public var glassTint = "background"
     public var glassTintStrength = 0.35
@@ -96,6 +101,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
             case inlineAutocompletePath: setting.inlineAutocomplete = value.boolValue ?? true
             case maxRowsPath: setting.maxRows = Int(value.doubleValue ?? 8)
             case calculatorPath: setting.calculator = value.boolValue ?? true
+            case showFullURLsPath: setting.showFullURLs = value.boolValue ?? false
             case glassPath: setting.glass = value.stringValue ?? setting.glass
             case glassTintPath: setting.glassTint = value.stringValue ?? setting.glassTint
             case glassTintStrengthPath: setting.glassTintStrength = value.doubleValue ?? setting.glassTintStrength

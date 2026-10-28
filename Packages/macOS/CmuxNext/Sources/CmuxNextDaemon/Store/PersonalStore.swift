@@ -10,7 +10,9 @@ public final class PersonalStore {
     /// False on a daemon without `profiles-v1` (read-only fallback).
     public internal(set) var isLoaded = false
     public internal(set) var revision: UInt64 = 0
-    public internal(set) var sessions: [SessionRecord] = []
+    public internal(set) var sessions: [SessionRecord] = [] {
+        didSet { sessionIndex = Dictionary(sessions.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }) }
+    }
     /// Sessions each room follows.
     public internal(set) var follows: [ProfileID: Set<String>] = [:]
     public internal(set) var pins: [WorkspacePin] = []
@@ -19,7 +21,9 @@ public final class PersonalStore {
     /// Room of each personal group.
     public internal(set) var groupRooms: [WorkspaceGroupID: ProfileID] = [:]
     /// Personal organization per qualified workspace.
-    public internal(set) var workspaces: [PersonalWorkspace] = []
+    public internal(set) var workspaces: [PersonalWorkspace] = [] {
+        didSet { workspaceIndex = personalWorkspaceIndex(workspaces) }
+    }
     /// Per-terminal themes, keyed `session_id` then terminal key.
     public internal(set) var terminalThemes: [String: [String: String]] = [:]
     /// Browser profile records (`browser-profiles-v1`), in order.
@@ -29,26 +33,55 @@ public final class PersonalStore {
     /// ending group that shows no member until the delete lands.
     public var endingGroups: Set<WorkspaceGroupID> = []
 
+    /// `workspaces` by session then key, rebuilt when the list is set: a lookup per row or per tab
+    /// (sidebar rows, tab badges, themes) is O(1), not a scan of every workspace (space-switch-fast).
+    @ObservationIgnored private var workspaceIndex: [String: [String: PersonalWorkspace]] = [:]
+    /// `sessions` by id, rebuilt when the list is set.
+    @ObservationIgnored private var sessionIndex: [String: SessionRecord] = [:]
+
     public init() {}
 
     /// The own theme of a session-qualified terminal.
     public func terminalTheme(session: String, terminal: String) -> String? { terminalThemes[session]?[terminal] }
 
-    public func session(_ id: String) -> SessionRecord? { sessions.first { $0.id == id } }
+    // Each lookup reads its list (observed as before), then answers from the index.
+    public func session(_ id: String) -> SessionRecord? {
+        _ = sessions
+        return sessionIndex[id]
+    }
     public func group(_ id: WorkspaceGroupID) -> WorkspaceGroupModel? { groups.first { $0.id == id } }
+    /// The group the sidebar-document group item `id` names, as the daemon reads it: `itm_g_<id>` first.
+    public func group(item id: String) -> WorkspaceGroupModel? {
+        Self.legacyGroupID(item: id).flatMap(group) ?? group(WorkspaceGroupID(rawValue: id))
+    }
+    /// The group a sidebar-document group item `itm_g_<id>` names (the daemon's `legacy_group_id`):
+    /// a group migrated or synced from this store. A group the document made keeps its own id.
+    public nonisolated static func legacyGroupID(item: String) -> WorkspaceGroupID? {
+        item.hasPrefix("itm_g_") ? WorkspaceGroupID(rawValue: String(item.dropFirst(6))) : nil
+    }
 
     public func workspace(session: String, key: String) -> PersonalWorkspace? {
-        workspaces.first { $0.sessionID == session && $0.workspaceKey.rawValue == key }
+        _ = workspaces
+        return workspaceIndex[session]?[key]
     }
+}
+
+/// `workspaces` by session then key; the first row wins, as a scan would.
+private func personalWorkspaceIndex(_ workspaces: [PersonalWorkspace]) -> [String: [String: PersonalWorkspace]] {
+    var index: [String: [String: PersonalWorkspace]] = [:]
+    for workspace in workspaces where index[workspace.sessionID]?[workspace.workspaceKey.rawValue] == nil {
+        index[workspace.sessionID, default: [:]][workspace.workspaceKey.rawValue] = workspace
+    }
+    return index
 }
 
 extension DaemonStore {
     /// Whether this daemon serves personal state (`profiles-v1`).
-    public var supportsProfiles: Bool { identity?.supports(DaemonCapabilities.shared.profiles) ?? false }
+    public var supportsProfiles: Bool { identity?.supports(DaemonCapability.profiles.rawValue) ?? false }
 
     /// Whether personal groups carry a place among the loose workspaces
     /// (`personal-mixed-order-v1`).
-    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapabilities.shared.personalMixedOrder) ?? false }
+    public var supportsPersonalMixedOrder: Bool { identity?.supports(DaemonCapability.personalMixedOrder.rawValue) ?? false }
 
     func applyPersonal(_ state: PersonalState?) {
         guard let state else {

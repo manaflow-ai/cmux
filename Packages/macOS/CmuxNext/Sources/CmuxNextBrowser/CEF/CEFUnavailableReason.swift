@@ -2,25 +2,56 @@
 /// (`debug.cef`) and for the WebKit fallback notice.
 public nonisolated enum CEFUnavailableReason: Equatable, Sendable {
     /// The runtime was not embedded in this app bundle (fleet and CI builds
-    /// have no CEF artifact).
+    /// have no CEF artifact) and the build has no runtime pack to download.
     case notBundled
+    /// The build downloads Chromium on first use and it is not installed
+    /// yet (plans/cmux-next/bundle-size-DESIGN.md section 6). `fraction` is
+    /// the download progress from 0 to 1, nil before bytes flow (waiting for
+    /// the network, verifying, unpacking).
+    case downloading(fraction: Double?)
+    /// The last download or install attempt failed; another follows. The
+    /// message says why (for diagnostics; the UI shows a summary).
+    case downloadFailed(String)
     /// Loading the framework or `CefInitialize` failed; the message says why.
     case startFailed(String)
     /// CEF shut down (the app is quitting); it cannot start again.
     case shutDown
 
-    /// Stable code for diagnostics: `notBundled`, `startFailed`, `shutDown`.
+    /// Stable code for diagnostics: `notBundled`, `downloading`,
+    /// `downloadFailed`, `startFailed`, `shutDown`.
     public var code: String {
         switch self {
         case .notBundled: "notBundled"
+        case .downloading: "downloading"
+        case .downloadFailed: "downloadFailed"
         case .startFailed: "startFailed"
         case .shutDown: "shutDown"
         }
     }
 
-    /// The failure message for `startFailed`.
+    /// The failure message for `startFailed` and `downloadFailed`.
     public var detail: String? {
-        if case .startFailed(let message) = self { return message }
-        return nil
+        switch self {
+        case .startFailed(let message), .downloadFailed(let message): message
+        case .notBundled, .downloading, .shutDown: nil
+        }
+    }
+
+    /// True when a Chromium tab must wait in place instead of loading in WebKit: Chromium failed to start in this
+    /// process (`CefInitialize` runs once per process), and WebKit has none of Chromium's cookies, so a signed-in
+    /// page would come back signed out (github.com/login?return_to=…, field log 2026-10-26). A build without
+    /// Chromium or one still downloading it keeps the WebKit fallback.
+    public var keepsChromiumTabsOutOfWebKit: Bool {
+        if case .startFailed = self { return true }
+        return false
+    }
+
+    /// True while the runtime is still on its way (downloading or retrying):
+    /// a Chromium request should start or hurry the download.
+    public var isAwaitingDownload: Bool {
+        switch self {
+        case .downloading, .downloadFailed: true
+        case .notBundled, .startFailed, .shutDown: false
+        }
     }
 }

@@ -1,6 +1,6 @@
 //! Generated chat titles (cx-ncc.91): a session whose harness never titles it
 //! (Claude Code's `-p` stream-json has no title event) is titled once, after
-//! its first turn, by the configured title command. The tests' command is a
+//! its first user message, by the configured title command. The tests' command is a
 //! fake (`tests/fake_titler.py`): no test reaches a model.
 
 #[path = "support/daemon_env.rs"]
@@ -111,7 +111,7 @@ impl Client {
 }
 
 #[tokio::test]
-async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_first_turn() {
+async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_first_message() {
     let asked = asked_path("generated");
     let hub = hub(&asked);
     let mut client = Client::open(&hub);
@@ -131,6 +131,34 @@ async fn a_chat_its_harness_never_titles_gets_a_short_generated_title_after_its_
     assert_eq!(std::fs::read_to_string(&asked).unwrap().matches("---").count(), 1);
     assert_eq!(client.title(&session).await, json!("Three-Dish Picnic Menu"));
     let _ = std::fs::remove_file(&asked);
+    let _ = std::fs::remove_file(cwd_path(&asked));
+}
+
+fn cwd_path(asked: &Path) -> PathBuf {
+    PathBuf::from(format!("{}.cwd", asked.display()))
+}
+
+/// The title command runs in acpmux's own empty `unattended` folder, never
+/// the shared temp dir or the daemon's folder: Claude Code indexes its cwd at
+/// start (`rg --files --hidden <cwd>`), and a titler per finished chat that
+/// scanned all of `$TMPDIR` pegged the Mac's CPU.
+#[tokio::test]
+async fn the_title_command_runs_in_an_empty_folder_of_its_own() {
+    let asked = asked_path("cwd");
+    let hub = hub(&asked);
+    let mut client = Client::open(&hub);
+    client.watch().await;
+    let session = client.new_session().await;
+
+    client.prompt(&session, "Plan a three-dish picnic menu").await;
+    client.titled(Duration::from_secs(15)).await.expect("no titled change");
+    let cwd = PathBuf::from(std::fs::read_to_string(cwd_path(&asked)).unwrap());
+    let name = cwd.file_name().and_then(|n| n.to_str()).unwrap_or_default().to_owned();
+    assert!(name.ends_with("unattended"), "title command ran in {}", cwd.display());
+    let tmp = std::fs::canonicalize(std::env::temp_dir()).unwrap();
+    assert_ne!(std::fs::canonicalize(&cwd).unwrap(), tmp, "title command ran in $TMPDIR");
+    let _ = std::fs::remove_file(&asked);
+    let _ = std::fs::remove_file(cwd_path(&asked));
 }
 
 #[tokio::test]
@@ -148,4 +176,44 @@ async fn a_harness_title_wins_and_nothing_is_generated() {
     );
     assert_eq!(client.title(&session).await, json!("Picnic planning"));
     assert!(!asked.exists(), "the title command ran for a titled session");
+}
+
+/// A chat the person named (at its start, or by a rename before its first reply) keeps that
+/// name: no title request goes to a model for it (user 2026-10-20).
+#[tokio::test]
+async fn a_chat_the_person_named_asks_no_model_for_a_title() {
+    let asked = asked_path("named");
+    let hub = hub(&asked);
+    let mut client = Client::open(&hub);
+    client.watch().await;
+    let created = client
+        .call(
+            "session/new",
+            json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake", "name": "picnic-plan"}}}),
+        )
+        .await;
+    let named = created["sessionId"].as_str().unwrap().to_owned();
+    client.prompt(&named, "Plan a three-dish picnic menu").await;
+    assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a named chat");
+
+    let renamed = client.new_session().await;
+    client.call("_acpmux/rename", json!({"sessionId": renamed, "newName": "menu-ideas"})).await;
+    client.prompt(&renamed, "Plan a three-dish picnic menu").await;
+    assert!(client.titled(Duration::from_secs(3)).await.is_none(), "titled a renamed chat");
+    assert!(!asked.exists(), "the title command ran: {:?}", std::fs::read_to_string(&asked));
+}
+
+#[tokio::test]
+async fn generated_titles_can_be_disabled_without_removing_the_prompt_placeholder() {
+    let asked = asked_path("off");
+    let hub = hub(&asked);
+    hub.config.write().await.titles.generate = Some(false);
+    let mut client = Client::open(&hub);
+    client.watch().await;
+    let session = client.new_session().await;
+
+    client.prompt(&session, "Plan a three-dish picnic menu").await;
+    assert!(client.titled(Duration::from_secs(2)).await.is_none(), "titled while disabled");
+    assert_eq!(client.title(&session).await, json!("Plan a three-dish picnic menu"));
+    assert!(!asked.exists(), "the title command ran while disabled");
 }

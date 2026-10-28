@@ -139,11 +139,38 @@ body {
   border-bottom: 1px solid var(--page-separator);
 }
 
+/* The editor and what floats over it (the find pill). */
+.ed-frame {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
 .ed-host {
   flex: 1;
   min-height: 0;
   position: relative;
   background: var(--cmux-editor-background);
+}
+
+/* Cmd-F: the shared find pill (ui/findPill.css) at the top right, where every pane's sits. The
+   left inset bounds it too: it wants about 390px, so in a narrower editor its rows and fields give
+   way instead of the pill running off the left edge. The band beside it is click-through. */
+.ed-find {
+  position: absolute;
+  top: var(--find-pill-inset, 10px);
+  right: var(--find-pill-inset, 10px);
+  left: var(--find-pill-inset, 10px);
+  z-index: var(--layer-overlay);
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+.ed-find > .find-pill,
+.ed-find .find-pill__row {
+  min-width: 0;
 }
 
 .ed-status {
@@ -166,7 +193,7 @@ body {
 
 /* Monaco reads its fonts from options (settings.ts); its widgets follow the page's UI font. */
 .ed-host .monaco-editor {
-  --vscode-font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --vscode-font-family: var(--font-ui);
 }
 
 /* Monaco's find and replace fields mark focus with a class (`synthetic-focus`), not :focus, and draw

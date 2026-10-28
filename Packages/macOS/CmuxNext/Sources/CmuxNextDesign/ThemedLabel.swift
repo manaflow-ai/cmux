@@ -18,7 +18,7 @@ public enum ThemeInk: Sendable {
 /// A label whose text color follows its theme scope (room, workspace):
 /// the color is read inside `performWithTheme` whenever the label joins a
 /// window or the theme changes, so it is never frozen at creation.
-public final class ThemedLabel: NSTextField {
+public final class ThemedLabel: ChromeLabel {
     /// A style color read in the label's scope; nil draws `ink`.
     public var themeColor: (() -> NSColor)? {
         didSet { applyThemeColor() }

@@ -56,6 +56,9 @@ public final class DaemonCommandScope: Sendable {
         var barriers: [String: UInt64] = [:]
         var closed = false
         var idleWaiters: [CheckedContinuation<Void, Never>] = []
+        /// What the run did and when (`stageLog`): the first 16 entries and
+        /// the last 32 (`appendKeepingHead`).
+        var stages: [String] = []
     }
 
     public let idempotencyKey: String?
@@ -65,23 +68,75 @@ public final class DaemonCommandScope: Sendable {
         self.idempotencyKey = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
     }
 
+    // MARK: - Stage log
+
+    private let createdAt = ContinuousClock.now
+
+    /// What this run did and when, as `stage@ms` from the scope's creation:
+    /// its stages (`note`, `stage`), each command ticket opened (`open#N`)
+    /// and closed (`close#N label`). A control timeout reports it as
+    /// `data.waiting_on`, so a timed-out `action.run` says what it waited on.
+    public var stageLog: [String] {
+        state.withLock { state in
+            state.stages + (state.open.isEmpty ? [] : ["open now: " + state.open.sorted().map { "#\($0)" }.joined(separator: " ")])
+        }
+    }
+
+    /// Records `stage` in the stage log.
+    public func note(_ stage: String) {
+        let entry = stamped(stage)
+        state.withLock { state in
+            state.stages.appendKeepingHead(entry)
+        }
+    }
+
+    private func stamped(_ stage: String) -> String {
+        let ms = (ContinuousClock.now - createdAt).components
+        return "\(stage)@\(ms.seconds * 1000 + ms.attoseconds / 1_000_000_000_000_000)"
+    }
+
+    /// `note(stage)`, then true (for a `guard` condition).
+    public func noting(_ stage: String) -> Bool {
+        note(stage)
+        return true
+    }
+
+    /// Runs `body` between the stage log entries `name` and `name done`.
+    public func stage<T>(_ name: String, _ body: () async -> T) async -> T {
+        note(name)
+        let value = await body()
+        note(name + " done")
+        return value
+    }
+
+    /// The barriers, noting the snapshot stage that waits for them.
+    public func snapshotBarriers() -> [String: UInt64] {
+        note("snapshot")
+        return barriers
+    }
+
     // MARK: - Tickets
 
     /// Opens a ticket for a command about to be sent, or nil once closed.
-    public func begin() -> Ticket? {
+    public func begin(label: String? = nil) -> Ticket? {
         state.withLock { state -> Ticket? in
             guard !state.closed else { return nil }
             state.nextTicket &+= 1
             state.open.insert(state.nextTicket)
             return Ticket(id: state.nextTicket)
+        }.map { ticket in
+            note("open#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
+            return ticket
         }
     }
 
     /// Closes `ticket`, recording `failure` when the command failed.
-    public func end(_ ticket: Ticket?, failure: Failure? = nil) {
+    public func end(_ ticket: Ticket?, failure: Failure? = nil, label: String? = nil) {
         guard let ticket else { return }
+        let entry = stamped("close#\(ticket.id)" + (label.map { " " + $0 } ?? ""))
         let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
             guard state.open.remove(ticket.id) != nil else { return [] }
+            state.stages.appendKeepingHead(entry)
             if let failure { state.failures.append(failure) }
             guard state.open.isEmpty else { return [] }
             defer { state.idleWaiters.removeAll() }
@@ -221,5 +276,14 @@ extension DaemonCommandScope {
     static func noteCreated(by request: some DaemonRequest, response: Any) {
         guard let scope = current, let creating = request as? any DaemonCreatingRequest else { return }
         scope.noteCreated(creating.createdObjects(inAny: response))
+    }
+}
+
+extension [String] {
+    /// Appends `entry`, keeping the first 16 entries and the newest 32 (the
+    /// end of a long run is what a timeout waited on).
+    fileprivate mutating func appendKeepingHead(_ entry: String) {
+        if count >= 48 { remove(at: 16) }
+        append(entry)
     }
 }

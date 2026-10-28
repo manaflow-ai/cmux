@@ -24,11 +24,12 @@ impl Mux {
     ) {
         let decorations = self.tree_decorations();
         let deltas = {
-            let state = self.state.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
             screens
                 .iter()
                 .filter_map(|screen| {
                     let (wi, si) = locate_screen(&state, *screen)?;
+                    name_screen_splits(&mut state, (wi, si));
                     let entity = crate::server::tree_entity_json(
                         &state,
                         &decorations,
@@ -66,15 +67,31 @@ impl Mux {
         // state at least as new as the one before, and a client that applies
         // them in stream order ends on the newest.
         let _ordered = LAYOUT_EMIT.lock().unwrap_or_else(PoisonError::into_inner);
-        let delta = self.with_state(|state| {
-            let (wi, si) = locate_screen(state, screen)?;
-            let workspace = state.workspaces.get(wi)?;
-            Some(Arc::new(LayoutDelta {
-                workspace: workspace.id,
-                layout: crate::server::screen_layout_json(workspace.screens.get(si)?),
-                transaction,
-            }))
-        });
+        let delta = {
+            let mut state = self.state.lock().unwrap();
+            (|| {
+                let (wi, si) = locate_screen(&state, screen)?;
+                name_screen_splits(&mut state, (wi, si));
+                let workspace = state.workspaces.get(wi)?;
+                Some(Arc::new(LayoutDelta {
+                    workspace: workspace.id,
+                    layout: crate::server::screen_layout_json(
+                        workspace.screens.get(si)?,
+                        &state.resource_indexes.split_ids,
+                    ),
+                    transaction,
+                }))
+            })()
+        };
         self.emit(MuxEvent::LayoutChanged(screen, delta));
+    }
+}
+
+/// Names the splits of a screen the daemon is about to send
+/// ([`ensure_screen_split_public_ids`]). A failure to mint leaves those
+/// splits without `split_id`; a client then keys them by their handle.
+fn name_screen_splits(state: &mut State, location: (usize, usize)) {
+    if let Err(error) = ensure_screen_split_public_ids(state, location) {
+        eprintln!("cmux-tui: split public ids could not be minted: {error:#}");
     }
 }

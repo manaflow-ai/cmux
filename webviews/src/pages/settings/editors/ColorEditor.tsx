@@ -1,8 +1,12 @@
 import { useState } from "react";
 import { useStore } from "../context";
+import { inheritsWindowColor } from "../inheritance";
 import { t, text } from "../strings";
 import { isHexColor } from "../validate";
 import type { EditorProps } from "./types";
+
+/** The window's own color, which an unset surface color shows in its swatch. */
+const WINDOW_COLOR = "var(--cmux-window-background, var(--cmux-surface-background, Canvas))";
 
 function normalized(input: string): string {
   const trimmed = input.trim();
@@ -34,8 +38,17 @@ export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
     well.addEventListener("change", onChange);
     return () => well.removeEventListener("change", onChange);
   };
+  // A surface color while unset shows the window's color, dimmed, with a badge (never the
+  // default label squeezed into the hex field).
+  const inherited = stored === "" && draft === null && inheritsWindowColor(row.key);
   return (
-    <span className="color-editor">
+    <span className="color-editor" data-inherited={inherited ? "" : undefined}>
+      {inherited && <span className="inherit-badge">{t("settingsPage.inheritsWindow")}</span>}
+      {inherited && (
+        <svg className="swatch-inherited" aria-hidden="true" viewBox="0 0 26 22">
+          <rect width="26" height="22" rx="5" fill={WINDOW_COLOR} />
+        </svg>
+      )}
       <input
         ref={wellRef}
         type="color"
@@ -51,7 +64,7 @@ export function ColorEditor({ row, value, disabled, labelId }: EditorProps) {
         type="text"
         spellCheck={false}
         value={draft ?? stored}
-        placeholder={text(row.default_label)}
+        placeholder={inherited ? "" : text(row.default_label)}
         disabled={disabled}
         aria-labelledby={labelId}
         aria-invalid={invalid}

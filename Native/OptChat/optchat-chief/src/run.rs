@@ -84,6 +84,9 @@ pub struct RunSteps {
     /// The "working on" line and when that work began (ms), and whether it
     /// changed since the last live frames.
     activity: Option<(String, u64)>,
+    /// The tool call the activity line names, if any: a call's later frames (its input
+    /// arrived) sharpen the line but keep its start, so the elapsed time stays the call's.
+    activity_tool: Option<String>,
     activity_dirty: bool,
 }
 
@@ -156,6 +159,7 @@ impl RunSteps {
     /// The run works on something new: the newest line wins.
     fn set_activity(&mut self, line: String) {
         self.activity = Some((line, epoch_ms()));
+        self.activity_tool = None;
         self.activity_dirty = true;
     }
 
@@ -264,7 +268,17 @@ impl RunSteps {
     pub fn tool_call(&mut self, id: &str, name: &str, update: &Value, at: Option<u64>) {
         let doing = activity_line(name, update);
         if self.activity.as_ref().is_none_or(|(old, _)| *old != doing) {
-            self.set_activity(doing);
+            match (&mut self.activity, self.activity_tool.as_deref()) {
+                // The same call, its input known now: a sharper line, the same start.
+                (Some((line, _)), Some(tool)) if tool == id => {
+                    *line = doing;
+                    self.activity_dirty = true;
+                }
+                _ => {
+                    self.set_activity(doing);
+                    self.activity_tool = Some(id.to_owned());
+                }
+            }
         }
         let step = self.upsert(&step_id("tool", id), "tool");
         step.value
@@ -532,7 +546,20 @@ pub fn activity_line(name: &str, update: &Value) -> String {
         "think" => Some(("Thinking", [].as_slice())),
         _ => None,
     };
+    let input = update.get("rawInput");
+    let described = input
+        .and_then(|i| i.get("description"))
+        .and_then(Value::as_str)
+        .map(|d| line(d.trim(), 200))
+        .filter(|d| !d.is_empty());
+    let mcp = mcp_parts(name).or_else(|| mcp_parts(&title));
     let text = match verb {
+        // A shell call that says what it does ("List cmux workspaces"): that, not the command.
+        Some(("Running", _)) if described.is_some() => described.unwrap_or_default(),
+        _ if mcp.is_some() => {
+            let (server, tool) = mcp.unwrap_or_default();
+            mcp_line(&server, &tool, input)
+        }
         Some((verb, _)) if title.is_empty() => verb.to_owned(),
         Some((verb, words)) => {
             // "Edit notes.md" -> "Editing notes.md".
@@ -555,6 +582,93 @@ pub fn activity_line(name: &str, update: &Value) -> String {
         "Working".to_owned()
     } else {
         text
+    }
+}
+
+/// `mcp__<server>__<tool>` (Claude Code's MCP tool names) as `(server, tool)`.
+fn mcp_parts(name: &str) -> Option<(String, String)> {
+    let rest = name.trim().strip_prefix("mcp__")?;
+    let (server, tool) = rest.split_once("__")?;
+    let tool = tool.trim();
+    (!server.is_empty() && !tool.is_empty()).then(|| (server.to_owned(), tool.to_owned()))
+}
+
+/// A short string field of a tool's input, one line.
+fn input_str(input: Option<&Value>, key: &str) -> Option<String> {
+    input
+        .and_then(|i| i.get(key))
+        .and_then(Value::as_str)
+        .map(|s| line(s.trim(), 60))
+        .filter(|s| !s.is_empty())
+}
+
+/// The "working on" line of an MCP tool call: the Chief's own tools by what they do
+/// ("Telling a31", "Starting 2 agents"), others as "Using <server>: <tool words>".
+fn mcp_line(server: &str, tool: &str, input: Option<&Value>) -> String {
+    if server == "optchat" {
+        let line = match tool {
+            "tell" => input_str(input, "id")
+                .map_or("Telling an agent".to_owned(), |id| format!("Telling {id}")),
+            "spawn" => match input
+                .and_then(|i| i.get("tasks"))
+                .and_then(Value::as_array)
+                .map(Vec::len)
+            {
+                Some(1) => "Starting an agent".to_owned(),
+                Some(n) if n > 1 => format!("Starting {n} agents"),
+                _ => "Starting agents".to_owned(),
+            },
+            "zoom" => "Reading the chat history".to_owned(),
+            "date" => "Checking a message's date".to_owned(),
+            "version" => "Checking the cmux and Chief versions".to_owned(),
+            "profile" => "Reading the Chief's profile".to_owned(),
+            "react" => "Reacting to a message".to_owned(),
+            "reply" => "Replying in a thread".to_owned(),
+            "send" => "Sending a message".to_owned(),
+            "transcript" => "Reading the chat as you see it".to_owned(),
+            "stop" => "Ending the turn".to_owned(),
+            "sleep" => "Setting a wake-up".to_owned(),
+            "remember" => "Saving a preference".to_owned(),
+            "cloud_workspace" => "Starting a Cloud workspace".to_owned(),
+            "control" => control_line(input),
+            "peers" => "Looking up the other machines".to_owned(),
+            "escalate_auth" => "Asking you to sign in".to_owned(),
+            _ => String::new(),
+        };
+        if !line.is_empty() {
+            return line;
+        }
+    }
+    let words = tool.replace(['_', '-'], " ");
+    let words = words.trim();
+    let server = server.replace(['_', '-'], " ");
+    match server.trim() {
+        "" => format!("Using {words}"),
+        server => format!("Using {server}: {words}"),
+    }
+}
+
+/// The "working on" line of the Chief's `control(action, id)` call: what it does to which subagent
+/// ("Checking on a31", "Answering a31's prompt"), not "Using optchat: control" (Leo 2026-10-20: that
+/// line sat over the typing dots for six minutes and said nothing).
+fn control_line(input: Option<&Value>) -> String {
+    let id = input_str(input, "id");
+    let who = id.as_deref();
+    let action = input_str(input, "action").unwrap_or_default();
+    match (action.as_str(), who) {
+        ("status", Some(id)) => format!("Checking on {id}"),
+        ("status", None) => "Checking on the agents".to_owned(),
+        ("interrupt", Some(id)) => format!("Steering {id}"),
+        ("answer", Some(id)) => format!("Answering {id}'s prompt"),
+        ("pause", Some(id)) => format!("Pausing {id}"),
+        ("resume", Some(id)) => format!("Resuming {id}"),
+        ("cancel", Some(id)) => format!("Cancelling {id}"),
+        ("restart", Some(id)) => format!("Restarting {id}"),
+        ("priority", Some(id)) => format!("Putting {id} first"),
+        ("cap", _) => "Setting how many agents work at once".to_owned(),
+        ("cloud", _) => "Choosing where new agents run".to_owned(),
+        (_, Some(id)) => format!("Managing {id}"),
+        _ => "Managing the agents".to_owned(),
     }
 }
 

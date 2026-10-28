@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import Foundation
 import Testing
 @testable import CmuxNextApp
+@testable import CmuxNextFloating
 
 /// Start Agent's floating chat (cx-b9qi). With it on, the chat the page starts
 /// stays in the panel and keeps running there, and the panel stays up when

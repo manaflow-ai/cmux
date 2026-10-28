@@ -46,7 +46,7 @@ struct IconCanvas: View {
             )
             context.stroke(path, with: shading, style: style)
         } else {
-            context.fill(path, with: shading, style: FillStyle(eoFill: false))
+            context.fill(path, with: shading, style: FillStyle(eoFill: icon.rule == .evenodd))
         }
     }
 }

@@ -166,14 +166,18 @@ fn optional_nullable_request(request: &Request) -> Result<Value, CmuxError> {
     };
     let mut client = CmuxClient::connect(config(request))?;
     client.set_client_info(SetClientInfoRequest {
+        api_revision: Optional::Missing,
         capabilities: Optional::Missing,
         device_id: Optional::Missing,
         device_kind: Optional::Missing,
         device_name: Optional::Missing,
         display_name: Optional::Missing,
+        install: Optional::Missing,
         kind: Optional::Missing,
         name,
+        remote: Optional::Missing,
         user_id: Optional::Missing,
+        version: Optional::Missing,
     })?;
     Ok(json!({"presence": request.presence}))
 }
@@ -429,11 +433,14 @@ fn real_flow(request: &Request) -> Result<Value, CmuxError> {
 
         let renamed_result = client.rename_workspace(RenameWorkspaceRequest {
             expected_generation: Optional::Missing,
+            expected_name_revision: Optional::Missing,
             expected_revision: Optional::Missing,
             key: Optional::Missing,
             mutation_id: Optional::Missing,
             name: renamed_name.to_owned(),
             origin: Optional::Missing,
+            release: None,
+            source: Optional::Missing,
             workspace: Optional::Value(workspace),
         })?;
         let renamed_tree = client.workspace_tree()?;

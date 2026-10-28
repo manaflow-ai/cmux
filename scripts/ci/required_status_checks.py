@@ -65,7 +65,7 @@ REQUIRED_CHECKS = (
 )
 
 # How many recently merged pull request heads to ask about production. Each
-# costs two requests. A required check reported on every one of these heads
+# reads both paginated check endpoints. A required check reported on every one of these heads
 # before its pull request could merge, so a context absent from all of them is
 # strong evidence that nothing produces it -- while a single absence is not,
 # since a path-filtered check legitimately skips most merges.
@@ -246,31 +246,48 @@ class GitHub:
     def branch_rules(self, branch: str) -> Any:
         return self.get(f"/repos/{self.repo}/rules/branches/{urllib.parse.quote(branch)}")
 
+    def _pages(self, path: str, key: str | None = None) -> Iterable[list[Any]]:
+        # Bound the scheduled probe to 1,000 entries per endpoint. Raise rather
+        # than silently truncate; increase the ceiling if production reaches it.
+        for page in range(1, 11):
+            payload = self.get(path if page == 1 else f"{path}&page={page}")
+            items = payload if key is None else (
+                payload.get(key) if isinstance(payload, Mapping) else None
+            )
+            if not isinstance(items, list):
+                raise DriftCheckError(f"GET {path} answered with no list: {_excerpt(payload)}")
+            yield items
+            if len(items) < 100:
+                return
+        raise DriftCheckError(f"GET {path} exceeded the 10-page sample limit")
+
     def merged_heads(self, branch: str, limit: int) -> list[str]:
         query = urllib.parse.urlencode(
             {"state": "closed", "base": branch, "sort": "updated", "direction": "desc", "per_page": 100}
         )
-        payload = self.get(f"/repos/{self.repo}/pulls?{query}")
-        if not isinstance(payload, list):
-            raise DriftCheckError(f"the pulls endpoint answered with no list: {_excerpt(payload)}")
         heads: list[str] = []
-        for pull in payload:
-            if not isinstance(pull, Mapping) or not pull.get("merged_at"):
-                continue
-            head = pull.get("head")
-            sha = head.get("sha") if isinstance(head, Mapping) else None
-            if isinstance(sha, str) and sha not in heads:
-                heads.append(sha)
-            if len(heads) >= limit:
-                break
+        for pulls in self._pages(f"/repos/{self.repo}/pulls?{query}"):
+            for pull in pulls:
+                if not isinstance(pull, Mapping) or not pull.get("merged_at"):
+                    continue
+                head = pull.get("head")
+                sha = head.get("sha") if isinstance(head, Mapping) else None
+                if isinstance(sha, str) and sha not in heads:
+                    heads.append(sha)
+                if len(heads) >= limit:
+                    return heads
         if not heads:
             raise DriftCheckError(f"no merged pull requests into {branch} were found to sample")
         return heads
 
     def reported_on(self, sha: str) -> frozenset[str]:
-        runs = self.get(f"/repos/{self.repo}/commits/{sha}/check-runs?per_page=100")
-        statuses = self.get(f"/repos/{self.repo}/commits/{sha}/status?per_page=100")
-        return reported_contexts(runs, statuses)
+        runs = [run for page in self._pages(
+            f"/repos/{self.repo}/commits/{sha}/check-runs?per_page=100", "check_runs"
+        ) for run in page]
+        statuses = [status for page in self._pages(
+            f"/repos/{self.repo}/commits/{sha}/status?per_page=100", "statuses"
+        ) for status in page]
+        return reported_contexts({"check_runs": runs}, {"statuses": statuses})
 
 
 def _summarise(report: str) -> None:

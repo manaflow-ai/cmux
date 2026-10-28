@@ -73,12 +73,14 @@ nonisolated enum SidebarDocWire {
         var room: String?
         var maxRows: Int?
         var keepsClosed: Bool?
+        var hostGroup: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id, kind, title, region, look, arrangement, columns, align, gap, room
             case showsTitle = "shows_title"
             case maxRows = "max_rows"
             case keepsClosed = "keeps_closed"
+            case hostGroup = "host_group"
         }
 
         var record: SidebarDocSection {
@@ -95,10 +97,12 @@ nonisolated enum SidebarDocWire {
             if let align { arrangement.align = SectionArrangement.Alignment(rawValue: align) ?? .leading }
             if let gap { arrangement.gap = gap }
             let pinned = kind == .pinned
-            return SidebarDocSection(id: id, kind: kind, title: title, showsTitle: showsTitle ?? !pinned,
-                                     region: region ?? (pinned ? .top : .middle), look: look ?? (pinned ? .builtIn : .list),
-                                     arrangement: arrangement, room: room, maxRows: maxRows,
-                                     keepsClosed: keepsClosed ?? (pinned || kind == .custom))
+            var record = SidebarDocSection(id: id, kind: kind, title: title, showsTitle: showsTitle ?? !pinned,
+                                           region: region ?? (pinned ? .top : .middle), look: look ?? (pinned ? .builtIn : .list),
+                                           arrangement: arrangement, room: room, maxRows: maxRows,
+                                           keepsClosed: keepsClosed ?? (pinned || kind == .custom))
+            record.hostGroup = (hostGroup ?? false) && record.session != nil
+            return record
         }
 
         /// `sec_m_<session>` -> `<session>`.
@@ -154,7 +158,10 @@ nonisolated enum SidebarDocWire {
             default: .other(self.body.tag)
             }
             return SidebarDocItem(id: id, section: section, parent: parent, body: body, showsLabel: showsLabel ?? true, span: span,
-                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String)
+                                  label: label ?? self.body.string("label"), iconURL: self.body.string("icon_url") ?? (extra?.value as? [String: Any])?["icon_url"] as? String,
+                                  pinnedInGroup: (extra?.value as? [String: Any])?["pinned"] as? Bool == true,
+                                  archived: (extra?.value as? [String: Any])?["archived"] as? Bool == true,
+                                  autoArchive: SidebarDocAutoArchiveRule(wire: (extra?.value as? [String: Any])?["auto_archive"]))
         }
     }
 

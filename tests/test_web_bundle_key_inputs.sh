@@ -20,8 +20,9 @@ fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 src="$TMP/src"
 mkdir -p "$src"
 
-git -C "$ROOT" archive HEAD webviews web/data Resources/markdown-viewer config schemas/settings \
-  Packages/Shared/CmuxAgentQuestion scripts/cmux-next/web-bundle-key.py README.md | tar -x -C "$src"
+git -C "$ROOT" archive HEAD webviews web/data Resources/markdown-viewer config schemas \
+  Packages/Shared/CmuxAgentQuestion Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Fonts/InterVariable.woff2 \
+  scripts/cmux-next/web-bundle-key.py README.md | tar -x -C "$src"
 cp "$KEY" "$src/scripts/cmux-next/web-bundle-key.py"
 git -C "$src" init -q
 git -C "$src" -c user.name=t -c user.email=t@example.com -c core.hooksPath=/dev/null add -A

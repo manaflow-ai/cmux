@@ -8,6 +8,8 @@
 //! SHA-256(pubkey)>`.
 
 mod base32;
+pub mod enrollment;
+pub mod native;
 mod words;
 
 use sha2::{Digest, Sha256};

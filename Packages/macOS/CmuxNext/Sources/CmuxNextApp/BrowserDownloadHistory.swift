@@ -7,14 +7,18 @@ import os
 /// row's name, source, file, how it ended and its size. A download of an
 /// incognito tab is never written; one still running is not either.
 final class BrowserDownloadHistory {
-    private let url: URL
+    private let storage: any BrowserDownloadHistoryStoring
     private var written: [Row]?
     /// The latest write; the next one waits for it, so writes land in order.
     private var lastWrite: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "downloads")
 
     init(url: URL) {
-        self.url = url
+        storage = BrowserDownloadHistoryStorage(url: url)
+    }
+
+    init(storage: any BrowserDownloadHistoryStoring) {
+        self.storage = storage
     }
 
     /// `<Application Support>/<bundle id>/downloads.json`.
@@ -22,7 +26,9 @@ final class BrowserDownloadHistory {
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? URL(filePath: NSTemporaryDirectory())
         let bundle = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? "com.cmuxterm.app.next"
-        return BrowserDownloadHistory(url: support.appending(path: bundle).appending(path: "downloads.json"))
+        return BrowserDownloadHistory(storage: BrowserDownloadHistoryStorage(
+            url: support.appending(path: bundle).appending(path: "downloads.json")
+        ))
     }
 
     /// One ended download.
@@ -44,10 +50,10 @@ final class BrowserDownloadHistory {
 
     /// The rows the last run kept, oldest first (read off the main thread).
     func load() async -> [Row] {
-        let url = url
+        let storage = storage
         return await Task.detached(priority: .userInitiated) {
             // concurrency-allow: runs in a detached task, off the main actor
-            guard let data = try? Data(contentsOf: url),
+            guard let data = try? storage.read(),
                   let document = try? JSONDecoder().decode(Document.self, from: data) else { return [Row]() }
             return document.downloads
         }.value
@@ -57,23 +63,28 @@ final class BrowserDownloadHistory {
     func record(_ rows: [Row]) {
         guard rows != written else { return }
         written = rows
-        let url = url, logger = logger
+        let storage = storage, logger = logger
         let data = try? JSONEncoder().encode(Document(downloads: rows))
         let previous = lastWrite
         lastWrite = Task.detached(priority: .utility) {
             await previous?.value
             do {
                 if let data, !rows.isEmpty {
-                    try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try data.write(to: url, options: .atomic)
-                } else if FileManager.default.fileExists(atPath: url.path) {
-                    try FileManager.default.removeItem(at: url)
+                    try storage.write(data)
+                } else {
+                    try storage.remove()
                 }
             } catch {
                 logger.error("downloads list write failed: \(String(describing: error), privacy: .public)")
             }
         }
     }
+
+    /// Waits until the latest queued persistence operation has finished.
+    func waitForPendingWrites() async {
+        await lastWrite?.value
+    }
+
 }
 
 extension BrowserDownloadHistory.Row {

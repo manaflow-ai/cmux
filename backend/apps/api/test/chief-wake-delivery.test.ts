@@ -10,6 +10,10 @@ import { fireAlarm } from "./setup/alarm.ts"
  * - a cloud-run Chief's brain object is evicted WHILE MuxDO's wake RPC is in flight (the RPC fails): the
  *   wake stays undelivered in MuxDO, its alarm sends it again with backoff, and the Chief answers the
  *   message exactly once (the brain takes the repeated wake idempotently);
+ * - wakes that come while an earlier wake's RPC is in flight reach the brain as soon as it is delivered, in
+ *   order, without MuxDO's alarm (they used to wait about 30 s for it: a burst of messages got two runs);
+ * - a new Chief's first wake refused for a passing reason (the owner's object did not answer) is sent again
+ *   and the first message is answered, with no second message to wake it (#25570);
  * - a local-run Chief (mux.configure brain "local", read by a local host with --conversation-source cloud):
  *   its wakes never go to ChiefBrainDO, stay in the queue (not lost), and the host's mux.ack clears them.
  */
@@ -62,9 +66,16 @@ const dmAndReply = async (token: string, chief: { id: string; main_conversation:
 // taken) or "after" (the brain holds the wake, but the RPC fails: the resend must be a no-op for the brain).
 const wakes: Array<string> = []
 const evictNext = new Map<string, "before" | "after">()
+// `holdNext`: the next call of that agent waits for the promise before the brain takes the wake.
+const holdNext = new Map<string, Promise<void>>()
+const wakeSeqs: Array<{ agent: string; seq: number }> = []
 const realWake = ChiefBrainDO.prototype.wake
 ChiefBrainDO.prototype.wake = async function (this: ChiefBrainDO, w) {
   wakes.push(w.agent)
+  wakeSeqs.push({ agent: w.agent, seq: w.seq })
+  const hold = holdNext.get(w.agent)
+  holdNext.delete(w.agent)
+  if (hold) await hold
   const when = evictNext.get(w.agent)
   evictNext.delete(w.agent)
   const evict = () => (this as unknown as { ctx: DurableObjectState }).ctx.abort("test: evicted during the wake RPC")
@@ -73,7 +84,16 @@ ChiefBrainDO.prototype.wake = async function (this: ChiefBrainDO, w) {
   if (when === "after") evict()
   return r
 }
-afterAll(() => void (ChiefBrainDO.prototype.wake = realWake))
+// `refuseNext`: the next admission of that agent's brain answers this passing refusal (once).
+const refuseNext = new Map<string, string>()
+const realAdmitted = ChiefBrainDO.prototype.admitted
+ChiefBrainDO.prototype.admitted = async function (this: ChiefBrainDO, agent, owner, turn) {
+  const reason = refuseNext.get(agent)
+  refuseNext.delete(agent)
+  if (reason) return { ok: false, reason }
+  return realAdmitted.call(this, agent, owner, turn)
+}
+afterAll(() => void ((ChiefBrainDO.prototype.wake = realWake), (ChiefBrainDO.prototype.admitted = realAdmitted)))
 
 describe("Chief wake delivery", { timeout: 120_000 }, () => {
   for (const when of ["before", "after"] as const) it(`a wake whose brain is evicted during the wake RPC (${when} it takes the wake) is sent again and answered exactly once`, async () => {
@@ -98,6 +118,52 @@ describe("Chief wake delivery", { timeout: 120_000 }, () => {
     // Nothing is left to deliver.
     const left = await runInDurableObject(mux, async (_i: unknown, st: DurableObjectState) => Number(st.storage.sql.exec(`SELECT COUNT(*) AS n FROM mux_wake_delivery`).one().n))
     expect(left).toBe(0)
+  })
+
+  it("a new Chief's first message whose wake the brain skips for a passing refusal is answered without a second message", async () => {
+    const { token, chief } = await ownerWithChief("wake-first-refused")
+    const mux = testEnv.MUX_DO.get(testEnv.MUX_DO.idFromName(chief.id))
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    refuseNext.set(chief.id, "owner.unreachable")
+    const key = "wake-first-refused-1"
+    expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: "first words" }] }, key)).ok).toBe(true)
+    let replies: Array<any> = []
+    for (let i = 0; i < 200 && replies.length === 0; i++) {
+      replies = (await history(token, chief.main_conversation)).filter((m) => m.author === chief.id)
+      // The resend is due 1 s after the refused send; MuxDO's alarm sends it.
+      if (replies.length === 0) [await fireAlarm(conv), i % 5 === 4 && (await fireAlarm(mux)), await new Promise((r) => setTimeout(r, 50))]
+    }
+    expect(refuseNext.has(chief.id), "the refusal never happened").toBe(false)
+    expect(replies, "the first message was dropped with its refused wake").toHaveLength(1)
+    expect(replies[0].parts[0].text).toContain("first words")
+    const left = await runInDurableObject(mux, async (_i: unknown, st: DurableObjectState) => Number(st.storage.sql.exec(`SELECT COUNT(*) AS n FROM mux_wake_delivery`).one().n))
+    expect(left).toBe(0)
+  })
+
+  it("wakes that come while an earlier wake's RPC is in flight reach the brain once it is delivered, in order, without the alarm", async () => {
+    const { token, chief } = await ownerWithChief("wake-burst")
+    const conv = testEnv.CONVERSATION_DO.get(testEnv.CONVERSATION_DO.idFromName(chief.main_conversation))
+    let release!: () => void
+    holdNext.set(chief.id, new Promise<void>((r) => (release = r)))
+    const seen = () => wakeSeqs.filter((w) => w.agent === chief.id).map((w) => w.seq)
+    const send = async (i: number) => {
+      const key = `wake-burst-${i}`
+      expect((await op(token, "message.send", { conversation: chief.main_conversation, client_msg_id: key, parts: [{ type: "text", text: `burst note ${i}` }] }, key)).ok).toBe(true)
+    }
+    await send(1)
+    // The conversation's outbox hands each wake to MuxDO (its alarm, never MuxDO's).
+    for (let i = 0; i < 100 && seen().length === 0; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
+    expect(seen()).toHaveLength(1)
+    await send(2)
+    await send(3)
+    for (let i = 0; i < 10; i++) [await fireAlarm(conv), await new Promise((r) => setTimeout(r, 20))]
+    // Held: the newer wakes wait behind the first one.
+    expect(seen()).toHaveLength(1)
+    release()
+    for (let i = 0; i < 100 && seen().length < 3; i++) await new Promise((r) => setTimeout(r, 20))
+    const seqs = seen()
+    expect(seqs, "the newer wakes waited for MuxDO's alarm").toHaveLength(3)
+    expect([...seqs].sort((a, b) => a - b)).toEqual(seqs)
   })
 
   it("a local-run Chief's wakes never go to the cloud brain, stay queued, and the local ack clears them", async () => {

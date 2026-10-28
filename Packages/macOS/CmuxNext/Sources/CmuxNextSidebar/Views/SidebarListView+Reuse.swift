@@ -1,7 +1,7 @@
 import AppKit
 // Row view reuse through `rowPool`: views exist only for rows near the
 // viewport, and leaving rows return to the pool.
-extension SidebarListView {
+extension SidebarListViewComponents {
     /// `rebinding`: with no parked view of `key`, take another parked row's
     /// view of the same kind (scroll realization only: the view is placed,
     /// never animated, so nothing flies in from its old row, cx-ai79).
@@ -16,6 +16,15 @@ extension SidebarListView {
     /// (16% of the main thread while scrolling 1,000 rows, perf round 2). A view in another superview
     /// (a lift) leaves it, and a view the pool evicts leaves the list.
     func recycle(_ view: SidebarRowView) {
+        // A parked view must not retain a render-server move from the list it just left. In
+        // particular, a non-animated reload removes a row by recycling it directly, without
+        // passing it through RowMotion.run's stop set; leaving its additive spring active would
+        // keep the hidden row in the next layout's motion probe and on a later dequeue.
+        SidebarDragSpring.stop([view])
+        if view.key == hoveredKey {
+            hoveredKey = nil
+            view.clearHoverImmediately()
+        }
         if view.superview === self { view.isHidden = true } else { view.removeFromSuperview() }
         for evicted in rowPool.put(view) where evicted.superview === self { evicted.removeFromSuperview() }
     }
@@ -29,21 +38,23 @@ extension SidebarListView {
             // A link, tab or app row runs as the band's item does (AXPress too).
             view.onSelect = { [weak self] in self?.model.send(.activateItem(LayoutItemID(id))) }
         case (.block, let view as SidebarBlockRowView):
-            if view.region.docList !== self {
-                view.region.docList = self
-                configureBlockRegion?(view.region)
-            }
+            // On every dequeue: a parked block comes back in the sidebar's state now (its edit mode).
+            view.region.docList = self
+            configureBlockRegion?(view.region)
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             view.onSelect = { [weak self] in
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))
             }
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit
-            view.onEdit = { [weak self] in self?.groupEditing.open(id) }
+            view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
             // The header's + runs the editor's New Workspace in Group (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id
             view.isKeyboardFocused = showsFocusRing && focusedGroup == id
+        case let (.emptyGroup(id), view as EmptyGroupRowView):
+            // The same New Workspace in Group as the header's + (one action path).
+            view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
         case let (.section(sectionID), view as SectionHeaderRowView):
             if case let .machine(machine) = sectionID {
                 view.allowsAdd = true

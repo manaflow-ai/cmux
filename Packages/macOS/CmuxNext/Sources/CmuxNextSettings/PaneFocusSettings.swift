@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// is the default plus a diagnostic.
 enum PaneFocusSettings {
     static let focusIndicatorPath = ["appearance", "focusIndicator"]
-    static let focusIndicatorFallback: FocusIndicator = .both
+    static let focusIndicatorFallback: FocusIndicator = .tabs
     static let inactiveTabStylePath = ["focus", "inactiveTabStyle"]
     static let inactiveTabStyleFallback: InactiveTabStyle = .fade
 

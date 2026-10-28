@@ -37,7 +37,7 @@ extension ScreenContentView {
                                         snaps: DividerDragState.snaps(equalShare: layout.tree(containing: id)?.equalizedRatio(for: id)))
             case let .columnEdge(id):
                 guard let frame = geometry.columns[id] else { return }
-                let size = layout.columns.first { $0.id == id }.map { SplitGeometry.minimumSize(of: $0.root, style: context.style) } ?? .zero
+                let size = layout.columns.first { $0.id == id }.map { $0.minimumSize(style: context.style) } ?? .zero
                 let edge = geometry.columnEdges.first { $0.column == id }?.dockEdge
                 let grab: CGFloat = switch edge {
                 case .right?: point.x - frame.minX
@@ -62,9 +62,14 @@ extension ScreenContentView {
             context.requestFrames()
         case let .moved(windowPoint):
             activeDrag?.sample(contentPoint(fromWindow: windowPoint, kind: kind), at: CACurrentMediaTime())
+            if activeDrag != nil { resizeGestureMoved() }
             applyDrag(at: windowPoint, phase: .changed)
             context.requestFrames()
         case let .ended(windowPoint):
+            // A press and release with no move between them is a click, not a resize: saving
+            // the ratio the divider is drawn at (clamped by a narrow window) would replace the
+            // stored one.
+            if activeDrag?.pointer == nil { return endDrag() }
             if case .split = kind, let drag = activeDrag {
                 // The layout this release makes springs on from the pointer's velocity.
                 releasedDivider = (kind, drag.releaseVelocity(at: CACurrentMediaTime()), CACurrentMediaTime())
@@ -72,6 +77,7 @@ extension ScreenContentView {
             applyDrag(at: windowPoint, phase: .ended)
             activeDrag = nil
             model.setGestureActive(false)
+            resizeGestureReleased()
         }
     }
 
@@ -83,6 +89,7 @@ extension ScreenContentView {
         rowDragPreview = nil
         context.model.cancelGesture(drag.transaction)
         context.model.setGestureActive(false)
+        resizeGestureReleased()
     }
 
     func applyDrag(at windowPoint: NSPoint, phase: LayoutGesturePhase) {
@@ -92,7 +99,7 @@ extension ScreenContentView {
         switch drag.kind {
         case let .split(id):
             // A fling that would carry the divider onto a snap within the spring's reach lands there.
-            let reach = phase == .ended && context.animatesPaneLayout ? (releasedDivider?.velocity ?? 0) * CGFloat(Motion.dividerReleaseProjection) : 0
+            let reach = phase == .ended && context.animatesPaneLayout ? (releasedDivider?.velocity ?? 0) * CGFloat(Motion.panes.dividerReleaseProjection) : 0
             let projected = drag.axis == .horizontal ? CGPoint(x: point.x + reach, y: point.y) : CGPoint(x: point.x, y: point.y + reach)
             var probe = drag
             let flung = reach != 0 ? probe.splitRatio(at: projected, style: style, phase: phase) : nil

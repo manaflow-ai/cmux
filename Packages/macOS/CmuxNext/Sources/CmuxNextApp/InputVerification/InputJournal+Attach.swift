@@ -32,6 +32,7 @@ extension InputJournal {
             case .resize(let size): record.event = "resize:\(size.cols)x\(size.rows)"
             case .visibility(let visible): record.event = visible ? "visible" : "hidden"
             case .focused: record.event = "focused"
+            case .takeOver(let setLatest): record.event = setLatest ? "takeOver:latest" : "takeOver"
             case .gridAnnounced(let ref, let size):
                 record.event = "grid:\(size.cols)x\(size.rows)"
                 record.link = Self.linkID(ref.link)

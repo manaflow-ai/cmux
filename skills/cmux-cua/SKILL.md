@@ -36,7 +36,9 @@ or permissions are not a reason to begin setup automatically.
 - cmux attaches it to every agent session it starts on this Mac: the acpmux
   daemon that runs the app's agent pane, the TUI, `cmux acp`, the Chief and
   their subagents, pooled sessions and forks adds an MCP server named
-  `cmux-cua` (`<app>/Contents/Resources/bin/cmux-cua mcp`, with
+  `cmux-cua` (`<app>/Contents/Resources/bin/cmux-cua mcp` in a DEV build, the
+  signed helper's `Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua
+  mcp` in NIGHTLY, NEXT and release, which ship no bin copy; with
   `CMUX_CUA_MCP_FORCE_PROXY=1` and the cursor branding env). Claude Code gets
   it through `--mcp-config` and this skill as `cmux:cmux-cua` from a
   session-only plugin; ACP harnesses (Codex, OpenCode, Pi, Gemini) get it in
@@ -51,14 +53,20 @@ or permissions are not a reason to begin setup automatically.
   computer-use connector, or a direct helper launch. If the `cmux-cua` tools
   are absent or fail to connect, report that and stop; do not switch
   providers.
+- Computer Use is off until the user turns on `computerUse.enabled` (Settings →
+  cmux Computer Use); while it is off the app starts no helper and macOS asks
+  for nothing. `computerUse.driver` picks the helper: `legacy` (default) or
+  `upstream` (helper v2, reached through the `acpmux cua-mcp` bridge, still
+  named `cmux-cua`). The app, not the agent session, starts the helper.
 - The proxy forwards to the **cmux Computer Use** helper (`com.cmuxterm.cua`)
-  over its Unix socket and starts it on the first call. Only a helper signed
+  over its Unix socket. Only a helper signed
   with the cmux Developer ID (team `7WLXT3NR37`) is used
   (`Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/CuaHelperIdentity.swift`,
   `scripts/cmux-cua-helper-trust.sh`). A release, NIGHTLY or RC cmux carries
-  it. A tagged dev build has no helper of its own (`reload.sh` removes an
-  ad-hoc one), so dev builds use the helper of an installed NIGHTLY (or
-  release or RC). With no signed helper installed, computer use is
+  it. With the legacy driver a tagged dev build has no helper of its own
+  (`reload.sh` removes an ad-hoc one), so dev builds use the helper of an
+  installed NIGHTLY (or release or RC). With the `upstream` driver a DEV build
+  embeds a dev helper (`com.cmuxterm.cua.dev`, `scripts/cmux-next/embed-cua-helper-dev.sh`). With no signed helper installed, computer use is
   unavailable in that build; say so instead of trying to build or sign one.
 - Agent activity (every computer use session, its timeline and thumbnails) is
   in the app's Agent activity pane, read from the same helper.
@@ -171,13 +179,14 @@ Perceive, act in logical groups, then verify:
    screenshot. Ground on both. Prefer element addressing.
 2. Act by element: `click` with `element_token` (or `element_index` + pid +
    window_id) is the robust path. Pixel addressing (`x`,`y`) is the fallback.
-3. For a stable, already-snapshotted control set, call `perform_actions` once
-   with the ordered `click` / `type_text` / `press_key` / other input steps.
-   This reuses the existing element-token cache and visible cursor inside the
-   persistent proxy instead of paying one model/MCP round trip and AX scan per
-   click. Do not put navigation, modal-opening, or layout-changing actions
-   before later control references in the same group; re-snapshot immediately
-   after any action that can invalidate those controls.
+3. Each model turn costs seconds; a tool call in a script costs milliseconds.
+   In code mode, put the steps that need no new look in one `cmux_exec`
+   script: `launch_app`, then `get_window_state` on the window it returned;
+   later, every `click` / `type_text` / `press_key` of a stable,
+   already-snapshotted control set, then one `get_window_state` to verify.
+   Do not put navigation, modal-opening, or layout-changing actions before
+   later control references in the same script; re-snapshot after any action
+   that can invalidate those controls. This helper has no `perform_actions`.
 4. Verify the completed group by re-snapshotting and reading the element
    `value` / screenshot — do not assume actions landed (clicks are never
    helper-verified). Operate on-screen controls with visible pointer clicks by
@@ -187,9 +196,9 @@ Perceive, act in logical groups, then verify:
    visibility.
 
 Notes:
-- In the native profile, use `list_apps` / `launch_app` / `list_windows` to
-  find targets;
-  `get_window_state` needs a `window_id` from `list_windows`.
+- In the native profile, `launch_app` returns the pid and its windows; use
+  that `window_id` for `get_window_state`. Call `list_windows` only when it
+  returned no window or several.
 - Catalyst apps (e.g. Calculator) can expose an empty AX tree briefly after
   launch and return spurious AX error codes (-25204) even when the action
   landed — re-snapshot and check the result rather than trusting the code.
@@ -204,12 +213,14 @@ The agent's pointer shows as the cmux logo gradient (`#12c7f5 → #2d8cff →
 #6c5cff`) with a `cmux` label, so it is visually distinct from the user's
 cursor. It is configured by env the attachment sets
 (`CMUX_CUA_CURSOR_GRADIENT` / `_BLOOM` / `_LABEL`) and is auto-active while
-the helper daemon is driving. It remains visible across normal reasoning gaps
-and is removed when the driving session ends or the proxy control connection
+the helper daemon is driving. The app starts the helper with a fixed short
+glide (`--glide-ms 150`) and click dwell (`--dwell-ms 30`), so a move takes
+about 0.2 s however far it goes (`ComputerUseHelperDaemon.arguments`). It
+remains visible across normal reasoning gaps and is removed when the driving session ends or the proxy control connection
 closes. Each later action reasserts the cursor directly above the driven
-target. If no cursor appears during an action, confirm the MCP config uses the
-helper socket and that you passed your own `session` to `start_session` and
-every action. The cmux-next app draws the same cursor for browser REPL input
+target. If no cursor appears during an action, confirm the session's MCP config
+uses the helper socket with `CMUX_CUA_MCP_FORCE_PROXY=1`; never call
+`start_session` or pass a `session` yourself. The cmux-next app draws the same cursor for browser REPL input
 (`plans/cmux-next/agent-cursor.md`).
 
 ## Finding and focusing the driving session
@@ -241,8 +252,9 @@ Settings → cmux Computer Use.
   acpmux daemon, the daemon has `ACPMUX_AGENT_TOOLS=0`, the daemon's
   executable is not the app's (no `cmux-cua` beside it), or the session has a
   remote origin. Start a fresh session from the cmux app.
-- **Tools present, every call fails** — no Developer ID signed helper is
-  installed (typical for a tagged dev build without a NIGHTLY install).
+- **Tools present, every call fails** — `computerUse.enabled` is off (the
+  default), or no Developer ID signed helper is installed (typical for a tagged
+  dev build on the legacy driver without a NIGHTLY install).
 - **Clicks do nothing / not permitted** — grant Accessibility to cmux Computer Use.
 - **Black/empty screenshots** — grant Screen Recording to cmux Computer Use;
   restart only the helper if its automatic refresh has not completed yet.
@@ -264,9 +276,11 @@ Settings → cmux Computer Use.
   agent-supplied `check_permissions {prompt:true}` from bypassing cmux
   onboarding. The attachment sets `CMUX_CUA_MCP_FORCE_PROXY=1`, so the
   proxy never runs computer use in the agent's own process.
-  There is no ambient executable override. Both profiles resolve the app-bundled
-  `cmux-cua` executable and the tag-scoped helper only; missing ownership fails
-  closed instead of running a user-supplied executable.
+  The acpmux daemon finds `cmux-cua` next to its own executable, or in
+  `CMUX_AGENT_TOOLS_BIN_DIR` when that is set on the daemon, else in the
+  nested helper app (shipped builds carry no bin copy). Both profiles then
+  use the tag-scoped helper only; missing ownership fails closed instead of
+  running a user-supplied executable.
 - If the cmux-owned daemon is unavailable, do **not** invoke `cmux-cua`
   directly through Bash and do not start its default socket. Tell the user to
   open Settings → cmux Computer Use or restart the tagged cmux build, then retry the
@@ -275,5 +289,6 @@ Settings → cmux Computer Use.
   generated from the Rust tool descriptions.
 - The attachment lives in `cmux-tui/crates/acpmux/src/agent_tools.rs`; the
   helper identity rule and the Agent activity pane in
-  `Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/`; the design in
+  `Packages/macOS/CmuxNext/Sources/CmuxNextAgentActivity/`; the helper daemon
+  and onboarding in `Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/`; the design in
   `plans/cmux-next/computer-use.md`.

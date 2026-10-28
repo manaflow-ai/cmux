@@ -11,6 +11,7 @@ nonisolated extension OmnibarStep {
         case .tab: if !startKeywordOnTab() { move(1, clamp: false) }
         case .backTab: move(-1, clamp: false)
         case .enter(let disposition): enter(disposition)
+        case .enterAddingTLD(let disposition): enterAddingTLD(disposition)
         case .escape: escape()
         case .selectAll: selectAll()
         case .focusLocation: focusLocation()
@@ -19,6 +20,7 @@ nonisolated extension OmnibarStep {
         case .undo: undo(redo: false)
         case .redo: undo(redo: true)
         case .backspaceAtStart: backspaceAtStart()
+        case .searchWithDefaultEngine: searchWithDefaultEngine()
         }
     }
 
@@ -66,14 +68,43 @@ nonisolated extension OmnibarStep {
         if let fixed = typoFixedDestination {
             effects.append(.hostTypoFixed(typedHost: fixed.typedHost))
             effects.append(.typedNavigation(fixed.url))
+            noteHTTPSUpgrade(fixed.url, disposition)
             return commit(fixed.url, disposition)
         }
         guard let destination = commitDestination else {
             effects.append(.beep)
             return
         }
-        if let typed = typedDestination, typed == destination { effects.append(.typedNavigation(typed)) }
+        if let typed = typedDestination, typed == destination {
+            effects.append(.typedNavigation(typed))
+            if OmnibarRules.isHTTPSUpgrade(of: state.fieldText, to: typed, resolver: resolver.urlResolver) { noteHTTPSUpgrade(typed, disposition) }
+        }
         commit(destination, disposition)
+    }
+
+    /// A typed https upgrade loading in this tab may fall back to http.
+    private mutating func noteHTTPSUpgrade(_ url: URL, _ disposition: OmnibarInput.Disposition) {
+        guard disposition == .currentTab, url.scheme?.lowercased() == "https" else { return }
+        effects.append(.typedHTTPSUpgrade(url))
+    }
+
+    /// Control-Enter (Chromium `OmniboxEditModel::OnControlKeyChanged`,
+    /// `AutocompleteInput` desired TLD "com"): the typed host without a dot
+    /// gets `www.` and `.com`, keeping its path. Anything else, an arrowed
+    /// row or a keyword session commits as Enter does.
+    private mutating func enterAddingTLD(_ disposition: OmnibarInput.Disposition) {
+        guard state.hasFocus, !state.isComposing else {
+            handled = false
+            return
+        }
+        let arrowed = (state.popup.selected ?? 0) > 0
+        guard state.keyword == nil, state.phase == .editing, !arrowed,
+              let url = OmnibarRules.desiredTLDURL(for: state.edit.userText, resolver: resolver.urlResolver) else {
+            return enter(disposition)
+        }
+        effects.append(.typedNavigation(url))
+        noteHTTPSUpgrade(url, disposition)
+        commit(url, disposition)
     }
 
     /// Chromium `OmniboxEditModel::OnEscapeKeyPressed`, one step per press:

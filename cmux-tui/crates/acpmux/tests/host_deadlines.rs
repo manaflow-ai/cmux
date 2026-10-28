@@ -36,6 +36,7 @@ async fn a_query_the_host_never_answers_times_out() {
         start_nonce: "n".into(),
         harness_pid: None,
         owner_token: "00".into(),
+        caller_token: None,
         protocol_min: agent_host::PROTOCOL_MIN,
         protocol_max: agent_host::PROTOCOL_MAX,
         host_build: "fake".into(),

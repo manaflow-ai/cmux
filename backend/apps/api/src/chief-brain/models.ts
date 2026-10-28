@@ -9,6 +9,7 @@ import type { Env } from "../env.ts"
 import { liveOf } from "./brain-stream.ts"
 import { type GatewayHooks, type GatewayWho, ModelGatewayLive } from "../model-gateway/gateway.ts"
 import { signedFetch } from "./claude-auth.ts"
+import { bedrockCost } from "../model-gateway/bedrock-price.ts"
 import { DEFAULT_EFFORT } from "./contract.ts"
 import { fakeStreams } from "./fake.ts"
 import { claudeRoute, compactorDefault, compactorModel, isClaude, isMetered, isOpenRouter, modelRefusal, OPENROUTER_PREFIX, openRouterUrl, OPUS, pickTurnModel, validModelName } from "../model-gateway/routes.ts"
@@ -58,13 +59,14 @@ const fakeModel = (): Model<Api> => ({
 })
 
 const CLAUDE_NAMES: Record<string, string> = { "claude-opus-5-5": "Claude Opus 5.5", "claude-sonnet-5-5": "Claude Sonnet 5.5", "claude-haiku-5-5": "Claude Haiku 5.5" }
-/** Prices per million tokens for names the catalog lacks (Haiku 5.5: Anthropic's Haiku tier). */
-const CLAUDE_COST: Record<string, Model<Api>["cost"]> = { "claude-haiku-5-5": { input: 1, output: 5, cacheRead: 0.1, cacheWrite: 1.25 } }
-
-export const claudeModel = (name: string, baseUrl: string): Model<Api> => {
+/**
+ * A Claude model on the route, priced as Bedrock charges it (model-gateway/bedrock-price.ts: global profile, the
+ * cache write rate of the TTL the route marks), not the catalog's first-party price. `ttl`: CHIEF_BRAIN_CACHE_TTL.
+ */
+export const claudeModel = (name: string, baseUrl: string, ttl?: string): Model<Api> => {
   const known = (ANTHROPIC_MODELS as Record<string, Model<Api>>)[name]
-  const base: Model<Api> = known ?? { id: name, name: CLAUDE_NAMES[name] ?? name, api: "anthropic-messages", provider: CLAUDE_PROVIDER, baseUrl, reasoning: true, input: ["text"], cost: CLAUDE_COST[name] ?? { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, contextWindow: 200_000, maxTokens: MAX_TOKENS, thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, compat: { forceAdaptiveThinking: true, supportsTemperature: false } } as Model<Api>
-  return { ...base, provider: CLAUDE_PROVIDER, baseUrl, maxTokens: Math.min(base.maxTokens || MAX_TOKENS, MAX_TOKENS) }
+  const base: Model<Api> = known ?? { id: name, name: CLAUDE_NAMES[name] ?? name, api: "anthropic-messages", provider: CLAUDE_PROVIDER, baseUrl, reasoning: true, input: ["text"], cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 }, contextWindow: 200_000, maxTokens: MAX_TOKENS, thinkingLevelMap: { off: null, minimal: null, low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, compat: { forceAdaptiveThinking: true, supportsTemperature: false } } as Model<Api>
+  return { ...base, cost: bedrockCost(name, ttl) ?? base.cost, provider: CLAUDE_PROVIDER, baseUrl, maxTokens: Math.min(base.maxTokens || MAX_TOKENS, MAX_TOKENS) }
 }
 
 const openRouterModel = (name: string, baseUrl: string): Model<Api> => {
@@ -101,7 +103,7 @@ export const brainModels = (env: Env, sessionId: string, opts: BrainModelOptions
         baseUrl: route.url,
         // A placeholder the signed fetch removes: the route authenticates by its own header only.
         auth: keyAuth("route-signed"),
-        models: route.models.map((m) => claudeModel(m, route.url)),
+        models: route.models.map((m) => claudeModel(m, route.url, env.CHIEF_BRAIN_CACHE_TTL)),
         api: { stream: (m, c, o) => api.stream(m, c, { ...o, fetch }), streamSimple: (m, c, o) => api.streamSimple(m, c, { ...o, fetch }) }
       })
     )
@@ -136,7 +138,7 @@ export const brainModels = (env: Env, sessionId: string, opts: BrainModelOptions
     models,
     model: (name) => {
       if (name === FAKE) return fakeModel()
-      if (isClaude(name)) return claudeModel(name, route.url)
+      if (isClaude(name)) return claudeModel(name, route.url, env.CHIEF_BRAIN_CACHE_TTL)
       if (isOpenRouter(name)) {
         if (!env.OPENROUTER_API_KEY) throw new Error(`model ${name} needs OPENROUTER_API_KEY, which this deployment does not have`)
         return openRouter(name)

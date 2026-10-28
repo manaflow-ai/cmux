@@ -65,6 +65,7 @@ jobs:
         run: echo "Blacksmith started this job on ${RUNNER_NAME:-an unnamed runner}"
 
   watch:
+    environment: ci-routing-agent
     name: Watch the probe and switch overflow
     if: github.repository_owner == 'manaflow-ai'
     runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing

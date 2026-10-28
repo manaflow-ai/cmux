@@ -95,6 +95,14 @@ test("one phrase says how many subagents there are and what is still going", asy
   expect(await label(["completed", "failed"])).toBe("2 subagents, 1 failed, 1 done");
 });
 
+// A subagent the person stopped, or one acpmux lost, ended without its result: the phrase said
+// nothing of it ("3 subagents, 1 done" for one done, one cancelled and one disconnected).
+test("cancelled and disconnected subagents count as stopped", async () => {
+  expect(await label(["completed", "cancelled", "disconnected"])).toBe("3 subagents, 2 stopped, 1 done");
+  expect(await label(["cancelled", "cancelled"])).toBe("2 subagents, 2 stopped");
+  expect(await label(["running", "cancelled"])).toBe("2 subagents, 1 running, 1 stopped");
+});
+
 test("the count takes the pane language's plural form", async () => {
   expect(await label(["running"], "ru")).toBe("1 субагент выполняется");
   expect(await label(["running", "running"], "ru")).toBe("2 субагента выполняются");

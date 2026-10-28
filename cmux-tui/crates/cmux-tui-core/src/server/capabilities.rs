@@ -3,27 +3,40 @@
 
 use super::*;
 
+/// Verified app registrations may include the `agent_cli` family.
+#[cfg(unix)]
+const AGENT_CLI_APP_PROVIDER_CAPABILITY: &str = "agent-cli-app-provider-v1";
+
 /// A personal workspace's own remote-localhost choice: `remote_localhost`
 /// on `set-personal-workspace` and the personal workspace rows.
 pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhost-v1";
 
-/// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
+/// A pinned column may be a screen's only column (the Home dock with nothing
+/// beside it): `move-tab-to-column` with a pinned `dock` makes it from a
+/// screen's only tab without a `respawn`, and closing the last column beside
+/// it leaves the pinned column alone instead of being refused.
+pub const PINNED_DOCK_ALONE_CAPABILITY: &str = "pinned-dock-alone-v1";
+
+/// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
 /// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
 /// `daemon-build-v1` when the binary installed its build identity.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
-    let mut capabilities = advertised_capabilities(cfg!(unix));
-    capabilities.push(activity::CAPABILITY);
-    capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
-    capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
+    let mut capabilities = always_identified();
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
         capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_PRESENCE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
+        capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
+    }
+    if mux.host_replica().is_some_and(|replica| replica.running()) {
+        capabilities.push(cloud_host_replica::CAPABILITY);
     }
     if mux.serves_ws_listen() {
         capabilities.push(WS_LISTEN_CAPABILITY);
@@ -33,24 +46,37 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
     }
     #[cfg(unix)]
-    capabilities.push(tab_restart::CAPABILITY);
-    #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
+        capabilities.push(agent_inventory::CAPABILITY);
+        capabilities.push(agent_inventory::OWNER_CAPABILITY);
+        capabilities.push(agent_inventory::REFRESH_CAPABILITY);
+        capabilities.push(agent_inventory::watch::CAPABILITY);
+        capabilities.push(agent_inventory::watch::FENCED_CAPABILITY);
+        capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_observe::AGENT_SESSION_OBSERVE_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
         capabilities.push(AGENT_SESSION_TRUST_CAPABILITY);
+        capabilities.push(AGENT_SESSION_TRUST_VM_KIND_CAPABILITY);
         capabilities.push(AGENT_SESSION_START_KEYED_REASON_CAPABILITY);
+        capabilities.push(AGENT_SESSION_START_VM_KIND_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_update() {
         capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_CAPABILITY);
+        capabilities.push(agent_transfer::agent_update::AGENT_UPDATE_OWNER_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_transfer() {
         capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
+        capabilities.push(agent_transfer::AGENT_TRANSFER_VM_KIND_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.on_cloud_host() {
@@ -68,6 +94,53 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(debug_assertions)]
     capabilities
         .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));
+    capabilities
+}
+
+/// What `identify` advertises on every daemon this binary starts here, however
+/// it was started: the static set plus the ones it always adds on this
+/// platform. The ones that depend on what the daemon installs at startup
+/// (cloud transport, WebSocket listener, search index, agent sessions, the
+/// reaper, build identity, a Chief) are [`identify_capabilities`]'s alone.
+fn always_identified() -> Vec<&'static str> {
+    let mut capabilities = advertised_capabilities(cfg!(unix));
+    capabilities.push("machine-identity-v1");
+    // Receipts can outlive the acpmux configuration that prepared them.
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_job::RESOLVE_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(agent_cli_intents::CAPABILITY);
+    capabilities.push(activity::CAPABILITY);
+    capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
+    capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(tab_restart::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(tab_restart::KEPT_LAYOUT_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(tab_park::CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(AGENT_CLI_APP_PROVIDER_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(crate::apps::AGENT_INVENTORY_INVALIDATION_CAPABILITY);
+    #[cfg(unix)]
+    capabilities.push(client_registry::machine_catalog::CAPABILITY);
+    capabilities
+}
+
+/// `cmux-tui __daemon-capabilities [--json]`: `always_identified`, sorted, with no
+/// daemon running. Every daemon this binary starts beside the same files (the
+/// app bundle's `bin/`, where `apps-v1` follows `cmux-app-host`) advertises at
+/// least these in `identify`. The app bundle records them in
+/// `Contents/Resources/bin/daemon-capabilities.json`
+/// (scripts/cmux-next/write-daemon-capabilities.sh) for the web pages, which
+/// update apart from the app.
+pub fn static_capabilities() -> Vec<&'static str> {
+    let mut capabilities = always_identified();
+    capabilities.sort_unstable();
+    capabilities.dedup();
     capabilities
 }
 
@@ -116,11 +189,15 @@ pub(super) fn advertised_capabilities(
     bounded_clear_history_fallback_writes: bool,
 ) -> Vec<&'static str> {
     let mut capabilities = vec![
+        crate::resource_api::MACHINE_CATALOG_READ_CAPABILITY,
         ATTACH_INITIAL_SIZE_CAPABILITY,
         "attach-identity-v1",
         crate::terminal_activity::CAPABILITY,
         split_kind::SPLIT_CLIENT_KEYS_CAPABILITY,
+        split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
+        cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
+        cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -131,7 +208,11 @@ pub(super) fn advertised_capabilities(
         EDGE_DOCKS_CAPABILITY,
         DOCK_COLUMN_ROLE_CAPABILITY,
         PERMANENT_DOCK_CAPABILITY,
+        PINNED_DOCK_CAPABILITY,
+        PINNED_DOCK_ALONE_CAPABILITY,
         ROWS_CAPABILITY,
+        rows::ROW_CLIENT_KEYS_CAPABILITY,
+        COLUMN_MOVE_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
@@ -144,6 +225,9 @@ pub(super) fn advertised_capabilities(
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
+        SIZE_LEASE_CAPABILITY,
+        crate::mux::host_policy::HOST_SIZE_POLICY_CAPABILITY,
+        HOST_GRID_VIEW_CAPABILITY,
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
@@ -160,9 +244,11 @@ pub(super) fn advertised_capabilities(
         CLIENT_FOCUS_CAPABILITY,
         MACHINE_USAGE_CAPABILITY,
         MACHINE_LISTENING_TCP_CAPABILITY,
+        TERMINAL_PORTS_CAPABILITY,
         SERVER_STATS_CAPABILITY,
         TERMINAL_IDLE_CLOSE_CAPABILITY,
         TERMINAL_REAP_CAPABILITY,
+        RESUME_COMMAND_CAPABILITY,
         END_TERMINALS_KEEP_LAYOUT_CAPABILITY,
         BATCH_CLOSE_CAPABILITY,
         CLOSE_WORKSPACE_IF_EMPTY_CAPABILITY,
@@ -173,12 +259,18 @@ pub(super) fn advertised_capabilities(
         AGENT_PRESENCE_CAPABILITY,
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
+        TAB_MARK_UNREAD_CAPABILITY,
+        TAB_ATTENTION_CAPABILITY,
+        WORKSPACE_DESCRIPTION_CAPABILITY,
+        WORKSPACE_STATUS_CAPABILITY,
+        WORKSPACE_CREATE_FOCUS_CAPABILITY,
         TAB_METADATA_CAPABILITY,
         FRONTEND_BROWSER_TABS_CAPABILITY,
         FRONTEND_BROWSER_HISTORY_CAPABILITY,
         FRONTEND_BROWSER_TAB_PROFILE_CAPABILITY,
         TAB_DRAG_CAPABILITY,
         TAB_WORKSPACE_NAME_CAPABILITY,
+        WORKSPACE_NAME_SOURCE_CAPABILITY,
         TAB_SPLIT_RESPAWN_CAPABILITY,
         TAB_SPLIT_KEEP_FOCUS_CAPABILITY,
         TAB_COLUMN_RESPAWN_CAPABILITY,
@@ -220,6 +312,7 @@ pub(super) fn advertised_capabilities(
         chief_registry_resource::CHIEF_PROFILE_WS_CAPABILITY,
         chief_registry_resource::CHIEF_EVENTS_CAPABILITY,
         chief_registry_resource::CHIEF_PROFILE_ADOPT_CAPABILITY,
+        chief_registry_resource::CHIEF_PROFILE_HISTORY_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
@@ -247,11 +340,15 @@ pub(super) fn advertised_capabilities(
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::sidebar_doc_store::CAPABILITY,
+        crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
+        crate::state::stash_store::CAPABILITY,
+        crate::state::stash_store::WORKSPACES_CAPABILITY,
         crate::state::browser_devices::CAPABILITY,
+        crate::state::workspace_checklist::CAPABILITY,
         crate::state::browser_devices::FIT_CAPABILITY,
         crate::state::browser_devices::FIT_WIDTH_CAPABILITY,
         crate::browser_profile_ops::CAPABILITY,
@@ -264,6 +361,7 @@ pub(super) fn advertised_capabilities(
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
+        conversation_tabs_wire::CONVERSATION_TAB_SPLIT_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
@@ -313,5 +411,21 @@ mod tests {
         reaper.stop();
         assert!(!identify_capabilities(&mux).contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY));
         assert!(identify_capabilities(&mux).contains(&TERMINAL_REAP_CAPABILITY));
+    }
+
+    /// `cmux-tui capabilities` names only what `identify` always serves: a
+    /// daemon with nothing installed at startup advertises every one of them.
+    #[test]
+    fn identify_serves_every_static_capability() {
+        let mux = Mux::new_for_test("static-capabilities", SurfaceOptions::default());
+        let identified = identify_capabilities(&mux);
+        let listed = static_capabilities();
+        assert!(listed.contains(&conversations::WS_CONVERSATIONS_CAPABILITY));
+        assert!(listed.contains(&page_credential::PAGE_CREDENTIAL_CAPABILITY));
+        for capability in &listed {
+            assert!(identified.contains(capability), "identify lacks {capability}");
+        }
+        assert!(listed.windows(2).all(|pair| pair[0] < pair[1]), "sorted and unique: {listed:?}");
+        assert!(!listed.contains(&TERMINAL_REAPER_ACTIVE_CAPABILITY), "runtime-only");
     }
 }

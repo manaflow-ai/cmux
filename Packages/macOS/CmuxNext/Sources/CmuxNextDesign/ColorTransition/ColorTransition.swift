@@ -1,6 +1,7 @@
 public import AppKit
 import CCmuxMotionFFI
 public import CmuxTheme
+public import CmuxNextDesignTokens
 
 /// How every theme and color change animates (`appearance.colorTransition.*`, cx-3rf4z; Lawrence
 /// 2026-10-15: "always smooth animation (that can be configured, fully ... or even just instant").
@@ -8,8 +9,9 @@ public import CmuxTheme
 /// One value, read by every place a color changes: a layer color blends from the color on screen
 /// (``animate(_:to:)``: OKLab or sRGB keyframes on the render server, so a quick A, B, C
 /// switch retargets from the blend in flight and never jumps back; a theme repaint blends every
-/// layer color its views' hooks change the same way, `ThemeRepaint`), colors drawn in `draw(_:)`
-/// (text, terminal surfaces) switch at once, and web pages transition their theme variables with the same duration
+/// layer color its views' hooks change the same way, `ThemeRepaint`), terminal surfaces blend their
+/// palette and default colors on the GPU along the same curve (`keyframeProgress`), colors drawn in
+/// `draw(_:)` switch at once, and web pages transition their theme variables with the same duration
 /// and curve (``cssTransition``). Every curve, the spring's timing and the color mix come from
 /// cmux-motion (`CCmuxMotionFFI`: `cmux_motion_ease`, `cmux_motion_cubic_bezier`,
 /// `cmux_motion_spring_progress_monotone`, `cmux_motion_mix_rgba`); nothing here keeps its own
@@ -114,6 +116,15 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
         }
     }
 
+    /// The curve as a layer color blend samples it: `progress(at:)` at ``keyframes`` evenly spaced
+    /// time fractions, ending on exactly 1. Terminal surfaces blend their colors on the GPU along
+    /// the same samples (`ghostty_surface_set_color_transition`), so text and backgrounds move
+    /// together with the window.
+    public var keyframeProgress: [Double] { progressSamples(count: Self.keyframes) }
+
+    /// The blend mixes plain sRGB channels (``space`` is sRGB), not OKLab.
+    public var mixesInSRGB: Bool { space == .srgb }
+
     /// `progress(at:)` at `count` evenly spaced time fractions, ending on exactly 1.
     func progressSamples(count: Int) -> [Double] {
         guard count > 1 else { return [1] }
@@ -209,14 +220,14 @@ public nonisolated struct ColorTransition: Sendable, Hashable {
 }
 
 extension ColorTransition {
-    /// The transition in effect now: `appearance.colorTransition.*` under `ui.animationSpeed` and
-    /// Reduce Motion.
+    /// The transition in effect now: `appearance.colorTransition.*` under the `feedback` motion
+    /// category (`ui.animations.feedback`, the master switch, `ui.animationSpeed`) and Reduce Motion.
     /// Instant until the Ghostty config first reached the windows, so a launch shows its first
     /// colors at once. `ui.animationSpeed: normal` does not lengthen it: the duration is the
     /// user's own number.
     @MainActor
     public static var current: ColorTransition {
-        guard ThemeStore.shared.hasAppliedConfig else { return ColorTransition(enabled: false) }
-        return DesignSettings.shared.colorTransition.resolved(speedOff: Motion.speed == .off, systemReduceMotion: Motion.reduceMotion)
+        guard ThemeScope.app.store.hasAppliedConfig else { return ColorTransition(enabled: false) }
+        return DesignSettings.shared.colorTransition.resolved(speedOff: !Motion.feedback.isEnabled, systemReduceMotion: Motion.reduceMotion)
     }
 }

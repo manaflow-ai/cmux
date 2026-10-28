@@ -42,7 +42,9 @@ extension TabDragSession {
             drop?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: inPlace ? nil : sourcePane?.paneKey)))
         case .newSplit, .newColumn, .newDock, .newWorkspace:
             if drop !== source { source?.focus.send(.dragEnded(.movedAway)) }
-            drop?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: sourcePane?.paneKey)))
+            // A split behind the tabs keeps them in their pane (#22287): focus must not wait for them to leave it.
+            let stays = if case .newSplit(let pane, _) = outcome { liveContext(drag).splitsBehind(pane: pane) } else { false }
+            drop?.focus.send(.dragEnded(.dropped(tabs: tabs, awayFrom: stays ? nil : sourcePane?.paneKey)))
         }
     }
 

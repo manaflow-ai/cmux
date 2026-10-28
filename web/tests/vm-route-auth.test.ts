@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import manifestJson from "../services/vms/images/manifest.json";
 import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
+import { installVercelFirewallMock } from "./vercel-firewall-mock";
 
 // The manifest is the only source of truth for images: the desktop default at
 // the plan's memory is what a create with no image (and no kind) resolves to,
@@ -54,6 +55,7 @@ const deleteVmPublicationsForVmDeletion = mock(async () => ({
 }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
+  "CMUX_VM_ALLOCATION_RATE_LIMIT_ID",
   "CMUX_VM_FREESTYLE_ENABLED",
   "CMUX_VM_PRIVATE_NETWORK_ENABLED",
   "CMUX_VM_ALLOWED_ORIGINS",
@@ -110,9 +112,14 @@ const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+const identitySnapshotModule = await import("../services/auth/identitySnapshot");
+const realReadIdentitySnapshot = identitySnapshotModule.readIdentitySnapshot;
+const realWriteIdentitySnapshot = identitySnapshotModule.writeIdentitySnapshot;
+const realDeleteIdentitySnapshot = identitySnapshotModule.deleteIdentitySnapshot;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
+let useIdentitySnapshotStub = false;
 let authTombstoneRows: Array<{ userIdHash: string; status: string; updatedAt: Date | null }> = [];
 
 function callMock(fn: unknown, args: unknown[]) {
@@ -131,6 +138,8 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
+
+installVercelFirewallMock();
 
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
@@ -216,6 +225,23 @@ mock.module("../db/client", () => ({
   },
 }));
 
+// VM routes deliberately fail closed when the shared membership fence cannot
+// be written. This route suite stubs the fence itself so its existing auth
+// fixtures can exercise Stack membership without needing Postgres, while the
+// inactive wrappers preserve isolation for other test files in the shard.
+mock.module("../services/auth/identitySnapshot", () => ({
+  ...identitySnapshotModule,
+  readIdentitySnapshot: ((...args: Parameters<typeof realReadIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve(null)
+    : realReadIdentitySnapshot(...args)) as typeof realReadIdentitySnapshot,
+  writeIdentitySnapshot: ((...args: Parameters<typeof realWriteIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve("stored" as const)
+    : realWriteIdentitySnapshot(...args)) as typeof realWriteIdentitySnapshot,
+  deleteIdentitySnapshot: ((...args: Parameters<typeof realDeleteIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve()
+    : realDeleteIdentitySnapshot(...args)) as typeof realDeleteIdentitySnapshot,
+}));
+
 const { VmAttachTransportUnsupportedError, isVmWorkflowError } = await import("../services/vms/errors");
 const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
 const baseOpenRoute = await import("../app/api/vm/base/open/route");
@@ -226,7 +252,7 @@ const attachRoute = await import("../app/api/vm/[id]/attach-endpoint/route");
 const cmuxRemoteApproveRoute = await import("../app/api/vm/[id]/cmux-remote/approve/route");
 const execRoute = await import("../app/api/vm/[id]/exec/route");
 const forkRoute = await import("../app/api/vm/[id]/fork/route");
-const _snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
+const snapshotRoute = await import("../app/api/vm/[id]/snapshot/route");
 const restoreRoute = await import("../app/api/vm/restore/route");
 const { POST: tunnelPOST, GET: tunnelGET } = await import("../app/api/vm/tunnel/route");
 const revokeAccessRoute = await import("../app/api/vm/leases/revoke/route");
@@ -248,6 +274,7 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  useIdentitySnapshotStub = true;
   // POST /api/vm now awaits the provider connection probe. Keep this route
   // suite deterministic and local while still exercising that await.
   globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
@@ -256,6 +283,7 @@ beforeAll(() => {
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  useIdentitySnapshotStub = false;
   globalThis.fetch = originalFetch;
 });
 
@@ -410,6 +438,72 @@ describe("VM REST auth", () => {
     expect(getUser).toHaveBeenCalledTimes(2);
   });
 
+  test("VM routes stop authorizing a removed team member even when native auth was cached", async () => {
+    const team = { id: "team-revoked", displayName: "Revoked Team", clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    let isMember = true;
+    getUser.mockResolvedValue({
+      id: "user-revoked",
+      displayName: null,
+      primaryEmail: "revoked@example.com",
+      clientReadOnlyMetadata: {},
+      selectedTeam: null,
+      listTeams: async () => isMember ? [team] : [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+    const request = () => new Request("https://cmux.test/api/vm?teamId=team-revoked", {
+      headers: {
+        authorization: "Bearer access-revoked",
+        "x-stack-refresh-token": "refresh-revoked",
+      },
+    });
+
+    expect((await GET(request())).status).toBe(200);
+    isMember = false;
+    runVmWorkflow.mockClear();
+
+    const removed = await GET(request());
+    expect(removed.status).toBe(403);
+    expect(await removed.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(getUser).toHaveBeenCalledTimes(2);
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
+  test("a body-supplied team cannot reuse membership cached before removal", async () => {
+    const team = { id: "team-body-revoked", displayName: "Body Revoked", clientReadOnlyMetadata: { cmuxPlan: "pro" } };
+    let isMember = true;
+    getUser.mockResolvedValue({
+      id: "user-body-revoked",
+      displayName: null,
+      primaryEmail: "body-revoked@example.com",
+      clientReadOnlyMetadata: {},
+      selectedTeam: null,
+      listTeams: async () => isMember ? [team] : [],
+    });
+    runVmWorkflow.mockResolvedValue([]);
+    const headers = {
+      authorization: "Bearer access-body-revoked",
+      "x-stack-refresh-token": "refresh-body-revoked",
+    };
+
+    const seeded = await GET(new Request("https://cmux.test/api/vm?teamId=team-body-revoked", { headers }));
+    expect(seeded.status).toBe(200);
+    isMember = false;
+    runVmWorkflow.mockClear();
+
+    const removed = await POST(new Request("https://cmux.test/api/vm", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        provider: "freestyle",
+        image: "snapshot-test",
+        teamId: "team-body-revoked",
+      }),
+    }));
+    expect(removed.status).toBe(403);
+    expect(await removed.json()).toMatchObject({ error: "vm_billing_team_not_found" });
+    expect(runVmWorkflow).not.toHaveBeenCalled();
+  });
+
   test("allows stale account-deleting metadata after tombstone lease expires", async () => {
     authTombstoneRows = [accountDeletionAuthTombstone("user-1", "pending", new Date(0))];
     getUser.mockResolvedValue({
@@ -548,7 +642,9 @@ describe("VM REST auth", () => {
       idempotencyKey: "idem-1",
       memoryMb: 8192,
     }));
-    expect(listTeams).not.toHaveBeenCalled();
+    // VM mutations always enumerate current memberships so a deleted shared
+    // snapshot cannot fall back to an instance-local team list.
+    expect(listTeams).toHaveBeenCalledTimes(1);
     expect(runVmWorkflow).toHaveBeenCalled();
   });
 
@@ -724,7 +820,7 @@ describe("VM REST auth", () => {
     expect(readInput.teamIdsComplete).toBe(true);
   });
 
-  test("tunnel POST marks the team list incomplete when the fresh membership listing fails", async () => {
+  test("tunnel POST fails closed when the fresh membership listing fails", async () => {
     let listCalls = 0;
     getUser.mockResolvedValue({
       ...authedStackUser(),
@@ -744,11 +840,9 @@ describe("VM REST auth", () => {
       method: "POST", headers,
       body: JSON.stringify({ deviceId: "device-test", deviceFingerprint: "device-test", tunnelPurpose: "browser", clientPublicKey: Buffer.alloc(32, 1).toString("base64") }),
     }));
-    expect(posted.status).toBe(200);
+    expect(posted.status).toBe(503);
     expect(listCalls).toBeGreaterThan(0);
-    const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
-    expect(enrollInput.teamIds).toEqual(["team-1"]);
-    expect(enrollInput.teamIdsComplete).toBe(false);
+    expect(enrollVmTunnel).not.toHaveBeenCalled();
   });
 
   test("tunnel POST and GET forward authenticated team membership", async () => {
@@ -1216,8 +1310,8 @@ describe("VM REST auth", () => {
       error: string; message: string; action: string; upgradeUrl: string; ui: { title: string };
     };
     expect(payload.error).toBe("vm_requires_pro");
-    expect(payload.message).toBe("Cloud VM を利用するには cmux Pro プランが必要です。");
-    expect(payload.ui.title).toBe("cmux Pro が必要です");
+    expect(payload.message).toBe("Cloud VM を利用するには cmux Go プランが必要です。");
+    expect(payload.ui.title).toBe("cmux Go が必要です");
     expect(payload.action).toContain("https://cmux.com/pricing");
     expect(payload.upgradeUrl).toBe("https://cmux.com/pricing");
     expect(createVm).not.toHaveBeenCalled();
@@ -1507,9 +1601,12 @@ describe("VM REST auth", () => {
         expect(route.constructor).toHaveBeenCalledTimes(1);
         const provisionInput = (route.constructor.mock.calls as unknown[][])[0]?.[0] as {
           modelPlane?: { provision?: unknown; revoke?: unknown };
+          deferAfterResponse?: unknown;
         };
         expect(typeof provisionInput.modelPlane?.provision).toBe("function");
         expect(typeof provisionInput.modelPlane?.revoke).toBe("function");
+        // Guest work after the answer (the vm-kind record) is kept alive by the platform, never detached.
+        expect(typeof provisionInput.deferAfterResponse).toBe("function");
       }
     }
   });
@@ -1655,6 +1752,9 @@ describe("VM REST auth", () => {
       amount: 1,
       details: { amount: 1 },
       message: "This team has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
   });
 
@@ -1716,6 +1816,9 @@ describe("VM REST auth", () => {
       error: "vm_create_credits_insufficient",
       amount: 1,
       message: "Your account has no Cloud VM create credits left.",
+      upgradeRequired: true,
+      upgradePlanId: "max",
+      upgradeUrl: "https://cmux.com/api/billing/checkout?plan=max&cmux_source=vm_create_credits",
     });
     expect(payload.message).not.toContain("team");
     expect(payload.action).not.toContain("team");
@@ -1819,8 +1922,9 @@ describe("VM REST auth", () => {
     );
 
     expect(response.status).toBe(200);
-    // initial auth + team-mismatch re-verify + pro-plan reconcile user fetch
-    expect(getUser).toHaveBeenCalledTimes(3);
+    // Fresh complete membership auth resolves the body team in one pass; the
+    // plan reconciliation performs the second user fetch.
+    expect(getUser).toHaveBeenCalledTimes(2);
     expect(listTeams).toHaveBeenCalledTimes(1);
     expect(createVm).toHaveBeenCalledWith(expect.objectContaining({
       billingCustomerType: "team",
@@ -2800,6 +2904,48 @@ describe("VM REST auth", () => {
     expect(runVmWorkflow).not.toHaveBeenCalled();
   });
 
+  test("rejects overlong idempotency keys before every provider allocation workflow", async () => {
+    getUser.mockResolvedValue(authedStackUser());
+    const headers = {
+      "idempotency-key": "x".repeat(129),
+      origin: "https://cmux.test",
+    };
+    const context = { params: Promise.resolve({ id: "provider-vm-1" }) };
+    const routes = [
+      () => POST(new Request("https://cmux.test/api/vm", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ provider: "freestyle", image: "snapshot-test" }),
+      })),
+      () => forkRoute.POST(new Request("https://cmux.test/api/vm/provider-vm-1/fork", {
+        method: "POST",
+        headers,
+        body: "{}",
+      }), context),
+      () => snapshotRoute.POST(new Request("https://cmux.test/api/vm/provider-vm-1/snapshot", {
+        method: "POST",
+        headers,
+        body: "{}",
+      }), context),
+      () => restoreRoute.POST(new Request("https://cmux.test/api/vm/restore", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ snapshotId: "snapshot-1" }),
+      })),
+    ];
+
+    for (const invoke of routes) {
+      runVmWorkflow.mockClear();
+      const response = await invoke();
+      expect(response.status).toBe(400);
+      expect(await response.json()).toMatchObject({
+        error: "vm_idempotency_key_too_long",
+        details: { maxLength: 128 },
+      });
+      expect(runVmWorkflow).not.toHaveBeenCalled();
+    }
+  });
+
   test("returns client errors for invalid restore request bodies", async () => {
     getUser.mockResolvedValue(authedStackUser());
 
@@ -3090,6 +3236,7 @@ describe("VM REST auth", () => {
   test("requires manifest images in deployed environments before workflow", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
@@ -3118,6 +3265,7 @@ describe("VM REST auth", () => {
     // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
@@ -3148,6 +3296,7 @@ describe("VM REST auth", () => {
     // machine with a screen (#12239), never the shell-only ladder.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-manifest",
@@ -3177,6 +3326,7 @@ describe("VM REST auth", () => {
   test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({

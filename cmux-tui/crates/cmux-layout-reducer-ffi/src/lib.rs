@@ -137,19 +137,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
-            // Compatibility for app builds pinned before `cmux_focus_*` (cx-8w027.2).
-            b"focus_reduce" => {
-                let request: cmux_focus_core::wire::ReduceRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::reduce(request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"focus_changes_view" => {
-                let request: cmux_focus_core::wire::ChangesViewRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::changes_view(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;

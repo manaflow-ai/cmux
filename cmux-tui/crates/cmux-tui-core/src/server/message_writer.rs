@@ -6,10 +6,12 @@ use super::AttachWireShape;
 use super::BudgetedText;
 use super::RenderService;
 use super::VtStateMessage;
+use super::api_revision_wire;
 use super::conversation_tabs_wire;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
+use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
 use serde::Serialize;
@@ -57,7 +59,7 @@ impl OutboundStream {
     }
 
     pub(super) fn update_overflow(&self, text: Arc<BudgetedText>) {
-        *self.overflow_text.lock().unwrap() = text;
+        *self.overflow_text.lock().recover_poison() = text;
     }
 }
 
@@ -111,6 +113,8 @@ pub(super) struct MessageWriter {
     pub(super) closed: InterruptSet,
     /// Negotiated conversation tab capabilities (server/conversation_tabs_wire.rs).
     pub(super) conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
+    /// Negotiated API revision (server/api_revision_wire.rs).
+    pub(super) api_revision: Arc<api_revision_wire::NegotiatedRevision>,
 }
 
 impl MessageWriter {
@@ -131,6 +135,7 @@ impl MessageWriter {
             wait_wakeups: Arc::new(Mutex::new(Vec::new())),
             closed: InterruptSet::default(),
             conversation_tabs: Arc::default(),
+            api_revision: Arc::default(),
         }
     }
 
@@ -285,10 +290,10 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result = self
-            .render_service
-            .serialize_control(value)
-            .and_then(|text| self.sink.send_control(self.project_conversation_tabs(text)?));
+        let result = self.render_service.serialize_control(value).and_then(|text| {
+            self.sink
+                .send_control(self.project_api_revision(self.project_conversation_tabs(text)?)?)
+        });
         if result.is_err() {
             self.close();
         }
@@ -299,8 +304,10 @@ impl MessageWriter {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let result =
-            self.project_conversation_tabs(text).and_then(|text| self.sink.send_control(text));
+        let result = self
+            .project_conversation_tabs(text)
+            .and_then(|text| self.project_api_revision(text))
+            .and_then(|text| self.sink.send_control(text));
         if result.is_err() {
             self.close();
         }
@@ -335,7 +342,7 @@ impl MessageWriter {
     }
 
     pub(super) fn register_wait_wakeup(&self, wake: &Arc<ResourceWaitWake>) {
-        let mut wakeups = self.wait_wakeups.lock().unwrap();
+        let mut wakeups = self.wait_wakeups.lock().recover_poison();
         wakeups.retain(|registered| registered.strong_count() > 0);
         if self.is_open() {
             wakeups.push(Arc::downgrade(wake));
@@ -347,7 +354,7 @@ impl MessageWriter {
 
     pub(super) fn close_with(&self, preserve_control: bool) {
         if self.open.swap(false, Ordering::AcqRel) {
-            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().recover_poison());
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }
@@ -362,7 +369,7 @@ impl MessageWriter {
 
     pub(super) fn abort(&self) {
         if self.open.swap(false, Ordering::AcqRel) {
-            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().unwrap());
+            let wakeups = std::mem::take(&mut *self.wait_wakeups.lock().recover_poison());
             for wake in wakeups.into_iter().filter_map(|wake| wake.upgrade()) {
                 wake.notify();
             }

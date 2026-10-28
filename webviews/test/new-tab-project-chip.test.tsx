@@ -66,7 +66,7 @@ afterEach(() => {
   host.replaceChildren();
 });
 
-async function mount(cwd: string, startCwd?: string) {
+async function mount(cwd: string, startCwd?: string, startPending = false) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   root = createRoot(host);
@@ -77,6 +77,7 @@ async function mount(cwd: string, startCwd?: string) {
         lastAgent="claude"
         cwd={cwd}
         {...(startCwd ? { startCwd } : {})}
+        {...(startPending ? { startPending: true } : {})}
         onAsk={noop}
         onOpen={noop}
         onSearch={noop}
@@ -112,4 +113,14 @@ test("a New Tab that inherited a project folder names the folder its host starts
 // chat.new fills none): the chip asks for a project rather than name the inherited folder.
 test("before the host names a start folder, the chip asks for a project", async () => {
   expect(await mount("/Users/you/src/app")).toBe("Choose folder");
+});
+
+// Leo 2026-10-19: the first frame showed "Choose folder", then the project the tab inherited once
+// the handshake named it. Before the handshake answers, the chip names that project (the handshake
+// starts the chat there); the home folder is still never one.
+test("before the handshake answers, an inherited project shows at once; the home folder does not", async () => {
+  expect(await mount("/Users/you/src/app", undefined, true)).toBe("app");
+  act(() => root?.unmount());
+  root = undefined;
+  expect(await mount("/Users/you", undefined, true)).toBe("Choose folder");
 });
