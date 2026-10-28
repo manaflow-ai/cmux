@@ -64,7 +64,8 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
 
     /// Uploads the script with its environment, the runner and the repo step into a folder of
     /// this start's own, then starts: no upload ever changes the files a running runner runs.
-    public func start(name: String?, on machine: Machine, startID: String = UUID().uuidString.lowercased()) async -> Outcome {
+    /// `repositoryOnly` refuses to replace an existing setup with different script or repo contents.
+    public func start(name: String?, on machine: Machine, startID: String = UUID().uuidString.lowercased(), repositoryOnly: Bool = false) async -> Outcome {
         let tail = { (ran: CloudExecResult) in String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(500)) }
         let staged = Self.stagingDirectory(startID)
         do {
@@ -77,7 +78,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
             // Always both, so no step or record of an earlier start is left: no repo is `null` and a no-op.
             try await machine.write(staged + "/repo.json", repo?.record ?? Data("null\n".utf8), 0o644)
             try await machine.write(staged + "/repo", repo.map { Data($0.step.utf8) } ?? Self.noScript, 0o700)
-            let ran = try await machine.exec(Self.startCommand(staged))
+            let ran = try await machine.exec(Self.startCommand(staged, repositoryOnly: repositoryOnly))
             let said = ran.stdout.split(whereSeparator: \.isNewline).last.map(String.init) ?? ""
             guard ran.exitCode == 0, ["started", "running", "skipped"].contains(said) else { return Outcome(status: "failed", reason: tail(ran)) }
             return Outcome(status: said)
@@ -130,7 +131,7 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
     /// up to a minute, the applier's wait too), says `running` and drops its files. The runner always runs as the work user
     /// with its home, in a transient systemd unit (it outlives the exec); without systemd, or
     /// when `systemd-run` fails, under `setsid`.
-    public static func startCommand(_ staged: String) -> String { [
+    public static func startCommand(_ staged: String, repositoryOnly: Bool = false) -> String { [
         "set -eu", rootHelper, userHelper, "d=\(directory)", "s=\(staged)", "u=\(user)", #"h=$(getent passwd "$u" | cut -d: -f6)"#, noSymlinks,
         // Exclusive against a machine-config apply (it holds this shared for its whole run): from here until
         // `starting` is out, so an apply either sees this start or this start waits for it (15 s, then a
@@ -151,6 +152,9 @@ public struct CloudMachineBootstrap: Equatable, Sendable {
         // After a minute without it (the applier's wait for a `starting` too) that start counts as dead.
         #"at=$(sed -n 's/^{"state":"starting".*"at":\([0-9]*\)}$/\1/p' "$d/status.json" 2>/dev/null || true)"#,
         #"if [ -n "$at" ] && [ $(( $(date +%s) - at )) -lt 60 ]; then as_u rm -rf "$s" || true; echo running; exit 0; fi"#,
+        // A repo retry may never replace a different repo or a custom setup script. Check under the
+        // runner lock, so a concurrent start cannot change either between the check and the move.
+        repositoryOnly ? #"if ! cmp -s "$d/script" "$s/script" || ! cmp -s "$d/repo.json" "$s/repo.json"; then as_u rm -rf "$s"; echo 'repository retry does not match the original repository-only setup' >&2; exit 1; fi"# : ":",
         // No runner runs: this start's files become the bootstrap folder's (a rename each, as the work user),
         // where the runner and a machine-config apply read them (`script`, `repo.json`).
         #"for f in script env run repo repo.json; do as_u mv -f "$s/$f" "$d/$f"; done; as_u rm -rf "$s""#,

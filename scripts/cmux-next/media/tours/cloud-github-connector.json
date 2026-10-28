@@ -1,0 +1,148 @@
+{
+  "title": "Connect GitHub: before, three card variants and lifecycle states",
+  "steps": [
+    {
+      "title": "Cloud repository setup before the connector",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudWorkspaceRepository"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub Compact",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubCompact"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub Balanced",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubBalanced"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub Stacked",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubStacked"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub Available",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubAvailable"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub NeedsAuth",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubNeedsAuth"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub Expired",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubExpired"
+        }
+      },
+      "wait": 1
+    },
+    {
+      "title": "Dismiss",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "dismiss": true
+        }
+      }
+    },
+    {
+      "title": "Connect GitHub Auto",
+      "rpc": {
+        "method": "debug.dialog",
+        "params": {
+          "open": "cloudGitHubAuto"
+        }
+      },
+      "wait": 1
+    }
+  ]
+}

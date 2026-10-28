@@ -11,6 +11,8 @@ extension CloudMachineBootstrap {
         /// path on the machine (`/home/cmux/work/NAME`); nil without a repo.
         case finished(repoPath: String?)
         case failed(reason: String)
+        /// A failed repository can be retried without repeating machine creation.
+        case repositoryFailed(reason: String)
     }
 
     /// The run's end as ``statusPath`` says it, before it becomes words.
@@ -18,6 +20,10 @@ extension CloudMachineBootstrap {
         case finished(repoPath: String?)
         /// The repo step found no GitHub access to `repo` (`OWNER/NAME`) on the machine.
         case needsGitHub(repo: String)
+        /// GitHub could not find the repository or conceals it because access is missing.
+        case repoNotFound(repo: String)
+        /// The machine could not reach GitHub (DNS, connection failure or timeout).
+        case repoOffline(repo: String)
         /// The clone or update of `repo` failed (another repository in its folder, a missing ref…).
         case repoFailed(repo: String)
         case scriptFailed(exitCode: Int)
@@ -107,12 +113,20 @@ extension CloudMachineBootstrap {
         let code = status["exit_code"] as? Int
         let cloned = status["repo"] as? [String: Any]
         let repoStatus = cloned?["status"] as? String
+        let repoFailure: (String) -> Run = { name in
+            switch repoStatus {
+            case "needs_github": .needsGitHub(repo: name)
+            case "not_found": .repoNotFound(repo: name)
+            case "offline": .repoOffline(repo: name)
+            default: .repoFailed(repo: name)
+            }
+        }
         let name = repo.map { "\($0.owner)/\($0.name)" } ?? (cloned?["url"] as? String) ?? ""
         switch state {
         case "done":
             guard let repo else { return .ended(.finished(repoPath: nil)) }
             guard repoStatus.map({ ["cloned", "updated", "kept"].contains($0) }) ?? true else {
-                return .ended(repoStatus == "needs_github" ? .needsGitHub(repo: name) : .repoFailed(repo: name))
+                return .ended(repoFailure(name))
             }
             let dir = (cloned?["dir"] as? String).flatMap { $0.hasPrefix("/") ? $0 : nil }
             return .ended(.finished(repoPath: dir ?? "/home/\(user)/\(repo.directory)"))
@@ -121,9 +135,9 @@ extension CloudMachineBootstrap {
             if status["late"] as? Bool == true { return .ended(.runnerNeverCame) }
             // `step` says which step failed; a runner from before it (no `step`) is read from the repo status.
             let repoStep = (status["step"] as? String).map { $0 == "repo" }
-                ?? (repoStatus == "failed" || (repoStatus == "needs_github" && code == CloudMachineRepo.needsGitHubExit))
+                ?? (["failed", "not_found", "offline"].contains(repoStatus ?? "") || (repoStatus == "needs_github" && code == CloudMachineRepo.needsGitHubExit))
             guard repoStep else { return .ended(.scriptFailed(exitCode: code ?? -1)) }
-            return .ended(repoStatus == "needs_github" ? .needsGitHub(repo: name) : .repoFailed(repo: name))
+            return .ended(repoFailure(name))
         case "running":
             // Read under a free `alive`: the runner that wrote `running` is gone. Without an `alive` the read
             // raced the runner making it (the next read sees it); counted as a failed read, so it never spins.

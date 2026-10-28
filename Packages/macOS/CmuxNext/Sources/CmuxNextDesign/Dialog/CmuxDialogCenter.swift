@@ -30,6 +30,7 @@ public final class CmuxDialogCenter {
         var scope: CmuxDialogWeakScope
         var completion: (CmuxDialogAnswer) -> Void
         var view: CmuxDialogView?
+        var accessory: CmuxDialogAccessory?
         /// The tab view's deallocation marker (`CmuxDialogScopeLifetime`).
         var lifetime: UUID?
         /// The window's close observer.
@@ -58,11 +59,11 @@ public final class CmuxDialogCenter {
     /// calls `completion` once with the answer. Returns the dialog id.
     @discardableResult
     public func present(_ spec: CmuxDialogSpec, in scope: CmuxDialogScope,
-                        completion: @escaping (CmuxDialogAnswer) -> Void) -> Int {
+                        accessory: CmuxDialogAccessory? = nil, completion: @escaping (CmuxDialogAnswer) -> Void) -> Int {
         let id = nextID
         nextID += 1
         let key = Self.key(scope)
-        var entry = Entry(spec: spec, scope: CmuxDialogWeakScope(scope), completion: completion)
+        var entry = Entry(spec: spec, scope: CmuxDialogWeakScope(scope), completion: completion, accessory: accessory)
         // No dialog outlives its scope: a closed tab (or its pane or
         // workspace) or a closed window ends it with its cancel answer.
         if case .tab(let view) = scope {
@@ -192,7 +193,7 @@ public final class CmuxDialogCenter {
             dismiss(id)
             return
         }
-        let view = CmuxDialogView(spec: entry.spec)
+        let view = CmuxDialogView(spec: entry.spec, accessory: entry.accessory)
         view.onPress = { [weak self] button in self?.press(id, button: button) }
         entries[id]?.view = view
         host.show(view, in: scope) { [weak self] in self?.dismiss(id) }

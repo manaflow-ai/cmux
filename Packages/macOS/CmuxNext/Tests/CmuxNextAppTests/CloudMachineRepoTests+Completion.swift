@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
+import CmuxNextCloudUI
 import Foundation
 import Observation
 import Testing
@@ -63,7 +64,7 @@ extension CloudMachineRepoTests {
     @Test func eachFailureSaysWhyInWords() async {
         let needs = await run(withRepo, [.success(Self.answer(Self.status("failed", "3", repo: Self.repoStatus("needs_github"))))]).0
         #expect(needs == .needsGitHub(repo: "o/r"))
-        #expect(CloudMachineBootstrap.completion(needs) == .failed(reason: CloudStrings.bootstrapNeedsGitHub("o/r")))
+        #expect(CloudMachineBootstrap.completion(needs) == .repositoryFailed(reason: CloudGitHubConnectorCard.failureMessage(.privateRepository)))
         #expect(CloudStrings.bootstrapNeedsGitHub("o/r").contains("o/r"))
         let clone = await run(withRepo, [.success(Self.answer(Self.status("failed", "1", repo: Self.repoStatus("failed"))))]).0
         #expect(clone == .repoFailed(repo: "o/r"))

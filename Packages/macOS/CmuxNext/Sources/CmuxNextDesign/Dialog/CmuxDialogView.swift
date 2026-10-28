@@ -19,11 +19,11 @@ public final class CmuxDialogView: NSView {
     private let stack = NSStackView()
     private(set) var surface: OverlaySurfaceView?
 
-    public init(spec: CmuxDialogSpec) {
+    public init(spec: CmuxDialogSpec, accessory: CmuxDialogAccessory? = nil) {
         self.spec = spec
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        build()
+        build(accessory: accessory)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilitySubrole(.dialog)
@@ -161,7 +161,7 @@ public final class CmuxDialogView: NSView {
 
     // MARK: Layout
 
-    private func build() {
+    private func build(accessory: CmuxDialogAccessory?) {
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = CmuxDialogMetrics.spacing
@@ -183,6 +183,12 @@ public final class CmuxDialogView: NSView {
         }
         for line in spec.lines {
             stack.addArrangedSubview(label(line, font: Typography.body, role: .secondary, width: contentWidth))
+        }
+        if let accessory {
+            accessory.view.translatesAutoresizingMaskIntoConstraints = false
+            stack.addArrangedSubview(accessory.view)
+            accessory.view.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+            focusables += accessory.controls
         }
         for field in spec.fields {
             for view in fieldViews(field, width: contentWidth) { stack.addArrangedSubview(view) }

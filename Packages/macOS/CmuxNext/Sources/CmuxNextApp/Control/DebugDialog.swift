@@ -34,7 +34,12 @@ enum DebugDialog {
         let center = CmuxDialogCenter.shared
         var result: [String: JSONValue] = [:]
         if let fixture = params["open"]?.stringValue {
-            if fixture == "cloudCreateBefore" {
+            if fixture.hasPrefix("cloudGitHub") {
+                let scope: CmuxDialogScope = services.windows.active?.window.map(CmuxDialogScope.window) ?? .app
+                if let id = DebugCloudGitHubConnector().show(fixture, center: center, scope: scope) {
+                    result["opened"] = .number(Double(id))
+                }
+            } else if fixture == "cloudCreateBefore" {
                 // Previous default unnamed-machine approval, through the existing presenter.
                 // An inert completion means this fixture can never create or approve a VM.
                 CloudPresenter.confirm(CloudStrings.createConfirmTitle, CloudStrings.createConfirmApproval,

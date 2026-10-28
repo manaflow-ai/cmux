@@ -121,6 +121,7 @@ public struct CloudMachineRepo: Equatable, Sendable {
             d=$(cd "$(dirname "$0")" && pwd)
             url=\#(quoted(url)); ref=\#(quoted(ref ?? "")); dir="$HOME/\#(directory)"
             cred=none; helper=""; status=failed; sha=""; why=""; fresh=""
+            export LC_ALL=C
             result() {
               printf '{"status":"%s","url":"%s","ref":"%s","dir":"%s","credential":"%s","sha":"%s"}\n' \
                 "$status" "$url" "$ref" "$dir" "$cred" "$sha" >"$d/repo-status.json.tmp" && mv -f "$d/repo-status.json.tmp" "$d/repo-status.json"
@@ -164,13 +165,29 @@ public struct CloudMachineRepo: Equatable, Sendable {
             # A clone or fetch with each path until one works; the checkout after it keeps that path.
             # A clone that failed half way (its checkout) is removed before the next path tries.
             net() {
+              offline=0; auth=0; missing=0
               for c in $creds; do
-                use "$c"; g "$@" && return 0
+                use "$c"
+                # Keep git diagnostics in memory: helper output must not persist in the bootstrap log.
+                if diagnostic=$(g "$@" 2>&1); then return 0; fi
+                case "$diagnostic" in
+                  *"Could not resolve"*|*"Failed to connect"*|*"Connection timed out"*|*"Connection reset"*|*"Network is unreachable"*|*"Could not connect"*) offline=1 ;;
+                  *"Repository not found"*|*"repository"*"not found"*|*"requested URL returned error: 404"*) missing=1 ;;
+                  *"Authentication failed"*|*"could not read Username"*|*"could not read Password"*|*"requested URL returned error: 401"*|*"requested URL returned error: 403"*) auth=1 ;;
+                esac
+                unset diagnostic
                 [ -n "$fresh" ] && rm -rf "$dir"
               done
-              status=needs_github; cred=none; result
-              echo "cmux repo: $url needs GitHub access this machine does not have (private, not found, or offline)" >&2
-              exit \#(Self.needsGitHubExit)
+              cred=none
+              if [ "$offline" -eq 1 ]; then
+                status=offline; result; echo "cmux repo: cannot reach GitHub; check the machine's connection" >&2; exit 1
+              elif [ "$auth" -eq 1 ]; then
+                status=needs_github; result; echo "cmux repo: GitHub access is required for this repository" >&2; exit \#(Self.needsGitHubExit)
+              elif [ "$missing" -eq 1 ]; then
+                # GitHub conceals private repositories behind 404 too; never claim the repo does not exist.
+                status=not_found; result; echo "cmux repo: repository not found or not visible to this GitHub connection" >&2; exit \#(Self.needsGitHubExit)
+              fi
+              die "repository operation failed; retry or check the repository and branch"
             }
             # Switch to $ref: a local or remote branch (tracked), else a tag or commit (detached).
             switch() {

@@ -210,7 +210,7 @@ public struct CloudWorkspaceSetupWizard {
         switch completion {
         case .finished(let repoPath):
             if let repoPath { try await openProject(repoPath) }
-        case .failed(let reason):
+        case .failed(let reason), .repositoryFailed(let reason):
             throw BootstrapFailure(errorDescription: reason)
         }
     }
