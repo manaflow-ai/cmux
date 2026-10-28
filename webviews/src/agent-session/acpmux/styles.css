@@ -166,6 +166,8 @@
 .acpmux-newtab kbd{font:11.5px/1 var(--font-ui);color:var(--acpmux-composer-dim)}
 .acpmux-newtab-kind kbd{margin-left:2px;opacity:.85}
 .acpmux-newtab-under{display:flex;align-items:center;gap:8px;height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
+.acpmux-newtab-foot{display:flex;align-items:center;min-height:42px;padding:0 8px 0 10px;border-top:.5px solid color-mix(in srgb,var(--agent-text) 7%,transparent);font-size:13px}
+.acpmux-newtab-foot .acpmux-composer-foot{flex:1 1 auto;min-width:0}
 .acpmux-newtab-context{flex:1;min-width:0;display:flex;align-items:center;gap:4px;overflow:hidden}
 .acpmux-newtab-context .acpmux-chips{flex:none}
 .acpmux-newtab-chip{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:6px;color:var(--acpmux-composer-dim);white-space:nowrap}

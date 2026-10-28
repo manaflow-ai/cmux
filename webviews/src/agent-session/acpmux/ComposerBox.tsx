@@ -10,7 +10,7 @@ import { reordered } from "./composer/stripReorder";
 import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import { ComposerFoot } from "./ComposerFoot";
 import { useComposerSettings } from "./composerSettings";
-import { useQuietRow } from "./composerLook";
+import { useComposerLook, useQuietRow } from "./composerLook";
 import { useRowFit } from "./composerRowFit";
 import { MarkdownField, type MarkdownFieldHandle, type MarkdownFieldProps } from "./MarkdownField";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
@@ -124,9 +124,11 @@ export function ComposerBox({
   // chips stay in the quiet row under the box in either look (composerLook.ts).
   const { plainFooter } = useComposerSettings();
   const quietRow = useQuietRow();
-  // The controls row swaps whole units as it narrows (composerRowFit.ts).
+  const look = useComposerLook();
+  // Footer placement and look can change from Settings while this component stays mounted. Include
+  // both in the fit key so the live row is measured again before the new form paints.
   const bar = useRef<HTMLDivElement>(null);
-  useRowFit(bar, quietRow);
+  useRowFit(bar, `${quietRow}:${plainFooter}:${look}`);
   const prompt = useRef<MarkdownFieldHandle>(null);
   const setPrompt = useCallback(
     (next: MarkdownFieldHandle | null) => {

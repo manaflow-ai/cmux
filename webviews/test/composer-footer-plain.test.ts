@@ -196,6 +196,22 @@ await requireBrowserLane("composer-footer-plain.test.ts", async () => {
   };
 
   // The fit follows the footer in either look, including when the plain styling is off.
+  test("live footer setting change refits a near-capacity row", async () => {
+    const page = await open(300, "light");
+    await plain(page, false);
+    await settle(page);
+    const before = await page.evaluate(measure);
+    await plain(page, true);
+    await settle(page);
+    const after = await page.evaluate(measure);
+    const problems = overlaps(after);
+    await page.close();
+    expect(before.look).toBe("");
+    expect(after.look).toBe("plain");
+    expect(problems).toEqual([]);
+    expect(after.boxes.every((box) => box.left >= after.content.left - 0.5 && box.right <= after.content.right + 0.5)).toBe(true);
+  });
+
   test("off after mount, the footer still fits as the pane narrows", async () => {
     const page = await open(760, "light");
     await plain(page, false);

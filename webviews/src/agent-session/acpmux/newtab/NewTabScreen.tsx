@@ -574,7 +574,8 @@ export function NewTabScreen(props: Props) {
   const split = props.chips !== undefined;
   // Folder/computer keep their look-specific placement: Claude's one row, Codex's tray.
   const locationInFooter = plainFooter && look === "claude" && template !== "default";
-  useRowFit(foot, split);
+  // Footer look and template can change while this screen stays mounted.
+  useRowFit(foot, `${split}:${plainFooter}:${look}`);
   // A press outside an open chip menu only closes it (menuPressGuard.ts).
   useMenuPressGuard();
   const pushed = useDeviceChats();
