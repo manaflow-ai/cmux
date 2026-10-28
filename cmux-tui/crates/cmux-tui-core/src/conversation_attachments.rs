@@ -983,3 +983,7 @@ impl Attachments {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "conversation_attachment_budget_tests.rs"]
+mod budget_tests;
