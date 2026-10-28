@@ -38,7 +38,9 @@ enum ConversationTheme {
     // configure and layout pass; building a font from a text style is a
     // descriptor lookup each time. Fonts are cached on the main thread per
     // Dynamic Type size, Bold Text and legibility weight, so a change to
-    // any of them produces fresh fonts exactly as before.
+    // any of them produces fresh fonts exactly as before. The cache is
+    // main-actor state: a row measured off the main thread (inside the
+    // transcript's traits) builds its fonts fresh and never touches it.
 
     private struct FontRequest: Hashable {
         var name: String
@@ -54,28 +56,34 @@ enum ConversationTheme {
         var boldText: Bool
     }
 
-    nonisolated(unsafe) private static var fontCache: [FontRequest: UIFont] = [:]
-    nonisolated(unsafe) private static var fontCacheEnvironment: FontEnvironment?
+    @MainActor private static var fontCache: [FontRequest: UIFont] = [:]
+    @MainActor private static var fontCacheEnvironment: FontEnvironment?
 
     private static func cachedFont(_ request: FontRequest, make: () -> UIFont) -> UIFont {
         guard Thread.isMainThread else { return make() }
-        let environment = MainActor.assumeIsolated {
-            let current = UITraitCollection.current
-            return FontEnvironment(
-                appCategory: UIApplication.shared.preferredContentSizeCategory,
-                currentCategory: current.preferredContentSizeCategory,
-                legibility: current.legibilityWeight,
-                boldText: UIAccessibility.isBoldTextEnabled
-            )
-        }
+        if let font = MainActor.assumeIsolated({ cachedMainFont(request) }) { return font }
+        // Built outside the main-actor hop: `make` may read other cached
+        // fonts (a caption 2 size reads `captionFont`).
+        let font = make()
+        MainActor.assumeIsolated { fontCache[request] = font }
+        return font
+    }
+
+    /// The cached font for `request`, after dropping every font when the
+    /// text size, Bold Text or legibility weight changed.
+    @MainActor private static func cachedMainFont(_ request: FontRequest) -> UIFont? {
+        let current = UITraitCollection.current
+        let environment = FontEnvironment(
+            appCategory: UIApplication.shared.preferredContentSizeCategory,
+            currentCategory: current.preferredContentSizeCategory,
+            legibility: current.legibilityWeight,
+            boldText: UIAccessibility.isBoldTextEnabled
+        )
         if environment != fontCacheEnvironment {
             fontCacheEnvironment = environment
             fontCache.removeAll()
         }
-        if let font = fontCache[request] { return font }
-        let font = make()
-        fontCache[request] = font
-        return font
+        return fontCache[request]
     }
 
     /// Composer text: the bubble font, so a sent draft's glyphs fly into
@@ -124,9 +132,28 @@ enum ConversationTheme {
     /// How far the tail drops below the bubble body (6.83 pt at the default size).
     static var tailDrop: CGFloat { ConversationBubbleGeometry.iOSTailDrop(radius: bubbleCornerRadius) }
     /// Pixels per point of the screen the transcript is on: bubbles round up
-    /// to its grid. Set by the conversation controller from its traits (main
-    /// thread only); 3 until then, every current iPhone Pro.
-    nonisolated(unsafe) static var displayScale: CGFloat = 3
+    /// to its grid. On the main thread, the scale the conversation controller
+    /// set from its traits (`setDisplayScale`). A row measured off the main
+    /// thread runs inside the transcript's traits (`performAsCurrent`, as its
+    /// text styles do) and reads their scale, so it never reads main-thread
+    /// state while a trait change writes it. 3 until either is known, every
+    /// current iPhone Pro; off-main code must measure inside the
+    /// transcript's traits, or it rounds to that 3. A measured row records
+    /// the scale it used (`MessageLayoutCache.Measured.displayScale`).
+    static var displayScale: CGFloat {
+        if Thread.isMainThread { return MainActor.assumeIsolated { mainDisplayScale } }
+        let scale = UITraitCollection.current.displayScale
+        return scale > 0 ? scale : defaultDisplayScale
+    }
+
+    /// The controller's screen scale, from its traits on load and on each
+    /// trait change.
+    @MainActor static func setDisplayScale(_ scale: CGFloat) {
+        mainDisplayScale = scale
+    }
+
+    private static let defaultDisplayScale: CGFloat = 3
+    @MainActor private static var mainDisplayScale: CGFloat = defaultDisplayScale
 
     /// The narrowest text bubble.
     static let minBubbleWidth: CGFloat = 48
