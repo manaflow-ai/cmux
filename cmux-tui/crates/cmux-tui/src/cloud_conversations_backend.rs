@@ -100,7 +100,7 @@ fn file_body(
     reqwest::Body::wrap_stream(file_chunks(file, len, started, progress))
 }
 
-/// [`file_body`]'s chunks: the file read from where it stands, a chunk at a time.
+/// [`file_body`]'s chunks: `len` bytes of the file from where it stands, a chunk at a time.
 fn file_chunks(
     file: std::fs::File,
     len: u64,
@@ -108,7 +108,8 @@ fn file_chunks(
     progress: Arc<UploadProgress>,
 ) -> impl futures_util::Stream<Item = std::io::Result<Vec<u8>>> + Send + 'static {
     use tokio::io::AsyncReadExt;
-    let file = tokio::fs::File::from_std(file);
+    // Exactly the declared length: the Content-Length counts that many, from where the file stands.
+    let file = tokio::fs::File::from_std(file).take(len);
     futures_util::stream::try_unfold((file, 0u64), move |(mut file, read_so_far)| {
         let progress = progress.clone();
         async move {
