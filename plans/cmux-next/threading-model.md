@@ -726,7 +726,13 @@ QoS with them, and ThreadsControlTests fails when a label or QoS here and there 
   `com.cmuxterm.app.next.cef-children` (user-initiated; it must add NOTE_EXIT on a new helper before Chromium
   reaps it), `com.cmuxterm.chromium-host.helper-exits` (user-initiated; in the host process, the same watch of the
   host's own helpers, HelperExitWatcher in host_helper_exits.h, p01-process-225: its kqueue's read source, no thread;
-  an end goes to the host's main thread as one HELPER_EXIT), `com.cmuxterm.import-history-sync` (utility; a watcher),
+  an end goes to the host's main thread as one HELPER_EXIT), `chromium-host.provider-link.read` and
+  `chromium-host.provider-link.write` (user-initiated; in the host process, one each per provider link,
+  p01-process-233: the reader dials the browser host, checks its pid and its code signature by audit token (a few
+  Security calls, once per dial), then waits only in `read(2)` and holds at most 4096 frames the UI thread has not run (one UI task per batch); the writer waits
+  for frames, then in `write(2)`, and past 64 MiB waiting the link ends), `cmux-browser-host-relay-link` (the
+  browser host's reader of that link, one per link; waits only in `read(2)`),
+  `com.cmuxterm.import-history-sync` (utility; a watcher),
   `com.cmuxterm.chromium-runtime.download` (OperationQueue, utility, serial; the runtime download's URLSession
   delegate queue), `cmux-next webkit setup probe` (utility; WebKitSetupGate's one sandbox-extension request),
   `com.cmuxterm.next.browser.certificate-probe` (OperationQueue, user-initiated, serial, one per probe; the TLS
