@@ -7,13 +7,14 @@
 //! servers, or run under one; anything else keeps the harness up. A census that fails or is not
 //! whole keeps it up too.
 //!
-//! The MCP servers are read from every config the harness reads: the servers cmux gives every
-//! session (`agent_tools.rs`), Claude Code's `.claude.json` (its user servers and this folder's
-//! project entry, in `~` and in the session's `CLAUDE_CONFIG_DIR`), the folder's `.mcp.json`, and
-//! Codex's `config.toml` `[mcp_servers]` (in `~/.codex` and the session's `CODEX_HOME`). A file
-//! that is missing or does not parse adds nothing, so a server only it names keeps the harness
-//! up. A process is a server when its command line holds the server's command (by path or file
-//! name) and, in order, its args.
+//! The MCP servers are read from every config the harness reads: the servers cmux gave this
+//! session (`agent_tools.rs`, as `scoped` and `for_session` narrow them), and for Claude Code its
+//! `.claude.json` (its user servers and this folder's project entry, in `~` and in the session's
+//! `CLAUDE_CONFIG_DIR`) and the folder's `.mcp.json` (none with `--strict-mcp-config`), for Codex
+//! its `config.toml` `[mcp_servers]` (in `~/.codex` and the session's `CODEX_HOME`). A file that
+//! is missing or does not parse adds nothing, so a server only it names keeps the harness up. A
+//! process is a server when its program is the server's command, or an interpreter runs that
+//! command as a script, and the server's args follow it (`runs`).
 
 #![cfg_attr(not(unix), allow(dead_code))]
 
@@ -45,7 +46,7 @@ impl Hub {
     pub(super) async fn idle_census(&self, session: &Session, pid: Option<u32>) -> Census {
         #[cfg(unix)]
         if let Some(pid) = pid {
-            let sidecars = self.sidecars(&session.meta()).await;
+            let sidecars = self.sidecars(session).await;
             let found =
                 tokio::task::spawn_blocking(move || crate::agent_host::tree::under(pid)).await;
             return match found {
@@ -80,20 +81,40 @@ impl Hub {
     }
 
     /// The session's MCP servers, from every config its harness reads.
-    async fn sidecars(&self, meta: &SessionMeta) -> Vec<Sidecar> {
-        let mut out: Vec<Sidecar> = crate::agent_tools::current()
-            .servers
-            .iter()
-            .map(|s| sidecar(&s.command.to_string_lossy(), &s.args))
-            .collect();
-        let (_, env) = self.harness_env(meta).await;
+    async fn sidecars(&self, session: &Session) -> Vec<Sidecar> {
+        let meta = session.meta();
+        let (_, env) = self.harness_env(&meta).await;
+        let argv = meta.spawn_argv.as_ref().unwrap_or(&meta.harness_argv);
+        // What this session's harness was given (`spawn.rs`, `agent/command.rs`), not every
+        // server this daemon has.
+        let mut out: Vec<Sidecar> = if crate::agent_tools::left_out(meta.remote_origin, &env, argv)
+        {
+            Vec::new()
+        } else {
+            let tools = crate::agent_tools::current().scoped(&env).for_session(&session.id);
+            tools.servers.iter().map(|s| sidecar(&s.command.to_string_lossy(), &s.args)).collect()
+        };
+        // Its own family's configs only; Claude Code with --strict-mcp-config reads none of them.
+        let family = meta.family.as_deref().unwrap_or_default();
+        let strict = argv.iter().any(|a| a == "--strict-mcp-config");
         let home = dirs::home_dir().unwrap_or_default();
-        let mut claude = vec![home.clone()];
-        claude.extend(crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[&env]));
-        claude.extend(crate::route_account::current_home(meta, "claude", &env));
-        let mut codex = vec![home.join(".codex")];
-        codex.extend(crate::harness_config::config_dir("CODEX_HOME", ".codex", &[&env]));
-        codex.extend(crate::route_account::current_home(meta, "codex", &env));
+        let mut claude = Vec::new();
+        if family == "claude" && !strict {
+            claude.push(home.clone());
+            claude.extend(crate::harness_config::config_dir(
+                "CLAUDE_CONFIG_DIR",
+                ".claude",
+                &[&env],
+            ));
+            claude.extend(crate::route_account::current_home(&meta, "claude", &env));
+        }
+        let mut codex = Vec::new();
+        if family == "codex" {
+            codex.push(home.join(".codex"));
+            codex.extend(crate::harness_config::config_dir("CODEX_HOME", ".codex", &[&env]));
+            codex.extend(crate::route_account::current_home(&meta, "codex", &env));
+        }
+        let project = !claude.is_empty();
         let cwd = Path::new(&meta.cwd);
         let cwd_keys: Vec<String> = [Some(cwd.to_path_buf()), cwd.canonicalize().ok()]
             .into_iter()
@@ -108,9 +129,9 @@ impl Hub {
                     out.extend(from_json(json.pointer(&format!("/projects/{}", escape(key)))));
                 }
             }
-            for key in &cwd_keys {
-                let project = read_json(&PathBuf::from(key).join(".mcp.json"));
-                out.extend(from_json(project.as_ref().and_then(|j| j.get("mcpServers"))));
+            for key in cwd_keys.iter().filter(|_| project) {
+                let file = read_json(&PathBuf::from(key).join(".mcp.json"));
+                out.extend(from_json(file.as_ref().and_then(|j| j.get("mcpServers"))));
             }
             for dir in codex {
                 let Ok(text) = std::fs::read_to_string(dir.join("config.toml")) else { continue };
@@ -174,14 +195,23 @@ fn from_toml(text: &str) -> Vec<Sidecar> {
         .collect()
 }
 
-/// Whether command line `args` (as `ps` prints it) runs `s`.
+/// Whether command line `args` (as `ps` prints it) runs `s`: its program is the server's command
+/// (the same path, or the same name for a command given by name), or an interpreter runs it as
+/// a script (a `#!` line: `node /usr/local/bin/npx`), and the server's args follow right after,
+/// in order. A shell whose command string names the server (`sh -c ...`) is not the server.
 fn runs(args: &str, s: &Sidecar) -> bool {
     let words: Vec<&str> = args.split_whitespace().collect();
+    let by_name = !s.command.contains('/');
     let name = Path::new(&s.command).file_name();
-    let command = words.iter().any(|w| *w == s.command || Path::new(w).file_name() == name);
-    command
-        && (s.args.is_empty()
-            || words.windows(s.args.len()).any(|w| w.iter().zip(&s.args).all(|(a, b)| a == b)))
+    let is_command = |w: &str| w == s.command || (by_name && Path::new(w).file_name() == name);
+    let at = if words.first().is_some_and(|w| is_command(w)) {
+        1
+    } else if words.get(1).is_some_and(|w| w.contains('/') && is_command(w)) {
+        2
+    } else {
+        return false;
+    };
+    words.len() >= at + s.args.len() && words[at..].iter().zip(&s.args).all(|(a, b)| a == b)
 }
 
 /// `Busy` with the first process that is neither a server nor under one.
@@ -244,6 +274,14 @@ mod tests {
         );
         let renamed = [under(12, 10, "node /usr/local/bin/npx -y @example/other")];
         assert!(matches!(classify(&renamed, &servers), Census::Busy { pid: 12, .. }));
+        for other in [
+            "sh -c npx -y @example/fetch",
+            "/tmp/other/cmux mcp serve",
+            "python3 notes.py npx -y @example/fetch",
+        ] {
+            let found = [under(12, 10, other)];
+            assert!(matches!(classify(&found, &servers), Census::Busy { .. }), "{other}");
+        }
     }
 
     #[test]

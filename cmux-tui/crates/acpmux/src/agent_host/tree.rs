@@ -13,9 +13,9 @@ pub struct Started {
 
 /// `ps -axww -o <fields>`: whether it exited 0, and what it printed. The one process listing in
 /// acpmux's agent host code: ending what a harness left behind and the idle census.
-fn ps(fields: &str) -> Option<(bool, String)> {
+fn ps(fields: &str) -> Option<(bool, Vec<u8>)> {
     let out = std::process::Command::new("ps").args(["-axww", "-o", fields]).output().ok()?;
-    Some((out.status.success(), String::from_utf8_lossy(&out.stdout).into_owned()))
+    Some((out.status.success(), out.stdout))
 }
 
 /// Every process, from `ps`; empty when `ps` fails.
@@ -23,7 +23,8 @@ fn process_table() -> Vec<Started> {
     let Some((_, out)) = ps("pid=,ppid=,lstart=") else {
         return Vec::new();
     };
-    out.lines()
+    String::from_utf8_lossy(&out)
+        .lines()
         .filter_map(|line| {
             let mut fields = line.split_whitespace();
             let pid = fields.next()?.parse().ok()?;
@@ -87,13 +88,13 @@ pub struct Under {
 
 /// Every live process other than `leader` that runs under it: by parent chain, or in its process
 /// group even after its parent exited (a group member reparented to init). Zombies are skipped:
-/// they run nothing. `None` when `ps` fails, prints a line it cannot read, or lists no `leader`:
+/// they run nothing. `None` when `ps` fails, prints a line it cannot read or bytes that are not
+/// UTF-8, or lists no `leader`:
 /// a census that is not whole never says nothing runs.
 pub fn under(leader: u32) -> Option<Vec<Under>> {
     let (ok, out) = ps("pid=,ppid=,pgid=,stat=,args=")?;
-    if !ok {
-        return None;
-    }
+    // Output that is not text is not read as a whole census either.
+    let out = String::from_utf8(out).ok().filter(|_| ok)?;
     under_in(&out, leader, own_group())
 }
 
