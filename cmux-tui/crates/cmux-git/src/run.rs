@@ -270,7 +270,7 @@ fn run(
             unsafe {
                 command.pre_exec(move || {
                     let limit = libc::rlim_t::try_from(limit).map_err(|_| {
-                        std::io::Error::new(std::io::ErrorKind::InvalidInput, "memory limit")
+                        std::io::Error::new(ErrorKind::InvalidInput, "memory limit")
                     })?;
                     let resource = libc::rlimit { rlim_cur: limit as _, rlim_max: limit as _ };
                     if libc::setrlimit(libc::RLIMIT_AS, &resource) == 0 {
