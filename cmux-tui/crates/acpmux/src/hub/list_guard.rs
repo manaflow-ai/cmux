@@ -271,19 +271,16 @@ impl ListGuard {
 
 /// Whether every chat log is read, the change count, the peers' row writes, and their
 /// link states (each peer row's `peerState`).
-type Key = (bool, u64, u64, u64);
+type Key = (bool, u64, u64, Vec<(String, &'static str)>);
 
 /// What a snapshot is reused under (only once every chat log is read).
 fn key(hub: &Hub) -> Key {
-    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
     let ready = *hub.logs_ready.borrow();
     let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
-    let hash = BuildHasherDefault::<DefaultHasher>::default();
     let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
-    // In any order: a sum of each peer's hash.
-    let states = peers.values().fold(0u64, |sum, peer| {
-        sum.wrapping_add(hash.hash_one((&peer.name, peer.state().as_str())))
-    });
+    let mut states: Vec<_> = peers.values().map(|p| (p.name.clone(), p.state().as_str())).collect();
+    drop(peers);
+    states.sort_unstable();
     (ready, hub.events.changes.load(Ordering::SeqCst), writes, states)
 }
 
@@ -318,7 +315,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
         assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
-        let list = Snapshot::new((false, 0, 0, 0), 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0, Vec::new()), 0, Duration::ZERO, built);
         assert_eq!(list.values(), rows);
         let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
         let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
