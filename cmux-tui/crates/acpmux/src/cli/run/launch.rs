@@ -206,11 +206,13 @@ fn read_prompt_file_with<R: Read>(path: &Path, stdin: R) -> Result<String> {
 }
 
 fn is_stdin_path(path: &Path) -> bool {
-    let _ = path;
-    false
+    matches!(
+        path.to_str(),
+        Some("-") | Some("/dev/stdin") | Some("/proc/self/fd/0") | Some("/dev/fd/0")
+    )
 }
 
-fn read_prompt_reader<R: Read>(path: &Path, mut reader: R) -> Result<String> {
+fn read_prompt_reader<R: Read>(path: &Path, reader: R) -> Result<String> {
     let mut bytes = Vec::with_capacity((MAX_PROMPT_FILE + 1) as usize);
     reader
         .take(MAX_PROMPT_FILE + 1)
