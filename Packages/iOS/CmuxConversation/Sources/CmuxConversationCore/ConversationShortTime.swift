@@ -36,6 +36,9 @@ public struct ConversationShortTimeCache {
     public mutating func removeAll() {
         texts.removeAll()
     }
+
+    /// The number of minutes kept.
+    var count: Int { texts.count }
 }
 
 /// The shared cache for the app's cells, emptied when the locale or the
@@ -43,7 +46,7 @@ public struct ConversationShortTimeCache {
 @MainActor
 // lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationShortTime {
-    private static var cache = ConversationShortTimeCache()
+    private(set) static var cache = ConversationShortTimeCache()
     private static var observers: [any NSObjectProtocol] = []
 
     /// `date`'s short time, as `date.formatted(date: .omitted, time: .shortened)`.
@@ -52,11 +55,15 @@ public enum ConversationShortTime {
         return cache.text(for: date)
     }
 
+    /// Empties the cache on the main actor when the locale or the time zone
+    /// changes. Either notification may be posted on any thread: the observer
+    /// runs on the posting thread and hands the emptying to a main-actor task,
+    /// so the compiler checks every touch of the cache.
     private static func observe() {
         let center = NotificationCenter.default
         for name in [NSLocale.currentLocaleDidChangeNotification, .NSSystemTimeZoneDidChange] {
-            observers.append(center.addObserver(forName: name, object: nil, queue: .main) { _ in
-                MainActor.assumeIsolated { cache.removeAll() }
+            observers.append(center.addObserver(forName: name, object: nil, queue: nil) { _ in
+                Task { @MainActor in cache.removeAll() }
             })
         }
     }
