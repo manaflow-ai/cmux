@@ -1,4 +1,4 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// How a docked workspace's view looks and stacks in the window frame (plans/cmux-next/docked-workspace-DESIGN.md V1,

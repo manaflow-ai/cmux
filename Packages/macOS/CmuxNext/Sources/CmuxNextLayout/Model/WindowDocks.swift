@@ -1,4 +1,4 @@
-import CmuxNextDesign
+public import CmuxNextDesign
 
 /// A window's docked workspaces (plans/cmux-next/docked-workspace-DESIGN.md): up to four edge docks, each holding an
 /// ordinary workspace, around the stage that shows the workspace the sidebar selects. Pure value: the window
