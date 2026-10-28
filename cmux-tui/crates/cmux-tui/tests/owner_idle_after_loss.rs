@@ -28,10 +28,12 @@ const EXIT_BOUND: Duration = Duration::from_secs(10);
 const SPIN_LIMIT: Duration = Duration::from_secs(1);
 
 /// An owner this test started with `server ensure`, from `bin` in `cwd`.
+/// Dropping it stops the session (also when the launch half failed), kills
+/// the owner by its verified identity if it still runs, and waits until it
+/// is gone before removing its scratch directory.
 struct Owner {
     root: PathBuf,
-    pid: u32,
-    started_ms: Option<u64>,
+    identity: Option<(u32, u64)>,
     socket: PathBuf,
 }
 
@@ -39,16 +41,13 @@ impl Owner {
     fn ensure(root: &Path, bin: &Path, cwd: &Path) -> Self {
         fs::create_dir_all(root.join("home")).unwrap();
         fs::create_dir_all(root.join("state")).unwrap();
-        let output = Command::new(bin)
-            .args(["--session", "cdc-idle", "--json", "server", "ensure"])
-            .args(["--terminal-reap-grace-seconds", "30"])
+        // The guard exists before the launch, so a failure below still stops
+        // whatever `ensure` started.
+        let mut owner = Self { root: root.to_path_buf(), identity: None, socket: PathBuf::new() };
+        let output = owner
+            .command(bin)
+            .args(["server", "ensure", "--terminal-reap-grace-seconds", "30"])
             .current_dir(cwd)
-            .env_clear()
-            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
-            .env("HOME", root.join("home"))
-            .env("TMPDIR", root)
-            .env("CMUX_TUI_STATE_DIR", root.join("state"))
-            .env("CMUX_TUI_CONFIG", root.join("home/no-config.toml"))
             .output()
             .unwrap();
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -58,19 +57,49 @@ impl Owner {
                 panic!("ensure: {stdout} {}", String::from_utf8_lossy(&output.stderr))
             });
         let pid = endpoint["pid"].as_u64().and_then(|pid| u32::try_from(pid).ok()).unwrap();
-        let started_ms = cmux_tui_core::server::Starter::current(pid).map(|it| it.started_ms);
-        let socket = PathBuf::from(endpoint["socket"].as_str().unwrap());
-        Self { root: root.to_path_buf(), pid, started_ms, socket }
+        let started = cmux_tui_core::server::Starter::current(pid)
+            .unwrap_or_else(|| panic!("no start time for the owner {pid}"));
+        owner.identity = Some((pid, started.started_ms));
+        owner.socket = PathBuf::from(endpoint["socket"].as_str().unwrap());
+        owner
+    }
+
+    fn command(&self, bin: &Path) -> Command {
+        let mut command = Command::new(bin);
+        command
+            .args(["--session", "cdc-idle", "--json"])
+            .env_clear()
+            .env("PATH", "/usr/bin:/bin:/usr/sbin:/sbin")
+            .env("HOME", self.root.join("home"))
+            .env("TMPDIR", &self.root)
+            .env("CMUX_TUI_STATE_DIR", self.root.join("state"))
+            .env("CMUX_TUI_CONFIG", self.root.join("home/no-config.toml"));
+        command
+    }
+
+    fn pid(&self) -> u32 {
+        self.identity.unwrap().0
     }
 }
 
 impl Drop for Owner {
     fn drop(&mut self) {
-        // Only this test's owner, and only while the pid still names it.
-        let current = cmux_tui_core::server::Starter::current(self.pid).map(|it| it.started_ms);
-        if current.is_some() && current == self.started_ms {
-            // SAFETY: signals the owner this test started.
-            unsafe { libc::kill(self.pid as libc::pid_t, libc::SIGKILL) };
+        let bin = Path::new(env!("CARGO_BIN_EXE_cmux-tui"));
+        let _ = self.command(bin).args(["server", "stop", "--force"]).output();
+        if let Some((pid, started_ms)) = self.identity {
+            let same = || {
+                cmux_tui_core::server::Starter::current(pid).map(|it| it.started_ms)
+                    == Some(started_ms)
+            };
+            if same() {
+                // SAFETY: the owner this test started (pid and start time).
+                unsafe { libc::kill(pid as libc::pid_t, libc::SIGKILL) };
+            }
+            let deadline = std::time::Instant::now() + Duration::from_secs(10);
+            while same() && std::time::Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            assert!(!same() || std::thread::panicking(), "the test's owner {pid} did not end");
         }
         let _ = fs::remove_dir_all(&self.root);
     }
@@ -81,21 +110,34 @@ fn scratch(name: &str) -> PathBuf {
     PathBuf::from(format!("/tmp/oil-{name}-{}-{stamp}", std::process::id()))
 }
 
-/// The CPU time `ps` reports for `pid`; `None` once it is gone (a zombie
-/// counts as gone).
+/// The CPU time `ps` reports for `pid`; `None` only once the process is
+/// confirmed gone (no such process, or a zombie). A `ps` that cannot run or
+/// prints something unreadable fails the test instead of counting as gone.
 fn cpu(pid: u32) -> Option<Duration> {
-    let output = Command::new("ps").args(["-o", "stat=,time=", "-p", &pid.to_string()]).output();
-    let text = String::from_utf8_lossy(&output.ok()?.stdout).to_string();
+    let output = Command::new("ps")
+        .args(["-o", "stat=,time=", "-p", &pid.to_string()])
+        .output()
+        .expect("run ps");
+    let text = String::from_utf8_lossy(&output.stdout).to_string();
     let mut fields = text.split_whitespace();
-    if fields.next()?.starts_with('Z') {
+    let Some(stat) = fields.next() else {
+        // SAFETY: signal 0 only checks that the pid exists.
+        let gone = unsafe { libc::kill(pid as libc::pid_t, 0) } == -1
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        assert!(gone, "ps printed nothing for {pid}, which still exists: {output:?}");
+        return None;
+    };
+    if stat.starts_with('Z') {
         return None;
     }
     // `[[dd-]hh:]mm:ss[.ff]` (macOS prints fractions, Linux whole seconds).
-    let time = fields.next()?;
+    let time = fields.next().unwrap_or_else(|| panic!("no time from ps: {text:?}"));
+    let number = |part: &str| -> f64 {
+        part.parse().unwrap_or_else(|_| panic!("unreadable ps time {time:?}"))
+    };
     let (days, clock) = time.split_once('-').unwrap_or(("0", time));
-    let clock =
-        clock.split(':').fold(0.0, |total, part| total * 60.0 + part.parse().unwrap_or(0.0));
-    Some(Duration::from_secs_f64(days.parse::<f64>().unwrap_or(0.0) * 86_400.0 + clock))
+    let clock = clock.split(':').fold(0.0, |total, part| total * 60.0 + number(part));
+    Some(Duration::from_secs_f64(number(days) * 86_400.0 + clock))
 }
 
 #[test]
@@ -125,19 +167,20 @@ fn orphaned_owner_stays_idle_after_its_clients_go_away() {
     std::thread::sleep(Duration::from_secs(1));
     drop(clients);
     std::thread::sleep(Duration::from_millis(500));
-    let before = cpu(owner.pid).expect("the owner is running");
+    let before = cpu(owner.pid()).expect("the owner is running");
     std::thread::sleep(Duration::from_secs(5));
-    let used = cpu(owner.pid).expect("the owner outlives its clients").saturating_sub(before);
+    let used = cpu(owner.pid()).expect("the owner outlives its clients").saturating_sub(before);
     assert!(used <= SPIN_LIMIT, "the owner used {used:?} of CPU in 5 s after its clients left");
 }
 
-/// A disk image this test attached at `volume`; dropped after the owner
-/// (declared before it), it detaches the volume if it is still attached and
-/// removes the image and its scratch directory.
+/// A disk image this test attached at `mount`. Dropped after the owner
+/// (declared before it): it force-detaches the volume while it is still
+/// attached and removes the image and scratch directory only once it is not.
 #[cfg(target_os = "macos")]
 struct Volume {
     root: PathBuf,
     mount: PathBuf,
+    attached: bool,
 }
 
 #[cfg(target_os = "macos")]
@@ -145,10 +188,13 @@ impl Volume {
     fn attach(root: &Path, megabytes: u64) -> Self {
         fs::create_dir_all(root).unwrap();
         let image = root.join("owner.dmg");
-        let volume = Self { root: root.to_path_buf(), mount: root.join("volume") };
+        let mut volume =
+            Self { root: root.to_path_buf(), mount: root.join("volume"), attached: false };
         let size = format!("{megabytes}m");
         let image = image.to_str().unwrap();
         hdiutil(&["create", "-quiet", "-size", &size, "-fs", "HFS+", "-volname", "oil", image]);
+        // Counted as attached before the call: a half-done attach is detached too.
+        volume.attached = true;
         hdiutil(&["attach", "-quiet", "-nobrowse", "-mountpoint", volume.path(), image]);
         volume
     }
@@ -156,13 +202,28 @@ impl Volume {
     fn path(&self) -> &str {
         self.mount.to_str().unwrap()
     }
+
+    fn detach(&mut self) {
+        hdiutil(&["detach", "-force", self.path()]);
+        self.attached = false;
+    }
 }
 
 #[cfg(target_os = "macos")]
 impl Drop for Volume {
     fn drop(&mut self) {
-        if self.mount.join("cwd").exists() {
-            let _ = Command::new("hdiutil").args(["detach", "-force", self.path()]).output();
+        if self.attached {
+            let detached = Command::new("hdiutil")
+                .args(["detach", "-force", self.path()])
+                .output()
+                .is_ok_and(|output| output.status.success());
+            let mounted = Command::new("mount")
+                .output()
+                .is_ok_and(|out| String::from_utf8_lossy(&out.stdout).contains(self.path()));
+            if !detached && mounted {
+                // Never delete files under a volume that is still mounted.
+                return;
+            }
         }
         let _ = fs::remove_dir_all(&self.root);
     }
@@ -179,16 +240,16 @@ fn hdiutil(args: &[&str]) {
 fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
     let source = PathBuf::from(env!("CARGO_BIN_EXE_cmux-tui"));
     let megabytes = fs::metadata(&source).unwrap().len() / (1 << 20) * 3 / 2 + 64;
-    let volume = Volume::attach(&scratch("volume"), megabytes);
+    let mut volume = Volume::attach(&scratch("volume"), megabytes);
     let mount = PathBuf::from(volume.path());
     fs::create_dir_all(mount.join("cwd")).unwrap();
     let bin = mount.join("cmux-tui");
     fs::copy(&source, &bin).unwrap();
     let owner = Owner::ensure(&scratch("volume-owner"), &bin, &mount.join("cwd"));
-    let before = cpu(owner.pid).expect("the owner is running");
+    let before = cpu(owner.pid()).expect("the owner is running");
     // Force-remove the volume under the running owner, as the runner's
     // instance-store volume vanished under the leaked owners.
-    hdiutil(&["detach", "-force", volume.path()]);
+    volume.detach();
     // A client makes the owner run code it has not run yet (the leaked
     // owners spun once a thread did).
     let _client = UnixStream::connect(&owner.socket).map(|mut stream| {
@@ -197,7 +258,7 @@ fn orphaned_owner_exits_when_its_executables_volume_is_removed() {
     });
     let deadline = std::time::Instant::now() + EXIT_BOUND;
     let mut used = Duration::ZERO;
-    while let Some(now) = cpu(owner.pid) {
+    while let Some(now) = cpu(owner.pid()) {
         used = now.saturating_sub(before);
         assert!(
             std::time::Instant::now() < deadline,
