@@ -151,7 +151,7 @@ fn code_block_ignores_superseded_answers_across_reverse_pages() {
             u64::MAX => json!({"events": [
                 superseded(3, "old", "new"), identified_text(4, "new", "No code needed."), end(5),
             ], "hasMore": true}),
-            3 => json!({"events": [end(1), identified_text(2, "old", "```sh\necho obsolete\n```")], "hasMore": false}),
+            3 => json!({"events": [end(1), identified_text(2, "old", "```sh\necho obsolete\n```\n")], "hasMore": false}),
             _ => panic!("unexpected cursor {before}"),
         })
     }).unwrap();
@@ -177,7 +177,7 @@ fn code_block_anonymous_chunks_preserve_message_identity() {
         Ok(json!({"events": [
             identified_text(1, "old", "```sh\n"),
             text(2, "echo obsolete\n"),
-            identified_text(3, "old", "```"),
+            identified_text(3, "old", "```\n"),
             superseded(4, "old", "new"),
             identified_text(5, "new", "No code needed."), end(6),
         ], "hasMore": false}))
@@ -188,7 +188,7 @@ fn code_block_anonymous_chunks_preserve_message_identity() {
 
 #[test]
 fn code_block_adopts_the_first_identity_after_anonymous_chunks() {
-    let events = [text(1, "```sh\necho "), identified_text(2, "old", "ok\n```")];
+    let events = [text(1, "```sh\necho "), identified_text(2, "old", "ok\n```\n")];
     let block = load(|_| Ok(json!({"events": events, "hasMore": false}))).unwrap();
     assert_eq!(block, json!({"language": "sh", "code": "echo ok"}));
     let mut replaced = events.to_vec();
