@@ -243,6 +243,38 @@ fn failed_commit_after_staging_restores_the_state_and_holds_back_session_paths()
     assert_durable_matches_memory(&mux);
 }
 
+/// After a daemon restart a tab whose terminal is still adopting (R41) is
+/// placed in its pane but has no runtime surface yet. `tab.move` must move
+/// it like any other tab: the reducer does, so a live move that skipped it
+/// failed the transition check with `layout-conservation-violation`
+/// (https://github.com/manaflow-ai/cmux/issues/25999).
+#[test]
+fn moves_of_a_tab_without_a_runtime_surface_follow_the_reducer() {
+    let (mux, [first, second, third]) = two_pane_mux("layout-invariants-adopting-move");
+    let origin = pane_of(&mux, first);
+    let other = pane_of(&mux, third);
+    let _adopting = mux.state.lock().unwrap().surfaces.remove(&second).unwrap();
+    let rejections = rejections_on_this_thread();
+
+    // Same-pane reorder, the issue's repro: [first, second] -> [second, first].
+    let before = mux.with_state(Clone::clone);
+    assert!(mux.move_tab(second, origin, 0));
+    assert_eq!(mux.with_state(|state| state.panes[&origin].tabs.clone()), vec![second, first]);
+    let after = mux.with_state(Clone::clone);
+    assert!(transition_problems(&project(&before), None, &after).is_empty());
+
+    // Cross-pane move into the other pane.
+    let before = mux.with_state(Clone::clone);
+    assert!(mux.move_tab(second, other, 1));
+    assert_eq!(mux.with_state(|state| state.panes[&other].tabs.clone()), vec![third, second]);
+    assert_eq!(mux.with_state(|state| state.panes[&origin].tabs.clone()), vec![first]);
+    let after = mux.with_state(Clone::clone);
+    assert!(transition_problems(&project(&before), None, &after).is_empty());
+
+    assert_eq!(rejections_on_this_thread(), rejections, "a move was rejected");
+    assert_durable_matches_memory(&mux);
+}
+
 /// Everything observable about the layout, for "unchanged" assertions.
 fn fingerprint(state: &State) -> String {
     let workspaces = state
