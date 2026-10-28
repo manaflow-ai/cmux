@@ -51,7 +51,7 @@ public final class InputLatencyDispatch {
     public let textInput: TextInputStage
     /// Each key-down's first arrival on the main thread and the path that held it (first-seconds-evidence.md step 1).
     public let arrivals = KeyArrivalLedger()
-    /// The one seam that sends a held key again and records its hold (``HeldKeyReplay``, hold-class.md item c).
+    /// The one seam that sends a held key again and records its hold (``HeldKeyReplay``).
     public private(set) lazy var heldKeys = HeldKeyReplay(ledger: arrivals)
     private let classifier: InputTargetClassifier
     private let frameInterval: FrameInterval

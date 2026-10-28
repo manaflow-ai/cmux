@@ -1,16 +1,18 @@
 public import AppKit
 
-/// The one place a key event that a cmux path held is sent again (hold-class.md rule 1, item c).
+/// The one place a key event that a cmux path held is sent again (the input rule: a held key is a measured stage).
 ///
 /// A path that holds a person's key to run it later (``KeyArrivalLedger/HoldPath``) runs it through
 /// ``replay(_:heldBy:keyWindow:_:)``. The seam records the hold as its own stage: per path, how many keys it held and
-/// how long each waited (from the hold, ``KeyArrivalLedger/holdStart(of:)``, to this replay), and it logs a late key
-/// in the ledger (`debug.input late_keys`). Only the ``Sender`` it hands out sends the event (to the application, a
-/// window or a view), so a replay that skips the record does not compile without a new `sendEvent` call, which the
-/// guardrail refuses outside this file.
+/// how long each waited (from the hold, ``KeyArrivalLedger/holdStart(of:)``, to its last replay), and it logs a late
+/// key in the ledger (`debug.input late_keys`). A key that its own replay holds again (the launch picture: undecided,
+/// then for a terminal still a picture) is one key: its later replay replaces its earlier record. Only the ``Sender``
+/// it hands out sends the event (to the application, a window or a view); the input guardrail allows a held key's
+/// `sendEvent` in this file only.
 ///
-/// A hold is allowed only with a written reason, a limit of at most ``limitNanos`` and this stage (hold-class.md
-/// rule 1). Its numbers are in `debug.input late_keys` under `holds` (``stages``).
+/// The input rule: a person's key goes at once to its destination by id (terminal, pane or page id), which queues it;
+/// a path may hold it only with a written reason, a limit of at most ``limitNanos`` and this stage. Its numbers are in
+/// `debug.input late_keys` under `holds` (``stages``).
 ///
 /// ```swift
 /// heldKeys.replay(event, heldBy: .newTab, keyWindow: window) { send in
@@ -22,7 +24,7 @@ public import AppKit
 /// ```
 @MainActor
 public final class HeldKeyReplay {
-    /// The longest a path may hold a person's key (hold-class.md rule 1).
+    /// The longest a path may hold a person's key (the input rule above).
     public nonisolated static let limitNanos: UInt64 = 50_000_000
     /// Upper bounds of the hold buckets in milliseconds; the last bucket has no upper bound.
     public nonisolated static let bucketBoundsMilliseconds: [UInt64] = [8, 16, 33, 50, 100, 250, 500, 1000, 2000]
@@ -47,9 +49,21 @@ public final class HeldKeyReplay {
             totalNanos &+= nanos
             if nanos > HeldKeyReplay.limitNanos { overLimit &+= 1 }
             maxNanos = max(maxNanos, nanos)
+            buckets[Self.bucket(of: nanos)] &+= 1
+        }
+
+        /// Takes back one key's earlier record of `nanos` (its later replay records the whole hold). The max stays: a
+        /// later hold of the same key is never shorter.
+        mutating func remove(_ nanos: UInt64) {
+            count &-= 1
+            totalNanos &-= nanos
+            if nanos > HeldKeyReplay.limitNanos { overLimit &-= 1 }
+            buckets[Self.bucket(of: nanos)] &-= 1
+        }
+
+        private static func bucket(of nanos: UInt64) -> Int {
             let milliseconds = nanos / 1_000_000
-            let index = HeldKeyReplay.bucketBoundsMilliseconds.firstIndex { milliseconds < $0 }
-            buckets[index ?? HeldKeyReplay.bucketBoundsMilliseconds.count] &+= 1
+            return HeldKeyReplay.bucketBoundsMilliseconds.firstIndex { milliseconds < $0 } ?? HeldKeyReplay.bucketBoundsMilliseconds.count
         }
     }
 
@@ -95,7 +109,12 @@ public final class HeldKeyReplay {
         let at = now()
         if path != .none {
             let start = ledger?.holdStart(of: event) ?? InputLatencyTracker.eventNanos(event.timestamp)
-            paths[Int(path.rawValue)].add(start > 0 && at > start ? at - start : 0)
+            let hold = start > 0 && at > start ? at - start : 0
+            // A key replayed before (its own replay held it again) keeps one record: the earlier one goes.
+            if let earlier = ledger?.recordReplay(event, path: path, hold: hold), earlier.path != .none {
+                paths[Int(earlier.path.rawValue)].remove(earlier.hold)
+            }
+            paths[Int(path.rawValue)].add(hold)
         }
         if event.type == .keyDown { ledger?.replayed(event, at: at, keyWindow: keyWindow) }
         send(Sender())

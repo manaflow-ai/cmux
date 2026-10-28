@@ -7,7 +7,7 @@ import CmuxNextLaunch
 import Testing
 
 /// Every key a cmux path held and runs again goes through the one seam (``HeldKeyReplay``), so its hold is a measured
-/// stage (held_by, hold ms) in `debug.input` (hold-class.md rule 1 and item c): the New Tab field's replay and the
+/// stage (held_by, hold ms) in `debug.input` (``HeldKeyReplay``): the New Tab field's replay and the
 /// launch picture's replay and delivery each record their path.
 @MainActor @Suite(.serialized)
 struct HeldKeyReplayRoutingTests {

@@ -7,7 +7,7 @@ public import CmuxNextWakeups
 /// responder chain and how new its terminal was (first-seconds-evidence.md step 1). Rows since the last `reset`, or
 /// every row the ledger keeps with `since_launch`. Class names and numbers only: no user text.
 ///
-/// `holds` is each hold path's stage since launch (``HeldKeyReplay``, hold-class.md rule 1): every key it sent again,
+/// `holds` is each hold path's stage since launch (``HeldKeyReplay``): every key it sent again,
 /// late or not, with how long it held them.
 public nonisolated struct LateKeysRecorder: DebugInputRecorder {
     private let ledger: KeyArrivalLedger
