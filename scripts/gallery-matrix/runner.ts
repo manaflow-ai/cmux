@@ -262,6 +262,17 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     if (typeof params.settleMs === "number" && params.settleMs > 0) await page.waitForTimeout(Math.min(params.settleMs, 15_000));
     await page.evaluate((p) => { document.documentElement.dataset.galleryParams = JSON.stringify(p); }, params);
     await page.screenshot({ path: join(outputDir, `${safeFilePart(item.id)}-${engine}.png`), fullPage: true });
+    const geometry = await page.evaluate(() => {
+      const properties = ["fontSize", "fontWeight", "lineHeight", "color", "backgroundColor", "paddingLeft", "paddingRight", "paddingTop", "paddingBottom", "marginLeft", "marginRight", "marginTop", "marginBottom", "gap", "columnGap", "rowGap", "borderRadius", "opacity", "display", "alignItems"] as const;
+      return Array.from(document.querySelectorAll("body *")).flatMap((el, index) => {
+        const r = el.getBoundingClientRect();
+        const s = getComputedStyle(el);
+        if (!r.width || !r.height || s.visibility === "hidden" || s.display === "none") return [];
+        const directText = Array.from(el.childNodes).filter(n => n.nodeType === Node.TEXT_NODE).map(n => n.textContent ?? "").join("").trim().slice(0, 100);
+        return [{index, tag: el.tagName, classes: el.getAttribute("class"), role: el.getAttribute("role"), label: el.getAttribute("aria-label"), text: directText, rect: { x: r.x, y: r.y, width: r.width, height: r.height }, style: Object.fromEntries(properties.map(p => [p, s[p]]))}];
+      });
+    });
+    await writeFile(join(outputDir, `${safeFilePart(item.id)}-${engine}-geometry.json`), JSON.stringify({schemaVersion: 1, revision, params, screenshot: `${safeFilePart(item.id)}-${engine}.png`, units: "css-px", deviceScaleFactor: 2, elements: geometry}, null, 2));
     const screenshotName = `${safeFilePart(item.id)}-${engine}.png`;
     const screenshotPath = join(outputDir, screenshotName);
     const result: Record<string, unknown> = { id: item.id, engine, screenshot: screenshotName, params, ready, readyMs, revision, play, ...(experiment ? { experiment } : {}) };
