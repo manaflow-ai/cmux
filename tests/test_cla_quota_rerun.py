@@ -367,6 +367,32 @@ class Tests(unittest.TestCase):
         self.assertEqual(slept, [6 * 60 + 20])
         self.assertEqual(fake.posts, [rerun_path(1)])
 
+    def test_a_spent_app_budget_is_named_waited_out_and_its_guard_rejects_rerun(self):
+        # 2026-10-28 06:44Z: the glaeda-route App budget, which the guard reads on, ran out and
+        # the guard rejected every pull request into main until the reset, policy changes included.
+        reset = NOW + dt.timedelta(minutes=6)
+        inside, before = "b" * 40, "c" * 40
+        fake = FakeGitHub([], [run(2, inside, number=2, name=GUARD), run(3, before, number=3, name=GUARD)],
+                          {2: GUARD_LOG, 3: GUARD_LOG},
+                          finished={2: "2026-10-26T04:25:00Z", 3: "2026-10-26T03:30:00Z"})
+        fake.fail("GET", "/repos/o/r/pulls?state=open&base=main&per_page=100&sort=updated&direction=desc&page=1", 403,
+                  X_RateLimit_Remaining="0", X_RateLimit_Reset=str(int(reset.timestamp())))
+        slept = []
+        out = self.sweep(fake, slept=slept)
+        self.assertIn("::warning title=glaeda-route App budget spent::the glaeda-route App budget is spent until "
+                      f"{reset + rerun.RESET_GRACE:%H:%M:%SZ}", out)
+        self.assertIn("the glaeda-route App budget is spent; the pass runs again in 380 s", out)
+        self.assertEqual(slept, [6 * 60 + 20])
+        # Both change CLA policy; only the reject inside the App's spent hour is re-run.
+        self.assertEqual(fake.posts, [rerun_path(2)])
+        self.assertIn("reject left alone::run 3", out)
+
+    def test_a_spent_workflow_token_budget_is_not_called_the_apps(self):
+        fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG}, remaining=0, reset=NOW + dt.timedelta(minutes=50))
+        out = self.sweep(fake, code=1)
+        self.assertIn("the budget is spent until", out)
+        self.assertNotIn("glaeda-route App", out)
+
     def test_a_429_waits_for_retry_after(self):
         fake = FakeGitHub([run(1, "a" * 40)], [], {1: LIMITED_LOG})
         fake.fail("GET", "/repos/o/r/actions/workflows/cla.yml/runs?event=pull_request_target&per_page=100", 429,
