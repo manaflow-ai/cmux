@@ -141,6 +141,21 @@ import Testing
         #expect(model.pageState["outcome"] == "connected")
     }
 
+    @Test func anActiveSharedConnectionIsConnectedButCannotBeRevoked() async {
+        var mutations = 0
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, _ in
+            if op != "integration.list" { mutations += 1 }
+            return ["connections": [["id": "shared", "provider": "github", "created_by": "another-user", "sharing": "team", "status": "active"]], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in })
+        await model.connect()
+        await model.perform("githubDisconnect", connection: "shared")
+        #expect(model.connected)
+        #expect(model.pageState["outcome"] == "connected")
+        #expect(model.pageState["canConnect"] == false)
+        #expect(model.pageState["connections"]?.arrayValue?.first?["canDisconnect"] == false)
+        #expect(mutations == 0)
+    }
+
     @Test func anExpiredAuthorizationStartsANewAttempt() async {
         var clock = Date(timeIntervalSince1970: 4102444799)
         var keys: [String?] = []

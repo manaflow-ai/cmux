@@ -38,7 +38,7 @@ public final class GitHubConnections {
     public var scopeIsSignedOut: Bool { scope() == nil }
     public var busy: Bool { workingScope != nil && workingScope == scope() }
     public var currentConnections: [JSONValue] { loadedScope == scope() ? connections : [] }
-    public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && canDisconnect($0) } }
+    public var connected: Bool { currentConnections.contains { $0["status"]?.stringValue == "active" && (canDisconnect($0) || $0["sharing"]?.stringValue == "team") } }
     public var ready: Bool { scope() != nil && loadedScope == scope() && configured }
 
     public func canDisconnect(_ row: JSONValue) -> Bool {
