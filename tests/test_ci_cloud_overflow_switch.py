@@ -615,6 +615,13 @@ class RepoVariableCheckTests(unittest.TestCase):
         return {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_PR=glaeda-std-xcode-26.6\nLINUX_RUNNER=ubuntu-24.04\n",
                 "CI_OWNED_POOL_SLOTS": "", "CMUX_CI_XCODE_APP_PR": PIN, **extra}
 
+    def test_a_signing_variable_the_drift_policy_accepts_is_still_reported(self) -> None:
+        env = {"CMUX_CI_RUNNER_VARIABLES": "MACOS_RUNNER_26=warp-macos-15-arm64-6x\n", "CI_OWNED_POOL_SLOTS": "",
+               "CMUX_CI_XCODE_APP_PR": PIN}
+        self.assertTrue(any(p.startswith("MACOS_RUNNER_26=") and "signing jobs" in p for p in check.problems(env)))
+        env["CMUX_CI_RUNNER_VARIABLES"] = "MACOS_RUNNER_26=blacksmith-6vcpu-macos-26\n"
+        self.assertFalse(any(p.startswith("MACOS_RUNNER_26=") for p in check.problems(env)))
+
     def test_a_trusted_runner_its_readers_reject_is_drift(self) -> None:
         def env(trusted: str) -> dict[str, str]:
             return {"CMUX_CI_RUNNER_VARIABLES": f"CI_TRUSTED_RUNNER={trusted}\n", "CI_OWNED_POOL_SLOTS": "",
