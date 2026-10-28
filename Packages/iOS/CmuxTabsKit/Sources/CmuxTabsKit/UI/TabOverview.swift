@@ -171,9 +171,16 @@ struct TabOverview<Source: TabsDataSource>: View {
     /// Select Tabs mode and its selection.
     @State private var selecting = false
     @State private var selection = TabSelection()
-    /// The content band whose cards are built (`GridBand`); nil until the
-    /// scroll view first reports its geometry (the top of the grid).
-    @State private var band: GridBand?
+    /// Which cards are in the tree (`CardResidency`).
+    @State private var residency = CardResidency()
+    /// The grid is on screen (opening, shown or closing).
+    var isVisible = true
+    /// The grid is at rest (no zoom running): cards off screen are built
+    /// ahead only then, so the zoom's frames build nothing but what it shows.
+    var isSettled = true
+    /// Scrolling, and the cards being built ahead (for `overviewIdleChanged`).
+    @State private var scrolling = false
+    @State private var prefilling = false
 
     var body: some View {
         let tabs = source.tabs
@@ -223,15 +230,16 @@ struct TabOverview<Source: TabsDataSource>: View {
                 }
             }
             .scrollPosition($position)
-            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll] _, y in
+            .onScrollGeometryChange(for: CGFloat.self, of: { $0.contentOffset.y + $0.contentInsets.top }) { [scroll, residency] _, y in
                 if scroll.offset != y { scroll.offset = y }
+                // Builds and releases cards as they near or leave the
+                // screen, without re-running this body.
+                residency.scrolled(to: y)
             }
-            // The built cards follow the scroll a row at a time: this body
-            // runs when the band moves, not on every scroll frame.
-            .onScrollGeometryChange(for: GridBand.self, of: { [layout] in layout.band(offset: $0.contentOffset.y + $0.contentInsets.top) }) { _, b in
-                if band != b { band = b }
+            .onScrollPhaseChange { _, phase in
+                if scrolling != phase.isScrolling { scrolling = phase.isScrolling }
+                onScrolling(phase.isScrolling)
             }
-            .onScrollPhaseChange { _, phase in onScrolling(phase.isScrolling) }
             .scrollIndicators(.hidden)
             .ignoresSafeArea()
             // Safari's top edge: cards scrolled under the status bar and the
@@ -276,6 +284,21 @@ struct TabOverview<Source: TabsDataSource>: View {
             }
         }
         .frame(width: layout.size.width, height: layout.size.height)
+        .onChange(of: ResidencyInputs(ids: tabs.map(\.id), layout: layout), initial: true) { _, inputs in
+            residency.update(ids: inputs.ids, layout: inputs.layout)
+        }
+        .onChange(of: isVisible, initial: true) { _, visible in residency.setVisible(visible) }
+        .onChange(of: isSettled, initial: true) { _, settled in residency.setSettled(settled) }
+        .onAppear { residency.onBusyChanged = { prefilling = $0 } }
+        // The grid rests (settled, not scrolling, nothing left to build):
+        // the source may draw costly cards now, never in a frame the grid
+        // itself needs.
+        .onChange(of: isSettled && !scrolling && !prefilling) { _, idle in source.overviewIdleChanged(idle) }
+    }
+
+    private struct ResidencyInputs: Equatable {
+        var ids: [String]
+        var layout: OverviewLayout
     }
 
     /// Safari's card menu: the source's groups (Copy Link, Duplicate Tab...),
@@ -286,18 +309,11 @@ struct TabOverview<Source: TabsDataSource>: View {
         let departed: DepartingCard?
     }
 
-    /// The cards in the built band (`GridBand`), plus any card a gesture or
-    /// the zoom holds (swiped, lifted for its menu, dragged, standing for
-    /// the zooming page), then cards still flying off after a swipe.
-    // perf-hot: O(tabs) arithmetic per grid body, O(band) cards built tabs-grid-cull
+    /// The listed cards (each in the tree only while `CardResidency` has
+    /// it built), then cards still flying off after a swipe.
     private func gridCards() -> [GridCard] {
         let tabs = source.tabs
-        let band = band ?? layout.band(offset: 0)
-        var cards: [GridCard] = []
-        cards.reserveCapacity(16)
-        for (index, tab) in tabs.enumerated() where band.contains(layout.card(index)) || holds(tab.id) {
-            cards.append(GridCard(tab: tab, index: index, departed: nil))
-        }
+        var cards = tabs.enumerated().map { GridCard(tab: $0.element, index: $0.offset, departed: nil) }
         let listed = Set(tabs.map(\.id))
         for d in swipes.departing where !listed.contains(d.id) {
             cards.append(GridCard(tab: d.tab, index: tabs.count, departed: d))
@@ -312,11 +328,19 @@ struct TabOverview<Source: TabsDataSource>: View {
 
     /// One grid card with its tap, long press and swipe; pinned tabs are
     /// capsules in the pinned area.
+    // perf-hot: O(1) per card per grid body; cards off the keep band are not built tabs-grid-residency
     @ViewBuilder private func gridCardView(_ card: GridCard) -> some View {
+        let id = card.tab.id
         if card.departed == nil, card.index < layout.pinned {
-            pinnedCardView(card.tab, index: card.index)
+            ResidentCard(slot: residency.slot(id), held: holds(id)) { pinnedCardView(card.tab, index: card.index) }
+                .zIndex(Double(card.index))
+                .transition(.opacity)
         } else {
-            tabCardView(card)
+            ResidentCard(slot: residency.slot(id), held: card.departed != nil || holds(id)) { tabCardView(card) }
+                // Explicit stacking in grid order: cards crossing in a reflow
+                // keep their order.
+                .zIndex(swipes.isDeparting(id) ? 20_000 : swipes.isRaised(id) ? 10_000 : Double(card.index))
+                .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
         }
     }
 
@@ -387,11 +411,7 @@ struct TabOverview<Source: TabsDataSource>: View {
         .opacity(swipes.opacity(tab.id))
         // Lifted about the card's centre while swiped (× 1.093).
         .scaleEffect(swipes.scale(tab.id), anchor: UnitPoint(x: 0.5, y: r.height / 2 / max(1, r.height + 25)))
-        // Explicit stacking in grid order: cards crossing in a reflow keep
-        // their order.
-        .zIndex(swipes.isDeparting(tab.id) ? 20_000 : swipes.isRaised(tab.id) ? 10_000 : Double(index))
         .offset(x: r.minX + swipes.offset(tab.id), y: r.minY)
-        .transition(.asymmetric(insertion: .opacity, removal: .opacity.combined(with: .scale(scale: 0.9))))
     }
 
     @ViewBuilder private func pinnedCardView(_ tab: TabsKitTab, index: Int) -> some View {
@@ -412,9 +432,7 @@ struct TabOverview<Source: TabsDataSource>: View {
                     onTap: { if selecting { selection.toggle(tab.id) } else if gridInteractive { onSelect(tab.id) } },
                     onPan: { _ in }, onDragStart: {}, onDragEnd: {})
             }
-            .zIndex(Double(index))
             .offset(x: r.minX, y: r.minY)
-            .transition(.opacity)
     }
 
     /// Safari's card menu: Copy Link, Pin Tab, Duplicate Tab (the source's

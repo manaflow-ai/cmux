@@ -142,36 +142,7 @@ struct TabsScreen<Source: TabsDataSource>: View {
     var body: some View {
         let layout = toolbarLayout
         ZStack(alignment: .topLeading) {
-            // Kept mounted (hidden) so opening it does not pay for building
-            // the grid on the first animation frame. While it is hidden it
-            // is dormant: a change on the page (the toolbar collapsing, a
-            // tab's title) does not re-run it (`DormantGate`).
-            DormantGate(dormant: !overviewVisible) {
-            TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
-                        // On the settled grid the page layer draws the active
-                        // tab's card live (the same view as the page); on the
-                        // page and in the zoom it is the page itself, so its
-                        // card is not built (a streaming chat's card re-rendered
-                        // every token under the page).
-                        hiddenTabId: zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID),
-                        gridInteractive: zoomState.gridInteractive,
-                        swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
-                        controlsInteractive: overviewVisible && zoomState.headingToOverview,
-                        scroll: gridScroll, position: $overviewPosition,
-                        onSelect: { closeOverview(selecting: $0) },
-                        onClose: { id in await closeFromGrid(id) },
-                        onNewTab: newTabFromOverview,
-                        onDone: { closeOverview(selecting: activeID) },
-                        onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
-                        pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
-                        onScrolling: { source.overviewScrollingChanged($0) },
-                        onQueueSelect: { queuedOpen = $0 },
-                        onPressChanged: { pressedCard = $0 })
-            }
-                .equatable()
-                .opacity(overviewVisible ? 1 : 0)
-                .allowsHitTesting(overviewVisible)
-                .accessibilityHidden(!zoomState.gridInteractive)
+            overview
                 // Close All Tabs asks first, as Safari does: every tab closes with no way back.
                 .confirmationDialog(confirmingCloseAll?.confirmTitle ?? "", isPresented: Binding(
                     get: { confirmingCloseAll != nil }, set: { if !$0 { confirmingCloseAll = nil } }
@@ -331,6 +302,42 @@ struct TabsScreen<Source: TabsDataSource>: View {
                 newTab(option, zoom: .lastTabClosed)
             }
         }
+    }
+
+    /// The tab grid, kept mounted (hidden) so opening it does not pay for
+    /// building it on the first animation frame.
+    @ViewBuilder private var overview: some View {
+        // While it is hidden it is dormant: a change on the page (the toolbar collapsing, a
+        // tab's title) does not re-run it (`DormantGate`).
+        let hidden = zoomState.phase == .overview ? (staticCardID == activeID || gridDrawsActive ? nil : activeID) : (zoomTabId ?? activeID)
+        DormantGate(dormant: !overviewVisible) {
+        TabOverview(source: source, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome, swipes: cardSwipes,
+                    // On the settled grid the page layer draws the active
+                    // tab's card live (the same view as the page); on the
+                    // page and in the zoom it is the page itself, so its
+                    // card is not built (a streaming chat's card re-rendered
+                    // every token under the page).
+                    hiddenTabId: hidden,
+                    gridInteractive: zoomState.gridInteractive,
+                    swipeInteractive: zoomState.phase == .animating && zoomState.headingToOverview,
+                    controlsInteractive: overviewVisible && zoomState.headingToOverview,
+                    scroll: gridScroll, position: $overviewPosition,
+                    onSelect: { closeOverview(selecting: $0) },
+                    onClose: { id in await closeFromGrid(id) },
+                    onNewTab: newTabFromOverview,
+                    onDone: { closeOverview(selecting: activeID) },
+                    onCloseAll: { confirmingCloseAll = CloseAllConfirmation(ids: tabs.map(\.id)) },
+                    pending: newTabSlot?.showsPlaceholder(in: tabs.map(\.id)) == true ? pendingNewTab : nil,
+                    onScrolling: { source.overviewScrollingChanged($0) },
+                    onQueueSelect: { queuedOpen = $0 },
+                    onPressChanged: { pressedCard = $0 },
+                    isVisible: overviewVisible,
+                    isSettled: zoomState.phase == .overview)
+        }
+            .equatable()
+            .opacity(overviewVisible ? 1 : 0)
+            .allowsHitTesting(overviewVisible)
+            .accessibilityHidden(!zoomState.gridInteractive)
     }
 
     // MARK: Page

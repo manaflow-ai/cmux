@@ -1,0 +1,143 @@
+#if os(iOS)
+import Observation
+import QuartzCore
+import SwiftUI
+
+/// One card's residency: whether its view is in the tree. Each card observes
+/// only its own slot, so building or releasing a card re-runs that card,
+/// never the grid and the other cards.
+@MainActor
+@Observable
+final class CardSlot {
+    var built = false
+}
+
+/// Builds grid cards near the screen and releases far ones
+/// (`CardResidencyPlan`). Cards on screen are built at once while the grid
+/// shows (the zoom lands on real cards, a scroll never shows a blank one);
+/// the rest are built one per frame, nearest first, only while the grid
+/// rests; a hidden grid builds only its on-screen cards, one per frame.
+/// Scrolling never re-runs the grid's body: the offset comes in through
+/// `scrolled(to:)` and changes only the slots that flip.
+@MainActor
+final class CardResidency {
+    private var slots: [String: CardSlot] = [:]
+    private var ids: [String] = []
+    private var layout: OverviewLayout?
+    private var offset: CGFloat = 0
+    private var visible = false
+    private var settled = true
+    private let plan = CardResidencyPlan()
+    private let clock = FrameClock()
+    private var ticking = false
+    /// Cards built so far (tests and the rig's log).
+    private(set) var builds = 0
+    /// Building ahead started (true) or finished (false).
+    var onBusyChanged: (Bool) -> Void = { _ in }
+    private(set) var busy = false {
+        didSet { if busy != oldValue { onBusyChanged(busy) } }
+    }
+
+    func slot(_ id: String) -> CardSlot {
+        if let slot = slots[id] { return slot }
+        let slot = CardSlot()
+        slots[id] = slot
+        return slot
+    }
+
+    func update(ids: [String], layout: OverviewLayout) {
+        self.ids = ids
+        self.layout = layout
+        let listed = Set(ids)
+        for id in slots.keys where !listed.contains(id) { slots[id] = nil }
+        reconcile(urgent: visible)
+    }
+
+    func scrolled(to offset: CGFloat) {
+        guard abs(offset - self.offset) > 0.5 else { return }
+        self.offset = offset
+        // A card on screen is never shown blank: built in this frame (the
+        // grid scrolled to reveal the zooming card, or a fling outran the
+        // building ahead).
+        reconcile(urgent: visible)
+    }
+
+    /// The grid is about to show (or was covered): visible cards are built
+    /// now, so the first frame of the zoom shows them; the rest follow.
+    func setVisible(_ visible: Bool) {
+        self.visible = visible
+        reconcile(urgent: visible)
+    }
+
+    func setSettled(_ settled: Bool) {
+        self.settled = settled
+        tick()
+    }
+
+    private func isBuilt(_ index: Int) -> Bool {
+        index < ids.count && slots[ids[index]]?.built == true
+    }
+
+    private func reconcile(urgent: Bool) {
+        guard let layout else { return }
+        let step = plan.step(layout: layout, offset: offset, isBuilt: isBuilt)
+        for i in step.release where i < ids.count { slots[ids[i]]?.built = false }
+        if urgent {
+            for i in step.visible where i < ids.count { build(ids[i]) }
+        }
+        tick()
+    }
+
+    private func build(_ id: String) {
+        let slot = slot(id)
+        guard !slot.built else { return }
+        slot.built = true
+        builds += 1
+    }
+
+    /// One card per frame while there is one to build: the keep band while
+    /// the grid is at rest, only the on-screen cards while it is hidden or
+    /// zooming (they are ready when it opens; nothing else is built then).
+    private func tick() {
+        guard !ticking, nextToBuild() != nil else { return }
+        ticking = true
+        busy = true
+        clock.start { [weak self] _ in
+            guard let self, let id = self.nextToBuild() else {
+                self?.ticking = false
+                self?.busy = false
+                return false
+            }
+            self.build(id)
+            return true
+        }
+    }
+
+    private func nextToBuild() -> String? {
+        guard let layout else { return nil }
+        let step = plan.step(layout: layout, offset: offset, isBuilt: isBuilt)
+        let next = visible && settled ? step.next : step.visible.first
+        return next.flatMap { $0 < ids.count ? ids[$0] : nil }
+    }
+}
+
+/// A grid card, in the tree only while its slot is built (or a gesture or
+/// the zoom holds it). The card's view is made in this body, so an unbuilt
+/// card costs the grid's body nothing (a built value per card was made for
+/// all 80 cards on every zoom frame).
+struct ResidentCard<Content: View>: View {
+    let slot: CardSlot
+    let held: Bool
+    let content: () -> Content
+
+    init(slot: CardSlot, held: Bool, @ViewBuilder content: @escaping () -> Content) {
+        self.slot = slot
+        self.held = held
+        self.content = content
+    }
+
+    var body: some View {
+        if slot.built || held { content() }
+    }
+}
+#endif
