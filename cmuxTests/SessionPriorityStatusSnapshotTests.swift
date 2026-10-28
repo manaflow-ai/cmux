@@ -97,4 +97,16 @@ struct SessionPriorityStatusSnapshotTests {
         #expect(off.target == nil)
         #expect(off.panes.isEmpty)
     }
+
+    /// The difficulty hook's probe reports this as `adjustable`, so a workspace cmux leaves
+    /// alone costs no rating call.
+    @Test
+    func adjustableOnlyWhileThereIsATarget() {
+        #expect(snapshot(panes: [.upToDate]).isAdjustable)
+        #expect(snapshot(panes: [.manual(.launchArgumentEffort), .upToDate]).isAdjustable)
+        #expect(!snapshot(panes: [.manual(.launchEnvironmentEffort)]).isAdjustable)
+        #expect(!snapshot(panes: [.manual(.userCommandOnScreen)]).isAdjustable)
+        #expect(!snapshot(manualFlag: true, panes: [.upToDate]).isAdjustable)
+        #expect(!snapshot(panes: [.upToDate], enabled: false).isAdjustable)
+    }
 }

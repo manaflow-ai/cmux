@@ -227,7 +227,7 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
             enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false,
-            difficultyAuto: nil
+            adjustable: true, difficultyAuto: nil
         )
         context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
         let object = payload(try autoSet(context))
@@ -240,7 +240,7 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
             enabled: true, workspaceId: workspaceID, manual: false, overridePresent: false,
-            difficultyAuto: nil
+            adjustable: true, difficultyAuto: nil
         )
         context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
         _ = try autoSet(context)
@@ -254,7 +254,7 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
             enabled: false, workspaceId: workspaceID, manual: false, overridePresent: false,
-            difficultyAuto: nil
+            adjustable: true, difficultyAuto: nil
         )
         context.resolution = .resolved(windowID: windowID, snapshot: snapshot())
         _ = try autoSet(context, source: "user")
@@ -273,7 +273,7 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         let context = FakeSessionPriorityControlCommandContext()
         context.probe = ControlSessionPriorityProbe(
             enabled: true, workspaceId: workspaceID, manual: true, overridePresent: false,
-            difficultyAuto: "hard"
+            adjustable: false, difficultyAuto: "hard"
         )
         let result = try run("session_priority.set", ["probe": .bool(true)], context)
         let object = payload(result)
@@ -281,6 +281,8 @@ struct ControlCommandCoordinatorSessionPriorityTests {
         #expect(object?["workspace_id"] == .string(workspaceID.uuidString))
         #expect(object?["manual"] == .bool(true))
         #expect(object?["override_present"] == .bool(false))
+        // The difficulty hook skips its rating call for a workspace cmux leaves alone.
+        #expect(object?["adjustable"] == .bool(false))
         // The difficulty hook damps against the workspace's current automatic rating.
         #expect(object?["difficulty_auto"] == .string("hard"))
         #expect(context.setCalls == 0)
