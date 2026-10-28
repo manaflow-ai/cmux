@@ -87,10 +87,10 @@
 .nt-shell-glyph {
   color: var(--agent-ansi-5, #d670d6);
 }
-/* Visible shell and Console prefixes use an inner inset; their arrival never resizes or moves
-   the textarea itself, and a Console prompt never paints over the text. */
-.nt-field-slot[data-prefix] .nt-field {
-  padding-inline-start: calc(1ch + 10px);
+/* Reserve the text column too, before the first key: changing only the textarea's inner inset
+   still shifts its anonymous text box. The shared icon size is independent of the mode's font. */
+.nt-field-slot .nt-field {
+  padding-inline-start: var(--ds-control-icon);
 }
 .nt-screen[data-shell] .nt-field {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
