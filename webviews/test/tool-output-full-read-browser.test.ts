@@ -74,6 +74,26 @@ await requireBrowserLane("tool-output-full-read-browser.test.ts", async () => {
       await page.close();
     }
   });
+  test("shell and MCP results share readable scrolling and expansion", async () => {
+    for (const [variant, selector] of [
+      ["shell-compact", ".cv-shell__body"],
+      ["mcp-compact", ".cv-tool-output__markdown"],
+    ]) {
+      const page = await stage(variant!);
+      try {
+        const body = page.locator(selector!);
+        await body.waitFor();
+        await body.hover();
+        await page.mouse.wheel(0, 10_000);
+        await page.waitForFunction((selector) => (document.querySelector(selector)?.scrollTop ?? 0) > 0, selector!);
+        expect(await body.evaluate((node) => node.scrollHeight > node.clientHeight)).toBe(true);
+        await page.locator(".cv-output-more").click();
+        expect(await body.getAttribute("data-preview")).toBe("all");
+      } finally {
+        await page.close();
+      }
+    }
+  });
   test("Raw shows the complete source while JSON and logs remain monospace", async () => {
     const page = await stage("expanded");
     try {

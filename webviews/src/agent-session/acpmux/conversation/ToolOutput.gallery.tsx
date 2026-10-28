@@ -2,7 +2,7 @@
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 
-type Props = { output: string; kind?: string; title?: string };
+type Props = { output: string; kind?: string; title?: string; command?: string; mcp?: boolean };
 const summary = [
   "## Network map: summary",
   "",
@@ -22,7 +22,7 @@ const summary = [
 const props: Props = { kind: "fetch", title: "Fetch https://example.test/network-map", output: summary };
 const open: Play = async (ctx) => {
   await ctx.click({ selector: "button.cv-tool" });
-  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output-card"));
+  await ctx.waitFor(() => ctx.document.querySelector(".cv-tool-output-card, .cv-shell, .cv-mcp-call"));
 };
 const expand: Play = async (ctx) => {
   await open(ctx);
@@ -37,16 +37,24 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/conversation/ToolRow.tsx#ToolRow"],
   load: async () => {
     const { ToolRow } = await import("./ToolRow");
-    return function GalleryToolOutput({ output, kind = "other", title = "Tool result" }: Props) {
+    const { McpCallRows } = await import("./McpCallRows");
+    return function GalleryToolOutput({ output, kind = "other", title = "Tool result", command, mcp }: Props) {
+      const item = {
+        kind: "tool",
+        text: title,
+        tool: {
+          id: "gallery-full-output",
+          title,
+          kind,
+          command,
+          output,
+          status: "completed",
+          ...(mcp ? { inputSummary: JSON.stringify({ url: "https://example.test/guide" }) } : {}),
+        },
+      };
       return (
         <div style={{ padding: 16 }}>
-          <ToolRow
-            item={{
-              kind: "tool",
-              text: title,
-              tool: { id: "gallery-full-output", title, kind, output, status: "completed" },
-            }}
-          />
+          {mcp ? <McpCallRows items={[item]} disclosureKey="gallery-mcp-output" /> : <ToolRow item={item} />}
         </div>
       );
     };
@@ -78,6 +86,23 @@ export default componentEntry<Props>({
       props: { output: "Long result: ".repeat(180) },
       play: open,
       note: "One source line wraps beyond the viewport; it still offers Show all 1 line.",
+    },
+    "shell-compact": {
+      props: {
+        kind: "execute",
+        title: "Print the demo log",
+        command: "cat demo.log",
+        output: Array.from({ length: 60 }, (_, n) => `[INFO] row ${n}: processed`).join("\n"),
+      },
+      play: open,
+    },
+    "mcp-compact": {
+      props: {
+        mcp: true,
+        title: "mcp__demo__web_read",
+        output: JSON.stringify({ content: [{ type: "text", text: summary }] }),
+      },
+      play: open,
     },
   },
 });

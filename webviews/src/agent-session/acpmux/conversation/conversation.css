@@ -1942,13 +1942,20 @@ pre.cv-math-source {
   flex-direction: column;
   gap: 8px;
   margin: 6px 0 0;
-  overflow: auto hidden;
+  overflow: auto;
   font: 12px/18px var(--cv-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .cv-shell__body[data-preview="cut"] {
   max-height: calc(8 * 18px + 8px + var(--cv-lane, 0px));
+}
+.cv-shell__body[data-output-viewport] {
+  max-height: calc(8 * 18px + 8px + var(--cv-lane, 0px));
+  overscroll-behavior: contain;
+}
+.cv-shell__body[data-output-viewport][data-preview="all"] {
+  max-height: min(70vh, 640px);
 }
 .cv-shell__exit {
   margin-top: 6px;
@@ -2540,18 +2547,15 @@ a.cv-sha:focus-visible {
   --cv-lane: 8px;
   padding-bottom: calc(var(--cv-lane) - var(--cv-bar));
 }
-:is(.cv-edit-diff__body, .cv-shell__body)[data-preview="cut"],
-.cv-tool-output[data-more-below] {
+.cv-edit-diff__body[data-preview="cut"],
+:is(.cv-shell__body, .cv-tool-output)[data-more-below] {
   --cv-fade-bottom: 28px;
 }
 :is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output)[data-more-right] {
   --cv-fade-right: 32px;
 }
-:is(.cv-edit-diff__body, .cv-shell__body):is(
-    [data-preview="cut"],
-    [data-more-right]
-  ),
-.cv-tool-output__box > .cv-tool-output:is([data-more-below], [data-more-right]) {
+.cv-edit-diff__body:is([data-preview="cut"], [data-more-right]),
+:is(.cv-shell__body, .cv-tool-output__box > .cv-tool-output):is([data-more-below], [data-more-right]) {
   mask-image:
     linear-gradient(
       to bottom,
