@@ -8,7 +8,8 @@
         "run",
         "remote.connect",
         "--destination",
-        "nohost.invalid"
+        "nohost.invalid",
+        "--focus"
       ],
       "wait": 8
     },

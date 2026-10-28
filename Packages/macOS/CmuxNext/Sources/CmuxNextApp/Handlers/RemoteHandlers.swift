@@ -21,7 +21,9 @@ enum RemoteHandlers {
             _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
         }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
-            let interactive = !registry.isCapturingRefusal
+            // A CLI/MCP run stays headless unless it explicitly requests focus;
+            // capture and automation must not steal the person's active window.
+            let interactive = invocation.allowsViewChange
             let connect = { (text: String) in
                 let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
