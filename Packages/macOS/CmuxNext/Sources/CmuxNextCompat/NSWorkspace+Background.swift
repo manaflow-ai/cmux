@@ -1,4 +1,7 @@
 public import AppKit
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// Opening a URL or revealing a file without the main thread waiting (cx-050n).
 ///
@@ -20,6 +23,7 @@ extension NSWorkspace {
             let opened = workspace.open(url)
             guard let completion else { return }
             // task-owner: one main-actor hop to report the open; nothing to cancel
+            // main-hop-allow: Compat sits below CmuxNextWakeups and has no class to post in; one report per open the caller asked for
             Task { @MainActor in completion(opened) }
         }
     }
@@ -31,15 +35,16 @@ extension NSWorkspace {
         }
     }
 
-    /// Opens `urls` with the app at `app`, bringing it to the front, and returns whether it opened.
+    /// Opens `urls` with the app at `app`, bringing it to the front, and returns whether it opened (false when
+    /// the open's completion was dropped without an answer).
     public func openedInBackground(_ urls: [URL], withApplicationAt app: URL) async -> Bool {
-        await withCheckedContinuation { continuation in
+        (try? await withOnceContinuation { (continuation: OnceContinuation<Bool, OnceContinuationError>) in
             inBackground { workspace in
                 workspace.open(urls, withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration()) { _, error in
                     continuation.resume(returning: error == nil)
                 }
             }
-        }
+        }) ?? false
     }
 
     /// Selects `urls` in a Finder window.

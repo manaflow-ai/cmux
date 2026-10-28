@@ -1,16 +1,21 @@
 import CmuxNextCompat
 public import CmuxNextDaemon
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Connects permissioned native provider demand to already admitted machine watches.
 ///
 /// Registry changes drive admission. Every notice is fenced by the original
 /// connection stamp, route epoch, canonical owner and native lease. Only an
 /// empty invalidation is sent back; this bridge never starts owners or jobs.
+///
+/// The registry follow is a ``ServiceObservation`` in the automation class (p06-scheduler.md rule 3): its apply
+/// admits and retires daemon watches for agents' inventory reads, and must run while no window shows. A burst of
+/// registry changes reconciles once, as one posted task (Chromium's classed UI-thread task, base/task/task_traits.h).
 @MainActor
 public final class AgentInventoryProviderBridge {
     private let routes: @MainActor @Sendable () -> [AgentInventoryWatchRoute]
-    private var following: Task<Void, Never>?
+    private let work: MainWorkScheduler
+    private var following: ServiceObservation<[AgentInventoryWatchRoute]>?
     private var provider: AppProviderSession?
     private var demand: AgentInventoryProviderDemand?
     private var registered = false
@@ -21,18 +26,20 @@ public final class AgentInventoryProviderBridge {
     private var retiring: Task<Void, Never>?
 
     /// Creates the bridge over the registry's observable admitted-ready projection.
-    /// - Parameter routes: Reads policy, membership, ready connection and route epoch.
-    public init(routes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute]) { self.routes = routes }
+    /// - Parameters:
+    ///   - work: The app's one main-thread scheduler; the registry follow flushes on it.
+    ///   - routes: Reads policy, membership, ready connection and route epoch.
+    public init(on work: MainWorkScheduler, routes: @escaping @MainActor @Sendable () -> [AgentInventoryWatchRoute]) {
+        self.work = work
+        self.routes = routes
+    }
 
-    /// Starts event-driven registry observation; repeated calls are harmless.
+    /// Starts event-driven registry observation and reconciles the current routes before it returns; repeated calls
+    /// are harmless.
     public func start() {
         guard following == nil else { return }
-        // task-owner: registry observation belongs to this bridge until stop.
-        following = Task { [weak self, routes] in
-            for await _ in ObservationStream(routes) {
-                guard !Task.isCancelled else { return }
-                self?.reconcile()
-            }
+        following = ServiceObservation(.automation, owner: "AgentInventoryProviderBridge.routes", on: work, read: routes) { [weak self] _ in
+            self?.reconcile()
         }
     }
 
@@ -109,6 +116,8 @@ public final class AgentInventoryProviderBridge {
             slots.append(slot)
             let retirement = retiring
             // task-owner: one bounded native admission; route, demand or policy retirement cancels it.
+            // main-hop-allow: the admission re-checks the main-actor slot and registry (current) after each await, and
+            // the carrier's capture and enable run on the connection's actor and the watch's actor, off main
             slot.admission = Task { [weak self, weak slot] in
                 guard let self, let slot else { return }
                 await retirement?.value
@@ -166,7 +175,8 @@ public final class AgentInventoryProviderBridge {
         guard let cleanup = slot.retire() else { return }
         let prior = retiring
         // task-owner: receipt retirement barrier survives provider replacement and gates new enables.
-        retiring = Task { await prior?.value; await cleanup.value }
+        // Off main: it only awaits the earlier barrier and this slot's cleanup.
+        retiring = Task { @concurrent in await prior?.value; await cleanup.value }
     }
 
     private func invalidate() {
@@ -174,6 +184,8 @@ public final class AgentInventoryProviderBridge {
         dirty = true
         guard notifying == nil else { return }
         // task-owner: one coalesced bounded invalidation, cancelled on provider, demand or policy changes.
+        // main-hop-allow: the loop reads the main-actor dirty flag and slots between sends; each invalidate awaits the
+        // provider session's daemon request, off main
         notifying = Task { [weak self] in
             while let self, !Task.isCancelled, self.provider === provider, self.demand == demand,
                   registered, !disabled, dirty, slots.contains(where: { current($0) && $0.receipt != nil }) {

@@ -3,7 +3,11 @@
 
 Launches one tagged Debug cmux-next app with `browserHost.helper` and `browserResize.layerHostingEveryPage` (the
 bench-only feature `cefLayerHostingEveryPage`'s local override: every page window hosts from fork API 26, without the
-Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice:
+Track A calls the shipping feature `cefLayerHosting` needs) on, and measures the same probe page twice. Chromium tabs
+stay in cmux (`browserHost.tabs` off) except with `--modes profiles`, `--modes tcc` and `--kill-host`, which need them
+in the host: profiles and tcc run in a launch without the in-process rows (inproc, --baseline, --stress), and
+--kill-host runs instead of the modes; an in-process row of a launch whose tabs run in the host says not_run (its
+numbers would be the host's):
 
   inproc   a normal Chromium tab (`openBrowser.chromium`): the browser process is the cmux app, its pump runs on
            cmux's main thread, the page's pixels are layer hosted (fork API >= 26) and its input goes to the page
@@ -60,6 +64,16 @@ Per mode:
            (kOpGeometryStats through `debug.chromium_host.measure {op: geometry}`) give the page placements per
            display frame (pass: <= 1, none unplaced; geometry_row, task p01-process-053).
   failure  helper: when the host page never shows, the host's Chromium log tail and its crash reports.
+  route    (`--modes route`, task p01-process-042) host mode's input ring with ack pacing (feature
+           chromiumHostInputRing, a host-mode Chromium tab whose page view takes its input): the
+           `debug.chromium_host` `input_route` counters while the probe tab gets
+           scroll_pacing  a trackpad gesture (began, 60 changed, ended) then its momentum (began, 30 changed,
+                          ended), one tick per 4 ms: pass when the page's pacer never had more than 1 wheel in
+                          flight, the first wheel tick of the gesture left cmux within 0.5 ms of its event
+                          (`first_wheel_send_us` p50/p95/max) and the page scrolled during the momentum ticks.
+           key            --count keys into the focused field: pass when the field got every key, none was left
+                          unwritten, and no move or wheel was in flight more than once (keys never wait).
+           A build whose tabs are not in host mode (no input route) fails the mode with the reason.
   baseline (--baseline, task p01-process-005; plans/cmux-next/chrome-parity/p01-process.md) adds the numbers the
            process-model program is measured against, and prints them as perf-lead.md section 5 rows
            (chromium_host_baseline.py, `baseline-rows.md` in --out):
@@ -109,14 +123,74 @@ Per mode:
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
            the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
            1x to 2x move reported as `scale_up`) (chromium_host_display.py).
+  tcc      opt-in (`--modes tcc`; it runs before helper and closes its tab after), with `browserHost.tabs` on like
+           profiles: a page in a Chromium tab of cmux's host mode (debug.cef backend "host", else a mode error) asks for
+           camera, mic, location, Local Network, Screen Recording and Bluetooth, its site permissions answered with
+           browser.prompt.allow, and each row passes when macOS charges the host's request to cmux, not to the host or a
+           helper; the keychain row passes when hosts make and read "Chromium Safe Storage", and read the item cmux's
+           in-process engine made, with no prompt (chromium_host_tcc.py has the evidence and the rules). It launches
+           cmux as its own responsible process (BenchApp own_responsibility) and, when the item is not another app's (or
+           with --keychain-reset), first a seed launch with Chromium in process, both with Chromium's real keychain
+           (CMUX_NEXT_BENCH_REAL_KEYCHAIN=1).
+  profiles `--modes profiles` (task 080), with `browserHost.tabs` on (every Chromium tab in the supervisor's
+           host): two browser profiles made with the app's CLI, a Chromium tab of each; pass when the backend is the
+           host, both load, the supervisor's one host (`debug.cef` host_supervisor) serves both and their localStorage
+           is apart (chromium_host_profiles.py).
 
---native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
-popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
-host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+  swipe    `--modes swipe` (task 234), on an input host (real HID events): a two-finger trackpad swipe
+           (pointer-probe.swift swipe, through NSApp's event dispatch like a hand's) over a Chromium tab of the app's
+           backend. flat: a page that does not scroll sideways, opened twice (?1 then ?2); a swipe that drags the
+           content right must go Back to ?1. wide: a page whose sideways scroller is scrolled to its middle; the same
+           swipe must scroll it and stay on ?2. Per gesture, `debug.cef` `swipe` gives the page probes (each a script
+           run in the page: a control request in host mode) and the WHEEL_ACKs it decided from. Pass: back on flat,
+           no navigation on wide, and on a host that acks wheels (`host_acks_wheels`) 0 probes per gesture. A swipe no
+           gesture of reaches (`gestures` unchanged: the page view takes no scrolls before the host input route,
+           p01-process-042) says not_measurable.
+  pinch    `--modes pinch` (task 234), on an input host: a real trackpad pinch (pointer-probe.swift magnify, zoom in)
+           over a Chromium tab of the app's backend. Pass: the page's visual viewport scale grows (Chrome's pinch
+           zoom), the page stays put, and the pinch starts no swipe gesture (`debug.cef` `swipe`). The page counts
+           the ctrl+wheel events Chrome makes of a pinch, so a pinch that reached Chromium but did not zoom fails
+           apart from one that never arrived. In host mode a pinch that never reaches the page (the page view's
+           magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
+
+--native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the page
+menu (CONTEXT_MENU and context_menu_done) and a page's download (DOWNLOAD_* and download_continue) in host mode
+(p01-process-069), the hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
+chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
+p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
+chromiumHostSuggestions on, then the page dialog rows (chromium_host_native_ui_dialogs.py, p01-process-064): file
+picker, certificate error, beforeunload and renderer hang, each answered by cmux while the host is never frontmost
+and shows no window, with feature chromiumHostFileDialogs on, the permission rows (p01-process-062, feature
+chromiumPermissionPromptsFromData): camera, microphone, location and notifications on a page served from 127.0.0.1.
+Each is asked in cmux's prompt bar and answered Block through `debug.browser.prompts`, the page hears the refusal,
+and the app's child processes show no window, then the chooser rows (chromium_host_native_ui_choosers.py,
+p01-process-228): color, device chooser, screen share, external protocol, Web Share (skipped until p01-process-228c), video
+and document picture-in-picture, with feature chromiumHostChoosers on, then the fullscreen and lock rows
+(chromium_host_native_ui_locks.py, p01-process-229): HTML fullscreen, pointer lock and keyboard lock held by cmux
+(`debug.cef` `host_locks`) and each ended by Escape, with feature chromiumHostLocks on.
+
+--kill-host runs instead the host kill rows (chromium_host_kill.py, p01-process-082): one `--signals` signal per row
+(default KILL; TRAP,SEGV,ABRT,KILL for the done check) to the supervisor's Chromium Host under a Chromium tab
+(`browserHost.tabs` on): cmux runs on, the tab shows the crash page with Reload (`crash_page_ms` from the signal),
+`debug.crashes` lists the host's end in `chromium_host` with that signal, its fork API and its log's last lines (at
+least one, none with a URL; the row's `crash_record`, chromium_host_crash_records.py, p01-process-085), and Reload
+brings the page back under a new host.
+
+--kill-host --restore runs instead the restore row (chromium_host_restore.py, p01-process-083) in a launch of its own,
+with feature chromiumHostRestoreTabs on (the kill rows expect the crash page and Reload, which a restore replaces): it
+opens 20 Chromium tabs in 3 windows, each with two history entries, SIGKILLs the Chromium Host, and checks every tab
+back at its address with both entries on one new host: each window's shown tab within 2 s (`shown_ms`), each hidden
+one when it is focused (`hidden_ms`).
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
 count and active match (the oracle's overlays.findBar) and the page scrolled to the active match.
+
+--hang MS runs instead the busy banner row (chromium_host_hang.py, p01-process-084): with chromiumHostHangBanner on,
+the host stopped MS ms with a key waiting shows "Chromium is busy" at 2000 +/- 100 ms (`debug.cef` host_hang), no
+busy deadline is armed with no input waiting, and the banner goes when the host runs again.
 
 A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
 answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
@@ -140,9 +214,21 @@ sys.path.insert(0, HERE)
 from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
 import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_crash_records  # noqa: E402
 import chromium_host_display  # noqa: E402
 import chromium_host_find  # noqa: E402
+import chromium_host_hang  # noqa: E402
+import chromium_host_kill  # noqa: E402
 import chromium_host_native_ui  # noqa: E402
+import chromium_host_native_ui_choosers  # noqa: E402
+import chromium_host_native_ui_dialogs  # noqa: E402
+import chromium_host_native_ui_locks  # noqa: E402
+import chromium_host_profiles  # noqa: E402
+import chromium_host_restore  # noqa: E402
+
+# Every --native-ui row, in the order they run.
+NATIVE_UI_ROWS = (chromium_host_native_ui.ROWS + chromium_host_native_ui_dialogs.ROWS
+                  + chromium_host_native_ui_choosers.ROWS + chromium_host_native_ui_locks.ROWS)
 
 
 def parse(argv=None):
@@ -155,10 +241,26 @@ def parse(argv=None):
     parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
     parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
     parser.add_argument("--pump-seconds", type=float, default=10.0)
+    parser.add_argument("--keychain-service", default="Chromium Safe Storage",
+                        help="the tcc mode's OSCrypt keychain item")
+    parser.add_argument("--keychain-reset", action="store_true",
+                        help="tcc: delete an existing --keychain-service item first (it may be another Chromium app's)")
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
-    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
+    parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
+                        help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
+                             f"({', '.join(NATIVE_UI_ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
+    parser.add_argument("--hang", type=int, metavar="MS",
+                        help="only the busy banner row (chromium_host_hang.py, p01-process-084): the host stopped MS ms")
+    parser.add_argument("--kill-host", action="store_true",
+                        help="only the host kill rows (chromium_host_kill.py) with their crash records "
+                             "(chromium_host_crash_records.py)")
+    parser.add_argument("--signals", default="KILL",
+                        help=f"--kill-host: the signals, one row each ({','.join(chromium_host_kill.SIGNALS)})")
+    parser.add_argument("--restore", action="store_true",
+                        help="--kill-host: the restore row (chromium_host_restore.py, p01-process-083) instead of the "
+                             "signal rows, with feature chromiumHostRestoreTabs on")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
     parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
@@ -168,8 +270,26 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui and args.find:
-        parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if sum([args.native_ui is not None, args.find, args.kill_host, args.hang is not None]) > 1:
+        parser.error("--native-ui, --find, --kill-host and --hang each run instead of the modes: pick one")
+    if args.hang is not None and args.hang < chromium_host_hang.BUSY_AFTER_MS + chromium_host_hang.TOLERANCE_MS:
+        parser.error(f"--hang must hold the host past the banner's {chromium_host_hang.BUSY_AFTER_MS} ms")
+    if args.restore and not args.kill_host:
+        parser.error("--restore is a --kill-host row: add --kill-host")
+    host_tab_modes = [mode for mode in HOST_TAB_MODES if mode in args.modes.split(",")]
+    if host_tab_modes and ("inproc" in args.modes.split(",") or args.baseline or args.stress):
+        parser.error(f"--modes {','.join(host_tab_modes)} runs every Chromium tab in the host: run it in a launch of "
+                     "its own, without inproc, --baseline or --stress (they measure in-process tabs)")
+    try:
+        args.signals = chromium_host_kill.signal_numbers(args.signals)
+    except ValueError as error:
+        parser.error(str(error))
+    if args.native_ui is not None:
+        try:
+            args.native_ui = chromium_host_native_ui.rows_named(
+                args.native_ui, NATIVE_UI_ROWS)
+        except ValueError as error:
+            parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     return args
@@ -268,6 +388,40 @@ for (const type of ['dragenter', 'dragover', 'dragleave', 'drop']) zone.addEvent
 document.getElementById('file').addEventListener('change', event => { log.file = [...event.target.files].map(f => [f.name, f.size]); });
 </script>"""
 DRAG_FILE_TEXT = "cmux drag-in probe\n" * 64
+
+# The swipe probe: `?flat` does not scroll sideways (taller than the pane: it scrolls only down); `?wide` is a
+# sideways scroller filling the page. The title names the variant and the step (?flat-1, ?flat-2), so a Back shows.
+SWIPE_PAGE = """<!doctype html><meta charset=utf-8><title>swipe probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}#tall{height:300vh}
+#wide{position:fixed;inset:0;overflow-x:auto;overflow-y:hidden}#wide div{width:400vw;height:100%;
+background:linear-gradient(90deg,#204080,#f0c000)}</style>
+<div id=tall></div>
+<script>
+const [variant, step] = location.search.slice(1).split('-');
+document.title = 'swipe ' + variant + ' ' + step;
+if (variant === 'wide') {
+  document.getElementById('tall').remove();
+  const wide = document.createElement('div');
+  wide.id = 'wide';
+  wide.appendChild(document.createElement('div'));
+  document.body.appendChild(wide);
+  wide.scrollLeft = wide.scrollWidth / 2 - innerWidth / 2;
+}
+window.__scrollLeft = () => (document.getElementById('wide') || document.scrollingElement).scrollLeft;
+</script>"""
+
+# The pinch probe: a page the pinch zooms. Chrome turns a trackpad pinch into ctrl+wheel events for the page first
+# (a script may take them) and, untaken, into a pinch of the visual viewport; the page counts the ctrl+wheels so a
+# pinch that reached Chromium but did not zoom shows apart from one that never arrived.
+PINCH_PAGE = """<!doctype html><meta charset=utf-8><title>pinch probe</title>
+<style>html,body{margin:0;background:#204080;color:#fff;font:16px system-ui}
+#grid{height:100vh;background:repeating-linear-gradient(45deg,#204080 0 20px,#f0c000 20px 40px)}</style>
+<div id=grid></div>
+<script>
+window.__pinch = {ctrlWheels: 0};
+addEventListener('wheel', event => { if (event.ctrlKey) window.__pinch.ctrlWheels += 1; }, {passive: true});
+window.__zoom = () => ({scale: visualViewport.scale, dpr: devicePixelRatio, ctrlWheels: window.__pinch.ctrlWheels});
+</script>"""
 # ChromiumHostDragDestination.forkAPI: the fork whose DragTarget calls reach a detached page (task 172).
 DRAG_TARGET_FORK_API = 31
 
@@ -286,6 +440,26 @@ addEventListener("wheel", e => { if (e.ctrlKey) __mouse.push({type: "pinch-wheel
 </script>""".replace("TIP", MOUSE_TOOLTIP)
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHostingEveryPage": True}}
+
+
+# The modes whose rows need every Chromium tab in the host: profiles (task 080) and tcc (task 089: the host's own
+# privacy requests and keychain reads come only from a host-backed tab).
+HOST_TAB_MODES = ("profiles", "tcc")
+
+
+def launch_tunables(modes, kill_host=False):
+    """TUNABLES for a run of `modes`: Chromium tabs move to the host (`browserHost.tabs`, feature chromiumHostTabs)
+    only for the HOST_TAB_MODES rows and the `--kill-host` rows (they end the host their tabs run in, and the restore
+    row brings them back on the next one), so every other row's Chromium tab stays in process."""
+    values = dict(TUNABLES["values"], **{"browserHost.tabs": any(mode in modes for mode in HOST_TAB_MODES) or kill_host})
+    return {**TUNABLES, "values": values}
+
+
+def tabs_in_host(rpc):
+    """Why this launch's Chromium tabs cannot be measured as in-process tabs (they run in the Chromium Host,
+    `debug.cef` backend `host`), or None when they run in cmux."""
+    backend = (rpc("debug.cef") or {}).get("backend")
+    return f"the Chromium backend is {backend!r}: Chromium tabs run in the Chromium Host" if backend == "host" else None
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
 
 
@@ -300,6 +474,28 @@ def main_display_hz():
     cg.CGDisplayModeGetRefreshRate.argtypes = [ctypes.c_void_p]
     mode = cg.CGDisplayCopyDisplayMode(cg.CGMainDisplayID())
     return round(cg.CGDisplayModeGetRefreshRate(mode), 2) if mode else None
+
+
+def child_windows_on_screen(root):
+    """The on-screen windows with alpha > 0 of every process below `root` (the Chromium Host, its helpers, the
+    in-process helpers), each with its pid; None when a process's windows cannot be read."""
+    pids, frontier = [], [root]
+    while frontier:
+        parent = frontier.pop()
+        try:
+            listed = subprocess.run(["/usr/bin/pgrep", "-P", str(parent)], capture_output=True, text=True, timeout=10).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        children = [int(pid) for pid in listed.split() if pid.isdigit()]
+        pids += children
+        frontier += children
+    found = []
+    for pid in pids:
+        windows = on_screen_windows(pid)
+        if windows is None:
+            return None
+        found += [{**window, "pid": pid} for window in windows if (window.get("alpha") or 0) > 0]
+    return found
 
 
 def on_screen_windows(pid):
@@ -487,6 +683,49 @@ def front_pid():
     return int(found.group(1)) if found else None
 
 
+def chromium_host_pid():
+    """The pid of the running Chromium Host (`<Product> Chromium Host` in the app's Contents/MacOS), or None."""
+    return next(iter(chromium_host_pids()), None)
+
+
+def supervisor_host_pid(rpc):
+    """The pid of the supervisor's running Chromium Host (`debug.cef` host_supervisor, the host that serves the tabs),
+    else the first running host of the app (chromium_host_pid), or None."""
+    supervisor = (rpc("debug.cef") or {}).get("host_supervisor")
+    pid = supervisor.get("pid") if isinstance(supervisor, dict) else None
+    return int(pid) if isinstance(pid, (int, float)) and not isinstance(pid, bool) else chromium_host_pid()
+
+
+def chromium_host_pids():
+    """The pids of every running Chromium Host of the app (`<Product> Chromium Host` in its Contents/MacOS)."""
+    macos = os.path.join(os.path.abspath(opts.app), "Contents", "MacOS") + "/"
+    try:
+        listing = subprocess.run(["/bin/ps", "-axo", "pid=,command="], capture_output=True, text=True, timeout=10).stdout
+    except subprocess.TimeoutExpired:
+        return []
+    pids = []
+    for line in listing.splitlines():
+        pid, _, command = line.strip().partition(" ")
+        if command.startswith(macos) and command[len(macos):].split(" --", 1)[0].endswith(" Chromium Host"):
+            pids.append(int(pid))
+    return pids
+
+
+def bundled_cli(*args, timeout=90):
+    """(exit code, JSON reply) of the app's bundled `cmux --json` on its own session (no socket flag)."""
+    env = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}
+    cli = os.path.join(os.path.abspath(opts.app), "Contents", "Resources", "bin", "cmux")
+    try:
+        run = subprocess.run([cli, "--json", *args], capture_output=True, text=True, timeout=timeout, env=env,
+                             stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 1, {"error": str(error)}
+    try:
+        return run.returncode, json.loads(run.stdout or "{}")
+    except ValueError:
+        return run.returncode, {"error": run.stdout.strip()[:400]}
+
+
 def defaults_snapshot(domain):
     """cmux's defaults domain as {key: value repr} (`defaults export`), or None."""
     import plistlib
@@ -586,7 +825,7 @@ def padded(values, expected):
 def main():
     os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
-    json.dump(TUNABLES, open(tunables, "w"))
+    json.dump(launch_tunables(opts.modes.split(","), kill_host=opts.kill_host), open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
@@ -596,16 +835,45 @@ def main():
         open(native, "w").write(chromium_host_native_ui.PAGE)
         url = pathlib.Path(native).as_uri()
         env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
+        permission_url = chromium_host_native_ui.serve_permission_page()
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_native_ui_dialogs.FEATURES,
+                                                             chromium_host_native_ui_choosers.FEATURES,
+                                                             chromium_host_native_ui_locks.FEATURES]))
+        env.update(chromium_host_native_ui_choosers.ENV)
+        chooser_page = os.path.join(opts.out, "native-ui-choosers.html")
+        open(chooser_page, "w").write(chromium_host_native_ui_choosers.PAGE)
+    if opts.hang is not None:
+        hang_page = os.path.join(opts.out, "hang.html")
+        open(hang_page, "w").write(chromium_host_hang.PAGE)
+        url = pathlib.Path(hang_page).as_uri()
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_hang.FEATURES]))
+    if opts.kill_host:
+        kill_page = os.path.join(opts.out, "kill-host.html")
+        open(kill_page, "w").write(chromium_host_kill.PAGE)
+        url = pathlib.Path(kill_page).as_uri()
     if opts.find:
         find_page = os.path.join(opts.out, "find.html")
         open(find_page, "w").write(chromium_host_find.PAGE)
         url = pathlib.Path(find_page).as_uri()
+    if opts.kill_host and opts.restore:
+        env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), chromium_host_restore.FEATURES]))
     if "dragin" in opts.modes.split(","):
         env["CMUX_ENABLE_FEATURES"] = ",".join(filter(None, [env.get("CMUX_ENABLE_FEATURES"), "chromiumHostDragIn"]))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
-    app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session)
+    tcc_keychain = tcc_seed = None
+    if "tcc" in opts.modes.split(","):
+        import chromium_host_tcc
+        tcc_keychain = chromium_host_tcc.keychain_plan(opts.keychain_service, opts.keychain_reset)
+        if tcc_keychain["real_keychain"]:
+            env["CMUX_NEXT_BENCH_REAL_KEYCHAIN"] = "1"
+        # Before the measured launch: cmux's in-process engine makes the item the host then reads (the upgrade case).
+        tcc_seed = seed_tcc_keychain(tcc_keychain)
+    # tccd charges a privacy request to its process's responsible process: for the tcc rows that must be cmux, as
+    # when a person opens it, not this script's ssh or runner.
+    app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session,
+                   own_responsibility=tcc_keychain is not None)
     APP_LOG["path"] = app.log_path
     try:
         RESULT["build"] = build_config(app.app, app.binary, opts.build_config)
@@ -623,17 +891,63 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
+        modes = [] if opts.native_ui or opts.find or opts.kill_host or opts.hang is not None else opts.modes.split(",")
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url,
+                rows_to_run=[row for row in opts.native_ui if row in chromium_host_native_ui.ROWS], front=front_pid,
+                app_pid=app.process.pid if app.process else None, right_click=page_right_click(rpc),
+                permission_url=permission_url,
+                host_windows=(lambda: child_windows_on_screen(app.process.pid)) if app.process else None)
+            dialog_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_dialogs.ROWS]
+            if dialog_rows:
+                dialogs, dialogs_ok = chromium_host_native_ui_dialogs.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out, chromium_host_pid, front_pid,
+                    on_screen_windows, rows_to_run=dialog_rows)
+                RESULT["modes"]["native_ui"].update(dialogs)
+                ok = ok and dialogs_ok
+            chooser_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_choosers.ROWS]
+            if chooser_rows:
+                chosen, choosers_ok = chromium_host_native_ui_choosers.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(chooser_page).as_uri(),
+                    chromium_host_pid, front_pid, on_screen_windows, rows_to_run=chooser_rows)
+                RESULT["modes"]["native_ui"].update(chosen)
+                ok = ok and choosers_ok
+            lock_rows = [row for row in opts.native_ui if row in chromium_host_native_ui_locks.ROWS]
+            if lock_rows:
+                locks, locks_ok = chromium_host_native_ui_locks.run(
+                    rpc, wait, lambda script: page_eval(rpc, script, None), opts.out,
+                    lambda: chromium_host_native_ui_dialogs.host_ui_clear(chromium_host_pid, front_pid, on_screen_windows),
+                    rows_to_run=lock_rows)
+                RESULT["modes"]["native_ui"].update(locks)
+                ok = ok and locks_ok
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+        if opts.hang is not None:
+            RESULT["modes"]["hang"], ok = chromium_host_hang.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url, chromium_host_pid,
+                lambda pid: os.kill(pid, signal.SIGSTOP), lambda pid: os.kill(pid, signal.SIGCONT), opts.hang)
+        if opts.kill_host:
+            if opts.restore:
+                RESULT["modes"]["kill_host"] = {}
+                RESULT["modes"]["kill_host"]["restore"], ok = chromium_host_restore.run(
+                    rpc, wait, lambda script, tab: page_eval(rpc, script, tab), lambda script: page_eval_reply(rpc, script),
+                    url, chromium_host_pids, lambda pid: os.kill(pid, signal.SIGKILL), time.monotonic, time.sleep)
+            else:
+                RESULT["modes"]["kill_host"], ok = chromium_host_kill.run(
+                    rpc, wait, url, opts.signals, lambda: supervisor_host_pid(rpc), app.process.pid if app.process else None,
+                    lambda pid: pid is not None and not pid_gone(pid),
+                    record=lambda host, number: chromium_host_crash_records.row(rpc, wait, host, number))
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
             ok = ok and inproc_tab is not None
+        if "tcc" in modes:
+            ok = run_tcc(rpc, app.process.pid if app.process else None, tcc_keychain, tcc_seed) and ok
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
+        if "route" in modes:
+            ok = run_route(rpc, url) and ok
         if opts.baseline and inproc_tab:
             # After the helper rows: the 9 extra tabs would otherwise be in its pump share.
             RESULT.setdefault("sessions", {}).setdefault("light", {})["tabs10"] = tabs10_wakes(rpc, url)
@@ -644,6 +958,14 @@ def main():
             cursor_probe = os.path.join(opts.out, "cursor.html")
             open(cursor_probe, "w").write(CURSOR_PAGE)
             ok = run_cursor(rpc, pathlib.Path(cursor_probe).as_uri()) and ok
+        if "swipe" in modes:
+            swipe_probe = os.path.join(opts.out, "swipe.html")
+            open(swipe_probe, "w").write(SWIPE_PAGE)
+            ok = run_swipe(rpc, pathlib.Path(swipe_probe).as_uri()) and ok
+        if "pinch" in modes:
+            pinch_probe = os.path.join(opts.out, "pinch.html")
+            open(pinch_probe, "w").write(PINCH_PAGE)
+            ok = run_pinch(rpc, pathlib.Path(pinch_probe).as_uri()) and ok
         if "dragin" in modes:
             drag_probe = os.path.join(opts.out, "drag.html")
             open(drag_probe, "w").write(DRAG_PAGE)
@@ -657,6 +979,11 @@ def main():
             open(display_probe, "w").write(chromium_host_display.PAGE)
             RESULT["modes"]["display"], ran = chromium_host_display.run(
                 rpc, wait, lambda script: page_eval(rpc, script, None), pathlib.Path(display_probe).as_uri(), time.sleep)
+            ok = ran and ok
+        if "profiles" in modes:
+            RESULT["modes"]["profiles"], ran = chromium_host_profiles.run(
+                rpc, wait, lambda script, tab: page_eval(rpc, script, tab), url, bundled_cli, chromium_host_pids,
+                str(int(time.time())))
             ok = ran and ok
         if opts.stress:
             run_stress_pump(rpc, url, "helper" in modes)
@@ -811,6 +1138,10 @@ def open_inproc_probe(rpc, url, name):
 
 def run_inproc(rpc, url):
     """The in-process rows; returns the probe's tab id, or None."""
+    not_in_process = tabs_in_host(rpc)
+    if not_in_process:
+        RESULT["modes"]["inproc"] = {"not_run": not_in_process}
+        return None
     page, click_point, tab = open_inproc_probe(rpc, url, "light")
     if not page:
         RESULT["modes"]["inproc"] = {"error": click_point}
@@ -821,6 +1152,94 @@ def run_inproc(rpc, url):
     row["pump_share"] = {"light": pump_share(rpc, page)}
     RESULT["modes"]["inproc"] = row
     return tab
+
+
+FIRST_WHEEL_LIMIT_US = 500  # p01-process-042: the first wheel tick of a gesture leaves cmux in < 0.5 ms
+
+
+def route_report(rpc):
+    """`debug.chromium_host` `input_route` (host mode's input ring, p01-process-042); None without one."""
+    return (rpc("debug.chromium_host") or {}).get("input_route")
+
+
+def route_page(report):
+    """The route's page whose pacer moved most: the probe's (the bench shows one hosted page)."""
+    pages = (report or {}).get("pages") or []
+    return max(pages, key=lambda page: page.get("sent") or 0) if pages else {}
+
+
+def run_route(rpc, url):
+    """The `route` rows (p01-process-042): scroll pacing with momentum and keys through host mode's input ring."""
+    page, _, _ = open_inproc_probe(rpc, url, "route")
+    if not page:
+        RESULT["modes"]["route"] = {"error": "the probe tab did not open", "pass": False}
+        return False
+    # The hosted page view is a cmux view (no page window): window points over the focused pane's content.
+    border = focused_pane_border(rpc)
+    if not border:
+        RESULT["modes"]["route"] = {"error": "no pane geometry (debug.pane_chrome)", "pass": False}
+        return False
+    click_point = host_click_point(border)
+    before = route_report(rpc)
+    if before is None:
+        RESULT["modes"]["route"] = {"error": "no input route: the tab is not in host mode with the input ring (feature "
+                                             "chromiumHostInputRing, a host the supervisor started with a ring, p01-process-080)",
+                                    "pass": False}
+        return False
+    rows = {}
+    # A page that scrolls: the probe fills the viewport.
+    page("document.documentElement.style.height = 'auto'; document.body.style.height = '20000px'; scrollTo(0, 0); 0")
+    point = click_point("b")
+
+    def scroll(dy, **phase):
+        rpc("debug.mouse", {"action": "scroll", "dy": dy, "hover": False, **point, **phase})
+        time.sleep(0.004)  # test harness: one tick per 4 ms, a trackpad's rate
+
+    scroll(-4, phase="began")
+    for _ in range(60):
+        scroll(-8, phase="changed")
+    scroll(0, phase="ended")
+    time.sleep(0.2)  # test harness: the gesture's last ticks are dispatched
+    after_gesture = page("scrollY") or 0
+    scroll(-20, momentum="began")
+    for _ in range(30):
+        scroll(-12, momentum="changed")
+    scroll(0, momentum="ended")
+    time.sleep(0.3)  # test harness: the momentum ticks are dispatched and drawn
+    after_momentum = page("scrollY") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    first = report.get("first_wheel_send_us") or []
+    rows["scroll_pacing"] = {
+        "max_wheels_in_flight": paced.get("max_wheels_in_flight"), "coalesced": paced.get("coalesced"),
+        "sent": paced.get("sent"), "first_wheel_send_us": results.percentiles(first),
+        "scroll_after_gesture": after_gesture, "scroll_after_momentum": after_momentum,
+        "ring_dropped": report.get("ring_dropped"), "unwritten": report.get("unwritten"),
+    }
+    rows["scroll_pacing"]["pass"] = (paced.get("max_wheels_in_flight") == 1 and bool(first)
+                                     and max(first) < FIRST_WHEEL_LIMIT_US and after_gesture > 0
+                                     and after_momentum > after_gesture)
+
+    rpc("debug.mouse", click_point("t"))
+    time.sleep(0.3)  # test harness: focus lands
+    field_before = page("document.getElementById('t').value.length") or 0
+    unwritten_before = (route_report(rpc) or {}).get("unwritten") or 0
+    for _ in range(opts.count):
+        rpc("debug.key", {"key": "a"})
+        time.sleep(1 / 30)  # test harness: one key per two frames
+    field_after = wait(lambda: (lambda n: n if (n or 0) >= field_before + opts.count else None)(
+        page("document.getElementById('t').value.length")), 10) or page("document.getElementById('t').value.length") or 0
+    report = route_report(rpc) or {}
+    paced = route_page(report)
+    rows["key"] = {"keys": opts.count, "field_before": field_before, "field_after": field_after,
+                   "unwritten": (report.get("unwritten") or 0) - unwritten_before,
+                   "max_moves_in_flight": paced.get("max_moves_in_flight"),
+                   "max_wheels_in_flight": paced.get("max_wheels_in_flight")}
+    rows["key"]["pass"] = (field_after - field_before == opts.count and rows["key"]["unwritten"] == 0
+                           and (paced.get("max_moves_in_flight") or 0) <= 1)
+    rows["route"] = report
+    RESULT["modes"]["route"] = rows
+    return rows["scroll_pacing"]["pass"] and rows["key"]["pass"]
 
 
 def pump_work_ms(rpc):
@@ -959,6 +1378,9 @@ TABS_IDLE = 10  # p01-process.md done check 12: idle wakes with 10 Chromium tabs
 
 def tabs10_wakes(rpc, url):
     """Idle wakes with the probe and 9 more in-process Chromium tabs, in the three scenarios; the 9 are closed after."""
+    not_in_process = tabs_in_host(rpc)
+    if not_in_process:
+        return {"not_run": not_in_process}
     before = {tab.get("id") for tab in topology_tabs(rpc)}
     for _ in range(TABS_IDLE - 1):
         rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"}, timeout=120)
@@ -1040,6 +1462,20 @@ def focused_pane_border(rpc):
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
 
 
+def page_right_click(rpc):
+    """A right click (a posted window event, as a person's) on an empty spot of the focused pane's page, low and right
+    of the native-ui probe's controls and below any browser toolbar. The pane is read at each call (the probe's tab
+    opens after this is made); the click returns False when no pane is focused."""
+    def click():
+        border = focused_pane_border(rpc)
+        if not border:
+            return False
+        bx, by, bw, bh = border
+        rpc("debug.mouse", {"x": bx + bw * 0.75, "y": by + bh * 0.8, "button": "right"})
+        return True
+    return click
+
+
 def run_host_probe(rpc, url, record=True):
     """Keys, clicks, pacing and (with --baseline) the 9a stall with the probe in the host over the focused pane.
     `url` carries a query of its own: the row waits for that page, fresh (no keys yet), not an earlier probe."""
@@ -1060,6 +1496,114 @@ def run_host_probe(rpc, url, record=True):
     time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
     return drive(rpc, "helper", lambda: (rpc("debug.chromium_host") or {}).get("title"), {}, {}, host_click_point(border),
                  record=record)
+
+
+def tcc_open_page(rpc, url, holder):
+    """Opens the TCC probe in a focused Chromium tab and keeps its tab id in `holder`: {"tab"} or {"error"}."""
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True, "origin": "script"},
+                 timeout=120)
+    ready = "document.title.startsWith('tcc ') && location.pathname === '/tcc.html'"
+    found = wait(lambda: (lambda value, tab: tab if value is True and tab else None)(*page_eval_reply(rpc, ready)), 60, 0.5)
+    if not found:
+        return {"error": f"the probe never loaded: {json.dumps(opened)[:200]}"}
+    holder["tab"] = found
+    return {"tab": found}
+
+
+def tcc_allow(rpc, holder):
+    """Answers the TCC tab's prompt bar question with Allow (browser.prompt.allow); False when it had none (the
+    action is unavailable without one)."""
+    reply = rpc("action.run", {"action": "browser.prompt.allow", "target": f"tab:{holder.get('tab')}", "origin": "script"})
+    return not (isinstance(reply, dict) and "error" in reply)
+
+
+def tcc_restart_host(rpc, holder):
+    """Ends the Chromium host (SIGKILL) and reloads the TCC tab, which starts a new host (CEFTab.reload ->
+    CEFRuntime.reloadAfterHostRestart): {"old_pid", "new_pid", "error"}."""
+    old = chromium_host_pid()
+    if old is None:
+        return {"old_pid": None, "new_pid": None, "error": "no Chromium host runs"}
+    try:
+        os.kill(old, signal.SIGKILL)
+    except OSError as error:
+        return {"old_pid": old, "new_pid": None, "error": f"SIGKILL to the host: {error}"}
+    if not wait(lambda: chromium_host_pid() != old, 15, 0.25):
+        return {"old_pid": old, "new_pid": None, "error": f"the host (pid {old}) still runs 15 s after SIGKILL"}
+    reload = rpc("action.run", {"action": "browserReload", "target": f"tab:{holder.get('tab')}", "origin": "script"})
+    new = wait(lambda: (lambda pid: pid if pid and pid != old else None)(chromium_host_pid()), 60, 0.25)
+    return {"old_pid": old, "new_pid": new,
+            "error": None if new else f"no new Chromium host 60 s after the tab's Reload: {json.dumps(reload)[:200]}"}
+
+
+def seed_tcc_keychain(keychain_plan):
+    """The tcc mode's seed launch, before the measured one: cmux with Chromium in process and the real keychain opens
+    the probe, so cmux's in-process engine makes "Chromium Safe Storage" and stores the probe's cookie with its key,
+    then quits (Chromium's shutdown commits the cookie). The keychain row's cross_identity step has the host read that
+    item. Returns {"created", "cookie", "backend"} or {"error"}."""
+    import chromium_host_tcc as tcc
+    if not keychain_plan.get("real_keychain"):
+        return {"error": keychain_plan.get("reason") or "the run keeps Chromium's mock keychain"}
+    if tcc.keychain_item(opts.keychain_service) is not False:
+        return {"error": f"the {opts.keychain_service!r} item exists before the seed launch"}
+    out = os.path.join(opts.out, "tcc-seed")
+    os.makedirs(out, exist_ok=True)
+    tunables = os.path.join(out, "debug-tunables.json")
+    json.dump({"version": 1, "values": {**TUNABLES["values"], "browserHost.helper": False}}, open(tunables, "w"))
+    pages = tcc.Pages()
+    url, _ = pages.start()
+    seed = BenchApp(opts.app, out=out, env={"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables, "CMUX_NEXT_BENCH_REAL_KEYCHAIN": "1"},
+                    build_config=opts.build_config, perf_session=opts.session)
+    try:
+        seed.launch()
+        backend = (seed.rpc("debug.cef") or {}).get("backend")
+        if backend != "inProcess":
+            return {"error": f"the seed launch's Chromium does not run in process (debug.cef backend {backend!r})"}
+        holder = {}
+        opened = tcc_open_page(seed.rpc, url, holder)
+        if opened.get("error"):
+            return {"error": f"seed launch: {opened['error']}"}
+        load = (tcc.page_state(page_eval(seed.rpc, "document.title", holder["tab"])) or {}).get("_load") or {}
+        made = wait(lambda: (tcc.keychain_info(opts.keychain_service) or {}).get("created"), 30, 0.5)
+        if not made:
+            return {"error": "cmux's in-process engine made no item with a creation date in 30 s"}
+        return {"created": made, "cookie": load.get("t"), "backend": backend}
+    except LaunchError as error:
+        return {"error": f"seed launch: {error.reason}"}
+    finally:
+        seed.stop()
+        pages.stop()
+
+
+def run_tcc(rpc, app_pid, keychain_plan, seed):
+    """TCC attribution rows on the probe in a Chromium tab of the measured launch, whose Chromium must run in the
+    host (chromium_host_tcc.py); False on a mode error or when the page never showed."""
+    import chromium_host_tcc as tcc
+    pages, log = tcc.Pages(), tcc.LogStream()
+    url, lan = pages.start()
+    log.start()
+    holder = {}
+    try:
+        seams = tcc.Seams(log=log, host_pid=chromium_host_pid, lan_hits=lambda: pages.lan_hits)
+        rows = tcc.TccRows(
+            tcc.Bundle.read(opts.app),
+            open_host=lambda page: tcc_open_page(rpc, page, holder),
+            title=lambda: page_eval(rpc, "document.title", holder.get("tab")),
+            press=lambda key: rpc("debug.key", {"target": "page", "key": key}),
+            allow=lambda: tcc_allow(rpc, holder),
+            restart_host=lambda: tcc_restart_host(rpc, holder),
+            backend=lambda: (rpc("debug.cef") or {}).get("backend"),
+            seams=seams, keychain_service=opts.keychain_service, app_pid=app_pid, keychain_plan=keychain_plan, seed=seed)
+        result = rows.run(url)
+    finally:
+        # Later modes measure their own pages: the probe's tab and its camera or location use end here.
+        if holder.get("tab"):
+            rpc("action.run", {"action": "closeTab", "target": f"tab:{holder['tab']}", "origin": "script"})
+        log.stop()
+        pages.stop()
+    result.update({"lan_address": lan, "lan_hits": pages.lan_hits, "log_error": log.error, "keychain_plan": keychain_plan})
+    RESULT["modes"]["tcc"] = result
+    tcc.print_rows(result, lambda line: print(line, flush=True))
+    return not result.get("error") and not result.get("mode_errors")
 
 
 def run_helper(rpc, url, inproc_tab):
@@ -1105,11 +1649,18 @@ def run_helper(rpc, url, inproc_tab):
                 "front_after_input": front_pid()}
     # 10 clicks on the page and a key after each: the frontmost app stays cmux's process the whole time, and the
     # host never becomes active nor owns the key window (its own counters, debug.chromium_host.measure input).
+    # The overlay host re-adds its panel above no page across those event cycles in host mode (p01-process-223):
+    # debug.overlay reorders_per_event stays 0.
+    rpc("debug.overlay", {"reset": True})
     fronts = []
     for _ in range(10):
         rpc("debug.mouse", click_point("b"))
         rpc("debug.key", {"key": "a"})
         fronts.append(front_pid())
+    overlay = rpc("debug.overlay") or {}
+    identity["overlay"] = {"reorders_per_event": overlay.get("reorders_per_event"),
+                           "windows": [{k: w.get(k) for k in ("page_surface", "reorders", "event_cycles", "order_checks")}
+                                       for w in overlay.get("windows") or []]}
     counters = rpc("debug.chromium_host.measure", {"op": "input"}) or {}
     identity["clicks"] = {"fronts": sorted(set(p for p in fronts if p is not None)), "host_frontmost": fronts.count(host_pid),
                           "activations": counters.get("activations"), "key_windows": counters.get("key_windows")}
@@ -1411,6 +1962,164 @@ def run_mouse(rpc, url):
     return True
 
 
+def run_swipe(rpc, url):
+    """The swipe row (task 234): a real two-finger swipe (pointer-probe swipe) that drags the content right, over a
+    page that does not scroll sideways (Back must happen) and over one scrolled to the middle of its sideways
+    scroller (the page scrolls, no navigation), with the page probes and wheel acks each gesture took."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["swipe"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    row = {}
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url + "?flat-1"}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("swipe flat 1"):
+        RESULT["modes"]["swipe"] = {"error": f"the swipe probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    backend = rpc("debug.cef") or {}
+    row["backend"] = backend.get("backend")
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["swipe"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+
+    def gesture(variant, expect_title):
+        before = swipe_stats()
+        left_before = page("window.__scrollLeft()")
+        swiped = subprocess.run([probe, "swipe", f"{center[0]:.0f}", f"{center[1]:.0f}", "12", "24"],
+                                capture_output=True, text=True, timeout=30)
+        back = title_is(expect_title) if expect_title else None
+        time.sleep(0.5)  # a late Back would show here; the wide case must still be on its page
+        title = page("document.title")
+        after = swipe_stats()
+        delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in ("gestures", "probes", "acks", "swipes")}
+        return {"variant": variant, "probe": swiped.stdout.strip() or swiped.stderr.strip()[:200], "title": title,
+                "back": bool(back), "scroll_left": [left_before, page("window.__scrollLeft()")], "swipe": delta,
+                "host_acks_wheels": after.get("host_acks_wheels")}
+
+    page(f"location.href = {json.dumps(url + '?flat-2')}")
+    if not title_is("swipe flat 2"):
+        RESULT["modes"]["swipe"] = {"error": "the second flat page never loaded"}
+        return False
+    flat = gesture("flat", "swipe flat 1")
+    flat["pass"] = flat["back"] and flat["title"] == "swipe flat 1"
+    row["flat"] = flat
+
+    page(f"location.href = {json.dumps(url + '?wide-1')}")
+    title_is("swipe wide 1")
+    page(f"location.href = {json.dumps(url + '?wide-2')}")
+    if not title_is("swipe wide 2"):
+        row["wide"] = {"error": "the wide pages never loaded", "pass": False}
+    else:
+        wide = gesture("wide", None)
+        left = wide["scroll_left"]
+        wide["pass"] = wide["title"] == "swipe wide 2" and None not in left and left[1] < left[0]
+        row["wide"] = wide
+    gestures = [r for r in (row.get("flat"), row.get("wide")) if r and "swipe" in r]
+    acks_on = any(r.get("host_acks_wheels") for r in gestures)
+    row["host_acks_wheels"] = acks_on
+    row["probes_per_gesture"] = max((r["swipe"]["probes"] / max(r["swipe"]["gestures"], 1) for r in gestures), default=None)
+    if not gestures or all(r["swipe"]["gestures"] == 0 for r in gestures):
+        row["not_measurable"] = ("no gesture reached the swipe: in host mode the page view takes no scrolls before the "
+                                 "host input route (p01-process-042); in process, the posted HID gesture never reached "
+                                 "a page window")
+    else:
+        zero_probes = not acks_on or row["probes_per_gesture"] == 0
+        row["pass"] = bool(row["flat"].get("pass") and row.get("wide", {}).get("pass") and zero_probes)
+    RESULT["modes"]["swipe"] = row
+    return True
+
+
+def tab_page(rpc):
+    """`page(script)`, the value of `script` in the tab of the first eval that names one (the focused tab), and
+    `title_is(title)`, true once that tab has loaded a page with that title (20 s)."""
+    tab = {}
+
+    def page(script):
+        reply = rpc("browser.page.eval", {"script": script, **({"tab": tab["tab"]} if tab.get("tab") else {})}, timeout=20)
+        if not isinstance(reply, dict) or "error" in reply:
+            return None
+        tab.setdefault("tab", reply.get("tab"))
+        return reply.get("value")
+
+    def title_is(title):
+        return wait(lambda: page(f"document.readyState === 'complete' && document.title === {json.dumps(title)}"), 20, 0.2)
+
+    return page, title_is
+
+
+def focused_pane_center(rpc, probe):
+    """The focused pane's center in screen points from the top left (the page view fills its border), or None
+    without pane, window or screen geometry."""
+    border = focused_pane_border(rpc)
+    window = next((w for w in (rpc("debug.window_list") or {}).get("windows") or []
+                   if w.get("kind") == "main" and w.get("visible")), None)
+    screen_h = subprocess.run([probe, "screen"], capture_output=True, text=True, timeout=20).stdout.strip()
+    if not border or not window or not screen_h:
+        return None
+    frame = window.get("frame") or {}
+    return (frame.get("x", 0) + border[0] + border[2] / 2,
+            float(screen_h) - (frame.get("y", 0) + frame.get("height", 0)) + border[1] + border[3] / 2)
+
+
+def run_pinch(rpc, url):
+    """The pinch row (task 234): a real trackpad pinch (pointer-probe magnify) over a Chromium tab must zoom the page
+    (its visual viewport's scale grows, as Chrome's pinch does) and must not become a swipe, now that the hosted page
+    view hands each scroll to the swipe first."""
+    probe = build_pointer_probe()
+    if not probe:
+        RESULT["modes"]["pinch"] = {"error": "pointer-probe.swift did not build (xcrun swiftc)"}
+        return False
+    page, title_is = tab_page(rpc)
+
+    def swipe_stats():
+        return (rpc("debug.cef") or {}).get("swipe") or {}
+
+    opened = rpc("action.run", {"action": "openBrowser.chromium", "args": {"url": url}, "focus": True,
+                                "origin": "script"}, timeout=120)
+    if not title_is("pinch probe"):
+        RESULT["modes"]["pinch"] = {"error": f"the pinch probe never loaded: {json.dumps(opened)[:200]}"}
+        return False
+    row = {"backend": (rpc("debug.cef") or {}).get("backend")}
+    center = focused_pane_center(rpc, probe)
+    if not center:
+        RESULT["modes"]["pinch"] = {"error": "no pane, window or screen geometry (debug.pane_chrome, debug.window_list)"}
+        return False
+    before = page("window.__zoom()") or {}
+    stats_before = swipe_stats()
+    pinched = subprocess.run([probe, "magnify", f"{center[0]:.0f}", f"{center[1]:.0f}", "0.05", "20"],
+                             capture_output=True, text=True, timeout=30)
+    start = before.get("scale") or 1
+    wait(lambda: ((page("window.__zoom()") or {}).get("scale") or start) > start + 0.05, 3, 0.1)
+    time.sleep(0.5)  # a swipe or navigation the pinch set off would show here
+    after = page("window.__zoom()") or {}
+    stats_after = swipe_stats()
+    row.update({
+        "probe": pinched.stdout.strip() or pinched.stderr.strip()[:200],
+        "before": before, "after": after, "title": page("document.title"),
+        "swipe": {key: (stats_after.get(key) or 0) - (stats_before.get(key) or 0) for key in ("gestures", "swipes")},
+    })
+    zoomed = (after.get("scale") or start) > start + 0.05
+    reached = zoomed or (after.get("ctrlWheels") or 0) > (before.get("ctrlWheels") or 0)
+    row["zoomed"] = zoomed
+    if not reached and row["backend"] == "host":
+        row["not_measurable"] = ("the pinch never reached the page: in host mode the page view sends the host no "
+                                 "magnify before the host input route (p01-process-042) and its PinchEvent "
+                                 "(p01-process-054)")
+    else:
+        row["pass"] = bool(zoomed and row["title"] == "pinch probe" and row["swipe"]["swipes"] == 0
+                           and row["swipe"]["gestures"] == 0)
+        if not reached:
+            row["error"] = "the posted pinch never reached the page (no ctrl+wheel, no zoom)"
+    RESULT["modes"]["pinch"] = row
+    return True
+
+
 ROW_LIMIT_S = 90  # one row of the input set; a prompt on the console or a stuck reply ends the row, not the step
 
 
@@ -1509,8 +2218,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     native("file_picker", lambda: rpc("debug.mouse", click_point("f")))
     rows["not_forwarded"] = {"ime": "no NSTextInputClient in ChromiumHostPageView; windowed Ime* are DCHECK(false) in CEF (slice 2)",
                              "find": "the prototype page has no find; --find runs it on a host-backed Chromium tab",
-                             "drag": "drag and drop is not forwarded (slice 4)",
-                             "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
+                             "drag": "drag and drop is not forwarded (slice 4)"}
     return rows
 
 

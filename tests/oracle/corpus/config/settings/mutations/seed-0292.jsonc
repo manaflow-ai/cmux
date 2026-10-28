@@ -1,0 +1,18 @@
+{
+  "updates": {
+    "showWhatsNew": true
+  },
+  "notifications": {
+    "sound": 1e0
+  },
+  "sidebar": {
+    "workspaceRow": {
+      "mixed": {
+        "pullRequest": false
+      }
+    }
+  },
+  "layout": {
+    "dockColumnEdge": true
+  }
+}

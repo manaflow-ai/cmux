@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextPagesTestSupport
+import CmuxNextSettings
 import Foundation
 import Testing
 import WebKit
@@ -39,7 +40,7 @@ struct PageLifecycleFreezeTests {
     private func chromiumView() async throws -> (PageWebView, FakeChromiumPage) {
         let hosting = FakeChromiumHosting()
         let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], chromium: hosting))
-        view.chromiumClock = PageTestClock.never
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value
         view.frame = tab.bounds
         tab.addSubview(view)
@@ -188,6 +189,81 @@ struct PageLifecycleFreezeTests {
         tab.isHidden = false
         #expect(!view.webView.isHidden)
         #expect(view.webView.configuration.preferences.hiddenPageThrottling == Self.mixed)
+    }
+
+    // MARK: Provider freeze hooks follow the engine (p13-webui-066)
+
+    /// Counts the freeze hooks the router gives it.
+    @MainActor final class HookCounter: PageProvider {
+        private(set) var freezes = 0
+        private(set) var thaws = 0
+
+        func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue { .object([:]) }
+        func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
+                       onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
+            PageSubscription(frozenDelivery: .resync) {}
+        }
+        func pageWillFreeze() { freezes += 1 }
+        func pageDidThaw() { thaws += 1 }
+    }
+
+    /// A frozen WebKit page whose document commits again or whose renderer dies (a crash reload)
+    /// is still frozen: its new document's script runs, but its providers stay frozen, so its new
+    /// relay streams start paused. Only the thaw tells them, once.
+    @Test func aFrozenWebKitPageKeepsItsProvidersFrozenAcrossANewDocument() throws {
+        let counter = HookCounter()
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [PageRoute(prefix: "test.", provider: counter)],
+                                            chromium: nil))
+        view.frame = tab.bounds
+        tab.addSubview(view)
+        defer { finish(view) }
+        tab.isHidden = true
+        #expect(view.freezePage())
+        #expect(counter.freezes == 1)
+        view.documentCommitted()
+        #expect(view.router.providersFrozen, "a commit of a frozen page thawed its providers")
+        view.contentProcessTerminated()
+        #expect(view.router.providersFrozen, "a crash reload of a frozen page thawed its providers")
+        #expect(view.freezePage(), "still frozen")
+        #expect(counter.freezes == 1)
+        #expect(counter.thaws == 0)
+        view.thawPage()
+        #expect(counter.thaws == 1)
+        #expect(!view.router.providersFrozen)
+    }
+
+    /// The tab closes while frozen: the providers hear the thaw once, after every stream ended.
+    @Test func closingAFrozenPageThawsItsProvidersOnce() throws {
+        let counter = HookCounter()
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [PageRoute(prefix: "test.", provider: counter)],
+                                            chromium: nil))
+        view.frame = tab.bounds
+        tab.addSubview(view)
+        tab.isHidden = true
+        #expect(view.freezePage())
+        finish(view)
+        #expect(counter.freezes == 1)
+        #expect(counter.thaws == 1)
+    }
+
+    /// The frozen Chromium page's browser ends: the engine page is gone, so its providers run again.
+    @Test func aFrozenChromiumPageWhoseBrowserEndedThawsItsProviders() async throws {
+        let hosting = FakeChromiumHosting()
+        let counter = HookCounter()
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [PageRoute(prefix: "test.", provider: counter)],
+                                            chromium: hosting))
+        view.chromiumDeadlines = LifecycleDeadlineRig.never
+        await view.chromiumStart?.value
+        view.frame = tab.bounds
+        tab.addSubview(view)
+        defer { finish(view) }
+        let page = try #require(hosting.made.first)
+        tab.isHidden = true
+        #expect(view.freezePage())
+        page.onEvent?(.ended)
+        #expect(counter.freezes == 1)
+        #expect(counter.thaws == 1)
+        #expect(!view.router.providersFrozen)
     }
 
     @Test func aShownWebKitPageRefusesToFreeze() throws {

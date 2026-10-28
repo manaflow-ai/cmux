@@ -25,10 +25,11 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// only when the profile's extension list or the page URL changes.
     private var accessMemo: [String: (extensions: [BrowserExtensionInfo], url: URL?, names: [String])] = [:]
     /// Hidden agent-driven WebKit tabs render here (``keepRendering(_:)``).
-    let renderWindows = AgentRenderWindows()
+    let renderWindows: AgentRenderWindows
 
     init(services: AppServices) {
         self.services = services
+        renderWindows = AgentRenderWindows(mainWork: services.mainWork)
     }
 
     private struct LocalTab {
@@ -191,12 +192,9 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         guard browserTabs.isAvailable(in: pane) else { throw AutomationTabError.unavailable }
         let surface = try await browserTabs.open(BrowserEngineChoice(engine: engine), in: pane,
                                                  url: url ?? "about:blank", activate: false)
-        // The create reply can come before the store shows the tab.
-        let appeared = try? await ControlDeadline.shared.run(method: "tabs.open", deadline: .now + .seconds(10)) { @MainActor in
-            for await found in ObservationStream({ services.locateTab(surface: surface) != nil }) where found { return true }
-            return false
-        }
-        guard appeared == true, let tab = services.locateTab(surface: surface) else {
+        // The create reply can come before the store shows the tab: the store's keyed wait (StoreWaiters), read
+        // again only when the store keys this surface.
+        guard let tab = await services.daemon.store.waitForTab(surface: surface, timeout: .seconds(10)) else {
             throw AutomationTabError.unavailable
         }
         return tab
@@ -239,7 +237,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
     /// shows it later takes it back.
     func keepRendering(_ tab: WebKitTab) async -> Bool {
         guard let services, let entry = services.cache.existingBrowser(tab.id.rawValue), (entry.tab as? WebKitTab) === tab else { return false }
-        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView)
+        return renderWindows.keepRendering(tabID: tab.id.rawValue, chrome: entry.chrome, webView: tab.webView,
+                                           keepsPageShown: { [weak tab] in tab?.setKeptRendering($0) })
     }
 
     /// A persistent WebKit profile's cookie store (`cookies.restore`): the
@@ -278,11 +277,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         }
         guard closed else { return false }
         cache.release(id)
-        // The store's update can come after the close reply.
-        _ = try? await ControlDeadline.shared.run(method: "tabs.close", deadline: .now + .seconds(5)) { @MainActor [weak self] in
-            for await gone in ObservationStream({ self?.isDrivable(id) != true }) where gone { return true }
-            return false
-        }
+        // The store's update can come after the close reply: the store's keyed wait (StoreWaiters) for the id to go.
+        _ = await daemon.store.waitTabGone(id: id, timeout: .seconds(5))
         return true
     }
 

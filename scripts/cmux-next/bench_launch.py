@@ -338,6 +338,113 @@ class LaunchError(SystemExit):
         super().__init__(f"bench-launch: {reason}: {report.get('detail', '')}\n{report.get('log_tail', '')}")
 
 
+POSIX_SPAWN_CLOEXEC_DEFAULT = 0x4000  # <spawn.h> (Apple): close every descriptor the file actions do not name
+LIBSYSTEM = "/usr/lib/libSystem.B.dylib"
+
+
+class SpawnedProcess:
+    """The part of subprocess.Popen a bench uses (pid, returncode, poll, wait, send_signal, terminate, kill) for a
+    child this script started with ``disclaimed_spawn``. returncode is Popen's: the exit status, or -N for signal N."""
+
+    def __init__(self, pid, waitpid=os.waitpid, kill=os.kill, clock=time.monotonic, sleep=time.sleep):
+        self.pid = pid
+        self.returncode = None
+        self.args = None
+        self._waitpid, self._kill, self._clock, self._sleep = waitpid, kill, clock, sleep
+
+    def _reap(self, flags):
+        try:
+            pid, status = self._waitpid(self.pid, flags)
+        except ChildProcessError:
+            self.returncode = 0  # reaped elsewhere (Popen answers 0 then too)
+            return
+        if pid == self.pid:
+            self.returncode = os.waitstatus_to_exitcode(status)
+
+    def poll(self):
+        if self.returncode is None:
+            self._reap(os.WNOHANG)
+        return self.returncode
+
+    def wait(self, timeout=None):
+        if timeout is None:
+            if self.returncode is None:
+                self._reap(0)
+            return self.returncode
+        deadline = self._clock() + timeout
+        while self.poll() is None:
+            if self._clock() >= deadline:
+                raise subprocess.TimeoutExpired(self.args or [str(self.pid)], timeout)
+            self._sleep(0.05)  # bounded poll of this script's own child
+        return self.returncode
+
+    def send_signal(self, sig):
+        if self.poll() is None:
+            self._kill(self.pid, sig)
+
+    def terminate(self):
+        self.send_signal(signal.SIGTERM)
+
+    def kill(self):
+        self.send_signal(signal.SIGKILL)
+
+
+def disclaimed_spawn(argv, env, log_fd, pass_fds=(), library=None):
+    """posix_spawn of `argv` with macOS responsibility disclaimed (responsibility_spawnattrs_setdisclaim, as cmux's
+    cua helper, ComputerUseHelperV2Spawner.swift): the child is its own responsible process, as an app a person
+    opens through LaunchServices, so tccd charges its privacy requests (and its children's) to it, not to this
+    script's ssh, Terminal or runner. stdin is /dev/null, stdout and stderr go to `log_fd`, `pass_fds` stay open and
+    every other descriptor closes (Popen's close_fds). Raises LaunchError when this system cannot disclaim."""
+    import ctypes
+    try:
+        lib = library or ctypes.CDLL(LIBSYSTEM, use_errno=True)
+        disclaim = lib.responsibility_spawnattrs_setdisclaim
+    except (OSError, AttributeError) as error:
+        raise LaunchError("disclaim-unavailable", {"detail": f"cannot spawn with responsibility disclaimed: {error}",
+                                                   "log_tail": ""})
+    handle = ctypes.POINTER(ctypes.c_void_p)
+    lib.posix_spawnattr_init.argtypes = [handle]
+    lib.posix_spawnattr_destroy.argtypes = [handle]
+    lib.posix_spawnattr_setflags.argtypes = [handle, ctypes.c_short]
+    disclaim.argtypes = [handle, ctypes.c_int]
+    lib.posix_spawn_file_actions_init.argtypes = [handle]
+    lib.posix_spawn_file_actions_destroy.argtypes = [handle]
+    lib.posix_spawn_file_actions_addopen.argtypes = [handle, ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_uint16]
+    lib.posix_spawn_file_actions_adddup2.argtypes = [handle, ctypes.c_int, ctypes.c_int]
+    lib.posix_spawn_file_actions_addinherit_np.argtypes = [handle, ctypes.c_int]
+    lib.posix_spawn.argtypes = [ctypes.POINTER(ctypes.c_int), ctypes.c_char_p, handle, handle,
+                                ctypes.POINTER(ctypes.c_char_p), ctypes.POINTER(ctypes.c_char_p)]
+    attributes, actions = ctypes.c_void_p(), ctypes.c_void_p()
+    lib.posix_spawnattr_init(ctypes.byref(attributes))
+    lib.posix_spawn_file_actions_init(ctypes.byref(actions))
+    try:
+        steps = [
+            ("setflags", lib.posix_spawnattr_setflags(ctypes.byref(attributes), POSIX_SPAWN_CLOEXEC_DEFAULT)),
+            ("disclaim", disclaim(ctypes.byref(attributes), 1)),
+            ("stdin", lib.posix_spawn_file_actions_addopen(ctypes.byref(actions), 0, b"/dev/null", os.O_RDONLY, 0)),
+            ("stdout", lib.posix_spawn_file_actions_adddup2(ctypes.byref(actions), log_fd, 1)),
+            ("stderr", lib.posix_spawn_file_actions_adddup2(ctypes.byref(actions), log_fd, 2)),
+        ] + [(f"fd {fd}", lib.posix_spawn_file_actions_addinherit_np(ctypes.byref(actions), fd)) for fd in pass_fds]
+        failed = [(name, status) for name, status in steps if status != 0]
+        if failed:
+            name, status = failed[0]
+            raise LaunchError("disclaim-unavailable", {"detail": f"posix_spawn {name}: {os.strerror(status)}",
+                                                       "log_tail": ""})
+        args = (ctypes.c_char_p * (len(argv) + 1))(*[os.fsencode(a) for a in argv], None)
+        envp = (ctypes.c_char_p * (len(env) + 1))(*[os.fsencode(f"{k}={v}") for k, v in env.items()], None)
+        pid = ctypes.c_int()
+        status = lib.posix_spawn(ctypes.byref(pid), os.fsencode(argv[0]), ctypes.byref(actions),
+                                 ctypes.byref(attributes), args, envp)
+        if status != 0:
+            raise OSError(status, os.strerror(status), argv[0])
+    finally:
+        lib.posix_spawn_file_actions_destroy(ctypes.byref(actions))
+        lib.posix_spawnattr_destroy(ctypes.byref(attributes))
+    process = SpawnedProcess(pid.value)
+    process.args = list(argv)
+    return process
+
+
 def note(text):
     print(text, flush=True)
 
@@ -510,6 +617,25 @@ LAB_SESSION, LAB_CONFIG, LAB_HOST_FILE, LAB_VDISPLAY_OUT = (
 # The full host validation of a launched app (``lab_host_check``) goes to `<out>/host-env-full-<app pid>.json`. The
 # runner rejects a run's results unless at least one such file is under its out folder and every one is ok.
 LAB_CHECK_PREFIX = "host-env-full-"
+# The story's build needs (comma-separated `debug:`, `signpost:` and `env:` entries) and the file the first launch
+# writes the build's own answer to (``lab_needs_check``): the runner reads it, so a build that lacks a need is a
+# not-measurable run, never a failed one (perf-lab capabilities.py, task 211).
+LAB_NEEDS, LAB_PROBE_OUT = "PERF_LAB_NEEDS", "PERF_LAB_PROBE_OUT"
+
+
+def lab_needs_check(ask, needs, out_path):
+    """The needs the launched build lacks, from its `debug.capabilities` answer (capabilities.probe_missing over
+    `ask(method)`), written to `out_path` as {"missing": [...]}. A build whose answers cannot be read lacks nothing
+    here ({"missing": [], "error": ...}): the run goes on and its result stands on its own."""
+    capabilities = load_by_path("perf_lab_capabilities", os.path.join(PERF_LAB, "capabilities.py"))
+    try:
+        report = {"missing": list(capabilities.probe_missing(tuple(needs), ask))}
+    except capabilities.CapabilityError as error:
+        report = {"missing": [], "error": str(error)}
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    with open(out_path, "w") as f:
+        json.dump({"needs": list(needs), **report}, f, sort_keys=True)
+    return report["missing"]
 
 
 def lab_host_check(vdisplay_out, pids, timeout=300):
@@ -1043,13 +1169,39 @@ def crash_summary(path, lines=40):
     return "\n".join(text.splitlines()[:lines])
 
 
+def write_local_features(root, features):
+    """Sets `features` ({name: bool}) in `<root>/features/local-overrides.json`, the Labs page's local feature choices
+    (FeatureLocalOverrides.fileName in SidebarSnapshotFile.buildDirectory, the tag's state folder), over the choices
+    the file already has. A DEV or NIGHTLY app reads them once at launch and features.list reports them with source
+    `local`: the way a bench turns a default-off feature on, since the app strips an inherited CMUX_ENABLE_FEATURES
+    (LaunchIdentity.inheritedKeys). Returns the file's path."""
+    path = os.path.join(root, "features", "local-overrides.json")
+    choices = {}
+    try:
+        with open(path) as handle:
+            kept = json.load(handle)
+        if isinstance(kept, dict):
+            choices = {name: value for name, value in kept.items() if isinstance(value, bool)}
+    except (OSError, ValueError):
+        pass
+    choices.update(features)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    partial = path + ".partial"
+    with open(partial, "w") as handle:
+        json.dump(choices, handle, indent=2, sort_keys=True)
+    os.replace(partial, path)
+    return path
+
+
 class BenchApp:
     """A tagged DEV app launched for a bench, its socket, and its teardown.
 
     `env` adds to (and overrides) BASE_ENV; `args` are launch arguments after the binary (for this process only,
     for example `-AppleShowScrollBars Always`, which AppKit reads into NSArgumentDomain); `pass_fds` are descriptors the
     app inherits (subprocess.Popen pass_fds; a bench's CMUX_NEXT_LAUNCH_MARKS_FD pipe), read at each launch, so a
-    relaunch may pass a new pipe; `config` is written as the app's cmux.json; `window` is
+    relaunch may pass a new pipe; `local_features` ({name: bool}) are written as the tag's Labs local feature
+    choices before each spawn, after the fresh state (``write_local_features``); `config` is written as the app's
+    cmux.json; `window` is
     (x, y, width, height) or None; `screen` is CMUX_NEXT_TEST_WINDOW_SCREEN (`0` = the main display).
     `session` reads whether this account has a GUI session (default ``gui_session``, read at each launch;
     tests pass a stub). `socket_only=True` launches without a GUI session for a check that reads only the socket
@@ -1062,13 +1214,18 @@ class BenchApp:
     Under the perf-lab runner (its PERF_LAB_* variables, the LAB_* names), the defaults are the story's session, the
     run's config and the host block that host_env wrote with the measured Hz. The first launch is validated again
     with its pids (`lab_check`, default ``lab_host_check``) before the bench measures, and the report goes to `out`.
+    `own_responsibility=True` spawns the app with macOS responsibility disclaimed (``disclaimed_spawn``), so it is
+    its own responsible process as when a person opens it: a bench of privacy (TCC) attribution needs it, since a
+    plain exec charges the app's requests to this script's parent chain. ``process`` is then a ``SpawnedProcess``.
     """
 
     def __init__(self, app, out=None, env=None, config=None, window=(40, 40, 1440, 900), screen="0",
                  log_name=None, teardown=True, low_power_mode_ok=False, session=None, socket_only=False,
                  fresh_state=True, perf_session=None, host=None, build_config=None, run=None, args=(),
-                 lab_check=None, pass_fds=()):
+                 lab_check=None, pass_fds=(), local_features=None, own_responsibility=False):
         self.args = tuple(args)
+        self.own_responsibility = own_responsibility
+        self.local_features = dict(local_features or {})
         self.pass_fds = tuple(pass_fds)
         self.perf_session = perf_session or os.environ.get(LAB_SESSION) or "light"
         host_file = os.environ.get(LAB_HOST_FILE)
@@ -1082,6 +1239,9 @@ class BenchApp:
                 return lab_host_check(vdisplay_out, pids)
         self.lab_check = lab_check
         self.lab_report = None  # the full host validation of this BenchApp's first launch (``lab_check``)
+        self.lab_needs = tuple(n for n in os.environ.get(LAB_NEEDS, "").split(",") if n)
+        self.lab_probe_out = os.environ.get(LAB_PROBE_OUT) or None
+        self.lab_missing = None  # what the first launched build lacks of lab_needs (``check_lab_needs``)
         self.run = run
         self._build = self._host = None
         self.features = None  # the last launch's features.list snapshot (features_snapshot), read once it answered
@@ -1326,6 +1486,8 @@ class BenchApp:
                     self._fail("tag-in-use", {"tag": self.tag, **host_facts(), "socket": path, "log_tail": "",
                                               "detail": f"an app of tag {self.tag} accepts on {path}; quit it or pick a fresh tag"})
                 os.unlink(path)  # nothing listens: a socket a killed run of this tag left; the app makes it again
+        if self.local_features:
+            note(f"bench-launch: local features {write_local_features(self.state_root(), self.local_features)}")
         if self.teardown:
             self.teardown.install()
         log = open(self.log_path, "a")
@@ -1335,8 +1497,11 @@ class BenchApp:
             with finder_limits() as changed:
                 self.launched_at = time.time()
                 spawned = time.monotonic()
-                self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log,
-                                                stdin=subprocess.DEVNULL, pass_fds=self.pass_fds)
+                if self.own_responsibility:
+                    self.process = disclaimed_spawn([self.binary, *self.args], env, log.fileno(), self.pass_fds)
+                else:
+                    self.process = subprocess.Popen([self.binary, *self.args], env=env, stdout=log, stderr=log,
+                                                    stdin=subprocess.DEVNULL, pass_fds=self.pass_fds)
         except LaunchError as error:
             log.close()
             self._fail(error.reason, {"tag": self.tag, **host_facts(), **error.report})
@@ -1367,12 +1532,26 @@ class BenchApp:
                     self.ready_seconds = round(time.monotonic() - start, 2)
                     note(f"bench-launch: {self.tag} answered on {path} after {self.ready_seconds} s")
                     self.features = self.read_features()
+                    self.check_lab_needs()
                     if validate_host:
                         self.validate_lab_host()
                     return self
             time.sleep(0.25)  # the poll interval
         log.flush()
         self._fail(*self.diagnose(last, timeout))
+
+    def check_lab_needs(self):
+        """Once per BenchApp under the perf-lab runner (its LAB_NEEDS and LAB_PROBE_OUT): asks the launched build what
+        it has (``lab_needs_check``). A build that lacks a need cannot measure the story: the app stops and the launch
+        fails as `not-measurable`, and the runner reads the file, not the exit status."""
+        if not self.lab_probe_out or not self.lab_needs or self.lab_missing is not None:
+            return
+        self.lab_missing = lab_needs_check(self.rpc, self.lab_needs, self.lab_probe_out)
+        if self.lab_missing:
+            self.stop()
+            self._fail("not-measurable", {"tag": self.tag, "missing": self.lab_missing, "log_tail": "",
+                                          "detail": f"this build lacks {', '.join(self.lab_missing)}, which the story "
+                                                    "needs: its Change is not-measurable, never a regression"})
 
     def validate_lab_host(self, pids=None):
         """Once per BenchApp, while its app runs: ``lab_check`` over the app's and daemons' pids (default the launched

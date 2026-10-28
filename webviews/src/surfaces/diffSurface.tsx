@@ -11,6 +11,8 @@ import { installSolidBackdrop } from "../backdrop";
 import { createDiffViewerLabelResolver, loadDiffViewerLabels, shouldAssertMissingLabels } from "../labels";
 import { installDiffLanguageHostAPI } from "../diff-languages/host";
 import { diffPageClient } from "../diff/page";
+import { openPageState, type PageStateSession } from "../pages/shared/pageState";
+import { DIFF_PAGE } from "../diff-viewer/viewState";
 import { bootPageDiff } from "../diff/pageBoot";
 import { createWebviewsRouter } from "../router";
 import { applyDiffViewerStatusToDocument, initialDiffViewerStatus } from "../status";
@@ -50,9 +52,10 @@ export function mountDiffSurface(rootElement: HTMLElement): Promise<void> {
   if (!page) {
     throw new Error("Missing cmux diff viewer config");
   }
+  const pageState = openPageState(page, DIFF_PAGE);
   return bootPageDiff(
     page,
-    (config, languages) => renderDiffSurface(rootElement, config, languages),
+    (config, languages) => renderDiffSurface(rootElement, config, languages, pageState),
     undefined,
     undefined,
     async (config) => {
@@ -77,6 +80,7 @@ export async function renderDiffSurface(
   rootElement: HTMLElement,
   config: DiffViewerConfig,
   languages: unknown,
+  pageState?: PageStateSession,
 ): Promise<void> {
   await loadDiffViewerLabels();
   installWebviewStyles("diff", diffViewerStyles);
@@ -99,6 +103,8 @@ export async function renderDiffSurface(
   const initialStatus = initialDiffViewerStatus(config, label);
   document.body.dataset.filesHidden = "false";
   applyDiffViewerStatusToDocument(initialStatus);
-  const router = createWebviewsRouter(() => <App config={config} initialStatus={initialStatus} />);
+  const router = createWebviewsRouter(() => (
+    <App config={config} initialStatus={initialStatus} pageState={pageState} />
+  ));
   createRoot(rootElement).render(<RouterProvider router={router} />);
 }

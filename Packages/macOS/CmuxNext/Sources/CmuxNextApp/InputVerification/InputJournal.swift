@@ -1,3 +1,4 @@
+import CmuxNextInputModel
 import Darwin
 import CmuxNextCompat
 

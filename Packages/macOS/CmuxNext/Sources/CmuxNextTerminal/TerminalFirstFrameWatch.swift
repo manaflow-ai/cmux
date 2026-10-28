@@ -2,11 +2,11 @@ import AppKit
 public import CmuxNextSignposts
 public import CmuxNextWakeups
 
-/// Waits, in every build, for a terminal session's surface to hold its first frame: the first IOSurface Ghostty
-/// handed its layer (``TerminalSurfaceView/presentedFrame``), drawn in the session's theme. A new tab's
+/// Waits, in every build, for a terminal session's surface to hold its first frame: the first IOSurface its renderer
+/// presented (``TerminalSurfaceView/presentedFrame``), drawn in the session's theme. A new tab's
 /// `create.tab` interval ends there (p09-observability task 030).
 ///
-/// It reads the layer once per display frame of the surface's window, and only while it waits (most new
+/// It reads the presented frame once per display frame of the surface's window, and only while it waits (most new
 /// terminals draw in the frame of the key that made them, so it ticks once or twice). A tab hidden first cancels
 /// it (``CreateTabTimings/hidden(_:)``), so a hidden terminal, whose rendering is suspended, costs no frames. The
 /// DEBUG `setContents:` hook (``TypingFrameProbe``) is not used: Release builds have no swizzle.
@@ -41,7 +41,9 @@ public final class TerminalFirstFrameWatch {
         self.shown = shown
         self.closed = closed
         guard !check() else { return }
-        let frames = FrameClient(owner: "TerminalFirstFrameWatch", isAnimation: false, scheduler: scheduler) { [weak self] _ in
+        // Motion rate: the `create.tab` interval ends on that frame; most tabs tick once or twice.
+        // frame-client: reads the surface view's presented frame until the first one shows (view state, on main)
+        let frames = FrameClient(owner: "TerminalFirstFrameWatch", isAnimation: false, rate: .motion, scheduler: scheduler) { [weak self] _ in
             self?.check() == false
         }
         self.frames = frames

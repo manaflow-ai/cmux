@@ -6,7 +6,7 @@
 #[cfg(unix)]
 pub(super) mod machine_catalog;
 mod record;
-pub(super) use record::ClientRecord;
+pub(super) use record::{ClientRecord, ConnectionFacts};
 
 use super::CREATION_ATTEMPT_KEYS_CAPABILITY;
 use super::CREATION_RECEIPTS_CAPABILITY;
@@ -27,13 +27,17 @@ use super::ResourceWorkerAdmissionError;
 use super::ResourceWorkerPermit;
 use super::SHARED_SIZING_CAPABILITY;
 use super::SIZING_VIEW_DETACH_CAPABILITY;
+use super::SizeStateReader;
 use super::TERMINAL_COLOR_OVERRIDES_CAPABILITY;
 use super::TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VIEW_ATTACHMENT_DETACH_CAPABILITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
+use super::WorkerClass;
 #[cfg(unix)]
 use super::agent_session_attach;
+use super::connection_caller;
+use super::connection_scheduler::connection_qos::ConnectionClassCell;
 use super::sanitize_window_title;
 use super::size_state_event_json;
 use super::{
@@ -49,6 +53,8 @@ use crate::resource::StreamPublicId;
 use crate::sizing_policy::TerminalSizingState;
 use crate::{SurfaceId, panic_free::RecoverPoison};
 use base64::Engine;
+use cmux_threads::sync::Condvar;
+use cmux_threads::sync::Mutex;
 use serde_json::Value;
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -56,8 +62,6 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::sync::Condvar;
-use std::sync::Mutex;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
@@ -337,11 +341,16 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
+    /// The daemon's features, reconciled with each app's client hello
+    /// (client_hello.rs, `install_daemon_features`).
+    pub(super) features: std::sync::OnceLock<cmux_features::Live>,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The daemon-wide cap on open client-minted attach streams.
+    pub(super) attach_stream_admission: Arc<super::attach_streams::AttachStreamAdmission>,
     /// The framed IPC transports this daemon serves (capabilities.rs).
     pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
@@ -403,6 +412,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
+            features: std::sync::OnceLock::new(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
@@ -411,6 +421,9 @@ impl ClientRegistry {
             resource_wait_admission: ResourceWorkerAdmission::new(
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            attach_stream_admission: super::attach_streams::AttachStreamAdmission::new(
+                super::ATTACH_STREAMS_SERVER_CAPACITY,
             ),
             ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
@@ -453,8 +466,11 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                connection_class: Arc::new(ConnectionClassCell::of_client(client)),
                 #[cfg(unix)]
                 machine_catalog: None,
+                #[cfg(test)]
+                subscribe_probe: Arc::default(),
             },
         );
         drop(state);
@@ -464,6 +480,14 @@ impl ClientRegistry {
 
     pub(super) fn client_ids(&self) -> Vec<u64> {
         self.state.lock().recover_poison().clients.keys().copied().collect()
+    }
+
+    /// The probe of `client`'s `subscribe` stream (a fresh one for an
+    /// unknown client, which no stream reports to).
+    #[cfg(test)]
+    pub(super) fn subscribe_probe(&self, client: u64) -> Arc<super::cmd_subscribe::SubscribeProbe> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.subscribe_probe.clone()).unwrap_or_default()
     }
 
     #[cfg(test)]
@@ -494,7 +518,8 @@ impl ClientRegistry {
         if record.resource_streams.contains_key(stream_id.as_str()) {
             return Err(ResourceStreamInstallError::Duplicate);
         }
-        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
+        let class = WorkerClass::of(connection_caller(record.transport, &record.writer));
+        let worker_permit = self.resource_stream_admission.try_reserve(client, class)?;
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
             stream_id.to_string(),
@@ -550,7 +575,8 @@ impl ClientRegistry {
         if record.resource_waits.contains_key(request_id) {
             return Err(ResourceWaitInstallError::Duplicate);
         }
-        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let class = WorkerClass::of(connection_caller(record.transport, &record.writer));
+        let worker_permit = self.resource_wait_admission.try_reserve(client, class)?;
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             request_id.clone(),
@@ -687,10 +713,13 @@ impl ClientRegistry {
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
                     || capability == crate::event_cause::CAPABILITY
+                    || capability == super::DIAGNOSTIC_SITES_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     /// The client's declared API revision (server/api_revision_wire.rs).
@@ -728,7 +757,22 @@ impl ClientRegistry {
         let mut state = self.state.lock().recover_poison();
         if let Some(record) = state.clients.get_mut(&client) {
             record.remote_device = true;
+            state.classify(client);
         }
+    }
+
+    /// The client class cell of `client`'s connection, which its threads
+    /// follow (connection_qos.rs); a cell that stays unclassified for a
+    /// client the registry does not hold.
+    pub(super) fn connection_class(&self, client: u64) -> Arc<ConnectionClassCell> {
+        let state = self.state.lock().recover_poison();
+        state.clients.get(&client).map(|record| record.connection_class.clone()).unwrap_or_default()
+    }
+
+    /// Classes `client`'s connection now: its hello window has closed, so
+    /// its origin is final (connection_qos.rs).
+    pub(super) fn classify_connection(&self, client: u64) {
+        self.state.lock().recover_poison().classify(client);
     }
 
     /// The connection's identity for shared sizing. Without explicit
@@ -755,6 +799,7 @@ impl ClientRegistry {
         surface: SurfaceId,
         runtime: SurfaceId,
         size_state: &TerminalSizingState,
+        scheme: crate::mux::ParticipantScheme,
     ) {
         let targets = {
             let state = self.state.lock().recover_poison();
@@ -772,15 +817,15 @@ impl ClientRegistry {
                     }
                     let open = record.capabilities.contains(OPEN_DEVICE_KINDS_CAPABILITY);
                     Some((
-                        (*client, open),
+                        SizeStateReader { client: *client, open, scheme },
                         record.writer.clone(),
                         Self::event_streams(record, surface),
                     ))
                 })
                 .collect::<Vec<_>>()
         };
-        for (client, writer, streams) in targets {
-            let event = size_state_event_json(surface, runtime, size_state, Some(client));
+        for (reader, writer, streams) in targets {
+            let event = size_state_event_json(surface, runtime, size_state, Some(reader));
             for stream in streams {
                 let _ = writer.send_stream(&event, &stream);
             }
@@ -865,7 +910,9 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = kind;
         }
-        Ok((record.name.clone(), record.kind.clone()))
+        let named = (record.name.clone(), record.kind.clone());
+        state.classify(client);
+        Ok(named)
     }
 
     pub(super) fn resource_records(&self) -> Vec<ResourceClientRecord> {

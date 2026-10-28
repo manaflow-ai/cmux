@@ -15,9 +15,13 @@ import PackageDescription
 //   CmuxCuaHelperCore   -> CCuaDriverABI, Security (admission, control pipe, socket, runtime bridge)
 //   cmux-cua-helper     -> CmuxCuaHelperCore (the executable in "cmux Computer Use (dev).app")
 
+// Strict memory safety (p10-stability-078): the package is outside the CmuxNext
+// closure the settings lander writes, so it carries the setting itself; every
+// `unsafe` in its sources has a SAFETY argument above it.
 let swiftSettings: [SwiftSetting] = [
     .swiftLanguageMode(.v6),
     .enableUpcomingFeature("ExistentialAny"),
+    .strictMemorySafety(),
 ]
 
 let package = Package(
@@ -27,11 +31,15 @@ let package = Package(
         .executable(name: "cmux-cua-helper", targets: ["cmux-cua-helper"]),
         .library(name: "CmuxCuaHelperCore", targets: ["CmuxCuaHelperCore"]),
     ],
+    dependencies: [
+        // OnceContinuation, the continuation that resumes exactly once (p10-stability-089).
+        .package(path: "../../Shared/CmuxSafeConcurrency"),
+    ],
     targets: [
         .target(name: "CCuaDriverABI"),
         .target(
             name: "CmuxCuaHelperCore",
-            dependencies: ["CCuaDriverABI"],
+            dependencies: ["CCuaDriverABI", .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency")],
             swiftSettings: swiftSettings,
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("ApplicationServices")]
         ),

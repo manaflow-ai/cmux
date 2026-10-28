@@ -55,10 +55,12 @@ final class PasswordsPageService: InternalPageProvider {
     var icon: IconName? { .securityLock }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
+        // No app (a released service): no page, as the open below would answer.
+        guard let deadlines = services?.mainDeadlines else { return NSView() }
         let provider = PasswordsPageProvider(
             store: store, profiles: { [weak services] in Self.profiles(services) },
             confirmations: DialogPageConfirmationPresenter(), authenticator: LocalDeviceOwnerAuthenticator(),
-            secrets: NativePasswordSecretSurface())
+            secrets: NativePasswordSecretSurface(pasteboard: ConcealedPasteboard(deadlines: deadlines)), mainWork: deadlines.work)
         // `cmux.app.action.run` serves the Import buttons (the page's two person-only actions).
         let native = services.map { AppPageNativeProvider(services: $0, page: .passwords) }
         var routes = [PageRoute(prefix: "cmux.passwords.", provider: provider)]

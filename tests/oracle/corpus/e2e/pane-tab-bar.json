@@ -1,0 +1,75 @@
+{
+  "$schema": "../../../../schemas/oracle/case-v1.schema.json",
+  "corpusVersion": 1,
+  "id": "pane-tab-bar",
+  "suite": "e2e",
+  "title": "The retired tabs.tabBar.<kind> settings are refused as removed and change nothing; Hide Tab Bar (pane.toggleTabBar) and New Horizontal Tab (newTab.horizontal) run in a terminal pane",
+  "priority": "P2",
+  "surface": "cmux-next-native",
+  "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
+  "environment": {"viewport": {"width": 1440, "height": 900}},
+  "fixture": {"seed": "e2e-pane-tab-bar-v1", "network": "offline", "clock": "fixed", "agent": "mock"},
+  "preconditions": [
+    "private scratch config with no tabs key",
+    "tagged bench build",
+    "no unrelated app instance",
+    "a fresh launch: one window, one workspace, one terminal tab with the keyboard",
+    "converted from scripts/cmux-next/pane-tab-bar-e2e.py, which stays; tests/oracle/corpus/e2e/_scripts-095.json links them"
+  ],
+  "requires": ["actions", "gui"],
+  "platforms": ["mac"],
+  "steps": [
+    {
+      "id": "launched",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "settings"]},
+      "settleMaxMs": 5000,
+      "note": "the scenario of scripts/cmux-next/pane-tab-bar-e2e.py (kept)"
+    },
+    {
+      "id": "retired-setting",
+      "op": "cli",
+      "target": {"window": "current"},
+      "args": {"argv": ["settings", "set", "tabs.tabBar.agent", "never"]},
+      "expect": {"outcome": "error", "error": "cli.failed"},
+      "checkpoint": ["before", "settled"],
+      "note": "script row 'settings.set tabs.tabBar.agent is refused as removed': the app answers removed (ControlRouter+Settings, schemas/settings/retired-keys.json), the CLI exits 1 with the error on stderr, so the driver's code is cli.failed"
+    },
+    {
+      "id": "hide-tab-bar",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "pane.toggleTabBar"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 5000,
+      "note": "the palette's Hide Tab Bar on the focused terminal pane, the only way to hide a tab bar"
+    },
+    {
+      "id": "horizontal-tab",
+      "op": "action.run",
+      "target": {"window": "current"},
+      "args": {"action": "newTab.horizontal"},
+      "expect": {"outcome": "ok", "receipt": "action.done"},
+      "settleMaxMs": 10000,
+      "note": "script row 'New Horizontal Tab opens a tab in that pane' (it also turns the bar back on)"
+    },
+    {
+      "id": "after",
+      "op": "snapshot",
+      "args": {"facets": ["topology", "focus", "settings"]},
+      "settleMaxMs": 5000
+    }
+  ],
+  "invariants": [
+    "the settings facet at retired-setting's settled checkpoint equals its before checkpoint and the launch's: a removed key writes nothing",
+    "the launch workspace's one pane holds one more tab at after than at launched, and no workspace or pane was added",
+    "every mutation has one receipt or one typed error (I1)",
+    "ids stay stable unless the step created or closed them (I2)"
+  ],
+  "teardown": ["quit the tagged app the run started", "verify its debug socket is gone", "end the tag's daemons (TagTeardown)"],
+  "untested": [
+    "whether a pane's tab bar shows, and the toggle's title (Hide Tab Bar while it shows, Show Tab Bar while hidden) in the palette and the pane menu: debug.pane_chrome and debug.palette.entries only; no snapshot facet records a pane's tab bar or a palette row's title. Closing the gap needs a tabBarHidden field per pane in the layout or tabs facet",
+    "a chat in the left chat dock (Cmd-I) and a lone agent chat show their tab bar: the same missing field",
+    "an old cmux.json with tabs.tabBar never still loads and the bar shows: case-v1 has no step that edits the launch's config file"
+  ]
+}

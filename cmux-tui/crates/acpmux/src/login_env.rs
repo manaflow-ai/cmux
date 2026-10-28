@@ -37,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use serde::{Deserialize, Serialize};
 
+mod refresh_task;
 mod watch;
 pub use watch::start as watch_startup_files;
 
@@ -287,25 +288,12 @@ fn refresh(throttled: bool) {
     if !changed || REFRESHING.swap(true, Ordering::SeqCst) {
         return;
     }
-    let Ok(rt) = tokio::runtime::Handle::try_current() else {
+    if tokio::runtime::Handle::try_current().is_err() {
         REFRESHING.store(false, Ordering::SeqCst);
         return;
-    };
+    }
     STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = Some(now);
-    rt.spawn(async {
-        tracing::info!("shell startup files changed; reading the login environment again");
-        import().await;
-        let failed = outcome() == Outcome::Failed;
-        if failed {
-            // Try again at a later spawn or edit.
-            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
-        }
-        REFRESHING.store(false, Ordering::SeqCst);
-        if !failed {
-            // An edit after the read's last check found REFRESHING set.
-            refresh(false);
-        }
-    });
+    refresh_task::spawn();
 }
 
 /// `$SHELL -l -i -c` printing the marker and `env -0`: no terminal, stdin
@@ -340,6 +328,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
     // take the terminal a foreground daemon runs in), and its process group
     // id is its pid (killed as a group on timeout).
     #[cfg(unix)]
+    // SAFETY: the hook runs in the forked child before exec and calls only
+    // setsid and reads errno, both async-signal-safe; it allocates nothing.
     unsafe {
         cmd.pre_exec(|| {
             if libc::setsid() == -1 {
@@ -366,6 +356,8 @@ async fn run_shell(shell: &str, marker: &str) -> Option<String> {
             // The future (and the shell) is dropped; its group goes too.
             #[cfg(unix)]
             if let Some(pid) = pid {
+                // SAFETY: killpg takes no pointers; `pid` leads the shell's own session and
+                // group (setsid above).
                 unsafe {
                     libc::killpg(pid as i32, libc::SIGKILL);
                 }

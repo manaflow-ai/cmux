@@ -94,7 +94,54 @@ public nonisolated struct LaunchSignposts: Sendable {
         }
     }
 
+    /// A one-time native library call of the launch, timed where it runs: no launch mark bounds it, because
+    /// it runs in a module below the app's mark sink (p08-startup-068). Like ``Interval``, each step has a fixed
+    /// signpost id and runs once per process, so it has one begin and one end.
+    public enum Step: UInt64, Sendable, CaseIterable {
+        /// `ghostty_init` (`GhosttyRuntime.initializeLibrary`), in `main` before any other thread starts.
+        case ghosttyInit = 32
+        /// `ghostty_app_new` (`GhosttyRuntime.start(with:)`): libghostty's app, its render device and its two
+        /// detached warm-up threads (font discovery, Metal), before the first window.
+        case ghosttyAppNew = 33
+        /// The first `ghostty_surface_new` (`TerminalFirstSurfaceSplit`, p08-startup-091): the font grid, the
+        /// renderer and its thread of the first terminal, on main.
+        case firstSurfaceNew = 34
+        /// The terminal's launch prefetch (`TerminalLaunchPrefetch`, p08-startup-091): the Metal device and the
+        /// terminal's fonts, on their own launch thread.
+        case terminalPrefetch = 35
+
+        /// The step's signpost name.
+        public var name: StaticString {
+            switch self {
+            case .ghosttyInit: "launch.ghostty_init"
+            case .ghosttyAppNew: "launch.ghostty_app_new"
+            case .firstSurfaceNew: "launch.first_surface_new"
+            case .terminalPrefetch: "launch.terminal_prefetch"
+            }
+        }
+
+        /// The fixed signpost id, in the same "cmux" space as ``Interval``'s, above its raw values.
+        var signpostID: OSSignpostID { OSSignpostID(0x636D_7578_0000_0000 | rawValue) }
+    }
+
     private let signposter: OSSignposter
+
+    /// Runs `body` inside `step`'s interval and returns its result.
+    public func measure<Result>(_ step: Step, _ body: () throws -> Result) rethrows -> Result {
+        begin(step)
+        defer { end(step) }
+        return try body()
+    }
+
+    /// Begins `step`'s interval; ``end(_:)`` ends it (the fixed id needs no state between the two).
+    public func begin(_ step: Step) {
+        _ = signposter.beginInterval(step.name, id: step.signpostID)
+    }
+
+    /// Ends the interval ``begin(_:)`` began for `step`.
+    public func end(_ step: Step) {
+        signposter.endInterval(step.name, .beginState(id: step.signpostID))
+    }
 
     /// Launch signposts under ``SignpostCategory/subsystem``, category ``SignpostCategory/launch``.
     public init() {
@@ -116,5 +163,15 @@ public nonisolated struct LaunchSignposts: Sendable {
         if let begun = boundary.begins {
             _ = signposter.beginInterval(begun.name, id: begun.signpostID)
         }
+    }
+
+    /// Emits the `launch.value` event for a launch value: a count or a CPU time, never a time since process start,
+    /// so it is not a `launch.mark` (scripts/cmux-next/trace.py places every `launch.mark` on the launch timeline).
+    ///
+    /// - Parameters:
+    ///   - name: The value's name (`launch.pageins_first_frame`, `launch.main_cpu_ms`).
+    ///   - number: The value.
+    public func value(_ name: String, number: Double) {
+        signposter.emitEvent("launch.value", "\(name, privacy: .public) value=\(number, format: .fixed(precision: 1), privacy: .public)")
     }
 }

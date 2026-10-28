@@ -2,6 +2,9 @@
 public import AppKit
 public import CmuxNextCompat
 import CmuxNextWakeups
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// `debug.text_weight` (DEBUG; text-weight-e2e.py, cx-8w027.12): the glyph coverage of
 /// ``ChromeLabel`` and ``ChromeTextLayer`` next to a stock `NSTextField` with the same text, font
@@ -138,11 +141,11 @@ public struct TextWeightProbe {
     private static func coverage(_ image: CGImage, cell: (row: Int, column: Int), width cellWidth: CGFloat, scale: CGFloat, ground: (Double, Double, Double),
                                  ink: (Double, Double, Double, Double)) -> Double {
         let width = image.width, height = image.height
-        guard let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
-                                  space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue), let data = ctx.data else { return 0 }
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
-        let bytes = data.bindMemory(to: UInt8.self, capacity: width * height * 4)
+        guard let pixels = DrawnPixels(width: width, height: height, bytesPerPixel: 4,
+                                       space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                       bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue, draw: { ctx in
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }) else { return 0 }
         let background = luminance(ground.0, ground.1, ground.2) * 255
         let shown = luminance(ground.0 + (ink.0 - ground.0) * ink.3, ground.1 + (ink.1 - ground.1) * ink.3,
                               ground.2 + (ink.2 - ground.2) * ink.3) * 255
@@ -155,8 +158,8 @@ public struct TextWeightProbe {
         var sum = 0.0
         for y in top..<bottom {
             for x in left..<right {
-                let pixel = (y * width + x) * 4
-                sum += (luminance(Double(bytes[pixel]), Double(bytes[pixel + 1]), Double(bytes[pixel + 2])) - background) / (shown - background)
+                sum += (luminance(Double(pixels[x, y, 0]), Double(pixels[x, y, 1]), Double(pixels[x, y, 2])) - background)
+                    / (shown - background)
             }
         }
         return sum
@@ -166,13 +169,14 @@ public struct TextWeightProbe {
 extension TextWeightProbe {
     /// Resumes after `count` frames of `window`'s FrameScheduler (a stalled link still ticks).
     fileprivate static func frames(_ count: Int, of window: NSWindow) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        // A client dropped before its last frame returns early.
+        _ = try? await withOnceContinuation { (continuation: OnceContinuation<Void, OnceContinuationError>) in
             var remaining = count
             // The scheduler holds the active client; it drops it after the last frame.
             let client = FrameClient(owner: "debug.text_weight", isAnimation: false, on: FrameScheduler.forWindow(window)) { _ in
                 remaining -= 1
                 guard remaining <= 0 else { return true }
-                continuation.resume()
+                continuation.resume(returning: ())
                 return false
             }
             client.activate()

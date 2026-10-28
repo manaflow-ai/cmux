@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -27,9 +28,9 @@ final class CEFPaneHost {
         case live(window: Int32)
     }
 
-    var window: WindowState = .none
+    var window: WindowState = .none { didSet { runtime.windowRequests.policyMayHaveChanged() } }
     /// Tabs of this host, in creation order.
-    private(set) var tabs: [CEFTab] = []
+    private(set) var tabs: [CEFTab] = [] { didSet { runtime.windowRequests.policyMayHaveChanged() } }
     /// The tab whose creation created the window.
     var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
@@ -63,8 +64,9 @@ final class CEFPaneHost {
         self.contextMenus = contextMenus
         hostView.liveResizeWillStart = { [weak self] in self?.visibleTab?.samplePageBackdrop() }
         hostView.fileDrag.target = { [weak self] in self?.visibleTab }
-        // A popup window keeps its own window until its hosting is verified (p03-rendering-056).
+        // A popup host's page window hosts or attaches only on a fork that does it for popups (`CEFLayerHosting.Fork`).
         hostView.layerHosting.widget = isPopupHost ? .popup : .page
+        hostView.layerHosting.isPageVisible = { [weak self] in self?.visibleTab.map { !$0.isContentHidden } ?? false }
     }
 
     /// The viewport of a tab no pane has shown (Playwright's default page
@@ -135,18 +137,15 @@ final class CEFPaneHost {
     func setNeedsHostVisibility() {
         guard !hostVisibilityPending else { return }
         hostVisibilityPending = true
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { self?.applyHostVisibility() }
-        }
-        CFRunLoopWakeUp(main)
+        // input-hop-allow: the pass must run in this run-loop pass's blocks, before Core Animation commits its frame; a classed post can land after the commit and show the page window hidden for one frame of a tab switch.
+        MainRunLoopBlock.perform { [weak self] in self?.applyHostVisibility() }
     }
 
     private func applyHostVisibility() {
         hostVisibilityPending = false
         let hidden = visibleTab.map(\.isContentHidden) ?? true
         if hostView.isHidden != hidden { hostView.isHidden = hidden }
+        runtime.windowRequests.policyMayHaveChanged()
     }
 
     /// Called when a tab's content view enters a window: show that tab.
@@ -165,6 +164,7 @@ final class CEFPaneHost {
         // not override a hide it applied (a pane parked off screen).
         hostView.isHidden = tab.isContentHidden
         visibleTab = tab
+        suggestionsFollowShownBrowser(tab.browserID)
         tab.applyHostBackdrop()
         // Tabs from windows cmux does not host go to a pane, never a panel.
         if !isPopupHost { runtime.lastShownHost = self }
@@ -180,7 +180,10 @@ final class CEFPaneHost {
         ensureCreated(tab)
         if tab.awaitsWindowMove {
             // Still in its opener's window: activating it there would show
-            // it in the opener's pane. It moves into this host's window.
+            // it in the opener's pane. It moves into this host's window. A
+            // page tab moved to a pane with no window gets one after the
+            // frame commits, as a new tab does (PL-cef-tab).
+            if !isPopupHost, !createsBrowsersAtOnce, case .none = window { return createAfterCommit(tab) }
             ensureOwnWindow(for: tab)
         } else {
             showBrowser(of: tab)
@@ -200,7 +203,9 @@ final class CEFPaneHost {
     func conceal(_ tab: CEFTab) {
         lifecycleTrace.record(tab.id, "host-conceal wasShown=\(visibleTab === tab)")
         guard visibleTab === tab else { return }
+        hostedPageView?.exclusiveAccess.showing(nil) // a hidden page's fullscreen and locks end, as Chrome's (task 229)
         visibleTab = nil
+        suggestionsFollowShownBrowser(nil)
     }
 
     // MARK: Creation
@@ -215,11 +220,14 @@ final class CEFPaneHost {
         AfterFrameCommit().run { [weak self] in self?.createDeferred() }
     }
 
-    /// Makes the browsers of the tabs shown before theirs existed (the observer of `createAfterCommit`; tests call it).
+    /// Makes the browsers of the tabs shown before theirs existed, and the window of a moved tab still in another
+    /// window (`ensureOwnWindow`): the observer of `createAfterCommit`; tests call it.
     func createDeferred() {
         let waiting = deferredCreations.compactMap(\.tab)
         deferredCreations.removeAll()
-        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) { create(tab) }
+        for tab in waiting where !tab.isClosed && tabs.contains(where: { $0 === tab }) {
+            if tab.awaitsWindowMove { ensureOwnWindow(for: tab) } else { create(tab) }
+        }
     }
 
     /// Starts `tab`'s browser now. Joined a live window while still shown (`tab_add` activated it
@@ -235,7 +243,7 @@ final class CEFPaneHost {
     /// (`createAfterMachineProxy`), so a new window does not ask again.
     @discardableResult
     func ensureCreated(_ tab: CEFTab, machineProxyApplied: Bool = false) -> Bool {
-        guard tab.browserID == nil, tab.isCreationPending == false, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
+        guard tab.browserID == nil, !tab.isCreationPending, !tab.awaitsHostRestore, runtime.acceptsNewBrowsers, let shim = runtime.shim else { return false }
         switch window {
         case .none:
             // A browser profile's own proxy (#24432), before the first request:
@@ -407,7 +415,7 @@ final class CEFPaneHost {
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
-            Task { @MainActor [weak self] in self?.movePopupsIn() }
+            endOfTurn { [weak self] in self?.movePopupsIn() }
         }
     }
 
@@ -438,10 +446,14 @@ final class CEFPaneHost {
     }
 
     func removed(_ tab: CEFTab) {
+        // A closed page's fullscreen zoom, locks and hidden cursor end with it (task 229); a moved one exits its own.
+        if tab.isClosed || tab.browserID == nil { tab.contentFullscreenEnded() }
+        if visibleTab === tab { hostedPageView?.exclusiveAccess.showing(nil) }
         tabs.removeAll { $0 === tab }
         if windowTab === tab { windowTab = nil }
         if visibleTab === tab { visibleTab = nil }
         if placeholder === tab { placeholder = nil }
+        suggestionsFollowShownBrowser(visibleTab?.browserID)
         // The resize deadline addresses the page window through a live browser of it.
         hostView.layerHosting.windowBrowsersChanged(tabs.filter { !$0.awaitsWindowMove }.compactMap(\.browserID))
         // A taken spare whose tab closed before it joined: the spare again.

@@ -137,6 +137,7 @@ impl Runner for SystemRunner {
         // early closes the pipe; its exit status reports why.
         let writer = match (cmd.stdin.clone(), child.stdin.take()) {
             (Some(bytes), Some(mut pipe)) => {
+                // supervise-allow: joined below after the child's output; a panic ends the stdin write only, and the child sees the pipe close.
                 let stdin = cmux_threads::spawn(
                     "cmux-server-stdin",
                     cmux_threads::HELPER_CHILD,
@@ -148,21 +149,21 @@ impl Runner for SystemRunner {
                     Ok(writer) => Some(writer),
                     Err(error) => {
                         let _ = child.kill();
-                        let _ = child.wait();
+                        let _ = cmux_blocking::process::wait(&mut child);
                         return Err(error);
                     }
                 }
             }
             (Some(_), None) => {
                 let _ = child.kill();
-                let _ = child.wait();
+                let _ = cmux_blocking::process::wait(&mut child);
                 return Err(std::io::Error::other("the child's stdin pipe is missing"));
             }
             (None, _) => None,
         };
-        let out = child.wait_with_output()?;
+        let out = cmux_blocking::process::wait_with_output(child)?;
         if let Some(writer) = writer {
-            let _ = writer.join();
+            let _ = cmux_threads::checked::sync::join(writer);
         }
         Ok(Output { code: out.status.code(), stdout: out.stdout, stderr: out.stderr })
     }

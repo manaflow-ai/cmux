@@ -69,6 +69,8 @@ public final class ThemeScope {
     /// `Palette.fill(for:)`.
     public var surfaceBackgrounds: SurfaceBackgrounds { selectedSurfaceBackgrounds ?? parent?.surfaceBackgrounds ?? .none }
     private var selectedSurfaceBackgrounds: SurfaceBackgrounds?
+    /// The glyph images the labels of this scope and its descendants share; nil: the parent's (``glyphMasks``).
+    public var sharedGlyphMasks: GlyphMaskCache?
 
     /// Changes the per-surface backgrounds and repaints this scope and its
     /// descendants (every owner re-reads its fill in its theme hook).
@@ -294,14 +296,6 @@ public final class ThemeScope {
             overrideInput = resolved
             update(animated: animated, repaint: true)
         }
-    }
-
-    /// The nearest scope (this one or an ancestor) without a chrome
-    /// emphasis: panels and hover cards draw there at full strength.
-    public var fullStrength: ThemeScope {
-        var scope = self
-        while scope.emphasis != .full, let parent = scope.parent { scope = parent }
-        return scope
     }
 
     /// Sets `emphasis` and repaints what this scope roots when it changed.

@@ -264,7 +264,10 @@ impl ChatIndex {
         let mut visits = 0;
         let mut merged: BTreeMap<ChatKey, IndexedChat> = BTreeMap::new();
         for slot in &self.slots {
-            let account = (slot.root.accounts.len() == 1).then(|| slot.root.accounts[0].clone());
+            let account = match slot.root.accounts.as_slice() {
+                [only] => Some(only.clone()),
+                _ => None,
+            };
             let root_id = slot.root.id();
             // Only person chats: not the Chief's sessions (cx-eb0m), acpmux's harness probes, or a
             // session with no user message (Lawrence 2026-10-11).

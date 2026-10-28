@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 public import Foundation
 import Security
@@ -11,7 +12,9 @@ import Security
 /// - the code-signing checks use the peer's audit token (`LOCAL_PEERTOKEN`), not its pid, so a
 ///   reused pid cannot stand in for it.
 public nonisolated struct UnixSocketPeer: Sendable {
+    /// The peer's process id (`LOCAL_PEERPID`).
     public let pid: pid_t
+    /// The peer's user id (`LOCAL_PEERCRED`).
     public let uid: uid_t
     /// The peer executable's path, symlinks resolved.
     public let executablePath: String
@@ -47,15 +50,16 @@ public nonisolated struct UnixSocketPeer: Sendable {
     }
 
     /// Whether the peer's code, named by its audit token, satisfies the code requirement `text`.
-    public func satisfies(_ text: String) -> Bool {
+    /// Checked blocking calls (they wait for the code signing daemon): call it on a lane.
+    public func satisfies(_ text: String, fileID: StaticString = #fileID, line: UInt = #line) -> Bool {
         var code: SecCode?
-        guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: auditToken] as CFDictionary, [], &code)
-                == errSecSuccess, let code else { return false }
+        guard blockingSecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: auditToken] as CFDictionary, [], &code,
+                                                     fileID: fileID, line: line) == errSecSuccess, let code else { return false }
         var requirement: SecRequirement?
         guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess, let requirement else {
             return false
         }
-        return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+        return blockingCall(.systemCall, fileID: fileID, line: line) { SecCodeCheckValidity(code, [], requirement) } == errSecSuccess
     }
 
     /// Apple-anchored and signed by `team`, with exactly `identifier` when one is given.

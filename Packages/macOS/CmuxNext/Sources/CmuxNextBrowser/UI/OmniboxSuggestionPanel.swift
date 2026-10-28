@@ -81,7 +81,7 @@ final class OmniboxSuggestionPanel {
                 let row = SuggestionRowView(suggestion: suggestion, faviconSource: faviconSource)
                 rowViewsMade += 1
                 row.onClick = { [weak self] flags in self?.onPick?(index, flags) }
-                row.hoverMoves = hoverMoves
+                row.frameInputHover = hoverMoves
                 rows.append(row)
                 content.card.addSubview(row)
             }
@@ -199,7 +199,6 @@ final class SuggestionCardView: NSView {
     /// The rows' hover consumer (``OmniboxSuggestionPanel/hoverMoves``): the pointer leaving the card is
     /// discrete, so its pending move lands then (`ShouldFlushQueue`).
     weak var hoverMoves: PointerFrameHover?
-    private var tracking: NSTrackingArea?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -219,6 +218,7 @@ final class SuggestionCardView: NSView {
         // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
         // PopupHostView's and a device check (cx-iif6y follow-up).
         addSubview(card)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeForHover, .inVisibleRect], owner: self))
     }
 
     @available(*, unavailable)
@@ -232,14 +232,6 @@ final class SuggestionCardView: NSView {
         refresh()
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
-    }
-
     override func mouseEntered(with event: NSEvent) {}
     override func mouseExited(with event: NSEvent) { hoverMoves?.flush() }
 
@@ -248,6 +240,7 @@ final class SuggestionCardView: NSView {
     // input-coalesce: native (it drops the wheel; nothing runs to coalesce)
     override func scrollWheel(with event: NSEvent) {}
 
+    // visibility-walk-allow: one layer color store in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         refresh()

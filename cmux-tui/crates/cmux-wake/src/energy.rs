@@ -1,7 +1,7 @@
 //! Whether Energy Saver is on for this process, and who to tell when it
 //! changes (p14-energy-020). The daemon's `energy.set` op (task 033) and its
-//! own power-source reading (task 137) flip it; the [`super::MaintenanceClock`]
-//! and other periodic owners watch it.
+//! own power-source reading ([`super::PowerSource`], task 137) flip it; the
+//! [`super::MaintenanceClock`] and other periodic owners watch it.
 //!
 //! Chrome keeps the same split: `BatterySaverModeManager` owns the state and
 //! child processes get one `SetBatterySaverMode` call per edge

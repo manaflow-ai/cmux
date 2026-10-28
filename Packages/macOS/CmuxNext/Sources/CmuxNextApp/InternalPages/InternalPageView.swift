@@ -3,6 +3,9 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 /// A native page's content whose keyboard goes to a view inside it (a Mac
 /// Screen tab's input surface), not to the content view itself.
@@ -184,7 +187,7 @@ final class InternalPageView: NSView {
             self?.startRestoring { content in
                 await restore(content)
                 // The restored state reached the screen: the page's next frame, then the cover goes.
-                await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in page.afterNextFrame { done.resume() } }
+                _ = try? await withOnceContinuation { (done: OnceContinuation<Void, OnceContinuationError>) in page.afterNextFrame { done.resume(returning: ()) } }
             }
         }
     }
@@ -192,6 +195,7 @@ final class InternalPageView: NSView {
     private func startRestoring(_ body: @escaping @MainActor (NSView) async -> Void) {
         let content = content
         // task-owner: restoring; one state put back on this view, then its cover goes
+        // main-hop-allow: `body` is a main-actor async restore of this view; each of its awaits resumes on main either way
         restoring = Task { @MainActor [weak self] in
             await body(content)
             self?.removeCover()

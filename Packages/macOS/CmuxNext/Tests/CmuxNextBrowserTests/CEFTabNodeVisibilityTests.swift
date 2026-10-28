@@ -59,6 +59,53 @@ import Testing
         #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 2 0", "visibility 7 1 0"])
     }
 
+    /// p07-memory-097: the shown tab of a window that is minimized is hidden to Chromium in the window node's own
+    /// turn, with no delay and no DevTools session (the lifecycle call the fork needed before API 37, since
+    /// `WasHidden` does nothing for a windowed browser); deminiaturized, it is shown again.
+    @Test func aMinimizedWindowHidesItsShownTabAtOnce() throws {
+        let rig = try VisibilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let window = VisibilityNode(root: "window", own: .visible)
+        let node = VisibilityNode("tab", own: .visible, parent: window)
+        tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
+        window.set(.hidden)
+        #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0"])
+        window.set(.visible)
+        #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0", "visibility 7 1 0"])
+    }
+
+    /// p07-memory-097, `offScreenWindowPageFreeze`: below API 37 the shown page of an off-screen window follows no node,
+    /// so Chromium still counts it visible; it is hidden and frozen through DevTools, and the thaw goes out at once, so
+    /// an agent call after it reaches a live page. A second freeze sends nothing.
+    @Test func belowForkAPI37AShownPageInAnOffScreenWindowIsHiddenThenFrozen() throws {
+        let rig = try VisibilityRig(forkAPI: CEFForkFeatures.tabVisibilityForkAPI - 1)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        #expect(tab.freezeShownInOffScreenWindow())
+        #expect(VisibilitySpy.calls == ["devtools 7 Page.setWebLifecycleState"])
+        #expect(tab.nodeVisibility.isPageFrozen)
+        #expect(tab.freezeShownInOffScreenWindow())
+        #expect(VisibilitySpy.calls.count == 1, "a frozen page was frozen again: \(VisibilitySpy.calls)")
+        #expect(tab.setFrozen(false))
+        #expect(VisibilitySpy.calls == ["devtools 7 Page.setWebLifecycleState", "freeze 7 0"])
+        #expect(!tab.nodeVisibility.isPageFrozen)
+    }
+
+    /// From API 37 the window node hid the tab: its off-screen freeze is the hidden page's, with no DevTools session.
+    @Test func aTabThatFollowsItsNodeFreezesItsOffScreenPageAsAHiddenOne() throws {
+        let rig = try VisibilityRig()
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let window = VisibilityNode(root: "window", own: .visible)
+        let node = VisibilityNode("tab", own: .visible, parent: window)
+        tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
+        #expect(!tab.freezeShownInOffScreenWindow(), "a page Chromium counts visible was frozen")
+        window.set(.hidden)
+        #expect(tab.freezeShownInOffScreenWindow())
+        #expect(VisibilitySpy.calls == ["visibility 7 1 0", "visibility 7 3 0", "freeze 7 1"])
+    }
+
     /// A capture vote that does not stay hidden keeps a hidden tab painting (Chrome's visible capturer); its release
     /// gives the hidden page back. A captured page is not frozen.
     @Test func aCaptureVoteKeepsAHiddenTabPaintingAndAwake() throws {
@@ -67,10 +114,10 @@ import Testing
         let tab = try rig.attachedTab()
         let node = VisibilityNode(root: "tab", own: .hidden)
         tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
-        node.setCaptured(true)
+        let capture = node.captureVote(reason: "test capture", stayHidden: true)
         #expect(VisibilitySpy.calls.last == "visibility 7 3 2")
         #expect(!tab.setFrozen(true), "a captured page stays awake")
-        node.setCaptured(false)
+        capture.release()
         #expect(VisibilitySpy.calls.last == "visibility 7 3 0")
         #expect(tab.setFrozen(true))
         #expect(VisibilitySpy.calls == ["visibility 7 3 0", "visibility 7 3 2", "visibility 7 3 0", "freeze 7 1"])
@@ -86,12 +133,12 @@ import Testing
         let node = VisibilityNode(root: "tab", own: .hidden)
         tab.followVisibility(of: node, capture: BrowserPageCapture.votes(on:))
         #expect(tab.setFrozen(true))
-        node.setCaptured(true)
+        let capture = node.captureVote(reason: "test capture", stayHidden: true)
         #expect(VisibilitySpy.calls == ["visibility 7 3 0", "freeze 7 1", "freeze 7 0", "visibility 7 3 2"])
         #expect(tab.setFrozen(false), "a thaw of a page that is not frozen succeeds")
         #expect(VisibilitySpy.calls.count == 4, "and sends nothing")
         #expect(!tab.setFrozen(true), "a captured page stays awake")
-        node.setCaptured(false)
+        capture.release()
         #expect(tab.setFrozen(true))
         #expect(Array(VisibilitySpy.calls.dropFirst(4)) == ["visibility 7 3 0", "freeze 7 1"])
     }

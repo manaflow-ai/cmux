@@ -32,6 +32,8 @@ final class FileExplorerModel {
     /// The root with symlinks resolved, the prefix git's paths share.
     @ObservationIgnored private var resolvedRoot = ""
     @ObservationIgnored private var expanded: Set<URL> = []
+    /// The open folders and selection, by path, a tree made again opens at its next listing (``restore(expanded:selection:)``).
+    @ObservationIgnored private var reopening: (expanded: Set<String>, selection: String?)?
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private let watcher: any FileTreeWatching
     /// The folders the running watch covers, and its task.
@@ -95,13 +97,48 @@ final class FileExplorerModel {
             return
         }
         for folder in expanded { listed[folder] = (try? await lister.list(folder)) ?? [] }
+        let reopened = await reopen(reopening, from: root, into: &listed)
         let status = await readGit(root)
         guard mine == generation else { return }
+        if let reopened {
+            reopening = nil
+            expanded.formUnion(reopened.folders)
+            if let item = reopened.selection { selection = item }
+        }
         failure = nil
         children = listed
         (resolvedRoot, gitStates, changedFolders) = (status.root, status.states, status.folders)
         rebuild()
         watch([root] + (status.top.map { [URL(fileURLWithPath: $0, isDirectory: true).appendingPathComponent(".git", isDirectory: true)] } ?? []))
+    }
+
+    /// The open folders.
+    var expandedFolders: Set<URL> { expanded }
+
+    /// A tree made again (its Files section was let go while hidden): its next listing opens the folders at the
+    /// paths of `expanded` and selects the item at `selection` that it reaches from its root.
+    func restore(expanded: Set<String>, selection: String?) {
+        reopening = (expanded, selection)
+    }
+
+    /// The folders of `paths.expanded` the tree reaches from `root`, each by its own row's URL (rows match open
+    /// folders by URL), listed into `listed`, and the listed item at `paths.selection`; nil without `paths`.
+    private func reopen(_ paths: (expanded: Set<String>, selection: String?)?, from root: URL,
+                        into listed: inout [URL: [FileEntry]]) async -> (folders: Set<URL>, selection: URL?)? {
+        guard let paths else { return nil }
+        var folders: Set<URL> = []
+        var selection: URL?
+        var frontier = [root]
+        while let folder = frontier.popLast() {
+            for entry in listed[folder] ?? [] {
+                let url = entry.url.standardizedFileURL
+                if url.path == paths.selection { selection = url }
+                guard entry.kind == .folder, paths.expanded.contains(url.path), folders.insert(url).inserted else { continue }
+                if listed[url] == nil { listed[url] = (try? await lister.list(url)) ?? [] }
+                frontier.append(url)
+            }
+        }
+        return (folders, selection)
     }
 
     /// Expands `folder` when it is collapsed (a new item goes inside it).

@@ -1,18 +1,24 @@
 #!/usr/bin/env bash
-# Run a fleet cmux-next DEV build in disposable macOS 14 / 15 / 26 Tart VMs on the build fleet,
+# Run a fleet cmux-next DEV build in disposable macOS 14 / 15 / 26 / 27 Tart VMs on the build fleet,
 # on demand. A tool for agents, not a CI gate: it submits one cmux-ci step of class vm
 # (scripts/fuzz/macos-matrix/vm.sh on a Tart worker), waits, downloads the results and prints
 # the verdict per macOS major.
 #
-# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|fuzz|chaos|repro:NAME|exec:NAME]
+# Usage: scripts/cmux-next/os-matrix.sh --build JOB_ID [--os 14,15] [--suite smoke|threads|fuzz|chaos|repro:NAME|exec:NAME]
 #                                       [--seed N] [--minutes N] [--diag NAME] [--ref SHA] [--attempt N]
 #                                       [--out DIR]
 #   --build    a done fleet `cmux` build job (cmux-ci build cmux ...). The smoke needs a DEV build
 #              (the release socket refuses debug.* calls). The build may be of any commit.
 #   --os       macOS majors, comma-separated, from scripts/fuzz/macos-matrix/images.json
-#              (14, 15, 26; default 14,15). One VM at a time; about 3 min per major for the smoke.
+#              (14, 15, 26, 27; default 14,15). One VM at a time; about 3 min per major for the smoke.
+#              27 runs only on a macOS 27 worker, which has no 14/15/26 image: give it its own step.
 #   --suite    smoke (default): launch, window, a terminal that echoes, a split, a Chromium and a
 #              WebKit tab that load a page served in the guest, Settings, quit.
+#              threads: launch, then debug.pool_context: a Task.detached and a DispatchQueue.global seam
+#              call are classified pool, .files and .cpu lane items lane and cpu-lane, debug.blocking lists
+#              the pool and cpu-lane sites, a WorkHandle.raise lifts a running item's thread priority; and
+#              debug.threads reads every thread (chrome-parity p02-threads RUN-10: run it with --os 14,15).
+#              A DEV build of perf/chrome-parity or later; result.json's "labels" has each case's queue label.
 #              fuzz: the seeded UI fuzz (fuzz.py) for --minutes (default 15) per major.
 #              chaos: one fault at a time during a typing and split tour (chaos.py; DEV build),
 #              one result.json row per fault with its expected outcome and ok/FAIL/skip.
@@ -31,7 +37,7 @@
 # Prints one line per major and "MATRIX VERDICT PASS|FAIL|NO-VERDICT"; exits 0 on PASS, 1 on FAIL, 2 on a
 # usage error and 75 when there is no verdict (a refused, failed or unfinished step, or a major without
 # one: a VM that did not boot, an exec probe that crashed, timed out or did not compile). Results: <out>/<major>/{result.json|summary.json,app.log,shot-*.png,*.ips,
-# *.hang,faults.ndjson,smoke.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
+# *.hang,faults.ndjson,smoke.log|threads.log|fuzz.log}, <out>/matrix.json and <out>/step.log.
 # A VM has a paravirtual GPU and no ProMotion: use it for correctness, crashes, hangs, launch and
 # OS-behavior differences, never for frame timing. Label any VM timing "VM, not comparable".
 # cmux-unit tests inside the guest are not supported (the base images have no Xcode); see MATRIX.md.
@@ -50,7 +56,7 @@ while [[ $# -gt 0 ]]; do
     --out) OUT=$2; shift 2 ;;
     --attempt) ATTEMPT=$2; shift 2 ;;
     --tests) echo "--tests: cmux-unit in the guest is not supported yet (the base images have no Xcode; see scripts/fuzz/macos-matrix/MATRIX.md)" >&2; exit 2 ;;
-    -h|--help) sed -n '2,37p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,43p' "$0"; exit 0 ;;
     *) echo "unknown argument $1 (see --help)" >&2; exit 2 ;;
   esac
 done
@@ -62,11 +68,11 @@ done
 [[ "$ATTEMPT" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "--attempt takes 1..999" >&2; exit 2; }
 suite_args=(--suite "${SUITE%%:*}")
 case "$SUITE" in
-  smoke|chaos) ;;
+  smoke|threads|chaos) ;;
   fuzz) suite_args+=(--seed "$SEED" --minutes "$MINUTES") ;;
   repro:*) suite_args+=(--repro "${SUITE#repro:}") ;;
   exec:*) suite_args+=(--probe "${SUITE#exec:}") ;;
-  *) echo "--suite takes smoke, fuzz, chaos, repro:NAME or exec:NAME" >&2; exit 2 ;;
+  *) echo "--suite takes smoke, threads, fuzz, chaos, repro:NAME or exec:NAME" >&2; exit 2 ;;
 esac
 if [[ -n "$DIAG" ]]; then
   # vm.sh checks the name against diag.py; this keeps the step key and arguments plain.
