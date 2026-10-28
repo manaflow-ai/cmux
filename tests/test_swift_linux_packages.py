@@ -133,6 +133,10 @@ def check_script(failures: list[str]) -> None:
         r = lane("Packages/Shared/Listed", "ListedTests,KitTests")
         if r.returncode != 2 or log.exists() or "names none of" not in r.stderr:
             failures.append(f"a filter outside the row's test targets ran on Linux ({r.returncode}): {r.stderr[-800:]}")
+        for regex in ("ListedTests.Suite|ModelTests", "ListedTests.*", "ListedTests(Extra)?", "ListedTests\\.Suite"):
+            r = lane("Packages/Shared/Listed", regex)
+            if r.returncode != 2 or log.exists():
+                failures.append(f"a regex filter {regex!r} ran on Linux ({r.returncode}): {r.stderr[-400:]}")
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 

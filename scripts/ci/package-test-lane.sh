@@ -715,7 +715,9 @@ linux_suite_setup() {
 
 # swift_filter FILTER: the --filter regex for FILTER. swift test matches it unanchored, so on Linux,
 # where only the listed targets may run, it is anchored with its dots escaped and must end at a
-# target, suite or test boundary: ListedTests never reaches ListedTestsExtra. macOS passes FILTER as is.
+# target, suite or test boundary: ListedTests never reaches ListedTestsExtra. The suite parser
+# accepts only [A-Za-z0-9_./:-] in a filter, so '.' is its one regex metacharacter (no |, *, [, (,
+# ^, $, +, ?, \). macOS passes FILTER as is.
 swift_filter() {
   if [ "$lane_os" = Linux ]; then
     printf '^%s($|[./(])' "${1//./\\.}"
