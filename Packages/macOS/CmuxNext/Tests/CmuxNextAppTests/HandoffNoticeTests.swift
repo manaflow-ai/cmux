@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextCloud
 import Foundation
@@ -341,11 +342,14 @@ struct HandoffNoticeTests {
     }
 
     @MainActor final class Account { var user: String? = "u1" }
+    private static var kept: [AppServices] = []
 
     private func notices(_ held: HeldList, _ account: Account, store: Store) throws -> (HandoffNotices, SandboxRunFollower) {
         let (follower, _) = follower(store, defaults: try defaults())
-        let notices = HandoffNotices(services: AppServices(environment: AppEnvironment.current([:])), follower: follower,
-                                     list: { await held.list() }, user: { account.user })
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        Self.kept.append(services) // HandoffNotices holds its services weakly
+        let notices = HandoffNotices(services: services, follower: follower, list: { await held.list() }, user: { account.user })
         return (notices, follower)
     }
 
