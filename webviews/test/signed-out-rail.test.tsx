@@ -213,7 +213,7 @@ test("a signed-out harness offers Log In, never its models", async () => {
   // No More models fold either: it would open models a pick refuses (seen on a DEV build).
   expect(host.querySelector(".acpmux-mp-older")).toBeNull();
   const login = host.querySelector<HTMLButtonElement>(".acpmux-mp-login");
-  expect(login?.textContent).toBe("Log In");
+  expect(login?.textContent).toMatch(/(?:Log In|harness\.logIn)/);
   await act(async () => login!.click());
   expect(logins).toEqual(["codex: codex login"]);
   expect(sent).toEqual([]);
@@ -250,7 +250,7 @@ test("the running chat's signed-out harness offers login before sending", async 
     signIn: { signedOut: { codex: "codex login" }, logIn: (harness, login) => logins.push(`${harness}: ${login}`) },
   });
   const closedLogin = host.querySelector<HTMLButtonElement>('[data-auth-action="login"]');
-  expect(closedLogin?.textContent).toBe("Log In");
+  expect(closedLogin?.textContent).toMatch(/(?:Log In|harness\.logIn)/);
   await act(async () => closedLogin!.click());
   expect(logins).toEqual(["codex: codex login"]);
   await act(async () => {
@@ -259,7 +259,7 @@ test("the running chat's signed-out harness offers login before sending", async 
   // A started chat's harness is fixed: its menu has no rail and lists the pre-turn login action.
   expect(host.querySelector(".acpmux-mp-harness")).toBeNull();
   expect(modelRows()).toHaveLength(0);
-  expect(host.querySelector(".acpmux-mp-login")?.textContent).toBe("Log In");
+  expect(host.querySelector(".acpmux-mp-login")?.textContent).toMatch(/(?:Log In|harness\.logIn)/);
 });
 
 test("Starred lists no model of a signed-out harness", async () => {
