@@ -230,3 +230,47 @@ pub(crate) fn create_empty_workspace(socket: &Path, key: &str, name: &str) -> St
     );
     created["value"]["workspace_id"].as_str().unwrap().to_string()
 }
+
+/// Ends every terminal host whose record is under `root` and removes its
+/// records (a harness's teardown). The hosts end together: one by one, 200
+/// respawned hosts (a cold start) took longer than a test's 120 s bound,
+/// each with its own handshake and its own 2 s wait.
+pub(crate) fn stop_terminal_hosts(root: &Path) {
+    let records = load_terminal_host_records(root).unwrap_or_default();
+    let endpoints =
+        records.iter().map(|(_, record)| PathBuf::from(&record.endpoint)).collect::<Vec<_>>();
+    std::thread::scope(|scope| {
+        for hosts in records.chunks(16) {
+            scope.spawn(move || {
+                for (path, record) in hosts {
+                    if let Ok(mut host) = adopt_terminal_host(record.clone(), path.clone()) {
+                        let _ = host.terminate();
+                        host.disconnect();
+                    }
+                }
+            });
+        }
+    });
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while endpoints.iter().any(|endpoint| endpoint.exists()) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let live = |(path, record): &(PathBuf, TerminalHostRecord)| {
+        terminal_host_record_liveness(path, record).ok() != Some(TerminalHostLiveness::Dead)
+    };
+    for (_, record) in records.iter().filter(|entry| live(entry)) {
+        // SAFETY: test teardown owns these dedicated host processes;
+        // SIGKILL is a last resort after graceful Terminate timed out.
+        let _ = unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) };
+    }
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while records.iter().any(live) && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    for (path, record) in &records {
+        let _ = remove_stale_terminal_host_record(path, record, None);
+    }
+    for endpoint in endpoints {
+        let _ = fs::remove_file(endpoint);
+    }
+}

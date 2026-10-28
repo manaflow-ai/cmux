@@ -311,38 +311,7 @@ impl Drop for RecoveryHarness {
             let _ = child.wait();
         }
 
-        let records = load_terminal_host_records(&self.host_root()).unwrap_or_default();
-        let endpoints =
-            records.iter().map(|(_, record)| PathBuf::from(&record.endpoint)).collect::<Vec<_>>();
-        for (path, record) in &records {
-            if let Ok(mut host) = adopt_terminal_host(record.clone(), path.clone()) {
-                let _ = host.terminate();
-                host.disconnect();
-            }
-        }
-        let deadline = Instant::now() + Duration::from_secs(2);
-        while endpoints.iter().any(|endpoint| endpoint.exists()) && Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(20));
-        }
-        for (path, record) in &records {
-            if terminal_host_record_liveness(path, record).ok() != Some(TerminalHostLiveness::Dead)
-            {
-                // SAFETY: test teardown owns these dedicated host processes;
-                // SIGKILL is a last resort after graceful Terminate timed out.
-                let _ = unsafe { libc::kill(record.host_pid as libc::pid_t, libc::SIGKILL) };
-                let deadline = Instant::now() + Duration::from_secs(2);
-                while terminal_host_record_liveness(path, record).ok()
-                    != Some(TerminalHostLiveness::Dead)
-                    && Instant::now() < deadline
-                {
-                    std::thread::sleep(Duration::from_millis(20));
-                }
-            }
-            let _ = remove_stale_terminal_host_record(path, record, None);
-        }
-        for endpoint in endpoints {
-            let _ = fs::remove_file(endpoint);
-        }
+        stop_terminal_hosts(&self.host_root());
         let _ = fs::remove_dir_all(&self.dir);
     }
 }
