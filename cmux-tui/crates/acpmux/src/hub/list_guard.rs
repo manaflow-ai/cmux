@@ -6,8 +6,9 @@
 //! - **One build, shared.** A [`Snapshot`] is the list serialized once; a whole list is
 //!   sent as those bytes, a page or filter is cut from them (rows picked by their keys).
 //! - **Never staler than a client is owed.** It is reused only while nothing a watcher
-//!   hears of changed (every send on [`Events`], attach or detach, and write to the
-//!   peers' rows counts), within its window, and never while the chat logs load. Fields
+//!   hears of changed (every send on [`Events`], attach or detach, write to the peers'
+//!   rows, and change of a peer's link state counts), within its window, and never while
+//!   the chat logs load. Fields
 //!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
 //!   A request shares any build begun after it arrived. A watcher's reply never follows
 //!   a `session_changed` notice its list may lack (`list_reply.rs`).
@@ -229,8 +230,8 @@ impl ListGuard {
         // One build at a time; requests that arrive meanwhile wait for it and share it.
         let mut state = self.state.lock().await;
         if let Some(last) = &state.last
-            && (last.serial > asked
-                || last.key.0 && last.current(hub) && last.started.elapsed() < last.window)
+            && last.key.0
+            && (last.serial > asked || last.current(hub) && last.started.elapsed() < last.window)
         {
             return last.clone();
         }
@@ -268,14 +269,22 @@ impl ListGuard {
     }
 }
 
-/// Whether every chat log is read, the change count, and the peers' row writes.
-type Key = (bool, u64, u64);
+/// Whether every chat log is read, the change count, the peers' row writes, and their
+/// link states (each peer row's `peerState`).
+type Key = (bool, u64, u64, u64);
 
 /// What a snapshot is reused under (only once every chat log is read).
 fn key(hub: &Hub) -> Key {
+    use std::hash::{BuildHasher, BuildHasherDefault, DefaultHasher};
     let ready = *hub.logs_ready.borrow();
     let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
-    (ready, hub.events.changes.load(Ordering::SeqCst), writes)
+    let hash = BuildHasherDefault::<DefaultHasher>::default();
+    let peers = hub.peers.lock().unwrap_or_else(|e| e.into_inner());
+    // In any order: a sum of each peer's hash.
+    let states = peers.values().fold(0u64, |sum, peer| {
+        sum.wrapping_add(hash.hash_one((&peer.name, peer.state().as_str())))
+    });
+    (ready, hub.events.changes.load(Ordering::SeqCst), writes, states)
 }
 
 /// A pace (the generic cell rate algorithm): work spends time ahead of the clock, and
@@ -309,7 +318,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
         assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
-        let list = Snapshot::new((false, 0, 0), 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0, 0), 0, Duration::ZERO, built);
         assert_eq!(list.values(), rows);
         let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
         let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
@@ -388,10 +397,19 @@ mod tests {
         let held = hold(&hub, minute).await;
         hub.remote_sessions.lock().unwrap().writes += 1;
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
+        // A peer's link state is every one of its rows' `peerState`.
+        let held = hold(&hub, minute).await;
+        let (tx, _rx) = tokio::sync::mpsc::channel(8);
+        let peer = crate::peer::Peer::new("huge-blue", "ws://127.0.0.1:9", None, None, tx);
+        hub.peers.lock().unwrap().insert("huge-blue".into(), peer);
+        assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's state rebuilds");
         hub.logs_ready.send_replace(false);
         let held = hold(&hub, minute).await;
         assert!(!held.key.0 && held.current(&hub));
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "logs loading: rebuilt");
+        // Nor is a build begun since the request shared while the logs load.
+        let begun = hold_at(&hub, minute, guard.begun.load(Ordering::SeqCst) + 1).await;
+        assert!(!Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "logs loading: not shared");
     }
 
     #[tokio::test(start_paused = true)]
