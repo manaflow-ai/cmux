@@ -205,7 +205,7 @@ test("the received card says when it is read and keeps the queue row's actions i
   const entry = agent(1);
   await card(entry, calls);
   // The message's own card: the sender's chip, its text, the quiet note; no spinner, no queue row.
-  expect(host.querySelector(".cv-received__name")?.textContent).toBe("lane-1");
+  expect(host.querySelector(".cv-received__name")?.textContent).toBe(t("sender.otherSession", { name: "lane-1" }));
   expect(host.querySelector(".cv-received__preview")?.textContent).toContain("CI is green on #24001");
   expect(host.querySelector(".cv-received__body")).toBeNull();
   expect(host.querySelector(".cv-received__queued")?.textContent).toBe(t("message.readAfterTurn"));
