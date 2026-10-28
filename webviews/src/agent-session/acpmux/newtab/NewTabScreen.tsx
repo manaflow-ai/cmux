@@ -3,6 +3,7 @@ import { WEB_SWAP_KEPT_TEXT } from "../../../pages/shared/webSwap";
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { chooseAutoEnvironment } from "../autoEnvironment";
+import { folderRunLocation } from "../runLocationDefault";
 import { knownMachines, type ConnectKind, type Environment } from "../environments";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
@@ -170,6 +171,9 @@ export type NewTabScreenActions = {
   /// A Cloud start from this page is out (App): every send waits, so an edited prompt never also
   /// starts somewhere else while the first goes to Cloud.
   cloudStarting?: boolean;
+  /// Cloud is offered now (App `sandboxOffered`): Auto may send to the Cloud row. `onCloud` alone
+  /// says nothing, since it also takes a Cloud pick that is not offered (to refuse it).
+  cloudOffered?: boolean;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -516,12 +520,15 @@ export function NewTabScreen(props: Props) {
     snapshot.peerStates,
     t,
   ]);
-  // Auto routes only in the environment picker (preview), and never over a Sandboxed pick. Under
-  // Auto the Run as mode is the folder's default (App: Cloud only by the folder's history), so it
-  // is Auto's fallback, not a pick.
+  // Auto routes only in the environment picker (preview), and never over a Sandboxed pick. Its
+  // fallback is the run location of the folder the chip names (runLocationDefault.ts), read here
+  // so a folder picked on this page counts at once; Run as under Auto is no pick, so it is not read.
   const autoOn = !!props.environments && autoEnvironment && props.runMode?.mode !== "sandboxed";
-  const autoFolder = props.runMode?.mode === "cloud" ? "cloud" : "local";
-  const cloudRow = !!props.runMode && !!props.onCloud;
+  const cloudRow = !!props.cloudOffered && !!props.onCloud;
+  const autoFolder = useMemo(
+    () => (cloudRow ? folderRunLocation(envFolder, snapshot.sessions, snapshot.peerKinds) : undefined) ?? "local",
+    [cloudRow, envFolder, snapshot.sessions, snapshot.peerKinds],
+  );
   const chooseAuto = (prompt: string) =>
     chooseAutoEnvironment({
       prompt,
