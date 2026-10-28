@@ -547,6 +547,9 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    /// The team hub a send to a name nobody here resolves goes through, once the mesh relay
+    /// started (`server/mesh_relay.rs`); unset without one, or in a hub a test builds.
+    pub mesh: std::sync::OnceLock<Arc<dyn crate::mesh::MeshHub>>,
     pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
@@ -680,6 +683,7 @@ impl Hub {
             secrets: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            mesh: Default::default(),
             watches: Default::default(),
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),

@@ -1,8 +1,8 @@
 //! The mesh hub over HTTPS (cmux-platform `/v1/mesh`, `openapi.json` 1.3.0), and its config.
 //!
 //! `meshRelay` in config.json turns the relay on: `{"url": "https://...", "tokenCommand":
-//! [...]}`. Unset (the default), the daemon starts no relay. Read at daemon start; a change takes
-//! a restart.
+//! [...]}`. Unset (the default), the daemon starts no relay and a send to a name nobody here
+//! resolves is refused as before. Read at daemon start; a change takes a restart.
 //!
 //! The hub takes a `Bearer` cmux access token of a team install (a paired daemon or device
 //! install). acpmux mints none itself: `tokenCommand` is the program that does (the install's own
@@ -11,7 +11,9 @@
 //! process's memory: never on disk, in a log, in argv or in the environment. It is used until a
 //! minute before `expires_at` or until the hub answers 401, then the command runs again.
 
-use crate::mesh::{Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub};
+use crate::mesh::{
+    Ack, Heartbeat, HeartbeatReply, HubError, InMessage, MeshHub, OutMessage, Receipt,
+};
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -42,6 +44,17 @@ impl MeshRelayConfig {
         }
         Ok(self.url.trim().trim_end_matches('/').to_owned())
     }
+}
+
+/// Whether config.json names a hub, read on its own (a send loads no profiles): a waiting send to
+/// a name nobody here resolves then asks the daemon's outbox, which posts it to the hub.
+pub fn configured() -> bool {
+    let path = crate::config::Config::path();
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|v| v.get("meshRelay").cloned())
+        .is_some_and(|v| !v.is_null())
 }
 
 /// The longest wait for the token command.
@@ -184,6 +197,7 @@ fn answer(status: u16, bytes: &[u8]) -> Result<Value, HubError> {
     error.refused = !(status == 408 || status == 429 || status >= 500);
     error.retry_after =
         body.get("retryAfterSeconds").and_then(Value::as_u64).map(Duration::from_secs);
+    error.candidates = body.get("candidates").cloned();
     error.code = code;
     Err(error)
 }
@@ -234,6 +248,30 @@ impl MeshHub for HttpHub {
             )
         })
     }
+
+    fn send<'a>(&'a self, message: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            let body = serde_json::to_value(message).unwrap_or_default();
+            decode(
+                self.call(reqwest::Method::POST, "/v1/mesh/messages", Some(&body), CALL_WAIT)
+                    .await?,
+            )
+        })
+    }
+
+    fn receipt<'a>(&'a self, id: &'a str) -> BoxFuture<'a, Result<Receipt, HubError>> {
+        Box::pin(async move {
+            decode(
+                self.call(
+                    reqwest::Method::GET,
+                    &format!("/v1/mesh/messages/{id}"),
+                    None,
+                    CALL_WAIT,
+                )
+                .await?,
+            )
+        })
+    }
 }
 
 #[cfg(test)]
@@ -277,6 +315,9 @@ mod tests {
             answer(429, br#"{"code": "mesh.rate_limited", "retryAfterSeconds": 7}"#).unwrap_err();
         assert!(!e.refused && e.retry_after == Some(Duration::from_secs(7)), "{e:?}");
         assert!(!answer(503, b"").unwrap_err().refused);
+        let e = answer(409, br#"{"code": "mesh.ambiguous", "candidates": [{"host": "a"}]}"#)
+            .unwrap_err();
+        assert_eq!(e.candidates, Some(json!([{"host": "a"}])));
         assert_eq!(answer(200, br#"{"ok": 1}"#).unwrap(), json!({"ok": 1}));
     }
 }
