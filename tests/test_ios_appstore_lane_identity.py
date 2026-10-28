@@ -1391,8 +1391,12 @@ def test_upload_appstore_lane_uses_production_bundle_id(tmp: Path, fakebin: Path
         "App Store archive keeps crash reporting enabled",
     )
     _check(
-        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" in archive_call,
-        "App Store archive compiles with the VPN-free condition",
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) CMUX_APPSTORE" in archive_call,
+        "App Store archive adds the VPN-free condition on top of each target's own conditions",
+    )
+    _check(
+        "SWIFT_ACTIVE_COMPILATION_CONDITIONS=CMUX_APPSTORE" not in archive_call,
+        "App Store archive does not replace package conditions such as swift-crypto's CRYPTO_IN_SWIFTPM",
     )
     _check(
         "CMUX_APPSTORE_BUILD=YES" in archive_call,
@@ -1745,7 +1749,7 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
             "attach-build",
             "--version-id",
             ASC_VERSION_ID,
-            "--build",
+            "--build-id",
             ASC_BUILD_ID,
         ],
         "submission preparation attaches the selected build to version 1.0.0",
@@ -1758,6 +1762,15 @@ def test_validate_appstore_release_prepares_content_rights_and_build(
         )
     else:
         _check(False, "submission state is prepared before canonical readiness validation")
+
+
+def test_validate_appstore_release_uses_asc5_build_flags() -> None:
+    script = (ROOT / "ios" / "scripts" / "validate-app-store-release.sh").read_text(encoding="utf-8")
+    # asc 5.0 removed --build from attach-build, release stage and review submit.
+    _check(
+        '--build "$BUILD_ID"' not in script,
+        "App Store validation helper passes --build-id, which asc 5 requires",
+    )
 
 
 def test_bootstrap_appstore_availability_creates_all_territories_once(tmp: Path) -> None:
@@ -2013,6 +2026,7 @@ def main() -> None:
         test_bootstrap_appstore_availability_creates_all_territories_once(
             tmp / "availability-bootstrap-test"
         )
+        test_validate_appstore_release_uses_asc5_build_flags()
 
     if FAILURES:
         print(f"\n{len(FAILURES)} failure(s)")

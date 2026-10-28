@@ -14,6 +14,31 @@
     "benefitSuperpowers": "規劃、TDD、子代理與審查"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM 請求已延遲",
+      "message": "Cloud VM 配置暫時無法使用。",
+      "action": "請等待一分鐘，然後使用相同的冪等鍵重試。"
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "快照請求需要重試鍵",
+      "message": "Cloud VM 快照需要冪等鍵。",
+      "action": "請使用不超過 128 個字元的固定 Idempotency-Key 重試。"
+    },
+    "snapshotInProgress": {
+      "title": "快照仍在進行中",
+      "message": "此 Cloud VM 上使用此冪等金鑰的快照仍在執行。",
+      "action": "請等待第一個快照完成，再使用相同的冪等金鑰重試。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "快照重試金鑰已被使用",
+      "message": "此冪等金鑰已用於此 Cloud VM 上的另一個快照要求。",
+      "action": "對使用其他名稱的快照使用新的冪等金鑰。"
+    },
+    "snapshotQuota": {
+      "title": "已達快照上限",
+      "message": "此 Cloud VM 已達快照上限。",
+      "action": "請刪除一個現有快照，然後使用相同的冪等鍵重試。"
+    },
     "guestInstall": {
       "title": "Cloud VM 設定未完成",
       "reason": "Cloud VM 的來賓環境設定未完成。",

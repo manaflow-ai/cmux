@@ -254,10 +254,20 @@ export function hostedAuthErrorRedirect(
   const emailInUse =
     /CONTACT_CHANNEL_ALREADY_USED_FOR_AUTH_BY_SOMEONE_ELSE/.test(detail) ||
     /already used for authentication by another account/i.test(detail);
+  return authErrorHref(emailInUse ? "email-unverified" : null, params);
+}
+
+/**
+ * The sign-in recovery page. Its "back to sign in" keeps whatever return
+ * target `params` carries, so a retry still finishes the original web or app
+ * sign-in.
+ */
+export function authErrorHref(
+  code: string | null,
+  params: { get(name: string): string | null },
+): string {
   const target = new URL("/handler/auth-error", "https://cmux.com");
-  if (emailInUse) target.searchParams.set("code", "email-unverified");
-  // The recovery page's "back to sign in" keeps whatever return target this
-  // URL carries, so a retry still finishes the original web or app sign-in.
+  if (code) target.searchParams.set("code", code);
   for (const name of RETURN_PARAMS) {
     const value = params.get(name);
     if (value) target.searchParams.set(name, value);

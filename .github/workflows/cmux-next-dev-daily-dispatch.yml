@@ -2,13 +2,16 @@ name: cmux NEXT DEV daily dispatcher
 
 # The feat-cmux-next push lane is intentionally cheap and can be superseded by
 # the next merge. This schedule snapshots the current branch tip and asks the
-# source workflow for one Release cmux NEXT DEV artifact every 15 minutes.
-# The offset avoids start-of-hour load while retaining a 15-minute cadence.
+# source workflow for one Release cmux NEXT DEV artifact every five minutes.
 # The source run builds only that SHA (cmux-next.yml checks github.sha) and
-# never cancels another run.
+# never cancels another run. GitHub's cron fired every 15-25 minutes on
+# 2026-10-25 (a merge reached the tip feed 48 minutes later), so every
+# feat-cmux-next push also starts this dispatcher (cmux-next.yml job
+# kick-cmux-next-dev-dispatch); the 5-minute spacing below keeps that from
+# starting a DEV build per merge.
 on:
   schedule:
-    - cron: "7,22,37,52 * * * *"
+    - cron: "2-59/5 * * * *"
   workflow_dispatch:
 
 permissions: {}
@@ -20,20 +23,49 @@ concurrency:
 jobs:
   dispatch:
     if: github.repository == 'manaflow-ai/cmux'
+    # The App key below is a repository secret; this is the credential-free
+    # environment cmux-next.yml mints the same App's token under
+    # (test_supplychain_security.py).
+    environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       actions: write
       contents: read
     timeout-minutes: 5
     steps:
+      # Reads and the publisher dispatch go through the manaflow-glaeda-route
+      # App's own budget, not the GITHUB_TOKEN budget every workflow shares: it
+      # was spent at 15:47Z and 16:03Z on 2026-10-26 and this dispatcher failed
+      # on its first read, so neither a DEV build nor a publish was requested
+      # until the reset. No App or a failed mint leaves it empty: GITHUB_TOKEN.
+      - name: Mint the dispatcher token
+        id: app-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-actions: write
+          permission-contents: read
+
       - name: Dispatch the current feat-cmux-next tip when needed
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
           script: |
             const { owner, repo } = context.repo;
+            // `api` (the App token when minted) for reads and the publisher
+            // dispatch. The DEV build dispatch below stays on GITHUB_TOKEN
+            // (`github`): cmux-next.yml routes re-runs on
+            // triggering_actor == 'github-actions[bot]', and a run another token
+            // dispatches would start workflow_run listeners of cmux-next.
+            const api = process.env.APP_TOKEN ? getOctokit(process.env.APP_TOKEN) : github;
             const source = 'feat-cmux-next';
             const workflow = 'cmux-next.yml';
-            const { data: ref } = await github.rest.git.getRef({
+            const { data: ref } = await api.rest.git.getRef({
               owner,
               repo,
               ref: `heads/${source}`,
@@ -44,7 +76,7 @@ jobs:
             // 403). The run goes on feat-cmux-next with the SHA it must build;
             // cmux-next.yml fails it without building when a merge moved the
             // tip before it started, and the next tick asks for the new tip.
-            const { data } = await github.rest.actions.listWorkflowRuns({
+            const { data } = await api.rest.actions.listWorkflowRuns({
               owner,
               repo,
               workflow_id: workflow,
@@ -71,8 +103,10 @@ jobs:
               (run.name === `cmux NEXT DEV daily · ${run.head_sha}` ||
                run.display_title === `cmux NEXT DEV daily · ${run.head_sha}`));
             let finishedDev;
-            for (const run of finishedRuns.slice(0, 10)) {
-              const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+            // Inspect the complete page. A burst of source runs without an
+            // app must not hide an older successful app from the handoff.
+            for (const run of finishedRuns) {
+              const { data: jobs } = await api.rest.actions.listJobsForWorkflowRun({
                 owner,
                 repo,
                 run_id: run.id,
@@ -86,7 +120,7 @@ jobs:
             }
             if (finishedDev) {
               const publishTitle = `cmux NEXT DEV daily · publish ${finishedDev.id}`;
-              const { data: published } = await github.rest.actions.listWorkflowRuns({
+              const { data: published } = await api.rest.actions.listWorkflowRuns({
                 owner,
                 repo,
                 workflow_id: 'cmux-next-dev-daily.yml',
@@ -99,7 +133,7 @@ jobs:
               if (published.workflow_runs.some(handled)) {
                 core.notice(`Source run ${finishedDev.id} (${finishedDev.head_sha}) already went to the publisher`);
               } else {
-                await github.rest.actions.createWorkflowDispatch({
+                await api.rest.actions.createWorkflowDispatch({
                   owner,
                   repo,
                   workflow_id: 'cmux-next-dev-daily.yml',
@@ -120,6 +154,22 @@ jobs:
             );
             if (activeOrSucceeded) {
               core.notice(`Dev-daily source run already covers feat-cmux-next ${sha}`);
+              return;
+            }
+            // At most one new DEV build per five minutes, as the schedule meant:
+            // a push kicks this dispatcher on every merge (one every few minutes),
+            // and a build per merge would double the fleet's Release compiles.
+            // A run is spaced only while it is still active; the next push or
+            // tick after the window asks for the newest tip.
+            const spacingMs = 5 * 60 * 1000;
+            // Only a run this dispatcher started: its name carries a full SHA.
+            const devName = /^cmux NEXT DEV daily · [0-9a-f]{40}$/;
+            const recent = data.workflow_runs.find((run) =>
+              (devName.test(run.name || '') || devName.test(run.display_title || '')) &&
+              ['queued', 'requested', 'waiting', 'pending', 'in_progress'].includes(run.status) &&
+              Date.now() - Date.parse(run.created_at) < spacingMs);
+            if (recent) {
+              core.notice(`DEV source run ${recent.id} started under five minutes ago; the next push or tick asks for ${sha}`);
               return;
             }
             await github.rest.actions.createWorkflowDispatch({

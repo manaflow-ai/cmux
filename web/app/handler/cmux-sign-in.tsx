@@ -14,6 +14,7 @@ import {
   ACCOUNT_HISTORY_KEY,
   PENDING_OAUTH_KEY,
   accountInitials,
+  authErrorHref,
   demoteRememberedMethod,
   emailCodeRefusal,
   forgetAccount,
@@ -1495,7 +1496,7 @@ export function CmuxOAuthCallback({ messages }: { messages: CmuxSignInMessages }
         }
         const code = KnownErrors.ContactChannelAlreadyUsedForAuthBySomeoneElse.isInstance(caught) ? "email-unverified" : null;
         if (!code) console.error("[cmux sign-in] OAuth callback failed", caught);
-        window.location.replace(code ? `/handler/auth-error?code=${code}` : "/handler/auth-error");
+        window.location.replace(authErrorHref(code, new URLSearchParams(window.location.search)));
       });
   }, [app]);
 

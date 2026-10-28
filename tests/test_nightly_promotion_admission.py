@@ -6,20 +6,27 @@ in-memory GitHub API (runs, jobs, refs, commits, pull requests, repository
 activity, deployment approvals) and checks the decision the workflow acts on:
 
 - G1: a SHA that is not on feat-cmux-next is refused.
-- G2: only a cmux-next.yml push run of this repository proves the Release
-  compile; a same-named job in another workflow does not. The lookup retries
-  while GitHub's index lags.
+- G2 (requireReleaseCompile, off by default since 2026-10-26): only a
+  cmux-next.yml push run of this repository proves the Release compile; a
+  same-named job in another workflow does not. The lookup retries while
+  GitHub's index lags. Off, the promoted commit's own nightly build is the
+  compile gate and a tip with no green Release compile is promoted itself.
+  The G2 cases set scenario requireReleaseCompile.
+- G3 and G4 run only with requireApproval (off by default since 2026-10-27:
+  approval is retired); off, they are skipped and read nothing. scenario()
+  sets requireApproval so the G3/G4 cases keep testing them.
 - G3: a range that changes no release surface file is promoted; a range that
   changes one needs an approval.
 - G4: the approval must come from someone who did not land the surface
   change (push actor, PR author or merger, commit author) and did not start
   the run; a missing push actor fails closed.
-- Newest request wins (decideNewest): a request steps aside for a live waiter
-  whose commit contains its own, decides a newer waiter's commit instead of its
-  own older one, and cancels nothing when it cannot read the other requests.
-  A newer request GitHub evicted from the promote queue in the last day is
-  decided like a dead waiter; a person's cancel, an older or ungreen commit
-  and a dry run are not.
+- G5: the SHA's cmux-tui tree-commit marker (files.cmux.com) reads 200 and
+  names it. A 404 refuses with the backfill command; anything else is a
+  marker read failure, never "no tree".
+- Newest request wins (decideNewest): a newer request GitHub evicted from the
+  promote queue in the last day is decided before this request's own commit;
+  a person's cancel, an older or ungreen commit and a dry run are not. The
+  retired release-surface-ack waiters are never read.
 """
 
 from __future__ import annotations
@@ -45,12 +52,13 @@ HARNESS = r"""
 // environment variable (E2BIG).
 const scenario = JSON.parse((await import('node:fs')).readFileSync(process.env.SCENARIO_FILE, 'utf8'));
 const guard = await import(process.env.GUARD);
-const calls = { runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
+const calls = { dispatchStatuses: [], runs: 0, jobs: 0, activityPages: 0, moves: 0, comparePages: 0, trees: 0, commitReads: 0, commitInFlight: 0, commitMaxInFlight: 0 };
 const pullsListCommits = Symbol('listCommits');
 const notices = [];
 const actions = {
   // Only decideNewest() lists runs without paginating: the promotion requests on main.
   listWorkflowRuns: async (params) => {
+    calls.dispatchStatuses.push(params.status);
     if (scenario.dispatchThrows) throw Object.assign(new Error('Service Unavailable'), { status: 503 });
     return { data: { workflow_runs: (scenario.dispatchRuns || []).filter((run) => run.status === params.status) } };
   },
@@ -112,6 +120,7 @@ const github = {
       // files capped as GitHub caps them.
       compareCommitsWithBasehead: async ({ basehead, per_page = 250, page = 1 }) => {
         const [base, head] = basehead.split('...');
+        if ((scenario.compareThrows || []).includes(basehead)) throw Object.assign(new Error('Bad Gateway'), { status: 502 });
         // G1 asks sha...feat-cmux-next; the scenario states that answer.
         if (base === scenario.sha && head === scenario.sourceHead && base !== head) {
           return { data: { status: scenario.onSource[base] || 'diverged' } };
@@ -189,15 +198,34 @@ const github = {
   },
 };
 const core = { notice: (m) => notices.push(m), warning: (m) => notices.push(`warning: ${m}`) };
+// G5's tree-commit marker: ready unless scenario.treeMarkers says otherwise
+// ({status, body} per commit, or 'throw' for no response).
+calls.markerReads = [];
+const readTreeMarker = async (sha) => {
+  calls.markerReads.push(sha);
+  const marker = (scenario.treeMarkers || {})[sha];
+  if (marker === 'throw') throw new Error('getaddrinfo ENOTFOUND files.cmux.com');
+  return marker || { status: 200, body: { commit: sha, key: 'f'.repeat(40), publishedBy: 'e'.repeat(40), markedBy: 'https://github.com/manaflow-ai/cmux/actions/runs/1' } };
+};
 let newest = null;
-const decision = scenario.newest
+const decision = scenario.request !== undefined
+  ? (newest = await guard.decideRequest({
+      requested: scenario.request, actor: scenario.requestActor,
+      github, core, owner: 'manaflow-ai', repo: 'cmux', runId: 1,
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+    })).decision
+  : scenario.newest
   ? (newest = await guard.decideNewest({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha, runId: 1,
-      surfaceText: scenario.surface, sleep: async () => {},
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+      ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
+      ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
     })).decision
   : await guard.decide({
       github, core, owner: 'manaflow-ai', repo: 'cmux', sha: scenario.sha,
-      surfaceText: scenario.surface, sleep: async () => {},
+      surfaceText: scenario.surface, sleep: async () => {}, readTreeMarker,
+      ...(scenario.requireReleaseCompile === undefined ? {} : { requireReleaseCompile: scenario.requireReleaseCompile }),
+      ...(scenario.requireApproval === undefined ? {} : { requireApproval: scenario.requireApproval }),
       // G1' tree check: scenario.trainVerify is its answer, 'throw' a crash.
       verifyTrain: scenario.trainVerify === undefined ? null : async () => {
         if (scenario.trainVerify === 'throw') throw new Error('merge-tree crashed');
@@ -263,6 +291,7 @@ def scenario(**overrides) -> dict:
         "approvals": [],
         "triggeringActor": "github-actions[bot]",
         "surface": SURFACE,
+        "requireApproval": True,
     }
     base.update(overrides)
     base["jobs"] = {str(k): v for k, v in base["jobs"].items()}
@@ -342,14 +371,14 @@ def test_sha_not_on_feat_cmux_next_is_refused() -> None:
 
 
 def test_same_named_job_in_another_workflow_does_not_admit() -> None:
-    out = run(scenario(runs=[gate_run(path=".github/workflows/other.yml")]))
+    out = run(scenario(runs=[gate_run(path=".github/workflows/other.yml")], requireReleaseCompile=True))
     assert out["decision"]["action"] == "refuse"
-    out = run(scenario(runs=[gate_run(head_repository={"full_name": "someone/cmux"})]))
+    out = run(scenario(runs=[gate_run(head_repository={"full_name": "someone/cmux"})], requireReleaseCompile=True))
     assert out["decision"]["action"] == "refuse"
 
 
 def test_tip_without_release_compile_promotes_newest_earlier_green_commit() -> None:
-    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN})
+    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN}, requireReleaseCompile=True)
     out = run(case)
     assert out["decision"]["action"] == "promote", out
     assert out["decision"]["sha"] == MID, out
@@ -366,7 +395,7 @@ def test_fallback_ranks_green_commits_by_ancestry_not_run_time() -> None:
     ]
     case = scenario(sha=tip, sourceHead=tip, onSource={tip: "identical"}, commits=commits,
                     runs=[gate_run(id=8, head_sha=older, created_at="2026-10-24T01:00:00Z"), gate_run(id=9, head_sha=newer, created_at="2026-10-24T00:59:00Z")],
-                    jobs={"8": GREEN, "9": GREEN})
+                    jobs={"8": GREEN, "9": GREEN}, requireReleaseCompile=True)
     out = run(case)
     assert out["decision"]["action"] == "promote", out
     assert out["decision"]["sha"] == newer, out
@@ -380,21 +409,21 @@ def test_fallback_never_promotes_a_descendant_of_an_older_requested_sha() -> Non
         {"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []},
     ]
     case = scenario(sha=requested, sourceHead=later, onSource={requested: "ahead"}, commits=commits,
-                    runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN})
+                    runs=[gate_run(id=8, head_sha=later)], jobs={"8": GREEN}, requireReleaseCompile=True)
     out = run(case)
     assert out["decision"]["action"] == "refuse", out
     assert "no earlier green source commit" in out["decision"]["reason"], out
 
 
 def test_admission_retries_while_the_index_lags() -> None:
-    out = run(scenario(emptyRuns=2))
+    out = run(scenario(emptyRuns=2, requireReleaseCompile=True))
     assert out["decision"]["action"] == "promote"
     assert out["calls"]["runs"] == 3
     assert any("retry" in notice for notice in out["notices"])
 
 
 def test_in_progress_success_is_not_admission() -> None:
-    out = run(scenario(jobs={7: [dict(GREEN[0], status="in_progress")]}))
+    out = run(scenario(jobs={7: [dict(GREEN[0], status="in_progress")]}, requireReleaseCompile=True))
     assert out["decision"]["action"] == "refuse"
 
 
@@ -642,11 +671,20 @@ def test_a_long_range_the_compare_api_lists_short_is_refused() -> None:
     assert "did not list them all" in out["decision"]["reason"]
 
 
-def test_a_diverged_or_behind_range_is_refused() -> None:
-    for status in ("diverged", "behind"):
-        out = run(scenario(rangeStatus=status))
-        assert out["decision"]["action"] == "refuse", (status, out["decision"])
-        assert "is not an ancestor" in out["decision"]["reason"]
+def test_a_diverged_range_is_refused() -> None:
+    out = run(scenario(rangeStatus="diverged"))
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    assert "is not an ancestor" in out["decision"]["reason"]
+
+
+def test_a_request_nightly_next_already_contains_is_a_superseded_no_op() -> None:
+    # 2026-10-27: requests for 00:30Z landings, dispatched at 04:41Z after a
+    # newer commit was promoted, failed with "is not an ancestor". nightly-next
+    # already containing the commit is a quiet success that moves nothing.
+    out = run(scenario(rangeStatus="behind"))
+    assert out["decision"]["action"] == "skip", out["decision"]
+    assert "superseded by newer target" in out["decision"]["reason"], out["decision"]
+    assert out["ack"]["ok"] and not out["ack"].get("move"), out["ack"]
 
 
 def test_a_truncated_surface_tree_is_refused() -> None:
@@ -720,98 +758,6 @@ def test_a_commit_list_the_api_cannot_cover_is_refused() -> None:
     assert out["decision"]["action"] == "refuse", out["decision"]
 
 
-def with_waiter(waiter_sha: str, waiter_current: str, green: bool = True, status: str = "waiting") -> dict:
-    """SHA is requested while run 900 waits for the approval of waiter_sha.
-
-    NEWER is the feat-cmux-next tip one commit after SHA; MID is older than SHA.
-    """
-    case = scenario(newest=True, sourceHead=NEWER, onSource={SHA: "ahead"},
-                    runs=[gate_run(), gate_run(id=8, head_sha=NEWER)],
-                    jobs={7: GREEN, 8: GREEN if green else [],
-                          900: [{"name": f"nightly-next promotion {waiter_sha} from {waiter_current}", "status": status}]},
-                    dispatchRuns=[{"id": 900, "status": "waiting" if status == "waiting" else "in_progress"}])
-    case["commits"].insert(0, commit(NEWER, [SHA], ["Sources/Newer.swift"]))
-    return case
-
-
-def test_a_live_waiter_for_a_newer_commit_keeps_waiting() -> None:
-    out = run(with_waiter(NEWER, CURRENT))
-    assert out["decision"]["action"] == "superseded", out["decision"]
-    assert out["decision"]["sha"] == NEWER
-    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
-
-
-def test_a_live_waiter_for_the_same_commit_keeps_waiting() -> None:
-    out = run(with_waiter(SHA, CURRENT))
-    assert out["decision"]["action"] == "superseded", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_a_request_never_decides_less_than_a_dead_waiter() -> None:
-    # The waiter was decided against an older nightly-next, so its approval
-    # would be refused; this request decides the waiter's newer commit.
-    out = run(with_waiter(NEWER, "9" * 40))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == NEWER
-    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
-
-
-def test_a_newer_request_replaces_an_older_waiter() -> None:
-    out = run(with_waiter(MID, CURRENT))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_a_refused_waiter_commit_falls_back_to_the_request() -> None:
-    out = run(with_waiter(NEWER, "9" * 40, green=False))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_an_approved_live_waiter_is_not_cancelled() -> None:
-    out = run(with_waiter(MID, CURRENT, status="in_progress"))
-    assert out["decision"]["action"] == "superseded", out["decision"]
-    assert out["decision"]["sha"] == MID
-
-
-def test_a_refused_newest_waiter_falls_back_to_the_next_newest() -> None:
-    # Run 900 waits for NEWER (no green compile any more), run 901 for SHA2
-    # between SHA and NEWER; both were decided against an older nightly-next.
-    sha2 = "e" * 40
-    case = with_waiter(NEWER, "9" * 40, green=False)
-    case["commits"][0]["parents"] = [{"sha": sha2}]
-    case["commits"].insert(1, commit(sha2, [SHA], ["Sources/Two.swift"]))
-    case["runs"].append(gate_run(id=9, head_sha=sha2))
-    case["jobs"]["9"] = GREEN
-    case["jobs"]["901"] = [{"name": f"nightly-next promotion {sha2} from {'9' * 40}", "status": "waiting"}]
-    case["dispatchRuns"].append({"id": 901, "status": "waiting"})
-    out = run(case)
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == sha2
-
-
-def test_an_uncomparable_waiter_is_skipped_not_a_scan_failure() -> None:
-    gone = "7" * 40
-    case = with_waiter(gone, "9" * 40)
-    out = run(case)
-    assert not out["newest"]["scanFailed"], out
-    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
-
-
-def test_a_finished_waiter_does_not_count() -> None:
-    out = run(with_waiter(NEWER, CURRENT, status="completed"))
-    assert out["decision"]["action"] == "promote", out["decision"]
-    assert out["decision"]["sha"] == SHA
-
-
-def test_an_unreadable_queue_decides_the_request_and_cancels_nothing() -> None:
-    case = with_waiter(NEWER, CURRENT)
-    case["dispatchThrows"] = True
-    out = run(case)
-    assert out["newest"]["scanFailed"] is True
-    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
-
-
 EVICTED = "Canceling since a higher priority waiting request for nightly-next-promote exists"
 
 
@@ -829,6 +775,8 @@ def with_evicted(evicted_sha: str, *, message: str = EVICTED, age_hours: float =
                                    "display_title": title or f"Promote nightly-next to {evicted_sha}"}],
                     annotations={"9500": [{"annotation_level": "failure", "message": message}]})
     case["commits"].insert(0, commit(NEWER, [SHA], ["Sources/Newer.swift"]))
+    if not green:
+        case["requireReleaseCompile"] = True
     return case
 
 
@@ -837,6 +785,148 @@ def test_a_newer_request_evicted_from_the_queue_is_decided() -> None:
     assert out["decision"]["action"] == "promote", out["decision"]
     assert out["decision"]["sha"] == NEWER
     assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
+    # One scan, of cancelled requests only: the retired release-surface-ack
+    # waiters (waiting, queued or in-progress runs) are never listed.
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def test_a_waiting_ack_job_is_not_read() -> None:
+    # Run 900 still waits on a release-surface-ack job for NEWER (the
+    # 2026-10-16 runs on main that never timed out); nothing reads it.
+    case = with_evicted(MID)
+    case["jobs"]["900"] = [{"name": f"nightly-next promotion {NEWER} from {CURRENT}", "status": "waiting"}]
+    case["dispatchRuns"].append({"id": 900, "status": "waiting"})
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def two_evicted() -> tuple[dict, str]:
+    """Run 950 asked for NEWER and run 951 for SHA2, between SHA and NEWER; both were evicted."""
+    sha2 = "e" * 40
+    case = with_evicted(NEWER)
+    case["commits"][0]["parents"] = [{"sha": sha2}]
+    case["commits"].insert(1, commit(sha2, [SHA], ["Sources/Two.swift"]))
+    case["runs"].append(gate_run(id=9, head_sha=sha2))
+    case["jobs"]["9"] = GREEN
+    case["jobs"]["951"] = [{"id": 9510, "name": "promote-nightly-next", "status": "completed", "conclusion": "cancelled"}]
+    case["annotations"]["9510"] = [{"annotation_level": "failure", "message": EVICTED}]
+    case["dispatchRuns"].append(dict(case["dispatchRuns"][0], id=951, display_title=f"Promote nightly-next to {sha2}"))
+    return case, sha2
+
+
+def test_a_refused_newest_evicted_request_falls_back_to_the_next_newest() -> None:
+    # feat-cmux-next is at SHA2 again (NEWER was dropped), so G1 refuses NEWER.
+    case, sha2 = two_evicted()
+    case["sourceHead"] = sha2
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["decision"]["sha"] == sha2
+    assert any(notice.startswith(f"{NEWER} is refused") for notice in out["notices"]), out["notices"]
+
+
+def test_an_evicted_request_that_cannot_be_ordered_is_a_scan_failure() -> None:
+    case, sha2 = two_evicted()
+    case["compareThrows"] = [f"{NEWER}...{sha2}"]
+    out = run(case)
+    assert out["newest"]["scanFailed"] is True, out
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def diverged_evicted() -> dict:
+    """NEWER branches off MID, so neither SHA nor NEWER contains the other; feat-cmux-next's tip merges both."""
+    tip = "f" * 40
+    case = with_evicted(NEWER)
+    case["commits"][0]["parents"] = [{"sha": MID}]
+    case["commits"].insert(0, commit(tip, [NEWER, SHA], []))
+    case["sourceHead"] = tip
+    return case
+
+
+def test_a_diverged_evicted_request_is_decided_when_the_request_is_refused() -> None:
+    # nightly-next is not an ancestor of SHA, so SHA is refused; NEWER is promoted.
+    case = diverged_evicted()
+    case["rangeStatus"] = "diverged"
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+    assert out["newest"]["requested"] == SHA and not out["newest"]["scanFailed"]
+    assert any("which diverges from it" in notice for notice in out["notices"]), out["notices"]
+
+
+def test_a_diverged_evicted_request_waits_while_the_request_is_admitted() -> None:
+    out = run(diverged_evicted())
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["notices"] == [], out["notices"]
+
+
+def test_an_uncomparable_evicted_request_is_skipped_not_a_scan_failure() -> None:
+    out = run(with_evicted("7" * 40))
+    assert not out["newest"]["scanFailed"], out
+    assert any("cannot be compared" in notice for notice in out["notices"]), out["notices"]
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
+
+
+def test_an_unreadable_eviction_list_decides_the_request_alone() -> None:
+    case = with_evicted(NEWER)
+    case["dispatchThrows"] = True
+    out = run(case)
+    assert not out["newest"]["scanFailed"], out
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA
+    assert any("cancelled in the promote queue" in notice for notice in out["notices"]), out["notices"]
+
+
+# The cadence (decideRequest): only the 30-minute tick ("tick:" prefix) or a
+# person promotes; a landing's request (github-actions[bot], no prefix) is skipped.
+LANDING = "github-actions[bot]"
+
+
+def test_a_burst_of_landings_promotes_nothing() -> None:
+    for sha in (SHA, NEWER, MID):
+        out = run(scenario(request=sha, requestActor=LANDING))
+        assert out["decision"]["action"] == "skip", out["decision"]
+        assert "nightly-next tick" in out["decision"]["reason"], out["decision"]
+        # Skipped before any read: no eviction scan, no guard.
+        assert out["calls"]["dispatchStatuses"] == [] and out["calls"]["comparePages"] == 0, out["calls"]
+
+
+def test_the_tick_promotes_through_the_newest_request_guard() -> None:
+    out = run(scenario(request=f"tick:{SHA}", requestActor=LANDING))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+    assert out["newest"]["tick"] and not out["newest"]["dryRun"], out["newest"]
+    assert out["calls"]["dispatchStatuses"] == ["cancelled"], out["calls"]
+
+
+def test_a_tick_with_nothing_new_does_nothing() -> None:
+    out = run(scenario(request=f"tick:{CURRENT}", requestActor=LANDING, sha=CURRENT, onSource={CURRENT: "ahead"}))
+    assert out["decision"]["action"] == "skip" and "already at" in out["decision"]["reason"], out["decision"]
+
+
+def test_a_persons_dispatch_still_promotes() -> None:
+    out = run(scenario(request=SHA, requestActor="teamleaderleo"))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_a_dry_run_tick_parses_both_prefixes_in_either_order() -> None:
+    for request in (f"dry-run:tick:{SHA}", f"tick:dry-run:{SHA}"):
+        out = run(scenario(request=request, requestActor=LANDING))
+        assert out["newest"]["dryRun"] and out["newest"]["tick"], out["newest"]
+        assert out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_landing_request_is_not_decided() -> None:
+    case = with_evicted(NEWER)
+    case["request"], case["requestActor"] = f"tick:{SHA}", LANDING
+    case["dispatchRuns"][0]["triggering_actor"] = {"login": LANDING}
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out["decision"]
+
+
+def test_an_evicted_tick_request_is_decided() -> None:
+    case = with_evicted(NEWER, title=f"Promote nightly-next to tick:{NEWER}")
+    case["request"], case["requestActor"] = f"tick:{SHA}", LANDING
+    case["dispatchRuns"][0]["triggering_actor"] = {"login": LANDING}
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
 
 
 def test_an_older_evicted_request_does_not_replace_the_request() -> None:
@@ -878,12 +968,12 @@ def test_the_request_title_names_its_commit() -> None:
 def test_workflow_runs_the_guard_from_main_and_gates_the_move() -> None:
     assert "environment: nightly-next-promote" in WORKFLOW
     assert "&& 'release-surface-ack' || ''" in WORKFLOW
-    assert "requested.startsWith('dry-run:')" in WORKFLOW
+    assert "guard.decideRequest({" in WORKFLOW and "TRIGGERING_ACTOR: ${{ github.triggering_actor }}" in WORKFLOW
     assert "ref: ${{ github.sha }}" in WORKFLOW
     assert "if: steps.decide.outputs.action == 'promote' && steps.decide.outputs.dry_run != 'true'" in WORKFLOW
     assert "if: needs.await-release-surface-ack.result == 'success' && needs.promote-nightly-next.outputs.action == 'needs-ack' && needs.promote-nightly-next.outputs.dry_run != 'true'" in WORKFLOW
     assert "group: nightly-next-promote-ack-${{ github.run_id }}" in WORKFLOW
-    assert "guard.decideNewest({" in WORKFLOW
+    assert "guard.decideRequest({" in WORKFLOW
 
 
 def test_non_macos_nightly_next_orchestration_uses_the_trusted_fast_check_fallback() -> None:
@@ -927,8 +1017,6 @@ def test_only_the_wait_for_the_approval_is_cancellable() -> None:
     assert "'release-surface-ack'" in wait["environment"] and "action == 'needs-ack'" in wait["environment"]
     assert wait["permissions"] == {}
     assert "secrets." not in json.dumps(wait)
-    # guard.pendingPromotions() parses this name.
-    assert wait["name"] == "nightly-next promotion ${{ needs.promote-nightly-next.outputs.sha }} from ${{ needs.promote-nightly-next.outputs.current || 'none' }}"
     # The writers are never in a cancelling group.
     assert move["concurrency"]["cancel-in-progress"] is False and "github.run_id" in move["concurrency"]["group"]
     assert decide_job["concurrency"] == {"group": "nightly-next-promote", "cancel-in-progress": False}
@@ -1006,6 +1094,14 @@ def test_a_train_commit_on_an_old_nightly_head_is_refused() -> None:
     assert decision["action"] == "refuse" and "was made on" in decision["reason"], decision
 
 
+def test_a_train_commit_a_later_nightly_head_contains_is_a_superseded_no_op() -> None:
+    case = train_case()
+    case["gitCommits"][TRAIN]["parents"] = [{"sha": MID}, {"sha": SHA}]
+    case["rangeStatus"] = "behind"
+    decision = run(case)["decision"]
+    assert decision["action"] == "skip" and "superseded by newer target" in decision["reason"], decision
+
+
 def test_a_train_commit_whose_tip_is_not_on_the_source_is_refused() -> None:
     # SHA is not reachable from the feat-cmux-next head MID ("behind").
     decision = run(train_case(sourceHead=MID))["decision"]
@@ -1039,6 +1135,163 @@ console.log(JSON.stringify({ ok, bad, crashed }));
 def test_both_promote_decisions_pass_the_train_verifier() -> None:
     assert WORKFLOW.count("verifyTrain: guard.trainVerifier(") == 2
     assert WORKFLOW.count("scripts/ci/nightly_next_train.py\n") >= 2
+
+
+def test_by_default_a_tip_without_a_release_compile_is_promoted_itself() -> None:
+    # 2026-10-26: the nightly build compiles the promoted commit and publishes
+    # nothing when that fails, so promotion no longer waits for G2.
+    case = scenario(runs=[gate_run(id=8, head_sha=MID)], jobs={"8": GREEN})
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out
+    assert out["decision"]["sha"] == SHA, out
+    assert out["calls"]["runs"] == 0, out["calls"]
+    out = run(scenario(runs=[], jobs={}))
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == SHA, out
+
+
+def test_by_default_g1_still_refuses_a_commit_off_feat_cmux_next() -> None:
+    out = run(scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40, runs=[], jobs={}))
+    assert out["decision"]["action"] == "refuse"
+    assert "is not on feat-cmux-next" in out["decision"]["reason"]
+
+
+def test_by_default_a_newer_evicted_request_without_a_compile_is_decided() -> None:
+    case = with_evicted(NEWER)
+    case["jobs"]["8"] = []
+    out = run(case)
+    assert out["decision"]["action"] == "promote" and out["decision"]["sha"] == NEWER, out["decision"]
+
+
+def test_the_workflow_leaves_g2_off() -> None:
+    assert "requireReleaseCompile" not in WORKFLOW
+
+
+
+def test_by_default_g3_and_g4_are_skipped_and_read_nothing() -> None:
+    # Approval is retired, so the release surface (G3) and lander (G4) reads
+    # are skipped: no range listing, no tree, no per-commit read.
+    case = surface_change(lander_rule=False)
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["decision"]["gates"] == {"G3": "skipped: no approval needed", "G4": "skipped: no approval needed"}
+    assert out["decision"]["reason"] == "G3 and G4 skipped: no approval needed"
+    assert out["calls"]["trees"] == 0 and out["calls"]["commitReads"] == 0, out["calls"]
+    # G1 and the ancestry check (one compare each) still run.
+    assert out["calls"]["comparePages"] == 2, out["calls"]
+    assert out["ack"]["ok"] and out["ack"]["move"], out["ack"]
+    assert "requireApproval" not in WORKFLOW.split("promote-nightly-next-acked:")[0]
+
+
+def test_g3_and_g4_skip_still_refuses_what_g1_and_ancestry_refuse() -> None:
+    case = scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40)
+    del case["requireApproval"]
+    assert run(case)["decision"]["action"] == "refuse"
+    case = scenario(rangeStatus="diverged")
+    del case["requireApproval"]
+    assert run(case)["decision"]["action"] == "refuse"
+    case = scenario(surface=SURFACE.replace("@require_non_lander_approver off", "@require_non_lander_approver ON"))
+    del case["requireApproval"]
+    assert "unknown policy line" in run(case)["decision"]["reason"]
+
+
+def test_g4_reads_grow_with_the_range_only_with_require_approval() -> None:
+    # A 200-commit range that touches the surface: G4 reads every commit with
+    # requireApproval and none without it.
+    commits, activity, parent = [], [], CURRENT
+    for i in range(200):
+        sha = f"{i + 1:040x}"
+        commits.append({"sha": sha, "parents": [{"sha": parent}], "author": {"login": "teamleaderleo"},
+                        "committer": {"login": "web-flow"}, "files": [{"filename": ".github/workflows/nightly.yml" if i == 0 else "Sources/App.swift"}]})
+        activity.append({"before": parent, "after": sha, "actor": {"login": "teamleaderleo"}})
+        parent = sha
+    commits.reverse()
+    activity.reverse()
+    commits.append({"sha": CURRENT, "parents": [], "author": {"login": "lawrencecchen"}, "committer": {"login": "lawrencecchen"}, "files": []})
+    case = scenario(sha=parent, sourceHead=parent, onSource={parent: "identical"}, commits=commits, activity=activity, commitPulls={})
+    approved = run(case)
+    assert approved["decision"]["action"] == "needs-ack", approved["decision"]
+    assert approved["calls"]["commitReads"] == 200, approved["calls"]
+    del case["requireApproval"]
+    skipped = run(case)
+    assert skipped["decision"]["action"] == "promote", skipped["decision"]
+    assert skipped["calls"]["commitReads"] == 0 and skipped["calls"]["trees"] == 0, skipped["calls"]
+
+
+def test_g5_a_commit_without_a_tree_marker_is_refused_with_the_backfill() -> None:
+    # Nightly-next run 40445128409: a promote moved nightly-next to a commit
+    # whose cmux-tui tree was still building.
+    case = scenario(treeMarkers={SHA: {"status": 404}})
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse", out["decision"]
+    reason = out["decision"]["reason"]
+    assert "has no cmux-tui tree-commit marker" in reason, reason
+    assert "gh workflow run cmux-tui-artifacts.yml -R manaflow-ai/cmux --ref feat-cmux-next" in reason, reason
+    assert "nightly-next-tick.yml" in reason, reason
+    assert out["calls"]["moves"] == 0
+
+
+def test_g5_a_marker_read_failure_is_not_a_missing_tree() -> None:
+    for marker in ({"status": 503}, {"status": 302}, {"status": 0, "error": "timeout"}, "throw",
+                   {"status": 200, "error": "the body does not parse"},
+                   {"status": 200, "body": {"commit": NEWER, "key": "f" * 40}},
+                   {"status": 200, "body": {"commit": SHA}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40, "publishedBy": "x", "markedBy": "u"}},
+                   {"status": 200, "body": {"commit": SHA, "key": "f" * 40, "publishedBy": "e" * 40, "markedBy": ""}}):
+        case = scenario(treeMarkers={SHA: marker})
+        del case["requireApproval"]
+        out = run(case)
+        assert out["decision"]["action"] == "refuse", (marker, out["decision"])
+        reason = out["decision"]["reason"]
+        assert reason.startswith("tree marker read failed"), (marker, reason)
+        assert "has no cmux-tui tree-commit marker" not in reason, (marker, reason)
+
+
+def test_g5_reads_the_marker_of_the_promoted_commit() -> None:
+    case = scenario()
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "promote", out["decision"]
+    assert out["calls"]["markerReads"] == [SHA], out["calls"]
+
+
+def test_g5_runs_after_g1() -> None:
+    # A commit off feat-cmux-next is refused by G1 before any marker read.
+    case = scenario(onSource={SHA: "diverged"}, sourceHead="e" * 40)
+    del case["requireApproval"]
+    out = run(case)
+    assert out["decision"]["action"] == "refuse" and "is not on feat-cmux-next" in out["decision"]["reason"], out["decision"]
+    assert out["calls"]["markerReads"] == [], out["calls"]
+
+
+def test_g5_fetch_reads_the_contract_url_with_a_cache_buster() -> None:
+    script = r"""
+const guard = await import(process.env.GUARD);
+const seen = [];
+const ok = await guard.fetchTreeMarker('a'.repeat(40), { now: () => 42, fetchImpl: async (url) => {
+  seen.push(url); return { status: 200, json: async () => ({ commit: 'a'.repeat(40), key: 'f'.repeat(40) }) }; } });
+const opts = [];
+const missing = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async (url, o) => { opts.push(o); return { status: 404, text: async () => 'Not Found' }; } });
+const cut = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 404, text: async () => { throw new Error('terminated'); } }) });
+const moved = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 302, json: async () => ({ commit: 'a'.repeat(40) }) }) });
+const down = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => { throw new Error('ECONNRESET'); } });
+const garbled = await guard.fetchTreeMarker('a'.repeat(40), { fetchImpl: async () => ({ status: 200, json: async () => { throw new Error('Unexpected token'); } }) });
+console.log(JSON.stringify({ seen, ok, missing, down, garbled, cut, moved, redirect: opts[0].redirect }));
+"""
+    result = subprocess.run(["node", "--input-type=module", "-e", script], cwd=ROOT,
+                            env={**os.environ, "GUARD": str(GUARD)}, capture_output=True, text=True, check=True)
+    out = json.loads(result.stdout)
+    assert out["seen"] == [f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json?t=42"], out
+    assert out["ok"]["status"] == 200 and out["ok"]["body"]["commit"] == "a" * 40, out
+    assert out["missing"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 404}, out
+    assert out["down"]["status"] == 0 and "ECONNRESET" in out["down"]["error"], out
+    assert out["garbled"]["status"] == 200 and "does not parse" in out["garbled"]["error"], out
+    # A 404 cut off mid-body is a read failure, and a redirect is never followed.
+    assert out["cut"]["status"] == 0 and "cut off" in out["cut"]["error"], out
+    assert out["moved"] == {"url": f"https://files.cmux.com/cmux-tui/tree-commits/{'a' * 40}.json", "status": 302}, out
+    assert out["redirect"] == "manual", out
 
 
 def main() -> None:

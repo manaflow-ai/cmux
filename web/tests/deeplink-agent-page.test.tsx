@@ -107,6 +107,25 @@ describe("agent deeplink page", () => {
     expect(rendered.join("\n")).not.toContain("does not use");
   });
 
+  test("a private reference says what it is and shows nothing to open", async () => {
+    const rendered = await render({ id: "aid-0123456789abcdef0123" });
+    const text = rendered.join("\n");
+
+    expect(rendered).not.toContain("Open in cmux");
+    expect(text).toContain("by a private reference");
+    expect(text).not.toContain("missing required parameters");
+    expect(text).not.toContain("cmux://agent");
+    expect(text).not.toContain("aid-0123456789abcdef0123");
+  });
+
+  test("a malformed reference is just a link with no session", async () => {
+    const rendered = await render({ id: "aid-not-hex" });
+
+    expect(rendered).toContain(
+      "This link is missing required parameters: harness, session",
+    );
+  });
+
   test("a link with no session says so and offers no Open", async () => {
     const rendered = await render({ harness: "claude" });
 
