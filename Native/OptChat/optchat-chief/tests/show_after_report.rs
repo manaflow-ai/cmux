@@ -354,11 +354,7 @@ fn unsupported_report_storage_does_not_keep_a_permanent_outbox() {
     h.connect();
     h.say("user_local", "Please coordinate the work.");
     h.settle();
-    h.owner
-        .lock()
-        .unwrap()
-        .run_append_rejects
-        .push_back(Some(OpError::Rejected("runs_unsupported".into())));
+    h.owner.lock().unwrap().runs_unsupported = true;
     assert!(delivered_report(&mut h).contains(REPORT));
     assert!(h.brain.state().pending_reports.is_empty());
 }
@@ -378,11 +374,7 @@ fn reconnect_to_a_port_without_runs_discards_unsupported_pending_reports() {
         )));
     delivered_report(&mut h);
     assert!(!h.brain.state().pending_reports.is_empty());
-    h.owner
-        .lock()
-        .unwrap()
-        .run_append_rejects
-        .push_back(Some(OpError::Rejected("runs_unsupported".into())));
+    h.owner.lock().unwrap().runs_unsupported = true;
     h.connect();
     assert!(h.brain.state().pending_reports.is_empty());
 }

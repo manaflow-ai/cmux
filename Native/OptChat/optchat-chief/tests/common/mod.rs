@@ -122,6 +122,8 @@ pub struct Owner {
     pub rejects: VecDeque<Option<String>>,
     /// Rejections for report appends, after recording the attempted write.
     pub run_append_rejects: VecDeque<Option<OpError>>,
+    /// Models a Cloud or older owner that never supports run storage.
+    pub runs_unsupported: bool,
     pub reconnects: usize,
     /// When set, `message.send` keys are remembered as the real owner does:
     /// a reused key with the same text replays (posts nothing), with other
@@ -445,6 +447,9 @@ impl ConversationPort for FakeDaemon {
         owner
             .run_steps
             .push((conversation.to_owned(), run.clone(), steps));
+        if owner.runs_unsupported {
+            return Err(OpError::Rejected("runs_unsupported".into()));
+        }
         if run["id"]
             .as_str()
             .is_some_and(|id| id.starts_with("reports:"))
