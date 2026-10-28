@@ -155,7 +155,11 @@ export function inlinePlugin(views: InlineViews) {
             const adjacent = backward ? selection.$from.nodeBefore : selection.$from.nodeAfter;
             if (adjacent?.type.name !== INLINE_NODE) return false;
             const from = selection.from - (backward ? 1 : 0);
-            view.dispatch(closeHistory(view.state.tr).delete(from, from + 1).scrollIntoView());
+            view.dispatch(
+              closeHistory(view.state.tr)
+                .delete(from, from + 1)
+                .scrollIntoView(),
+            );
             return true;
           },
         },
