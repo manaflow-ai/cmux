@@ -73,8 +73,16 @@ async function settle() {
 const family = (id: string, name: string): QuickFamily => ({
   id,
   name,
-  models: ["a", "b", "c"].map((model) => ({ id: `${id}-${model}`, name: `${name} ${model}`, family: id })),
-  more: ["x", "y"].map((model) => ({ id: `${id}-${model}`, name: `${name} old ${model}`, family: id })),
+  models: ["a", "b", "c"].map((model) => ({
+    id: `${id}-${model}`,
+    name: `${name} ${model}`,
+    family: id,
+  })),
+  more: ["x", "y"].map((model) => ({
+    id: `${id}-${model}`,
+    name: `${name} old ${model}`,
+    family: id,
+  })),
 });
 
 function Harness({ newTab }: { newTab: boolean }) {
@@ -93,7 +101,11 @@ function Harness({ newTab }: { newTab: boolean }) {
           current: "claude-a",
           onModel() {},
           fast: { checked: fast, onChange: setFast },
-          families: { list: [family("claude", "Claude"), family("codex", "Codex")], current: "claude", onPick() {} },
+          families: {
+            list: [family("claude", "Claude"), family("codex", "Codex")],
+            current: "claude",
+            onPick() {},
+          },
         }}
         onMore={() => {}}
       >
@@ -109,12 +121,15 @@ async function openMenu(newTab: boolean) {
     root = createRoot(container);
     root.render(<Harness newTab={newTab} />);
   });
-  await act(async () => container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click());
+  await act(async () =>
+    container.querySelector<HTMLButtonElement>("button[data-menu='model']")!.click(),
+  );
   await settle();
 }
 
 const list = () => document.querySelector<HTMLElement>(".acpmux-quick-list")!;
-const labels = (scope: ParentNode) => [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
+const labels = (scope: ParentNode) =>
+  [...scope.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent);
 const disclosure = () => document.querySelector<HTMLElement>(".acpmux-quick-disclosure");
 
 test("a chat's menu keeps its key hints and More models submenu", async () => {
@@ -148,11 +163,15 @@ test("a rail switch from a shown More models row keeps keyboard focus in the men
   await openMenu(true);
   await act(async () => disclosure()!.click());
   await settle();
-  const extra = document.querySelector<HTMLElement>(".acpmux-quick-list .acpmux-quick-more-list [role^='menuitem']")!;
+  const extra = document.querySelector<HTMLElement>(
+    ".acpmux-quick-list .acpmux-quick-more-list [role^='menuitem']",
+  )!;
   await act(async () => extra.focus());
   const popup = extra.closest<HTMLElement>(".acpmux-quick-menu")!;
   await act(async () => {
-    extra.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    extra.dispatchEvent(
+      new dom!.window.KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+    );
   });
   await settle();
   expect(labels(list())).toContain("Codex a");
@@ -168,7 +187,12 @@ test("on New Tab More models adds only the chosen tab's visible model rows", asy
   expect(initial).not.toContain("Claude old x");
   await act(async () => disclosure()!.click());
   await settle();
-  const expected: string[] = [...initial.slice(0, -1), "Claude old x", "Claude old y", initial.at(-1)!];
+  const expected: string[] = [
+    ...initial.slice(0, -1),
+    "Claude old x",
+    "Claude old y",
+    initial.at(-1)!,
+  ];
   expect(labels(list())).toEqual(expected);
   await act(async () => disclosure()!.click());
   await settle();
@@ -220,7 +244,11 @@ test("an empty harness list does not claim an empty search had no matches", asyn
           models: [],
           current: undefined,
           onModel: () => undefined,
-          families: { list: [{ id: "claude", name: "Claude Code", models: [], more: [] }], current: "claude", onPick: () => undefined },
+          families: {
+            list: [{ id: "claude", name: "Claude Code", models: [], more: [] }],
+            current: "claude",
+            onPick: () => undefined,
+          },
         }}
       >
         Model
