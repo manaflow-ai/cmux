@@ -353,7 +353,7 @@ final class DeviceLink {
             },
             connect: { selection in
                 let client = try self.makeClient(record: record, selection: selection)
-                self.connection = Connection(client: client, selection: selection)
+                self.connection = (client: client, selection: selection)
                 let timeout = self.runtime.pairingRequestTimeoutNanoseconds
                 let deadline = ContinuousClock.now.advanced(by: .nanoseconds(Int64(clamping: timeout)))
                 do {
