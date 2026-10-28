@@ -4779,9 +4779,10 @@ jobs:
   # prints no route and the compile keeps macos-placement's. A warm host compiles in about 130 s of
   # xcodebuild, a host with no tree in about 808 s (2026-10-28, 15 DEV compiles, 4 warm).
   # vars.CMUX_NEXT_DEV_COMPILE_AFFINITY=0 turns it off.
+  # It runs only when cmux-scheme-compile will (the same tree condition), so it never waits for a skipped compile.
   dev-daily-place:
-    needs: dev-daily-tree-wait
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && format('{0}', vars.CMUX_NEXT_DEV_COMPILE_AFFINITY) != '0' }}
+    needs: [path_route, push-head-preflight, dev-daily-tree-wait]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.dev_daily == true && github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.CI_PR_POOL_OWNED == '1' && format('{0}', vars.CMUX_NEXT_DEV_COMPILE_AFFINITY) != '0' && ((inputs.same_tree_sha == '' && needs.path_route.outputs.scheme == 'true' && needs.push-head-preflight.outputs.current == 'true' && (needs.path_route.outputs.tree_state == 'ready' || needs.dev-daily-tree-wait.outputs.tree_state == 'ready')) || (inputs.same_tree_sha != '' && inputs.same_tree_state == 'ready' && contains(inputs.same_tree_tiers, 'scheme'))) }}
     name: cmux NEXT DEV compile placement
     environment: ci-routing-agent
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-4vcpu-ubuntu-2404' }}

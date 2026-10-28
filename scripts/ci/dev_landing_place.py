@@ -72,6 +72,7 @@ COMPILE_JOBS = frozenset({COMPILE_JOB, DAILY_COMPILE_JOB})
 # A DEV daily placement that places nothing: the compile keeps macos-placement's route.
 DAILY_KEEP = {"runs_on": "", "runner_label": "", "pool": "", "host": "", "holder_sha": "", "gap": ""}
 RUNNER_LABEL_PREFIX = "glaeda-runner-"
+DEV_SLOT_PREFIX = "glaeda-dev-"  # the DEV compile slots' label (glaeda's freshness slot)
 SHA = re.compile(r"^[0-9a-f]{40}$")
 FETCH_SECONDS = 45
 # In-flight landings older than this are not read (a compile takes minutes).
@@ -111,7 +112,7 @@ def free_runners(runners: Sequence[Mapping[str, Any]], side_label: str,
 
 def in_flight(runs: Sequence[Mapping[str, Any]], jobs_of: Callable[[int], Sequence[Mapping[str, Any]]],
               own_run: str, now: dt.datetime) -> tuple[set[str], set[str]]:
-    """(static labels other landings' queued compiles wait on, runners other DEV compiles run on).
+    """(labels other queued jobs claim a runner by, runners other DEV compiles run on).
 
     Both a landing's compile and a DEV daily's (COMPILE_JOBS) hold their host's lock. The second set
     names runners, not hosts: a host is busy while that runner is (busy_hosts()), so a placement that
@@ -128,11 +129,16 @@ def in_flight(runs: Sequence[Mapping[str, Any]], jobs_of: Callable[[int], Sequen
             recent.append(run)
     for run in recent[:IN_FLIGHT_RUNS]:
         for job in jobs_of(int(run["id"])):
+            labels = [str(label) for label in job.get("labels") or []]
+            if job.get("status") in ("queued", "waiting", "pending", "requested"):
+                pinned = [label for label in labels if label.startswith(RUNNER_LABEL_PREFIX)]
+                # Any queued job pinned to a runner claims it. One that asked for a DEV slot by its label
+                # alone (a feed compile on macos-placement's fresh_runner) claims whichever slot is idle,
+                # so its label goes in too and free_slots() offers no slot while it waits.
+                taken.update(pinned or [label for label in labels if label.startswith(DEV_SLOT_PREFIX)])
             if job.get("name") not in COMPILE_JOBS:
                 continue
-            if job.get("status") in ("queued", "waiting", "pending", "requested"):
-                taken.update(label for label in job.get("labels") or [] if str(label).startswith(RUNNER_LABEL_PREFIX))
-            elif job.get("status") == "in_progress" and job.get("runner_name"):
+            if job.get("status") == "in_progress" and job.get("runner_name"):
                 busy_hosts.add(str(job["runner_name"]))
     return taken, busy_hosts
 
@@ -203,7 +209,12 @@ def labels_of(runner: Mapping[str, Any]) -> set[str]:
 
 def free_slots(runners: Sequence[Mapping[str, Any]], fresh_label: str,
                taken: set[str] = frozenset()) -> list[tuple[str, bool]]:
-    """The free runners carrying FRESH_LABEL (the DEV compile slots), as (name, has its static label)."""
+    """The free runners carrying FRESH_LABEL (the DEV compile slots), as (name, has its static label).
+
+    None while a queued job asked for FRESH_LABEL alone (in_flight() puts the label in `taken`): GitHub
+    hands that job the next idle slot, and which one is unknown."""
+    if fresh_label in taken:
+        return []
     free = []
     for runner in runners:
         name = str(runner.get("name") or "")

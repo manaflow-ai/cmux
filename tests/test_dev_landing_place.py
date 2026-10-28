@@ -293,6 +293,21 @@ class DailyPickerTests(unittest.TestCase):
         result, _ = self.daily([slot("cmux8s-glaeda-2"), runner("cmux13s-glaeda-9", SIDE)], {})
         self.assertEqual((json.loads(result["runs_on"]), result["host"]), (FRESH, ""))
 
+    def test_a_queued_job_on_the_bare_slot_label_claims_every_slot(self):
+        now = place.dt.datetime(2026, 10, 28, 12, tzinfo=place.dt.timezone.utc)
+        runs = [{"id": 1, "created_at": "2026-10-28T11:58:00Z"}]
+        jobs = {1: [{"name": place.DAILY_COMPILE_JOB, "status": "queued", "labels": [FRESH]},
+                    {"name": "cmux-next Release compile (Xcode 26)", "status": "queued",
+                     "labels": [ROOT_LABEL, place.static_label("cmux12s-glaeda")]}]}
+        taken, _ = place.in_flight(runs, lambda run_id: jobs[run_id], "2", now)
+        self.assertEqual(taken, {FRESH, place.static_label("cmux12s-glaeda")})
+        self.assertEqual(place.free_slots([slot("cmux8s-glaeda-2")], FRESH, taken), [])
+        # Slots are out for this placement; a free root runner on a warm host still is not.
+        runners = [slot("cmux8s-glaeda-2"), root_runner("cmux8s-glaeda")]
+        result = place.place(self.env(), lambda: runners, lambda host: self.records(cmux8s=1).get(host, []),
+                             lambda: (taken, set()), sleep=lambda seconds: None, clock=lambda: 0.0)
+        self.assertEqual(json.loads(result["runs_on"]), [ROOT_LABEL, place.static_label("cmux8s-glaeda")])
+
     def test_daily_compiles_count_as_in_flight(self):
         now = place.dt.datetime(2026, 10, 28, 12, tzinfo=place.dt.timezone.utc)
         runs = [{"id": 1, "created_at": "2026-10-28T11:58:00Z"}]

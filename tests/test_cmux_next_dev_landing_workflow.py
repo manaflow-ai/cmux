@@ -86,6 +86,10 @@ class WorkflowTests(unittest.TestCase):
                        "github.repository == 'manaflow-ai/cmux'", "github.run_attempt == 1",
                        "vars.CMUX_NEXT_DEV_COMPILE_AFFINITY", "!cancelled()"):
             self.assertIn(clause, job["if"])
+        # Only when the compile runs: its own tree condition, word for word.
+        compile_if = self.jobs["cmux-scheme-compile"]["if"]
+        tree = compile_if[compile_if.index("((inputs.same_tree_sha == ''"):].rstrip(" }")[:-2]
+        self.assertIn(tree, job["if"])
         step = {s.get("id"): s for s in job["steps"]}["place"]
         self.assertEqual(step["continue-on-error"], "true", "a failed placement keeps the compile's route")
         self.assertIn("scripts/ci/dev_landing_place.py", step["run"])
