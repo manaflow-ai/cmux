@@ -436,13 +436,31 @@ public struct WorkspacesList: View {
     }
 
     /// One row: its inputs as plain values (`WorkspaceRowModel`), so SwiftUI
-    /// skips every row whose values did not change; its list modifiers live in
-    /// the row (one element per row in the list's view list, not a chain of
-    /// modifiers walked on every update) and its menu is built only when it is
-    /// read (`WorkspaceRowMenu`).
+    /// skips every row whose values did not change; its menu is built only
+    /// when it is read (`WorkspaceRowMenu`). The list-row traits stay out here:
+    /// set inside the Equatable view, List does not see them.
     private func row(_ ws: Workspace, _ inbox: WorkspaceInbox, _ names: [String: String]) -> some View {
-        WorkspaceListRow(model: rowModel(ws, inbox, names), host: self)
+        let model = rowModel(ws, inbox, names)
+        return WorkspaceListRow(model: model, host: self)
             .equatable()
+            .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
+            .listRowBackground(theme.colors.bg.color)
+            .alignmentGuide(.listRowSeparatorLeading) { _ in gutter }
+            // Trailing only: a rightward swipe from the leading edge belongs to
+            // the team sidebar.
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                if model.canManage {
+                    Button("Close", systemImage: "xmark", role: .destructive) { confirmClose(ws) }
+                        // The app tints controls with the foreground color
+                        // (white in dark mode), which turned this into a blank
+                        // white pill. Back to the system tint: red for the role.
+                        .tint(nil)
+                        .accessibilityIdentifier("workspace.swipe.close")
+                    Button("Rename", systemImage: "pencil") { startRename(ws) }
+                        .tint(.gray)
+                        .accessibilityIdentifier("workspace.swipe.rename")
+                }
+            }
     }
 
     /// Each listed Mac's name as the list writes it (with its same-name tag),
@@ -1047,8 +1065,6 @@ struct WorkspaceRowModel: Equatable {
 struct WorkspaceListRow: View, Equatable {
     let model: WorkspaceRowModel
     let host: WorkspacesList
-    /// The status gutter: separators start after it.
-    @Environment(\.dynamicTypeSize) private var typeSize
 
     nonisolated static func == (a: Self, b: Self) -> Bool { a.model == b.model }
 
@@ -1092,24 +1108,6 @@ struct WorkspaceListRow: View, Equatable {
             }
         }
         .accessibilityIdentifier("workspace.row.\(ws.id)")
-        .listRowInsets(EdgeInsets(top: 10, leading: 0, bottom: 10, trailing: 20))
-        .listRowBackground(theme.colors.bg.color)
-        .alignmentGuide(.listRowSeparatorLeading) { _ in CmuxMobileListColumn.plain(typeSize).text }
-        // Trailing only: a rightward swipe from the leading edge belongs to
-        // the team sidebar.
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if model.canManage {
-                Button("Close", systemImage: "xmark", role: .destructive) { host.confirmClose(ws) }
-                    // The app tints controls with the foreground color
-                    // (white in dark mode), which turned this into a blank
-                    // white pill. Back to the system tint: red for the role.
-                    .tint(nil)
-                    .accessibilityIdentifier("workspace.swipe.close")
-                Button("Rename", systemImage: "pencil") { host.startRename(ws) }
-                    .tint(.gray)
-                    .accessibilityIdentifier("workspace.swipe.rename")
-            }
-        }
     }
 }
 

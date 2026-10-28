@@ -31,7 +31,13 @@ public final class WorkspaceSync {
     @ObservationIgnored private var arrangementStale = true
     /// When an event last arrived per surface (agent state or title): the
     /// only activity time the daemon gives.
-    @ObservationIgnored private var activity: [Int: Date] = [:]
+    @ObservationIgnored private(set) var activity: [Int: Date] = [:]
+    /// Each surface's last title on this connection: a title set again to the
+    /// same text (a shell prompt does it constantly) is not activity, and
+    /// re-listing for it republished every workspace to the store.
+    @ObservationIgnored private var titles: [Int: String] = [:]
+    /// Title events dropped as repeats (tests).
+    @ObservationIgnored private(set) var titleEventsIgnored = 0
     @ObservationIgnored public private(set) var macID = ""
     /// Counts bound `daemon` channels: names the current connection (a new
     /// channel, even to the same Mac, is a new one).
@@ -57,6 +63,7 @@ public final class WorkspaceSync {
         client = nil
         connectionSerial += 1
         activity = [:]
+        titles = [:]
         guard let channel else { return }
         await bind(Self.prepare(channel, deviceID: deviceID, deviceName: deviceName), macID: macID, cached: cached)
     }
@@ -100,6 +107,7 @@ public final class WorkspaceSync {
     public func bind(_ prepared: Prepared, macID: String, cached: [Workspace] = []) async {
         eventTask?.cancel()
         activity = [:]
+        titles = [:]
         arrangement = nil
         arrangementStale = true
         self.macID = macID
@@ -148,7 +156,11 @@ public final class WorkspaceSync {
 
     func handle(_ event: DaemonEvent) {
         switch event {
-        case .titleChanged(let surface, _):
+        case .titleChanged(let surface, let title):
+            guard titles.updateValue(title, forKey: surface) != title else {
+                titleEventsIgnored += 1
+                return
+            }
             activity[surface] = Date()
             Task { await refresh() }
         case .treeChanged:

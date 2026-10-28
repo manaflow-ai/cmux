@@ -199,8 +199,11 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                 switch entry {
                 case let .row(row):
                     // Plain values: SwiftUI skips the rows that did not change.
+                    // The list-row traits outside the Equatable view, where List sees them.
                     HomeListRow(model: rowModel(row, stamp: stamp), open: open, feed: feed)
                         .equatable()
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
+                        .listRowBackground(theme.colors.bg.color)
                 case .cloud:
                     sessionRow(sources.cloud, name: primaryName, tag: chiefTag(main: true, place: String(localized: "Cloud")),
                                stamp: stamp, identifier: "home.chief", place: .cloud) { cloudTileMenu }
@@ -489,9 +492,6 @@ struct HomeListRow: View, Equatable {
             HomeRowMenu(id: model.id, isMacChief: model.isMacChief, isPinned: model.isPinned, isUnread: model.isUnread, feed: feed)
         }
         .accessibilityIdentifier(model.isMacChief ? "home.chief.mac" : "home.row.\(model.id)")
-        // In the row: one element per row in the list's view list.
-        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 16))
-        .listRowBackground(theme.colors.bg.color)
     }
 }
 
