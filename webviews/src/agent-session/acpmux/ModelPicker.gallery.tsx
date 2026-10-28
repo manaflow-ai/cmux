@@ -112,6 +112,11 @@ const manyHarnesses: ModelPickerProps["catalog"] = [
 
 /// The open picker stays within the available anchor room on a tall stage, and its content
 /// scrolls inside it (the harness rail) instead of stretching the menu.
+const openPicker: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp") !== null);
+};
+
 const cappedHeight: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => {
@@ -347,7 +352,7 @@ export default componentEntry<GalleryProps>({
   area: "Agent pane",
   pane: true,
   height: 560,
-  widths: { narrow: 420, normal: 560, wide: 760 },
+  widths: { narrow: 360, normal: 560, wide: 760 },
   anchors: [{ selector: ".acpmux-model" }],
   covers: [
     "agent-session/acpmux/ModelPicker.tsx#ModelPicker",
@@ -542,6 +547,23 @@ export default componentEntry<GalleryProps>({
         await openModels(ctx);
         await ctx.click({ selector: ".acpmux-mp-older" });
       },
+    },
+    // Narrow horizontal strip variants: the harness families keep even gaps and whole-item
+    // snapping at both ends for the small, medium and crowded catalogs Leo asked to compare.
+    "strip-3-harnesses": {
+      note: "Horizontal strip, 3 harness families: all items fit without a scroll.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 3) },
+      play: openPicker,
+    },
+    "strip-8-harnesses": {
+      note: "Horizontal strip, 8 harness families: whole-item snapping with an edge fade.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 8) },
+      play: openPicker,
+    },
+    "strip-15-harnesses": {
+      note: "Horizontal strip, 15 harness families: whole-item snapping with an edge fade.",
+      props: { ...base, catalog: manyHarnesses.slice(0, 15) },
+      play: openPicker,
     },
     // Many installed agents on a tall stage: the menu is capped and the harness rail scrolls.
     "many-harnesses": {

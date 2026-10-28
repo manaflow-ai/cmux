@@ -68,12 +68,33 @@
     border-inline-end: 0;
     border-block-end: 0.5px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
   }
+  .acpmux-mp-rail-viewport {
+    scroll-snap-type: inline mandatory;
+    scroll-snap-stop: always;
+    scroll-padding-inline: 6px;
+    /* A partial edge item is a deliberate, bounded peek rather than a clipped-looking icon. */
+    mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
+  }
+  @media (prefers-reduced-transparency: reduce) {
+    .acpmux-mp-rail-viewport { mask-image: none; }
+  }
+  :root[data-reduce-transparency="true"] .acpmux-mp-rail-viewport {
+    mask-image: none;
+  }
   .acpmux-mp-rail-list {
     width: max-content;
     min-width: 100%;
     flex-direction: row !important;
     align-items: center;
     padding: 6px;
+    gap: 4px;
+  }
+  .acpmux-mp-rail-list > .acpmux-mp-rail-tab {
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    inline-size: 32px;
+    min-inline-size: 32px;
+    max-inline-size: 32px;
   }
   .acpmux-mp-content {
     width: 100%;
@@ -456,3 +477,15 @@
 
 /* Model rows own their inset; the list wrapper must not add a second inset. */
 .acpmux-mp-models { padding: 0; }
+
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-mp-rail-viewport {
+    -webkit-mask-image: none;
+    mask-image: none;
+  }
+}
+
+:root[data-reduce-transparency] .acpmux-mp-rail-viewport {
+  -webkit-mask-image: none;
+  mask-image: none;
+}

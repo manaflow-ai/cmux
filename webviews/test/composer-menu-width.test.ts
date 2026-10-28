@@ -12,8 +12,34 @@ import fs from "node:fs";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { quantizePickerRail } from "../src/agent-session/acpmux/pickerRailGeometry";
 
 await requireBrowserLane("composer-menu-width.test.ts", async () => {
+  test("picker rail geometry helper is idempotent and clears wide overrides", () => {
+    let width = "";
+    const rail = {
+      style: {
+        setProperty: (_name: string, value: string) => {
+          width = value;
+        },
+        removeProperty: () => {
+          width = "";
+        },
+      },
+    };
+    const container = { clientWidth: 184, scrollWidth: 184 };
+    const viewport = { clientWidth: 184, scrollWidth: 300 };
+    quantizePickerRail(rail, container, viewport, true);
+    const first = width;
+    expect(first).toBe("152px");
+    quantizePickerRail(rail, container, viewport, true);
+    expect(width).toBe(first);
+    quantizePickerRail(rail, container, { ...viewport, scrollWidth: 120 }, true);
+    expect(width).toBe("");
+    quantizePickerRail(rail, container, viewport, false);
+    expect(width).toBe("");
+  });
+
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src/agent-session");
   // The liquid glass first, as build-agent-pane-web.sh loads it: every popup's material.
@@ -43,13 +69,14 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 
   /// The inline style useUiAnchor gives an open menu (src/ui/anchor.ts). At a 200px viewport the
   /// anchor's 8px margin clamps the surface to x=8, so the narrow case can check both edges.
-  const ANCHORED = "position:absolute;left:8px;top:-260px;right:auto;bottom:auto;visibility:visible";
+  const ANCHORED = "position:absolute;left:8px;top:8px;right:auto;bottom:auto;visibility:visible";
   const row = (label: string) =>
     `<div class="acpmux-menu-item"><span class="acpmux-menu-text"><span class="acpmux-menu-label">${label}</span></span></div>`;
   const modelRow = (label: string) => `<button class="acpmux-mp-row">${label}</button>`;
   const PAGE = `<!doctype html><html><head><style>
 :root{--agent-text:rgb(205,214,244);--agent-accent-text:rgb(30,30,46);--agent-page-bg:rgb(30,30,46);--agent-muted:rgb(166,173,200)}
 ${css}
+.acpmux-mp-rail-viewport::-webkit-scrollbar{display:none}
 .flex{display:flex}
 </style></head><body>
 <div class="acpmux-shell"><div class="acpmux-composer" style="flex:1;margin-top:320px;padding:0"><div class="acpmux-composer-bar">
@@ -59,15 +86,15 @@ ${css}
     <button class="acpmux-picker-button"><span class="acpmux-model-name" data-fit-part="model" data-fit-forms="full">GPT-6-Astra</span></button>
     <div class="ui-popup ui-glass ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
       <div class="acpmux-mp-rail-scroll w-11 flex-none">
-        <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
+        <div class="acpmux-mp-rail-viewport" style="overflow-x:scroll;overflow-y:hidden;scrollbar-width:none;width:100%;max-width:100%">
           <div class="acpmux-mp-rail-list flex flex-col items-center gap-1 py-1.5">
-            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="width:32px;height:32px;flex:none">
+            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="height:32px;flex:none">
               Claude Code
             </button>
-            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="width:32px;height:32px;flex:none">
+            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="height:32px;flex:none">
               Codex
             </button>
-            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="width:32px;height:32px;flex:none">
+            <button class="acpmux-mp-rail-tab grid size-8 flex-none" style="height:32px;flex:none">
               Folder
             </button>
           </div>
@@ -176,6 +203,191 @@ ${css}
         expect(
           geometry.tabRects.every((tab) => tab.left >= geometry.railLeft && tab.right <= geometry.railRight + 1),
         ).toBe(true);
+        await page.close();
+      });
+
+      test("the horizontal harness strip keeps endpoints whole or as a bounded faded peek", async () => {
+        for (const width of [200, 360]) {
+          for (const count of [3, 8, 15]) {
+            const page = await open(width);
+            await page.$eval(
+              ".acpmux-mp-rail-list",
+              (list, total) => {
+                list.innerHTML = Array.from(
+                  { length: total as number },
+                  (_, index) =>
+                    '<button class="acpmux-mp-rail-tab grid size-8 flex-none" data-tab-index="' +
+                    index +
+                    '" style="height:32px;flex:none">Harness ' +
+                    (index + 1) +
+                    "</button>",
+                ).join("");
+              },
+              count,
+            );
+            await page.$eval(".acpmux-mp-rail-list", (list) => {
+              (list as HTMLElement).style.cssText +=
+                ";display:flex;flex-direction:row;gap:4px;width:max-content;min-width:max-content;padding:6px";
+            });
+            if (count > 3)
+              await page.$eval(".acpmux-mp-rail-viewport", (viewport) => {
+                (viewport as HTMLElement).style.setProperty("width", "100px", "important");
+              });
+            const endpoint = async (position: "start" | "middle" | "end") => {
+              if (position === "middle") {
+                const box = await page.$eval(".acpmux-mp-rail-viewport", (node) => {
+                  const rect = (node as HTMLElement).getBoundingClientRect();
+                  return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                    width: (node as HTMLElement).scrollWidth,
+                  };
+                });
+                await page.mouse.move(box.x, box.y);
+                await page.$eval(".acpmux-mp-rail-viewport", (node) => {
+                  const viewport = node as HTMLElement;
+                  const target = Math.min(viewport.scrollWidth - viewport.clientWidth - 1, 72);
+                  viewport.scrollLeft = Math.max(1, target);
+                });
+              } else {
+                await page.$eval(
+                  ".acpmux-mp-rail-viewport",
+                  (node, side) => {
+                    const viewport = node as HTMLElement;
+                    viewport.scrollLeft = side === "start" ? 0 : viewport.scrollWidth;
+                  },
+                  position,
+                );
+              }
+              await page.waitForFunction(
+                (selector) => {
+                  const viewport = document.querySelector<HTMLElement>(selector)! as HTMLElement & {
+                    __cmuxLastScroll?: number;
+                    __cmuxStableFrames?: number;
+                  };
+                  const current = viewport.scrollLeft;
+                  if (viewport.__cmuxLastScroll === current) {
+                    viewport.__cmuxStableFrames = (viewport.__cmuxStableFrames ?? 0) + 1;
+                  } else {
+                    viewport.__cmuxLastScroll = current;
+                    viewport.__cmuxStableFrames = 0;
+                  }
+                  return (viewport.__cmuxStableFrames ?? 0) >= 2;
+                },
+                ".acpmux-mp-rail-viewport",
+                { polling: "raf", timeout: 1000 },
+              );
+              return page.$eval(".acpmux-mp-rail-viewport", (node) => {
+                const viewport = node as HTMLElement;
+                const viewportBox = viewport.getBoundingClientRect();
+                return {
+                  mask: getComputedStyle(viewport).maskImage,
+                  snapType: getComputedStyle(viewport).scrollSnapType,
+                  tabSnap: getComputedStyle(viewport.querySelector<HTMLElement>(".acpmux-mp-rail-tab")!)
+                    .scrollSnapAlign,
+                  gaps: [...viewport.querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")]
+                    .slice(1)
+                    .map((tab, index) => {
+                      const previous = viewport
+                        .querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")
+                        [index]!.getBoundingClientRect();
+                      return tab.getBoundingClientRect().left - previous.right;
+                    }),
+                  scrollLeft: viewport.scrollLeft,
+                  maxScroll: Math.max(0, viewport.scrollWidth - viewport.clientWidth),
+                  tabs: [...viewport.querySelectorAll<HTMLElement>(".acpmux-mp-rail-tab")]
+                    .map((tab) => {
+                      const box = tab.getBoundingClientRect();
+                      const left = Math.max(box.left, viewportBox.left);
+                      const right = Math.min(box.right, viewportBox.right);
+                      return { visibleWidth: Math.max(0, right - left), fullWidth: box.width };
+                    })
+                    .filter((tab) => tab.visibleWidth > 0),
+                };
+              });
+            };
+            const startState = await endpoint("start");
+            const middleState = await endpoint("middle");
+            const endState = await endpoint("end");
+            expect(startState.tabs.length).toBeGreaterThan(0);
+            expect(endState.tabs.length).toBeGreaterThan(0);
+            if (count > 3) {
+              expect(middleState.maxScroll).toBeGreaterThan(0);
+              expect(middleState.scrollLeft).toBeGreaterThan(0);
+              if (middleState.maxScroll > 36) expect(middleState.scrollLeft).toBeLessThan(middleState.maxScroll);
+            }
+            expect(startState.mask).toContain("linear-gradient");
+            expect(middleState.mask).toContain("linear-gradient");
+            expect(endState.mask).toContain("linear-gradient");
+            expect(startState.snapType).toContain("mandatory");
+            expect(startState.tabSnap).toContain("start");
+            expect(new Set(startState.gaps.map((gap) => Math.round(gap))).size).toBe(1);
+            expect(startState.gaps.every((gap) => Math.abs(gap - 4) < 0.5)).toBe(true);
+            if (count === 3) {
+              const lifecycle = await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
+                const viewport = rail.querySelector<HTMLElement>(".acpmux-mp-rail-viewport")!;
+                const quantify = () => {
+                  const available = rail.parentElement?.clientWidth ?? rail.clientWidth;
+                  if (viewport.scrollWidth <= available) rail.style.removeProperty("width");
+                  else {
+                    const cells = Math.max(1, Math.floor((available - 12 + 4) / 36));
+                    rail.style.setProperty("width", `${cells * 36 - 4 + 12}px`, "important");
+                  }
+                };
+                quantify();
+                const first = { width: viewport.clientWidth, maxScroll: viewport.scrollWidth - viewport.clientWidth };
+                quantify();
+                return {
+                  first,
+                  second: { width: viewport.clientWidth, maxScroll: viewport.scrollWidth - viewport.clientWidth },
+                };
+              });
+              expect(lifecycle.second).toEqual(lifecycle.first);
+              expect(lifecycle.second.maxScroll).toBe(0);
+            }
+            for (const [label, state] of [
+              ["start", startState],
+              ["middle", middleState],
+              ["end", endState],
+            ] as const) {
+              const clipped = state.tabs.filter((tab) => tab.visibleWidth + 0.5 < tab.fullWidth);
+              expect(clipped.length).toBeLessThanOrEqual(label === "middle" ? 2 : 1);
+              expect(clipped.every((tab) => tab.fullWidth - tab.visibleWidth <= 31.5)).toBe(true);
+            }
+            await page.close();
+          }
+        }
+      });
+
+      test("the narrow rail quantizer is idempotent and clears on wide panes", async () => {
+        const page = await open(200);
+        const result = await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
+          const viewport = rail.querySelector<HTMLElement>(".acpmux-mp-rail-viewport")!;
+          const container = rail.parentElement!;
+          const quantize = (narrow: boolean) => {
+            if (!narrow) {
+              rail.style.removeProperty("width");
+              return;
+            }
+            const available = container.clientWidth;
+            const content = viewport.scrollWidth;
+            if (content <= available) {
+              rail.style.removeProperty("width");
+              return;
+            }
+            const cells = Math.max(1, Math.floor((available - 12 + 4) / 36));
+            rail.style.setProperty("width", `${cells * 36 - 4 + 12}px`, "important");
+          };
+          rail.style.setProperty("width", "120px", "important");
+          quantize(true);
+          const first = rail.style.width;
+          quantize(true);
+          const second = rail.style.width;
+          quantize(false);
+          return { first, second, cleared: rail.style.width };
+        });
+        expect(result.first).toBe(result.second);
+        expect(result.cleared).toBe("");
         await page.close();
       });
 
