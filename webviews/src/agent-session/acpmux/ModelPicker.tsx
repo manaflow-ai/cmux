@@ -721,14 +721,16 @@ export function ModelPicker(props: ModelPickerProps) {
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
         if (quick !== undefined) {
-          if (open) showRef.current();
+          // While the compact menu is visible, replace it with the full picker.
+          // `open` is the full picker state, so it remains false until `show` runs.
+          if (open || quickOpen) showRef.current();
           else setQuickOpen(true);
         } else showRef.current();
       }
     };
     window.addEventListener("keydown", key);
     return () => window.removeEventListener("keydown", key);
-  }, [quick, open, close]);
+  }, [quick, open, quickOpen]);
   useEffect(() => {
     if (!open) setSelectedHarness(harness);
   }, [harness, open]);
