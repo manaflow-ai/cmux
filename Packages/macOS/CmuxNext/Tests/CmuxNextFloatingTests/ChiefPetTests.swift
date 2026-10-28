@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextFloating
+import CmuxNextWakeups
 import Foundation
 import Observation
 import Testing
@@ -304,28 +305,81 @@ import Testing
         #expect(bubble.isVisible)
     }
 
-    @Test func controllerShowsThePetOnlyWhileItIsOn() async {
+    /// chrome-parity p03-rendering-105: a new notice fades its capsules' layer in on the render
+    /// server; the bubble window's alpha stays 1, so the window server gets no call per frame.
+    @Test func aNewNoticeFadesTheCapsulesLayerNotTheWindow() throws {
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        controller.sync(true)
+        defer { controller.sync(false) }
+        controller.arrive(ChiefPetNotice(id: 1, tab: "t", surface: nil, title: "Done", detail: "Build finished", kind: .done))
+        let bubble = try #require(controller.bubble)
+        #expect(bubble.isVisible, "the notice did not show")
+        #expect(bubble.alphaValue == 1, "the notice faded its window (alpha \(bubble.alphaValue)), not its layer")
+        let layer = try #require(bubble.bubble.layer, "the capsules are not layer-backed")
+        #expect(layer.opacity == 1, "the capsules do not rest at full opacity")
+        controller.hideBubble()
+        #expect(layer.opacity == 0, "a hidden bubble keeps its last notice on screen for the next show's first frame")
+        controller.render(animated: false)
+        #expect(bubble.isVisible && layer.opacity == 1, "a show without a fade is not at full opacity at once")
+    }
+
+    /// Runs the main run loop, where the scheduler's posted flushes run, until `done` or 5 s.
+    static func spin(until done: () -> Bool) {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+    }
+
+    @Test func controllerShowsThePetOnlyWhileItIsOn() {
         let flag = Flag(false)
         let defaults = Self.defaults()
         let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
                                             actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
-        controller.start(enabled: { flag.on })
-        for _ in 0..<100 { await Task.yield() }
+        controller.start(on: MainWorkScheduler(budget: MainFrameBudget()), enabled: { flag.on })
         #expect(controller.panel == nil, "off: no panel is made")
         flag.on = true
-        for _ in 0..<1000 where !controller.isShown { await Task.yield() }
+        Self.spin { controller.isShown }
         #expect(controller.isShown, "the setting turning on shows it")
         controller.panel?.onClick?()
         #expect(controller.replyPanel?.isVisible == true, "a click opens the reply box")
         let made = controller.panel
         flag.on = false
-        for _ in 0..<1000 where controller.isShown { await Task.yield() }
+        Self.spin { !controller.isShown }
         #expect(!controller.isShown)
         #expect(controller.replyPanel?.isVisible == false)
         flag.on = true
-        for _ in 0..<1000 where !controller.isShown { await Task.yield() }
+        Self.spin { controller.isShown }
         // Made once: its spot and state are kept while it is hidden.
         #expect(controller.panel === made)
         controller.sync(false)
+    }
+
+    /// The follow is a `ServiceObservation` (p06-scheduler-337, rule 3): the current setting applies
+    /// in `start`'s own turn, with no window or node, and a burst of changes applies once, the last.
+    @Test func startAppliesTheSettingAtOnceAndABurstOnce() {
+        let flag = Flag(true)
+        let mascot = Mascot(ChiefPetMascot.initial.rawValue)
+        let defaults = Self.defaults()
+        let controller = ChiefPetController(makePanel: { ChiefPetPanel(defaults: defaults) },
+                                            actions: ChiefPetActions(open: { _ in }, send: { _, _ in true }))
+        defer { controller.sync(false) }
+        controller.start(on: MainWorkScheduler(budget: MainFrameBudget()), enabled: { flag.on }, mascot: { mascot.id })
+        #expect(controller.isShown, "the setting on at start did not show the pet in start's turn")
+        let other = ChiefPetMascot.allCases.first { $0 != .initial } ?? .initial
+        flag.on = false
+        flag.on = true
+        mascot.id = other.rawValue
+        #expect(controller.mascot == .initial, "a change applied inside its own write")
+        Self.spin { controller.mascot == other }
+        #expect(controller.mascot == other)
+        #expect(controller.isShown, "off then on in one burst applies the last value: on")
+    }
+
+    @Observable final class Mascot {
+        var id: String
+        init(_ id: String) { self.id = id }
     }
 }

@@ -92,7 +92,11 @@ fn watch(path: &Path) -> Option<Arc<DeathWatch>> {
     if let Some(w) = map.get(path) {
         return Some(w.clone());
     }
-    let file = std::fs::OpenOptions::new().read(true).write(true).open(path).ok()?;
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let file = scoped_blocking_call("fs::open_with", BlockingKind::Fs, || {
+        std::fs::OpenOptions::new().read(true).write(true).open(path)
+    })
+    .ok()?;
     let w = Arc::new(DeathWatch {
         state: StdMutex::new(Watch::Waiting),
         changed: Condvar::new(),
@@ -146,9 +150,11 @@ fn take_death_lock(_file: std::fs::File) -> Watch {
 pub fn wait_dead_within(dir: &Path, session_id: &str, start_nonce: &str, budget: Duration) -> bool {
     let Some(w) = watch(&live_path(dir, session_id, start_nonce)) else { return true };
     let state = w.state.lock_or_recover();
-    let (state, _) = w
-        .changed
-        .wait_timeout_while(state, budget, |s| *s == Watch::Waiting)
+    #[allow(clippy::disallowed_methods, reason = "inside scoped_blocking_call")]
+    let (state, _) =
+        scoped_blocking_call("sync::wait_timeout_while", BlockingKind::CondvarWait, || {
+            w.changed.wait_timeout_while(state, budget, |s| *s == Watch::Waiting)
+        })
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     *state == Watch::Dead
 }

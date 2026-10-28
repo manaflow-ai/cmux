@@ -10,6 +10,9 @@
 /// - ``start(every:_:)`` repeats until ``cancel()``; the next fire is planned when the action runs, before it, as
 ///   `RepeatingTimer` does. A deadline scheduled again from its own action counts as repeating too.
 /// - ``cancel()`` drops it, also after its wake, while its action is still waiting in its class queue.
+/// - A ``TimerAlignment/whenHidden(_:)`` deadline's action is charged to ``MainWorkScheduler/hiddenBudget`` while
+///   its node is hidden; with the budget spent, the wake is placed again for the first aligned wake that has budget
+///   (Blink's `CPUTimeBudgetPool`). A shown node, recent media or a capture vote is not charged and never waits.
 ///
 /// Hold it while it may fire. A released deadline never runs: its wake holds it weakly and does nothing when it comes
 /// (no deinit work, as ``FrameClient``); cancel first to drop the wake.
@@ -41,6 +44,10 @@ public final class MainDeadline {
     /// A ``TimerAlignment/whenHidden(_:)`` deadline's subscriptions to its node: a visibility flip (a capture vote
     /// that does not stay hidden flips it) and media starting or stopping place the pending wake again.
     private var subscriptions: [VisibilitySubscription] = []
+    #if DEBUG || CMUX_BENCH_HOOKS
+    /// Its record in the arm census (startup-queue.py arms, p08-startup-085) until its first wake.
+    private var census = ArmCensusEntry()
+    #endif
 
     private struct Pending {
         /// When it is due (uptime ns on the scheduler's queue).
@@ -52,6 +59,8 @@ public final class MainDeadline {
         let repeating: Bool
         /// The period of ``MainDeadline/start(every:_:)``.
         let interval: Duration?
+        /// The due instant before the hidden budget moved the wake, which it goes back to once the work is not charged.
+        let heldDue: UInt64?
         let action: @MainActor () -> Void
     }
 
@@ -120,14 +129,25 @@ public final class MainDeadline {
     private func plan(after delay: Duration, repeating: Bool, interval: Duration?,
                       _ action: @escaping @MainActor () -> Void) {
         cancel()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        census.armed(in: scheduler.armCensus, .mainDeadline, owner: owner, site: ArmCensus.Site(file: file, line: line))
+        #endif
         place(due: Self.instant(after: delay, from: scheduler.now), repeating: repeating, interval: interval, action)
     }
 
     /// Places the wake for `due` under the rule that applies now.
-    private func place(due: UInt64, repeating: Bool, interval: Duration?, _ action: @escaping @MainActor () -> Void) {
+    private func place(due: UInt64, heldDue: UInt64? = nil, repeating: Bool, interval: Duration?,
+                       _ action: @escaping @MainActor () -> Void) {
         let rule = scheduler.rule(alignment, due: due, repeating: repeating)
         let handle = scheduler.place(self, generation: generation, due: due, rule: rule)
-        pending = Pending(due: due, rule: rule, handle: handle, repeating: repeating, interval: interval, action: action)
+        pending = Pending(due: due, rule: rule, handle: handle, repeating: repeating, interval: interval,
+                          heldDue: heldDue, action: action)
+    }
+
+    /// How the action run now is charged to the hidden budget: a deadline with no node is not a hidden node's work.
+    private var charge: CPUTimeBudgetPool.Charge {
+        guard let node = alignment.node else { return .visible }
+        return CPUTimeBudgetPool.Charge(of: node)
     }
 
     private static func instant(after delay: Duration, from now: UInt64) -> UInt64 {
@@ -136,12 +156,18 @@ public final class MainDeadline {
     }
 
     /// The node flipped, or its media or capture state changed: the same due instant, under the rule that applies
-    /// now (a shown node's deadline fires flexibly at once if it was due). A wake whose rule stays is not touched.
+    /// now (a shown node's deadline fires flexibly at once if it was due). A wake whose rule stays is not touched. A
+    /// wake the hidden budget moved goes back to its own due instant once the work is no longer charged.
     private func replan() {
         guard let current = pending, let handle = current.handle else { return }
+        if let heldDue = current.heldDue, charge != .hidden {
+            scheduler.remove(handle)
+            return place(due: heldDue, repeating: current.repeating, interval: current.interval, current.action)
+        }
         guard scheduler.rule(alignment, due: current.due, repeating: current.repeating) != current.rule else { return }
         scheduler.remove(handle)
-        place(due: current.due, repeating: current.repeating, interval: current.interval, current.action)
+        place(due: current.due, heldDue: current.heldDue, repeating: current.repeating, interval: current.interval,
+              current.action)
     }
 
     /// The wake came: the action is posted in its class, with the node's state for the board's ledger. It is not held
@@ -149,6 +175,9 @@ public final class MainDeadline {
     func wakeDidFire(_ generation: UInt64) {
         guard generation == self.generation, pending?.handle != nil else { return }
         pending?.handle = nil
+        #if DEBUG || CMUX_BENCH_HOOKS
+        census.fired(in: scheduler.armCensus)
+        #endif
         let work = scheduler.work
         var node = MainTaskPost.NodeState.none
         if let owningNode = alignment.node { node = MainTaskPost.NodeState(owningNode.effective) }
@@ -158,6 +187,13 @@ public final class MainDeadline {
 
     private func run(_ generation: UInt64) {
         guard generation == self.generation, let current = pending else { return }
+        let charge = self.charge
+        let budget = scheduler.work.hiddenBudget
+        let wait = budget.delayUntilAllowed(charge)
+        guard wait == .zero else {
+            return place(due: Self.instant(after: wait, from: scheduler.now), heldDue: current.heldDue ?? current.due,
+                         repeating: current.repeating, interval: current.interval, current.action)
+        }
         if let interval = current.interval {
             place(due: Self.instant(after: interval, from: scheduler.now), repeating: true, interval: interval,
                   current.action)
@@ -166,6 +202,6 @@ public final class MainDeadline {
         }
         runningAction = true
         defer { runningAction = false }
-        current.action()
+        budget.run(charge) { current.action() }
     }
 }

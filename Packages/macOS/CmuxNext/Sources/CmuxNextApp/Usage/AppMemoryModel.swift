@@ -56,8 +56,9 @@ struct AppMemoryModel: MemorySnapshotModel {
     var memoryTerminal: MemoryDiagnosticsSnapshot.Terminal {
         let cache = services.cache
         let rendering = cache.terminals.keys.filter { cache.ledger.isRendering($0) }.count
-        // Hidden: away from the viewport, outside the keep-alive band (whose surfaces stay resident).
-        let hidden = cache.terminals.filter { cache.ledger.isAway($0.key) }.values
+        // Hidden: away from the viewport, outside the keep-alive band (whose surfaces stay resident), or
+        // shown in an off-screen window (resident until the window stays off screen 30 s, p07-memory-097).
+        let hidden = cache.terminals.filter { cache.ledger.isAway($0.key) || $0.value.session.isInOffScreenWindow }.values
         let hiddenBytes = hidden.reduce(0) { $0 + Int(clamping: $1.session.pausedNonvolatileIOSurfaceBytes) }
         return MemoryDiagnosticsSnapshot.Terminal(
             warmCapacity: cache.warmBudget.terminalCapacity, surfaces: cache.terminals.count, rendering: rendering,
@@ -69,8 +70,13 @@ struct AppMemoryModel: MemorySnapshotModel {
         if let view = services.newTabSpares.spareView {
             spares.append(.init(pool: "new_tab", processKind: .webkitWebContent, pid: Self.webContentProcess(of: view.page)))
         }
-        if let host = services.pageHostPool.spareHost {
-            spares.append(.init(pool: "page_host", processKind: .webkitWebContent, pid: Self.webContentProcess(of: host)))
+        if let page = services.pagePreloads.heldPage, !page.showsChromium {
+            spares.append(.init(pool: "page_preload", processKind: .webkitWebContent, pid: Self.webContentProcess(of: page)))
+        }
+        // Chromium's spare windows; their placeholder's renderer, when it has one, gives the pid (p07-memory-113).
+        // A read never builds the engine: none built, no spare window.
+        for window in services.cache.chromium.built?.spareWindowRenderers ?? [] {
+            spares.append(.init(pool: window.pool, processKind: .chromiumRenderer, pid: nil, rendererClients: window.rendererClients))
         }
         return spares
     }
@@ -91,7 +97,7 @@ struct AppMemoryModel: MemorySnapshotModel {
             for view in agentTabs.views.values { add(webContentProcess(of: view.page)) }
         }
         if let view = services.newTabSpares.spareView { add(webContentProcess(of: view.page)) }
-        if let host = services.pageHostPool.spareHost { add(webContentProcess(of: host)) }
+        if let page = services.pagePreloads.heldPage { add(webContentProcess(of: page)) }
         return pids
     }
 
@@ -101,11 +107,24 @@ struct AppMemoryModel: MemorySnapshotModel {
         page.webKitEngine.flatMap { WebContentProcess.identifier(of: $0) }
     }
 
+    /// The renderer client ids that host a frame of any Chromium browser (``CEFEngine/rendererClientsWithFrames``),
+    /// nil while no engine is built: a read never builds it.
+    static func rendererClientsWithFrames(_ services: AppServices?) -> Set<Int32>? {
+        services?.cache.chromium.built?.rendererClientsWithFrames
+    }
+
     /// The app process, its Chromium helpers and the WebContent processes in `snapshot`, each with
-    /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
+    /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor; then, on the main actor, the
+    /// renderer clients that host a frame (`rendererClientsWithFrames`). That read comes after the helpers
+    /// were listed, so a renderer that started and committed its page before it is not taken for one that
+    /// hosts no frame.
     @concurrent
-    nonisolated static func processes(_ snapshot: MemoryDiagnosticsSnapshot) async -> MemoryDiagnosticsProcesses {
-        await processes(webContentPIDs: snapshot.webContentPIDs)
+    nonisolated static func processes(_ snapshot: MemoryDiagnosticsSnapshot,
+                                      rendererClientsWithFrames: @escaping @MainActor @Sendable () -> Set<Int32>?) async
+        -> MemoryDiagnosticsProcesses {
+        var sampled = await processes(webContentPIDs: snapshot.webContentPIDs)
+        sampled.rendererClientsWithFrames = await rendererClientsWithFrames()
+        return sampled
     }
 
     /// The app process, its Chromium helpers and the WebContent processes `webContentPIDs`, each with

@@ -1,7 +1,9 @@
 /// When an ``EventSubscription``'s handler runs.
 public enum EventDelivery: Sendable {
-    /// Only while the subscriber's ``VisibilityNode`` is visible. Posts that arrive while it is
-    /// hidden or occluded make one ``EventCall/missed`` call when it next shows, however many came.
+    /// Only while the subscriber's ``VisibilityNode`` renders (``VisibilityNode/wantsFrames``: it is
+    /// visible, or a capture vote holds it, so a screenshot of a hidden tab draws current views).
+    /// Posts that arrive while it does not make one ``EventCall/missed`` call when it next renders,
+    /// however many came.
     case whenVisible
     /// On every post, shown or not: work the person waits for even with the view hidden (a model
     /// write, a capture another window shows).
@@ -12,7 +14,7 @@ public enum EventDelivery: Sendable {
 public enum EventCall: Sendable, Equatable {
     /// The notification was posted.
     case posted
-    /// The subscriber's node just showed and the notification was posted while it was not
-    /// visible: read the current state, the posts themselves are gone.
+    /// The subscriber's node just started rendering and the notification was posted while it did
+    /// not: read the current state, the posts themselves are gone.
     case missed
 }

@@ -1,4 +1,5 @@
 public import CmuxNextBrowser
+public import CmuxNextCompat
 public import CmuxNextWakeups
 public import Foundation
 public import WebKit
@@ -21,10 +22,14 @@ public final class WebKitDriver: DriverCallHandler {
     public var agentBundle: String?
     /// Where `cookies.clear` keeps what it deletes (undo); nil: no clear runs.
     public var cookieBackups: CookieBackups?
+    /// The app's lanes: the backups' file and Keychain work runs on their system lane.
+    public var cookieBackupLanes: (any MayBlockRunner)?
     var sessions: [BrowserTabID: TabSession] = [:]
     lazy var dialogs = DialogBroker(work: mainWork) { [weak self] name, payload in self?.emit(name, payload) }
     /// The app's main-thread scheduler: the tab watchers and the dialog broker observe in its automation class.
     let mainWork: MainWorkScheduler
+    /// The load waits' request deadlines, on ``mainWork``'s queue.
+    let deadlines: MainDeadlineScheduler
 
     /// The clock of the driver's bounded waits.
     let clock: any Clock<Duration>
@@ -35,6 +40,7 @@ public final class WebKitDriver: DriverCallHandler {
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.provider = provider
         self.mainWork = mainWork
+        deadlines = MainDeadlineScheduler(work: mainWork)
         self.clock = clock
         privateCalls = WebKitPrivateCalls(clock: clock)
         self.agentBundle = agentBundle
@@ -174,7 +180,7 @@ public final class WebKitDriver: DriverCallHandler {
 final class TabSession {
     let tabID: BrowserTabID
     let frames = FrameRegistry()
-    let waits = LoadWaits()
+    let waits: LoadWaits
     var mouse = MouseEventPlan()
     var mouseLocation = CGPoint.zero
     var agentReady = false
@@ -188,6 +194,7 @@ final class TabSession {
 
     init(tabID: BrowserTabID, driver: WebKitDriver) {
         self.tabID = tabID
+        waits = LoadWaits(deadlines: driver.deadlines)
         messages = LoadStateMessages(tabID: tabID, driver: driver)
     }
 

@@ -35,6 +35,9 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     // inherit it, so SIGTERM would stay pending forever and child exits
     // would never be seen. Clear it before the runtime starts its threads.
     #[cfg(unix)]
+    // SAFETY: `empty` is a local sigset_t (all-zero is a valid value) that
+    // sigemptyset initializes before pthread_sigmask reads it; the old-set
+    // pointer may be null.
     unsafe {
         let mut empty: libc::sigset_t = std::mem::zeroed();
         libc::sigemptyset(&mut empty);
@@ -106,6 +109,7 @@ async fn async_main(
 ) -> Result<()> {
     // `acpmux ls | head` must end quietly, not panic on a closed pipe.
     #[cfg(unix)]
+    // SAFETY: SIG_DFL is a valid disposition for SIGPIPE; no handler runs.
     unsafe {
         libc::signal(libc::SIGPIPE, libc::SIG_DFL);
     }
