@@ -144,3 +144,34 @@ fn a_lock_the_daemon_cannot_open_fails_at_once_instead_of_waiting_for_a_handover
     assert!(started.elapsed() < Duration::from_secs(5), "failed after {:?}", started.elapsed());
     assert!(!text(&out).contains("still holds"), "{}", text(&out));
 }
+
+/// The CLI restart wrapper keeps an active hosted turn and lets the new daemon
+/// adopt it, rather than ending the session or requiring a new prompt.
+#[test]
+fn cli_daemon_restart_reattaches_an_active_turn() {
+    let dir = scratch("cli-restart");
+    let _shutdown = Shutdown(&dir);
+    let made = cli(&dir, &["run", "-d", "-n", "lane", "ticking:20:100"]);
+    assert!(made.status.success(), "start: {}", text(&made));
+    let before: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout)
+        .expect("ls JSON before restart");
+    let before_id = before["sessions"][0]["sessionId"].as_str().unwrap().to_owned();
+
+    let restarted = cli(&dir, &["--json", "daemon", "restart"]);
+    assert!(restarted.status.success(), "restart: {}", text(&restarted));
+    let restart_json: serde_json::Value =
+        serde_json::from_slice(&restarted.stdout).expect("restart JSON");
+    assert_eq!(restart_json["restarted"], true);
+
+    let waited = cli(&dir, &["wait", "lane", "--timeout", "30"]);
+    assert!(waited.status.success(), "wait: {}", text(&waited));
+    let after: serde_json::Value = serde_json::from_slice(&cli(&dir, &["--json", "ls"]).stdout)
+        .expect("ls JSON after restart");
+    assert_eq!(after["sessions"][0]["sessionId"], before_id);
+    let last = cli(&dir, &["last", "lane"]);
+    assert!(
+        String::from_utf8_lossy(&last.stdout).contains("tick19"),
+        "turn did not finish after restart: {}",
+        text(&last)
+    );
+}
