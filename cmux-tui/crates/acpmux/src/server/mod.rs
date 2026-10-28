@@ -71,6 +71,9 @@ pub struct Conn {
     watch_all: AtomicBool,
     /// Its pace of full session lists (`hub/list_guard.rs`).
     list_pace: StdMutex<crate::hub::list_guard::Pacer>,
+    /// `session_changed` notices queued for it, counted before each is queued
+    /// (`list_reply.rs`: a list sent after one must show its change).
+    notices: AtomicU64,
     watch_inventory: StdMutex<bool>,
     /// The unix socket peer's audit token, read at accept (macOS); what
     /// `_acpmux/person_enroll` checks. None for WebSocket connections.
@@ -284,6 +287,9 @@ impl Conn {
 
     fn send(&self, msg: &Message) {
         let control = matches!(msg, Message::Response { .. });
+        if msg.method() == Some(method::MUX_SESSION_CHANGED) {
+            self.notices.fetch_add(1, Ordering::SeqCst);
+        }
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
         let msg = masked.as_ref().unwrap_or(msg);
         // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
@@ -319,13 +325,18 @@ impl Conn {
         }
     }
     /// The reply for `id` whose result is already serialized (`list_reply.rs`), masked
-    /// already for a peer. One larger than a frame goes as its error, as in [`Self::send`].
-    fn send_serialized(&self, id: &Value, result: &str) {
+    /// already for a peer, queued only if `still` holds under the outbound lock: false
+    /// when it did not. One larger than a frame goes as its error, as in [`Self::send`].
+    fn send_serialized(&self, id: &Value, result: &str, still: impl FnOnce() -> bool) -> bool {
         let mut line = list_reply::reply_line(id, result);
         if line.len() > crate::rpc::MAX_MESSAGE_BYTES {
             line = Message::err(id.clone(), RpcError::too_large(line.len())).to_line();
         }
-        enqueue_outbound(
+        let _guard = self.outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if !still() {
+            return false;
+        }
+        enqueue_outbound_locked(
             &self.out,
             line,
             true,
@@ -334,6 +345,7 @@ impl Conn {
             &self.outbound_lock,
             &self.outbound_pending_controls,
         );
+        true
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock_or_recover().get(session_id).cloned()
@@ -390,6 +402,27 @@ fn enqueue_outbound(
     pending_controls: &Arc<AtomicUsize>,
 ) {
     let _guard = outbound_lock.lock().unwrap_or_else(|e| e.into_inner());
+    enqueue_outbound_locked(
+        out,
+        line,
+        control,
+        dropped,
+        gap_pending,
+        outbound_lock,
+        pending_controls,
+    );
+}
+
+/// [`enqueue_outbound`] with `outbound_lock` held.
+fn enqueue_outbound_locked(
+    out: &mpsc::Sender<String>,
+    line: String,
+    control: bool,
+    dropped: &Arc<AtomicU64>,
+    gap_pending: &Arc<AtomicBool>,
+    outbound_lock: &Arc<StdMutex<()>>,
+    pending_controls: &Arc<AtomicUsize>,
+) {
     // Notifications are lossy by design when the reader is too slow, but the
     // The final three permits are reserved for two response/control messages
     // and the recovery marker.
@@ -1146,6 +1179,7 @@ async fn serve_connection_from(
         mailbox_bindings: StdMutex::new(HashMap::new()),
         watch_all: AtomicBool::new(false),
         list_pace: Default::default(),
+        notices: AtomicU64::new(0),
         watch_inventory: StdMutex::new(false),
         peer,
         requests: std::sync::atomic::AtomicU64::new(0),
@@ -1224,16 +1258,10 @@ async fn serve_connection_from(
                 let conn = conn.clone();
                 tokio::spawn(async move {
                     let _slot = slot;
-                    let (result, serialized) = list_reply::scope(chats::route(
-                        &hub,
-                        &conn,
-                        &m,
-                        params.unwrap_or(Value::Null),
-                    ))
-                    .await;
-                    // A shared session list, sent as the bytes it was serialized to.
-                    if let (Ok(_), Some(result)) = (&result, serialized) {
-                        conn.send_serialized(&id, &result);
+                    let route = chats::route(&hub, &conn, &m, params.unwrap_or(Value::Null));
+                    let (result, sent) = list_reply::scope(id.clone(), route).await;
+                    // A shared session list, sent already as the bytes it was serialized to.
+                    if sent && result.is_ok() {
                         return;
                     }
                     conn.send(&match result {

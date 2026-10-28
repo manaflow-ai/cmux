@@ -9,10 +9,14 @@
 //!   hears of changed (every send on [`Events`], attach or detach, and write to the
 //!   peers' rows counts), within its window, and never while the chat logs load. Fields
 //!   that change with the clock alone (a stall, an expiring tag) are at most a window old.
+//!   A request shares any build begun after it arrived. A watcher's reply never follows
+//!   a `session_changed` notice its list may lack (`list_reply.rs`).
 //! - **Paced.** [`BURST`] builds back to back, then one per window ([`PACE`] times the
 //!   last build's cost, at most [`MAX_WINDOW`]): about 1/32 of a core however many ask.
 //!   Per connection, two lists back to back, then one per window; all connections
-//!   together, [`REPLIES`] per window. A page costs its share of the rows.
+//!   together, [`REPLIES`] per window. A page costs its share of the rows, at least
+//!   [`PAGE_MIN`]. The first list is built before it is paced, so the pace is known. A
+//!   request that would wait more than [`MAX_WAIT`] is refused, to try again later.
 //!
 //! Cleanup: each build starts one task that drops its snapshot when the window ends
 //! (unless a newer build replaced it); it holds a weak reference and ends after one
@@ -34,6 +38,10 @@ const BURST: u32 = 4;
 const CONN_BURST: u32 = 2;
 /// Lists all connections together read per window, after as many back to back.
 const REPLIES: u32 = 8;
+/// The least a page costs, in lists: it reads every row's key to find its rows.
+const PAGE_MIN: f64 = 1.0 / 16.0;
+/// The longest a list request waits for its turn; a longer wait is refused.
+pub(crate) const MAX_WAIT: Duration = Duration::from_secs(30);
 
 /// The hub's event channel. Every send is a change some list shows.
 pub(crate) struct Events {
@@ -68,8 +76,8 @@ impl Events {
 /// One build of the list, kept serialized: a JSON tree of every summary is several
 /// times its text.
 pub(crate) struct Snapshot {
-    /// What it was built at (`key`); None while the chat logs load.
-    key: Option<(u64, u64)>,
+    /// What it was built at (`key`).
+    key: Key,
     serial: u64,
     started: Instant,
     /// How long it is reused, and how far the next build waits behind it.
@@ -87,12 +95,7 @@ pub(crate) struct Snapshot {
 type Built = (String, Vec<Range<usize>>, Vec<Value>);
 
 impl Snapshot {
-    fn new(
-        key: Option<(u64, u64)>,
-        serial: u64,
-        window: Duration,
-        (text, spans, keys): Built,
-    ) -> Self {
+    fn new(key: Key, serial: u64, window: Duration, (text, spans, keys): Built) -> Self {
         let (whole, made, started) = (Arc::new(text), Default::default(), Instant::now());
         Self { key, serial, started, window, whole, spans, keys, made }
     }
@@ -156,6 +159,11 @@ impl Snapshot {
         self.spans.iter().map(|span| parse(span).unwrap_or_default()).collect()
     }
 
+    /// Nothing it shows changed since it was built.
+    pub(crate) fn current(&self, hub: &Hub) -> bool {
+        self.key == key(hub)
+    }
+
     /// The result `name`, made by `make` the first time it is asked for.
     pub(crate) fn made(
         &self,
@@ -175,50 +183,54 @@ pub(crate) struct ListGuard {
     rows: std::sync::atomic::AtomicUsize,
     /// Every connection's lists together (`reserve`).
     replies: StdMutex<Pacer>,
+    /// Builds begun: a request shares any build begun after it arrived.
+    begun: AtomicU64,
 }
 
 #[derive(Default)]
 struct State {
     last: Option<Arc<Snapshot>>,
     pace: Pacer,
-    serial: u64,
 }
 
 impl ListGuard {
-    fn window(&self) -> Duration {
+    pub(crate) fn window(&self) -> Duration {
         Duration::from_nanos(self.window_nanos.load(Ordering::Relaxed))
     }
 
-    /// The share of the list that `limit` rows are (None: all of it).
+    /// The share of the list a page of `limit` rows costs (None: all of it).
     pub(crate) fn share(&self, limit: Option<u64>) -> f64 {
         let rows = self.rows.load(Ordering::Relaxed).max(1) as f64;
-        limit.map_or(1.0, |limit| (limit as f64 / rows).min(1.0))
+        limit.map_or(1.0, |limit| (limit as f64 / rows).clamp(PAGE_MIN, 1.0))
     }
 
     /// Reserves `share` of a list on a connection's `pace`, then on every connection's
-    /// together: how long the request waits first.
-    pub(crate) fn reserve(&self, pace: &StdMutex<Pacer>, share: f64) -> Duration {
+    /// together: how long the request waits first. Over [`MAX_WAIT`], nothing is
+    /// reserved and the wait is the error.
+    pub(crate) fn reserve(&self, pace: &StdMutex<Pacer>, share: f64) -> Result<Duration, Duration> {
         let (window, now) = (self.window(), Instant::now());
         let mut pace = pace.lock().unwrap_or_else(|e| e.into_inner());
-        let wait = pace.wait(now, window * (CONN_BURST - 1));
-        pace.spend(now + wait, window.mul_f64(share));
-        drop(pace);
         // Sending even a shared list copies it into the reply line.
         let mut replies = self.replies.lock().unwrap_or_else(|e| e.into_inner());
+        let wait = pace.wait(now, window * (CONN_BURST - 1));
         let more = replies.wait(now + wait, window);
+        if wait + more > MAX_WAIT {
+            return Err(wait + more);
+        }
+        pace.spend(now + wait, window.mul_f64(share));
         replies.spend(now + wait + more, window.mul_f64(share) / REPLIES);
-        wait + more
+        Ok(wait + more)
     }
 
     /// The list for a request that arrived now: the shared snapshot while nothing it
-    /// shows changed, else a new build once the pace allows.
+    /// shows changed, or one begun since; else a new build once the pace allows.
     pub(crate) async fn snapshot(&self, hub: &Hub) -> Arc<Snapshot> {
+        let asked = self.begun.load(Ordering::SeqCst);
         // One build at a time; requests that arrive meanwhile wait for it and share it.
         let mut state = self.state.lock().await;
         if let Some(last) = &state.last
-            && last.key.is_some()
-            && last.key == key(hub)
-            && last.started.elapsed() < last.window
+            && (last.serial > asked
+                || last.key.0 && last.current(hub) && last.started.elapsed() < last.window)
         {
             return last.clone();
         }
@@ -226,12 +238,12 @@ impl ListGuard {
         if !wait.is_zero() {
             tokio::time::sleep(wait).await;
         }
-        let (key, started) = (key(hub), Instant::now());
+        // Counted before its key is read: it is as new as any request that came before.
+        let serial = self.begun.fetch_add(1, Ordering::SeqCst) + 1;
+        let (started, key) = (Instant::now(), key(hub));
         let built = Snapshot::build(hub);
         let window = started.elapsed().saturating_mul(PACE).min(MAX_WINDOW);
         state.pace.spend(started, window);
-        state.serial += 1;
-        let serial = state.serial;
         let nanos = u64::try_from(window.as_nanos()).unwrap_or(u64::MAX);
         self.window_nanos.store(nanos, Ordering::Relaxed);
         self.rows.store(built.1.len(), Ordering::Relaxed);
@@ -256,12 +268,14 @@ impl ListGuard {
     }
 }
 
-/// What a snapshot is reused under: the change count and the peers' row writes, once
-/// every chat log is read.
-fn key(hub: &Hub) -> Option<(u64, u64)> {
+/// Whether every chat log is read, the change count, and the peers' row writes.
+type Key = (bool, u64, u64);
+
+/// What a snapshot is reused under (only once every chat log is read).
+fn key(hub: &Hub) -> Key {
     let ready = *hub.logs_ready.borrow();
     let writes = hub.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).writes;
-    ready.then(|| (hub.events.changes.load(Ordering::SeqCst), writes))
+    (ready, hub.events.changes.load(Ordering::SeqCst), writes)
 }
 
 /// A pace (the generic cell rate algorithm): work spends time ahead of the clock, and
@@ -295,7 +309,7 @@ mod tests {
         let built = Snapshot::serialize(&rows);
         assert_eq!(built.0, json!({"sessions": rows}).to_string());
         assert_eq!(Snapshot::serialize(&[]).0, r#"{"sessions":[]}"#);
-        let list = Snapshot::new(None, 0, Duration::ZERO, built);
+        let list = Snapshot::new((false, 0, 0), 0, Duration::ZERO, built);
         assert_eq!(list.values(), rows);
         let reply = |p: &Value| super::super::session_pages::session_list_reply(rows.clone(), p);
         let next = reply(&json!({"limit": 2})).unwrap()["nextCursor"].clone();
@@ -324,25 +338,37 @@ mod tests {
             guard
         };
         let (lists, pace) = (guard(), StdMutex::default());
-        assert_eq!(lists.reserve(&pace, 1.0), Duration::ZERO);
-        assert_eq!(lists.reserve(&pace, 1.0), Duration::ZERO);
-        let third = lists.reserve(&pace, 1.0);
+        assert_eq!(lists.reserve(&pace, 1.0), Ok(Duration::ZERO));
+        assert_eq!(lists.reserve(&pace, 1.0), Ok(Duration::ZERO));
+        let third = lists.reserve(&pace, 1.0).unwrap();
         assert!(third > Duration::from_millis(3900), "{third:?}");
         // Pages of a quarter: a list ahead and one page more, then the pace holds.
         let (pages, pace) = (guard(), StdMutex::default());
         assert_eq!(pages.share(Some(100)), 0.25);
-        let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25)).collect();
+        let waits: Vec<Duration> = (0..6).map(|_| pages.reserve(&pace, 0.25).unwrap()).collect();
         assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 1, "{waits:?}");
+        // A page of one row (or none) still reads every key: it costs `PAGE_MIN`.
+        assert_eq!((pages.share(Some(1)), pages.share(Some(0))), (PAGE_MIN, PAGE_MIN));
         // A new connection for each list: a window's `REPLIES` and one more, then they wait.
         let many = guard();
         let waits: Vec<Duration> =
-            (0..REPLIES + 4).map(|_| many.reserve(&StdMutex::default(), 1.0)).collect();
+            (0..REPLIES + 4).map(|_| many.reserve(&StdMutex::default(), 1.0).unwrap()).collect();
         assert_eq!(waits.iter().filter(|w| !w.is_zero()).count(), 3, "{waits:?}");
+        // A flood waits at most `MAX_WAIT`; past it a request is refused and costs nothing.
+        let waits: Vec<_> = (0..200).map(|_| many.reserve(&StdMutex::default(), 1.0)).collect();
+        let refused = waits.iter().filter(|w| w.is_err()).count();
+        assert!(refused > 100 && waits.iter().all(|w| w.unwrap_or_default() <= MAX_WAIT));
+        let after = many.reserve(&StdMutex::default(), 1.0);
+        assert!(after.is_err_and(|wait| wait <= MAX_WAIT + Duration::from_millis(500)));
     }
 
     /// Holds a snapshot of the hub as it is now for `window`, as a big daemon's would be.
     async fn hold(hub: &Hub, window: Duration) -> Arc<Snapshot> {
-        let held = Arc::new(Snapshot::new(key(hub), 99, window, Default::default()));
+        hold_at(hub, window, hub.list_guard.begun.load(Ordering::SeqCst)).await
+    }
+
+    async fn hold_at(hub: &Hub, window: Duration, serial: u64) -> Arc<Snapshot> {
+        let held = Arc::new(Snapshot::new(key(hub), serial, window, Default::default()));
         hub.list_guard.state.lock().await.last = Some(held.clone());
         held
     }
@@ -355,18 +381,23 @@ mod tests {
         assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &held), "nothing changed");
         hub.events.changed();
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a change rebuilds");
+        // A build begun after a request arrived is shared with it, whatever changed since.
+        let begun = hold_at(&hub, minute, guard.begun.load(Ordering::SeqCst) + 1).await;
+        hub.events.changed();
+        assert!(Arc::ptr_eq(&guard.snapshot(&hub).await, &begun), "begun since: shared");
         let held = hold(&hub, minute).await;
         hub.remote_sessions.lock().unwrap().writes += 1;
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "a peer's row rebuilds");
         hub.logs_ready.send_replace(false);
         let held = hold(&hub, minute).await;
-        assert_eq!(held.key, None);
+        assert!(!held.key.0 && held.current(&hub));
         assert_ne!(guard.snapshot(&hub).await.serial, held.serial, "logs loading: rebuilt");
     }
 
     #[tokio::test(start_paused = true)]
     async fn a_snapshot_is_dropped_when_its_window_ends() {
         let hub = Hub::new(Config::default(), Box::new(crate::store::MemoryStore::default()));
+        hub.list_guard.begun.store(99, Ordering::SeqCst);
         hold(&hub, Duration::from_secs(5)).await;
         hub.list_guard.expire(98, Duration::from_secs(1));
         hub.list_guard.expire(99, Duration::from_secs(5));

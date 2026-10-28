@@ -215,6 +215,42 @@ fn clients_asking_for_the_whole_list_over_and_over_cost_the_daemon_a_few_percent
         assert_eq!(row["name"], name.as_str(), "the list after a rename shows it");
         while watcher.line()["params"]["session"]["name"] != name.as_str() {}
     }
+    // A watcher never reads a list that lacks a change it was already told of.
+    let socket = daemon.1.clone();
+    let renames = std::thread::spawn(move || {
+        let mut rpc = Rpc::connect(&socket);
+        for n in 0..60 {
+            rpc.call(
+                "_acpmux/rename",
+                json!({"sessionId": id(9), "newName": format!("race-{n:02}")}),
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    });
+    let (mut told, mut lists) = (String::new(), 0);
+    while !renames.is_finished() || lists < 3 {
+        watcher.2 += 1;
+        let ask = json!({"jsonrpc": "2.0", "id": watcher.2, "method": "_acpmux/sessions"});
+        watcher.1.write_all(format!("{ask}\n").as_bytes()).unwrap();
+        loop {
+            let v = watcher.line();
+            let session = &v["params"]["session"];
+            if session["sessionId"] == id(9).as_str()
+                && let Some(name) = session["name"].as_str()
+            {
+                told = told.max(name.to_owned());
+            }
+            if v["id"] == watcher.2 {
+                let rows = v["result"]["sessions"].as_array().unwrap();
+                let row = rows.iter().find(|s| s["sessionId"] == id(9).as_str()).unwrap();
+                let listed = row["name"].as_str().unwrap();
+                assert!(listed >= told.as_str(), "listed {listed} after a notice of {told}");
+                break;
+            }
+        }
+        lists += 1;
+    }
+    renames.join().unwrap();
     // Pages cut from the shared list are the whole list, in order.
     let whole: Vec<Value> = list_once(&daemon.1).iter().map(|s| s["sessionId"].clone()).collect();
     let (mut paged, mut cursor) = (Vec::new(), Value::Null);
