@@ -32,6 +32,31 @@ await requireBrowserLane("composer-content-font.test.ts", async () => {
     await vite?.close();
   });
 
+  test("queued prompt and its editor follow the chosen content size", async () => {
+    const page = await browser.newPage({ viewport: { width: 760, height: 640 } });
+    try {
+      const port = (vite.httpServer!.address() as { port: number }).port;
+      await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", { variant: "queued-images" })}`);
+      await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+      await page.evaluate(async () => {
+        const modulePath = "/gallery/src/agent-session/acpmux/chatDisplay.ts";
+        const { setChatDisplay } = await import(modulePath);
+        setChatDisplay({ "agentPane.display.font.size": 28 });
+      });
+      const row = page.locator(".acpmux-queued").first();
+      expect(
+        await row.locator(".acpmux-queued-text").evaluate((element) => parseFloat(getComputedStyle(element).fontSize)),
+      ).toBeCloseTo(28, 2);
+      await row.focus();
+      await row.press("Enter");
+      const edit = page.locator(".acpmux-queued-edit");
+      await edit.waitFor();
+      expect(await edit.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeCloseTo(28, 2);
+    } finally {
+      await page.close();
+    }
+  });
+
   for (const context of ["chat", "new-chat", "new-tab"]) {
     for (const theme of ["light", "dark"]) {
       test(`${context} ${theme}: content follows the chosen font size`, async () => {
