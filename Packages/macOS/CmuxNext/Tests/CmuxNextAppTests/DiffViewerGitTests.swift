@@ -48,6 +48,7 @@ struct DiffViewerGitTests {
         let isRemote = true
         var calls: [(AgentPaneGitScope, AgentPaneGitDiffOptions?)] = []
         var partialContext = false
+        var pagedPatch: Data?
 
         func status(_ repository: String) async throws(AgentPaneGitFailure) -> JSONValue { ["root": .string(repository)] }
 
@@ -59,6 +60,17 @@ struct DiffViewerGitTests {
         func diff(_ repository: String, scope: AgentPaneGitScope, includePatch: Bool,
                   options: AgentPaneGitDiffOptions) async throws(AgentPaneGitFailure) -> JSONValue {
             calls.append((scope, options))
+            if let offset = options.patchOffset, let bytes = pagedPatch {
+                let start = Int(offset), end = min(start + 256 * 1024, bytes.count)
+                let revision = String(repeating: "a", count: 64)
+                #expect(options.patchRevision == (offset == 0 ? nil : revision))
+                return ["patch_page": ["offset": .string(String(start)), "next_offset": .string(String(end)),
+                    "total_bytes": .string(String(bytes.count)), "revision": .string(revision),
+                    "data_base64": .string(bytes.subdata(in: start..<end).base64EncodedString()), "complete": .bool(end == bytes.count)]]
+            }
+            if pagedPatch != nil {
+                return ["files": [["path": "remote.txt", "status": "modified", "patch_truncated": true]]]
+            }
             // 100,000 unchanged blank lines fit under the daemon's 256 KiB per-file cap. The
             // hunk is internally valid, but its context reaches the request bound and therefore
             // cannot prove that the remote file has no final line beyond the emitted patch.
@@ -71,6 +83,26 @@ struct DiffViewerGitTests {
         func write(_ request: AgentPaneGitWrite, in repository: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
         func stage(_ request: AgentPaneGitStage, in repository: String) async -> String? { "must not touch local files" }
         func checkpointDiff(_ repository: String, from: String, to: String) async throws(AgentPaneGitFailure) -> JSONValue { [:] }
+    }
+
+    @Test func aTruncatedRemoteFileLoadsEveryPatchPageBeforeRenderingContents() async throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: "diff-remote-pages-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let grant = try DiffSessionGrant.create(root: root, repository: "/remote/worktree")
+        defer { grant.remove() }
+        let remote = RemoteGit()
+        let expected = String(repeating: "café changed payload\n", count: 80_000)
+        remote.pagedPatch = Data(("diff --git a/remote.txt b/remote.txt\n--- a/remote.txt\n+++ b/remote.txt\n@@ -1 +1,80000 @@\n-old\n"
+            + String(repeating: "+café changed payload\n", count: 80_000)).utf8)
+        let provider = DiffPageProvider(ready: Task { DiffTabReady(grant: grant, config: [:]) }, sidecar: nil, languages: nil, git: remote)
+        let opened = try await provider.call("cmux.diff.sessionOpen", params: ["source": ["kind": "unstaged"]], context: PageCallContext(page: "cmux.diff"))
+        let session = try #require(opened["value"]?["sessionId"]?.stringValue)
+        let contents = try await provider.call("cmux.diff.fileContents", params: ["sessionId": .string(session), "path": "remote.txt"], context: PageCallContext(page: "cmux.diff"))
+        #expect(contents["value"]?["old"]?["contents"]?.stringValue == "old\n")
+        #expect(contents["value"]?["new"]?["contents"]?.stringValue == expected)
+        #expect(remote.calls.compactMap { $0.1?.patchOffset }.count > 1)
+        await provider.close()
     }
 
     @Test func remoteDiffUsesTheDaemonPatchAndBoundedFileRead() async throws {

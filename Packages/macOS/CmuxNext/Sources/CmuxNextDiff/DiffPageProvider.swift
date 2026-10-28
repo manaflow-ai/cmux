@@ -329,7 +329,22 @@ public final class DiffPageProvider: PageProvider {
         guard let file = diff["files"]?.arrayValue?.first(where: { $0["path"]?.stringValue == path }) else {
             throw PageError(code: "remoteFileUnavailable", message: "The remote file is no longer in this diff")
         }
-        guard file["patch_truncated"]?.boolValue != true, let patch = file["patch"]?.stringValue,
+        let patch: String?
+        if file["patch_truncated"]?.boolValue == true {
+            let bytes = try await DiffPatchPages.read { [self] offset, revision in
+                guard !isClosed, remoteSessions[id] != nil else { throw PageError.closed }
+                do {
+                    return try await git.diff(tab.grant.repository, scope: scope, includePatch: true,
+                        options: AgentPaneGitDiffOptions(paths: [path], contextLines: Self.remoteFullFileContextLines,
+                                                        patchOffset: offset, patchRevision: revision))
+                } catch { throw Self.pageError(error) }
+            }
+            guard !isClosed, remoteSessions[id] != nil else { throw PageError.closed }
+            patch = String(data: bytes, encoding: .utf8)
+        } else {
+            patch = file["patch"]?.stringValue
+        }
+        guard let patch,
               let sides = Self.remoteSides(patch, status: file["status"]?.stringValue ?? "modified",
                                             contextLimit: Self.remoteFullFileContextLines) else {
             return ["type": "fileContents", "value": ["tooLarge": true]]
