@@ -52,12 +52,15 @@ class FakeApp:
                  clamps=False):
         """`visible`/`screen`: the main screen's frames (VISIBLE, SCREEN); `legacy`: an app before the screen
         fields (debug.window_frame and debug.layers give no visible or screen frame); `chat`: `opens`, `late`
-        (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal) or `transport` (the
-        socket times out, no typed refusal)."""
+        (the chat tab shows 9 s after the action's reply), `refused` (a typed refusal), `transport` (the
+        socket times out, no typed refusal), `provisional` (the chat tab shows at once under a `pending_tab_`
+        id, which no action target matches, and takes the daemon's id 5 s later) or `vanishes` (that
+        provisional tab goes away after 5 s, as a chat whose start failed)."""
         self.takes_focus = takes_focus
         self.visible, self.screen, self.legacy, self.chat = visible or VISIBLE, screen or SCREEN, legacy, chat
         self.clock = None  # the builder's FakeClock (builder())
         self.pending = []  # (due, pane, tab): late chat tabs
+        self.provisional = []  # (due, pane, tab, keeps): provisional chat tabs, confirmed or removed when due
         self.workspaces, self.layout = [], {}
         self.shown = None
         self.focus = {"workspace": None, "pane": None}
@@ -169,6 +172,15 @@ class FakeApp:
             for due, pane, tab in [p for p in self.pending if p[0] <= self.clock.now]:
                 self.pending.remove((due, pane, tab))
                 self.add(pane, tab)
+            for entry in [p for p in self.provisional if p[0] <= self.clock.now]:
+                self.provisional.remove(entry)
+                _, pane, tab, keeps = entry
+                if keeps:
+                    tab["id"] = self.ident("tab")
+                else:
+                    pane["tabs"].remove(tab)
+                    if tab.get("selected") and pane["tabs"]:
+                        pane["tabs"][-1]["selected"] = True
             windows = [{"key": "win_1", "workspace": self.shown, "focused_pane": self.window_focus}]
             focus = dict(self.focus)
             if self.other_window_active:
@@ -184,7 +196,15 @@ class FakeApp:
         if method != "action.run":
             return {}
         action, target = params.get("action"), params.get("target") or ""
-        pane = self.pane_by_id(target[len("pane:"):]) if target.startswith("pane:") else self.pane_by_id(self.focus["pane"])
+        if target.startswith("tab:"):
+            # A tab target is the tab the new one opens beside, in its pane (AppActionContext.daemonPane); a
+            # provisional tab's id names no daemon tab.
+            pane = next((p for w in self.workspaces for p in self.panes_of(w) for t in p["tabs"] if t["id"] == target[4:]), None)
+            if pane is None or target[4:].startswith(stress.PROVISIONAL_TAB):
+                return {"error": {"code": "not_found", "data": {"id": target[4:], "kind": "tab", "not_run": True},
+                                  "message": f"No tab matches {target[4:]}"}}
+        else:
+            pane = self.pane_by_id(target[len("pane:"):]) if target.startswith("pane:") else self.pane_by_id(self.focus["pane"])
         workspace = self.owner(pane["id"]) if pane else None
         self.log.append((action, workspace and workspace["id"], bool(workspace) and workspace["id"] == self.shown))
         if action == "workspace.newAtBottom":
@@ -224,6 +244,10 @@ class FakeApp:
                 return {"error": "timed out"}
             if self.chat == "late":
                 self.pending.append((self.clock.now + 9, pane, self.tab("conversation")))
+            elif self.chat in ("provisional", "vanishes"):
+                tab = {"id": stress.PROVISIONAL_TAB + self.ident("chat"), "kind": "conversation"}
+                self.add(pane, tab)
+                self.provisional.append((self.clock.now + 5, pane, tab, self.chat == "provisional"))
             else:
                 self.add(pane, self.tab("conversation"))
         elif action == "newTab.page":
@@ -484,6 +508,27 @@ class ChatTests(Case):
         self.assertEqual(session.chat_fallbacks, 0)
         self.assertTrue(any("chat tab None" in problem for problem in session.summary()["pane_problems"]),
                         "a chat that never came is named, not hidden by a stand-in page")
+
+    def test_a_terminal_after_a_provisional_chat_opens_beside_a_tab_the_daemon_has(self):
+        # cmux20-bench, 2026-10-28 (150eaffb): newSurface aimed at the pane's selected tab, the new chat still
+        # under its pending_tab_ id, was refused ("No tab matches pending_tab_..."), and STRESS stopped at the
+        # measured workspace's first pane.
+        app = FakeApp(chat="provisional")
+        session = builder(app)
+        session.build_measured()
+        self.assertFalse(any("pending_tab_" in refusal for refusal in session.refusals), session.refusals)
+        summary = session.summary()
+        self.assertEqual(summary["pane_problems"], [], "a chat was recorded under its provisional id")
+        for pane in session.panes(session.workspace(session.measured)):
+            self.assertEqual(sorted(t["kind"] for t in pane["tabs"]),
+                             ["browser", "browser", "browser", "conversation", "terminal", "terminal"])
+
+    def test_a_terminal_is_found_when_the_provisional_chat_before_it_goes_away(self):
+        app = FakeApp(chat="vanishes")
+        session = builder(app)
+        session.build_measured()  # no "terminal tab did not appear": the new tab is found by id, not by count
+        for pane in session.panes(session.workspace(session.measured)):
+            self.assertEqual(sum(1 for t in pane["tabs"] if t["kind"] == "terminal"), 2)
 
     def test_refused_chats_are_not_stress_unless_asked(self):
         for allow in (False, True):
