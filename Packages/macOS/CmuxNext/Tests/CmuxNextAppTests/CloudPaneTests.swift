@@ -38,9 +38,15 @@ struct CloudPaneTests {
         func answer(_ op: String, _ value: CmuxNextDaemon.JSONValue) { answers[op] = value }
     }
 
-    /// What a callback saw (a reference, so the main-actor callbacks can append to it).
-    @MainActor final class Seen<Value> {
-        var items: [Value] = []
+    /// What a callback saw (a reference, so the main-actor callbacks can append to it). Two
+    /// concrete boxes, not one generic class: swift-frontend 6.3.3 -O crashed in EarlyPerfInliner on
+    /// the implicit deinit of a generic main-actor class (the Release test build).
+    @MainActor final class SeenValues {
+        var items: [CmuxNextSettings.JSONValue] = []
+    }
+
+    @MainActor final class SeenFlags {
+        var items: [Bool] = []
     }
 
     static func provider(_ server: Server, signIn: @escaping @MainActor () async -> Bool = { false }) -> CloudPageProvider {
@@ -92,7 +98,7 @@ struct CloudPaneTests {
             "cloud.machine.delete": .object(["deleted": .bool(true)]),
         ])
         let provider = Self.provider(server)
-        let seen = Seen<CmuxNextSettings.JSONValue>()
+        let seen = SeenValues()
         let subscription = try await provider.subscribe(CloudPageProvider.watchStream, filter: .object([:]), context: Self.page) {
             seen.items.append($0)
         }
@@ -146,7 +152,7 @@ struct CloudPaneTests {
     }
 
     @Test func signInRunsTheAppsSignInOnlyAfterTheSheet() async throws {
-        let ran = Seen<Bool>()
+        let ran = SeenFlags()
         let provider = Self.provider(Server(answers: [:])) {
             ran.items.append(true)
             return true

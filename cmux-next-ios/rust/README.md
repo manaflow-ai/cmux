@@ -192,6 +192,8 @@ target/release/cmux-mobile-host
 | `CMUX_MOBILE_STACK_API` | Default `https://api.stack-auth.com`. |
 | `CMUX_MOBILE_DEVICE_ID` | Mac device id; default a UUID persisted in `$CMUX_MOBILE_STATE_DIR/device-id` (`~/Library/Application Support/cmux-mobile-host`). `cmux-mobile-host --print-device-id` prints it. |
 | `CMUX_MOBILE_DEVICE_NAME` | Default the host name. |
+| `CMUX_MOBILE_MACHINE_ID` | The machine id to register (32 lowercase hex digits; tests and the multimac rig). Default derived from the host UUID (PROTOCOL.md "Devices", machine id); the raw UUID is never sent. |
+| `CMUX_MOBILE_APP_SUPPORT_DIR` | Where to look for other builds' `device-id` files (`siblingDeviceIds`). Default `~/Library/Application Support`. |
 | `CMUX_MOBILE_OWNER_USER_ID` | Admitted Stack user; default the access token's `sub`. |
 | `CMUX_MOBILE_TUI_SOCKET_DIR`, `CMUX_MOBILE_TUI_SESSION` | cmux-tui sockets, default `$TMPDIR/cmux-tui-<uid>` and `main`. |
 | `CMUX_MOBILE_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |

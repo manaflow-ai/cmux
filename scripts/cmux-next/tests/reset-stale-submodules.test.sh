@@ -43,9 +43,17 @@ git_q -C "$ws" commit -m superproject
 git_q -C "$ws/ghostty-next" checkout --detach "$commit_a"
 
 dirty() { git -C "$ws" status --porcelain --ignore-submodules=dirty -- cmux-tui ghostty-next; }
+# The CI job's own event and tree settings would change which path fetch takes:
+# on a feat-cmux-next push the checkout is its own publisher, so fetch read the
+# real artifacts runs and fetched each active run's commit from the public
+# repository into this toy repo (all of cmux; 188 s, then past the job's 10 min
+# timeout once that fetch kept full depth). The GitHub API and the public git
+# fallback are unreachable here, as in pin-cmux-tui.test.sh.
 fetch() { # -> "<status> <output>"
   local status=0 out
-  out=$(cd "$ws" && env -u CI_JOB_DIR -u CMUX_NEXT_TUI_ALLOW_DIRTY GITHUB_ACTIONS=true \
+  out=$(cd "$ws" && env -u CI_JOB_DIR -u CMUX_NEXT_TUI_ALLOW_DIRTY -u GH_TOKEN -u GITHUB_EVENT_NAME -u GITHUB_REF \
+    -u CMUX_TUI_TREE_PUBLISHER_SHA -u CMUX_TUI_TREE_KEY -u CMUX_TUI_TREE_DISPATCH GITHUB_ACTIONS=true \
+    GITHUB_API_URL=https://127.0.0.1:9 CMUX_TUI_PUBLIC_GIT_URL="$TMP/no-public-repo.git" \
     CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui CMUX_TUI_TREE_WAIT_SECONDS=0 \
     bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?
   printf '%s %s' "$status" "$out"

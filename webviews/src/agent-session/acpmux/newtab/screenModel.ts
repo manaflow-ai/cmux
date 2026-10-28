@@ -3,12 +3,13 @@
 // host: NewTabScreen renders what these return.
 import type { AcpmuxSnapshot } from "../model";
 import { ageLabel, recentSessions } from "../NewTabPage";
-import { EMPTY_OMNIBAR, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
+import { EMPTY_OMNIBAR, matchScore, omnibarRows, type OmnibarContext, type OmnibarRow } from "../omnibar";
 import { activityTime, listed, normalizedSessionEntry, sessionMark, type AcpmuxSessionEntry } from "../sessionList";
 import { classifyNewTabInput, TERMINAL_PREFIX } from "../newTabIntent";
-import { omniboxAction } from "../omniboxAction";
 import { type Translate, translate } from "../i18n";
 import type { DeviceChat } from "./deviceChats";
+import { translateNewTab } from "./strings";
+import { DEFAULT_SUGGESTION_ORDER, type SuggestionOrder } from "./suggestionOrder";
 import { TOP_SITES } from "./topSites";
 
 export type ScreenAgent = { id: string; name: string };
@@ -28,7 +29,8 @@ export type ScreenRow =
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
   | { type: "ask"; text: string; harness: string; agent: string; model?: string }
   /// A create action (cx-ag5.7): New terminal, New browser tab or New chat, as under the field.
-  | { type: "create"; kind: CreateKind };
+  /// `strip`: drawn in the quiet strip under the rows, not as a row; still in the arrow keys' order.
+  | { type: "create"; kind: CreateKind; strip?: true };
 
 /// What a create row opens, in the order the rows list them.
 export type CreateKind = "terminal" | "browser" | "chat";
@@ -60,14 +62,19 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
   return orderedAgents(agents, lastAgent)[0]?.id;
 }
 
-/// The popover's rows (Leo 10-13: Chrome's and Arc's order). Empty text and `!`: none. An address,
-/// or a word that completes one: the top hit (the address, else its best completion), then the
-/// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
-/// Other text: what it reads as first (omniboxAction, Leo 2026-10-20: no Search | Ask switch), Ask
-/// for a question or an instruction, else the web search, then the other one and the matches. One
-/// row per page: a page an open tab
-/// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
-/// The `create` actions end every list (Leo 2026-10-18), outside the cap.
+/// The matches the `minimal` order shows.
+export const MINIMAL_MATCH_ROWS = 3;
+/// Shorter text matches a name only at its start or a word's ("ff" is not "diffviewer").
+const SUBSTRING_MATCH_LENGTH = 3;
+
+/// The popover's rows. Empty text and `!`: none. Then the top hit (what Return takes, see
+/// SuggestionOrder), the matching open tabs, workspaces and visited pages, and the web search
+/// last (none for a local file): a fallback, never the default while an agent can be asked. With
+/// no agent, plain text searches. One row per page: a page an open tab shows is that tab ("Switch
+/// to tab"), and addresses compare without their tracking parameters. The create actions (Leo
+/// 2026-10-18: one Down or one click away while the list shows) end the list outside the cap:
+/// `chat` lists all three as rows; `intent` lists the ones the text names ("new", "term") as rows
+/// and the others as `strip` rows, one quiet line under the rows; `minimal` none.
 export function screenRows(
   text: string,
   context: {
@@ -75,34 +82,91 @@ export function screenRows(
     home?: string;
     ask?: ScreenAsk;
     create?: readonly CreateKind[];
+    /// The create actions' names in the pane's language (English when unset).
+    createNames?: Partial<Record<CreateKind, string>>;
+    order?: SuggestionOrder;
   },
 ): ScreenRow[] {
   const rows = navigationRows(text, context);
   if (!rows.length) return rows;
-  return [...rows, ...(context.create ?? []).map((kind): ScreenRow => ({ type: "create", kind }))];
+  const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
+  const create = order === "minimal" ? [] : (context.create ?? []);
+  if (order === "chat") return [...rows, ...create.map((kind): ScreenRow => ({ type: "create", kind }))];
+  const named = create.filter((kind) => namesCreate(text, kind, context.createNames?.[kind]));
+  return [
+    ...rows,
+    ...named.map((kind): ScreenRow => ({ type: "create", kind })),
+    ...create.filter((kind) => !named.includes(kind)).map((kind): ScreenRow => ({ type: "create", kind, strip: true })),
+  ];
+}
+
+/// Whether `row` is drawn in the strip under the rows.
+export function inStrip(row: ScreenRow): boolean {
+  return row.type === "create" && row.strip === true;
 }
 
 function navigationRows(
   text: string,
-  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk },
+  context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk; order?: SuggestionOrder },
 ): ScreenRow[] {
   const intent = classifyNewTabInput(text, context.home ? { home: context.home } : {});
-  if (intent.kind === "none" || intent.kind === "terminal") return [];
+  // A pairing link offers nothing: no search, no Ask, no address, no create row (they carry the text).
+  if (intent.kind === "none" || intent.kind === "terminal" || intent.kind === "refused") return [];
+  const order = context.order ?? DEFAULT_SUGGESTION_ORDER;
   const query = text.trim();
-  const search: ScreenRow = { type: "search", text: query };
+  const search: ScreenRow[] =
+    intent.kind === "url" && intent.url.startsWith("file:") ? [] : [{ type: "search", text: query }];
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
   const open: ScreenRow[] = intent.kind === "url" ? [{ type: "open", url: intent.url, text: query }] : [];
   const completed = completions(query, context.omnibar);
   const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
-  if (open.length || completed.length) {
-    const tail = intent.kind === "url" && intent.url.startsWith("file:") ? [] : [search, ...ask];
-    const [top, ...rest] = found;
-    return [...(top ? [top] : []), ...ranked(rest).slice(0, MAX_SUGGESTIONS - 1 - tail.length), ...tail];
+  // What leads above Ask: the address, the page a site's whole name or a host-like word completes
+  // ("reddit", "reddit.c"; "reddi" or "app" ask), or a tab or workspace named exactly that.
+  const top = open.length || namesSite(query, completed[0]) ? found[0] : exactMatch(query, found, context.omnibar);
+  const rest = found.filter((row) => row !== top);
+  const cap = order === "minimal" ? MINIMAL_MATCH_ROWS : MAX_MATCH_ROWS;
+  const fit = (lead: ScreenRow[]) =>
+    ranked(rest).slice(0, Math.min(cap, MAX_SUGGESTIONS - lead.length - search.length));
+  // No agent to ask: a question or a word is searched, an address still opens first.
+  if (!ask.length) {
+    if (!top) return [...search, ...fit(search)];
+    return [top, ...fit([top]), ...search];
   }
-  const asks = omniboxAction(query, context.home ? { home: context.home } : {}).kind === "ask";
-  const lead = asks ? [...ask, search] : [search, ...ask];
-  return [...lead, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
+  const lead = top ? (order === "chat" ? [...ask, top] : [top, ...ask]) : ask;
+  return [...lead, ...fit(lead), ...search];
 }
+
+/// Whether `query` is a site's whole first name or reads as a host, for the completion `row`.
+function namesSite(query: string, row: ScreenRow | undefined): boolean {
+  if (!row || (row.type !== "open" && row.type !== "history")) return false;
+  const needle = bareAddress(query.toLowerCase());
+  return needle.includes(".") || canonicalAddress(row.url).toLowerCase().startsWith(`${needle}.`);
+}
+
+/// The row named exactly what was typed, any case: a workspace by its name first ("app-efficiency"),
+/// then a tab by its title as the host sent it (before the row cleaned it), then a tab in a
+/// workspace of that name (a terminal tab titled "~" lists under its workspace's name).
+function exactMatch(query: string, rows: readonly ScreenRow[], omnibar: OmnibarContext): ScreenRow | undefined {
+  const needle = query.toLocaleLowerCase();
+  const named = (name: string | undefined) => name?.trim().toLocaleLowerCase() === needle;
+  const tab = (row: ScreenRow) =>
+    row.type === "tab" ? omnibar.tabs.find((candidate) => candidate.id === row.id) : undefined;
+  return (
+    rows.find((row) => row.type === "workspace" && named(row.title)) ??
+    rows.find((row) => row.type === "tab" && (named(row.title) || named(tab(row)?.title))) ??
+    rows.find((row) => row.type === "tab" && named(tab(row)?.workspace))
+  );
+}
+
+/// Whether the text starts the create action's name (`name`, else English) or a word of it ("new",
+/// "term", "brow"). The English name always counts.
+function namesCreate(text: string, kind: CreateKind, name?: string): boolean {
+  const query = text.trim();
+  if (query.length < 2) return false;
+  return matchScore(query, name, translateNewTab(CREATE_KEYS[kind], {}, "en")) >= 2;
+}
+
+const CREATE_KEYS = { terminal: "create.terminal", browser: "create.browser", chat: "create.chat" } as const;
 
 /// The row Return takes before Down or Ctrl-N: the top one, what the text reads as. A question
 /// with no agent to ask has the web search on top, and Return takes it.
@@ -129,12 +193,10 @@ export function isAddress(text: string, home?: string): boolean {
   return classifyNewTabInput(text, home ? { home } : {}).kind === "url";
 }
 
-/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1), wrapping; from no
-/// selection Down takes the first row and Up the last.
-export function stepSelection(current: number, step: 1 | -1, count: number): number {
-  if (count === 0) return -1;
-  if (current < 0) return step === 1 ? 0 : count - 1;
-  return (current + step + count) % count;
+/// Whether `text` is refused outright (an old pairing link): it never becomes a prompt, a search
+/// or an address, and Return hands it to the host only to show the refusal.
+export function pairingLinkRefused(text: string): boolean {
+  return classifyNewTabInput(text).kind === "refused";
 }
 
 function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
@@ -146,7 +208,16 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
     workspaces: omnibar.workspaces,
     history: omnibar.history.filter((entry) => !blankPage(entry.url)),
   };
-  return omnibarRows(query, "browser", navigable).flatMap((row) => screenRow(row, omnibar));
+  return omnibarRows(query, "browser", navigable)
+    .filter((row) => query.length >= SUBSTRING_MATCH_LENGTH || matchScore(query, ...matchTexts(row)) >= 2)
+    .flatMap((row) => screenRow(row, omnibar));
+}
+
+/// What a row matches by, as omnibarRows reads it.
+function matchTexts(row: OmnibarRow): (string | undefined)[] {
+  if (row.type === "tab" || row.type === "workspace") return [row.title, row.detail];
+  if (row.type === "history") return [row.title, row.url.replace(/^https?:\/\/(www\.)?/, "")];
+  return [];
 }
 
 /// Visited pages, then top sites, whose address starts with the typed word.

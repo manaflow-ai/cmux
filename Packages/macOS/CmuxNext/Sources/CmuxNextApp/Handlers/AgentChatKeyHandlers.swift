@@ -8,6 +8,7 @@ import WebKit
 /// the way its menu's Archive does.
 enum AgentChatKeyHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
+        AgentChatCopyHandlers.bind(into: registry, context: context)
         registry.bind("agentPane.copyLastCodeBlock", run: { invocation in
             guard let view = chatView(context, invocation, refusal: MiscHandlerStrings.copyCodeNeedsAgentChat) else { return }
             let registry = context.registry

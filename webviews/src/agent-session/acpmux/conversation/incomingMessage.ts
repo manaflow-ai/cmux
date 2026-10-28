@@ -13,11 +13,17 @@
 // `start_session`, and a child's report to its parent) names its sender as the receiver's chat
 // knows it, its short name, and who it is to this chat.
 // Any other session's prompt to this one (kind `session_message`, prompt_provenance.rs: `acpmux
-// send` run inside that session) names that session the same way, without a relation.
+// send` run inside that session) names that session the same way, without a relation. So does a
+// task's result (kind `task_result`, acpmux hub/tasks.rs `acpmux task done`): the lane's card.
 // `acpmux send` run at a shell records no provenance (client `acpmux-cli#…`, or `acpmux-peer#…`
 // relayed from another machine), so an agent sending from one puts its name first by convention:
 // `[coord-deputy] Merged #23727`. That prompt is the named agent's message. No chat id comes with
 // it, so the card opens the listed chat with that name (subsessions.ts `useSenderChat`).
+// An agent also addresses one sender first: `summary-panel -> claude-sr2: Confirmed.` (`→`, spaces
+// or none). Nothing else in the record says an agent sent it, and a person types the same at the
+// acpmux TUI, so it is a message only when its sender is a listed chat, or its receiver is this
+// chat and its sender reads as an agent's name (`IncomingContext`). A watched chat (`client: "watch"`, hub/watch.rs) records its
+// prompts from the transcript as an adopted one does, Claude Code's envelopes in them.
 
 /// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
 /// `family_role`): the chat that started it, one it started, one further up, or another below or
@@ -45,6 +51,11 @@ export type IncomingMessage = {
   raw: string;
 };
 
+/// What the pane knows that tells an agent's addressed message (`sender -> receiver: …`) from the
+/// person's words: whether a name is this chat's, and whether it is a listed chat's. Each is asked
+/// only of a prompt in that form.
+export type IncomingContext = { isThisChat?: (name: string) => boolean; isChat?: (name: string) => boolean };
+
 export type IncomingPrompt =
   | { kind: "message"; message: IncomingMessage }
   | { kind: "notice"; text: string }
@@ -67,17 +78,150 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
   return { sessionId: from.slice(4), msgId: last.msgId, ...threadId };
 }
 
-/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks
-/// (a heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
-/// preview.
+/// The message's first line of text as it reads: the closed line's preview (IncomingMessageCard.tsx
+/// in Minimal Mode). Its spaces are collapsed and its Markdown marks dropped: a heading's, quote's or
+/// list item's lead, emphasis and code ticks, a link's target and title (inline, with parentheses in
+/// it, or by reference), an image's address. A line of marks alone (a lone `>`) and a reference
+/// link's definition are no text; a code fence's marker line (```ts) is skipped and its first code
+/// line read as written, up to the fence that closes it (its marker, at least as long, alone).
 export function messagePreview(text: string): string {
-  const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return line
-    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
-    .replace(/(\*\*|__|`)/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 240);
+  const lines = text.split("\n");
+  // The labels the message defines outside its code, which a reference (`[docs]`, `[text][docs]`) names.
+  const defined = new Set<string>();
+  let fence: Fence | undefined;
+  for (const raw of lines) {
+    const code = fenceStep(raw, fence);
+    fence = code.fence;
+    const definition = code.marker || code.inside ? null : LINK_DEFINITION.exec(raw);
+    if (definition) defined.add(linkLabel(definition[1]!));
+  }
+  fence = undefined;
+  for (const raw of lines) {
+    const code = fenceStep(raw, fence);
+    fence = code.fence;
+    if (code.marker) continue;
+    if (code.inside) {
+      if (raw.trim()) return clip(raw);
+      continue;
+    }
+    if (LINK_DEFINITION.test(raw) || THEMATIC_BREAK.test(raw)) continue;
+    const line = inlineText(raw.replace(LINE_LEAD, ""), defined);
+    if (line) return clip(line);
+  }
+  return "";
+}
+
+/// An open code fence: its marker's character and length.
+type Fence = { mark: string; length: number };
+
+/// `raw` read against the open `fence`: whether it opens or closes one (`marker`), whether it is a
+/// line of code (`inside`), and the fence open after it.
+function fenceStep(raw: string, fence: Fence | undefined): { fence?: Fence; marker: boolean; inside: boolean } {
+  if (fence) {
+    const closing = FENCE_CLOSE.exec(raw);
+    if (closing && closing[1]![0] === fence.mark && closing[1]!.length >= fence.length)
+      return { marker: true, inside: false };
+    return { fence, marker: false, inside: true };
+  }
+  const opening = FENCE.exec(raw);
+  if (opening) return { fence: { mark: opening[1]![0]!, length: opening[1]!.length }, marker: true, inside: false };
+  return { marker: false, inside: false };
+}
+
+/// A code fence's opening line: three or more backticks or tildes, an info string after them.
+const FENCE = /^\s{0,3}(`{3,}|~{3,})/;
+/// A fence's closing line: its marker alone, spaces after it.
+const FENCE_CLOSE = /^\s{0,3}(`{3,}|~{3,})\s*$/;
+/// A reference link's definition: `[id]: https://… "title"`.
+const LINK_DEFINITION = /^\s{0,3}\[([^\]\n]+)\]:\s*\S/;
+/// A thematic break: three or more of one of `-`, `*` or `_`, spaces between them allowed.
+const THEMATIC_BREAK = /^\s{0,3}([-*_])(?:[ \t]*\1){2,}[ \t]*$/;
+/// A link label as references match it: case and runs of spaces ignored.
+const linkLabel = (label: string) => label.trim().replace(/\s+/g, " ").toLowerCase();
+/// A line's leading marks, nested: quotes, a heading, a list item (with a task box).
+const LINE_LEAD = /^(?:\s*(?:>\s?|#{1,6}(?:\s+|$)|[-*+]\s+(?:\[[ xX]\]\s+)?|\d{1,9}[.)]\s+))+/;
+
+/// A line's words without inline Markdown: links and images read as their labels, emphasis (strong,
+/// `*italic*` and `_italic_`, never a snake_case word's underscores) and code ticks dropped.
+function inlineText(line: string, defined: ReadonlySet<string>): string {
+  return withoutLinks(line, defined)
+    .replace(/<((?:https?|mailto):[^>\s]+)>/g, "$1")
+    .replace(/(\*\*|__|~~|`)/g, "")
+    .replace(/(^|[^\w*])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?![\w*])/g, "$1$2")
+    .replace(/(^|[^\w])_([^\s_](?:[^_\n]*?[^\s_])?)_(?!\w)/g, "$1$2")
+    .trim();
+}
+
+/// `line` with each link and image as its label: `[label](url "title")`, a URL with balanced
+/// parentheses in it; by reference, `[label][id]`, `[label][]` and `[label]`, only when the message
+/// defines the id (or the label); an undefined reference stays as written.
+function withoutLinks(line: string, defined: ReadonlySet<string>): string {
+  let out = "";
+  let at = 0;
+  while (at < line.length) {
+    const open = line.indexOf("[", at);
+    if (open < 0) break;
+    const close = labelEnd(line, open);
+    if (close < 0) break;
+    const label = line.slice(open + 1, close);
+    if (line[close + 1] === "[") {
+      const idEnd = line.indexOf("]", close + 2);
+      const end = idEnd < 0 ? close + 1 : idEnd + 1;
+      const id = idEnd < 0 ? undefined : line.slice(close + 2, idEnd) || label;
+      const image = open > at && line[open - 1] === "!";
+      out +=
+        id !== undefined && defined.has(linkLabel(id))
+          ? line.slice(at, image ? open - 1 : open) + label
+          : line.slice(at, end);
+      at = end;
+      continue;
+    }
+    const after = linkEnd(line, close + 1);
+    if (after < 0 && !defined.has(linkLabel(label))) {
+      out += line.slice(at, close + 1);
+      at = close + 1;
+      continue;
+    }
+    const image = open > at && line[open - 1] === "!";
+    out += line.slice(at, image ? open - 1 : open) + label;
+    at = after < 0 ? close + 1 : after;
+  }
+  return out + line.slice(at);
+}
+
+/// The index of the `]` that closes the label opened at `open`, nested brackets counted; -1 if none.
+function labelEnd(line: string, open: number): number {
+  let depth = 0;
+  for (let index = open; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (char === "[") depth += 1;
+    else if (char === "]" && --depth === 0) return index;
+  }
+  return -1;
+}
+
+/// Where an inline link's target that starts at `from` ends: past `(url "title")`, its parentheses
+/// balanced; -1 when none starts there.
+function linkEnd(line: string, from: number): number {
+  if (line[from] !== "(") return -1;
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = from; index < line.length; index += 1) {
+    const char = line[index];
+    if (char === "\\") index += 1;
+    else if (quote) {
+      if (char === quote) quote = undefined;
+    } else if (char === '"' && depth === 1) quote = char;
+    else if (char === "(") depth += 1;
+    else if (char === ")" && --depth === 0) return index + 1;
+  }
+  return -1;
+}
+
+/// A preview's spaces collapsed, at most 240 characters.
+function clip(line: string): string {
+  return line.replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 /// `text` without a signature naming `name` first (`[coord-deputy] Merged`, `From coord-deputy:
@@ -88,15 +232,25 @@ export function unsigned(text: string, name: string): string {
   return signed && namesSender(signed.name, [name]) ? signed.text : text;
 }
 
+/// The machine the person's own `acpmux send` ran on, from the client acpmux recorded
+/// (`acpmux-cli#…@big-red`, or `acpmux-peer#…@big-red` when it came through a peer, server/requests.rs).
+export function cliHost(client: unknown): string | undefined {
+  return /^acpmux-(?:cli|peer|outbox)#[^@\s]*@([A-Za-z0-9._-]{1,64})$/.exec(String(client ?? ""))?.[1];
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
+  context?: IncomingContext,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
   // Relayed from another machine (acpmux hub/peers.rs): its files are that machine's, on every path.
   const remote = String(msg?.client ?? "").startsWith("acpmux-peer#") ? { remote: true as const } : {};
-  const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
+  const fromSession =
+    provenance?.kind === "subsession_message" ||
+    provenance?.kind === "session_message" ||
+    provenance?.kind === "task_result";
   if (fromSession && typeof provenance.from === "string" && provenance.from) {
     // `from` is the sender's raw session id, always a chat here; its short name, when it is a
     // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).
@@ -168,10 +322,10 @@ export function incomingPrompt(
     };
   }
   if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
-    const named = namedFirst(text.trim()) ?? fromFirst(text.trim());
+    const named = namedFirst(text.trim()) ?? fromFirst(text.trim()) ?? addressedFirst(text.trim(), context);
     if (named) return { kind: "message", message: { ...named, ...remote, raw: text } };
   }
-  if (msg?.client !== "adopt") return undefined;
+  if (msg?.client !== "adopt" && msg?.client !== "watch") return undefined;
   // Claude Code's envelopes start the prompt, after its line about them; one quoted later in it is
   // the person's text.
   const rest = withoutBookkeeping(text);
@@ -194,6 +348,10 @@ export function incomingPrompt(
     return summary ? { kind: "notice", text: summary } : { kind: "hidden" };
   }
   if (!rest) return { kind: "hidden" };
+  // A message acpmux delivered to the harness, read back from its transcript, records no client of
+  // its own: only the strict addressed form names its sender.
+  const addressed = addressedFirst(rest, context);
+  if (addressed) return { kind: "message", message: { ...addressed, raw: text } };
   return rest === text.trim() ? undefined : { kind: "prompt", text: rest };
 }
 
@@ -214,31 +372,6 @@ function renderedBody(text: string, msgId: unknown): string | undefined {
   if (lines[line++] !== "---") return undefined;
   if (line >= lines.length || lines.at(-1) !== `--- end of message ${msgId} ---`) return undefined;
   return lines.slice(line, -1).join("\n");
-}
-
-/// A reply in place (direct.ts `AcpmuxDirectClient.reply`) as cmux renders an agent message for
-/// the agent (agent_message_prompt.rs `render`), so the agent reads it as that chat's answer in the
-/// thread: who sent it, its id, the message it answers and cmux's note that it is not an
-/// instruction from the operator. `renderedBody` reads it back. It has no `Reply with` line: its id
-/// is acpmux's, which `cmux agent message --reply-to` does not know.
-export function renderedReply(reply: {
-  from: string;
-  fromName?: string;
-  msgId: string;
-  replyTo: string;
-  text: string;
-}): string {
-  const name = (reply.fromName ?? "").replace(/[\s\p{Cc}\p{Cf}]+/gu, " ").trim();
-  const from = name && name !== reply.from ? `${name} (${reply.from})` : reply.from;
-  return [
-    `[cmux agent message] from ${from}`,
-    `Message id: ${reply.msgId}`,
-    `In reply to: ${reply.replyTo}`,
-    RENDERED_NOTE,
-    "---",
-    reply.text,
-    `--- end of message ${reply.msgId} ---`,
-  ].join("\n");
 }
 
 const RENDERED_HEADER = /^\[cmux agent message(?: \(\d+ of \d+\))?\] from \S/;
@@ -279,13 +412,36 @@ function fromFirst(text: string): { name: string; text: string } | undefined {
   return prefixed && ENVELOPE_AGENT.test(prefixed[1]!) ? { name: prefixed[1]!, text: prefixed[2]!.trim() } : undefined;
 }
 
+/// A message addressed sender first: `summary-panel -> claude-sr2: …`, its arrow `->` or `→`, with
+/// spaces around it or none, each name one word that ends and starts with no dash (`a-->b` is none).
+const ADDRESSED = /^([\w.@/-]+?)(?<!-)\s*(?:->|→)\s*([\w.@][\w.@/-]*):\s+(\S[\s\S]*)$/;
+
+/// The sender and message of a prompt addressed sender first, when nothing but its text says an
+/// agent sent it: only when its sender is a listed chat, or it names this chat as its receiver and
+/// its sender reads as an agent's name (`summary-panel`, not `leo`), so the person's
+/// "foo -> bar: …" stays theirs.
+function addressedFirst(
+  text: string,
+  context: IncomingContext | undefined,
+): { name: string; text: string } | undefined {
+  const addressed = ADDRESSED.exec(text);
+  if (!addressed || !context) return undefined;
+  const [, from, to, body] = addressed as unknown as [string, string, string, string];
+  const known = (ENVELOPE_AGENT.test(from) && context.isThisChat?.(to)) || context.isChat?.(from);
+  return known ? { name: from, text: body.trim() } : undefined;
+}
+
 /// The agent that signed a message whose envelope names its sender already: its name first in
-/// brackets, when that is an agent's name and not a tag (`[WIP]`, `[1/3]`), or after "From". A
-/// name the envelope gives (`known`) is a signature in any form: `[chief] Merged` from the chat
-/// named chief, or `[huge-blue/chief] …` from the chat on that machine.
+/// brackets, when it is an agent's name and not a tag (`[WIP]`, `[1/3]`), after "From", or
+/// before an arrow to its receiver. A name the envelope gives (`known`) is a signature in any form.
 function agentSigned(text: string, known: readonly unknown[] = []): { name: string; text: string } | undefined {
   const named = namedFirst(text);
-  return named && (ENVELOPE_AGENT.test(named.name) || namesSender(named.name, known)) ? named : fromFirst(text);
+  if (named && (ENVELOPE_AGENT.test(named.name) || namesSender(named.name, known))) return named;
+  const addressed = ADDRESSED.exec(text);
+  return (
+    fromFirst(text) ??
+    (addressed && ENVELOPE_AGENT.test(addressed[1]!) ? { name: addressed[1]!, text: addressed[3]!.trim() } : undefined)
+  );
 }
 
 /// Whether `name` is one of the sender's `known` names, or one of them on another machine

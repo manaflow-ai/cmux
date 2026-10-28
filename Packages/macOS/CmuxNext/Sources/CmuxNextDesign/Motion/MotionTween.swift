@@ -1,6 +1,7 @@
 import CCmuxMotionFFI
 public import CoreGraphics
 public import Foundation
+public import CmuxNextDesignTokens
 
 /// Tween tokens: Chrome's tab strip motion (design-tokens.json
 /// `motion.tweens`, 200 ms 1-(1-t)^2). A tweened value goes from where it is

@@ -148,8 +148,9 @@ jobs:
     # Notarization wait times vary on Apple's side; the app and the final DMG
     # serialize. v0.64.22 took 40 minutes with the legacy app's extra helper
     # builds and notarizations. Keep at least 25 percent above the measured
-    # duration.
-    timeout-minutes: 90
+    # duration. Ten more minutes are the release publisher's rate-limit budget
+    # (publish-release-assets.py, RATE_LIMIT_BUDGET_SECONDS), which waits at the end.
+    timeout-minutes: 100
     steps:
       - name: Clear stale git locks (self-hosted reused workspace)
         shell: bash
@@ -167,7 +168,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           # The job token can write release assets. Steps that need it get it as
-          # GH_TOKEN; it is not left in .git/config for the build and smokes.
+          # GH_TOKEN; it is not left in .git/config for the build and runtime checks.
           persist-credentials: false
           submodules: recursive
 
@@ -294,7 +295,7 @@ jobs:
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.3.14"
+          bun-version: "1.4.4"
 
       - name: Install build deps
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -426,6 +427,8 @@ jobs:
         run: |
           set -euo pipefail
           app="build-universal/Build/Products/Release/cmux.app"
+          # An app built for the fleet benches keeps the debug.* commands; it never ships.
+          ./scripts/cmux-next/check-no-bench-hooks.sh "$app"
           framework="$app/Contents/Frameworks/Chromium Embedded Framework.framework"
           if [[ -d "$framework" ]]; then
             echo "Chromium engine embedded: $(lipo -archs "$framework/Versions/A/Chromium Embedded Framework")"
@@ -488,6 +491,7 @@ jobs:
             build-universal/Build/Products/Release/cmux.app "$cmux_tui_commit" "$CMUX_TUI_CLIENT_KEY"
           # The bundled daemon must serve every capability the app relies on.
           ./scripts/cmux-next/check-daemon-capabilities.sh \
+            --static-only \
             --binary build-universal/Build/Products/Release/cmux.app/Contents/Resources/bin/cmux-tui
 
       - name: Verify binary architectures
@@ -577,7 +581,7 @@ jobs:
 
       # The signing keychain exists only while this job signs. The CLI and
       # helper checks above ran before it existed; it is deleted before the
-      # runtime checks and smokes below, and created again for notarization.
+      # static artifact checks below, and created again for notarization.
       # scripts/ci/signing-keychain.sh owns its lifetime.
       - name: Import signing cert
         if: steps.guard_release_assets.outputs.skip_all != 'true'
@@ -629,29 +633,10 @@ jobs:
             --archs "$(lipo -archs "$app/Contents/MacOS/cmux")" \
             --require-signed
 
-      - name: Smoke launch signed app before notarization
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          # Catch macOS policy failures before the Apple ticket wait and DMG
-          # work. Direct execution is isolated from the runner's Dock state.
-          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 \
-            ./scripts/smoke-launch-macos-app.sh \
-            "build-universal/Build/Products/Release/cmux.app"
-
-      - name: Smoke bundled CLI against the signed app
-        if: steps.guard_release_assets.outputs.skip_all != 'true'
-        run: |
-          set -euo pipefail
-          # Launch-only smoke proves the process lives; this drives the shipped
-          # app through the CLI inside the same bundle (version, help, acp,
-          # the cmux-tui and acpmux symlinks, app ping and identify).
-          ./scripts/smoke-signed-app-cli.sh \
-            "build-universal/Build/Products/Release/cmux.app"
 
       # The helper re-seal and the DMG need the identity again. This step
-      # deletes the keychain right after the DMG signature, before it launches
-      # the stapled app.
+      # deletes the keychain right after the DMG signature, before static
+      # verification of the stapled artifact.
       - name: Import signing cert for notarization
         if: steps.guard_release_assets.outputs.skip_all != 'true'
         env:
@@ -731,12 +716,9 @@ jobs:
           xcrun stapler staple "$DMG_RELEASE"
           xcrun stapler validate "$DMG_RELEASE"
           # Apple is done with the universal app. Delete the decoded notary key,
-          # then run the stapled app.
+          # then verify the exact stapled DMG without launching bundle code.
           notary_auth_forget "$NOTARY_TMP"
-          CMUX_SMOKE_ALLOW_UNSUPPORTED_GUI=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
-          CMUX_SMOKE_DIRECT_EXEC=1 CMUX_SMOKE_DEBUG_LOGS=1 ./scripts/smoke-launch-macos-app.sh "$APP_PATH"
-          ./scripts/verify-app-bundle-channel-metadata.sh "$APP_PATH" stable
-          ./scripts/verify-app-bundle-licenses.sh "$APP_PATH"
+          ./scripts/ci/verify-dmg-artifact.sh "$DMG_RELEASE" stable --require-stapled-app
 
       - name: Gate distribution with syspolicy_check
         if: steps.guard_release_assets.outputs.skip_all != 'true'

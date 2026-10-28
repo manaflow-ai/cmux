@@ -16,6 +16,8 @@ FAKE_PLAYWRIGHT_STATUS.
 """
 import json
 import os
+import shutil
+import textwrap
 from pathlib import Path
 import subprocess
 import sys
@@ -232,6 +234,24 @@ class Wrapper(unittest.TestCase):
         self.assertEqual(done.returncode, 0, out)
         self.assertNotIn("on the base", out)
 
+    def test_a_pull_request_can_publish_head_results_without_replaying_the_base(self):
+        base, head = self.shard_1()
+        with tempfile.TemporaryDirectory() as results_dir:
+            result_path = Path(results_dir) / "head.json"
+            done, out = self.run_pr(
+                base,
+                head,
+                extra_env={
+                    "CMUX_WEB_TEST_SKIP_BASE": "1",
+                    "CMUX_WEB_TEST_RESULTS": str(result_path),
+                },
+            )
+            self.assertEqual(done.returncode, 1, out)
+            self.assertTrue(result_path.is_file())
+            self.assertIn("test/agent-pane-peer-chat.test.ts", result_path.read_text())
+            self.assertIn("base comparison runs in the separate react-apps base job", out)
+            self.assertNotIn("the red files again on the base", out)
+
 
 class Collect(unittest.TestCase):
     def test_a_summary_becomes_per_test_results(self):
@@ -261,12 +281,85 @@ class GuardsUnchanged(unittest.TestCase):
 
 
 class Workflow(unittest.TestCase):
+    def test_base_replay_uses_the_same_runner_deadline_as_the_head(self):
+        def command(name):
+            text = WORKFLOW.read_text().split(f"      - name: {name}\n", 1)[1]
+            text = text.split("\n      - name:", 1)[0]
+            run = text.split("        run: ", 1)[1]
+            if not run.startswith("|"):
+                return run.splitlines()[0]
+            lines = run.splitlines()[1:]
+            indent = len(lines[0]) - len(lines[0].lstrip())
+            script = []
+            for line in lines:
+                if line.strip() and not line.startswith(" " * indent):
+                    break
+                script.append(line)
+            return textwrap.dedent("\n".join(script))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            head, base, runner_temp, bins = (tmp / name for name in ("head", "base", "temp", "bin"))
+            for repo in (head, base):
+                (repo / "webviews/test").mkdir(parents=True)
+                (repo / "scripts/ci").mkdir(parents=True)
+                (repo / "webviews/test/hang.test.ts").write_text("// cmux-web-test-timeout: 3000\nHANG\n")
+                subprocess.run(["git", "init", "-q", str(repo)], check=True)
+                subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+                subprocess.run(["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                                "commit", "-qm", "fixture"], check=True)
+                for source in (COLLECT, COMPARE):
+                    shutil.copy(source, repo / "scripts/ci" / source.name)
+            runner_temp.mkdir()
+            bins.mkdir()
+            (bins / "bun").write_text(FAKE_BUN)
+            (bins / "bun").chmod(0o755)
+            shutil.copy(ROOT / "scripts/ci/run-webviews-tests.sh", head / "scripts/ci/run-webviews-tests.sh")
+            # The old base reaches a named assertion after its former long deadline. It must
+            # not supply a different file-level verdict from the head's bounded runner.
+            (base / "scripts/ci/run-webviews-tests.sh").write_text('#!/bin/sh\nprintf \'{"test/hang.test.ts > late assertion": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\nexit 1\n')
+            wrapper = head / "scripts/ci/webviews-tests-new-reds.sh"
+            wrapper.write_text('#!/bin/sh\nmkdir -p "$(dirname "$CMUX_WEB_TEST_RESULTS")"\nprintf \'{"test/hang.test.ts": false}\\n\' > "$CMUX_WEB_TEST_RESULTS"\n')
+            wrapper.chmod(0o755)
+            published = runner_temp / "webviews-head-results"
+            env = {**os.environ, "PATH": f"{bins}:{os.environ['PATH']}", "RUNNER_TEMP": str(runner_temp),
+                   "BASE_REF": "", "CMUX_WEB_TEST_RESULTS": str(published / "webviews-head-results.json"),
+                   "CMUX_WEB_TEST_MAX_FILE_TIMEOUT": "1", "CMUX_WEB_TEST_RETRIES": "0",
+                   "CMUX_WEB_TEST_JOBS": "1", "GITHUB_ACTIONS": "true"}
+            done = subprocess.run(["bash", "-eu", "-c", command("Test webviews")],
+                                  cwd=head / "webviews", env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            downloaded = runner_temp / "head-results"
+            shutil.copytree(published, downloaded)
+            env.update(HEAD_RESULTS=str(downloaded / "webviews-head-results.json"),
+                       BASE_RESULTS=str(runner_temp / "base-results.json"))
+            done = subprocess.run(["bash", "-eu", "-c", command("Run base reds and compare")],
+                                  cwd=base / "webviews", env=env, capture_output=True, text=True, timeout=10)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertIn("red on the base too", done.stdout)
+            self.assertEqual(json.loads((runner_temp / "base-results.json").read_text()), {"test/hang.test.ts": False})
+
     def test_pull_requests_compare_with_the_merge_parent_and_pushes_do_not(self):
         text = WORKFLOW.read_text(encoding="utf-8")
         step = text[text.index("      - name: Test webviews\n"):]
         step = step[: step.index("\n      - name:", 10)]
         self.assertIn("BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}", step)
-        self.assertIn('run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"', step)
+        self.assertIn('../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"', step)
+        self.assertIn("CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json", step)
+        self.assertIn("CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}", step)
+        self.assertIn("Upload head webview results", text)
+        self.assertIn("react-apps-head-results-shard${{ matrix.shard }}", text)
+        self.assertNotIn("react-apps-head-results-shard${{ matrix.shard }}-attempt", text)
+        self.assertIn("overwrite: true", text)
+        self.assertIn("react-apps-base-check:", text)
+        base = text[text.index("  react-apps-base-check:"):text.index("  runners:")]
+        # The base builds with its own declared bun, before it installs anything.
+        self.assertLess(base.index("run: scripts/cmux-next/private-bun.sh"), base.index("bun install --frozen-lockfile"))
+        self.assertIn("actions/download-artifact@", text)
+        self.assertIn("guards_new_reds.py --label \"Webview test\"", text)
+        self.assertIn("printf '{}\\n' > \"$BASE_RESULTS\"", text)
+        self.assertNotIn('cp "$HEAD_RESULTS" "$BASE_RESULTS"', text)
+        self.assertIn('CMUX_WEB_TEST_FILES="$(cat "$files")"', text)
         shard = text[text.index("  react-apps-check-shard:"):text.index("  react-doctor:")]
         self.assertIn("fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}", shard)
 

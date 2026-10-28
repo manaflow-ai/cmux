@@ -31,7 +31,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   text-align: start;
-  cursor: default;
+  letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-started-row + .acpmux-started-row {
   border-top: 1px solid color-mix(in srgb, var(--agent-text) 8%, transparent);
@@ -73,6 +73,7 @@
   font-size: var(--text-detail);
   line-height: var(--text-detail--line-height);
   white-space: nowrap;
+  letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-session-status {
   display: inline-flex;
@@ -99,7 +100,7 @@
 .acpmux-session-status[data-status="failed"],
 .acpmux-session-status[data-status="failing"],
 .acpmux-session-status[data-status="closed"] {
-  color: var(--agent-danger);
+  color: var(--agent-status-failure);
 }
 /* New activity: the unread dot and its word in the unread blue (Messages' blue, a third toward the
    text colour so it is no louder than the red or the magenta). The dot is drawn a 6px disc, centred
@@ -113,11 +114,11 @@
 .acpmux-session-status[data-status="done"],
 .acpmux-session-status[data-status="ready"],
 .acpmux-session-status[data-status="open"] {
-  color: var(--agent-success, var(--acpmux-add, #3fb950));
+  color: var(--agent-status-success);
 }
 /* The theme's magenta, a quarter toward the text colour, so it reads as clearly as the red. */
 .acpmux-session-status[data-status="merged"] {
-  color: color-mix(in srgb, var(--agent-ansi-5, #a371f7) 75%, var(--agent-text));
+  color: color-mix(in srgb, var(--agent-status-merged) 75%, var(--agent-text));
 }
 .acpmux-session-status-spinner {
   flex: none;

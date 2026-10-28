@@ -87,7 +87,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
 | Web links of a workspace (open on its right side, reuse its browser tab) | shared | `workspace.open_url` |
-| Tab pin, zoom, user icon, manual unread mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
+| Tab pin, zoom, user icon, manual unread mark, attention mark, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
 | Screen pin, color, icon, order; screen groups | shared | `screen.update`, `screen.move`, `screen_group.*` |
 | Closed history (one group per close gesture, kept until deleted) | shared | `closed.list`, `closed.reopen`, `closed.delete` |
@@ -122,7 +122,7 @@ workspace, absent for a normal one), `agent_folder` (absent until set), `descrip
 (`workspace-description-v1`, absent until set), `task_status` (`todo`, `working`,
 `needs-attention`, `review` or `done`, `workspace-status-v1`; absent while automatic); tab `pinned`,
 `tab_group_id`, `zoom`, `icon` (the user icon, absent until set), `marked_unread`
-(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
+(`true` while the person marked the tab unread by hand, `tab-mark-unread-v1`; absent otherwise), `attention` (`{reason, at_ms}` while an agent needs the person in the tab, `tab-attention-v1`; absent otherwise), `back`, `forward`, `owner` (the install id of the app
 that hosts a frontend-rendered browser, its record's only writer), `relaunch`
 (`{cwd}` for a tab kept by `shutdown-daemon {end_terminals, keep_layout}`,
 absent otherwise); screen `pinned`, `color`, `icon`,
@@ -1376,6 +1376,12 @@ The daemon owns the records in `chiefs.sqlite3` in the session state
 directory. A Chief's id is its conversation participant id: the default
 Chief is `agent_mux` and exists from the first read; a new Chief is `agent_`
 and 26 Crockford base32 characters. A deleted id is never reused.
+`chief.profile.list` answers `{chiefs, deleted}`: the live records and the ids
+of deleted Chiefs, so a client hides their conversations. Deleting a Chief
+stops its brain, ends its sessions and then removes its brain home
+(`<home>/c/<id tail>`, its memory and state) when its `chief-id` names that Chief
+and no brain holds its lock (a folder still locked stays); the default Chief is
+never deleted.
 
 With `chief-profile-history-v1` every committed state of a record is kept as a
 revision (the newest 100 per Chief, dropped with a deleted Chief):

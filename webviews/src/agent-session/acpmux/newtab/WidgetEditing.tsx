@@ -14,14 +14,22 @@ export function useWidgetName(): (widget: PageWidget) => string {
   const nt = useNt();
   return (widget) =>
     widget === "greeting"
-      ? nt("widget.greeting")
+      ? nt("widget.headline")
       : widget === "projects"
         ? nt("widget.projects")
         : widget === "actions"
           ? nt("widget.actions")
           : widget === "chats"
             ? nt("widget.chats")
-            : widget;
+            : widget === "clock"
+              ? nt("widget.clock")
+              : widget === "timer"
+                ? nt("widget.timer")
+                : widget === "warmGreeting"
+                  ? nt("widget.warmGreeting")
+                  : widget === "quote"
+                    ? nt("widget.quote")
+                    : widget;
 }
 
 /// Where a drag is: the widget held, and the one it would land before or after.
@@ -63,7 +71,7 @@ export function WidgetFrame({
 }: {
   widget: PageWidget;
   editing: WidgetEditing;
-  /// The movable widgets shown, in order; a widget not in it (the greeting) stays where it is.
+  /// The movable widgets shown, in order; a widget not in it (the headline) stays where it is.
   order: readonly MovableWidget[];
   onEdit?(edit: WidgetEdit): void;
   className?: string;
@@ -154,13 +162,37 @@ export function WidgetFrame({
 /// The bar over the page while it is edited: Add Widgets and Done.
 export function WidgetEditBar({ editing, onEdit }: { editing: WidgetEditing; onEdit(edit: WidgetEdit): void }) {
   const nt = useNt();
+  const widgetName = useWidgetName();
   if (!editing.editing) return null;
   return (
     <div className="nt-edit-bar">
-      <button type="button" className="nt-edit-button" data-edit="add" onClick={() => onEdit({ edit: "add" })}>
-        <Icon name="action.add" size={12} />
-        <span>{nt("edit.add")}</span>
-      </button>
+      <details className="nt-edit-add">
+        <summary className="nt-edit-button" data-edit="add">
+          <Icon name="action.add" size={12} />
+          <span>{nt("edit.add")}</span>
+        </summary>
+        <div className="nt-edit-add-menu" role="menu">
+          {(
+            [
+              "greeting",
+              "clock",
+              "timer",
+              "warmGreeting",
+              "quote",
+              "projects",
+              "actions",
+              "chats",
+              "styleDots",
+              "weather",
+              "machines",
+            ] as PageWidget[]
+          ).map((widget) => (
+            <button key={widget} type="button" role="menuitem" onClick={() => onEdit({ edit: "show", widget })}>
+              {widgetName(widget)}
+            </button>
+          ))}
+        </div>
+      </details>
       <button
         type="button"
         className="nt-edit-button"

@@ -17,9 +17,11 @@ extension SidebarViewComponents {
         isChromeRevealed = revealed
         for region in bandRegions { region.chromeRevealed = revealed }
         if changed { onChromeRevealChange?(revealed) }
-        // With the opt-in auto-hide, the pointer arriving shows the thin scrollers a moment.
+        // With the auto-hide (the default), the pointer arriving shows the thin scrollers a moment.
         if changed, revealed, SystemScrollers.thinScrollersAutoHide {
-            for scroll: NSScrollView in [scrollView, aboveScroll, belowScroll] { scroll.flashScrollers() }
+            for scroll: NSScrollView in [scrollView, aboveScroll, belowScroll] {
+                (scroll.verticalScroller as? ThinScroller)?.flash()
+            }
         }
         let alpha: CGFloat = revealed ? 1 : 0
         let mode = design.sidebarSections.minimalMode

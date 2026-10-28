@@ -65,7 +65,7 @@ public struct SettingsSchemaExport {
     nonisolated func page(text: (String, String?) -> [String: Any]) -> [String: Any] {
         let categories: [[String: Any]] = SettingsPageLayout().categories().map { category in
             let spec = category.spec
-            return [
+            var entry: [String: Any] = [
                 "id": spec.id,
                 "title": text(spec.title.text, spec.title.key),
                 "symbol": spec.symbol,
@@ -77,6 +77,9 @@ public struct SettingsSchemaExport {
                 "actions": spec.actions.map(\.rawValue),
                 "aliases": spec.aliases.map(\.rawValue),
             ]
+            // Only DEV builds show it (the page asks the host); absent everywhere else.
+            if spec.devOnly { entry["dev_only"] = true }
+            return entry
         }
         return ["default_category": SettingsPageLayout.defaultCategory, "categories": categories]
     }
@@ -135,6 +138,7 @@ public struct SettingsSchemaExport {
             row["kind"] = "number_list"
             row["range"] = range(number)
         case .stringMap: row["kind"] = "string_map"
+        case .soundRules: row["kind"] = "sound_rules"
         case .stringList: row["kind"] = "string_list"
         case .orderedChoices(let list):
             row["kind"] = "string_list"

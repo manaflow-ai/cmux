@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextPalette
 import CmuxNextSidebar
+import CmuxNextLayout
 
 /// Lists and names tabs, tab groups and workspace groups: the open tab
 /// groups of every machine (Add Tab to Group…), the saved ones (Reopen and

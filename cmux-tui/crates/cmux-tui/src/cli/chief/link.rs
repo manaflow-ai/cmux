@@ -63,6 +63,12 @@ pub(super) fn envelope(id: &str, operation: &str, params: Value, key: Option<&st
     params.insert("machine".into(), json!("current"));
     params.insert("session".into(), json!("current"));
     let mut line = json!({"protocol": PROTOCOL, "type": "request", "id": id, "operation": operation, "params": params});
+    if super::super::federation::agent_marker(|key| std::env::var(key).ok()).is_some() {
+        // A request-origin claim may only narrow the daemon-derived origin;
+        // it gives history a durable agent/person distinction without
+        // granting an agent any additional rights.
+        line["origin"] = json!({"claim": "agent"});
+    }
     if let Some(key) = key {
         line["idempotency_key"] = json!(key);
     }
@@ -156,24 +162,31 @@ impl Link {
                 return Ok(value.get("data").cloned().unwrap_or(Value::Null));
             }
             let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("").to_owned();
-            return Err(LinkError::Rejected { code: text("error_code"), message: text("error") });
+            // A cloud refusal names its reason beside the code (home-cloud-proxy.md section 4).
+            let code = match text("reason") {
+                reason if reason.is_empty() => text("error_code"),
+                reason => format!("{}: {reason}", text("error_code")),
+            };
+            return Err(LinkError::Rejected { code, message: text("error") });
         }
     }
 
     /// Turns this connection into the conversation's event stream: opens
     /// `conversation.events` (`tail` messages in its snapshot item), then a
-    /// thread forwards every item to `sink` until the stream ends.
+    /// thread forwards every item to `sink` until the stream ends (or the
+    /// returned handle is dropped).
     pub(super) fn into_events(
         mut self,
         conversation: &str,
         tail: usize,
         sink: Sender<super::Input>,
-    ) -> Result<(), LinkError> {
+    ) -> Result<EventsHandle, LinkError> {
         let stream_id = format!("stream_{}", uuid::Uuid::new_v4().simple());
         let params =
             json!({"conversation": conversation, "stream_id": stream_id, "tail": tail.min(500)});
         self.call("conversation.events", params, None)?;
         let _ = self.reader.get_ref().set_read_timeout(None);
+        let handle = EventsHandle::of(self.writer.as_ref())?;
         let mut reader = self.reader;
         std::thread::Builder::new()
             .name("chief-events".into())
@@ -203,8 +216,108 @@ impl Link {
                 }
                 let _ = sink.send(super::Input::Closed(reason));
             })
-            .map(|_| ())
+            .map(|_| handle)
             .map_err(|e| LinkError::Transport(e.to_string()))
+    }
+
+    /// The cloud counterpart of `into_events`: `subscribe` with typing
+    /// (`set-client-info`), `cloud-conversation-subscribe`, then a snapshot of
+    /// the last `tail` messages; a thread forwards each cloud event of
+    /// `conversation` as a `conversation.events` item (`backend::cloud_item`).
+    /// Events that come before the snapshot answer follow it.
+    pub(super) fn into_cloud_events(
+        mut self,
+        conversation: &str,
+        tail: usize,
+        sink: Sender<super::Input>,
+    ) -> Result<EventsHandle, LinkError> {
+        let capabilities = super::backend::cloud_event_capabilities();
+        // Best effort: an older daemon without typing still streams the rest.
+        let _ = self.command("set-client-info", json!({"capabilities": capabilities}));
+        self.command("subscribe", json!({}))?;
+        self.command("cloud-conversation-subscribe", json!({"conversation": conversation}))?;
+        let snapshot_id = format!("chief-{}", self.next_id);
+        self.next_id += 1;
+        let request = json!({"id": snapshot_id, "cmd": "cloud-conversation-snapshot",
+                             "conversation": conversation, "tail": tail.clamp(1, 50)});
+        self.writer
+            .write_all(format!("{request}\n").as_bytes())
+            .and_then(|()| self.writer.flush())
+            .map_err(|e| LinkError::Transport(e.to_string()))?;
+        let _ = self.reader.get_ref().set_read_timeout(None);
+        let handle = EventsHandle::of(self.writer.as_ref())?;
+        let mut reader = self.reader;
+        let conversation = conversation.to_owned();
+        std::thread::Builder::new()
+            .name("chief-cloud-events".into())
+            .spawn(move || {
+                let mut early: Option<Vec<Value>> = Some(Vec::new());
+                let mut reason = String::from("closed");
+                while let Ok(Some(value)) = read_line(&mut reader) {
+                    if value.get("event").is_none() {
+                        if value.get("id").and_then(Value::as_str) != Some(&snapshot_id) {
+                            continue;
+                        }
+                        if value.get("ok").and_then(Value::as_bool) != Some(true) {
+                            reason = value
+                                .get("error")
+                                .and_then(Value::as_str)
+                                .unwrap_or("snapshot refused")
+                                .to_owned();
+                            break;
+                        }
+                        let data = value.get("data").cloned().unwrap_or(Value::Null);
+                        let snapshot = super::backend::cloud_snapshot_item(&data);
+                        if sink.send(super::Input::Daemon(snapshot)).is_err() {
+                            return;
+                        }
+                        for item in early.take().unwrap_or_default() {
+                            if sink.send(super::Input::Daemon(item)).is_err() {
+                                return;
+                            }
+                        }
+                        continue;
+                    }
+                    if value.get("event").and_then(Value::as_str)
+                        == Some("cloud-subscription-state")
+                        && value.get("conversation").and_then(Value::as_str) == Some(&conversation)
+                        && value.get("state").and_then(Value::as_str) == Some("closed")
+                    {
+                        reason = "closed".into();
+                        break;
+                    }
+                    let Some(item) = super::backend::cloud_item(&value, &conversation) else {
+                        continue;
+                    };
+                    match early.as_mut() {
+                        Some(waiting) => waiting.push(item),
+                        None => {
+                            if sink.send(super::Input::Daemon(item)).is_err() {
+                                return;
+                            }
+                        }
+                    }
+                }
+                let _ = sink.send(super::Input::Closed(reason));
+            })
+            .map(|_| handle)
+            .map_err(|e| LinkError::Transport(e.to_string()))
+    }
+}
+
+/// Ends an event stream's connection when dropped (a chat switch, the end of
+/// a script), so its thread ends too.
+pub(super) struct EventsHandle(Box<dyn Stream>);
+
+impl EventsHandle {
+    fn of(stream: &dyn Stream) -> Result<Self, LinkError> {
+        stream.try_clone_box().map(Self).map_err(|e| LinkError::Transport(e.to_string()))
+    }
+}
+
+impl Drop for EventsHandle {
+    fn drop(&mut self) {
+        let _ = self.0.shutdown(std::net::Shutdown::Both);
     }
 }
 
@@ -257,4 +370,27 @@ pub(super) fn new_message_id() -> String {
 /// The `conversation.send` params of `text`.
 pub(super) fn send_params(conversation: &str, text: &str) -> Value {
     json!({"conversation": conversation, "text": text})
+}
+
+/// The `conversation.send` params of `parts` (a reply to `reply_to` when
+/// given); one text part with no reply is plain `text`.
+pub(super) fn send_parts_params(
+    conversation: &str,
+    parts: Vec<Value>,
+    reply_to: Option<Value>,
+) -> Value {
+    let only_text = match parts.as_slice() {
+        [part] if part.get("type").and_then(Value::as_str) == Some("text") => {
+            part.get("text").and_then(Value::as_str).map(str::to_owned)
+        }
+        _ => None,
+    };
+    let mut params = match only_text {
+        Some(text) => send_params(conversation, &text),
+        None => json!({"conversation": conversation, "parts": parts}),
+    };
+    if let (Some(reply_to), Some(fields)) = (reply_to, params.as_object_mut()) {
+        fields.insert("reply_to".into(), reply_to);
+    }
+    params
 }

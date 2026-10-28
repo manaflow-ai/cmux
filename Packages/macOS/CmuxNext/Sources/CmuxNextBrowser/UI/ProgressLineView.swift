@@ -20,6 +20,9 @@ final class ProgressLineView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     func set(progress: Double, visible: Bool) {
+        // The chrome re-renders on any change of the tab's state (a title, a favicon); unchanged
+        // progress opens no transaction and lays nothing out.
+        guard progress != self.progress || visible != self.visible else { return }
         let wasVisible = self.visible
         self.progress = visible ? progress : (wasVisible ? 1 : 0)
         self.visible = visible

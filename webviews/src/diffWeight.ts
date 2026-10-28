@@ -9,6 +9,9 @@
 /** The weight of diff code, line numbers and file headers. */
 export const DIFF_TEXT_WEIGHT = 400;
 
+/** The weight of Pierre's intra-line diff highlight, one step above the surrounding code. */
+export const DIFF_WORD_WEIGHT = 600;
+
 /** Percent of the add/remove color behind a changed row. */
 export const DIFF_LINE_TINT = 14;
 
@@ -64,4 +67,7 @@ export const DIFF_WEIGHT_CSS = /* css */ `
 [data-diffs-header],
 [data-separator-content] {
   font-weight: ${DIFF_TEXT_WEIGHT};
+}
+[data-diff-span] {
+  font-weight: ${DIFF_WORD_WEIGHT};
 }`;

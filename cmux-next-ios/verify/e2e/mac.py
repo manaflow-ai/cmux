@@ -16,9 +16,13 @@ instance: the isolated cmux-next.json gets `mobile.allowIPhoneConnections: true`
 before launch (Settings > Mobile writes the same key).
 
 Launch is `open -g -j -n` (background, hidden); the app is never activated.
-Quit is a graceful NSRunningApplication.terminate() of this pid only.
+Quit is a graceful NSRunningApplication.terminate() of this pid only. The app's
+acpmux, Chief host and headless cmux-tui outlive that quit; a script that made the
+Mac with `cleanup=True` ends them with `teardown()` (rig_cleanup.py), which also
+keeps the rig's cleanup-registry/v1 records.
 """
 import glob
+import hashlib
 import json
 import os
 import re
@@ -102,8 +106,41 @@ def refuse_other_rigs(own_bundle_id):
             "Wait for that run to finish (or, if it is yours and abandoned, quit that app), then rerun.")
 
 
+# Each hidden rig app's own machine id (#24701). Every cmux build on one Mac
+# registers that Mac's machine id, so the phone lists the computer once
+# (MacRoster); several hidden rig apps on one mini then fold into one entry and
+# one agent's rig hides another's. A DEBUG app passes this variable (32 hex
+# digits) to cmux-mobile-host as its machine id.
+RIG_MACHINE_ID_KEY = "CMUX_NEXT_MOBILE_MACHINE_ID"
+
+
+_HARDWARE_UUID = None
+
+
+def hardware_uuid():
+    """This Mac's IOPlatformUUID (what cmux-mobile-host's own machine id uses):
+    unlike the host name, it never changes with the network."""
+    global _HARDWARE_UUID
+    if _HARDWARE_UUID:
+        return _HARDWARE_UUID
+    out = subprocess.run(["ioreg", "-rd1", "-c", "IOPlatformExpertDevice"], capture_output=True, text=True).stdout
+    m = re.search(r'"IOPlatformUUID"\s*=\s*"([0-9A-Fa-f-]+)"', out)
+    if not m:
+        raise RuntimeError("no IOPlatformUUID in ioreg output")
+    _HARDWARE_UUID = m.group(1).upper()
+    return _HARDWARE_UUID
+
+
+def rig_machine_id(bundle_id, host_uuid=None):
+    """A rig app's machine id: from this Mac's hardware UUID and the app's bundle
+    id, the key of its device id (its cmux-mobile-host state folder), so one
+    device record always gets one machine id and two rig apps never share one."""
+    host_uuid = host_uuid if host_uuid is not None else hardware_uuid()
+    return hashlib.sha256(f"cmux-rig-machine-id v1\0{host_uuid}\0{bundle_id}".encode()).hexdigest()[:32]
+
+
 class Mac:
-    def __init__(self, rig_dir, source_app):
+    def __init__(self, rig_dir, source_app, cleanup=False, log=None):
         self.rig = rig_dir
         self.source_app = source_app
         name = os.path.basename(source_app.rstrip("/"))
@@ -117,8 +154,19 @@ class Mac:
         self.pairing_seed = os.path.join(rig_dir, "config", "iphone-pairing-seed.json")
         self.pid = None
         self.launch_env = {}
+        # Listed on the phone as its own Mac (rig_machine_id), not as another
+        # build of this computer. multimac's per-computer checks turn it off
+        # here, and CMUX_RIG_SHARED_MACHINE_ID=1 turns it off for any rig (a
+        # rig folder still holding an older rig.py copy).
+        self.own_machine_id = True
         self._bundle = None
         self._tag = None
+        # rig_cleanup.RigCleanup when the script asked for a teardown (cleanup=True):
+        # prepare() records the rig dir, launch() the acpmux homes, teardown() ends them.
+        self.cleanup = None
+        if cleanup:
+            from rig_cleanup import RigCleanup
+            self.cleanup = RigCleanup(rig_dir, self.app, log=log)
 
     # ---- identity ----------------------------------------------------------
     @property
@@ -152,6 +200,8 @@ class Mac:
 
     # ---- prepare -----------------------------------------------------------
     def prepare(self):
+        if self.cleanup:
+            self.cleanup.register_rig()  # the record goes in before the dir
         os.makedirs(os.path.join(self.rig, "mac"), exist_ok=True)
         os.makedirs(os.path.dirname(self.config), exist_ok=True)
         os.makedirs(os.path.dirname(self.creds), mode=0o700, exist_ok=True)
@@ -207,6 +257,11 @@ class Mac:
             "CMUX_NEXT_CONFIG_FILE": self.config,
             "CMUX_AUTH_CREDENTIALS_FILE": self.creds,
             "CMUX_NEXT_IPHONE_PAIRING_SEED": self.pairing_seed,
+            # Its own machine id, so the phone lists this rig apart from the
+            # other hidden rig apps on this Mac (#24701); off for a harness
+            # that tests one computer's builds (own_machine_id = False).
+            **({RIG_MACHINE_ID_KEY: rig_machine_id(self.bundle_id)}
+               if self.own_machine_id and os.environ.get("CMUX_RIG_SHARED_MACHINE_ID") != "1" else {}),
         }
 
     # ---- lifecycle ---------------------------------------------------------
@@ -220,6 +275,10 @@ class Mac:
         return [int(x) for x in r.stdout.split()]
 
     def launch(self, timeout=90):
+        """Start the app. With cleanup, SIGTERM and SIGHUP raise SystemExit from here on, so the script's
+        `finally` (around launch) runs teardown()."""
+        if self.cleanup:
+            self.cleanup.install()
         t0 = time.time()
         if not self.main_pids():
             # CMUX_MOBILE_E2E_RB_HOST: a cmux-remote-browser-host.app (with its own CEF) the rig
@@ -242,6 +301,8 @@ class Mac:
             time.sleep(0.5)
         else:
             raise RuntimeError("Mac app did not answer on its control socket")
+        if self.cleanup:
+            self.cleanup.register_daemons()
         return t0
 
     def wait_hostd(self, timeout=120):
@@ -260,6 +321,15 @@ class Mac:
         while time.time() < deadline and (self.main_pids() or self.hostd_pids()):
             time.sleep(0.3)
         return not self.main_pids()
+
+    def teardown(self, timeout=30):
+        """The end of a rig run: quit the app, then stop what outlives it (its acpmux
+        daemons by their own shutdown, its headless cmux-tui, leftovers by exact PID) and
+        remove the rig's recorded dirs (rig_cleanup.py). Needs Mac(..., cleanup=True)."""
+        quit_ok = self.quit(timeout)
+        if self.cleanup:
+            self.cleanup.end()
+        return quit_ok
 
     # ---- CLI -----------------------------------------------------------------
     def cmux(self, *args, check=True, timeout=60, json_out=False):

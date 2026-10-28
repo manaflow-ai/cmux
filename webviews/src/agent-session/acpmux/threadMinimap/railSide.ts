@@ -8,18 +8,19 @@ import type React from "react";
 import { changeChatDisplay, RAIL_SIDE_KEY, useChatDisplay } from "../chatDisplay";
 import { useT } from "../i18n";
 import type { ContextMenuItem } from "../../../ui/ContextMenu";
-import { RAIL_LEFT } from "./model";
+/// The saved right-edge choice keeps its original inset; the left follows the text gutter.
+export const RAIL_RIGHT = 16;
 
 export type RailSide = "left" | "right";
 
 /// The rail's edge, its inset from that edge, and the right-click menu's one item: a toggle to the
 /// other edge. Moving back to the left removes the key, so the default (left) holds again.
-export function useRailSide(): { side: RailSide; inset: React.CSSProperties; menu: ContextMenuItem[] } {
+export function useRailSide(left: number): { side: RailSide; inset: React.CSSProperties; menu: ContextMenuItem[] } {
   const t = useT();
   const side = useChatDisplay().railSide;
   return {
     side,
-    inset: side === "right" ? { right: RAIL_LEFT } : { left: RAIL_LEFT },
+    inset: side === "right" ? { right: RAIL_RIGHT } : { left },
     menu: [
       {
         id: "rail-side",

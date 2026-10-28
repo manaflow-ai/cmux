@@ -107,59 +107,62 @@ async function move(index: number, label: string) {
 let wrote: (entry: [string, unknown]) => void = () => {};
 const nextWrite = () => new Promise<[string, unknown]>((resolve) => (wrote = resolve));
 
-test("right-clicking the rail moves it to the right edge and back, and the host keeps the choice", async () => {
-  registerChatDisplayHost((key, value) => wrote([key, value]));
-  setChatDisplay({});
-  const root = createRoot(document.getElementById("root")!);
-  try {
-    await act(async () =>
-      root.render(
-        <VirtualTranscript
-          rows={turnView(turns, new Set())}
-          sessionId="rail-side"
-          onToggleActivity={() => {}}
-          expanded={new Set()}
-        />,
-      ),
-    );
-    // The default: the left edge, 16 px in.
-    expect(rail().dataset.side).toBe("left");
-    expect(rail().style.left).toBe("16px");
-    expect(rail().style.right).toBe("");
+test.each(["compact", "full"])(
+  "right-clicking the %s rail moves it to the right edge and back, and the host keeps the choice",
+  async (arm) => {
+    registerChatDisplayHost((key, value) => wrote([key, value]));
+    setChatDisplay({ "agentPane.display.minimap": arm });
+    const root = createRoot(document.getElementById("root")!);
+    try {
+      await act(async () =>
+        root.render(
+          <VirtualTranscript
+            rows={turnView(turns, new Set())}
+            sessionId="rail-side"
+            onToggleActivity={() => {}}
+            expanded={new Set()}
+          />,
+        ),
+      );
+      // The current base places the left rail beside the text: 120 px in this viewport.
+      expect(rail().dataset.side).toBe("left");
+      expect(rail().style.left).toBe("120px");
+      expect(rail().style.right).toBe("");
 
-    let written = nextWrite();
-    await move(3, "Move to Right Edge");
-    expect(chatDisplay().railSide).toBe("right");
-    expect(rail().dataset.side).toBe("right");
-    expect(rail().style.right).toBe("16px");
-    expect(rail().style.left).toBe("");
-    expect(await written).toEqual([RAIL_SIDE_KEY, "right"]);
+      let written = nextWrite();
+      await move(3, "Move to Right Edge");
+      expect(chatDisplay().railSide).toBe("right");
+      expect(rail().dataset.side).toBe("right");
+      expect(rail().style.right).toBe("16px");
+      expect(rail().style.left).toBe("");
+      expect(await written).toEqual([RAIL_SIDE_KEY, "right"]);
 
-    // The card opens on the rail's left: it draws outside the scroller (PreviewCard.tsx), counted
-    // from an anchor at the rail box's top-right corner, its right edge 52 px in from it.
-    await act(async () => tick(5).focus());
-    const card = document.querySelector<HTMLElement>(".acpmux-minimap__card")!;
-    expect(card).not.toBeNull();
-    const anchor = document.querySelector<HTMLElement>(".acpmux-minimap__anchor")!;
-    expect(anchor.style.right).toBe("0px");
-    expect(anchor.style.left).toBe("auto");
-    expect(card.style.transform).toMatch(/^translate3d\(-52px, .*\) translateX\(-100%\)$/);
-    await act(async () => tick(5).blur());
+      // The card opens on the rail's left: it draws outside the scroller (PreviewCard.tsx), counted
+      // from an anchor at the rail box's top-right corner, its right edge 52 px in from it.
+      await act(async () => tick(5).focus());
+      const card = document.querySelector<HTMLElement>(".acpmux-minimap__card")!;
+      expect(card).not.toBeNull();
+      const anchor = document.querySelector<HTMLElement>(".acpmux-minimap__anchor")!;
+      expect(anchor.style.right).toBe("0px");
+      expect(anchor.style.left).toBe("auto");
+      expect(card.style.transform).toMatch(/^translate3d\(-52px, .*\) translateX\(-100%\)$/);
+      await act(async () => tick(5).blur());
 
-    // And back: the key goes, so the default holds again.
-    written = nextWrite();
-    await move(3, "Move to Left Edge");
-    expect(rail().dataset.side).toBe("left");
-    expect(rail().style.left).toBe("16px");
-    expect(await written).toEqual([RAIL_SIDE_KEY, null]);
+      // And back: the key goes, so the default holds again.
+      written = nextWrite();
+      await move(3, "Move to Left Edge");
+      expect(rail().dataset.side).toBe("left");
+      expect(rail().style.left).toBe("120px");
+      expect(await written).toEqual([RAIL_SIDE_KEY, null]);
 
-    // The host's own event (cmux.json, Settings, another pane's menu) moves it too.
-    await act(async () => setChatDisplay({ [RAIL_SIDE_KEY]: "right" }));
-    expect(rail().dataset.side).toBe("right");
-    // A value the setting does not offer is the default.
-    await act(async () => setChatDisplay({ [RAIL_SIDE_KEY]: "top" }));
-    expect(rail().dataset.side).toBe("left");
-  } finally {
-    await act(async () => root.unmount());
-  }
-});
+      // The host's own event (cmux.json, Settings, another pane's menu) moves it too.
+      await act(async () => setChatDisplay({ "agentPane.display.minimap": arm, [RAIL_SIDE_KEY]: "right" }));
+      expect(rail().dataset.side).toBe("right");
+      // A value the setting does not offer is the default.
+      await act(async () => setChatDisplay({ "agentPane.display.minimap": arm, [RAIL_SIDE_KEY]: "top" }));
+      expect(rail().dataset.side).toBe("left");
+    } finally {
+      await act(async () => root.unmount());
+    }
+  },
+);

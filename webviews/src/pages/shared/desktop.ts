@@ -16,6 +16,7 @@ import { installSpinnerClock } from "../../ui/spinnerClock";
 import { installTooltips } from "../../ui/titleTooltips";
 import { installWave } from "../../ui/wave";
 import { installImeKeyLayer } from "./imeKeys";
+import { installWebSwap } from "./webSwap";
 
 /** The marker desktopLayer.test.ts and debug checks read: the layer ran in this document. */
 export const DESKTOP_LAYER_ATTRIBUTE = "data-cmux-desktop";
@@ -70,6 +71,8 @@ export function installDesktopLayer(doc: Document = document): void {
   if (!view) return;
   // IME-KEYS: keys an input method is using never reach page handlers (imeKeys.ts).
   installImeKeyLayer(doc);
+  // WEB-SWAP: the page answers whether a web update may reload it now (webSwap.ts).
+  installWebSwap(doc);
   // HAIRLINE: rims and rings in whole device pixels at every scale and zoom (desktop.css).
   updateHairline(doc);
   // A page-zoom or uiScale change resizes the CSS viewport; it may not fire the resolution query.

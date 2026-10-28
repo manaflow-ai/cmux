@@ -555,6 +555,87 @@
   }
  },
  {
+  "name": "retry of the scope's chat is free",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/retry\",\"params\":{\"sessionId\":\"s1\",\"subagentId\":\"a\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "_acpmux/retry",
+    "params": {
+     "sessionId": "s1",
+     "subagentId": "a"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/retry",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": true
+   }
+  }
+ },
+ {
+  "name": "retry of a sub-session outside the scope uses scope credit too",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":12,\"method\":\"_acpmux/retry\",\"params\":{\"sessionId\":\"s9\"}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": []
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 12,
+    "method": "_acpmux/retry",
+    "params": {
+     "sessionId": "s9"
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/retry",
+    "page_id": "12",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": false,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": true,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
   "name": "handoff of an unknown handoff is foreign and names it",
   "text": "{\"jsonrpc\":\"2.0\",\"id\":13,\"method\":\"_acpmux/handoff_start\",\"params\":{\"handoffId\":\"h1\",\"revision\":2}}",
   "state": {
@@ -1764,6 +1845,126 @@
     "harness_enable": false,
     "free": false
    }
+  }
+ },
+ {
+  "name": "annotations beside the answers of a pending question pass",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":45,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"Which layout?\":\"Split\"},\"annotations\":{\"Which layout?\":{\"preview\":\"[ list | preview ]\",\"notes\":\"narrower list\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "questions": [
+    "p1"
+   ]
+  },
+  "expect": {
+   "frame": {
+    "jsonrpc": "2.0",
+    "id": 45,
+    "method": "_acpmux/permission_respond",
+    "params": {
+     "sessionId": "s1",
+     "permissionId": "p1",
+     "optionId": "allow_once",
+     "answers": {
+      "Which layout?": "Split"
+     },
+     "annotations": {
+      "Which layout?": {
+       "preview": "[ list | preview ]",
+       "notes": "narrower list"
+      }
+     }
+    }
+   },
+   "facts": {
+    "is_first": false,
+    "method": "_acpmux/permission_respond",
+    "page_id": "45",
+    "ticket": null,
+    "other_meta": false,
+    "pick": null,
+    "session_id": null,
+    "needs_gesture": true,
+    "needs_path_check": false,
+    "setting": null,
+    "attach_session": null,
+    "foreign_source": false,
+    "handoff_id": null,
+    "harness_enable": false,
+    "free": false
+   }
+  }
+ },
+ {
+  "name": "annotations without answers are refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":46,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"annotations\":{\"Which layout?\":{\"notes\":\"x\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "questions": [
+    "p1"
+   ]
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "_acpmux/permission_respond",
+   "id": "46",
+   "spend": null
+  }
+ },
+ {
+  "name": "annotations with a field other than preview or notes are refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":47,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"Which layout?\":\"Split\"},\"annotations\":{\"Which layout?\":{\"notes\":\"x\",\"response\":\"y\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "questions": [
+    "p1"
+   ]
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "_acpmux/permission_respond",
+   "id": "47",
+   "spend": null
+  }
+ },
+ {
+  "name": "annotations for an item the question does not have are refused",
+  "text": "{\"jsonrpc\":\"2.0\",\"id\":48,\"method\":\"_acpmux/permission_respond\",\"params\":{\"sessionId\":\"s1\",\"permissionId\":\"p1\",\"optionId\":\"allow_once\",\"answers\":{\"Which layout?\":\"Split\"},\"annotations\":{\"Other?\":{\"notes\":\"x\"}}}}",
+  "state": {
+   "first": false,
+   "token": null,
+   "mode_fields": null,
+   "sessions": [
+    "s1"
+   ],
+   "denies": [],
+   "questions": [
+    "p1"
+   ]
+  },
+  "expect": {
+   "refuse": "transport.intent_invalid",
+   "method": "_acpmux/permission_respond",
+   "id": "48",
+   "spend": null
   }
  }
 ]

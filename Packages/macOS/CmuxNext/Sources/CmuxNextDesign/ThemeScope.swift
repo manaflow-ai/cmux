@@ -1,9 +1,10 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The theme one part of the UI draws in (plans/cmux-next/data-model.md 6).
 ///
 /// Scopes form a tree: `ThemeScope.app` follows the Ghostty config
-/// (`ThemeStore.shared`); a window scope takes its room's theme; a
+/// (its ``store``, which every scope of the tree shares); a window scope takes its room's theme; a
 /// workspace scope colors one workspace's content area; a terminal scope
 /// colors one terminal surface. A scope without its own theme inherits its
 /// parent's colors, so the precedence is terminal, workspace, room, config
@@ -19,13 +20,22 @@ public import AppKit
 @MainActor
 public final class ThemeScope {
     /// The root scope: the Ghostty config theme.
-    public static let app = ThemeScope()
+    ///
+    /// The one ambient theme root: `Palette` and the other static design lookups fall back to it
+    /// outside ``performWithTheme`` (like `NSAppearance.current`), so it cannot be passed to them.
+    /// It makes the app's ``ThemeStore``; the composition root reads it once and hands that store to
+    /// the App's owners (`AppServices.themeStore`).
+    public static let app = ThemeScope(root: ThemeStore(publishesGlobally: true))  // singleton-allow: the ambient theme root static Palette lookups fall back to
+
+    /// The store this scope's tree derives from: the root's, inherited by every child.
+    public let store: ThemeStore
 
     /// Art is inherited independently of color themes, so every window
     /// follows the app's one selection even with room or terminal themes.
     /// A room shows the background its shown workspace pinned (cx-t2x.5),
     /// so a top page (`show(nil)`) is back on the app's.
     public var backdropSelection: BackdropSelection? {
+        if hidesBackdrops { return nil }
         if let shown, shown.pinsBackdrop { return shown.backdropSelection }
         return pinsNoBackdrop ? nil : selectedBackdropSelection ?? parent?.backdropSelection
     }
@@ -40,6 +50,10 @@ public final class ThemeScope {
     private var inheritedWindowTint: Double? { windowTint ?? parent?.inheritedWindowTint }
     /// Whether ``pinBackdrop(_:)`` gave this scope a background of its own.
     private var pinsBackdrop: Bool { pinsNoBackdrop || isPinned }
+    /// `ui.reducedBackgrounds`: no picture here or in any descendant, whatever they picked
+    /// (``setBackdropsHidden(_:)``); their picks stay and draw again when it is off.
+    private var hidesBackdrops: Bool { backdropsHidden || parent?.hidesBackdrops == true }
+    private var backdropsHidden = false
     private var isPinned = false
     public var backdropArt: BackdropArt? {
         if case .art(let art) = backdropSelection { return art }
@@ -75,6 +89,17 @@ public final class ThemeScope {
             // finds it ready.
             BackdropImageStore.shared.prewarm(selection)
             repaintBackdropArt()
+        }
+    }
+
+    /// Hides every picture of this scope and its descendants (`ui.reducedBackgrounds`), so their
+    /// windows draw the plain theme background; their own picks are kept for when it is off.
+    public func setBackdropsHidden(_ hidden: Bool) {
+        ThemeRepaint.batch {
+            guard backdropsHidden != hidden else { return }
+            backdropsHidden = hidden
+            repaintBackdropArt()
+            for viewer in viewers.allObjects { viewer.repaintBackdropArt() }
         }
     }
 
@@ -138,9 +163,9 @@ public final class ThemeScope {
 
     /// The theme's own accent (`ThemeInput.accentColor`) this scope inherits, apart from Art Color.
     private var themeAccentColor: ThemeRGB? {
-        if level == .config { return ThemeStore.shared.input.accentColor }
+        if level == .config { return store.input.accentColor }
         if let overrideInput { return overrideInput.accentColor }
-        guard let parent else { return ThemeStore.shared.input.accentColor }
+        guard let parent else { return store.input.accentColor }
         return parent.themeAccentColor
     }
 
@@ -163,9 +188,9 @@ public final class ThemeScope {
         let previous = displayedBackdrop
         displayedBackdrop = key
         // The shown opacity follows the picture and its tuning; a tint drag re-reads nothing.
-        if previous?.selection != key.selection || previous?.tuning != key.tuning { BackdropRevision.shared.bump() }
+        if previous?.selection != key.selection || previous?.tuning != key.tuning { store.backdropRevision.bump() }
         // Art Color: another work is another accent.
-        if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
+        if store.accentFollowsArt { update(animated: false, repaint: false) }
         repaint(animated: false, from: nil)
         // After the batch's hooks: the responders see the new appearances, and their colors blend.
         ThemeRepaint.afterHooks { [weak self] in
@@ -218,23 +243,26 @@ public final class ThemeScope {
     // action runs; a main-actor deinit's hop traps there (cx-t7hu).
     nonisolated deinit {}
 
-    private init() {
+    private init(root store: ThemeStore) {
         level = .config
-        input = ThemeStore.shared.input
-        ownTokens = ThemeStore.shared.tokens
+        self.store = store
+        input = store.input
+        ownTokens = store.tokens
         displayed = ownTokens
+        store.root = self
     }
 
     /// A scope at `level` that inherits `parent` until it gets its own theme.
     public init(level: ThemeLevel, parent: ThemeScope = .app) {
         self.level = level == .config ? .room : level
         self.parent = parent
+        store = parent.store
         input = parent.input
         ownTokens = parent.ownTokens
         displayed = ownTokens
         parent.children.add(self)
         // Art Color: the parent's input carries its own art's hue, not this scope's.
-        if ThemeStore.shared.accentFollowsArt { update(animated: false, repaint: false) }
+        if store.accentFollowsArt { update(animated: false, repaint: false) }
     }
 
     /// The spec in effect here: this scope's, else the nearest ancestor's.
@@ -359,7 +387,7 @@ public final class ThemeScope {
         }
     }
 
-    /// Called by `ThemeStore.shared` after a Ghostty config change. The
+    /// Called by the tree's ``store`` after a Ghostty config change. The
     /// store repaints every window itself, so scopes only recompute.
     func storeDidChange() {
         ThemeRepaint.batch {
@@ -377,10 +405,10 @@ public final class ThemeScope {
     }
 
     private func update(animated: Bool, repaint: Bool) {
-        var next = level == .config ? ThemeStore.shared.input : overrideInput ?? parent?.input ?? ThemeStore.shared.input
-        next.accent = ThemeStore.shared.accent
+        var next = level == .config ? store.input : overrideInput ?? parent?.input ?? store.input
+        next.accent = store.accent
         // Art Color: the hue of the art this scope shows, else the theme's own accent.
-        if ThemeStore.shared.accentFollowsArt, level != .config {
+        if store.accentFollowsArt, level != .config {
             next.accentColor = backdropArt?.accentHue ?? themeAccentColor
         }
         // The parent's light/dark may have flipped even when these colors
@@ -393,7 +421,7 @@ public final class ThemeScope {
         }
         guard next != input else { return }
         input = next
-        let derived = level == .config ? ThemeStore.shared.tokens : ThemeTokens.derive(from: next)
+        let derived = level == .config ? store.tokens : ThemeTokens.derive(from: next)
         ownTokens = derived
         // Each child that inherits these colors repaints its own views (this scope's pass stops
         // at their roots).

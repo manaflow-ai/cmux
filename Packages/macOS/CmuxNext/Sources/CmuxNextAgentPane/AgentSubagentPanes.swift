@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 
 /// The agent panes a chat's subagents opened in (`chat.subagentPane`), one tracker per acpmux
 /// session, so every pane on that session asks the same one: each subagent's tab, so a second
@@ -184,14 +185,13 @@ public final class AgentSubagentPanes {
         }
         let center = NotificationCenter.default
         let observers = [NSWindow.didBecomeKeyNotification, NSApplication.didResignActiveNotification].map { name in
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in
-                // main-proof: delivered on the main queue
-                MainActor.assumeIsolated { acted() }
+            MainActorObservation(name, center: center) {
+                acted()
             }
         }
         return {
             if let monitor { NSEvent.removeMonitor(monitor) }
-            for observer in observers { center.removeObserver(observer) }
+            observers.forEach { $0.cancel() }
         }
     }
 

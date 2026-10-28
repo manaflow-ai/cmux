@@ -39,7 +39,7 @@ struct SidebarCmdNumberTwiceTests {
     /// client (only the AppDelegate does), so it never lands, and without it a first-party app item
     /// draws as its former built-in, neither missing nor suppressed.
     static func topItemsSettled(_ window: WindowController, _ services: AppServices) -> Bool {
-        if services.machines.local.supports(DaemonCapabilities.shared.sidebarDoc) {
+        if services.machines.local.supports(DaemonCapabilities.sidebarDoc) {
             guard let doc = SidebarDocStore.current, doc.isActive, doc.shown != nil, doc.shownVersion == doc.version else { return false }
         }
         let model = window.sidebar.model

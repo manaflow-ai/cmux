@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextFiles
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// The file explorer's Open With submenu lists the apps that open the file, as Finder does: the
 /// default app first and marked, then the others by name, then Other…. Each row is a registry row:

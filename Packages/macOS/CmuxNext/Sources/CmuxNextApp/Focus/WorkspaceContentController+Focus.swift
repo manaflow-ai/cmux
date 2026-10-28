@@ -14,6 +14,7 @@ extension WorkspaceContentController {
         focus.topologySent(by: self)
         #if DEBUG
         DebugLayoutCounters.topologySends &+= 1
+        debugTopologySends &+= 1
         DebugLayoutCounters.note("topology", file, line)
         #endif
         focus.send(.topology(focusTopology()))
@@ -36,6 +37,7 @@ extension WorkspaceContentController {
             guard let self, !self.isParked, !self.isApplying else { return nil }
             #if DEBUG
             DebugLayoutCounters.topologySends &+= 1
+            self.debugTopologySends &+= 1
             DebugLayoutCounters.note("topology", file, line)
             #endif
             self.rekeySurfaceWait() // lands on this topology when it adds the tab (the reducer keeps the wait)
@@ -106,6 +108,23 @@ extension WorkspaceContentController {
         // The topology names tabs by id: a tab the store has goes by its id; else `rekeySurfaceWait` later.
         let key: FocusState.Expectation.Key = daemon.store.tab(surface: surface).map { .tab($0.id) } ?? .surface(String(surface.rawValue))
         focus.expect(key, target: target, awayFrom: paneKey, generation: generation)
+    }
+}
+
+extension FocusTopology {
+    /// This topology without `pane`, as the daemon's tree without it will show it: its column keeps
+    /// its id and loses the pane, and a column left empty goes (`PaneController.showPaneClose`).
+    func removing(pane id: String) -> FocusTopology {
+        var topology = self
+        topology.panes.removeAll { $0.id == id }
+        topology.screens = screens.map { columns in
+            columns.compactMap { column in
+                var column = column
+                column.panes.removeAll { $0 == id }
+                return column.panes.isEmpty ? nil : column
+            }
+        }
+        return topology
     }
 }
 

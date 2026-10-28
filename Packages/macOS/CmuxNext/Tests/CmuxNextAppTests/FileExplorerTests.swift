@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextFocus
 import Foundation
 import Testing
+import CmuxNextFilesUI
 
 /// The right sidebar's Files section (classic's file explorer) and its seven actions: Open
 /// Selection (Return), Open Selection (Finder Style) (Cmd-Down), Open in cmux, Reveal in Finder,

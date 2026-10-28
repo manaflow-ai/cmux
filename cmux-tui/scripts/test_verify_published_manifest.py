@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import importlib.util
 import hashlib
+import http.client
+import urllib.error
 import json
 from pathlib import Path
 import re
@@ -173,6 +175,92 @@ class VerifyPublishedManifestTests(TestCase):
                     artifact_base_url="https://files.example/cmux-tui/sha",
                 )
 
+    def test_a_read_timeout_or_5xx_is_read_again_with_backoff(self) -> None:
+        """Run 40466861832 lost a tree's publish to one read timeout during verification."""
+        manifest = {"commit": self.COMMIT, "binaries": {self.WINDOWS: hashlib.sha256(b"w").hexdigest()}}
+        failures = [TimeoutError("The read operation timed out"),
+                    urllib.error.HTTPError("https://files.example/x", 503, "Service Unavailable", {}, None)]
+        calls: list[str] = []
+        pauses: list[float] = []
+
+        def opener(request: object, timeout: float = 0) -> object:
+            calls.append(request.full_url)  # type: ignore[attr-defined]
+            if failures:
+                raise failures.pop(0)
+            return FakeResponse(manifest)
+
+        with patch.object(VERIFY, "urlopen", side_effect=opener), \
+                patch.object(VERIFY.time, "sleep", side_effect=pauses.append):
+            VERIFY.verify_manifest(
+                "https://files.example/cmux-tui/latest/manifest.json",
+                expected_commit=self.COMMIT,
+                required_artifacts=(self.WINDOWS,),
+            )
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(pauses, [VERIFY.RETRY_PAUSE_SECONDS, 2 * VERIFY.RETRY_PAUSE_SECONDS])
+
+    def test_a_body_cut_off_mid_read_is_read_again(self) -> None:
+        manifest = {"commit": self.COMMIT, "binaries": {self.WINDOWS: hashlib.sha256(b"w").hexdigest()}}
+
+        class CutOff(FakeResponse):
+            def read(self, size: int = -1) -> bytes:
+                raise http.client.IncompleteRead(b"{", 100)
+
+        responses = [CutOff({}), FakeResponse(manifest)]
+        with patch.object(VERIFY, "urlopen", side_effect=lambda request, timeout=0: responses.pop(0)), \
+                patch.object(VERIFY.time, "sleep") as sleep:
+            VERIFY.verify_manifest(
+                "https://files.example/cmux-tui/latest/manifest.json",
+                expected_commit=self.COMMIT,
+                required_artifacts=(self.WINDOWS,),
+            )
+        self.assertEqual(responses, [])
+        sleep.assert_called_once_with(VERIFY.RETRY_PAUSE_SECONDS)
+
+    def test_a_persistent_timeout_fails_after_the_bounded_reads(self) -> None:
+        calls: list[str] = []
+
+        def opener(request: object, timeout: float = 0) -> object:
+            calls.append(request.full_url)  # type: ignore[attr-defined]
+            raise TimeoutError("The read operation timed out")
+
+        with patch.object(VERIFY, "urlopen", side_effect=opener), patch.object(VERIFY.time, "sleep"):
+            with self.assertRaisesRegex(VERIFY.ManifestError, r"timed out \(after 3 reads\)"):
+                VERIFY.verify_manifest(
+                    "https://files.example/cmux-tui/latest/manifest.json",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+        self.assertEqual(len(calls), VERIFY.FETCH_ATTEMPTS)
+
+    def test_a_4xx_or_a_wrong_manifest_fails_at_once(self) -> None:
+        calls: list[str] = []
+
+        def not_found(request: object, timeout: float = 0) -> object:
+            calls.append(request.full_url)  # type: ignore[attr-defined]
+            raise urllib.error.HTTPError("https://files.example/x", 404, "Not Found", {}, None)
+
+        with patch.object(VERIFY, "urlopen", side_effect=not_found), patch.object(VERIFY.time, "sleep") as sleep:
+            with self.assertRaisesRegex(VERIFY.ManifestError, "404"):
+                VERIFY.verify_manifest(
+                    "https://files.example/cmux-tui/latest/manifest.json",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+            sleep.assert_not_called()
+        self.assertEqual(len(calls), 1)
+        wrong = {"commit": "b" * 40, "binaries": {self.WINDOWS: "a" * 64}}
+        with patch.object(VERIFY, "urlopen", return_value=FakeResponse(wrong)) as opener, \
+                patch.object(VERIFY.time, "sleep") as sleep:
+            with self.assertRaises(VERIFY.ManifestError):
+                VERIFY.verify_manifest(
+                    "https://files.example/cmux-tui/latest/manifest.json",
+                    expected_commit=self.COMMIT,
+                    required_artifacts=(self.WINDOWS,),
+                )
+            sleep.assert_not_called()
+        self.assertEqual(opener.call_count, 1)
+
     def test_accepts_required_windows_artifact_and_digest(self) -> None:
         self.verify(self.manifest())
 
@@ -196,15 +284,21 @@ class VerifyPublishedManifestTests(TestCase):
     def test_artifact_workflow_verifies_unix_machine_manifest_before_latest(self) -> None:
         document = yaml.safe_load(ARTIFACT_WORKFLOW.read_text(encoding="utf-8"))
         build = document["jobs"]["build"]["with"]
+        windows = document["jobs"]["build-windows"]["with"]
         # The Windows daemon is built for GPUI's Windows daemon mode, but is
         # published only under cmux-tui-windows/<sha>/ and the tree: never in
         # cmux-tui/<sha>/ or cmux-tui/latest/, which the public Windows
-        # installer reads (asserted below with --forbid-artifact).
-        self.assertIs(build["include_windows"], True)
+        # installer reads (asserted below with --forbid-artifact). It builds
+        # in build-windows, its own call, so the macOS and Linux tree never
+        # waits for it (tests/test_cmux_tui_feat_publish_order.py).
+        self.assertIs(build["include_windows"], False)
+        self.assertIs(windows["include_windows"], True)
+        self.assertEqual(windows["target_set"], "windows")
         # A Windows failure must not block the macOS and Linux tree.
-        self.assertIs(build["windows_optional"], True)
-        self.assertIs(build["package_npm"], False)
-        self.assertIs(build["package_pypi"], False)
+        self.assertIs(windows["windows_optional"], True)
+        for call in (build, windows):
+            self.assertIs(call["package_npm"], False)
+            self.assertIs(call["package_pypi"], False)
 
         installer = WINDOWS_INSTALLER.read_text(encoding="utf-8")
         advertised = re.search(r'^\$Artifact = "([^"]+)"$', installer, re.MULTILINE)

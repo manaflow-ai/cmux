@@ -50,12 +50,24 @@ public final class TabStripView: NSView {
         get { newTabButton.shortcut }
         set { newTabButton.shortcut = newValue }
     }
+    /// A pane exposes its type menu on a normal press, with a visible chevron.
+    public var opensNewTabMenuOnPress = false {
+        didSet {
+            newTabButton.showsChevron = opensNewTabMenuOnPress
+            newTabButton.themedToolTip = opensNewTabMenuOnPress ? Strings.axNewTab : Strings.newTabHoldHint
+            applyTokens(animated: false)
+        }
+    }
     var windowControlsInset: CGFloat = 0
 
     /// Builds right-click menus from the App's action registry. With no
     /// provider (or a nil menu for a chip), right-clicking a chip opens the
     /// group editor bubble.
     public var contextMenuProvider: TabContextMenuProvider?
+    /// Native menu tracking; injectable for interaction tests without a nested event loop.
+    var presentNewTabMenu: (NSMenu, NSPoint, NSView) -> Void = { menu, point, view in
+        menu.popUp(positioning: nil, at: point, in: view)
+    }
     /// Inline rename (`TabInlineRename`).
     private(set) lazy var inlineRename = TabInlineRename(strip: self)
     // MARK: Views
@@ -81,6 +93,8 @@ public final class TabStripView: NSView {
     let windowVisibility = WindowVisibilityObserver()
     /// In a window and not hidden (`syncShown`).
     private(set) var isShownInWindow = false
+    /// The model changed while the strip was out of sight: it syncs once, at rest, when it shows.
+    var modelChangedWhileHidden = false
     /// An appearance or scale change came while hidden; applied when shown.
     private var appearanceIsStale = false
     /// Group chips, bands, drag, and optimistic membership.
@@ -213,7 +227,11 @@ public final class TabStripView: NSView {
         tabsClip.layer?.addSublayer(scrollingLayer)
         contentView.addSubview(tabsClip)
         contentView.addSubview(newTabButton)
-        newTabButton.onPress = { [weak self] in self?.model.send(.newTab(after: nil)) }
+        newTabButton.onPress = { [weak self] in
+            guard let self else { return }
+            if opensNewTabMenuOnPress { showNewTabMenu() }
+            else { model.send(.newTab(after: nil)) }
+        }
         newTabButton.onAccessibilityFocus = { [weak self, weak newTabButton] focused in
             guard let newTabButton else { return }
             self?.noteAccessibilityFocus(ObjectIdentifier(newTabButton), focused)
@@ -343,7 +361,8 @@ public final class TabStripView: NSView {
     /// The window-wide fan-outs (hover-card hit tests, main and occlusion changes) reach only a
     /// shown strip: a hidden one (a parked workspace, still in its window, or a hidden screen bar)
     /// is not in them, and an appearance or scale change waits until it shows. Showing re-reads
-    /// the window's state; its model observation never stopped, so its cells are current.
+    /// the window's state and applies, without motion, the model changes that came while hidden
+    /// (``syncFromModel()`` lays nothing out out of sight).
     func syncShown(_ shown: Bool? = nil) {
         let shown = shown ?? (window != nil && !isHiddenOrHasHiddenAncestor)
         guard shown != isShownInWindow else { return }
@@ -355,6 +374,11 @@ public final class TabStripView: NSView {
         guard shown else {
             if window != nil { endPointerState() }
             return
+        }
+        // What changed while out of sight lands at once in its final place: nobody saw it move.
+        if modelChangedWhileHidden {
+            modelChangedWhileHidden = false
+            sync(fromModel: true, animating: false)
         }
         hoverCards.register(hoverCard)
         applyMultiSelection()
@@ -401,6 +425,7 @@ public final class TabStripView: NSView {
 
     func applyTokens(animated: Bool) {
         metrics = customMetrics ?? TabStripMetrics()
+        if opensNewTabMenuOnPress { metrics.newTabButtonWidth += Metrics.space4 }
         hoverCard.tokensChanged()
         geometryDidChange()
         let font = Typography.body

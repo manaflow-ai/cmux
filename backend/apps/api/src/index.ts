@@ -26,8 +26,12 @@ import type { PresenceKeyBody } from "./user-do.ts"
 import { handlePairBegin, handlePairWait } from "./pair-routes.ts"
 import { handleSsoCallback, handleSsoRedeem, handleSsoStart } from "./sso-routes.ts"
 import { sweepDeps, sweepFeedText } from "./feed-sweep.ts"
+import { GITHUB_TOKEN_PATH, handleGithubToken } from "./integrations/github-token-route.ts"
 
 export { AccountIndexDO } from "./account-index-do.ts"
+export { HandoffDO } from "./handoffs/handoff-do.ts"
+export { HandoffIndexDO } from "./handoffs/index-do.ts"
+import { handleHandoffs, HANDOFFS_PATH } from "./handoffs/routes.ts"
 export { AddressDO } from "./address-do.ts"
 export { ConversationDO } from "./conversation-do.ts"
 export { MuxDO } from "./mux-do.ts"
@@ -52,6 +56,7 @@ import { BILLING_LEVELS_PATH, BILLING_SYNC_PATH, handleBillingLevels, handleBill
 import { BILLING_TEAM_MODE_PATH, handleBillingTeamMode } from "./billing-team-mode.ts"
 import { CREDITS_ADMIN_PATH, handleCreditsAdmin } from "./credits-admin.ts"
 import { CREDITS_PATH, CREDITS_WEBHOOK_PATH, handleCredits, handleCreditsWebhook } from "./credits-routes.ts"
+import { handlePlanCheckout, PLAN_PATH } from "./plan-checkout.ts"
 import { HOME_HEALTH_CRON, runHomeHealth, sentryFetch } from "./home-health.ts"
 export { AutomationRunWorkflow } from "./automation-workflow.ts"
 export { AutomationTail } from "./automation-tail.ts"
@@ -214,7 +219,7 @@ export default {
     // A chief's Durable Object brain (chief-brain/routes.ts): its owner's settings, and runs for conversation members.
     const chiefBrain = url.pathname.match(CHIEF_BRAIN_PATH)
     // A Chief that runs the opencode brain (chief-brain-opencode/) keeps its runs there.
-    const chiefBrainPath = chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
+    const chiefBrainPath = chiefBrain?.[2] === "brain" || chiefBrain?.[2] === "github" || chiefBrain?.[2] === "memory" || chiefBrain?.[2] === "peer" ? chiefBrain[2] : "runs"
     if (chiefBrain && chiefBrainPath === "runs" && opencodeOn(env)) return handleOpencodeRuns(request, env, chiefBrain[1]!, chiefBrain[3], () => handleChiefBrain(request, env, chiefBrain[1]!, "runs", chiefBrain[3]))
     if (chiefBrain) return handleChiefBrain(request, env, chiefBrain[1]!, chiefBrainPath, chiefBrain[3])
     const fault = url.pathname.match(FAULT_PATH)
@@ -235,6 +240,9 @@ export default {
     const card = url.pathname.match(/^\/v1\/invites\/card\/([dg][0-9A-HJKMNP-TV-Z]{26})$/)
     if (card && request.method === "GET") return handleInviteCard(env, card[1]!)
     if (url.pathname === "/v1/invites/preview") return handleInvitePreview(request, env)
+    // Cloud work mode's hand-offs (handoffs/routes.ts): the owner's sessions on cloud machines, and their machines' reports.
+    const handoff = url.pathname.match(HANDOFFS_PATH)
+    if (handoff) return handleHandoffs(request, env, handoff)
     if (url.pathname === "/v1/presence-key" && request.method === "POST") return handlePresenceKey(request, env)
     if (url.pathname.startsWith("/v1/inference/")) return inference(url.pathname, request, env, ctx)
     // Home attachments (home-attachments.ts): intent, commit and URL mint need a bearer; the slot and the signed URL are the credential.
@@ -258,6 +266,9 @@ export default {
     // Prepaid Cloud Chief credits: balance and top-ups (credits-routes.ts), the top-up webhook, operator grants.
     const credits = url.pathname.match(CREDITS_PATH)
     if (credits) return handleCredits(request, env, credits[1]?.startsWith("checkout/") && credits[2] ? "checkout/link" : credits[1], credits[2])
+    // A Chief's upsell link: a Stripe Checkout page for a plan (plan-checkout.ts, test mode only).
+    const planCheckout = url.pathname.match(PLAN_PATH)
+    if (planCheckout) return handlePlanCheckout(request, env, planCheckout[1]!)
     if (url.pathname === CREDITS_WEBHOOK_PATH) return handleCreditsWebhook(request, env)
     if (url.pathname === CREDITS_ADMIN_PATH) return handleCreditsAdmin(request, env)
     if (url.pathname === "/v1/admin/cloud/abandoned/clear") return handleCloudAbandonedClear(request, env)
@@ -278,6 +289,9 @@ export default {
     if (url.pathname === "/v1/sso/redeem") return handleSsoRedeem(request, env)
     // Google push receivers: staging and development only until the backend lead reviews them for production.
     if (env.ENVIRONMENT !== "production" && url.pathname === "/v1/hooks/google/pubsub") return handleGooglePubsub(request, env)
+    // GitHub installation tokens for git and gh (integrations/github-token-route.ts): bearer only, never the op path.
+    const ghToken = url.pathname.match(GITHUB_TOKEN_PATH)
+    if (ghToken) return handleGithubToken(request, env, ghToken[1]!)
     const providerHook = url.pathname.match(/^\/v1\/hooks\/(github|slack|linear)$/)
     if (providerHook) return handleProviderHook(request, env, providerHook[1] as "github" | "slack" | "linear")
     return apiHandler(request)

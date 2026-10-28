@@ -28,8 +28,8 @@ import Testing
         workspace.pinBackdrop(.selection(.art(Self.work)))
         #expect(workspace.input.accentColor == nil)
 
-        ThemeStore.shared.setAccentFollowsArt(true)
-        defer { ThemeStore.shared.setAccentFollowsArt(false) }
+        ThemeScope.app.store.setAccentFollowsArt(true)
+        defer { ThemeScope.app.store.setAccentFollowsArt(false) }
         #expect(workspace.input.accentColor == hue)
         #expect(workspace.tokens.accent == ThemeTokens.derive(from: workspace.input).accent)
         #expect(AppTheme.derive(from: workspace.input).failures.isEmpty)
@@ -40,7 +40,7 @@ import Testing
         workspace.pinBackdrop(.selection(.art(Self.work)))
         #expect(workspace.input.accentColor == hue)
 
-        ThemeStore.shared.setAccentFollowsArt(false)
+        ThemeScope.app.store.setAccentFollowsArt(false)
         #expect(workspace.input.accentColor == nil)
     }
 
@@ -50,8 +50,8 @@ import Testing
         let hue = try #require(Self.work.accentHue)
         ThemeScope.app.setBackdropSelection(.art(Self.work))
         defer { ThemeScope.app.setBackdropSelection(nil) }
-        ThemeStore.shared.setAccentFollowsArt(true)
-        defer { ThemeStore.shared.setAccentFollowsArt(false) }
+        ThemeScope.app.store.setAccentFollowsArt(true)
+        defer { ThemeScope.app.store.setAccentFollowsArt(false) }
         let room = ThemeScope(level: .room)
         #expect(room.input.accentColor == hue)
     }

@@ -70,7 +70,7 @@ struct BranchDaemonHarness {
     static func shutDown(_ connection: DaemonConnection) async {
         guard let identity = await connection.identity else { return await connection.close() }
         let hosts = TerminalHosts.of(daemon: identity.pid)
-        if identity.supports(DaemonCapabilities.shared.terminalReap) {
+        if identity.supports(DaemonCapability.terminalReap.rawValue) {
             // Stop reconnecting first: on the daemon's EOF the connection
             // would run `server ensure` and start a fresh daemon that outlives
             // the test. The end-terminals shutdown uses its own socket.

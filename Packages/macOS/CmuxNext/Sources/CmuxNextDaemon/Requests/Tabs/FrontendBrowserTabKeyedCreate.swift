@@ -19,7 +19,7 @@ extension NewFrontendBrowserTabRequest {
     /// Callers that make several tabs in one action make them in order, so
     /// each derived key names the same tab when the action is retried.
     func send(on connection: isolated DaemonConnection) async throws -> Response {
-        guard connection.identity?.supports(DaemonCapabilities.shared.frontendBrowserTabKeys) == true else {
+        guard connection.identity?.supports(DaemonCapability.frontendBrowserTabKeys.rawValue) == true else {
             return try await connection.request(self)
         }
         var keyed = self

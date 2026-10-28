@@ -19,6 +19,8 @@ import type { FreeDeviceDO } from "./inference/free-device-do.ts"
 import type { AutomationRunParams, SchedulerDO } from "./scheduler-do.ts"
 import type { TeamDO } from "./team-do.ts"
 import type { UserDO } from "./user-do.ts"
+import type { HandoffDO } from "./handoffs/handoff-do.ts"
+import type { HandoffIndexDO } from "./handoffs/index-do.ts"
 
 export interface Env {
   /** production | staging | development | preview | test */
@@ -42,6 +44,9 @@ export interface Env {
   readonly FEED_DO: DurableObjectNamespace<FeedDO>
   /** One AccountIndexDO per provider account key: which team connections a webhook goes to. */
   readonly ACCOUNT_INDEX_DO: DurableObjectNamespace<AccountIndexDO>
+  /** Cloud work mode's hand-offs (handoffs/): one HandoffDO per handed-off session, one HandoffIndexDO per owner. Unbound in production until hand-off ships there. */
+  readonly HANDOFF_DO?: DurableObjectNamespace<HandoffDO>
+  readonly HANDOFF_INDEX_DO?: DurableObjectNamespace<HandoffIndexDO>
   /** One DomainDO per lowercased email domain: which team verified it (enterprise SSO). */
   readonly DOMAIN_DO: DurableObjectNamespace<DomainDO>
   /** Workers rate limit for unauthenticated sign-in discovery (30 per minute per client IP). */
@@ -331,6 +336,8 @@ export interface Env {
   readonly CHIEF_CC_TURN_FILES?: string
   /** Secret: the GitHub token the agent user's gh and git use on each turn machine (fine-grained, the Chief's repos only). */
   readonly CHIEF_CC_GITHUB_TOKEN?: string
+  /** The shortest `chief-wake` timer in seconds (chief-brain-cc/wake.ts; default 30, tests 0). */
+  readonly CHIEF_CC_WAKE_MIN_SECONDS?: string
   /** The Freestyle plan of CHIEF_CC_FREESTYLE_API_KEY's account (free, hobby or pro; default pro): its per-VM maximums bound the Chief's sandbox sizes. */
   readonly CHIEF_CC_FREESTYLE_PLAN?: string
   /** How many live sandbox VMs each Chief may keep (default 2, at most 10). */

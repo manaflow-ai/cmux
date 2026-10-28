@@ -26,8 +26,8 @@ public final class WorkspacePaletteProvider: PaletteProvider {
         let source = source
         return source.workspaces.map { workspace in
             let id = workspace.id
-            // The machine, the parent group, then the folder: rows of the same name tell apart.
-            let parents = [workspace.machineName, workspace.groupName, workspace.directory.map(abbreviatePath)]
+            // The subagent id, the machine, the parent group, then the folder: rows of the same name tell apart.
+            let parents = [workspace.agentID, workspace.machineName, workspace.groupName, workspace.directory.map(abbreviatePath)]
                 .compactMap { $0?.isEmpty == false ? $0 : nil }
             var item = PaletteItem(
                 id: "workspace:\(id)",
@@ -61,6 +61,7 @@ public final class WorkspacePaletteProvider: PaletteProvider {
                 frecencyKey: "workspace:\(id)",
                 rankBias: workspace.isSelected ? -5 : 0
             )
+            if let agentID = workspace.agentID, !agentID.isEmpty { item.handles = [agentID] }
             item.actionRefs = [PaletteActionRef("goToWorkspace", arguments: ["workspace": .target(ActionTargetRef(kind: .workspace, id: id))],
                                                 title: PaletteStrings.switchToWorkspace)]
             return item

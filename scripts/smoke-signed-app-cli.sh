@@ -7,20 +7,13 @@
 # proves the shipped CLI runs, its cmux-tui and acpmux names resolve to it, and
 # the shipped CLI and app agree on the control socket protocol.
 #
-# Usage: smoke-signed-app-cli.sh <app-path> [--canary | --visual <out-dir>]
+# Usage: smoke-signed-app-cli.sh <app-path> [--canary]
 #
 # --canary (the nightly canary, docs/ci/nightly-next-canary.md) also checks
 # what a person sees first: a visible window, a New Tab, an agent session that
 # answers a prompt (acpmux's test agent, no account), and that the app and its
 # helpers stay up with no crash report for CMUX_CLI_SMOKE_CANARY_SECONDS
 # (default 60) after launch (scripts/cmux-next/signed-app-canary-checks.py).
-#
-# --visual (the nightly visual smoke, docs/ci/nightly-next-canary.md) places the
-# window at a fixed size, drives the app to Home, a new agent chat and an agent
-# chat with one answered turn, captures the window in each into <out-dir>
-# (scripts/cmux-next/visual-smoke/drive.py), and fails when a capture looks
-# visibly broken (visual-smoke/visual_check.py against visual-smoke/scenes.json
-# and any reference image in visual-smoke/references/).
 #
 # CI only: cmux enforces a single instance per bundle id, so launching a
 # bundle whose channel you are using on this Mac terminates your running copy.
@@ -31,19 +24,15 @@
 set -euo pipefail
 
 CANARY=0
-VISUAL_OUT=""
 if [[ $# -eq 2 && "$2" == "--canary" ]]; then
   CANARY=1
-elif [[ $# -eq 3 && "$2" == "--visual" && -n "$3" ]]; then
-  mkdir -p "$3"
-  VISUAL_OUT="$(cd "$3" && pwd)"
 elif [[ $# -ne 1 ]]; then
-  echo "usage: $0 <app-path> [--canary | --visual <out-dir>]" >&2
+  echo "usage: $0 <app-path> [--canary]" >&2
   exit 2
 fi
-# Both modes give the app acpmux's test agent as its one harness.
+# Canary mode gives the app acpmux's test agent as its one harness.
 TEST_AGENT=0
-[[ "$CANARY" == 0 && -z "$VISUAL_OUT" ]] || TEST_AGENT=1
+[[ "$CANARY" == 0 ]] || TEST_AGENT=1
 
 APP_PATH="$1"
 if [[ ! -d "$APP_PATH/Contents" ]]; then
@@ -96,7 +85,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK_DIR="$(mktemp -d /tmp/cmux-cli-smoke.XXXXXX)"
 SOCKET_PATH="$WORK_DIR/s.sock"
 APP_LOG="$WORK_DIR/app.log"
-# --canary and --visual: the app's acpmux home, with acpmux's test agent as its one harness.
+# --canary: the app's acpmux home, with acpmux's test agent as its one harness.
 ACPMUX_HOME_DIR="$WORK_DIR/acpmux"
 CANARY_HARNESS="nightly-canary-agent"
 CRASH_MARKER="$WORK_DIR/launched"
@@ -120,8 +109,8 @@ cleanup() {
     # shellcheck source=SCRIPTDIR/lib/stop-cmux-tui-owners.sh
     source "$(dirname "${BASH_SOURCE[0]}")/lib/stop-cmux-tui-owners.sh"
     cmux_stop_cmux_tui_owners "$APP_PATH/Contents/Resources/bin"
-    # --canary and --visual started the bundle's acpmux daemon with this run's
-    # home; stop it (and its test agents) through that home, as TagTeardown does.
+    # --canary started the bundle's acpmux daemon with this run's home; stop it
+    # (and its test agents) through that home, as TagTeardown does.
     if [[ "$TEST_AGENT" == 1 && -d "$ACPMUX_HOME_DIR" ]]; then
       ACPMUX_HOME="$ACPMUX_HOME_DIR" "$APP_PATH/Contents/Resources/bin/acpmux" daemon shutdown --end-agents >/dev/null 2>&1 || true
     fi
@@ -229,16 +218,6 @@ if [[ "$TEST_AGENT" == 1 ]]; then
     "$CANARY_HARNESS" "$(command -v python3)" "$WORK_DIR/fake_agent.py" "$ACPMUX_HOME_DIR/config.json"
   launch_env+=(ACPMUX_HOME="$ACPMUX_HOME_DIR")
 fi
-if [[ -n "$VISUAL_OUT" ]]; then
-  # One window size on every runner (inside a 1024x768 display's visible
-  # frame), so captures compare with the references (TestWindowPlacement).
-  launch_env+=(CMUX_NEXT_TEST_WINDOW_SCREEN=0 "CMUX_NEXT_TEST_WINDOW_FRAME=0,0,1000,640")
-  # A scratch settings file (never the runner's): a chat's Inspector, open
-  # on a first chat, pushes the chat aside instead of lying over it, so the
-  # chat the smoke checks is drawn whole beside it.
-  printf '%s\n' '{"agentPane": {"display": {"inspector": {"placement": "push"}}}}' >"$WORK_DIR/cmux-next.json"
-  launch_env+=("CMUX_NEXT_CONFIG_FILE=$WORK_DIR/cmux-next.json")
-fi
 : >"$CRASH_MARKER"
 env -u CMUX_WORKSPACE_ID -u CMUX_SURFACE_ID -u CMUX_TAB_ID -u CMUX_PANEL_ID \
   -u CMUX_SOCKET_PATH -u CMUX_SOCKET_PASSWORD -u ACPMUX_HOME -u ACPMUX_SOCKET \
@@ -302,25 +281,6 @@ if [[ "$CANARY" == 1 ]]; then
     fail "a crash report was written in the first ${CANARY_SECONDS}s"
   fi
   echo "ok: up ${CANARY_SECONDS}s after launch with no crash report"
-fi
-
-if [[ -n "$VISUAL_OUT" ]]; then
-  STEP="visual: drive the app to its scenes and capture the window"
-  drive_status=0
-  python3 "$SCRIPT_DIR/cmux-next/visual-smoke/drive.py" \
-    --socket "$SOCKET_PATH" --pid "$APP_PID" --acpmux-home "$ACPMUX_HOME_DIR" \
-    --harness "$CANARY_HARNESS" --cwd "$WORK_DIR/agent-cwd" --out "$VISUAL_OUT" || drive_status=$?
-  # Judge whatever was captured, so the report names every broken scene.
-  STEP="visual: judge the captures"
-  check_status=0
-  python3 "$SCRIPT_DIR/cmux-next/visual-smoke/visual_check.py" \
-    --scenes "$SCRIPT_DIR/cmux-next/visual-smoke/scenes.json" \
-    --references "$SCRIPT_DIR/cmux-next/visual-smoke/references" \
-    --shots "$VISUAL_OUT" --report "$VISUAL_OUT/report.json" >"$VISUAL_OUT/report.md" || check_status=$?
-  cat "$VISUAL_OUT/report.md"
-  [[ "$drive_status" == 0 ]] || fail "the app did not reach every visual smoke scene (drive.json)"
-  [[ "$check_status" == 0 ]] || fail "a visual smoke capture looks broken (report.md)"
-  echo "ok: visual smoke: every scene looks drawn"
 fi
 
 STEP="done"

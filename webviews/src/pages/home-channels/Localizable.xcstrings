@@ -5145,7 +5145,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Start ist offline."
+            "value" : "Home ist offline."
           }
         },
         "es" : {
@@ -10516,7 +10516,7 @@
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Start"
+            "value" : "Home"
           }
         },
         "es" : {
@@ -22544,127 +22544,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archive Chief"
+            "value" : "Delete Chief…"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "أرشفة Chief"
+            "value" : "حذف Chief…"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arhiviraj Chief"
+            "value" : "Izbriši Chief…"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkivér Chief"
+            "value" : "Slet Chief…"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief archivieren"
+            "value" : "Chief löschen…"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivar Chief"
+            "value" : "Eliminar Chief…"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiver le Chief"
+            "value" : "Supprimer le Chief…"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivia Chief"
+            "value" : "Elimina Chief…"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief をアーカイブ"
+            "value" : "Chiefを削除…"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ទុកក្នុងបណ្ណសារ Chief"
+            "value" : "លុប Chief…"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief 보관"
+            "value" : "Chief 삭제…"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkiver Chief"
+            "value" : "Slett Chief…"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiwizuj Chief"
+            "value" : "Usuń Chiefa…"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arquivar Chief"
+            "value" : "Excluir Chief…"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архивировать Chief"
+            "value" : "Удалить Chief…"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เก็บ Chief ถาวร"
+            "value" : "ลบ Chief…"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief'i arşivle"
+            "value" : "Chief’i Sil…"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архівувати Chief"
+            "value" : "Видалити Chief…"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lưu trữ Chief"
+            "value" : "Xóa Chief…"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "归档 Chief"
+            "value" : "删除 Chief…"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "封存 Chief"
+            "value" : "刪除 Chief…"
           }
         }
       }
@@ -27784,127 +27784,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archive %@?"
+            "value" : "Delete %@?"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "أرشفة %@؟"
+            "value" : "حذف %@؟"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arhivirati %@?"
+            "value" : "Izbrisati %@?"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkivér %@?"
+            "value" : "Slet %@?"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@ archivieren?"
+            "value" : "%@ löschen?"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "¿Archivar %@?"
+            "value" : "¿Eliminar %@?"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiver %@ ?"
+            "value" : "Supprimer %@ ?"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiviare %@?"
+            "value" : "Eliminare %@?"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@ をアーカイブしますか？"
+            "value" : "%@を削除しますか?"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ទុក %@ ក្នុងបណ្ណសារ?"
+            "value" : "លុប %@?"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@을(를) 보관할까요?"
+            "value" : "%@을(를) 삭제할까요?"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkivere %@?"
+            "value" : "Slette %@?"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zarchiwizować %@?"
+            "value" : "Usunąć %@?"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arquivar %@?"
+            "value" : "Excluir %@?"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архивировать %@?"
+            "value" : "Удалить %@?"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เก็บ %@ ถาวรหรือไม่"
+            "value" : "ลบ %@ ไหม"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "%@ arşivlensin mi?"
+            "value" : "%@ silinsin mi?"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архівувати %@?"
+            "value" : "Видалити %@?"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lưu trữ %@?"
+            "value" : "Xóa %@?"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "归档 %@？"
+            "value" : "删除 %@?"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "封存 %@？"
+            "value" : "刪除 %@?"
           }
         }
       }
@@ -27915,127 +27915,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The Chief stops and leaves your list. Its memory is kept for 30 days, then deleted."
+            "value" : "The Chief stops and is removed for good, with its memory and settings. You can’t undo this."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "يتوقف Chief ويغادر قائمتك. تُحفظ ذاكرته 30 يومًا ثم تُحذف."
+            "value" : "يتوقف Chief ويُزال نهائيًا مع ذاكرته وإعداداته. لا يمكن التراجع عن ذلك."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief se zaustavlja i napušta vašu listu. Memorija se čuva 30 dana, zatim se briše."
+            "value" : "Chief se zaustavlja i trajno uklanja, zajedno s memorijom i postavkama. Ovo se ne može poništiti."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief stopper og forsvinder fra din liste. Hukommelsen gemmes i 30 dage og slettes derefter."
+            "value" : "Chief stopper og fjernes for altid sammen med sin hukommelse og sine indstillinger. Det kan ikke fortrydes."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Der Chief stoppt und verlässt deine Liste. Seine Erinnerungen bleiben 30 Tage erhalten und werden dann gelöscht."
+            "value" : "Der Chief wird angehalten und mit seinem Gedächtnis und seinen Einstellungen endgültig entfernt. Das lässt sich nicht rückgängig machen."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "El Chief se detiene y sale de tu lista. Su memoria se guarda 30 días y luego se elimina."
+            "value" : "El Chief se detiene y se elimina para siempre, con su memoria y sus ajustes. No se puede deshacer."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Le Chief s'arrête et quitte votre liste. Sa mémoire est conservée 30 jours, puis supprimée."
+            "value" : "Le Chief s’arrête et est supprimé définitivement, avec sa mémoire et ses réglages. Cette action est irréversible."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Il Chief si ferma ed esce dal tuo elenco. La sua memoria resta per 30 giorni, poi viene eliminata."
+            "value" : "Il Chief si ferma e viene rimosso per sempre, con la sua memoria e le sue impostazioni. Non è possibile annullare."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief は停止し、一覧から消えます。メモリーは 30 日間保持された後に削除されます。"
+            "value" : "Chiefは停止し、メモリと設定ごと完全に削除されます。この操作は取り消せません。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief ឈប់ ហើយចេញពីបញ្ជីរបស់អ្នក។ អង្គចងចាំត្រូវរក្សាទុក 30 ថ្ងៃ បន្ទាប់មកលុប។"
+            "value" : "Chief ឈប់ ហើយត្រូវបានលុបជាអចិន្ត្រៃយ៍ រួមទាំងការចងចាំ និងការកំណត់របស់វា។ អ្នកមិនអាចមិនធ្វើវិញបានទេ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief가 멈추고 목록에서 사라집니다. 메모리는 30일 동안 보관된 후 삭제됩니다."
+            "value" : "Chief가 중지되고 메모리와 설정과 함께 영구적으로 제거됩니다. 이 작업은 되돌릴 수 없습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief stopper og forsvinner fra listen din. Minnet beholdes i 30 dager og slettes deretter."
+            "value" : "Chief stopper og fjernes for godt, med minne og innstillinger. Dette kan ikke angres."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief zatrzymuje się i znika z listy. Jego pamięć jest przechowywana 30 dni, potem usuwana."
+            "value" : "Chief zatrzymuje się i zostaje trwale usunięty wraz z pamięcią i ustawieniami. Tego nie można cofnąć."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O Chief para e sai da sua lista. A memória dele é mantida por 30 dias e depois apagada."
+            "value" : "O Chief para e é removido para sempre, com sua memória e seus ajustes. Não é possível desfazer."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief остановится и исчезнет из списка. Его память хранится 30 дней, затем удаляется."
+            "value" : "Chief остановится и будет удалён навсегда вместе с памятью и настройками. Это нельзя отменить."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief จะหยุดและออกจากรายการของคุณ ความจำจะเก็บไว้ 30 วันแล้วลบ"
+            "value" : "Chief จะหยุดและถูกลบถาวร พร้อมความจำและการตั้งค่า เลิกทำไม่ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief durur ve listenizden çıkar. Belleği 30 gün saklanır, sonra silinir."
+            "value" : "Chief durur ve belleği ile ayarlarıyla birlikte kalıcı olarak kaldırılır. Bu geri alınamaz."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief зупиниться й зникне зі списку. Його пам'ять зберігається 30 днів, потім видаляється."
+            "value" : "Chief зупиниться й буде видалений назавжди разом із пам’яттю та налаштуваннями. Це не можна скасувати."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief sẽ dừng và rời khỏi danh sách. Bộ nhớ được giữ 30 ngày rồi bị xóa."
+            "value" : "Chief dừng lại và bị xóa vĩnh viễn cùng bộ nhớ và cài đặt. Không thể hoàn tác."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief 会停止并从列表中移除。其记忆保留 30 天后删除。"
+            "value" : "Chief 会停止,并连同其记忆和设置被永久移除。此操作无法撤销。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief 會停止並從清單中移除。其記憶保留 30 天後刪除。"
+            "value" : "Chief 會停止,並連同其記憶與設定被永久移除。此動作無法復原。"
           }
         }
       }
@@ -28046,127 +28046,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archive"
+            "value" : "Delete"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "أرشفة"
+            "value" : "حذف"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arhiviraj"
+            "value" : "Izbriši"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkivér"
+            "value" : "Slet"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivieren"
+            "value" : "Löschen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivar"
+            "value" : "Eliminar"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiver"
+            "value" : "Supprimer"
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivia"
+            "value" : "Elimina"
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "アーカイブ"
+            "value" : "削除"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ទុកក្នុងបណ្ណសារ"
+            "value" : "លុប"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "보관"
+            "value" : "삭제"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkiver"
+            "value" : "Slett"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiwizuj"
+            "value" : "Usuń"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arquivar"
+            "value" : "Excluir"
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архивировать"
+            "value" : "Удалить"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เก็บถาวร"
+            "value" : "ลบ"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arşivle"
+            "value" : "Sil"
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архівувати"
+            "value" : "Видалити"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lưu trữ"
+            "value" : "Xóa"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "归档"
+            "value" : "删除"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "封存"
+            "value" : "刪除"
           }
         }
       }
@@ -28177,127 +28177,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Archive a Chief in the cmux app."
+            "value" : "Delete a Chief in the cmux app."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "أرشف Chief من تطبيق cmux."
+            "value" : "احذف Chief من تطبيق cmux."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief arhivirajte u aplikaciji cmux."
+            "value" : "Izbrišite Chiefa u aplikaciji cmux."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkivér en Chief i cmux-appen."
+            "value" : "Slet en Chief i cmux-appen."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiviere einen Chief in der cmux-App."
+            "value" : "Lösche einen Chief in der cmux-App."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiva un Chief en la app de cmux."
+            "value" : "Elimina un Chief en la app cmux."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivez un Chief dans l'app cmux."
+            "value" : "Supprimez un Chief dans l’app cmux."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archivia un Chief nell'app cmux."
+            "value" : "Elimina un Chief nell’app cmux."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief のアーカイブは cmux アプリで行います。"
+            "value" : "Chiefはcmuxアプリで削除してください。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ទុក Chief ក្នុងបណ្ណសារក្នុងកម្មវិធី cmux។"
+            "value" : "លុប Chief នៅក្នុងកម្មវិធី cmux។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief 보관은 cmux 앱에서 하세요."
+            "value" : "Chief는 cmux 앱에서 삭제하세요."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arkiver en Chief i cmux-appen."
+            "value" : "Slett en Chief i cmux-appen."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Archiwizuj Chief w aplikacji cmux."
+            "value" : "Usuń Chiefa w aplikacji cmux."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Arquive um Chief no app cmux."
+            "value" : "Exclua um Chief no app cmux."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архивируйте Chief в приложении cmux."
+            "value" : "Удалите Chief в приложении cmux."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "เก็บ Chief ถาวรในแอป cmux"
+            "value" : "ลบ Chief ในแอป cmux"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief'i cmux uygulamasında arşivleyin."
+            "value" : "Chief’i cmux uygulamasında silin."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Архівуйте Chief у застосунку cmux."
+            "value" : "Видаліть Chief у застосунку cmux."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Lưu trữ Chief trong ứng dụng cmux."
+            "value" : "Xóa Chief trong ứng dụng cmux."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "请在 cmux 应用中归档 Chief。"
+            "value" : "请在 cmux App 中删除 Chief。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "請在 cmux 應用程式中封存 Chief。"
+            "value" : "請在 cmux App 中刪除 Chief。"
           }
         }
       }
@@ -28308,127 +28308,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The default Chief cannot be archived."
+            "value" : "The default Chief cannot be deleted."
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "لا يمكن أرشفة Chief الافتراضي."
+            "value" : "لا يمكن حذف Chief الافتراضي."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Zadani Chief se ne može arhivirati."
+            "value" : "Zadani Chief se ne može izbrisati."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Standard-Chief kan ikke arkiveres."
+            "value" : "Standard-Chief kan ikke slettes."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Der Standard-Chief kann nicht archiviert werden."
+            "value" : "Der Standard-Chief kann nicht gelöscht werden."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "El Chief predeterminado no se puede archivar."
+            "value" : "El Chief predeterminado no se puede eliminar."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Le Chief par défaut ne peut pas être archivé."
+            "value" : "Le Chief par défaut ne peut pas être supprimé."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Il Chief predefinito non può essere archiviato."
+            "value" : "Il Chief predefinito non può essere eliminato."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "既定の Chief はアーカイブできません。"
+            "value" : "デフォルトのChiefは削除できません。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief លំនាំដើមមិនអាចទុកក្នុងបណ្ណសារបានទេ។"
+            "value" : "មិនអាចលុប Chief លំនាំដើមបានទេ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "기본 Chief는 보관할 수 없습니다."
+            "value" : "기본 Chief는 삭제할 수 없습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Standard-Chief kan ikke arkiveres."
+            "value" : "Standard-Chief kan ikke slettes."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Domyślnego Chiefa nie można zarchiwizować."
+            "value" : "Domyślnego Chiefa nie można usunąć."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "O Chief padrão não pode ser arquivado."
+            "value" : "O Chief padrão não pode ser excluído."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief по умолчанию нельзя архивировать."
+            "value" : "Основной Chief нельзя удалить."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief เริ่มต้นเก็บถาวรไม่ได้"
+            "value" : "ลบ Chief ค่าเริ่มต้นไม่ได้"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Varsayılan Chief arşivlenemez."
+            "value" : "Varsayılan Chief silinemez."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Chief за замовчуванням не можна архівувати."
+            "value" : "Основний Chief не можна видалити."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Không thể lưu trữ Chief mặc định."
+            "value" : "Không thể xóa Chief mặc định."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "默认 Chief 无法归档。"
+            "value" : "无法删除默认 Chief。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "預設 Chief 無法封存。"
+            "value" : "無法刪除預設 Chief。"
           }
         }
       }

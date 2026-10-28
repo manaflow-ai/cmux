@@ -1,4 +1,4 @@
-// The full-height thread minimap (the `thread-minimap-layout` experiment's default arm): the rail
+// The full-height thread minimap (the `thread-minimap-layout` experiment's `full` arm): the rail
 // spans the transcript's viewport and maps the whole scroll height onto it. Each prompt is a longer,
 // brighter tick and a tab stop; each reply a shorter, dimmer one set in a little; a bar shows what
 // is on screen and follows the scroll on its own frame without a render. Hovering grows the marks
@@ -13,7 +13,7 @@ import { useHoverIntent } from "../../../ui/hoverIntent";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
 import { animateScroll, reducedMotion, stopScroll } from "./scrollMotion";
 import { PreviewCard } from "./PreviewCard";
-import { useRailSide } from "./railSide";
+import { RAIL_RIGHT, useRailSide } from "./railSide";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import type { usePromptMarks } from "./promptMarks";
 import {
@@ -22,8 +22,7 @@ import {
   JUMP_CURVE,
   jumpDuration,
   LANDING_OFFSET,
-  MIN_GUTTER,
-  RAIL_LEFT,
+  railPlacement,
   replyPreview,
   ROW_WIDTH,
   THREAD_PADDING_TOP,
@@ -37,6 +36,7 @@ import {
   mapProgress,
   mapThumb,
   markAt,
+  marksIn,
   scrollTopAt,
   type MapMark,
 } from "./mapGeometry";
@@ -49,18 +49,6 @@ const AGENT_LENGTH = [5, 15] as const;
 
 type PromptMarks = ReturnType<typeof usePromptMarks>;
 type Press = { pointer: number; y: number; moved: boolean; mark?: string };
-
-/// The first and last place in `marks` (top to bottom) whose y lies in [top, bottom].
-function marksIn(marks: readonly MapMark[], top: number, bottom: number) {
-  let first = -1;
-  let last = -1;
-  marks.forEach((mark, index) => {
-    if (mark.y < top || mark.y > bottom) return;
-    if (first < 0) first = index;
-    last = index;
-  });
-  return first < 0 ? undefined : { first, last };
-}
 
 const within = (element: Element | null, to: EventTarget | null) =>
   !!element && !!to && "nodeType" in to && element.contains(to as Node);
@@ -88,7 +76,6 @@ export function ScrollMap({
   jump: (turn: number, how: "click" | "scrub") => number | undefined;
 }) {
   const t = useT();
-  const { side, inset, menu } = useRailSide();
   const height = Math.max(0, Math.floor(viewportHeight - 2 * MAP_MARGIN));
   const marks = useMemo(() => mapMarks(rows, turns, layout, height), [rows, turns, layout, height]);
   /// Each mark's place in `marks`, by its row's id. The state below names row ids, not places: which
@@ -115,11 +102,9 @@ export function ScrollMap({
   const card = useRef<HTMLDivElement>(null);
   const cardId = useId();
   const press = useRef<Press | undefined>(undefined);
-  const shown =
-    turns.length >= MAP_MIN_PROMPTS &&
-    scrolls &&
-    height > 4 * MAP_MARGIN &&
-    transcriptColumn(width).inset >= MIN_GUTTER;
+  const placement = railPlacement(transcriptColumn(width).inset);
+  const { side, inset, menu } = useRailSide(placement.left);
+  const shown = turns.length >= MAP_MIN_PROMPTS && scrolls && height > 4 * MAP_MARGIN && !placement.hidden;
 
   /// The marks the view bar covers (first and last place in `marks`), for their "current" tone.
   /// The bar moves by style on each scroll frame; this renders only when the covered marks change.
@@ -257,15 +242,14 @@ export function ScrollMap({
   const cardTurn = cardAt?.kind === "user" ? turns[cardAt.turn] : undefined;
   const cardMarked = cardTurn ? bookmarks.has(cardTurn) : false;
   return (
-    <div className="acpmux-minimap">
-      {/* Right-click the map to move it to the other edge (railSide.ts). */}
+    <div className="acpmux-minimap" style={{ "--acpmux-rail-left": `${placement.left}px` } as React.CSSProperties}>
       <ContextMenu items={menu}>
         <nav
           ref={rail}
           className="acpmux-minimap__rail acpmux-scrollmap"
           aria-label={t("minimap.label")}
-          style={{ ...inset, top: MAP_MARGIN, width: ROW_WIDTH, height }}
           data-side={side}
+          style={{ ...inset, top: MAP_MARGIN, width: ROW_WIDTH, height }}
           data-hovering={pointerY !== undefined || undefined}
           data-scrubbing={scrubbing || undefined}
           data-reduce={reduce || undefined}
@@ -350,12 +334,15 @@ export function ScrollMap({
           ref={card}
           id={cardId}
           side={side}
-          x={RAIL_LEFT + ROW_WIDTH}
+          x={(side === "right" ? RAIL_RIGHT : placement.left) + ROW_WIDTH}
+          railLeft={placement.left}
           y={cardOffset(MAP_MARGIN + cardAt.y, cardHeight, viewportHeight)}
           // Out of the scroller: its edge mask would keep the card's blur from the rows (PreviewCard.tsx).
           scroller={scroller.current}
           prompt={cardTurn?.prompt}
           reply={cardTurn ? cardTurn.reply : agentReply}
+          metadata={cardTurn?.metadata}
+          onSizeChange={() => setCardHeight(card.current?.offsetHeight ?? 0)}
           bookmark={
             cardTurn && bookmarks.can(cardTurn)
               ? { marked: cardMarked, toggle: () => bookmarks.toggle(cardTurn) }

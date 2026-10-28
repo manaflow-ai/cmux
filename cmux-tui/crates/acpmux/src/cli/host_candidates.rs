@@ -37,6 +37,9 @@ pub(crate) struct Candidate {
     pub already_peer: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
+    /// That peer's URL (`ssh://[user@]host[:port]`): how this machine dials it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_url: Option<String>,
     /// With `--probe`: key-only ssh worked. Not tried for an offline machine,
     /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,18 +59,25 @@ pub(crate) fn url_host(url: &str) -> Option<String> {
     (!host.is_empty()).then(|| host.trim_end_matches('.').to_ascii_lowercase())
 }
 
-/// The name of the peer whose URL points at `node`, by MagicDNS name, short
-/// name, host name or tailnet IP.
-fn peer_for(node: &Node, peers: &[Value]) -> Option<String> {
+/// The name and URL of the peer whose URL points at `node`, by MagicDNS name,
+/// short name, host name or tailnet IP.
+fn peer_for(node: &Node, peers: &[Value]) -> Option<(String, String)> {
     let mut names = vec![node.dns_name.clone(), node.short_name(), node.host_name.clone()];
     names.extend(node.ips.iter().map(ToString::to_string));
     let names: Vec<String> =
         names.into_iter().filter(|n| !n.is_empty()).map(|n| n.to_ascii_lowercase()).collect();
     peers.iter().find_map(|p| {
-        let host = url_host(p.get("url").and_then(Value::as_str)?)?;
-        names
-            .contains(&host)
-            .then(|| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned())
+        let url = p.get("url").and_then(Value::as_str)?;
+        let target = crate::peer::ssh_target(url).ok()?;
+        let host = url_host(url)?;
+        names.contains(&host).then(|| {
+            let canonical = if target.port == crate::peer::SSH_PEER_PORT {
+                format!("ssh://{}", target.destination)
+            } else {
+                format!("ssh://{}:{}", target.destination, target.port)
+            };
+            (p.get("name").and_then(Value::as_str).unwrap_or("").to_owned(), canonical)
+        })
     })
 }
 
@@ -82,7 +92,7 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
         .peers
         .iter()
         .map(|node| {
-            let peer = peer_for(node, peers);
+            let (peer, peer_url) = peer_for(node, peers).unzip();
             Candidate {
                 name: node.short_name(),
                 dns_name: node.dns_name.clone(),
@@ -92,6 +102,7 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
                 mine: mine(node, &status.this),
                 already_peer: peer.is_some(),
                 peer,
+                peer_url,
                 ssh_ok: None,
             }
         })
@@ -254,7 +265,21 @@ mod tests {
         assert_eq!(list[0].peer.as_deref(), Some("b"));
         assert_eq!(list[1].peer.as_deref(), Some("hb"));
         assert!(list[1].already_peer);
+        assert_eq!(list[0].peer_url.as_deref(), Some("ssh://100.64.0.3:47812"));
+        let line = serde_json::to_value(&list[0]).unwrap();
+        assert_eq!(line["peer_url"], "ssh://100.64.0.3:47812");
         assert_eq!(list[2].peer, None);
+        assert!(serde_json::to_value(&list[2]).unwrap().get("peer_url").is_none());
+        // Only ssh peers can use the Add Machine peer path; websocket URLs stay out of the
+        // already-peer marker and never carry arbitrary query text into candidate JSON.
+        let list = candidates(
+            &status(),
+            &[
+                json!({"name": "web", "url": "ws://huge-blue.tail9.ts.net:47811?token=secret"}),
+                json!({"name": "bad", "url": "ssh://huge-blue.tail9.ts.net:47812?token=secret"}),
+            ],
+        );
+        assert!(!list[1].already_peer && list[1].peer_url.is_none());
         // A short-name peer URL matches too.
         let list = candidates(&status(), &[json!({"name": "p", "url": "ssh://phone"})]);
         assert_eq!(list[2].peer.as_deref(), Some("p"));
