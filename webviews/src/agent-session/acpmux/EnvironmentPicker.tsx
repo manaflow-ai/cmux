@@ -101,6 +101,7 @@ export type SavedEnvironmentRows = {
 /// its own: shown while ⌥ is held, while the search names it, and while it is the pick.
 export function EnvironmentPicker({
   label,
+  status,
   menu,
   value,
   face,
@@ -120,6 +121,8 @@ export function EnvironmentPicker({
   /// The current environment's name: the control's accessible name and tooltip carry it, since a
   /// narrow strip shows its icon alone.
   value: string;
+  /// The current machine's link in words, after its name in the accessible name (machineLink.tsx).
+  status?: string;
   face: React.ReactNode;
   environments: Environment[];
   current: string;
@@ -511,14 +514,15 @@ export function EnvironmentPicker({
     );
   };
 
+  const named = label + ": " + value + (status ? ", " + status : "");
   return (
     // tooltip-allow: at or under a 460 px pane the environment shows only its icon; the tooltip names it
-    <span ref={control} className="acpmux-location-picker" data-kind="computer" title={label + ": " + value}>
+    <span ref={control} className="acpmux-location-picker" data-kind="computer" title={named}>
       <button
         ref={trigger}
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
-        aria-label={label + ": " + value}
+        aria-label={named}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}

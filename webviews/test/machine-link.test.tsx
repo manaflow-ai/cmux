@@ -71,9 +71,13 @@ test("the App's push sets the pane's machine and clears it for a chat on this Ma
 });
 
 /// The Mac's acpmux with one peer, `gpu-box`, in `state`; `_acpmux/peer_reconnect` brings it back.
-function daemon(state: string) {
+/// `dropped`: the link went down since the listing said `state`, so the next `session/new` or
+/// `session/prompt` there is refused as unreachable until a reconnect. `chat`: a chat on gpu-box.
+function daemon(state: string, { dropped = false, chat = false } = {}) {
   const asked: { method: string; params: Record<string, unknown> }[] = [];
   let peerState = state;
+  let down = dropped;
+  const session = { sessionId: "on-gpu", peer: "gpu-box", host: "gpu-box", cwd: "/home/dev/project", updatedAt: 1 };
   let socket: any;
   const peers = () => ({ peers: [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] });
   const answer = (method: string) => {
@@ -84,11 +88,19 @@ function daemon(state: string) {
         return peers();
       case "_acpmux/peer_reconnect":
         peerState = "connected";
+        down = false;
         return peers();
       case "session/new":
-        return { sessionId: "new-chat" };
+      case "session/prompt":
+        if (down || peerState !== "connected") throw new Error("peer_unreachable: gpu-box (offline)");
+        return method === "session/new" ? { sessionId: "new-chat" } : { stopReason: "end_turn" };
       case "_acpmux/watch":
-        return { sessions: [] };
+      case "_acpmux/sessions":
+        return { sessions: chat ? [session] : [] };
+      case "_acpmux/attach":
+        return { session, events: [], hasMore: false, lastSeq: 0 };
+      case "_acpmux/events":
+        return { events: [], hasMore: false, lastSeq: 0 };
       default:
         return null;
     }
@@ -100,9 +112,15 @@ function daemon(state: string) {
         const message = JSON.parse(raw);
         if (message.id === undefined) return;
         asked.push({ method: message.method, params: message.params ?? {} });
-        queueMicrotask(() =>
-          socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }) }),
-        );
+        queueMicrotask(() => {
+          let reply: Record<string, unknown>;
+          try {
+            reply = { result: answer(message.method) };
+          } catch (error) {
+            reply = { error: { code: -32000, message: String((error as Error).message) } };
+          }
+          socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }) });
+        });
       },
       close() {},
     };
@@ -112,8 +130,8 @@ function daemon(state: string) {
   return { asked, open };
 }
 
-async function client(state: string) {
-  const fake = daemon(state);
+async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
+  const fake = daemon(state, options);
   const states: (Record<string, string> | undefined)[] = [];
   const connected = await AcpmuxDirectClient.connect(
     { protocolVersion: 1, transport: "acpmux-websocket", endpoint: "ws://127.0.0.1:1/", token: "t" },
@@ -142,4 +160,25 @@ test("a send to a connected peer never reconnects it", async () => {
   const { client: pane, asked } = await client("connected");
   await pane.startSession("claude", "/home/dev/project", "gpu-box");
   expect(asked.map((message) => message.method)).not.toContain("_acpmux/peer_reconnect");
+});
+
+test("a peer that dropped since acpmux listed it refuses the new chat once, then is reconnected and the chat starts", async () => {
+  const { client: pane, asked } = await client("connected", { dropped: true });
+  expect(await pane.startSession("claude", "/home/dev/project", "gpu-box")).toBe("new-chat");
+  const methods = asked.map((message) => message.method);
+  const reconnect = methods.indexOf("_acpmux/peer_reconnect");
+  expect(reconnect).toBeGreaterThan(methods.indexOf("session/new"));
+  expect(asked[reconnect]!.params).toEqual({ name: "gpu-box", wait: true });
+  expect(methods.lastIndexOf("session/new")).toBeGreaterThan(reconnect);
+});
+
+test("a send in a chat whose machine is down reconnects it first, then the turn goes out", async () => {
+  const { client: pane, asked } = await client("offline", { chat: true });
+  await pane.select("on-gpu");
+  await pane.send("hello");
+  const methods = asked.map((message) => message.method);
+  const reconnect = methods.indexOf("_acpmux/peer_reconnect");
+  expect(reconnect).toBeGreaterThan(-1);
+  expect(asked[reconnect]!.params).toEqual({ name: "gpu-box", wait: true });
+  expect(methods.indexOf("session/prompt")).toBeGreaterThan(reconnect);
 });

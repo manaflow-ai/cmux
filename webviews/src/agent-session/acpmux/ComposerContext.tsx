@@ -16,6 +16,7 @@ import { machineColor } from "./machineColor";
 import {
   MachineLinkMark,
   computerLink,
+  linkWords,
   pickableDown,
   reconnectsOnUse,
   usePaneMachineLink,
@@ -76,6 +77,8 @@ type Location = {
   repo?: ProjectRepo;
   section?: string;
   disabled?: boolean;
+  /// A machine's link, after its name in the Computer menu (machineLink.tsx).
+  link?: MachineLink;
 };
 /// `link`: the machine's link as the strip's mark draws it (machineLink.tsx), when one is known.
 type Computer = Location & {
@@ -280,6 +283,9 @@ export function ComposerContext({
       {...(currentComputer.id === "local" && paneLink?.words ? { words: paneLink.words } : {})}
     />
   ) : undefined;
+  const currentStatus = currentComputer?.link
+    ? linkWords(currentComputer.link, currentComputer.id === "local" ? paneLink?.words : undefined)
+    : undefined;
   const sandboxPicked = runMode?.mode === "sandboxed" && !started && !readOnly;
   const newChats = started && onNewChat !== undefined;
   const branch = summary?.branch;
@@ -457,6 +463,7 @@ export function ComposerContext({
                   />
                 )
               }
+              {...(currentStatus && !savedPick && !sandboxPicked ? { status: currentStatus } : {})}
               environments={offload && currentComputer ? [currentComputer] : computers}
               current={selectedComputer}
               onPick={pickEnvironment}
@@ -474,6 +481,7 @@ export function ComposerContext({
               icon={<ComputerIcon name={currentComputer?.kind === "local" ? undefined : currentComputer?.label} />}
               value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               mark={currentMark}
+              {...(currentStatus ? { status: currentStatus } : {})}
               options={menuComputers}
               selected={selectedComputer}
               disabled={computerDisabled}
@@ -692,6 +700,7 @@ function LocationPicker({
   disabled,
   icon,
   mark,
+  status,
   middle = false,
   kind,
   allowPath = false,
@@ -709,8 +718,9 @@ function LocationPicker({
   selected?: string;
   disabled: boolean;
   icon?: React.ReactNode;
-  /// After the name: a machine's link (machineLink.tsx).
+  /// After the name: a machine's link (machineLink.tsx), and it in words for the accessible name.
   mark?: React.ReactNode;
+  status?: string;
   /// The name is cut in the middle (a folder's).
   middle?: boolean;
   /// "computer": the picker whose name gives way to its icon in a narrow strip.
@@ -752,7 +762,7 @@ function LocationPicker({
       <span className="acpmux-location-picker" data-kind={kind}>
         <span
           className="acpmux-location-readonly"
-          aria-label={label + ": " + value}
+          aria-label={label + ": " + value + (status ? ", " + status : "")}
           title={label + ": " + (allowPath && selected ? selected : value)}
         >
           <LocationFace icon={icon} value={value} mark={mark} chevron={false} middle={middle} />
@@ -781,7 +791,7 @@ function LocationPicker({
         ref={trigger}
         type="button"
         className="acpmux-location-button ui-ghost ui-ghost-sm"
-        aria-label={kind === "computer" ? label + ": " + value : label}
+        aria-label={kind === "computer" ? label + ": " + value + (status ? ", " + status : "") : label}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...press}
@@ -842,6 +852,7 @@ function LocationPicker({
                 aria-disabled={folder?.disabled ? true : undefined}
               >
                 <span className="acpmux-menu-label">{folder?.label ?? path}</span>
+                {folder?.link && <MachineLinkMark link={folder.link} />}
                 {!allowPath && folder?.detail && <span className="acpmux-menu-description">{folder.detail}</span>}
                 {suffix && (
                   <>

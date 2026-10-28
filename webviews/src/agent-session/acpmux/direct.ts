@@ -5051,6 +5051,14 @@ export class AcpmuxDirectClient {
       }, deliveryTiming.failMs),
     );
     this.emit();
+    // A shown chat whose machine is down (acpmux's listing, or its row says unreachable): the
+    // machine is reconnected and waited for first, its bubble drawn as sending meanwhile, so the
+    // turn goes out once the handshake finished (Leo, 2026-10-28), with no Reconnect click.
+    const row = this.sessions.find((session) => session.sessionId === sessionId);
+    const peer = typeof row?.peer === "string" ? row.peer : undefined;
+    const offlineCopy = this.peerCopy?.sessionId === sessionId && this.peerCopy.offline;
+    if (peer && (this.peerDown(peer) || offlineCopy || row?.status === "unreachable"))
+      await this.reconnectPeer(peer, true, !this.peerDown(peer));
     try {
       await this.request("session/prompt", {
         sessionId,
@@ -6009,10 +6017,15 @@ export class AcpmuxDirectClient {
     // A new chat on a peer that is down: reconnect it and wait for its handshake first, so the
     // first send goes out once the machine is back (Leo, 2026-10-28), with no Reconnect click.
     if (peer && this.peerDown(peer)) await this.reconnectPeer(peer, true);
-    const result = await this.newSession(
-      newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model),
-      again,
-    );
+    const params = newSessionParams(newSessionHost(this.host, cwd, peer, noProject), harness, noProject, model);
+    // A peer that dropped since acpmux last listed it (acpmux sends no peer events) refuses as
+    // unreachable: reconnected and waited for once, then the chat starts; still down, it refuses.
+    const result = await this.newSession(params, again).catch(async (error: unknown) => {
+      if (!peer || !peerDown(error)) throw error;
+      await this.reconnectPeer(peer, true, true);
+      if (this.peerDown(peer)) throw error;
+      return this.newSession(params, again);
+    });
     // The inherited cwd is the first default chat's; later ones start where acpmux defaults.
     if (result?.sessionId && !cwd) this.host = { ...this.host, cwd: undefined };
     return result?.sessionId ? String(result.sessionId) : undefined;
@@ -6532,8 +6545,9 @@ export class AcpmuxDirectClient {
   /// a down machine the person picked or sends to. Its row shows connecting at once; acpmux's
   /// listing replaces that when it answers. `wait`: answer once the link settled (acpmux waits up
   /// to 30 s), so a send can follow it. A refusal leaves the listing as it was.
-  async reconnectPeer(name: string, wait = false): Promise<void> {
-    if (this.peerDown(name)) {
+  /// `dropped`: acpmux just refused it as unreachable, whatever its listing said.
+  async reconnectPeer(name: string, wait = false, dropped = false): Promise<void> {
+    if (dropped || this.peerDown(name)) {
       this.peerStates = { ...this.peerStates, [name]: "connecting" };
       if (!this.snapshotHold) this.emit();
     }
