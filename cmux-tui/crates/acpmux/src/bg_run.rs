@@ -312,6 +312,7 @@ pub fn main() -> anyhow::Result<()> {
             let Some(pid) = held.pid else {
                 let _ = std::fs::remove_file(ctl_path(&dir, &held_id));
                 let _ = std::fs::remove_file(segment_path(&dir, &held_id, 0));
+                // crash-allow: the runner is its own process; a stop before the task starts ends it with nothing to keep
                 std::process::exit(1)
             };
             // Ended (or its group unknown): a stop changes nothing, its record included.
@@ -507,6 +508,7 @@ pub fn main() -> anyhow::Result<()> {
     }
     let _ = std::fs::remove_file(&ctl);
     drop(lock);
+    // crash-allow: the runner process ends with its task; its stop and spool threads may still block in reads
     std::process::exit(0)
 }
 
