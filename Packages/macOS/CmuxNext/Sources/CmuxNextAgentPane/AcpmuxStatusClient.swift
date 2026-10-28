@@ -113,8 +113,9 @@ nonisolated enum AcpmuxStatusClient {
         let result: [String: Any]
         do {
             result = try await call(socketPath: socketPath, method: "_acpmux/resolve",
-                                    params: ["query": sessionId], deadline: deadline)
-        } catch Failure.rpc(let message) where message.hasPrefix("no session") {
+                                    params: ["exactSessionId": true, "sessionId": sessionId],
+                                    deadline: deadline, detailed: true)
+        } catch let error as AcpmuxRPCError where error.code == -32002 {
             return nil
         }
         return sessionSummary(sessionId, in: result)
@@ -124,14 +125,6 @@ nonisolated enum AcpmuxStatusClient {
         guard let summary = result["session"] as? [String: Any],
               summary["sessionId"] as? String == sessionId else { return nil }
         return summary
-    }
-
-    /// `_acpmux/info` for exactly one session. `waitLogs: false` keeps this
-    /// read to the summary and pending fields needed by native callers.
-    @concurrent static func sessionInfo(socketPath: String, sessionId: String,
-                                       deadline: Duration = .seconds(2)) async throws -> sending [String: Any] {
-        try await call(socketPath: socketPath, method: "_acpmux/info",
-                       params: ["sessionId": sessionId, "waitLogs": false], deadline: deadline)
     }
 
     /// `_acpmux/tag {sessionId, set, remove}`: sets and removes a session's tags.
@@ -189,11 +182,9 @@ nonisolated enum AcpmuxStatusClient {
         return box.value
     }
 
-    /// The folder of the daemon's session `sessionId` from its session list
-    /// (`_acpmux/watch`, whose reply carries `sessions` with `hostKind` and
-    /// `peer`; the subscription ends with this one-shot connection), nil when the daemon has no such session or names
-    /// no folder. The agent pane's commits and pushes run here, never in a
-    /// folder the page names.
+    /// The folder of the daemon's exact `sessionId` summary, nil when the
+    /// daemon has no such session or names no folder. The agent pane's commits
+    /// and pushes run here, never in a folder the page names.
     @concurrent static func sessionFolder(socketPath: String, sessionId: String,
                                           deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
         guard let result = try await sessionSummary(socketPath: socketPath, sessionId: sessionId, deadline: deadline) else { return nil }

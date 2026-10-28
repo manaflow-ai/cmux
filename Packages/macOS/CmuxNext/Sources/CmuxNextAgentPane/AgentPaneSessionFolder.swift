@@ -28,14 +28,20 @@ public nonisolated struct AgentPaneSessionFolder: Equatable, Sendable {
     init?(sessionId: String, info: [String: Any]) {
         guard info["sessionId"] as? String == sessionId,
               let cwd = info["cwd"] as? String, !cwd.isEmpty else { return nil }
-        self.init(entry: info, cwd: cwd)
+        self.init(entry: info, cwd: cwd, exactSummary: true)
     }
 
-    private init(entry: [String: Any], cwd: String) {
+    private init(entry: [String: Any], cwd: String, exactSummary: Bool = false) {
+        if exactSummary {
+            // Exact reads return the daemon's summary: local rows have no
+            // `peer`, while mirrored rows retain their peer name. Do not infer
+            // locality from a display-only host field.
+            let peer = entry["peer"] as? String
+            self.init(cwd: cwd, isLocal: peer == nil || peer?.isEmpty == true)
+            return
+        }
         let hostKind = entry["hostKind"] as? String
         let named = { (key: String) in entry[key].map { !($0 is NSNull) && ($0 as? Bool) != false && ($0 as? String) != "" } ?? false }
-        // Resolve cards include the local machine's host name, so a missing
-        // peer remains authoritative for a local row.
-        self.init(cwd: cwd, isLocal: hostKind == "local" || (hostKind == nil && !named("peer") && (!named("host") || entry["peer"] as? String == nil)))
+        self.init(cwd: cwd, isLocal: hostKind == "local" || (hostKind == nil && !named("host") && !named("peer")))
     }
 }

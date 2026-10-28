@@ -672,14 +672,26 @@ async fn dispatch_request(
         method::MUX_REPORT => briefs::report(hub, conn, params).await,
         method::MUX_TASK_NEW => briefs::task_new(hub, conn, params).await,
         method::MUX_TASKS => briefs::tasks(hub, conn, params).await,
-        method::MUX_RESOLVE => hub.locate(
-            str_param(&params, "query")
-                .ok_or_else(|| RpcError::invalid_params("query is required"))?,
-            params.get("bead").and_then(Value::as_bool) == Some(true),
-            // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
-            // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
-            conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer,
-        ),
+        method::MUX_RESOLVE => {
+            let names_hosts = conn.auth != ConnAuth::ReadOnlyDevice && conn.origin != Origin::Peer;
+            if params.get("exactSessionId").and_then(Value::as_bool) == Some(true) {
+                hub.locate_exact(
+                    str_param(&params, "sessionId")
+                        .or_else(|| str_param(&params, "query"))
+                        .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?,
+                    names_hosts,
+                )
+            } else {
+                hub.locate(
+                    str_param(&params, "query")
+                        .ok_or_else(|| RpcError::invalid_params("query is required"))?,
+                    params.get("bead").and_then(Value::as_bool) == Some(true),
+                    // A read-only machine reads what its session list shows (`pairing/read_only.rs`), and a
+                    // peer daemon's connection never learns this host's peers (`redact::hide_peers_from_peer`).
+                    names_hosts,
+                )
+            }
+        }
         method::INITIALIZE => {
             if let Some(name) = params.pointer("/clientInfo/name").and_then(Value::as_str) {
                 *conn.name.lock_or_recover() = name.to_owned();

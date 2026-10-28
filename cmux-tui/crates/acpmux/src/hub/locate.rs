@@ -31,18 +31,6 @@ impl Hub {
         }
         let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
         let shown = names_hosts.then_some(own.as_str());
-        // A mux id is already an exact key. Read only the local row or the
-        // cached peer row instead of rebuilding the full list; this is the
-        // native app's single-session path and also works while a peer is
-        // offline.
-        if !bead_only {
-            let exact = self.session_summaries_of(&[query.to_owned()]);
-            if let Some(summary) = exact.get(query) {
-                let shown = names_hosts.then_some(own.as_str());
-                let session = card(summary, shown);
-                return Ok(json!({"session": session.clone(), "matches": [session], "link": null}));
-            }
-        }
         let summaries = self.all_session_summaries();
         if bead_only {
             if !crate::beads::is_bead_id(query) {
@@ -80,6 +68,23 @@ impl Hub {
                 "message": l.message,
             })),
         }))
+    }
+
+    /// Read one exact mux session id without rebuilding the complete session list.
+    /// This is an opt-in operation for native callers that already have the id;
+    /// the normal resolver above keeps its name, prefix and link semantics.
+    pub fn locate_exact(&self, query: &str, names_hosts: bool) -> Result<Value, RpcError> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Err(RpcError::invalid_params("sessionId is required"));
+        }
+        let own = if names_hosts { crate::pairing::machine_name() } else { "local".into() };
+        let shown = names_hosts.then_some(own.as_str());
+        let summary = self
+            .session_summaries_of(&[query.to_owned()])
+            .remove(query)
+            .ok_or_else(|| RpcError::not_found(self.unfound(query, None, shown)))?;
+        Ok(json!({"session": summary.clone(), "matches": [summary], "link": null}))
     }
 
     /// Where `locate` looked, for its not-found error: this machine and its peers by name, which

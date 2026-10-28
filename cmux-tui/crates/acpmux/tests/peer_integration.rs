@@ -2965,7 +2965,10 @@ async fn an_agent_link_resolves_to_its_session_here_or_on_a_peer() {
 
     // An exact mux id uses the narrow cached-row path, including for a peer
     // row that remains available while the peer is not serving an info call.
-    let r = ca.call("_acpmux/resolve", json!({"query": far})).await.unwrap();
+    let r = ca
+        .call("_acpmux/resolve", json!({"exactSessionId": true, "sessionId": far}))
+        .await
+        .unwrap();
     assert_eq!(r["session"]["sessionId"], far, "{r}");
     assert_eq!(r["session"]["peer"], "b", "{r}");
 
