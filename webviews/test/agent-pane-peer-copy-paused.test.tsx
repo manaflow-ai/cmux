@@ -222,6 +222,16 @@ test("a Resume still running for one machine never makes another read as startin
   expect(resumeButton()).toBeTruthy();
 });
 
+test("a name two of the account's machines share reads offline, with no Resume", async () => {
+  const app = fakeApp([paused, { id: "vm_twin", name: "dev-vm-2", stage: "paused" }]);
+  await mount(PEER, app.call);
+  expect(banner()?.dataset.machine).toBeUndefined();
+  expect(resumeButton()).toBeUndefined();
+  const { peerCloudMachine } = await import("../src/agent-session/acpmux/peerCloudMachine");
+  expect(peerCloudMachine([paused], PEER)?.id).toBe("vm_paused");
+  expect(peerCloudMachine([paused, { ...paused, id: "vm_twin" }], PEER)).toBeUndefined();
+});
+
 test("a machine the account does not list, or one that is ready, reads offline as before", async () => {
   for (const machines of [[], [{ id: "vm_x", name: "elsewhere", stage: "paused" }], [{ ...paused, stage: "ready" }]]) {
     const app = fakeApp(machines);

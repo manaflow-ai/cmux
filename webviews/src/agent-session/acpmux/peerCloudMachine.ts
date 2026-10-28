@@ -21,14 +21,16 @@ export const STARTING_READS = 60;
 export type PeerMachineState = "paused" | "starting" | undefined;
 
 /// The machine named `peer` (any case: the app matches a peer to a Cloud machine by its title,
-/// MachineRegistry machineName(peer:), as cloudMachines.ts does).
+/// MachineRegistry machineName(peer:), as cloudMachines.ts does). Two machines of that name
+/// (names are not unique) give none: a Resume must never start the other one.
 export function peerCloudMachine(
   machines: readonly CloudMachine[],
   peer: string | undefined,
 ): CloudMachine | undefined {
   if (!peer) return undefined;
   const name = peer.toLowerCase();
-  return machines.find((machine) => machine.name.toLowerCase() === name);
+  const named = machines.filter((machine) => machine.name.toLowerCase() === name);
+  return named.length === 1 ? named[0] : undefined;
 }
 
 /// What the banner says of `machine`: paused, starting (a Resume this page asked for counts), or
