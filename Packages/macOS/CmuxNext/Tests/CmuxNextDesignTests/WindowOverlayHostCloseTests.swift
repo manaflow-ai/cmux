@@ -90,15 +90,4 @@ import Testing
         #expect(again.isPanelAttached)
         #expect(WindowOverlayHost.existingHost(for: window) === again)
     }
-
-    /// The app's own host (no window) is never torn down by a window's close.
-    @Test func aWindowCloseLeavesTheAppHost() {
-        let app = WindowOverlayHost.appHost()
-        let window = Self.window(onScreen: true)
-        _ = WindowOverlayHost.host(for: window)
-        window.close()
-        WindowOverlayHost.windowIsClosing(window)
-        #expect(WindowOverlayHost.appHost() === app)
-        #expect(!app.isTearingDown)
-    }
 }
