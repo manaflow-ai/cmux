@@ -320,6 +320,7 @@ fn fixture_with(defaults: &[&str], idle: Duration, root: TempDir) -> Fixture {
                 bundled: vec![bundled],
                 extra: vec![],
                 local: Some(state.join("apps/local")),
+                registry: Some(state.join("apps/registry")),
                 customize: None,
                 defaults: Some(defaults.iter().map(|s| s.to_string()).collect()),
             },
@@ -804,6 +805,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         bundled: vec![],
         extra: vec![],
         local: None,
+        registry: None,
         customize: None,
         defaults: None,
     });
@@ -819,6 +821,7 @@ fn the_shipped_first_party_directory_is_the_default_set() {
         bundled: vec![],
         extra: vec![],
         local: None,
+        registry: None,
         customize: None,
         defaults: Some(vec![]),
     });
@@ -859,6 +862,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
                 bundled: vec![],
                 extra: vec![],
                 local: None,
+                registry: None,
                 customize: None,
                 defaults: None,
             },
@@ -874,6 +878,7 @@ fn every_bundled_first_party_app_loads_and_is_installed_by_default() {
         bundled: vec![],
         extra: vec![],
         local: None,
+        registry: None,
         customize: None,
         defaults: None,
     });
@@ -971,3 +976,5 @@ mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
+#[path = "supervisor_web_tests.rs"]
+mod web_panes;

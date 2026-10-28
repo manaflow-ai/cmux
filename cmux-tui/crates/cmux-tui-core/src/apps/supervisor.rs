@@ -368,7 +368,9 @@ impl Supervisor {
             .into_iter()
             .map(|id| entry(id, inner.catalog.packages.get(id), inner.mirror.apps.get(id)))
             .collect();
-        json!({ "revision": inner.mirror.revision, "apps": apps })
+        // Where local development apps go (Chief scaffolds a pane there).
+        let local_dir = self.config.sources.local.as_ref().map(|d| d.display().to_string());
+        json!({ "revision": inner.mirror.revision, "apps": apps, "local_dir": local_dir })
     }
 
     /// `apps-set`: one validated commit of the install mirror. Every request
