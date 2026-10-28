@@ -91,8 +91,14 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await vite?.close();
   });
 
-  const open = async (entry: string, variant: string, width: number, init?: () => void): Promise<Page> => {
-    const page = await browser!.newPage({ viewport: { width, height: 560 } });
+  const open = async (
+    entry: string,
+    variant: string,
+    width: number,
+    init?: () => void,
+    height = 560,
+  ): Promise<Page> => {
+    const page = await browser!.newPage({ viewport: { width, height } });
     if (init) await page.addInitScript(init);
     await page.goto(stageURL(entry, variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
@@ -287,6 +293,22 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector(".acpmux-location-menu"));
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
+    await page.close();
+  });
+
+  test("pinned actions leave a short pane repository list visible and keyboard-expandable", async () => {
+    const page = await open("agent-pane.composer-context", "lane-checkouts", 720, undefined, 180);
+    const menu = page.locator(".acpmux-folder-popover");
+    const rect = await menu.boundingBox();
+    expect(rect).not.toBeNull();
+    expect(rect!.y + rect!.height).toBeLessThanOrEqual(180);
+    const search = page.getByRole("combobox", { name: "Search projects" });
+    await search.press("ArrowDown");
+    await search.press("ArrowDown");
+    await search.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"), undefined, {
+      timeout: 5000,
+    });
     await page.close();
   });
 

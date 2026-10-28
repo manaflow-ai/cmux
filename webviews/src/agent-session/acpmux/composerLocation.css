@@ -1020,7 +1020,16 @@
 
 /* The folder popover (FolderPopover.tsx): search, pinned project actions, then scrolling folders. A row is its check, its project's badge and its name, with a short
    suffix only when another project shares the name; the full path is its tooltip. */
-.acpmux-folder-popover { display: flex; flex-direction: column; min-width: 240px; }
+.acpmux-menu.acpmux-location-menu.acpmux-folder-popover {
+  display: flex;
+  flex-direction: column;
+  min-width: 240px;
+  max-height: min(360px, calc(100dvh - 36px));
+  overflow: hidden;
+}
+.acpmux-folder-popover .ui-combobox-pinned-list { flex: 1; min-height: 0; }
+.acpmux-folder-popover .ui-combobox-scroll { flex: 1; min-height: 0; overflow: hidden; }
+
 .acpmux-folder-popover .acpmux-location-search {
   display: block;
   box-sizing: border-box;
