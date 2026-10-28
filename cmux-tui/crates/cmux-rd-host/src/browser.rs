@@ -115,6 +115,7 @@ impl BrowserSupervisor {
         let first = spawn(&cmd, &shared)?;
         let s = Arc::clone(&shared);
         // A supervisor waits on the browser's exit and restarts it: Utility.
+        // supervise-allow: the browser's restarter, owned by BrowserSupervisor (joined at drop); a panic ends restarts only: the running browser keeps serving, and its next crash is final.
         let thread =
             cmux_threads::spawn("cmux-rd-browser", cmux_threads::ThreadQos::Utility, move || {
                 supervise(cmd, backoff, first, &s)
