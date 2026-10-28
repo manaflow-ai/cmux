@@ -123,6 +123,10 @@ extension SidebarBridge {
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
             invocation.closesRowOnly = true
             _ = services.registry.perform(BrowserTabAudio.workspaceToggleActionID, invocation: invocation)
+        case .showCapturingTab(let id):
+            // The row's red mark runs the palette's and CLI's action, on its row's workspace.
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .workspace, id: id.rawValue), origin: .user)
+            _ = services.registry.perform(BrowserTabAudio.showCapturingActionID, invocation: invocation)
         case .layout(let op):
             applyLayoutOp(op)
         case .dropOnLayoutSection(let ids, let section, let index):

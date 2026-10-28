@@ -15,7 +15,8 @@ extension CEFTab: PageInfoProviding {
 
     public var supportedSitePermissions: Set<SitePermissionKind> { Set(SitePermissionKind.allCases) }
 
-    public var pageInfoInUse: Set<SitePermissionKind> { [] }
+    /// From Chromium's capture report (`OnMediaAccessChange`, ``BrowserTabState/capture``).
+    public var pageInfoInUse: Set<SitePermissionKind> { state.capture.sitePermissionKinds }
 
     public func pageInfoCertificateChain() async -> [Data] {
         guard let browserID else { return [] }

@@ -193,6 +193,10 @@ extension WorkspaceRowView {
             mutedMark.frame = NSRect(x: trailing - ind, y: cy - ind / 2, width: ind, height: ind)
             trailing -= ind + Metrics.space2
         }
+        if !captureButton.isHidden {
+            captureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
+            trailing -= control + Metrics.space1
+        }
         if !audioButton.isHidden {
             audioButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -235,7 +239,7 @@ extension WorkspaceRowView {
         updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
-        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, audioButton, presenceDots, timeLabel] as [NSView] {
+        for mark in [activity, rowBadge, agentMark, mutedMark, machineMark, captureButton, audioButton, presenceDots, timeLabel] as [NSView] {
             // The column's mark sits right of every hover control, so none covers it, unless the close takes its place.
             let covered = mark === columnMark?.view ? markGivesWay : overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true
             fadeOpacity(mark, to: covered ? 0 : 1, fades: fades)

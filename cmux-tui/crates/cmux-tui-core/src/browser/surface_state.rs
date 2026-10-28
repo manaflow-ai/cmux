@@ -368,6 +368,21 @@ impl BrowserSurface {
     /// Apply the location a frontend-rendered browser reports. Such a
     /// browser has no CDP target, so this is its only source of URL and
     /// title. Returns whether either changed.
+    /// What the page captures now (`browser.list`'s `media`).
+    pub fn media(&self) -> BrowserMediaCapture {
+        self.state.lock().unwrap().media
+    }
+
+    /// Records what the hosting app says the page captures; true when it changed.
+    pub(crate) fn set_media(&self, media: BrowserMediaCapture) -> bool {
+        let mut state = self.state.lock().unwrap();
+        if state.media == media {
+            return false;
+        }
+        state.media = media;
+        true
+    }
+
     pub(crate) fn set_frontend_location(&self, url: Option<String>, title: Option<String>) -> bool {
         let mut changed = false;
         if let Some(url) = url {

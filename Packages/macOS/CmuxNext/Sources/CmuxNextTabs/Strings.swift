@@ -26,6 +26,15 @@ enum Strings {
     /// The speaker button's tooltip and VoiceOver action (Chrome's wording).
     static var muteTab: String { String(localized: "tabs.audio.mute", defaultValue: "Mute tab", bundle: .module) }
     static var unmuteTab: String { String(localized: "tabs.audio.unmute", defaultValue: "Unmute tab", bundle: .module) }
+    /// The red recording mark, spoken (Chrome's "This tab is using your camera or microphone").
+    static func axCapture(_ capture: TabCapture) -> String {
+        switch capture {
+        case .camera: String(localized: "tabs.ax.capture.camera", defaultValue: "Using your camera", bundle: .module)
+        case .microphone: String(localized: "tabs.ax.capture.microphone", defaultValue: "Using your microphone", bundle: .module)
+        case .cameraAndMicrophone:
+            String(localized: "tabs.ax.capture.cameraAndMicrophone", defaultValue: "Using your camera and microphone", bundle: .module)
+        }
+    }
     static var axMuted: String { String(localized: "tabs.ax.muted", defaultValue: "Muted", bundle: .module) }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }
