@@ -274,18 +274,41 @@ test("grouping: runs of two or more of one kind, never mixed, and nothing change
   ];
   const ids = (list: readonly AcpmuxRow[]) => list.map((r) => r.id);
   const steers = ["m1", "m2", "own", "m3", "m4", "m5"];
-  // No run of two: the same rows.
-  expect(groupWaitingSteps(rows, new Set(["m1"])).rows).toBe(rows);
-  expect(groupWaitingSteps(rows, new Set(["m1", "m3"])).rows).toBe(rows);
-  const grouped = groupWaitingSteps(rows, new Set(steers));
-  expect(ids(grouped.rows)).toEqual(["summary", "turn", "waiting-step-m1", "own", "waiting-step-m3"]);
-  expect(ids(grouped.rows[2].waiting.rows)).toEqual(["m1", "m2"]);
-  expect(ids(grouped.rows[4].waiting.rows)).toEqual(["m3", "m4", "m5"]);
-  expect(grouped.rows[4].joined).toEqual(["m3", "m4", "m5"]);
-  // The same rows again keep the same card rows.
-  const again = groupWaitingSteps([...rows, row("reply", { kind: "assistant" })], new Set(steers), grouped.cards);
-  expect(again.rows[2]).toBe(grouped.rows[2]);
-  expect(again.rows[4]).toBe(grouped.rows[4]);
+  // No run of two: no card.
+  expect(groupWaitingSteps(rows, ["m1", "m3"]).runs).toEqual([]);
+  const grouped = groupWaitingSteps(rows, steers);
+  const runIds = (steps: { runs: readonly (readonly [number, number, AcpmuxRow])[] }) =>
+    steps.runs.map(([from, to, card]) => [from, to, card.id, ids(card.waiting!.rows)]);
+  expect(runIds(grouped)).toEqual([
+    [2, 4, "waiting-step-m1", ["m1", "m2"]],
+    [5, 8, "waiting-step-m3", ["m3", "m4", "m5"]],
+  ]);
+  expect(grouped.runs[1]![2].joined).toEqual(["m3", "m4", "m5"]);
+  // A streamed snapshot (a reply after them): each steer found where it was, one lookup each, and
+  // the same card rows. Were they looked for, the reply row would be passed first: the lookups
+  // read only the steers' own places.
+  const streamed = [...rows, row("reply", { kind: "assistant" })];
+  const read: number[] = [];
+  const watched = new Proxy(streamed, {
+    get: (target, key) => {
+      if (typeof key === "string" && /^\d+$/.test(key)) read.push(Number(key));
+      return Reflect.get(target, key);
+    },
+  });
+  const again = groupWaitingSteps(watched, steers, grouped);
+  expect(again.runs.map(([, , card]) => card)).toEqual(grouped.runs.map(([, , card]) => card));
+  expect(again.runs[0]![2]).toBe(grouped.runs[0]![2]);
+  expect(read.includes(streamed.length - 1)).toBe(false);
+  // Rows that moved (one above them): looked for again, found in their new places.
+  const moved = groupWaitingSteps([row("older"), ...rows], steers, grouped);
+  expect(runIds(moved).map(([from]) => from)).toEqual([3, 6]);
+  // A steer the turn does not have stays unseen and is not looked for again while the list holds.
+  const missing = [...steers, "gone"];
+  const first = groupWaitingSteps(rows, missing);
+  expect([...first.unseen]).toEqual(["gone"]);
+  read.length = 0;
+  expect([...groupWaitingSteps(watched, missing, first).unseen]).toEqual(["gone"]);
+  expect(read.includes(streamed.length - 1)).toBe(false);
 
   // In the drawn turns: only the running turn's steers, and the view is the same while nothing
   // changed; a steer read regroups.
@@ -303,8 +326,8 @@ test("grouping: runs of two or more of one kind, never mixed, and nothing change
     "waiting-step-m3",
   ]);
   expect(turnViewFrom(chat, closed, { working: true, waitingSteers: steers }, view)).toBe(view);
-  const read = ["m4", "m5"];
-  const after = turnViewFrom(chat, closed, { working: true, waitingSteers: read }, view);
+  const unread = ["m4", "m5"];
+  const after = turnViewFrom(chat, closed, { working: true, waitingSteers: unread }, view);
   expect(after.rows.filter((r) => r.kind === WAITING_MESSAGES).map((r) => r.id)).toEqual(["waiting-step-m4"]);
   expect(turnViewFrom(chat, closed, { working: true }, after).rows.some((r) => r.kind === WAITING_MESSAGES)).toBe(
     false,
