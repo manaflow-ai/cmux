@@ -16,6 +16,12 @@ resting bottom plus the docked gap, so the field must ride it.
            down, the content's bottom moved differently from the field's.
   rest     the field's bottom with no keyboard; it should not change.
 
+During an interactive dismissal UIKit does not move the keyboard's
+placeholder (kb stays where the drag began, iOS 26 and 27), while the system
+keyboard layout guide (kg) follows the finger-driven keyboard frame by frame.
+On frames where kb has not moved but kg reports a docked keyboard elsewhere,
+the keyboard's top is taken from kg (in window points, as kg is).
+
 usage: kbd_pin_trace.py TRACE [--json] [--frames]
 """
 import json
@@ -45,11 +51,19 @@ def parse(path):
         f["kbw"] = float(kv["kbw"]) if "kbw" in kv else 0.0
         f["kbh"] = float(kv["kbh"]) if "kbh" in kv else 0.0
         f["field"] = kv.get("field", "-")
-        for k in ("fy", "fb", "cb", "off", "inb"):
+        for k in ("fy", "fb", "cb", "off", "inb", "kg", "kgh", "dg"):
             f[k] = float(kv[k]) if k in kv else None
         f["fr"] = kv.get("fr") == "1"
         f["trk"] = kv.get("trk") == "1"
         frames.append(f)
+    # The keyboard during interactive dismissals: see the docstring.
+    raw = [f["kb"] for f in frames]
+    for i in range(1, len(frames)):
+        b = frames[i]
+        if (raw[i] is not None and raw[i - 1] is not None and abs(raw[i] - raw[i - 1]) < 0.01
+                and b["kg"] is not None and (b["kgh"] or 0) > 0.5 and abs(b["kg"] - b["kb"]) > 0.5):
+            b["kb"] = b["kg"]
+            b["kbh"] = b["kgh"]
     return frames, events
 
 
