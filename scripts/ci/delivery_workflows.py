@@ -86,12 +86,16 @@ def is_delivery_run(path: str | None, *names: str | None) -> bool:
 #     the old run waits on is listed there and not skipped or failed (a
 #     cache-only or throttled run skips them).
 # Anything unread (no jobs list, no branch, head or head repository) is not a
-# skip, and neither is a re-run (run_attempt > 1): only the latest attempt's
-# jobs are read, and an earlier attempt may have built.
+# skip. A re-run (run_attempt > 1) is judged on its own attempt's jobs: a
+# re-run of a build that ran is a new build, and until a job of this attempt
+# starts it has not started. A job whose attempt cannot be read is unread.
+# Picker jobs (pick-nightly-app-runner, pick-nightly-sign-runner) only choose a
+# runner label; their names are not read as the build.
 WAITING_JOB_STATUSES = frozenset({"queued", "waiting", "pending", "requested"})
 BUILD_JOB_NAME = re.compile(
     r"publish|promot|sign|notari[sz]|release|upload|deploy|verif|delta|dmg|archive|compile|\bapp\b",
     re.IGNORECASE)
+PICKER_JOB_NAME = re.compile(r"pick-[\w-]*-runner", re.IGNORECASE)
 GATE_JOB_MAX = _dt.timedelta(minutes=10)
 KNOWN_CONCLUSIONS = frozenset({"success", "failure", "cancelled", "neutral", "timed_out", "action_required",
                                "stale", "startup_failure"})
@@ -102,6 +106,28 @@ def _time(value: Any) -> _dt.datetime | None:
         return _dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
     except ValueError:
         return None
+
+
+def _named_for_build(name: str) -> bool:
+    return bool(BUILD_JOB_NAME.search(name)) and not PICKER_JOB_NAME.fullmatch(name.strip())
+
+
+def attempt_jobs(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any]]) -> list[Mapping[str, Any]] | None:
+    """The jobs of the run's current attempt, or None when that cannot be told. Attempt 1 is every job listed; a
+    re-run's listing may carry jobs an earlier attempt finished, which are not this attempt's build."""
+    attempt = run.get("run_attempt")
+    if not isinstance(attempt, int) or isinstance(attempt, bool) or attempt < 1:
+        return None
+    if attempt == 1:
+        return list(jobs)
+    mine = []
+    for job in jobs:
+        own = job.get("run_attempt")
+        if not isinstance(own, int) or isinstance(own, bool) or own < 1 or own > attempt:
+            return None
+        if own == attempt:
+            mine.append(job)
+    return mine
 
 
 def build_started(jobs: Iterable[Mapping[str, Any]]) -> str | None:
@@ -121,7 +147,7 @@ def build_started(jobs: Iterable[Mapping[str, Any]]) -> str | None:
             return f"its job {name!r} finished with an unknown conclusion ({job.get('conclusion')!r})"
         if any("macos" in str(label).lower() for label in job.get("labels") or ()):
             return f"its job {name!r} ran on a Mac"
-        if BUILD_JOB_NAME.search(name):
+        if _named_for_build(name):
             return f"its job {name!r} has run"
         started, completed = _time(job.get("started_at")), _time(job.get("completed_at"))
         if started is None or completed is None:
@@ -172,7 +198,7 @@ def newer_head_runs(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]]) -
 def is_build_job(job: Mapping[str, Any]) -> bool:
     """A job that does build work: it asks for a Mac, or its name says it builds, signs or publishes."""
     return (any("macos" in str(label).lower() for label in job.get("labels") or ())
-            or bool(BUILD_JOB_NAME.search(str(job.get("name") or ""))))
+            or _named_for_build(str(job.get("name") or "")))
 
 
 def builds_the_same(waiting: Sequence[str], other_jobs: Sequence[Mapping[str, Any]] | None) -> str | None:
@@ -214,8 +240,9 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
         return False, f"it is {run.get('status') or 'in an unknown state'}"
     if jobs is None:
         return False, "its jobs could not be read"
-    if run.get("run_attempt") != 1:
-        return False, (f"it is attempt {run.get('run_attempt')}, and an earlier attempt's jobs are not read"
+    jobs = attempt_jobs(run, jobs)
+    if jobs is None:
+        return False, (f"it is attempt {run.get('run_attempt')}, and which attempt its jobs belong to could not be read"
                        if run.get("run_attempt") else "its attempt could not be read")
     started = build_started(jobs)
     if started:
@@ -241,3 +268,144 @@ def superseded_unstarted(run: Mapping[str, Any], jobs: Sequence[Mapping[str, Any
                           f"{run.get('head_branch')} with the same job(s)")
         why_not = why_not or f"run {other.get('id')}: {problem}"
     return False, f"no newer run of {run.get('head_branch')} shows the same build ({why_not})"
+
+
+# --- runs that can never deliver ----------------------------------------------
+# Two more ways a started nightly run may be cancelled, both read by the
+# agents' cancel guard (never by the queue janitor, which only skips runs that
+# never started):
+#   - latest wins: "SKIP THE OLD NIGHTLY BUILDS THEN WE'RE JUST BUILDING FROM
+#     THE TIP" (Leo, 2026-10-26). A nightly-next run never publishes once the
+#     feed holds a newer build, and is replaced once a newer commit is promoted
+#     to the branch tip with its own run building (or built). Either makes the
+#     old run skippable even though its publish job has not run.
+#   - known bad: a run whose head contains a commit filed in
+#     nightly_known_bad.json (bad_since) and lacks its fix (fixed_by) is
+#     certain to fail. The file is the one declared list; no SHA lives here.
+# `contains(ancestor, descendant)` answers whether descendant's history has
+# ancestor (None when unread); anything unread is never a cancel.
+
+# Workflow file -> {branch: the release tag whose body records the published commit}.
+LATEST_WINS_FEEDS: dict[str, dict[str, str]] = {"nightly.yml": {"nightly-next": "nightly-next"}}
+KNOWN_BAD_PATH = "scripts/ci/nightly_known_bad.json"
+KNOWN_BAD_WORKFLOWS = ("nightly.yml",)
+KNOWN_BAD_KEYS = frozenset({"bad_since", "fixed_by", "reason", "filed_by"})
+PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.IGNORECASE)
+_SHA = re.compile(r"[0-9a-f]{40}")
+Contains = Callable[[str, str], "bool | None"]
+
+
+def published_commit(release_body: str | None) -> str | None:
+    """The commit a feed's release body records (scripts/ci/nightly-publication-marker.py), or None."""
+    match = PUBLISHED_MARKER.search(release_body or "")
+    return match.group(1).lower() if match else None
+
+
+def latest_wins_feed(run: Mapping[str, Any]) -> str | None:
+    """The release tag of the latest-wins feed this run publishes to, or None when it publishes to none."""
+    return LATEST_WINS_FEEDS.get(_file_name(run.get("path")), {}).get(str(run.get("head_branch") or ""))
+
+
+def never_publishes(run: Mapping[str, Any], runs: Iterable[Mapping[str, Any]], *, tip_sha: str | None,
+                    published_sha: str | None, contains: Contains,
+                    jobs: Sequence[Mapping[str, Any]] | None = None,
+                    jobs_of: Callable[[Mapping[str, Any]], Sequence[Mapping[str, Any]] | None] | None = None,
+                    ) -> tuple[bool, str]:
+    """(True, why) when a latest-wins run can never publish: the feed already has a newer build, or a newer commit
+    sits at the branch tip with its own run building or built. (False, why not) otherwise, or when anything is
+    unread. For the tip, `jobs` (the run's own) and `jobs_of(tip run)` must show the tip run doing the same build:
+    each build job of this run's current attempt that is not skipped is listed there, live or succeeded (a
+    cache-only or throttled tip run skips them)."""
+    if run.get("status") not in WAITING_JOB_STATUSES and run.get("status") != "in_progress":
+        return False, f"it is {run.get('status') or 'in an unknown state'}"
+    if not latest_wins_feed(run):
+        return False, "it publishes to no latest-wins feed"
+    if not _head_repo(run) or not run.get("head_branch"):
+        return False, "its head repository or branch could not be read"
+    head = str(run.get("head_sha") or "").lower()
+    if not _SHA.fullmatch(head):
+        return False, "its head could not be read"
+    published = str(published_sha or "").lower()
+    if _SHA.fullmatch(published) and published != head and contains(head, published) is True:
+        return True, (f"the feed already has {published[:12]}, which contains its head {head[:12]}, so under "
+                      "latest-wins it can never publish")
+    tip = str(tip_sha or "").lower()
+    if not _SHA.fullmatch(tip):
+        return False, f"the tip of {run.get('head_branch')} could not be read"
+    if tip == head:
+        return False, f"it builds the tip of {run.get('head_branch')}"
+    if contains(head, tip) is not True:
+        return False, f"the tip {tip[:12]} could not be shown to contain its head {head[:12]}"
+    mine = attempt_jobs(run, jobs) if jobs is not None else None
+    if mine is None or jobs_of is None:
+        return False, "its jobs, or which attempt they belong to, could not be read"
+    builds = [str(job.get("name") or "") for job in mine if job.get("conclusion") != "skipped" and is_build_job(job)]
+    if not builds:
+        return False, "it lists no build job, so a tip run doing the same build cannot be shown"
+    why_not = f"the tip {tip[:12]} has no run building it"
+    for other in runs:
+        if (str(other.get("head_sha") or "").lower() != tip or _workflow_key(other) != _workflow_key(run)
+                or other.get("head_branch") != run.get("head_branch") or _head_repo(other) != _head_repo(run)
+                or not is_delivery_run(other.get("path"), other.get("name"), other.get("display_title"))):
+            continue
+        status = other.get("status")
+        if not (status in WAITING_JOB_STATUSES or status == "in_progress" or (
+                status == "completed" and other.get("conclusion") == "success")):
+            continue
+        # A re-run at the tip is read on its own attempt only: an earlier attempt's build is not this one's.
+        listed = jobs_of(other)
+        problem = builds_the_same(builds, None if listed is None else attempt_jobs(other, listed))
+        if problem:
+            why_not = f"run {other.get('id')} at the tip {tip[:12]} does not show the same build: {problem}"
+            continue
+        return True, (f"the newer commit {tip[:12]} is promoted at the tip of {run.get('head_branch')} and run "
+                      f"{other.get('id')} is {'building' if status != 'completed' else 'done building'} it, so "
+                      "under latest-wins this run can never publish")
+    return False, why_not
+
+
+def known_bad_entries(text: str | None) -> list[dict[str, Any]] | None:
+    """The entries of nightly_known_bad.json, or None when the file is missing or any entry is malformed."""
+    import json
+    try:
+        doc = json.loads(text or "")
+    except ValueError:
+        return None
+    entries = doc.get("entries") if isinstance(doc, dict) else None
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != KNOWN_BAD_KEYS:
+            return None
+        if not _SHA.fullmatch(str(entry["bad_since"])):
+            return None
+        if entry["fixed_by"] is not None and not _SHA.fullmatch(str(entry["fixed_by"])):
+            return None
+        if not (isinstance(entry["reason"], str) and entry["reason"].strip()
+                and isinstance(entry["filed_by"], str) and entry["filed_by"].strip()):
+            return None
+    return entries
+
+
+def known_bad(run: Mapping[str, Any], entries: Sequence[Mapping[str, Any]] | None,
+              contains: Contains) -> tuple[Mapping[str, Any] | None, str]:
+    """(the entry, why) when the run's head contains a known-bad commit and lacks its fix, so the run is certain
+    to fail; (None, why not) otherwise, or when the list or an ancestry is unread."""
+    if _file_name(run.get("path")) not in KNOWN_BAD_WORKFLOWS:
+        return None, "its workflow has no known-bad list"
+    if entries is None:
+        return None, f"{KNOWN_BAD_PATH} could not be read"
+    head = str(run.get("head_sha") or "").lower()
+    if not _SHA.fullmatch(head):
+        return None, "its head could not be read"
+    unread = ""
+    for entry in entries:
+        bad, fix = str(entry["bad_since"]), entry.get("fixed_by")
+        has_bad = contains(bad, head)
+        has_fix = False if has_bad is not True or not fix else contains(str(fix), head)
+        if has_bad is True and has_fix is False:
+            return entry, (f"its head {head[:12]} contains {bad[:12]} ({entry['reason']}) and lacks its fix "
+                           f"{str(fix or 'none yet')[:12]}, so it is certain to fail")
+        if has_bad is None or has_fix is None:
+            unread = unread or f"whether its head has {bad[:12]} or its fix could not be read"
+    return None, unread or "its head contains no known-bad commit without its fix"

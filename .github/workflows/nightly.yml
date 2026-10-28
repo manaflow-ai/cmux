@@ -494,7 +494,9 @@ jobs:
   # queue (found by run title and the eviction annotation, hence checks: read)
   # whose commit contains this request's, through the same guard.
   promote-nightly-next:
-    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux'
+    # The cadence (promote-nightly-next.mjs decideRequest): a landing's request (github-actions[bot], no "tick:")
+    # never enters the promote queue, where it could evict the 30-minute tick's waiting request.
+    if: github.event_name == 'workflow_dispatch' && inputs.promote_nightly_next_sha != '' && github.ref == 'refs/heads/main' && github.repository == 'manaflow-ai/cmux' && (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')
     # Holds only the release App credentials (CMUX_RELEASE_APP_*).
     environment: nightly-next-promote
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
@@ -529,6 +531,7 @@ jobs:
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
           REQUESTED_SHA: ${{ inputs.promote_nightly_next_sha }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
           DEBOUNCE: ${{ inputs.promote_nightly_next_debounce && 'true' || 'false' }}
           MIN_INTERVAL_HOURS: ${{ vars.NIGHTLY_NEXT_MIN_INTERVAL_HOURS || '2' }}
         with:
@@ -537,14 +540,15 @@ jobs:
             const guard = await import(`${process.env.GITHUB_WORKSPACE}/scripts/ci/promote-nightly-next.mjs`);
             const { owner, repo } = context.repo;
             // The dispatch already has its maximum of inputs, so a dry run is
-            // the "dry-run:" prefix on the SHA.
-            const requested = (process.env.REQUESTED_SHA || '').trim();
-            const dryRun = requested.startsWith('dry-run:');
-            const sha = dryRun ? requested.slice('dry-run:'.length).trim() : requested;
-            // The newest request wins (guard.decideNewest): `decision.sha` may be
-            // a newer commit that an earlier request waits to promote.
-            const { decision, scanFailed } = await guard.decideNewest({
-              github, core, owner, repo, sha, runId: context.runId,
+            // the "dry-run:" prefix on the SHA, and the 30-minute tick's
+            // request the "tick:" prefix (guard.parseRequest). Only the tick
+            // or a person promotes (guard.decideRequest); a landing's request
+            // is skipped. The newest request wins (guard.decideNewest):
+            // `decision.sha` may be a newer commit that an earlier request
+            // waits to promote.
+            const { decision, requested: sha, scanFailed, dryRun } = await guard.decideRequest({
+              requested: process.env.REQUESTED_SHA, actor: process.env.TRIGGERING_ACTOR,
+              github, core, owner, repo, runId: context.runId,
               surfaceText: fs.readFileSync(`${process.env.GITHUB_WORKSPACE}/.github/release-surface.txt`, 'utf8'),
               debounce: process.env.DEBOUNCE === 'true',
               minIntervalHours: Number(process.env.MIN_INTERVAL_HOURS),
@@ -918,11 +922,12 @@ jobs:
     # inputs. Those incremental chains then get no six-hourly cold reset; a
     # seed_only dispatch still writes one on demand.
     # Writes the cold DerivedData seed that ci-macos.yml compile admission
-    # adopts, and the Debug compilation cache. Admission no longer restores
-    # that cache (the app target missed on every file; see
-    # tests/test_ci_test_compilation_cache_seed.sh), so it has no reader on
-    # main today. Scheduled, not per push: a build per merge would take macOS
-    # slots from the pull request queue.
+    # adopts. It no longer restores, bounds or saves the Debug compilation
+    # cache: admission stopped restoring it (the
+    # app target missed on every file; see
+    # tests/test_ci_test_compilation_cache_seed.sh), so nothing read it. The
+    # build's CAS stays local to the run. Scheduled, not per push: a build per
+    # merge would take macOS slots from the pull request queue.
     if: github.event_name == 'schedule' && github.event.schedule == '17 */6 * * *' && vars.CI_PR_POOL_OWNED != '1' || github.event_name == 'workflow_dispatch' && inputs.seed_only
     # Match the admission job's runner and Xcode. The cache key carries the
     # toolchain and the build paths, so a mismatch is a miss, not a wrong hit.
@@ -985,35 +990,19 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
-      - name: Compute test compilation cache key
+      - name: Compute the DerivedData seed fingerprint
         id: compilation-cache-key
         run: |
           set -euo pipefail
           echo "fingerprint=$(scripts/ci/compile-app-host-test-product.sh canonical-fingerprint "$CMUX_COMPILE_ADMISSION_DERIVED_DATA")" >> "$GITHUB_OUTPUT"
 
-      - name: Restore test compilation cache
-        id: compilation-cache-restore
-        # Exact key only, so the seed is always one clean build. Restoring the
-        # last seed by prefix stacked another build's objects onto the CAS every
-        # run: the primary generation and the upstream it faults from grew 3.5 ->
-        # 5.0 GiB over eight runs, crossed the bound below, and then no run could
-        # save again. A cold build covers all of main, and measured smaller and
-        # faster than a stacked one. Only a re-run of the same revision hits here.
-        uses: ./.github/actions/cache-restore
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
-          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
-
       - name: Install compilation dependencies
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           ./scripts/install-rust-ci.sh
           ./scripts/download-prebuilt-ghosttykit.sh
 
       - name: Cache Swift packages
         id: swift-packages-restore
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-restore
         with:
           backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
@@ -1022,11 +1011,9 @@ jobs:
           restore-keys: spm-
 
       - name: Sanitize Swift package cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: python3 scripts/ci/sanitize-xcode-source-packages-cache.py .ci-source-packages
 
       - name: Resolve Swift packages
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           scripts/ci/compile-app-host-test-product.sh canonical-resolve \
@@ -1037,12 +1024,10 @@ jobs:
       # a later revision changed. See scripts/ci/seed_derived_data.py.
       - name: Record DerivedData seed inputs
         id: derived-data-record
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
         continue-on-error: true
         run: python3 scripts/ci/seed_derived_data.py record "$CMUX_CI_CANONICAL_SRC" "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
-      - name: Refresh test compilation cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
+      - name: Build the app-host test product
         run: |
           set -euo pipefail
           scripts/ci/compile-app-host-test-product.sh canonical-build \
@@ -1050,53 +1035,12 @@ jobs:
             "$PWD/.ci-source-packages" \
             "$CMUX_COMPILE_ADMISSION_CAS"
 
-      - name: Bound test compilation cache size
-        id: compilation-cache-bound
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          cache_path="$CMUX_COMPILE_ADMISSION_CAS"
-          max_cache_kib=$((5 * 1024 * 1024))
-          if [ -d "$cache_path" ]; then
-            # See `refresh-compilation-cache`: a warm build leaves a dead CAS
-            # generation behind, and pruning it keeps the seed to one build.
-            python3 scripts/ci/prune-xcode-compilation-cache.py "$cache_path" \
-              || echo "::warning::Xcode compilation cache pruning failed; measuring it unpruned"
-            cache_kib=$(du -sk "$cache_path" | awk '{print $1}')
-          else
-            cache_kib=0
-          fi
-          echo "Test compilation cache size: ${cache_kib} KiB (limit: ${max_cache_kib} KiB)"
-          save=false
-          if [ "$cache_kib" -gt "$max_cache_kib" ]; then
-            echo "::warning::Test compilation cache exceeds 5 GiB; skipping cache save"
-          elif [ "$cache_kib" -gt 0 ]; then
-            save=true
-          else
-            echo "Test compilation cache is empty; skipping cache save"
-          fi
-          echo "save=${save}" >> "$GITHUB_OUTPUT"
-
-      - name: Save test compilation cache
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.compilation-cache-bound.outputs.save == 'true'
-        uses: ./.github/actions/cache-save
-        env:
-          # Only an R2 save sees the bucket credentials.
-          AWS_ACCESS_KEY_ID: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && secrets.CI_CACHE_R2_SECRET_ACCESS_KEY || '' }}
-          CI_CACHE_R2_ENDPOINT: ${{ (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND) == 'r2' && format('https://{0}.r2.cloudflarestorage.com', secrets.CI_CACHE_R2_ACCOUNT_ID) || '' }}
-          CI_CACHE_R2_BUCKET: ${{ vars.CI_CACHE_R2_BUCKET }}
-        with:
-          backend: ${{ inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2' }}
-          path: ${{ env.CMUX_COMPILE_ADMISSION_CAS }}
-          key: xcode-compilation-test-${{ runner.os }}-${{ runner.arch }}-${{ steps.compilation-cache-key.outputs.fingerprint }}-${{ needs.decide.outputs.head_sha }}
-
       # canonical-resolve copies the workspace to the canonical root and
       # resolves there, so the workspace copy is still exactly what was
       # restored. Save what the resolve wrote, or a fallback restore of an
       # older layout is saved again under the current key.
       - name: Collect resolved Swift packages
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           resolved="$CMUX_CI_CANONICAL_ROOT/src/.ci-source-packages"
@@ -1104,7 +1048,7 @@ jobs:
           rsync -a --delete "$resolved/" .ci-source-packages/
 
       - name: Save Swift packages
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.swift-packages-restore.outputs.cache-hit != 'true'
+        if: steps.swift-packages-restore.outputs.cache-hit != 'true'
         uses: ./.github/actions/cache-save
         env:
           # Only an R2 save sees the bucket credentials.
@@ -1121,7 +1065,7 @@ jobs:
       # above (#13160). A failure here never fails the seed.
       - name: Bound DerivedData seed size
         id: derived-data-bound
-        if: steps.compilation-cache-restore.outputs.cache-hit != 'true' && steps.derived-data-record.outcome == 'success' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
+        if: steps.derived-data-record.outcome == 'success' && (inputs.cache_backend != 'default' && inputs.cache_backend || vars.CI_CACHE_BACKEND || 'r2') == 'r2'
         continue-on-error: true
         run: python3 scripts/ci/seed_derived_data.py prune "$CMUX_COMPILE_ADMISSION_DERIVED_DATA"
 
@@ -1752,12 +1696,72 @@ jobs:
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
+  # prepare-nightly-variant's three legs ran about 1 min each but queued 27-42 min on
+  # blacksmith-6vcpu-macos-26 (runs 40557789720, 40567539918), and run 40604652316's sat queued with
+  # every Blacksmith macOS 26 label stalled, while the pinned trusted mini that had just built the app
+  # sat idle. This reads that mini once, with no wait, after the build: idle now, and attempt 1 of
+  # main's push or schedule, puts the prepare legs on the same pinned tuple build-nightly-app takes
+  # (the one mini that already builds the shipped app); anything else, an unreadable runner list
+  # included, keeps Blacksmith. Signing and verify stay on Blacksmith (pick-classic-sign-runner).
+  pick-classic-prepare-runner:
+    needs: [decide, build-nightly-app]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    outputs:
+      trusted: ${{ steps.pick.outputs.trusted }}
+    steps:
+      - name: Checkout the picker at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the trusted mini if it is idle now
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
+          TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
+        run: python3 scripts/ci/classic_nightly_build_runner.py prepare
+
   prepare-nightly-variant:
     # No environment and no secrets: this job runs code from the bundle (the
     # cmux-tui probe, the CLI and helper regressions, the sidecar handshake)
     # before signing. build-sign-notarize-nightly signs exactly the app it uploads
     # and runs no bundle code itself.
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner, pick-classic-prepare-runner]
     # !cancelled() and each original need's success, not the implicit success(): a failed or timed-out
     # pick-classic-sign-runner then leaves its outputs empty and the runs-on literal takes the job.
     if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'"
@@ -1765,7 +1769,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # The pinned trusted mini while pick-classic-prepare-runner saw it idle (attempt 1 of main's push or
+    # schedule only); a re-run takes the Blacksmith pick below.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
