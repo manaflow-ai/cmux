@@ -80,6 +80,7 @@ impl Hub {
             self.peer_notices.clone(),
         );
         peer.set_vm_boundary(pc.vm_boundary);
+        peer.set_github_broker(pc.github_broker);
         let settled = peer.settled();
         // Under the rows lock (lock order: `remote_sessions`, then `peers`): a purge or notice of
         // the instance this replaces, checked current under it (`is_current`), is done before the
@@ -114,6 +115,20 @@ impl Hub {
         peer_token: Option<String>,
         wait: bool,
     ) -> Result<(), RpcError> {
+        self.add_peer_lending(name, url, token, peer_token, None, wait).await
+    }
+
+    /// `add_peer`, saying whether this Mac lends the peer its GitHub login (`github_broker.rs`);
+    /// None keeps what a re-add of the same machine had.
+    pub async fn add_peer_lending(
+        &self,
+        name: &str,
+        url: &str,
+        token: Option<String>,
+        peer_token: Option<String>,
+        github_broker: Option<bool>,
+        wait: bool,
+    ) -> Result<(), RpcError> {
         crate::session_name::validate(name).map_err(RpcError::invalid_params)?;
         if !(url.starts_with("ws://") || url.starts_with("wss://") || url.starts_with("ssh://")) {
             return Err(RpcError::invalid_params(
@@ -131,8 +146,16 @@ impl Hub {
             // (`vm_boundary.rs`); `peer_add` itself never turns it on.
             let vm_boundary =
                 cfg.peers.get(name).is_some_and(|old| old.url == url && old.vm_boundary);
-            let pc =
-                crate::config::PeerConfig { url: url.to_owned(), token, peer_token, vm_boundary };
+            let github_broker = github_broker.unwrap_or_else(|| {
+                cfg.peers.get(name).is_some_and(|old| old.url == url && old.github_broker)
+            });
+            let pc = crate::config::PeerConfig {
+                url: url.to_owned(),
+                token,
+                peer_token,
+                vm_boundary,
+                github_broker,
+            };
             cfg.peers.insert(name.to_owned(), pc.clone());
             if let Err(e) = cfg.save() {
                 tracing::warn!("save config failed: {e}");
@@ -166,19 +189,21 @@ impl Hub {
     /// A config reload's saved peers' VM boundaries (`catalog_reload.rs`), onto the running
     /// peers of those names; a leased peer keeps its lease's. Lock order: `peer_leases`, then
     /// `peers`.
-    pub(super) fn reload_peer_boundaries(&self, boundaries: &[(String, bool)]) {
+    pub(super) fn reload_peer_boundaries(&self, boundaries: &[(String, bool, bool)]) {
         let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-        for (name, on) in boundaries {
+        for (name, on, github_broker) in boundaries {
             if !leases.contains_key(name)
                 && let Some(peer) = peers.get(name)
             {
                 peer.set_vm_boundary(*on);
+                peer.set_github_broker(*github_broker);
             }
         }
     }
 
-    /// `_acpmux/peer_add {name, url, token?, peerToken?, wait?}`.
+    /// `_acpmux/peer_add {name, url, token?, peerToken?, githubBroker?, wait?}`: the unix socket
+    /// only (`remote_guard.rs`).
     pub async fn add_peer_from(&self, params: &Value) -> Result<(), RpcError> {
         let text = |k: &str| params.get(k).and_then(Value::as_str);
         let required =
@@ -187,7 +212,8 @@ impl Hub {
         let token = text("token").map(str::to_owned);
         let peer_token = text("peerToken").map(str::to_owned);
         let wait = params.get("wait").and_then(Value::as_bool).unwrap_or(false);
-        self.add_peer(name, url, token, peer_token, wait).await
+        let github_broker = params.get("githubBroker").and_then(Value::as_bool);
+        self.add_peer_lending(name, url, token, peer_token, github_broker, wait).await
     }
 
     /// Reconnect a configured peer now (its daemon was restarted), without
@@ -257,13 +283,11 @@ impl Hub {
             self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         // Released before the rows are counted (lock order: `remote_sessions`,
         // then `peers`; `apply_peer_notice`).
-        let listed: Vec<(String, Value)> = self
-            .peers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .values()
-            .map(|p| (p.name.clone(), p.summary()))
-            .collect();
+        let (listed, brokers): (Vec<(String, Value)>, std::collections::HashSet<String>) = {
+            let peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+            let listed = peers.values().map(|p| (p.name.clone(), p.summary())).collect();
+            (listed, peers.values().filter(|p| p.github_broker()).map(|p| p.name.clone()).collect())
+        };
         let mut counts: HashMap<String, usize> = HashMap::new();
         for r in self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
             *counts.entry(r.peer.clone()).or_default() += 1;
@@ -274,6 +298,9 @@ impl Hub {
                 s["sessions"] = json!(counts.get(&name).copied().unwrap_or(0));
                 if leased.contains(&name) {
                     s["leased"] = Value::Bool(true);
+                }
+                if brokers.contains(&name) {
+                    s["githubBroker"] = Value::Bool(true);
                 }
                 s
             })

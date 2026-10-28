@@ -109,6 +109,10 @@ pub struct Peer {
     /// `vmBoundary`, `hub/vm_boundary.rs`): each `session/new` it forwards
     /// says `vmBoundary: true`.
     vm_boundary: AtomicBool,
+    /// This Mac lends the peer its GitHub login (`PeerConfig` `githubBroker`,
+    /// `github_broker.rs`), and how many of its actions may run at once.
+    github_broker: AtomicBool,
+    github_slots: Arc<tokio::sync::Semaphore>,
     /// Whether the peer takes `_acpmux/file_put` (`hub/file_uploads.rs`).
     file_put: AtomicBool,
     /// It lists `filePutChunks` (`hub/file_uploads.rs`).
@@ -189,6 +193,8 @@ impl Peer {
             person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             vm_boundary: AtomicBool::new(false),
+            github_broker: AtomicBool::new(false),
+            github_slots: Arc::new(tokio::sync::Semaphore::new(crate::github_broker::OWNER_SLOTS)),
             file_put: AtomicBool::new(false),
             file_put_chunks: AtomicBool::new(false),
             media_read: AtomicBool::new(false),
@@ -441,6 +447,39 @@ impl Peer {
     /// Whether this caller opts its remote chains on the peer out of the sandbox.
     pub fn vm_boundary(&self) -> bool {
         self.vm_boundary.load(Ordering::SeqCst)
+    }
+
+    /// From its config (`Hub::spawn_peer`, a reload): whether this Mac lends the peer its
+    /// GitHub login. Read again for each action, so turning it off holds at once.
+    pub fn set_github_broker(&self, on: bool) {
+        self.github_broker.store(on, Ordering::SeqCst);
+    }
+
+    pub fn github_broker(&self) -> bool {
+        self.github_broker.load(Ordering::SeqCst)
+    }
+
+    /// The peer's daemon asked for a GitHub action (`github_broker.rs`) and `admit_owner` let it
+    /// in: run it, and answer on the link it came on, never on a later one.
+    fn serve_github_action(
+        self: &Arc<Self>,
+        id: Value,
+        params: Value,
+        slot: tokio::sync::OwnedSemaphorePermit,
+    ) {
+        let me = self.clone();
+        let epoch = self.link_epoch();
+        tokio::spawn(async move {
+            let reply = crate::github_broker::serve_owner(&me.name, params).await;
+            drop(slot);
+            let msg = match reply {
+                Ok(v) => Message::ok(id, v),
+                Err(e) => Message::err(id, e),
+            };
+            if let Ok(line) = msg.bounded_line() {
+                let _ = me.out.send(Outbound { epoch, key: None, line }).await;
+            }
+        });
     }
 
     pub fn supports_trust_gate(&self) -> bool {
@@ -808,13 +847,12 @@ impl Peer {
         let me = self.clone();
         let (stale_tx, mut stale_rx) = oneshot::channel::<String>();
         let handshake = tokio::spawn(async move {
-            let init = me
-                .link_request_on(
-                    method::INITIALIZE,
-                    json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}}),
-                    Some(link),
-                )
-                .await?;
+            let mut hello = json!({"protocolVersion": 1, "clientCapabilities": {}, "clientInfo": {"name": CLIENT_NAME, "version": crate::hub::VERSION}});
+            // This Mac lends the peer its GitHub login (`hub/github_owner.rs` on the peer).
+            if me.github_broker() {
+                hello["_meta"] = json!({"acpmux": {"githubBroker": true}});
+            }
+            let init = me.link_request_on(method::INITIALIZE, hello, Some(link)).await?;
             let v = init
                 .pointer("/_meta/acpmux/version")
                 .and_then(Value::as_str)
@@ -980,8 +1018,19 @@ impl Peer {
                                 break Ok(());
                             }
                         }
+                        Message::Request { id, method: m, params } if m == method::MUX_GITHUB_ACTION => {
+                            // Refused here, before anything is spawned, unless this Mac lends the
+                            // peer GitHub and one of its slots is free.
+                            let admitted = crate::github_broker::admit_owner(&self.name, self.github_broker(), &self.github_slots);
+                            match admitted {
+                                Ok(slot) => self.serve_github_action(id, params.unwrap_or(Value::Null), slot),
+                                Err(e) => {
+                                    let _ = sink.send(Frame::Text(Message::err(id, e).to_value().to_string().into())).await;
+                                }
+                            }
+                        }
                         Message::Request { id, .. } => {
-                            // acpmux does not send requests to clients today.
+                            // Any other request from the peer: the broker's is the only one.
                             let _ = sink.send(tokio_tungstenite::tungstenite::Message::Text(
                                 Message::err(id, RpcError::method_not_found("client-side request")).to_value().to_string().into(),
                             )).await;

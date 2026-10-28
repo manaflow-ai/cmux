@@ -68,11 +68,13 @@ impl Hub {
             current.vm_host = next.vm_host;
             // The peers stay put, but a saved peer's VM boundary follows the file at once: a
             // `false` there is the caller taking it back (`vm_boundary.rs`).
+            // So does whether this Mac lends it GitHub (`github_broker.rs`).
             let mut boundaries = Vec::new();
             for (name, pc) in current.peers.iter_mut() {
-                pc.vm_boundary =
-                    next.peers.get(name).is_some_and(|n| n.url == pc.url && n.vm_boundary);
-                boundaries.push((name.clone(), pc.vm_boundary));
+                let same = next.peers.get(name).filter(|n| n.url == pc.url);
+                pc.vm_boundary = same.is_some_and(|n| n.vm_boundary);
+                pc.github_broker = same.is_some_and(|n| n.github_broker);
+                boundaries.push((name.clone(), pc.vm_boundary, pc.github_broker));
             }
             current.web_asking_modes = next.web_asking_modes;
             // The start budget applies from the next start, like a restart would.

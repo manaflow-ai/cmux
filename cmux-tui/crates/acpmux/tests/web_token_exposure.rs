@@ -40,6 +40,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             // A peer token kept for a ws:// peer never leaves either.
             peer_token: Some(PEER_TOKEN.into()),
             vm_boundary: false,
+            github_broker: false,
         },
     );
     cfg.peers.insert(
@@ -49,6 +50,7 @@ async fn client(origin: Origin) -> (mpsc::Sender<String>, mpsc::Receiver<String>
             token: None,
             peer_token: None,
             vm_boundary: false,
+            github_broker: false,
         },
     );
     cfg.store.mode = StoreMode::Memory;
