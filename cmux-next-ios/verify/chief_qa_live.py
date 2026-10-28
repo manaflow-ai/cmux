@@ -154,7 +154,26 @@ def main():  # noqa: C901 - one live run of several scenarios
         conv_cli(conv, "send", "--text", text, timeout=30)
 
     def phone_texts():
-        return [e.label or "" for e in sim.tree() if e.label]
+        """Every label on screen; a bubble reads "Your message, <text>, <time>" (mine)."""
+        out = []
+        for e in sim.tree():
+            label = e.label or ""
+            if label.startswith("Your message, "):
+                label = label[len("Your message, "):].rsplit(", ", 1)[0]
+            if label:
+                out.append(label)
+        return out
+
+    def bubbles(prefix):
+        """Distinct message bubbles starting with `prefix`, by text and position."""
+        seen = {}
+        for e in sim.tree():
+            label = e.label or ""
+            if label.startswith("Your message, "):
+                label = label[len("Your message, "):].rsplit(", ", 1)[0]
+            if label.startswith(prefix):
+                seen[(label, round(e.frame[1] / 8))] = label
+        return list(seen.values())
 
     def phone_has(needle):
         return any(needle in t for t in phone_texts())
@@ -185,7 +204,9 @@ def main():  # noqa: C901 - one live run of several scenarios
             raise RuntimeError("no composer")
         sim.tap_el(field)
         time.sleep(0.5)
-        sim.softtype(text)
+        # Hardware key events type plain text reliably (the soft keyboard's
+        # layout switch lags on a loaded mini).
+        subprocess.run(["axe", "type", text, "--udid", udid], capture_output=True, timeout=60)
         time.sleep(0.3)
         send = sim.wait(ident="conversation.composer.send", timeout=10)
         if not send:
@@ -277,9 +298,9 @@ def main():  # noqa: C901 - one live run of several scenarios
             ok, _ = wait_for(lambda: all(phone_has(t) for t in sent), 30)
             latency = round(time.time() - t0, 2)
             shot("alpha-mac-to-phone")
-            labels = [t for t in phone_texts() if "mac to phone" in t and run_id in t]
+            labels = sorted(set(t for t in bubbles("mac to phone") if run_id in t))
             order = [next(i for i, s in enumerate(sent) if s in t) for t in labels if any(s in t for s in sent)]
-            dup = len(labels) != len(set(labels))
+            dup = len([t for t in bubbles("mac to phone") if run_id in t]) != len(labels)
             return {"pass": bool(ok) and order == sorted(order) and not dup, "seconds_all_shown": latency,
                     "labels": labels[:8], "duplicates": dup}
         scenario("mac_to_phone", mac_to_phone)
@@ -318,7 +339,7 @@ def main():  # noqa: C901 - one live run of several scenarios
             ok, secs = wait_for(lambda: phone_has(last), 60)
             shot("beta-long-newest")
             on_mac = [t for t in texts_of(conv_messages(convs["beta"], 500)) if t.startswith("long ")]
-            visible = [t for t in phone_texts() if t.startswith("long ") and run_id in t]
+            visible = sorted(set(t for t in phone_texts() if t.startswith("long ") and run_id in t))
             nums = [int(t.split()[1]) for t in visible]
             # Scroll to the top through the whole history.
             for _ in range(12):
@@ -342,8 +363,9 @@ def main():  # noqa: C901 - one live run of several scenarios
             open_row(names["alpha"], timeout=90)
             ok, secs = wait_for(lambda: phone_has(sent[-1]), 60)
             shot("alpha-after-offline")
-            visible = [t for t in phone_texts() if "while phone off" in t and run_id in t]
-            dup = len(visible) != len(set(visible))
+            raw = [t for t in bubbles("while phone off") if run_id in t]
+            visible = sorted(set(raw), key=lambda t: int(t.split()[3]))
+            dup = len(raw) != len(visible)
             nums = [int(t.split()[3]) for t in visible]
             return {"pass": bool(ok) and not dup and nums == sorted(nums), "newest_shown_s": secs,
                     "visible": nums, "duplicates": dup}

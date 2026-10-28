@@ -95,8 +95,13 @@ public final class ChiefSession {
     public var macID: String? {
         didSet {
             guard macID != oldValue else { return }
-            outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
-            refreshOutbox()
+            // Only while no Chief is attached: the coordinator names the next
+            // Mac before that Mac's backend replaces the current one, and until
+            // then what is written (and what flushes) is still the current Chief's.
+            if backend is ChiefOfflineBackend {
+                outboxTarget = Self.target(of: backend, macID: macID, previous: outboxTarget)
+                refreshOutbox()
+            }
             guard !engineReportIsCurrent else { return }
             engineReport = macID.flatMap { preferences.engineReport(macID: $0) }
         }
@@ -166,13 +171,16 @@ public final class ChiefSession {
             message.senderID == store.meID && message.seq == nil && !message.isScheduled
                 && (message.delivery == .sending || message.delivery?.isFailed == true)
         }
-        if !unconfirmed.isEmpty {
-            waiting += unconfirmed.map { message in
-                ChiefOutbox.Waiting(message: ConversationComposeMessage(text: message.text, images: message.attachments.compactMap { attachment in
-                    guard attachment.kind == .image, let data = attachment.localData else { return nil }
-                    return ConversationComposeImage(data: data, width: attachment.width, height: attachment.height, mimeType: "image/jpeg")
-                }), target: outboxTarget)
-            }
+        let carried = unconfirmed.compactMap { message -> ChiefOutbox.Waiting? in
+            let kept = ConversationComposeMessage(text: message.text, images: message.attachments.compactMap { attachment in
+                guard attachment.kind == .image, let data = attachment.localData else { return nil }
+                return ConversationComposeImage(data: data, width: attachment.width, height: attachment.height, mimeType: "image/jpeg")
+            })
+            // The client id lets the flush skip one the Chief got after all.
+            return kept.isEmpty ? nil : ChiefOutbox.Waiting(message: kept, target: outboxTarget, clientID: message.clientMessageID)
+        }
+        if !carried.isEmpty {
+            waiting += carried
             outboxStore.save(waiting)
         }
         store.stop()
@@ -612,10 +620,16 @@ public final class ChiefSession {
 
     private func flushOutbox() {
         guard !outbox.isEmpty, store.meID != nil, store.connection == .connected else { return }
-        let ready = outbox
+        let mine = waiting.filter { $0.target == nil || $0.target == outboxTarget }
+        // A send carried over a dropped link may have reached the Chief before
+        // the drop: wait for the newest page, and skip any it already has.
+        if mine.contains(where: { $0.clientID != nil }), !store.hasLoadedNewest { return }
+        let delivered = Set(store.messages.compactMap(\.clientMessageID))
+        let ready = mine.filter { $0.clientID.map { !delivered.contains($0) } ?? true }.map(\.message)
         waiting.removeAll { $0.target == nil || $0.target == outboxTarget }
         outboxStore.save(waiting)
         refreshOutbox()
+        guard !ready.isEmpty else { return }
         // Not from inside the store's own change callback.
         let store = store
         Task { @MainActor in
@@ -673,6 +687,9 @@ public struct ChiefOutbox: Sendable {
     struct Waiting: Equatable {
         var message: ConversationComposeMessage
         var target: String?
+        /// The client id of a send carried over a backend swap (nil for one
+        /// written while Chief was away).
+        var clientID: String?
     }
 
     struct Item: Codable, Equatable {
@@ -680,6 +697,7 @@ public struct ChiefOutbox: Sendable {
         var images: [Image]
         /// Nil in files written before messages named their Chief.
         var target: String?
+        var clientID: String?
 
         struct Image: Codable, Equatable {
             var data: Data
@@ -712,7 +730,7 @@ public struct ChiefOutbox: Sendable {
         return items.map { item in
             Waiting(message: ConversationComposeMessage(text: item.text, images: item.images.map {
                 ConversationComposeImage(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
-            }), target: item.target)
+            }), target: item.target, clientID: item.clientID)
         }
     }
 
@@ -725,7 +743,7 @@ public struct ChiefOutbox: Sendable {
         let items = messages.map { waiting in
             Item(text: waiting.message.text, images: waiting.message.images.map {
                 Item.Image(data: $0.data, width: $0.width, height: $0.height, mimeType: $0.mimeType)
-            }, target: waiting.target)
+            }, target: waiting.target, clientID: waiting.clientID)
         }
         try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         // Readable after first unlock, so a message written on a locked phone is kept.

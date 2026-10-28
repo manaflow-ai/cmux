@@ -78,7 +78,9 @@ public struct ChiefTurnFailure: Equatable, Sendable {
         guard trimmed.hasSuffix(")") else { return nil }
         // The note starts a line: the whole message, or after a blank line.
         let start: String.Index
-        if trimmed.hasPrefix("(turn failed") {
+        // A turn the brain refused before it ran (`(turn refused: why)`,
+        // `ended_turn_text`) is a whole message of its own.
+        if trimmed.hasPrefix("(turn failed") || trimmed.hasPrefix("(turn refused") {
             start = trimmed.startIndex
         } else if let range = trimmed.range(of: "\n\n(turn failed", options: .backwards) {
             start = trimmed.index(range.lowerBound, offsetBy: 2)
@@ -86,9 +88,14 @@ public struct ChiefTurnFailure: Equatable, Sendable {
             return nil
         }
         let note = trimmed[start...].dropFirst().dropLast() // without the outer parentheses
-        // "turn failed[ on X[ (fallback for Y)]]: error"
-        guard let colon = Self.headerColon(in: note) else { return nil }
-        let detail = String(note[note.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        let detail: String
+        if note == "turn refused" {
+            detail = "refused"
+        } else {
+            // "turn failed[ on X[ (fallback for Y)]]: error" or "turn refused: why"
+            guard let colon = Self.headerColon(in: note) else { return nil }
+            detail = String(note[note.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        }
         guard !detail.isEmpty else { return nil }
         reply = String(trimmed[..<start]).trimmingCharacters(in: .whitespacesAndNewlines)
         self.detail = detail
@@ -107,9 +114,9 @@ public struct ChiefTurnFailure: Equatable, Sendable {
 
     /// The colon that ends "turn failed[ on X[ (fallback for Y)]]".
     private static func headerColon(in note: Substring) -> Substring.Index? {
-        guard note.hasPrefix("turn failed") else { return nil }
+        guard let header = ["turn failed", "turn refused"].first(where: { note.hasPrefix($0) }) else { return nil }
         var depth = 0
-        var index = note.index(note.startIndex, offsetBy: "turn failed".count)
+        var index = note.index(note.startIndex, offsetBy: header.count)
         while index < note.endIndex {
             switch note[index] {
             case "(": depth += 1

@@ -139,9 +139,7 @@ struct ChiefConversationController: UIViewControllerRepresentable {
         // Select mode's Forward opens New Message with the draft, as in the lab.
         // A conversation of the Mac's Home list has no composer: no Forward
         // button there (it did nothing when tapped).
-        if let compose {
-            conversation.onForward = { draft in compose.present(forwarding: draft) }
-        }
+        conversation.onForward = compose.map { compose in { draft in compose.present(forwarding: draft) } }
     }
 }
 
