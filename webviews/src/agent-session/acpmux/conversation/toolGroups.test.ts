@@ -127,6 +127,83 @@ test("a later Bash send resolves only a prior same-turn recorded message write",
   if (standalone?.type === "send") expect(standalone.send.text).toBeUndefined();
 });
 
+test("nonmutating read search fetch and MCP tools preserve recorded message bodies", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/observed.md <<'EOF'\nrecorded body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/observed.md",
+    startedAt: 5,
+    endedAt: 6,
+  });
+  const observers = [
+    { title: "Read", kind: "read", locations: [{ path: "/tmp/observed.md" }] },
+    { title: "Search", kind: "search" },
+    { title: "Fetch", kind: "fetch" },
+    { title: "mcp__fs__read_file", kind: "read", inputSummary: JSON.stringify({ path: "/tmp/observed.md" }) },
+    {
+      title: "github.search_issues call",
+      kind: "search",
+      inputSummary: JSON.stringify({ server: "github", tool: "search_issues", arguments: { q: "bug" } }),
+    },
+  ];
+  for (const observer of observers) {
+    // A read that failed or is still running cannot overwrite the file or block an ordered writer.
+    for (const status of ["completed", "failed", "in_progress"]) {
+      const read = item({ ...observer, ...{ status } });
+      const group = toolGroups([writer, read, send]).find((entry) => entry.type === "send");
+      expect(group?.type).toBe("send");
+      if (group?.type === "send") expect(group.send.text).toBe("recorded body\n");
+      const later = { ...writer, tool: { ...writer.tool!, startedAt: 3, endedAt: 4 } };
+      const after = toolGroups([writer, read, later, send]).find((entry) => entry.type === "send");
+      expect(after?.type).toBe("send");
+      if (after?.type === "send") expect(after.send.text).toBe("recorded body\n");
+    }
+  }
+});
+
+test("mutation capable and ambiguous tools still invalidate recorded message bodies", () => {
+  const writer = item({
+    title: "Bash",
+    kind: "execute",
+    command: "cat > /tmp/observed.md <<'EOF'\nstale body\nEOF",
+    startedAt: 1,
+    endedAt: 2,
+  });
+  const send = item({
+    title: "Bash",
+    kind: "execute",
+    command: "acpmux send lane - < /tmp/observed.md",
+    startedAt: 5,
+    endedAt: 6,
+  });
+  const mutations = [
+    ...["write", "edit", "delete", "move", "fileChange", "execute", "think", "other", undefined].map((kind) => ({
+      title: "Possible mutation",
+      kind,
+    })),
+    { title: "Read with changes", kind: "read", diffs: [{ path: "/tmp/observed.md", newText: "changed" }] },
+    { title: "Read with shell input", kind: "read", command: "truncate -s 0 /tmp/observed.md" },
+    { title: "mcp__fs__write_file", kind: "edit" },
+    { title: "mcp__fs__write_file", kind: "other" },
+    { title: "Bash", kind: "execute", command: "false && cat > /tmp/observed.md <<'EOF'\nskipped\nEOF" },
+  ];
+  for (const mutation of mutations) {
+    for (const status of ["completed", "failed", "in_progress"]) {
+      const tool = item({ ...mutation, ...{ status }, startedAt: 3, endedAt: 4 });
+      const group = toolGroups([writer, tool, send]).find((entry) => entry.type === "send");
+      expect(group?.type).toBe("send");
+      if (group?.type === "send") expect(group.send.text).toBeUndefined();
+    }
+  }
+});
+
 test("wrapped sends retain a prior same-turn recorded message body", () => {
   const writer = item({
     title: "Bash",
