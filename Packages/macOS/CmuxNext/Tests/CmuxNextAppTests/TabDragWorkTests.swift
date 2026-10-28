@@ -111,8 +111,21 @@ import Testing
         let layoutView = try #require(f.controller.content?.layoutView)
         let screen = try #require(layoutView.model.activeScreenID.flatMap { layoutView.screenViews[$0] })
         let cell = try #require(screen.geometry.panes[target.layoutPaneID], "the layout has no frame for the target pane")
-        let panes = try sweep("panes") { t in screen.convert(CGPoint(x: cell.midX, y: cell.midY + t * cell.height * 0.4), to: nil) }
-        if case .newSplit = drag.outcome {} else { Issue.record("the bottom edge resolves to \(drag.outcome)") }
+        // Which point splits is the drop zones' call, not the test's: find the first one down the pane's middle that a
+        // direct hit test resolves to a split, then sweep the pointer from the middle to it.
+        func point(_ y: CGFloat) -> NSPoint { screen.convert(CGPoint(x: cell.midX, y: y), to: nil) }
+        var seen: [String] = []
+        var edgeY: CGFloat?
+        for step in 1...40 {
+            let y = cell.midY + CGFloat(step) / 40 * (cell.maxY - 1 - cell.midY)
+            session.update(window.convertPoint(toScreen: point(y)))
+            if case .newSplit = drag.outcome { edgeY = y; break }
+            if step % 8 == 0 { seen.append("y=\(Int(y)): \(drag.outcome)") }
+        }
+        let edge = try #require(edgeY, "no point down the target pane splits it: \(seen) cell=\(cell)")
+        session.update(window.convertPoint(toScreen: point(cell.midY)))
+        let panes = try sweep("panes") { t in point(cell.midY + t * (edge - cell.midY)) }
+        if case .newSplit = drag.outcome {} else { Issue.record("the edge point resolves to \(drag.outcome) after the sweep") }
         // Along the target pane's strip: its gap follows.
         let gap = try sweep("strip") { t in NSPoint(x: strip.minX + 8 + t * (strip.width * 0.8), y: strip.midY) }
         guard case let .strip(stripID, _, _) = drag.outcome, stripID == target.stripModel.stripID else {
