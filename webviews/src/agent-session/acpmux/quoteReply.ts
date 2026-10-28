@@ -6,27 +6,34 @@ import { closeHistory } from "@milkdown/kit/prose/history";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import type { EditorView } from "@milkdown/kit/prose/view";
 
-type ParsedNode = { type: string; children?: ParsedNode[] };
-
-const hasDefinition = (node: ParsedNode): boolean =>
-  node.type === "definition" || (node.children?.some(hasDefinition) ?? false);
+type ParsedNode = {
+  type: string;
+  children?: ParsedNode[];
+  position?: { start?: { offset?: number } };
+};
 
 // A selected code/escaped line can look like a reference definition. Milkdown's inline-links
-// plugin removes definitions, so keep that selection literal before its parser runs the plugin.
-function literalQuote(current: EditorView, markdown: string) {
-  const { schema } = current.state;
-  const lines = markdown.replace(/\n+$/, "").split("\n");
-  const text = lines.flatMap((line, index) => {
-    const value = line.replace(/^>[ \t]?/, "");
-    return [...(index ? [schema.nodes.hardbreak.create()] : []), ...(value ? [schema.text(value)] : [])];
-  });
-  return schema.nodes.blockquote.create(null, schema.nodes.paragraph.create(null, text));
+// plugin removes definitions, so escape only each definition opener before the normal parser runs.
+// The source positions keep every surrounding heading, list, code block and paragraph intact.
+function escapeDefinitions(markdown: string, node: ParsedNode): string {
+  const offsets: number[] = [];
+  const visit = (current: ParsedNode) => {
+    if (current.type === "definition") {
+      const offset = current.position?.start?.offset;
+      if (typeof offset === "number" && markdown[offset] === "[") offsets.push(offset);
+    }
+    current.children?.forEach(visit);
+  };
+  visit(node);
+  return offsets
+    .sort((left, right) => right - left)
+    .reduce((source, offset) => source.slice(0, offset) + "\\" + source.slice(offset), markdown);
 }
 
 export function insertReplyQuote(made: Editor, current: EditorView, markdown: string) {
   made.action((ctx) => {
     const raw = ctx.get(remarkCtx).parse(markdown) as unknown as ParsedNode;
-    const quoted = hasDefinition(raw) ? literalQuote(current, markdown) : ctx.get(parserCtx)(markdown);
+    const quoted = ctx.get(parserCtx)(escapeDefinitions(markdown, raw));
     if (!quoted) return;
     let content = quoted.type === current.state.schema.nodes.blockquote ? Fragment.from(quoted) : quoted.content;
     const { doc, schema } = current.state;

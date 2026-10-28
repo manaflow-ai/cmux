@@ -149,6 +149,33 @@ test("the composer sends the quote as Markdown even though the editor hides the 
   expect(handle.current!.agentText(handle.current!.value())).toContain("> Selected line");
 });
 
+test("definition-like text preserves surrounding quote blocks and serialized soft lines", async () => {
+  await render("Draft text");
+  const selected = [
+    "> # Heading",
+    ">",
+    "> - one",
+    "> - two",
+    ">",
+    "> ```js",
+    "> const value = 1",
+    "> ```",
+    ">",
+    "> [ref]: https://example.com",
+    ">",
+    "> After",
+    "",
+  ].join("\n");
+  await act(async () => handle.current!.quoteReply(selected));
+  const quote = content().querySelector("blockquote")!;
+  expect([...quote.children].map((node) => node.tagName)).toEqual(["H1", "UL", "PRE", "P", "P"]);
+  expect(quote.textContent).toContain("[ref]: https://example.com");
+  const serialized = handle.current!.agentText(handle.current!.value());
+  expect(serialized).toContain("> [ref]: https://example.com");
+  expect(serialized).not.toContain("\\\n");
+  expect(content().lastElementChild?.tagName).toBe("P");
+});
+
 for (const selected of [
   "[ref]: https://example.com",
   "Before the example\n\n[ref]: https://example.com\n\nAfter the example",
