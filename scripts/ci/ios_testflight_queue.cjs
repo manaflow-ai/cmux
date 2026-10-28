@@ -26,9 +26,6 @@ const QUEUE_EVENTS = ['push', 'schedule', 'workflow_dispatch'];
 // A run whose jobs never started after this long is in GitHub's queued limbo
 // (cancel, force-cancel and rerun all fail) and is not treated as active.
 const DEFUNCT_MINUTES = 120;
-// GitHub allows a bounded number of attempts per run. A run deferred this
-// many times is stuck for some other reason: drop it loudly, keep the line moving.
-const MAX_ATTEMPTS = 25;
 
 function minutesSince(timestamp) {
   const ms = Date.parse(timestamp ?? '');
@@ -50,7 +47,8 @@ async function listMainRuns({ github, owner, repo }) {
 async function listMarkers({ github, owner, repo }) {
   const markers = new Map();
   const perPage = 100;
-  for (let page = 1; page <= 10; page += 1) {
+  // Every page: an omitted older marker would let a newer upload overtake it.
+  for (let page = 1, pageCount = 1; page <= pageCount; page += 1) {
     const response = await github.rest.actions.listArtifactsForRepo({
       owner,
       repo,
@@ -59,6 +57,8 @@ async function listMarkers({ github, owner, repo }) {
       page,
     });
     const artifacts = response.data.artifacts || [];
+    const totalCount = Number(response.data.total_count ?? artifacts.length);
+    pageCount = Math.max(1, Math.ceil(totalCount / perPage));
     for (const artifact of artifacts) {
       const run = artifact.workflow_run;
       if (artifact.name !== DEFERRED_ARTIFACT || artifact.expired) continue;
@@ -67,29 +67,41 @@ async function listMarkers({ github, owner, repo }) {
       if (!markers.has(runId)) markers.set(runId, []);
       markers.get(runId).push(artifact.id);
     }
-    if (artifacts.length < perPage) break;
+    if (artifacts.length === 0) break;
   }
   return new Map([...markers.entries()].sort(([a], [b]) => a - b));
 }
 
-// Whether an active run may still upload: its upload job has not finished.
-async function mayStillUpload({ github, owner, repo, core }, run) {
-  const jobs = await github.rest.actions.listJobsForWorkflowRun({
+// A run (or a re-run attempt) whose jobs never started in DEFUNCT_MINUTES.
+// run_started_at is the current attempt's start; created_at is the first's.
+function isDefunct(run, jobs) {
+  const anyJobStarted = jobs.some((job) => job.status !== 'queued');
+  const stuckMinutes = minutesSince(run.run_started_at ?? run.created_at);
+  return !anyJobStarted && stuckMinutes >= DEFUNCT_MINUTES ? stuckMinutes : 0;
+}
+
+async function listJobs({ github, owner, repo }, runId) {
+  const response = await github.rest.actions.listJobsForWorkflowRun({
     owner,
     repo,
-    run_id: run.id,
+    run_id: runId,
     per_page: 100,
   });
-  const anyJobStarted = jobs.data.jobs.some((job) => job.status !== 'queued');
-  const stuckMinutes = minutesSince(run.created_at);
-  if (!anyJobStarted && stuckMinutes >= DEFUNCT_MINUTES) {
+  return response.data.jobs || [];
+}
+
+// Whether an active run may still upload: its upload job has not finished.
+async function mayStillUpload({ github, owner, repo, core }, run) {
+  const jobs = await listJobs({ github, owner, repo }, run.id);
+  const stuckMinutes = isDefunct(run, jobs);
+  if (stuckMinutes) {
     core.warning(
       `ignoring defunct TestFlight run ${run.id}: ` +
       `no job started after ${Math.round(stuckMinutes)} minutes`
     );
     return false;
   }
-  const uploadJob = jobs.data.jobs.find((job) => job.name === UPLOAD_JOB);
+  const uploadJob = jobs.find((job) => job.name === UPLOAD_JOB);
   return !uploadJob || uploadJob.status !== 'completed';
 }
 
@@ -159,37 +171,55 @@ async function reconcile({ github, context, core }, state) {
         return null;
       }
     }
+    const getRun = async (runId) =>
+      (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId })).data;
     for (const runId of queued) {
-      const run =
-        byId.get(runId) ??
-        (await github.rest.actions.getWorkflowRun({ owner, repo, run_id: runId })).data;
+      const run = byId.get(runId) ?? (await getRun(runId));
+      const jobs = await listJobs({ github, owner, repo }, runId);
       if (run.status !== 'completed') {
-        // Its re-run is already under way and holds the line.
-        return null;
+        const stuckMinutes = isDefunct(run, jobs);
+        if (!stuckMinutes) {
+          // Its re-run is under way and holds the line.
+          return null;
+        }
+        // GitHub's queued limbo: cancel and re-run are refused, so the marker
+        // would block every later upload until it expires.
+        core.error(
+          `dropping queued TestFlight run ${runId} from the upload queue: ` +
+          `no job started after ${Math.round(stuckMinutes)} minutes; dispatch it again`
+        );
+        await deleteMarkers({ github, owner, repo }, markers.get(runId));
+        continue;
       }
-      const jobs = await github.rest.actions.listJobsForWorkflowRun({
-        owner,
-        repo,
-        run_id: runId,
-        per_page: 100,
-      });
-      const uploadJob = jobs.data.jobs.find((job) => job.name === UPLOAD_JOB);
+      const uploadJob = jobs.find((job) => job.name === UPLOAD_JOB);
       const uploadRan =
         uploadJob?.status === 'completed' && uploadJob.conclusion !== 'skipped';
-      const attempts = Number(run.run_attempt ?? 1);
-      if (uploadRan || run.conclusion === 'cancelled' || attempts >= MAX_ATTEMPTS) {
-        // Already uploaded (its release failed), cancelled by someone, or
-        // stuck: the marker no longer holds a place in line.
+      if (uploadRan || run.conclusion === 'cancelled') {
+        // Already uploaded (its release failed) or cancelled by someone: the
+        // marker no longer holds a place in line.
         if (!uploadRan) {
-          core.warning(
-            `dropping queued TestFlight run ${runId} from the upload queue ` +
-            `(conclusion ${run.conclusion}, attempt ${attempts})`
-          );
+          core.warning(`dropping cancelled TestFlight run ${runId} from the upload queue`);
         }
         await deleteMarkers({ github, owner, repo }, markers.get(runId));
         continue;
       }
-      await github.rest.actions.reRunWorkflow({ owner, repo, run_id: runId });
+      const attempts = Number(run.run_attempt ?? 1);
+      try {
+        await github.rest.actions.reRunWorkflow({ owner, repo, run_id: runId });
+      } catch (error) {
+        const status = Number(error.status);
+        if (!(status >= 400 && status < 500)) throw error;
+        // Another reconciler may have started it a moment ago.
+        if ((await getRun(runId)).status !== 'completed') return null;
+        // GitHub refuses this re-run for good (attempt limit, or older than
+        // its re-run window): say so loudly and keep the line moving.
+        core.error(
+          `dropping queued TestFlight run ${runId} from the upload queue: ` +
+          `GitHub refused attempt ${attempts + 1} (HTTP ${status}); dispatch it again`
+        );
+        await deleteMarkers({ github, owner, repo }, markers.get(runId));
+        continue;
+      }
       core.notice(`started queued TestFlight run ${runId} (attempt ${attempts + 1})`);
       return runId;
     }

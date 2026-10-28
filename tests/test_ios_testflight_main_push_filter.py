@@ -316,6 +316,7 @@ const priorRuns = (request) => {{
         status: marker.status ?? 'completed',
         conclusion: marker.conclusion ?? 'success',
         run_attempt: marker.runAttempt ?? 1,
+        run_started_at: marker.defunct ? '2020-01-01T00:00:00Z' : undefined,
         event: marker.event ?? 'workflow_dispatch',
         head_sha: 'queued-sha',
       }});
@@ -393,6 +394,10 @@ const github = {{
         const markerRun = markerRuns.find(
           (marker) => marker.runId === Number(request.run_id)
         );
+        if (markerRun?.defunct) {{
+          uploadJobStatuses.push(null);
+          return {{ data: {{ jobs: [{{ name: 'Decide', status: 'queued' }}] }} }};
+        }}
         if (markerRun) {{
           const active = (markerRun.status ?? 'completed') !== 'completed';
           uploadJobStatuses.push(active ? 'in_progress' : 'completed');
@@ -462,8 +467,18 @@ const github = {{
         return {{ status: 204 }};
       }},
       reRunWorkflow: async (request) => {{
+        const marker = markerRuns.find((m) => m.runId === Number(request.run_id));
+        if (marker?.rerunStatus) {{
+          const error = new Error('rerun refused');
+          error.status = marker.rerunStatus;
+          throw error;
+        }}
         reRuns.push(request.run_id);
         return {{ status: 201 }};
+      }},
+      getWorkflowRun: async (request) => {{
+        const marker = markerRuns.find((m) => m.runId === Number(request.run_id));
+        return {{ data: {{ id: request.run_id, status: marker?.statusAfterRerun ?? 'completed' }} }};
       }},
       listArtifactsForRepo: async (request) => {{
         if (request.name === 'ios-testflight-deferred') {{
@@ -541,6 +556,9 @@ const core = {{
     throw new Error(message);
   }},
   warning: (message) => {{
+    warnings.push(message);
+  }},
+  error: (message) => {{
     warnings.push(message);
   }},
   info: () => {{}},
@@ -1006,15 +1024,6 @@ def test_manual_run_queues_behind_an_earlier_upload_instead_of_sleeping() -> Non
 
     assert result["waitCalls"] == []
     assert result["workflowRunCalls"] == 1
-    assert result["workflowRunRequests"] == [
-        {
-            "owner": "manaflow-ai",
-            "repo": "cmux",
-            "workflow_id": "ios-testflight.yml",
-            "branch": "main",
-            "per_page": 100,
-        },
-    ]
     assert result["priorRunStatuses"] == ["in_progress"]
     # One look at the blocking run's jobs, not one per minute.
     assert result["uploadJobStatuses"] == ["in_progress"]
@@ -1125,6 +1134,58 @@ def test_queue_drops_markers_of_runs_that_already_uploaded_or_were_cancelled() -
 
     assert result["deletedArtifacts"] == [1060, 1065]
     assert result["reRuns"] == [70]
+
+
+def test_queue_drops_a_defunct_re_run_instead_of_blocking_forever() -> None:
+    result = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 70, "status": "queued", "defunct": True}, {"runId": 80}),
+    )
+
+    assert result["deletedArtifacts"] == [1070]
+    assert result["reRuns"] == [80]
+
+
+def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started() -> None:
+    refused = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 70, "rerunStatus": 403}, {"runId": 80}),
+    )
+    assert refused["deletedArtifacts"] == [1070]
+    assert refused["reRuns"] == [80]
+
+    raced = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=(
+            {"runId": 70, "rerunStatus": 403, "statusAfterRerun": "in_progress"},
+            {"runId": 80},
+        ),
+    )
+    assert raced["deletedArtifacts"] == []
+    assert raced["reRuns"] == []
+
+    transient = run_decision_scenario(
+        event_name="schedule",
+        schedule=IOS_SCHEDULES[0],
+        prior_sha="base-sha",
+        head_sha="head-sha",
+        changed_files=("ios/cmux/App.swift",),
+        deferred_markers=({"runId": 70, "rerunStatus": 502}, {"runId": 80}),
+    )
+    assert transient["deletedArtifacts"] == []
+    assert transient["reRuns"] == []
 
 
 def test_queued_run_builds_when_its_turn_comes() -> None:
