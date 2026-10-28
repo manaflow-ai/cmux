@@ -974,6 +974,61 @@ struct TerminalStartupRestoreFailureTests {
         }
     }
 
+    @Test("A persistent PTY attachment does not claim a checkpoint needed by a later launch")
+    func persistentPTYAttachmentDoesNotClaimCheckpoint() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let workspace = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            restorableAgentIndexProvider: { .unavailable }
+        )
+        defer { workspace.teardownAllPanels() }
+        workspace.configureRemoteConnection(WorkspaceRemoteConfiguration(
+            destination: "restore-test.invalid",
+            port: nil,
+            identityFile: nil,
+            sshOptions: [],
+            localProxyPort: nil,
+            relayPort: 64_000,
+            relayID: "restore-pty-test",
+            relayToken: String(repeating: "a", count: 64),
+            localSocketPath: "/tmp/restore-pty-\(UUID().uuidString).sock",
+            terminalStartupCommand: SSHPTYAttachStartupCommandBuilder.command(requireExisting: false),
+            preserveAfterTerminalExit: true,
+            persistentDaemonSlot: "restore-pty-test"
+        ), autoConnect: false)
+        let paneID = try #require(workspace.bonsplitController.allPaneIds.first)
+        let sessionID = "pty-checkpoint-\(UUID().uuidString)"
+        var attachedSnapshot = Self.codexPanel(
+            id: UUID(), sessionID: sessionID, workingDirectory: "/tmp", capturedAt: 1
+        )
+        attachedSnapshot.terminal?.isRemoteTerminal = true
+        attachedSnapshot.terminal?.remotePTYSessionID = "existing-pty"
+        let batch = SurfaceResumeRunPromptBatch.shared
+        batch.reset()
+        batch.beginRestorePass()
+        defer { batch.reset() }
+        let attachedID = try #require(workspace.createPanel(
+            from: attachedSnapshot, inPane: paneID, snapshotWorkspaceId: workspace.id,
+            shouldRestoreSingleDefaultCloudTerminal: false, restorableAgentIndex: .unavailable
+        ))
+        let attached = try #require(workspace.terminalPanel(for: attachedID))
+        #expect(workspace.remotePTYSessionIDsByPanelId[attachedID] == "existing-pty")
+        #expect(attached.surface.debugInitialInputForTesting() == nil)
+        #expect(workspace.deferredAgentResumeRestoresByPanelId[attachedID] == nil)
+
+        var launchSnapshot = attachedSnapshot
+        launchSnapshot.id = UUID()
+        launchSnapshot.terminal?.isRemoteTerminal = false
+        launchSnapshot.terminal?.remotePTYSessionID = nil
+        let launchID = try #require(workspace.createPanel(
+            from: launchSnapshot, inPane: paneID, snapshotWorkspaceId: workspace.id,
+            shouldRestoreSingleDefaultCloudTerminal: false, restorableAgentIndex: .empty
+        ))
+        let launch = try #require(workspace.terminalPanel(for: launchID))
+        #expect(launch.surface.debugInitialInputForTesting()?.contains(sessionID) == true)
+    }
+
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {
         let name = "cmux-terminal-startup-failure-\(UUID().uuidString)"
         let store = try #require(UserDefaults(suiteName: name))
