@@ -20,6 +20,9 @@ public nonisolated struct ThreadHangEvent: Sendable, Equatable {
     /// Who found the hang: the `hang_source` tag. ``hangWatchSource`` for cmux's hang watch, ``chromiumSource`` for
     /// Chromium's own HangWatcher in the browser process (p09-observability-106).
     public let source: String
+    /// The other threads the same capture found hung, most severe first: the `hung_threads` extra, so one capture is
+    /// one event however many threads it names (Chrome's `HangWatcher::RecordHang` dumps once, every id in one crash key).
+    public let alsoHung: [String]
 
     /// cmux's hang watch (the main-thread watchdog's monitor).
     public static let hangWatchSource = "hang_watch"
@@ -28,13 +31,14 @@ public nonisolated struct ThreadHangEvent: Sendable, Equatable {
 
     /// Makes the value from its parts.
     public init(thread: String, threadKind: String, threadName: String, overrun: Duration, addresses: [UInt],
-                source: String = ThreadHangEvent.hangWatchSource) {
+                source: String = ThreadHangEvent.hangWatchSource, alsoHung: [String] = []) {
         self.thread = thread
         self.threadKind = threadKind
         self.threadName = threadName
         self.overrun = overrun
         self.addresses = addresses
         self.source = source
+        self.alsoHung = alsoHung
     }
 
     /// The Sentry event: one exception with the hung thread's stack, that thread (crashed, so Sentry shows its
@@ -63,6 +67,7 @@ public nonisolated struct ThreadHangEvent: Sendable, Equatable {
         event.tags = ["hang_source": source, "hang.thread": thread, "hang.thread_kind": threadKind]
         event.extra = ["hang_overrun_ms": overrunMs]
         if !threadName.isEmpty { event.extra?["thread_name"] = threadName }
+        if !alsoHung.isEmpty { event.extra?["hung_threads"] = alsoHung }
         return event
     }
 }

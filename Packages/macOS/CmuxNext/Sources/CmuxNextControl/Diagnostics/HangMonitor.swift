@@ -239,6 +239,27 @@ extension MainThreadWatchdog {
         sinks.lastHang?(.threadHang(hang))
     }
 
+    /// Records a hang another watcher found and rate-limited itself (Chromium's HangWatcher in the browser process,
+    /// p09-observability-106) as a watched thread's hang dump is recorded: a `debug.hangs` `thread_hangs` record, a
+    /// `hang.thread_hung` instant in the attached ring (arg0 `threadID`, arg1 the overrun in ms), its lane's
+    /// `hang.thread_hung` count, and out once through ``onThreadHang`` and ``onLastHang``. Any thread but the main
+    /// one; it suspends no thread (the watcher sampled the stack).
+    public func recordThreadHang(_ hang: ThreadHang, threadID: UInt64) {
+        var details: [String: JSONValue] = ["scope": .string(hang.name), "thread_kind": .string(hang.kindName),
+                                            "thread": .string(hang.threadName), "source": .string(hang.source.rawValue)]
+        if !hang.alsoHung.isEmpty { details["also_hung"] = .array(hang.alsoHung.map(JSONValue.string)) }
+        threadHangs.append(startUptimeNanos: hang.budgetEndNanos, duration: hang.overrun, addresses: hang.addresses,
+                           kind: .hang, details: details)
+        if hang.kind != .main {
+            fieldMetrics.threadHung(HangMonitor.lane(name: hang.name, kind: hang.kind), atNanos: hang.budgetEndNanos)
+        }
+        let trace = hangWatchSink.withLock { $0?.trace }
+        let (seconds, attoseconds) = hang.overrun.components
+        let overrunMs = UInt64(clamping: seconds) &* 1_000 &+ UInt64(clamping: attoseconds / 1_000_000_000_000_000)
+        trace?.event(.hangThreadHung, arg0: threadID, arg1: overrunMs)
+        deliverThreadHang(hang)
+    }
+
     /// Watches `hangWatch`'s scopes on this watchdog's thread (the composition root passes
     /// `TraceRuntime.shared.hangWatch` and its ``CrashKeySlots``): each scope past its budget goes into
     /// ``threadJanks`` and, still open 2 s later, into ``threadHangs``, named in `crashKeys`' hung threads

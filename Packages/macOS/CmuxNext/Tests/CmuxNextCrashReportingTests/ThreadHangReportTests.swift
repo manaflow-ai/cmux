@@ -50,9 +50,17 @@ struct ThreadHangReportTests {
     /// p09-observability-106: a hang Chromium's own HangWatcher dumped is the same thread-hang event with source chromium.
     @Test func aChromiumHangIsTaggedWithItsSource() {
         let event = ThreadHangEvent(thread: "chromium.io", threadKind: "io", threadName: "Chrome_IOThread", overrun: .seconds(2),
-                                    addresses: [], source: ThreadHangEvent.chromiumSource).event()
+                                    addresses: [], source: ThreadHangEvent.chromiumSource,
+                                    alsoHung: ["chromium.pool ThreadPoolForegroundWorker", "chromium.pool"]).event()
         #expect(event.tags?["hang_source"] == "chromium")
         #expect(event.tags?["hang.thread"] == "chromium.io")
         #expect(event.threads?.first?.name == "Chrome_IOThread")
+        #expect(event.threads?.count == 1, "one capture is one event with its first thread's stack")
+        #expect(event.extra?["hung_threads"] as? [String] == ["chromium.pool ThreadPoolForegroundWorker", "chromium.pool"])
+    }
+
+    @Test func aHangWatchEventNamesNoOtherThreads() {
+        let event = ThreadHangEvent(thread: "daemon-reader", threadKind: "io", threadName: "", overrun: .seconds(2), addresses: []).event()
+        #expect(event.extra?["hung_threads"] == nil)
     }
 }

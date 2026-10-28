@@ -107,6 +107,35 @@ import Testing
     }
     #endif
 
+    /// p09-observability-106: a hang Chromium's HangWatcher found is recorded as a watched thread's hang dump: one
+    /// `thread_hangs` record with its source and the other hung threads, one `hang.thread_hung` instant whose arg0 is
+    /// the hung thread's id, and one delivery to each sink, with no rate limit of the watchdog's (Chromium throttles).
+    @Test func anExternalHangIsOneRecordOneRingInstantAndOneDeliveryEach() throws {
+        let fixture = Fixture(interval: .seconds(300), unblock: nil)
+        defer { fixture.watchdog.stop() }
+        let hang = ThreadHang(name: "chromium.io", kind: .io, threadName: "Chrome_IOThread", budgetEndNanos: 5_000,
+                              overrun: .milliseconds(2_500), addresses: [1, 2, 3], source: .chromium,
+                              alsoHung: ["chromium.pool ThreadPoolForegroundWorker"])
+        fixture.watchdog.recordThreadHang(hang, threadID: 4_242)
+
+        let records = fixture.watchdog.threadHangs.records()
+        #expect(records.count == 1)
+        let record = try #require(records.first)
+        #expect(record.kind == .hang)
+        #expect(record.addresses == [1, 2, 3])
+        #expect(record.startUptimeNanos == 5_000)
+        #expect(record.details["scope"] == .string("chromium.io"))
+        #expect(record.details["thread_kind"] == .string("io"))
+        #expect(record.details["source"] == .string("chromium"))
+        #expect(record.details["also_hung"] == .array([.string("chromium.pool ThreadPoolForegroundWorker")]))
+        let instants = fixture.ring.values.filter { $0.name == SignpostName.hangThreadHung.rawValue }
+        #expect(instants.count == 1)
+        #expect(instants.first?.arg0 == 4_242, "arg0 is the hung thread's id")
+        #expect(instants.first?.arg1 == 2_500, "arg1 is how far past the deadline, in ms")
+        #expect(fixture.deliveries.values == [hang])
+        #expect(fixture.lastHangs.values == [.threadHang(hang)])
+    }
+
     /// A scope that ends before its hang tier is a jank only: nothing goes out and the ring has no instant.
     @Test func aJankIsNotReported() async throws {
         let fixture = Fixture(interval: .seconds(300), unblock: nil)

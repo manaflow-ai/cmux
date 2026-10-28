@@ -3,8 +3,9 @@ import Foundation
 import Testing
 
 /// p09-observability-106: Chromium's own HangWatcher in the browser process dumps to cmux through the fork's
-/// `cmux_set_hang_dump_handler` (shim `cmux_cef_set_dump_handler`). One capture is one record; the fork's arrays are
-/// read inside the call; the watcher's switch goes only to a fork that took the handler, and children keep theirs off.
+/// `cmux_set_hang_dump_handler` (shim `cmux_cef_set_dump_handler`). One capture is one delivery (one thread hang
+/// record: the App's ChromiumHangRecordTests); the fork's arrays are read inside the call; the watcher's switch goes
+/// only to a fork that took the handler, and children keep theirs off.
 @Suite(.serialized) struct CEFHangDumpsTests {
     /// Calls the C entry with one capture of `threads` (name, kind, overrun µs, frames), as the fork lays it out.
     private static func deliver(_ threads: [(name: String?, kind: Int32, overrunMicros: Int64, frames: [UInt])],
@@ -45,7 +46,7 @@ import Testing
                              (name: nil, kind: 2, overrunMicros: 1_000, frames: []),
                              (name: "ThreadPoolForegroundWorker", kind: 2, overrunMicros: 5, frames: [7, 8, 9])], to: context)
         let threads = HangDumpSpy.captures.first ?? []
-        #expect(HangDumpSpy.captures.count == 1, "one capture is one record, however many threads it names")
+        #expect(HangDumpSpy.captures.count == 1, "one capture is one delivery, however many threads it names")
         #expect(threads.map(\.addresses) == [[1, 2], [], [7, 8, 9]])
         #expect(threads.map(\.name) == ["Chrome_IOThread", "", "ThreadPoolForegroundWorker"])
         #expect(threads.map(\.watchName) == ["chromium.io", "chromium.pool", "chromium.pool"])

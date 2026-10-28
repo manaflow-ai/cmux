@@ -66,25 +66,14 @@ enum WatchdogReporting {
         }
         // A watched thread still in its hang-watch scope 2 s past its budget (p09-observability-068): a crash report
         // tagged hang.thread and a hang-report entry, at most once per registration name per report interval.
-        watchdog.onThreadHang = { hang in
-            reporter.reportThreadHang(ThreadHangEvent(thread: hang.name, threadKind: hang.kindName, threadName: hang.threadName,
-                                                      overrun: hang.overrun, addresses: hang.addresses))
-            collector?.noteThreadHang(durationNanos: Self.nanos(hang.overrun), addresses: hang.addresses,
-                                      thread: HangSample.WatchedThread(name: hang.name, kind: hang.kindName))
-        }
+        watchdog.onThreadHang = Self.threadHangSink(report: { reporter.reportThreadHang($0) }, collector: collector)
         // Chromium's own HangWatcher in the browser process, the app (feature chromiumHangWatcher, p09-observability-106):
-        // each hung IO or pool thread it dumps is a thread hang with source chromium, through the same sinks as a watched
-        // cmux thread's. The capture comes on Chromium's HangWatcher thread, which must not wait: the reports go on a lane.
-        if services.features.isEnabled(.chromiumHangWatcher) {
-            services.chromiumRuntime.source.onChromiumHang = { [work = services.work] threads in
-                work.post(.bestEffort, mayBlock: .files) {
-                    for thread in threads {
-                        WatchdogReporting.recordChromiumHang(thread, reporter: reporter, collector: collector,
-                                                             lastHang: watchdog.onLastHang)
-                    }
-                }
-            }
-        }
+        // each capture is one thread hang with source chromium, recorded as a watched cmux thread's (debug.hangs, the ring,
+        // the count, onThreadHang and onLastHang). It comes on Chromium's HangWatcher thread, which must not wait: a lane.
+        services.chromiumRuntime.source.onChromiumHang = Self.chromiumHangSink(
+            enabled: services.features.isEnabled(.chromiumHangWatcher),
+            post: { [work = services.work] job in work.post(.bestEffort, mayBlock: .files) { job() } },
+            record: { [weak watchdog] hang, threadID in watchdog?.recordThreadHang(hang, threadID: threadID) })
         // The Chromium Host's UI hangs of 250 ms and up (feature chromiumHostHangBanner, p01-process-084): opt-in hang
         // reports only, tagged chromium-host.ui; the host keeps its own dump of one that reaches 10 s.
         services.chromiumRuntime.source.onHostHang = { hang in
@@ -161,26 +150,54 @@ enum WatchdogReporting {
         }
     }
 
-    /// One thread Chromium's HangWatcher dumped (p09-observability-106), as a watched cmux thread's hang is recorded: a
-    /// crash report tagged `hang.thread` (`chromium.io`, `chromium.pool`) with `hang_source` chromium, a hang-report
-    /// entry and the local last-hang bundle. Chromium throttles its dumps (one a day per process), so no limit here.
-    nonisolated static func recordChromiumHang(_ thread: ChromiumHungThread, reporter: CrashReporter, collector: HangReportCollector?,
-                                               lastHang: (@Sendable (LastHangCause) -> Void)?) {
-        let kind = "\(thread.kind)"
-        reporter.reportThreadHang(ThreadHangEvent(thread: thread.watchName, threadKind: kind, threadName: thread.name,
-                                                  overrun: thread.overrun, addresses: thread.addresses,
-                                                  source: ThreadHangEvent.chromiumSource))
-        collector?.noteThreadHang(durationNanos: nanos(thread.overrun), addresses: thread.addresses,
-                                  thread: HangSample.WatchedThread(name: thread.watchName, kind: kind))
-        let watchKind: HangWatch.ThreadKind? = switch thread.kind {
+    /// The watchdog's ``MainThreadWatchdog/onThreadHang``: each delivered thread hang (a watched cmux thread's or a
+    /// Chromium capture's) is one crash report through `report`, tagged `hang.thread` and `hang_source`, and one
+    /// hang-report entry in `collector`.
+    nonisolated static func threadHangSink(report: @escaping @Sendable (ThreadHangEvent) -> Void,
+                                           collector: HangReportCollector?) -> @Sendable (ThreadHang) -> Void {
+        { hang in
+            report(ThreadHangEvent(thread: hang.name, threadKind: hang.kindName, threadName: hang.threadName, overrun: hang.overrun,
+                                   addresses: hang.addresses, source: hang.source.rawValue, alsoHung: hang.alsoHung))
+            collector?.noteThreadHang(durationNanos: Self.nanos(hang.overrun), addresses: hang.addresses,
+                                      thread: HangSample.WatchedThread(name: hang.name, kind: hang.kindName))
+        }
+    }
+
+    /// The runtime source's ``CEFRuntimeSource/onChromiumHang`` (p09-observability-106), nil with the feature off (the
+    /// shim then installs no dump handler). It runs on Chromium's HangWatcher thread, which must not wait, so each
+    /// capture goes to `post`'s lane, where `record` (``MainThreadWatchdog/recordThreadHang(_:threadID:)``) gets it
+    /// as one ``ThreadHang`` (``chromiumThreadHang(_:nowNanos:)``). Chromium throttles its dumps, so no limit here.
+    nonisolated static func chromiumHangSink(enabled: Bool, post: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void,
+                                             record: @escaping @Sendable (ThreadHang, UInt64) -> Void,
+                                             now: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) })
+        -> (@Sendable ([ChromiumHungThread]) -> Void)? {
+        guard enabled else { return nil }
+        return { threads in
+            post {
+                guard let capture = Self.chromiumThreadHang(threads, nowNanos: now()) else { return }
+                record(capture.hang, capture.threadID)
+            }
+        }
+    }
+
+    /// One Chromium capture as one thread hang, as Chrome's `HangWatcher::RecordHang` dumps once per capture
+    /// (base/threading/hang_watcher.cc): the first, most severe thread's name (`chromium.io`, `chromium.pool`),
+    /// kind, stack and overrun, with the others in ``ThreadHang/alsoHung``; and that thread's id. Nil for an empty
+    /// capture.
+    nonisolated static func chromiumThreadHang(_ threads: [ChromiumHungThread], nowNanos: UInt64) -> (hang: ThreadHang, threadID: UInt64)? {
+        guard let first = threads.first else { return nil }
+        let kind: HangWatch.ThreadKind = switch first.kind {
         case .io: .io
         case .pool: .pool
         case .main: .main
         case .compositor: .renderer
         }
-        let budgetEnd = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) &- nanos(thread.overrun)
-        lastHang?(.threadHang(ThreadHang(name: thread.watchName, kind: watchKind, threadName: thread.name, budgetEndNanos: budgetEnd,
-                                         overrun: thread.overrun, addresses: thread.addresses)))
+        let others = threads.dropFirst().map { $0.name.isEmpty ? $0.watchName : "\($0.watchName) \($0.name)" }
+        let overrunNanos = nanos(first.overrun)
+        let hang = ThreadHang(name: first.watchName, kind: kind, threadName: first.name,
+                              budgetEndNanos: nowNanos > overrunNanos ? nowNanos - overrunNanos : 0, overrun: first.overrun,
+                              addresses: first.addresses, source: .chromium, alsoHung: others)
+        return (hang, first.threadID)
     }
 
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {
