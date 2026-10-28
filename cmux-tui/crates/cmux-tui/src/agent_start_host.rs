@@ -134,7 +134,7 @@ fn detect(etc: &CloudEtc, vm_id: bool, team_gid: Option<u32>) -> AgentStartHost 
     // An error other than "not found" (a folder the daemon cannot search)
     // counts as present too.
     let present = |name: &str| {
-        std::fs::symlink_metadata(etc.file(name))
+        cmux_blocking::fs::symlink_metadata(etc.file(name))
             .map_or_else(|error| error.kind() != std::io::ErrorKind::NotFound, |_| true)
     };
     let cloud = present(IMAGE_STAMP_FILE) || present(BAKE_INSTANCE_FILE) || vm_id;
@@ -156,7 +156,7 @@ fn trusted(path: &Path, dir: bool, owner: u32, top: &Path) -> Option<std::fs::Me
     let mut current = Some(path);
     let mut leaf = None;
     while let Some(at) = current {
-        let meta = std::fs::symlink_metadata(at).ok()?;
+        let meta = cmux_blocking::fs::symlink_metadata(at).ok()?;
         let kind_ok = if at == path && !dir { meta.file_type().is_file() } else { meta.is_dir() };
         if !kind_ok || meta.uid() != owner || meta.mode() & 0o022 != 0 {
             return None;
@@ -179,8 +179,11 @@ fn read_kind(etc: &CloudEtc) -> Option<String> {
     use std::os::unix::fs::OpenOptionsExt as _;
     let path = etc.file(VM_KIND_FILE);
     trusted(&path, false, etc.owner, &etc.top)?;
-    let file =
-        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&path).ok()?;
+    let file = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW),
+        &path,
+    )
+    .ok()?;
     let meta = file.metadata().ok()?;
     if !meta.file_type().is_file() || meta.uid() != etc.owner || meta.mode() & 0o022 != 0 {
         return None;

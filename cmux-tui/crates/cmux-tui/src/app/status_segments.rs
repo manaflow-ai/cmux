@@ -3,9 +3,10 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use crossbeam_channel::Sender as SyncSender;
 use ratatui::style::Color;
 

@@ -49,7 +49,7 @@ pub(crate) fn adopt(target: &Path, exe: Option<&Path>, by: &str) -> Outcome {
     } else {
         return Outcome::Nothing;
     };
-    if target.join(RECORD).exists() {
+    if cmux_blocking::fs::metadata(target.join(RECORD)).is_ok() {
         return Outcome::Done;
     }
     let Some(base) = target.parent() else { return Outcome::Nothing };
@@ -74,7 +74,8 @@ pub(crate) fn adopt(target: &Path, exe: Option<&Path>, by: &str) -> Outcome {
 
 /// A folder with more than runtime state (`state/`).
 fn has_state(dir: &Path) -> bool {
-    std::fs::read_dir(dir).is_ok_and(|entries| entries.flatten().any(|e| e.file_name() != "state"))
+    cmux_blocking::fs::read_dir(dir)
+        .is_ok_and(|entries| entries.flatten().any(|e| e.file_name() != "state"))
 }
 
 fn adopt_locked(
@@ -91,26 +92,26 @@ fn adopt_locked(
         Ok(None) => return Outcome::Deferred("another adoption of this home runs".into()),
         Err(error) => return Outcome::Deferred(format!("adoption lock: {error}")),
     };
-    if target.join(RECORD).exists() {
+    if cmux_blocking::fs::metadata(target.join(RECORD)).is_ok() {
         return Outcome::Done;
     }
     // Partial clones a crash left (only this adoption makes them, under this lock).
-    for entry in std::fs::read_dir(base).into_iter().flatten().flatten() {
+    for entry in cmux_blocking::fs::read_dir(base).into_iter().flatten().flatten() {
         if entry.file_name().to_string_lossy().starts_with(&format!(".adopt-partial-{name}-")) {
-            let _ = std::fs::remove_dir_all(entry.path());
+            let _ = cmux_blocking::fs::remove_dir_all(entry.path());
         }
     }
     steps.step(format!("shared home {} found; NEXT's home {}", source.display(), target.display()));
     let (stamp, at) = super::now_stamps();
     let mut set_aside = None;
-    if std::fs::read_dir(target).is_ok_and(|mut e| e.next().is_some()) {
+    if cmux_blocking::fs::read_dir(target).is_ok_and(|mut e| e.next().is_some()) {
         if let Err(why) = stop_own_chief(target, exe, steps) {
             return Outcome::Deferred(why);
         }
         let backups = base.join(".backups");
         let aside = backups.join(format!("{name}-post-update-{stamp}"));
-        let moved =
-            std::fs::create_dir_all(&backups).and_then(|()| std::fs::rename(target, &aside));
+        let moved = cmux_blocking::fs::create_dir_all(&backups)
+            .and_then(|()| cmux_blocking::fs::rename(target, &aside));
         if let Err(error) = moved {
             return Outcome::Deferred(format!("set aside {}: {error}", target.display()));
         }
@@ -122,9 +123,9 @@ fn adopt_locked(
     let (skipped, raw, rewritten) = match result {
         Ok(found) => found,
         Err(error) => {
-            let _ = std::fs::remove_dir_all(&partial);
+            let _ = cmux_blocking::fs::remove_dir_all(&partial);
             if let Some(aside) = &set_aside {
-                let _ = std::fs::rename(aside, target);
+                let _ = cmux_blocking::fs::rename(aside, target);
             }
             return Outcome::Deferred(format!("clone of {}: {error}", source.display()));
         }
@@ -134,11 +135,11 @@ fn adopt_locked(
         "skipped": skipped, "raw": raw, "rewritten": rewritten, "steps": steps.lines,
     });
     let placed = super::write_record(&partial.join(RECORD), &record)
-        .and_then(|()| std::fs::rename(&partial, target));
+        .and_then(|()| cmux_blocking::fs::rename(&partial, target));
     if let Err(error) = placed {
-        let _ = std::fs::remove_dir_all(&partial);
+        let _ = cmux_blocking::fs::remove_dir_all(&partial);
         if let Some(aside) = &set_aside {
-            let _ = std::fs::rename(aside, target);
+            let _ = cmux_blocking::fs::rename(aside, target);
         }
         return Outcome::Deferred(format!("place {}: {error}", target.display()));
     }
@@ -172,7 +173,7 @@ fn clone_home(
     let (from_session, to_session) = (session_name(source), session_name(target));
     if let Some(session_dir) = find_session_dir(&source.join("tui"), &from_session) {
         let tui = partial.join("tui");
-        std::fs::create_dir_all(&tui)?;
+        cmux_blocking::fs::create_dir_all(&tui)?;
         let to = tui.join(storage_component(&to_session));
         let session_skip =
             |rel: &[String]| rel.len() == 1 && SESSION_RUNTIME.contains(&rel[0].as_str());
@@ -199,7 +200,7 @@ fn clone_home(
 
 /// Removes `websocket` from an acpmux `config.json`; true when it had one.
 fn drop_websocket(path: &Path) -> bool {
-    let Ok(text) = std::fs::read_to_string(path) else { return false };
+    let Ok(text) = cmux_blocking::fs::read_to_string(path) else { return false };
     let Ok(mut config) = serde_json::from_str::<serde_json::Value>(&text) else { return false };
     let dropped = config.as_object_mut().and_then(|c| c.remove("websocket")).is_some();
     dropped && super::write_record(path, &config).is_ok()
@@ -210,10 +211,10 @@ fn drop_websocket(path: &Path) -> bool {
 /// last); None without one.
 fn find_session_dir(tui: &Path, session: &str) -> Option<PathBuf> {
     let exact = tui.join(storage_component(session));
-    if exact.is_dir() {
+    if cmux_blocking::fs::metadata(&exact).is_ok_and(|metadata| metadata.is_dir()) {
         return Some(exact);
     }
-    let entries = std::fs::read_dir(tui).ok()?;
+    let entries = cmux_blocking::fs::read_dir(tui).ok()?;
     let found: Vec<PathBuf> = entries
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with("cmux-chief-"))
@@ -223,7 +224,9 @@ fn find_session_dir(tui: &Path, session: &str) -> Option<PathBuf> {
     // More than one (another spelling of the root, old test sessions): the one
     // whose conversations changed last (hq-6d, 2026-10-15).
     let modified = |dir: &PathBuf| {
-        std::fs::metadata(dir.join("conversations.sqlite3")).and_then(|m| m.modified()).ok()
+        cmux_blocking::fs::metadata(dir.join("conversations.sqlite3"))
+            .and_then(|m| m.modified())
+            .ok()
     };
     found
         .iter()
@@ -234,7 +237,7 @@ fn find_session_dir(tui: &Path, session: &str) -> Option<PathBuf> {
 }
 
 fn rewrite_tree(dir: &Path, top: &Path, from: &str, to: &str, out: &mut Vec<String>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = cmux_blocking::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         let Ok(kind) = entry.file_type() else { continue };
@@ -244,11 +247,12 @@ fn rewrite_tree(dir: &Path, top: &Path, from: &str, to: &str, out: &mut Vec<Stri
         }
         // A link into the shared home points into NEXT's clone instead.
         if kind.is_symlink() {
-            let link = std::fs::read_link(&path).map(|t| t.to_string_lossy().into_owned());
+            let link =
+                crate::blocking::fs::read_link(&path).map(|t| t.to_string_lossy().into_owned());
             if let Ok(link) = link
                 && let Some(rest) = link.strip_prefix(from)
                 && (rest.is_empty() || rest.starts_with('/'))
-                && std::fs::remove_file(&path).is_ok()
+                && cmux_blocking::fs::remove_file(&path).is_ok()
                 && std::os::unix::fs::symlink(format!("{to}{rest}"), &path).is_ok()
             {
                 out.push(path.strip_prefix(top).unwrap_or(&path).to_string_lossy().into_owned());
@@ -293,7 +297,7 @@ fn chief_running(home: &Path) -> bool {
     if super::held(&home.join("state/host.lock")) {
         return true;
     }
-    std::fs::read_dir(home.join("tui/session-locks")).is_ok_and(|entries| {
+    cmux_blocking::fs::read_dir(home.join("tui/session-locks")).is_ok_and(|entries| {
         entries.flatten().any(|e| {
             let name = e.file_name().to_string_lossy().into_owned();
             name.ends_with(".lock") && !name.starts_with('.') && super::held(&e.path())
