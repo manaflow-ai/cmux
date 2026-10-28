@@ -103,6 +103,17 @@ public extension NSView {
         return false
     }
 
+    /// Whether the nearest enclosing ``RestingPlacement`` is on a layout spring, which tells its landing
+    /// (``PaneMotionSettling``); unlike ``isInPaneMotion``, never the window's content-area motion, which tells none.
+    var isOnEnclosingLayoutSpring: Bool {
+        var ancestor = superview
+        while let view = ancestor {
+            if let placement = view as? RestingPlacement { return placement.isOnLayoutSpring }
+            ancestor = view.superview
+        }
+        return false
+    }
+
     /// Tells every ``PaneMotionTargeting`` view in this subtree (this view included) the size change its
     /// placement's spring will rest at. Returns `.bottom` when any of them asks for it, else `.top`.
     @discardableResult
