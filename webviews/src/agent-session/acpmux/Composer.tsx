@@ -67,6 +67,7 @@ import {
 } from "./composerDraft";
 import type { MarkdownFieldHandle, MarkdownFieldProps } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
+import { appendQuoteMarkdown, QUOTE_EVENT } from "./composerQuote";
 import { remoteComposer } from "./remoteEditing";
 import { useComposerChrome } from "./composerChrome";
 import { useQueueing } from "./queueing";
@@ -482,6 +483,36 @@ export function Composer({
   const notTyped = () => {
     typedAt.current = Number.NEGATIVE_INFINITY;
   };
+  // The native message menu dispatches the shared Home quote event on this composer. Keep the
+  // existing draft first, add a blank line, and leave the caret after the trailing blank line.
+  useEffect(() => {
+    const node = form.current;
+    if (!node) return;
+    const seen = new WeakSet<Event>();
+    const takeQuote = (event: Event) => {
+      if (seen.has(event)) return;
+      seen.add(event);
+      const selected = (event as CustomEvent<unknown>).detail;
+      if (typeof selected !== "string" || !selected.trim()) return;
+      const current = field.current?.value() ?? textRef.current;
+      const next = appendQuoteMarkdown(current, selected);
+      notTyped();
+      if (!field.current?.type(next)) {
+        pendingCaret.current = next.length;
+        setText(next);
+        setCaret(next.length);
+      } else {
+        setCaret(next.length);
+      }
+      field.current?.focus();
+    };
+    const targets: EventTarget[] = [node, node.ownerDocument];
+    if (node.ownerDocument.defaultView) targets.push(node.ownerDocument.defaultView);
+    for (const target of targets) target.addEventListener(QUOTE_EVENT, takeQuote);
+    return () => {
+      for (const target of targets) target.removeEventListener(QUOTE_EVENT, takeQuote);
+    };
+  }, []);
   /// The person edited this chat's prompt before its durable draft read answered (a clear too):
   /// that read keeps their text, empty or not, and a quit before it answers saves it.
   const editedBeforeHydration = useRef(false);

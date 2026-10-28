@@ -135,7 +135,6 @@ test("unwrapping a quote after another paragraph does not join or delete either 
   expect(field.value).toBe("Earlier paragraph\n\nKeep this quote text");
 });
 
-
 test("Quote in Reply appends after an existing draft and keeps successive quotes in order", () => {
   const first = appendQuoteMarkdown("Keep this draft", "first selected line\nsecond selected line");
   expect(first).toBe("Keep this draft\n\n> first selected line\n> second selected line\n\n");
@@ -152,6 +151,6 @@ test("a composer quote is rendered as a blockquote while its value stays Markdow
   expect(blockquote).not.toBeNull();
   expect(blockquote?.textContent).toBe("Quoted text");
   expect(field.element.textContent).toContain("Reply text");
-  expect(field.value()).toBe("Reply text\n\n> Quoted text\n\n");
-  expect(field.value()).not.toContain("Reply text\n\n> Quoted text\n\n> Quoted text");
+  expect(field.value).toBe("Reply text\n\n> Quoted text");
+  expect(field.value).not.toContain("Reply text\n\n> Quoted text\n\n> Quoted text");
 });
