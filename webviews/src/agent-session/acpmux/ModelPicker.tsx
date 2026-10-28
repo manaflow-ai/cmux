@@ -1347,7 +1347,7 @@ export function ModelPicker(props: ModelPickerProps) {
               <output className="acpmux-mp-auth flex flex-none items-center gap-2 border-b-[0.5px] border-edge px-3 py-2 text-detail text-muted">
                 <span className="min-w-0 flex-1">{sessionAuthText}</span>
                 {canSessionLogin(props.sessionAuth) && props.onSessionLogin && (
-                  <button type="button" className="acpmux-mp-auth-action" onClick={props.onSessionLogin}>
+                  <button type="button" className="acpmux-mp-auth-action" onClick={() => props.onSessionLogin?.()}>
                     {t("harness.logIn")}
                   </button>
                 )}

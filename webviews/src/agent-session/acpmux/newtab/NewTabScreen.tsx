@@ -1279,10 +1279,7 @@ export function NewTabScreen(props: Props) {
               }
               aria-label={t("composer.send")}
               title={t("composer.sendTooltip")}
-              disabled={
-                (!shell && (targetAuthPending || authBlocksSend(targetAuth))) ||
-                (!text.trim() && attachments.length === 0 && reading.length === 0)
-              }
+              disabled={!text.trim() && attachments.length === 0 && reading.length === 0}
               onClick={send}
             >
               <ArrowUpIcon />
