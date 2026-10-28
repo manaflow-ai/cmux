@@ -62,6 +62,7 @@ export function SummaryCard({
   workflows,
   workflowActionsFor,
   workflowCapacity,
+  onOpenWorkflow,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -103,6 +104,8 @@ export function SummaryCard({
   workflows?: readonly WorkflowSummary[];
   workflowActionsFor?: (workflow: WorkflowSummary) => WorkflowActions;
   workflowCapacity?: WorkflowCapacitySignal;
+  /// Opens Session Info's Background tasks when the compact card represents workflow-only work.
+  onOpenWorkflow?: () => void;
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -320,7 +323,7 @@ export function SummaryCard({
                   sessions={children}
                   subsessions={subsessionRows}
                   workflows={workflows}
-                  onOpen={hasSubagents ? () => setTab("subagents") : undefined}
+                  onOpen={hasSubagents ? () => setTab("subagents") : onOpenWorkflow}
                 />
                 {hasSubagents && (
                   <SubagentStatusList

@@ -9809,6 +9809,7 @@ function AcpmuxPane() {
             tools={chatTools}
             workflows={workflows}
             workflowActionsFor={workflowActionsFor}
+            onOpenWorkflow={() => revealInspector("tasks")}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
