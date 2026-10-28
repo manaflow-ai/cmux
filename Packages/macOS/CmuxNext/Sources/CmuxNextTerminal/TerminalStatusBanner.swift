@@ -6,11 +6,20 @@ import CmuxNextDesign
 /// secondary text, no accent.
 final class TerminalStatusBanner: NSView {
     private let label = ThemedLabel(labelWithString: "")
-    /// Speaks a new message to VoiceOver (tests record it).
-    var announce: @MainActor (String) -> Void = { _ in }
+    /// Speaks a new message to VoiceOver (tests record it): a high-priority announcement, as a toast's.
+    var announce: @MainActor (String) -> Void
+    /// The message VoiceOver last heard; nil once the banner hides, so the next stop speaks again.
+    private var announced: String?
 
     init() {
+        announce = { _ in }
         super.init(frame: .zero)
+        announce = { [weak self] text in
+            guard let self else { return }
+            NSAccessibility.post(element: self, notification: .announcementRequested, userInfo: [
+                .announcement: text, .priority: NSAccessibilityPriorityLevel.high.rawValue,
+            ])
+        }
         wantsLayer = true
         layer?.cornerRadius = 8
         layer?.borderWidth = Metrics.lineWidth(1)
@@ -78,6 +87,7 @@ final class TerminalStatusBanner: NSView {
         guard let text = Self.text(for: status, hostLoss: hostLoss, cause: cause, stall: stall) else {
             endReveal()
             isHidden = true
+            announced = nil
             return
         }
         if label.stringValue != text {
@@ -89,6 +99,23 @@ final class TerminalStatusBanner: NSView {
         let restoring = status == .restoring && stall == nil
         if restoring, isHidden { beginReveal() } else if !restoring { endReveal() }
         isHidden = false
+        announceIfNew(text, restoring: restoring)
+    }
+
+    /// The banner is the only cue that the shell stopped (pro audit 16): VoiceOver hears each new
+    /// message once, for the terminal that has the keyboard only, so a daemon restart that stops
+    /// every terminal speaks once per window, not once per tab. "Restoring…" (usually gone within
+    /// ``restoringRevealDelay``) stays silent.
+    private func announceIfNew(_ text: String, restoring: Bool) {
+        guard !restoring, text != announced, hasKeyboardFocus else { return }
+        announced = text
+        announce(text)
+    }
+
+    /// The window's first responder is inside this banner's terminal (its host view).
+    private var hasKeyboardFocus: Bool {
+        guard let host = superview, let responder = window?.firstResponder as? NSView else { return false }
+        return responder.isDescendant(of: host)
     }
 
     /// "Restoring…" fades in only after `restoringRevealDelay`, so an attach
