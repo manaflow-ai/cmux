@@ -72,8 +72,8 @@ export function groupAgentMessages(rows: readonly AcpmuxRow[], last?: readonly A
     else {
       const id = `messages-${run[0]!.id}`;
       const before = previous.get(id);
-      const same =
-        before?.waiting?.rows.length === run.length && before.waiting.rows.every((row, index) => row === run[index]);
+      const oldRows = before?.waiting?.rows;
+      const same = oldRows?.length === run.length && oldRows.every((row, index) => row === run[index]);
       if (same) out.push(before);
       else {
         const lastRow = run[run.length - 1]!;
