@@ -123,7 +123,8 @@ public final class AgentPaneMachineLink {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                guard await reconnect(machine) else { throw error }
+                // A send the person cancelled reconnects nothing and is not retried.
+                guard !Task.isCancelled, await reconnect(machine) else { throw error }
                 return try await endpoint()
             }
         }
@@ -134,6 +135,7 @@ public final class AgentPaneMachineLink {
     /// handshake, the deadline or the caller's cancellation (structured: a cancelled send stops
     /// waiting at once and is not retried). Chats waiting on one machine run one Reconnect.
     func awaitLink(_ machine: String) async -> Bool {
+        guard !Task.isCancelled else { return false }
         let first = waiting[machine] == nil
         switch use(machine) {
         case .up, .stuck: return false
