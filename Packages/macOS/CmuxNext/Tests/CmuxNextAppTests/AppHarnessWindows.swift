@@ -22,9 +22,20 @@ import Testing
         }
     }
 
-    /// `PinnedPageTests.withApp`, then the windows its app opened close.
+    /// `PinnedPageTests.withApp`, then the windows its app opened close: its pages are released
+    /// as a tab close releases them (their chrome's bubbles go with them, including those of pages
+    /// the daemon's events made outside the test's task), and what the test opened closes.
     static func withApp(_ body: (AppServices, DaemonConnection) async throws -> Void) async throws {
-        defer { closeThoseThisTestOpened() }
-        try await PinnedPageTests.withApp(body)
+        var app: AppServices?
+        defer {
+            if let cache = app?.cache {
+                for key in Array(cache.browsers.keys) { cache.release(key) }
+            }
+            closeThoseThisTestOpened()
+        }
+        try await PinnedPageTests.withApp { services, connection in
+            app = services
+            try await body(services, connection)
+        }
     }
 }

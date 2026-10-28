@@ -177,7 +177,13 @@ public final class WindowOverlayHost {
         removeAgentCursor()
         if let window {
             if panel.parent === window { window.removeChildWindow(panel) }
-            Self.hosts[ObjectIdentifier(window)] = nil
+            // The rest of the window's close (its controller's teardown) still reaches this host,
+            // not a new one with a new panel; once the close is over, the window shown again gets
+            // a new host.
+            let key = ObjectIdentifier(window)
+            Task { @MainActor [weak self] in
+                if let self, Self.hosts[key] === self { Self.hosts[key] = nil }
+            }
         }
         // The window closed and the host goes with it: nothing orders this panel in again, so it
         // closes (ordered out only, it stayed in the app's window list, open, for good).
@@ -189,7 +195,7 @@ public final class WindowOverlayHost {
     /// Attaches the panel while something needs it, detaches it otherwise.
     func syncPanel() {
         if isAppHost { return syncAppPanel() }
-        guard let window else { return }
+        guard let window, !isTearingDown else { return }
         let wanted = planesWantPanel || !handles.isEmpty || fadingOut > 0
         if wanted {
             if panel.frame != window.frame { panel.setFrame(window.frame, display: false) }
