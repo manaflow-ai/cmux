@@ -241,10 +241,20 @@ final class NewTabInputCoordinator {
         note("page made \(key)", entry)
     }
 
-    /// When `view`'s field takes focus in its document, `entry`'s keys go there (no key or focus settle needed).
+    /// When `view`'s field takes focus in its document, `entry`'s keys go there (no key or focus settle needed). A cold
+    /// page (its field does not exist yet) shows its native stand-in field instead, which takes the keys from now on:
+    /// the hold ends at once, its keys going to the stand-in in order.
     private func watchField(of view: AgentPaneView?, for entry: Entry) {
-        view?.inputReadiness.onEditableFocus = { [weak self, weak entry, weak view] in
-            view?.inputReadiness.onEditableFocus = nil
+        guard let view else { return }
+        if let window = view.window, view.isShownForInput, !view.model.hasPainted {
+            if !window.isKeyWindow, NSApp.isActive, Self.mayTakeKey(window, keyWindow: NSApp.keyWindow) { window.makeKey() }
+            if view.showFieldStandIn() != nil {
+                note("stand-in field", entry)
+                release(entry, why: "stand-in field")
+                return
+            }
+        }
+        view.inputReadiness.whenEditableFocused { [weak self, weak entry] in
             guard let self, let entry, buffers.values.contains(where: { $0 === entry }) else { return }
             flush(in: entry.window)
         }
@@ -343,17 +353,24 @@ final class NewTabInputCoordinator {
         buffers[number] = entry
     }
 
-    /// Tests: the open showed tab `key` (as ``didShow(in:)`` reads it from the pane).
-    func markShown(_ key: String, in window: NSWindow?) {}
-
     /// The open put the page's tab on screen: leaving it now ends the hold at once.
     func didShow(in window: NSWindow?) {
         guard let window, let entry = buffers[window.windowNumber] else { return }
-        entry.shown = true
         // The pane may not show the new tab yet (a remote store selects it when reported): then only the token counts.
         let key = entry.pane?.currentTabKey
-        entry.shownKey = key != entry.opened ? key : nil
-        watchField(of: entry.shownKey.flatMap { router?.services?.agentTabs.existingView($0) }, for: entry)
+        shown(key != entry.opened ? key : nil, entry)
+    }
+
+    /// The open showed tab `key` in `window` (``didShow(in:)`` reads it from the pane; tests name it).
+    func markShown(_ key: String, in window: NSWindow?) {
+        guard let window, let entry = buffers[window.windowNumber] else { return }
+        shown(key, entry)
+    }
+
+    private func shown(_ key: String?, _ entry: Entry) {
+        entry.shown = true
+        entry.shownKey = key
+        watchField(of: key.flatMap { router?.services?.agentTabs.existingView($0) }, for: entry)
     }
 
     /// The New Tab page `tab` this hold opened closed before the daemon made it: its held keys go with it.
