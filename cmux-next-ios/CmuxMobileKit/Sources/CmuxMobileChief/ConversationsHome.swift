@@ -870,6 +870,8 @@ final class TypingDotsView: UIView {
         // The system drops layer animations while the app is in the background.
         NotificationCenter.default.addObserver(self, selector: #selector(restartPulse),
                                                name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(restartPulse),
+                                               name: UIAccessibility.reduceMotionStatusDidChangeNotification, object: nil)
     }
 
     @available(*, unavailable)
@@ -898,10 +900,18 @@ final class TypingDotsView: UIView {
             0.35 + 0.65 * max(0, sin(Double(step) / Double(samples) * 2 * .pi))
         }
         let keyTimes = (0...samples).map { NSNumber(value: Double($0) / Double(samples)) }
+        // Reduce Motion: three still dots (the row's typing state stays readable without motion).
+        if UIAccessibility.isReduceMotionEnabled {
+            for dot in dots {
+                dot.removeAnimation(forKey: "pulse")
+                dot.opacity = 0.6
+            }
+            return
+        }
         let phase = Date().timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period)
         for (index, dot) in dots.enumerated() {
             dot.opacity = 0.35
-            // motion: allow the pulse is the typing indicator itself, as the Mac draws it.
+            // motion: allow the typing indicator itself, as the Mac draws it; Reduce Motion shows still dots (above).
             let pulse = CAKeyframeAnimation(keyPath: "opacity")
             pulse.values = values
             pulse.keyTimes = keyTimes

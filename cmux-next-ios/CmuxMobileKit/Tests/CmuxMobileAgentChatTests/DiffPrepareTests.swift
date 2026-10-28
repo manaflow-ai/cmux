@@ -193,6 +193,11 @@ import Testing
         let again = await memo.value(for: moved) { _ in "other" }
         #expect(again == "thumb")
         #expect(memo.makesStarted == 2)
+        // Edited again (new content): a new thumbnail.
+        let edited = TerminalArtifact(reference: "build/report.png", kind: .image, order: 9, detail: "Edited · +12 −4")
+        let fresh = await memo.value(for: edited) { _ in "edited" }
+        #expect(fresh == "edited")
+        #expect(memo.makesStarted == 3)
         // A real failure is remembered (no retry storm).
         let missing = TerminalArtifact(reference: "gone.png", kind: .image)
         _ = await memo.value(for: missing) { _ in nil }

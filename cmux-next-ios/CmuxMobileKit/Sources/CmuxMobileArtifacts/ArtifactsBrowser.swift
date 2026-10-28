@@ -201,6 +201,7 @@ struct ArtifactTile: View {
     let source: any ArtifactSource
     /// Starts from the cache, so a tile scrolled back into view draws its thumbnail at once.
     @State private var thumbnail: ArtifactThumbnail?
+    @Environment(\.displayScale) private var displayScale
 
     init(artifact: TerminalArtifact, source: any ArtifactSource) {
         self.artifact = artifact
@@ -228,10 +229,14 @@ struct ArtifactTile: View {
             }
         }
         .accessibilityElement(children: .combine)
-        // Keyed by id and kind: a new order or detail keeps the thumbnail.
-        .task(id: "\(artifact.kind.rawValue)|\(artifact.id)") {
-            guard artifact.kind != .link, thumbnail == nil else { return }
-            let made = await ArtifactThumbnail.cache.thumbnail(for: artifact, source: source)
+        // Keyed as the cache is: a new order keeps the thumbnail, an edit makes a new one.
+        .task(id: ArtifactMemo<ArtifactThumbnail>.key(artifact) as String) {
+            guard artifact.kind != .link else { return }
+            if let cached = ArtifactThumbnail.cache.cached(artifact) {
+                thumbnail = cached
+                return
+            }
+            let made = await ArtifactThumbnail.cache.thumbnail(for: artifact, source: source, scale: displayScale)
             if !Task.isCancelled { thumbnail = made }
         }
     }

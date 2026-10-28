@@ -20,7 +20,7 @@ enum ArtifactThumbnail: Equatable, @unchecked Sendable {
 
     /// Decoding and rendering run off the main thread (ImageIO downsampling, CoreGraphics PDF);
     /// only an HTML snapshot needs the main thread (WebKit), a few at a time.
-    static func make(for artifact: TerminalArtifact, content: ArtifactContent) async -> ArtifactThumbnail? {
+    static func make(for artifact: TerminalArtifact, content: ArtifactContent, scale: CGFloat) async -> ArtifactThumbnail? {
         switch content {
         case .image(let data):
             return await Task.detached(priority: .utility) { downsampled(data).map(ArtifactThumbnail.picture) }.value
@@ -30,7 +30,7 @@ enum ArtifactThumbnail: Equatable, @unchecked Sendable {
             return await videoFrame(url).map(ArtifactThumbnail.picture)
         case .text(let text):
             if artifact.kind == .html {
-                return await HTMLSnapshotter.snapshot(html: text).map(ArtifactThumbnail.picture)
+                return await HTMLSnapshotter.snapshot(html: text, scale: scale).map(ArtifactThumbnail.picture)
             }
             return await Task.detached(priority: .utility) { excerpt(of: text).map(ArtifactThumbnail.excerpt) }.value
         case .quickLook(let url):
@@ -97,11 +97,11 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
 
     private var finished: CheckedContinuation<Bool, Never>?
 
-    static func snapshot(html: String) async -> UIImage? {
+    static func snapshot(html: String, scale: CGFloat) async -> UIImage? {
         await acquire()
         defer { release() }
         guard !Task.isCancelled else { return nil }
-        return await HTMLSnapshotter().snapshot(html: html)
+        return await HTMLSnapshotter().snapshot(html: html, displayScale: max(scale, 1))
     }
 
     private static func acquire() async {
@@ -121,7 +121,7 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
         }
     }
 
-    private func snapshot(html: String) async -> UIImage? {
+    private func snapshot(html: String, displayScale: CGFloat) async -> UIImage? {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         // No scripts in a thumbnail: a static first paint is enough.
@@ -135,7 +135,8 @@ final class HTMLSnapshotter: NSObject, WKNavigationDelegate {
         guard loaded, !Task.isCancelled else { return nil }
         let options = WKSnapshotConfiguration()
         options.rect = web.bounds
-        options.snapshotWidth = NSNumber(value: Double(ArtifactThumbnail.pixelSize.width / (web.window?.screen.scale ?? 3)))
+        // Off screen the web view has no window: the snapshot is sized in points for the display's scale.
+        options.snapshotWidth = NSNumber(value: Double(ArtifactThumbnail.pixelSize.width / displayScale))
         return try? await web.takeSnapshot(configuration: options)
     }
 
@@ -169,10 +170,11 @@ extension ArtifactThumbnail {
 }
 
 extension ArtifactMemo where Value == ArtifactThumbnail {
-    func thumbnail(for artifact: TerminalArtifact, source: any ArtifactSource) async -> ArtifactThumbnail? {
+    /// `scale`: the display's (an HTML snapshot is rendered off screen, where no window tells it).
+    func thumbnail(for artifact: TerminalArtifact, source: any ArtifactSource, scale: CGFloat) async -> ArtifactThumbnail? {
         await value(for: artifact) { artifact in
             guard let content = try? await source.load(artifact) else { return nil }
-            return await ArtifactThumbnail.make(for: artifact, content: content)
+            return await ArtifactThumbnail.make(for: artifact, content: content, scale: scale)
         }
     }
 }

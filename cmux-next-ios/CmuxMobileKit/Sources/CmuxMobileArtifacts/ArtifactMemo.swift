@@ -1,7 +1,8 @@
 import Foundation
 
 /// Values made once per artifact this session (grid thumbnails), by artifact id and kind, so an
-/// artifact that moves in the list or gains a detail keeps its value. An `NSCache`, so memory
+/// artifact that moves in the list or is referenced again keeps its value. An edit is new content:
+/// an "Edited" detail is part of the key, so a file the agent changed again gets a new thumbnail. An `NSCache`, so memory
 /// pressure evicts entries. A make that was cancelled (the tile scrolled away) is not recorded,
 /// not even as a failure: the next ask makes it again.
 final class ArtifactMemo<Value>: @unchecked Sendable {
@@ -23,8 +24,9 @@ final class ArtifactMemo<Value>: @unchecked Sendable {
     /// Makes started (tests read it).
     var makesStarted: Int { lock.withLock { makes } }
 
-    private static func key(_ artifact: TerminalArtifact) -> NSString {
-        "\(artifact.kind.rawValue)|\(artifact.id)" as NSString
+    static func key(_ artifact: TerminalArtifact) -> NSString {
+        let edit = artifact.detail.flatMap { $0.hasPrefix("Edited") ? $0 : nil } ?? ""
+        return "\(artifact.kind.rawValue)|\(artifact.id)|\(edit)" as NSString
     }
 
     /// A value already made (`.some(nil)`: known to have none), without making it.

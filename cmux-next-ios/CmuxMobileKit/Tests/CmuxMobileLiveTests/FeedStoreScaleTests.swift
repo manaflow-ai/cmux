@@ -51,11 +51,18 @@ import Testing
         store.markRead("a")
         store.markRead("b")
         store.markUnread("a")
-        // `load` waits for the queued writes, so a reload sees the last one.
+        // `load` sees the newest marks at once (written or still queued), without waiting.
         #expect(marks.load() == ["b"])
+        FeedReadMarks.flush()
+        let onDisk = try JSONDecoder().decode([String].self, from: Data(contentsOf: url))
+        #expect(onDisk == ["b"])
         let reopened = FeedStore(items: [Self.item("a"), Self.item("b", ago: 1)], readMarks: marks)
         #expect(reopened.item(id: "b")?.isRead == true)
         #expect(reopened.item(id: "a")?.isRead == false)
+        marks.remove()
+        #expect(marks.load() == [])
+        FeedReadMarks.flush()
+        #expect(!FileManager.default.fileExists(atPath: url.path))
     }
 
     /// The echo set matches the definition it replaced (a terminal row within the window of an
