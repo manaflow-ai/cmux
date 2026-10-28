@@ -9,6 +9,11 @@ public import CmuxNextWakeups
 /// (p02-threads-122).
 public nonisolated final class BrowserSourceRegistryInstall: Sendable {
     /// The process's install: the registry is the bundle's checked-in data, the same for every reader.
+    /// A process-wide value, not an injected one: its readers are value types with no owner to inject from
+    /// (`ImportBrowser`'s `displayName`, `row` and `source`, and `ImportBrowser.allCases`, read wherever a stored
+    /// browser id is shown), and the value is a constant table; the only state here is whether the one read
+    /// has happened yet, which only moves that read onto the files lane. Tests make their own install
+    /// (``init(read:)``).
     public static let shared = BrowserSourceRegistryInstall()
 
     private let slot: PreloadedValue<BrowserSourceRegistry>
