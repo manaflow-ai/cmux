@@ -1,9 +1,9 @@
 //! The mesh relay against a fake hub (`mesh.rs`, `server/mesh_relay.rs`): a message for a session
 //! here is delivered once and acked with its prompt id, even when the hub leases it again; a
 //! relayed message runs as a peer's and reads none of this host's peers; control messages go to
-//! the hook; a message for another host or daemon never runs here; the inbox never calls a
-//! failing or impatient hub in a busy loop, and ends when the daemon stops or the mesh hub
-//! refuses it.
+//! the hook; a message for another host or daemon never runs here; the heartbeat lists the
+//! sessions here; no loop calls a failing or impatient hub in a busy loop, and the relay ends
+//! when the daemon stops or the mesh hub refuses it.
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
@@ -13,8 +13,8 @@ const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
-    Ack, AckState, ControlHook, HubError, InMessage, Kind, MeshHub, Mode, RefuseControl, Sender,
-    Target,
+    Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
+    Mode, RefuseControl, Sender, Target,
 };
 use acpmux::rpc::Message;
 use acpmux::server::mesh_relay::{MeshRelay, RelayOptions, relay_connection};
@@ -43,6 +43,7 @@ fn hub() -> Arc<Hub> {
 
 fn quick() -> RelayOptions {
     RelayOptions {
+        heartbeat_every: Duration::from_millis(200),
         inbox_wait: Duration::from_millis(500),
         min_poll_gap: Duration::from_millis(100),
         backoff_first: Duration::from_millis(100),
@@ -75,6 +76,7 @@ struct State {
     waiting: VecDeque<InMessage>,
     acks: Vec<(String, Ack)>,
     inbox_calls: usize,
+    heartbeats: Vec<Heartbeat>,
 }
 
 impl State {
@@ -156,6 +158,19 @@ impl MeshHub for FakeHub {
         Box::pin(async move {
             self.with(|s| s.acks.push((id.to_owned(), ack.clone())));
             Ok(())
+        })
+    }
+
+    fn heartbeat<'a>(
+        &'a self,
+        beat: &'a Heartbeat,
+    ) -> BoxFuture<'a, Result<HeartbeatReply, HubError>> {
+        Box::pin(async move {
+            self.with(|s| s.heartbeats.push(beat.clone()));
+            if self.refusing {
+                return Err(HubError::refused("401 mesh.unauthorized"));
+            }
+            Ok(HeartbeatReply { daemon_id: "inst_b".into(), ttl_seconds: 90 })
         })
     }
 }
@@ -319,7 +334,7 @@ async fn ends(relay: &MeshRelay, what: &str) {
 #[tokio::test]
 async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     // The daemon stops (as `_acpmux/shutdown` does) while the inbox is long-polling an empty
-    // inbox: the loop ends at once instead of polling on.
+    // inbox: both loops end at once instead of polling on, the heartbeat with an empty one.
     let stopping = hub();
     let fake = Arc::new(FakeHub { long: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&stopping, fake.clone(), Arc::new(RefuseControl), quick());
@@ -327,17 +342,18 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     // The stopping flag alone (a signal's path, which notifies nothing) is enough.
     stopping.stop_idle_reaper();
     ends(&relay, "the daemon stops").await;
-    let calls = fake.with(|s| s.inbox_calls);
+    let calls = fake.with(|s| (s.inbox_calls, s.heartbeats.len()));
+    assert!(fake.with(|s| s.heartbeats.last().is_some_and(|b| b.sessions.is_empty())));
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| s.inbox_calls), calls);
+    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), calls);
 
-    // A refusal (a bad credential) is not retried: one call, then the relay is off.
+    // A refusal (a bad credential) is not retried: one call of each, then the relay is off.
     let hub = hub();
     let fake = Arc::new(FakeHub { refusing: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
     ends(&relay, "a refusal").await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(fake.with(|s| s.inbox_calls), 1);
+    assert_eq!(fake.with(|s| (s.inbox_calls, s.heartbeats.len())), (1, 1));
     relay.stop().await;
 }
 
@@ -377,7 +393,14 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
         fake.until(id, |s| !s.acked(id).is_empty()).await;
         assert_eq!(fake.with(|s| s.acked(id)[0].state), AckState::Refused, "{id}");
     }
-    assert_eq!(*hook.0.lock().unwrap(), vec!["c-2".to_owned()]);
+    // Once a heartbeat reply has named this daemon `inst_b`, a control for `inst_b` is its own.
+    // A second heartbeat means the first one's reply has been read.
+    fake.until("two heartbeats", |s| s.heartbeats.len() >= 2).await;
+    let to = Target { daemon_id: Some("inst_b".into()), ..Target::default() };
+    fake.lease(InMessage { message_id: "c-5".into(), to, ..message("c-5", "", Kind::Control) });
+    fake.until("c-5", |s| !s.acked("c-5").is_empty()).await;
+    assert_eq!(fake.with(|s| s.acked("c-5")[0].state), AckState::Delivered);
+    assert_eq!(*hook.0.lock().unwrap(), vec!["c-2".to_owned(), "c-5".to_owned()]);
     relay.stop().await;
 }
 
@@ -397,4 +420,20 @@ async fn a_failing_or_impatient_hub_is_never_called_in_a_busy_loop() {
         // 100 ms apart at the least, even with no backoff: about 10 at most.
         assert!((1..=15).contains(&calls), "{calls} inbox calls in a second");
     }
+}
+
+#[tokio::test]
+async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
+    let hub = hub();
+    let session = Client::local(&hub).new_session("dep-fleet").await;
+    let fake = Arc::new(FakeHub::default());
+    let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+    fake.until("a heartbeat", |s| !s.heartbeats.is_empty()).await;
+    let rows = fake.with(|s| s.heartbeats[0].sessions.clone());
+    assert_eq!(rows.len(), 1, "{rows:?}");
+    assert_eq!((rows[0].name.as_str(), rows[0].session_id.as_str()), ("dep-fleet", &*session));
+    assert_eq!(rows[0].harness, "fake");
+    relay.stop().await;
+    let last = fake.with(|s| s.heartbeats.last().cloned().unwrap());
+    assert!(last.sessions.is_empty(), "the stop sends an empty heartbeat: {last:?}");
 }
