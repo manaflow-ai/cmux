@@ -3,11 +3,17 @@ import CmuxNextCompat
 import CmuxNextWakeups
 
 extension PageHostPool {
+    /// A WebKit spare cannot serve pages that the configured engine opens in Chromium.
+    var canUseSpare: Bool {
+        PageServedHosts.pooledDescriptors.contains { engineDecision($0, options).engine == .webKit }
+    }
+
     var shouldBuild: Bool {
-        isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts
+        isLikely && spare == nil && !building && target != nil && claimedHosts.count < policy.maximumHosts && canUseSpare
     }
 
     func scheduleBuild() {
+        guard canUseSpare else { return dropSpare() }
         guard shouldBuild else { return }
         watchMemoryPressure()
         activityMark = activity()
@@ -38,10 +44,11 @@ extension PageHostPool {
             PageWebView.pooledHostRecipe(.settings, options: options)
         }) else { return }
         await Self.nextTurn()
+        guard canUseSpare else { return }
         let host = measure("pool.makeSpare.create") { PageWebView(recipe: recipe) }
         host.countsTouches = false
         await Self.nextTurn()
-        guard isLikely, spare == nil, let content = target?.contentView else {
+        guard isLikely, canUseSpare, spare == nil, let content = target?.contentView else {
             host.close()
             return
         }
@@ -51,7 +58,7 @@ extension PageHostPool {
         guard spare === host else { return }
         measure("pool.makeSpare.load") { host.startLoading() }
         await host.waitUntilLoaded()
-        guard spare === host, host.loaded else {
+        guard spare === host, host.loaded, canUseSpare else {
             if spare === host { dropSpare() }
             return
         }

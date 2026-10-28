@@ -5,6 +5,29 @@ import Testing
 
 /// A warm page can finish its first paint without remaining visible to WebKit while parked.
 @MainActor @Suite(.serialized) struct PageHostPoolVisibilityTests {
+    @Test func chromiumPagesDoNotStartAnUnusedWebKitSpare() {
+        let window = PageHostPoolLaunchWindowTests.shownWindow()
+        defer { window.close() }
+        var decision = PageEngineDecision.chromium
+        let pool = PageHostPool(memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                                activity: { 0 }, isTrackingMenu: { false }, engineDecision: { _, _ in decision })
+        defer { pool.dropSpare() }
+        pool.follow(window)
+        pool.noteLikely()
+        #expect(!pool.shouldBuild)
+        #expect(!pool.timer.isScheduled)
+        #expect(pool.hostCount == 0)
+
+        // A real WebKit fallback or preference still gets the existing warm path.
+        decision = .webKit(.personChoseWebKit)
+        pool.noteLikely()
+        #expect(pool.shouldBuild)
+        #expect(pool.timer.isScheduled)
+        decision = .chromium
+        pool.noteLikely()
+        #expect(!pool.timer.isScheduled, "switching engines cancels the queued WebKit build")
+    }
+
     @Test func parkedPageSleepsAfterPaintAndWakesOnClaim() async throws {
         let window = PageHostPoolLaunchWindowTests.shownWindow()
         defer { window.close() }

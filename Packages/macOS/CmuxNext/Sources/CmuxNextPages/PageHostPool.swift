@@ -28,6 +28,7 @@ public final class PageHostPool {
     let options: PageEngineOptions
     let activity: () -> UInt64
     let isTrackingMenu: () -> Bool
+    let engineDecision: (PageDescriptor, PageEngineOptions) -> PageEngineDecision
     let timer: DemandTimer
     let parking = PageHostParking()
     var spare: PageWebView?
@@ -56,12 +57,16 @@ public final class PageHostPool {
     public init(memoryPressure: MemoryPressureEvents, policy: Policy = Policy(), options: PageEngineOptions = .standard,
                 clock: any Clock<Duration> = ContinuousClock(),
                 activity: @escaping () -> UInt64 = { ExpectedActivity.shared.total },
-                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking }) {
+                isTrackingMenu: @escaping () -> Bool = { RunLoop.main.currentMode == .eventTracking },
+                engineDecision: @escaping (PageDescriptor, PageEngineOptions) -> PageEngineDecision = {
+                    PageWebView.engineDecision(for: $0, options: $1)
+                }) {
         self.memoryPressure = memoryPressure
         self.policy = policy
         self.options = options
         self.activity = activity
         self.isTrackingMenu = isTrackingMenu
+        self.engineDecision = engineDecision
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
     }
 
@@ -83,8 +88,11 @@ public final class PageHostPool {
                       focus: Bool = true) -> PageWebView? {
         guard PageServedHosts.pooledDescriptors.contains(descriptor) else { return nil }
         // Spares are WebKit views: a page that shows in Chromium is made fresh (PageWebView+Chromium).
-        let decision = PageWebView.engineDecision(for: descriptor, options: options)
-        guard decision.engine == .webKit else { return nil }
+        let decision = engineDecision(descriptor, options)
+        guard decision.engine == .webKit else {
+            if !canUseSpare { dropSpare() }
+            return nil
+        }
         isLikely = true
         if target == nil, let window { follow(window) }
         guard let host = spare, spareReady, host.isPooled else {
