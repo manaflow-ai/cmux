@@ -123,8 +123,8 @@ extension AgentTabStore {
         // that is down runs its header's Reconnect.
         tabs.machineLink.state = { [weak tabs, weak services] view in
             guard let tabs, let services, let key = tabs.views.first(where: { $0.value === view })?.key,
-                  let daemon = tabs.daemonForTab(key), !daemon.isLocal else { return nil }
-            return SidebarBridge.paneLink(daemon.machineID, in: services.machines)
+                  let machine = tabs.remoteMachineID(of: key) else { return nil }
+            return SidebarBridge.paneLink(machine, in: services.machines)
         }
         tabs.machineLink.use = { [weak services] machine in
             services.map { SidebarBridge.paneUse(machine, in: $0.machines) } ?? .stuck

@@ -465,8 +465,8 @@ final class AgentTabStore {
             // on the machine this tab's chat runs on, resolved here: the page never names a machine.
             let target: ActionTargetRef
             if id == "machine.reconnect" {
-                guard let daemon = daemonForTab(resolve(provisional)), !daemon.isLocal else { return false }
-                target = ActionTargetRef(kind: .machine, id: daemon.machineID)
+                guard let machine = remoteMachineID(of: provisional) else { return false }
+                target = ActionTargetRef(kind: .machine, id: machine)
             } else {
                 target = ActionTargetRef(kind: .tab, id: resolve(provisional))
             }
