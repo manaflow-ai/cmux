@@ -1059,13 +1059,22 @@ export class HomeChannelsStore {
         .map((participant) => participant.id),
     );
     const turns = RunBook.turns(messages, agents);
+    const replyKeys = new Set(
+      messages
+        .filter((message) => message.clientMessageId && agents.has(message.author))
+        .map((message) => `${message.author}\0${message.clientMessageId}`),
+    );
     try {
       const direct =
         turns.length > 0 ? (await this.client.call<HomeRunList>(HomeOps.runs, { conversation, turns })).runs : [];
       // `turns` only finds runs that posted a reply. Silent turns (including a tell/report turn)
       // are selected by their `answers` message id, so walk the owner's run-history cursor until
-      // the oldest message in this window is covered. The owner returns newest-first pages and
-      // accepts `before_started_at`; this also makes loadOlder recover runs beyond the first 20.
+      // the oldest message in this window is covered and every loaded reply has a run. Cloud's
+      // direct lookup can return nothing: a long run can start well before its loaded reply.
+      const unresolvedReplies = new Set(replyKeys);
+      for (const run of direct) {
+        if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+      }
       const messageIds = new Set(messages.map((message) => message.id));
       const oldestMessageAt = messages.reduce<number | undefined>(
         (oldest, message) => (oldest === undefined ? message.createdAt : Math.min(oldest, message.createdAt)),
@@ -1081,11 +1090,18 @@ export class HomeChannelsStore {
         const list = await this.client.call<HomeRunList>(HomeOps.runs, params);
         if (generation !== this.generation || life !== this.life) return;
         history.push(...list.runs);
+        for (const run of list.runs) {
+          if (run.turn) unresolvedReplies.delete(`${run.author}\0${run.turn}`);
+        }
         const oldestRun = list.runs.reduce<number | undefined>(
           (oldest, run) => (oldest === undefined ? run.startedAt : Math.min(oldest, run.startedAt)),
           undefined,
         );
-        if (!list.hasMore || oldestRun === undefined || (oldestMessageAt !== undefined && oldestRun <= oldestMessageAt))
+        if (
+          !list.hasMore ||
+          oldestRun === undefined ||
+          (unresolvedReplies.size === 0 && oldestMessageAt !== undefined && oldestRun <= oldestMessageAt)
+        )
           break;
         // The protocol uses a strict less-than cursor; guard malformed owners that do not move it.
         if (beforeStartedAt !== undefined && oldestRun >= beforeStartedAt) break;
@@ -1109,7 +1125,7 @@ export class HomeChannelsStore {
         const relevant =
           run.status === "running" ||
           run.answers.some((answer) => messageIds.has(answer)) ||
-          (run.turn !== undefined && turns.includes(run.turn)) ||
+          (run.turn !== undefined && replyKeys.has(`${run.author}\0${run.turn}`)) ||
           directKeys.has(`${run.author}\0${run.id}`) ||
           newestHistory.has(`${run.author}\0${run.id}`);
         return relevant;
@@ -1117,8 +1133,15 @@ export class HomeChannelsStore {
       this.runs.setRuns(relevantRuns);
       for (const run of relevantRuns) {
         if (generation !== this.generation || life !== this.life) return;
+        // Cloud has no increasing revision to unlock a failed read. A fresh history lookup is
+        // a retry boundary; mounted cards alone must not retry the same failure in a loop.
+        if (run.rev === 0) this.failedRuns.delete(`${run.conversation}\0${run.author}\0${run.id}`);
         // A summary can contribute activity state without any row in the loaded transcript.
-        if (run.answers.some((answer) => messageIds.has(answer)) || directKeys.has(`${run.author}\0${run.id}`))
+        if (
+          run.answers.some((answer) => messageIds.has(answer)) ||
+          directKeys.has(`${run.author}\0${run.id}`) ||
+          (run.turn !== undefined && replyKeys.has(`${run.author}\0${run.turn}`))
+        )
           await this.loadRunSteps(run);
       }
     } catch {
