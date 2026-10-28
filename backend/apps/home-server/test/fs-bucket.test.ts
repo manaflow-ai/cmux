@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { FsBucket } from "../src/fs-bucket.ts"
@@ -31,6 +31,43 @@ describe("self-hosted attachment bucket", () => {
       expect(page.truncated).toBe(true)
       await bucket.delete(page.objects.map((object) => object.key))
       expect((await bucket.list({ prefix: "pieces/", cursor: page.cursor })).objects.map((object) => object.key)).toEqual(["pieces/c"])
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it("refuses a resumed upload whose id is forged, path-like or minted for another object", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cmux-fs-bucket-"))
+    try {
+      const bucket = new FsBucket(root)
+      const mine = await bucket.createMultipartUpload("home/v1/mine")
+      const theirs = await bucket.createMultipartUpload("home/v1/theirs")
+      const kept = await theirs.uploadPart(1, "theirs")
+      expect(mine.uploadId).toMatch(/^[0-9a-f]{32}$/)
+
+      // An id the bucket never minted, or one shaped like a path, is refused before any file is touched.
+      for (const forged of ["", "../escape", "a/b", `${mine.uploadId}/x`, `${mine.uploadId}.part.1`, mine.uploadId.toUpperCase(), "0".repeat(31)]) {
+        expect(() => bucket.resumeMultipartUpload("home/v1/mine", forged)).toThrow(/NoSuchUpload/)
+      }
+      const unminted = bucket.resumeMultipartUpload("home/v1/mine", "0".repeat(32))
+      await expect(unminted.uploadPart(1, "x")).rejects.toThrow(/NoSuchUpload/)
+      await expect(unminted.complete([{ partNumber: 1, etag: kept.etag }])).rejects.toThrow(/NoSuchUpload/)
+
+      // Another object's upload id, resumed under this key, can't write, assemble or abort it.
+      const crossed = bucket.resumeMultipartUpload("home/v1/mine", theirs.uploadId)
+      await expect(crossed.uploadPart(1, "overwritten")).rejects.toThrow(/NoSuchUpload/)
+      await expect(crossed.complete([kept])).rejects.toThrow(/NoSuchUpload/)
+      await expect(crossed.abort()).rejects.toThrow(/NoSuchUpload/)
+      expect(await bucket.head("home/v1/mine")).toBeNull()
+      expect(await bucket.head("home/v1/theirs")).toBeNull()
+
+      // The real owner still finishes its upload with its own bytes.
+      const done = await bucket.resumeMultipartUpload("home/v1/theirs", theirs.uploadId).complete([kept])
+      expect(done.key).toBe("home/v1/theirs")
+      expect(await new Response((await bucket.get("home/v1/theirs"))!.body!).text()).toBe("theirs")
+      await mine.abort()
+      expect(readdirSync(join(root, ".multipart"))).toEqual([])
+      expect(existsSync(join(root, "escape"))).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }
