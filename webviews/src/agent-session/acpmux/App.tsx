@@ -4375,6 +4375,7 @@ function AcpmuxPane() {
   const [workflowLabsEnabled, setWorkflowLabsEnabled] = useState(false);
   /// What a chat opened from another tab inherited (#16620); the composer starts with it.
   const [draft, setDraft] = useState<string | undefined>();
+  const [draftAttachments, setDraftAttachments] = useState<ComposerAttachment[] | undefined>();
   const [newSession, setNewSession] = useState(false);
   /// The chat whose recorded history plays back read-only in place of it (chat menu Replay, cx-osmw).
   const [replaying, setReplaying] = useState<string | undefined>();
@@ -7051,6 +7052,7 @@ function AcpmuxPane() {
           newTab?: unknown;
           cwd?: string;
           draft?: string;
+          draftAttachments?: ComposerAttachment[];
           prompt?: string;
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
@@ -7150,6 +7152,7 @@ function AcpmuxPane() {
         // draft out once, so a retried `ready` after a failed connect has none and keeps this one.
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
+        setDraftAttachments(Array.isArray(host.draftAttachments) ? host.draftAttachments : undefined);
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -9756,10 +9759,15 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
+              initialDraft={draft}
+              initialAttachments={draftAttachments}
+              onDraftChanged={(text, attachments) => {
+                void callNative("chat.unsentDraft", { text, attachments }).catch(() => undefined);
+              }}
               onLeaveDraft={(text, attachments) => {
                 // Persist the New Tab's pre-session text through the tab-owned unsent store
                 // before the page is replaced. Attachments are handed to the wake store below.
-                void callNative("chat.unsentDraft", { text }).catch(() => undefined);
+                void callNative("chat.unsentDraft", { text, attachments }).catch(() => undefined);
                 // A Sandboxed send from the page already took its prompt (or held it back).
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;
