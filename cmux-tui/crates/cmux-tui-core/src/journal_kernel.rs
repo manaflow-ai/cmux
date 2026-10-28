@@ -657,6 +657,19 @@ fn push_bounded_journal_document(
     }
 }
 
+impl JournalKernel {
+    /// Tests: the ring's records and their resident bytes.
+    #[cfg(test)]
+    pub(crate) fn ring_for_test(&self) -> (usize, usize) {
+        let state = self.state.lock().recover_poison();
+        (state.records.len(), state.record_bytes)
+    }
+}
+
+#[cfg(test)]
+#[path = "journal_kernel_ring_tests.rs"]
+mod ring_tests;
+
 #[cfg(test)]
 mod performance_tests {
     use super::*;
