@@ -314,6 +314,12 @@ public final class MessagesLabHomeView: NSView {
         set { projection.initialsOverride = newValue }
     }
 
+    /// The header's name; nil shows the conversation's title.
+    public var headerTitle: String? {
+        get { projection.titleOverride }
+        set { projection.titleOverride = newValue }
+    }
+
     /// The header avatar's picture, drawn over `avatarText` and the
     /// initials; nil shows those.
     public var avatarPicture: NSImage? {
@@ -541,6 +547,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// The field's attachments, in the order they arrived.
     public var draftAttachments: [LocalAttachment] { projection.draftAttachments }
+    public var isRestoringDraftAttachments: Bool { projection.isRestoringDraftAttachments }
 
     public func removeDraftAttachment(_ hash: String) { projection.removeDraft(hash) }
 

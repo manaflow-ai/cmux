@@ -1,0 +1,29 @@
+{
+  "id": "barrage-follow-ups-to-running-work",
+  "group": "barrage",
+  "owner": "tenacity-loop",
+  "about": "follow-ups in a burst while agents work: an addition goes to the running agent (tell), a new ask gets its own agent, a status question gets an answer",
+  "history": [
+    {"kind": "user", "text": "fix the terminal tab that opens at the wrong size for a frame"},
+    {"kind": "talk", "text": "a12: fixing the new terminal tab's first-frame size, in [Terminal first frame](cmux://workspace/ws_1)."},
+    {"kind": "user", "text": "make the settings search find shortcuts by key name"},
+    {"kind": "talk", "text": "a13: making settings search match shortcut key names, in [Settings shortcut search](cmux://workspace/ws_2)."}
+  ],
+  "turns": [
+    {
+      "text": "for the terminal size thing also check split panes, same bug there",
+      "tail": "Subagents at work now: a12, a13.",
+      "also": [
+        {"kind": "user", "text": "where is the settings search one at?"},
+        {"kind": "user", "text": "new thing: the browser back button is greyed out after a redirect"}
+      ],
+      "checks": [
+        {"type": "called", "cmd": "tell", "re": "(?i)\"a12\"[\\s\\S]*split"},
+        {"type": "called", "cmd": "spawn", "re": "(?i)back button|redirect"},
+        {"type": "not_called", "cmd": "spawn", "re": "(?i)split pane"},
+        {"type": "reply_matches", "re": "a13"},
+        {"type": "no_question"}
+      ]
+    }
+  ]
+}

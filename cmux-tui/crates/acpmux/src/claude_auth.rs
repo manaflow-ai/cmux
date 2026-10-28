@@ -57,7 +57,7 @@ impl Found {
     }
 }
 
-fn truthy(v: Option<&String>) -> bool {
+fn truthy(v: Option<&str>) -> bool {
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
@@ -100,7 +100,7 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
     let home = custom.map(PathBuf::from).unwrap_or_else(|| user_home.join(".claude"));
     let mut found = Found { home: home.clone(), custom_home: custom.is_some(), ..Found::default() };
     for (key, words) in PROVIDER_KEYS {
-        if truthy(env.get(key)) {
+        if truthy(env.get(key).map(String::as_str)) {
             found.sources.push(words.to_owned());
             found.env_keys.push(key.to_owned());
         }
@@ -121,6 +121,17 @@ pub fn find(env: &BTreeMap<String, String>) -> Found {
         if let Some(senv) = json.get("env").and_then(|e| e.as_object()) {
             let has = |k: &str| {
                 senv.get(k).is_some_and(|v| {
+                    // Provider switches select a credential source only when enabled,
+                    // with the same semantics as the process environment above.
+                    if PROVIDER_KEYS.iter().any(|(key, _)| *key == k) {
+                        return match v {
+                            serde_json::Value::String(value) => truthy(Some(value)),
+                            serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+                                truthy(Some(&v.to_string()))
+                            }
+                            _ => false,
+                        };
+                    }
                     v.as_str().is_some_and(|s| !s.is_empty()) || v.is_boolean() || v.is_number()
                 })
             };

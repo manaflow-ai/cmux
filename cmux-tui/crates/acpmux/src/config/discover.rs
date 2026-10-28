@@ -92,8 +92,10 @@ pub const CMUX_ROUTER_PROFILE: &str = "cmux";
 
 /// The models the hosted cmux model router serves (backend
 /// apps/api/src/inference/catalog.ts): `(id, name)`. The first is the profile
-/// default. The live list is GET /v1/models through the relay.
+/// default and the Claude fallback model: DeepSeek V4 Flash is the free tier's
+/// public fallback (user, 2026-10-27). The live list is GET /v1/models through the relay.
 pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
+    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
     ("qwen/qwen3.7-flash", "Qwen3.7 Flash"),
     ("z-ai/glm-5.3", "GLM-5.3"),
     ("moonshotai/kimi-k3", "Kimi K3"),
@@ -102,7 +104,6 @@ pub const CMUX_ROUTER_MODELS: &[(&str, &str)] = &[
     ("moonshotai/kimi-k2.7-code", "Kimi K2.7 Code"),
     ("minimax/minimax-m3", "MiniMax M3"),
     ("z-ai/glm-5.3-flash", "GLM-5.3 Flash"),
-    ("deepseek/deepseek-v4-flash", "DeepSeek V4 Flash"),
     ("openai/gpt-oss-120b", "gpt-oss-120b"),
     ("meta/llama-4-scout", "Llama 4 Scout"),
 ];

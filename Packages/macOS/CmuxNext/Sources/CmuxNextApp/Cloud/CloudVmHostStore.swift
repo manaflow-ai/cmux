@@ -27,18 +27,21 @@ final class CloudVmHostStore {
     /// Bumped per machine when a set starts or the machine is forgotten: a read or set that
     /// either overtook drops its answer.
     @ObservationIgnored private var generation: [String: Int] = [:]
+    @ObservationIgnored private let vmHost: CloudVmHost
     @ObservationIgnored private let exec: @Sendable (_ machineID: String, _ command: String) async throws -> CloudExecResult
     @ObservationIgnored private let now: () -> ContinuousClock.Instant
     static let retryAfter: Duration = .seconds(60)
 
-    init(exec: @escaping @Sendable (String, String) async throws -> CloudExecResult,
+    init(vmHost: CloudVmHost = CloudVmHost(),
+         exec: @escaping @Sendable (String, String) async throws -> CloudExecResult,
          now: @escaping () -> ContinuousClock.Instant = { ContinuousClock.now }) {
+        self.vmHost = vmHost
         self.exec = exec
         self.now = now
     }
 
-    convenience init(api: CloudAPIClient) {
-        self.init(exec: { id, command in try await api.exec(id, command: command, timeoutMs: CloudVmHost.timeoutMs) })
+    convenience init(api: CloudAPIClient, vmHost: CloudVmHost = CloudVmHost()) {
+        self.init(vmHost: vmHost, exec: { id, command in try await api.exec(id, command: command, timeoutMs: vmHost.timeoutMs) })
     }
 
     /// The row's state for `machineID`, starting its read when none is known (or the last failed
@@ -57,13 +60,13 @@ final class CloudVmHostStore {
     private func read(_ machineID: String) {
         let last = Self.known(entries[machineID])
         let started = generation[machineID, default: 0]
-        let exec = exec, now = now
+        let exec = exec, now = now, vmHost = vmHost
         // On the main actor, so it is stored below before its body runs.
         let task = Task { @MainActor [weak self] in
             let entry: Entry
             do {
-                let ran = try await exec(machineID, CloudVmHost.command(on: nil))
-                entry = CloudVmHost.parse(ran).map(Entry.known) ?? .failed(CloudVmHost.failure(ran), at: now(), last: last)
+                let ran = try await exec(machineID, vmHost.command(on: nil))
+                entry = vmHost.parse(ran).map(Entry.known) ?? .failed(vmHost.failure(ran), at: now(), last: last)
             } catch {
                 entry = .failed(String(describing: error), at: now(), last: last)
             }
@@ -87,8 +90,8 @@ final class CloudVmHostStore {
         let last = Self.known(entries[machineID])
         let answer: Result<CloudVmHost.State, Failure>
         do {
-            let ran = try await exec(machineID, CloudVmHost.command(on: on))
-            answer = CloudVmHost.parse(ran).map { .success($0) } ?? .failure(Failure(why: CloudVmHost.failure(ran)))
+            let ran = try await exec(machineID, vmHost.command(on: on))
+            answer = vmHost.parse(ran).map { .success($0) } ?? .failure(Failure(why: vmHost.failure(ran)))
         } catch {
             answer = .failure(Failure(why: String(describing: error)))
         }

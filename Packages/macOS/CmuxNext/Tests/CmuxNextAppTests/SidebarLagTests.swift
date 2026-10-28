@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextSidebar
+import CmuxNextTestSupport
 import Foundation
 import Testing
 
