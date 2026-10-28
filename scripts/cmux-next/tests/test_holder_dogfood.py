@@ -60,11 +60,12 @@ class FakeApp:
     def __init__(self, daemon, clock, reap_after=dogfood.REAP_GRACE_S + 1):
         self.daemon, self.clock, self.reap_after = daemon, clock, reap_after
         self.runs, self.dialogs, self.ended = [], [], {}
+        self.pasted = ""  # what pbcopy put on the pasteboard
 
     def rpc(self, method, params=None, timeout=60):
         params = params or {}
         if method == "snapshot.get":
-            workspaces = [{"name": name, "screens": [{"panes": [{"tabs": [{"id": f"tab_{name}"}]}]}]}
+            workspaces = [{"name": name, "screens": [{"panes": [{"id": f"pane_{name}", "tabs": [{"id": f"tab_{name}"}]}]}]}
                           for name in ("dogfood-close", "dogfood-paste")]
             return {"topology": {"workspaces": workspaces}}
         if method == "debug.dialog":
@@ -72,7 +73,11 @@ class FakeApp:
                 for dialog in self.dialogs:
                     if dialog["id"] == params.get("id"):
                         dialog["visible"] = False
-                        self.daemon.screens[dialog["surface"]] += f"\n{dogfood.PASTE_BYTES}"
+                        # A canonical tty hands `head -c` whole lines: it ends (and wc prints) only when
+                        # the pasted bytes up to the last newline reach PASTE_BYTES.
+                        delivered = self.pasted.rfind("\n") + 1
+                        if delivered >= dogfood.PASTE_BYTES:
+                            self.daemon.screens[dialog["surface"]] += f"\n{dogfood.PASTE_BYTES}"
                         return {"pressed": True, "dialogs": []}
                 return {"pressed": False, "dialogs": []}
             return {"dialogs": [d for d in self.dialogs if d["visible"]]}
@@ -88,6 +93,9 @@ class FakeApp:
             self.daemon.next += 1
             self.daemon.screens[self.daemon.next] = "close-me-marker"
         elif action == "terminalPaste":
+            if not str(params.get("target", "pane:")).startswith("pane:"):
+                # ControlRouter+Validation: terminalPaste takes a target of kind pane only.
+                return {"error": {"code": "invalid_params", "message": "terminalPaste takes a target of kind pane"}}
             self.dialogs.append({"id": len(self.dialogs) + 1, "identifier": dogfood.PASTE_DIALOG, "visible": True,
                                  "surface": max(s for s, text in self.daemon.screens.items() if text == "paste-ready")})
         return {}
@@ -96,11 +104,14 @@ class FakeApp:
 def make(reap_after=dogfood.REAP_GRACE_S + 1):
     clock = FakeClock()
     dogfood.time = clock
-    dogfood.subprocess = types.SimpleNamespace(run=lambda *a, **k: None)  # no pbcopy here
     opts = types.SimpleNamespace(out=tempfile.mkdtemp(prefix="holder-dogfood-test-"), model="holder", app="/nowhere")
     run = dogfood.Dogfood(opts)
     run.daemon = FakeDaemon(clock)
     run.app = FakeApp(run.daemon, clock, reap_after)
+
+    def pbcopy(argv, input=None, **_):  # no pasteboard here: the fake app keeps what would be pasted
+        run.app.pasted = input.decode()
+    dogfood.subprocess = types.SimpleNamespace(run=pbcopy)
     run.actions = ACTIONS
     run.alive = lambda pid: clock.now < run.app.ended.get(pid, float("inf"))
     records = []
@@ -142,8 +153,15 @@ class PasteTests(unittest.TestCase):
         run.paste()
         step = next(r for r in records if r["step"] == "paste-256k")
         self.assertEqual(step["action"], "terminalPaste")
+        self.assertIsNone(step["reply"], "terminalPaste was refused (a tab target)")
         self.assertTrue(step["confirmed"], step)
         self.assertTrue(step["ok"], step)
+
+
+    def test_the_payload_is_its_size_and_ends_with_a_newline(self):
+        data = dogfood.paste_payload()
+        self.assertEqual(len(data.encode()), dogfood.PASTE_BYTES)
+        self.assertTrue(data.endswith("\n"), "bytes after the last newline wait in a canonical tty")
 
 
 if __name__ == "__main__":

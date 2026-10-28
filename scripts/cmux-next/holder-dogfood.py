@@ -315,19 +315,21 @@ class Dogfood:
         surface, _ = self.new_terminal(
             "dogfood-paste", ["/bin/sh", "-c", f"stty -echo; echo paste-ready; head -c {PASTE_BYTES} | wc -c; exec cat"])
         self.screen_has(surface, "paste-ready")
-        line = ("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" * 2)[:99] + "\n"
-        data = (line * (PASTE_BYTES // len(line) + 1))[:PASTE_BYTES]
+        data = paste_payload()
         subprocess.run(["pbcopy"], input=data.encode(), check=True)
         tab = wait(lambda: find_tab(self.app.rpc("snapshot.get"), "dogfood-paste"), 20)
+        pane = find_pane(self.app.rpc("snapshot.get"), "dogfood-paste")
         paste = self.action(TERMINAL_PASTE)
         if tab:
             self.run_action("tab.focus", target=f"tab:{tab}")
         reply = allowed = None
         if paste:
-            reply = self.run_action(paste, **({"target": f"tab:{tab}"} if tab else {}))
+            # terminalPaste takes a pane target only (TerminalActionCatalog: targets [.pane]); a tab target
+            # is refused before the handler runs (ControlRouter+Validation wrongTargetKind).
+            reply = self.run_action(paste, **({"target": f"pane:{pane}"} if pane else {}))
             allowed = self.allow_paste()
         got = self.screen_has(surface, str(PASTE_BYTES), 60)
-        self.step("paste-256k", bool(got) and bool(paste), action=paste, tab=tab, reply=refusal(reply),
+        self.step("paste-256k", bool(got) and bool(paste), action=paste, tab=tab, pane=pane, reply=refusal(reply),
                   confirmed=allowed, screen_tail=self.daemon.screen(surface)[-200:])
 
     def kill_holder(self, printing):
@@ -393,6 +395,26 @@ def refusal(reply):
     """The app's error of an action.run reply (short), or None when it ran."""
     error = reply.get("error") if isinstance(reply, dict) else None
     return str(error)[:200] if error else None
+
+
+def paste_payload():
+    """PASTE_BYTES of 100-byte lines, the last one cut short and still ending in a newline: the shell's tty is
+    canonical (`stty -echo` only), so `head -c` gets a line only at its newline, and bytes after the last
+    one would wait in the line buffer (262144 is not a multiple of 100: 44 bytes)."""
+    line = ("0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" * 2)[:99] + "\n"
+    return (line * (PASTE_BYTES // len(line) + 1))[:PASTE_BYTES - 1] + "\n"
+
+
+def find_pane(snapshot, workspace_name):
+    """The app pane id of the first pane in the workspace named `workspace_name`, as `find_tab`."""
+    topology = (snapshot or {}).get("topology") or {} if isinstance(snapshot, dict) else {}
+    for workspace in topology.get("workspaces") or []:
+        if workspace_name in {str(v) for v in workspace.values() if isinstance(v, str)}:
+            for screen in workspace.get("screens") or []:
+                for pane in screen.get("panes") or []:
+                    if pane.get("id"):
+                        return pane["id"]
+    return None
 
 
 def find_tab(snapshot, workspace_name):
