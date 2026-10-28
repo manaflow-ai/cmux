@@ -4,7 +4,7 @@ type Status = boolean | undefined;
 const invert = (value: Status): Status => (value === undefined ? undefined : !value);
 
 export function shellCommands(text: string): string[] {
-  const tokens = text.match(/&&|\|\||\$\(|[;\n&|(){}]|(?:(?:\\[^\s]|(?!\$\()[^\s;&|(){}]))+/g) ?? [];
+  const tokens = text.match(/&&|\|\||\$\(|[;\n&|()]|(?:(?:\\[^\s]|(?!\$\()[^\s;&|()]))+/g) ?? [];
   const commands: string[] = [];
   let at = 0;
   const list = (active: boolean, stops: readonly string[], depth: number): Status => {

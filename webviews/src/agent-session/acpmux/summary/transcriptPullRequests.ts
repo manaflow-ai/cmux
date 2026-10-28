@@ -67,9 +67,8 @@ const NAMED_REF = /(?<![\w/.#-])([\w][\w.-]*)( ?)#(\d+)\b/g;
 /// A bare `#N` in a reply.
 const BARE_REF = /(?<![\w/.#&-])#(\d+)\b/g;
 const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
-const SHELL_WORD = String.raw`(?:\\[^\s]|"(?:[^"\\]|\\.)*"|'[^']*'|[^\s\\;&|(){}"'])+`;
-const PAYLOAD_VALUE =
-  new RegExp(String.raw`(?:--body(?:-file)?|--title|-b|-t)(?:=|\s+)(${SHELL_WORD})`, "g");
+const SHELL_WORD = String.raw`(?:\\[\s\S]|"(?:[^"\\]|\\.)*"|'[^']*'|[^\s\\;&|()"'])+`;
+const PAYLOAD_VALUE = new RegExp(String.raw`(?<!\S)(?:--body(?:-file)?|--title|-b|-t)(?:=|\s+)(${SHELL_WORD})`, "g");
 /// A heredoc's body (`<<EOF` … `EOF`, `<<'EOF'`, `<<-EOF`), up to its terminator line; the rest
 /// of the opening line stays (it is often the command that reads it). Never `<<<` or a shift.
 const HEREDOC = /(?<!<)<<-?[ \t]*(['"]?)([A-Za-z_]\w*)\1([^\n]*)\n[\s\S]*?\n[ \t]*\2(?=[ \t]*(?:\n|$))/g;
