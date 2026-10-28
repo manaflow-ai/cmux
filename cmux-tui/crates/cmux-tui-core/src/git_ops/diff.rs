@@ -113,15 +113,31 @@ pub(super) fn continuation(
     };
     let parsed: Value = serde_json::from_str(key).unwrap_or(Value::Null);
     let Some(parts) = parsed.as_array() else {
-        return Ok(None);
+        return Err(ResourceError::validation_invalid(
+            Some("patch_key"),
+            "invalid patch capture key",
+        ));
     };
-    if parts.first().and_then(Value::as_str) != Some(repository.root.as_str())
+    if parts.first().and_then(Value::as_str) != repository.root.to_str()
         || parts.get(1).and_then(Value::as_str) != Some(operation)
     {
         return Err(ResourceError::operation_failed(
             operation,
             "the patch capture does not belong to this repository or operation",
             json!({"code":"patch_expired"}),
+        ));
+    }
+    let requested_paths = pathspecs(fields)?;
+    let requested_context = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
+    if parts.get(7) != Some(&json!(requested_paths))
+        || parts.get(8) != Some(&json!(requested_context))
+        || parts.get(9) != Some(&json!(fields.get("scope")))
+        || parts.get(10) != Some(&json!(fields.get("from")))
+        || parts.get(11) != Some(&json!(fields.get("to")))
+    {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_key"),
+            "patch capture context does not match this request",
         ));
     }
     let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
@@ -143,6 +159,19 @@ pub(super) fn continuation(
     Ok(Some(metadata))
 }
 
+pub(super) fn remember_metadata(value: &Value) {
+    if let (Some(key), Some(revision)) = (
+        value.get("patch_key").and_then(Value::as_str),
+        value.get("patch_page").and_then(|page| page.get("revision")).and_then(Value::as_str),
+    ) {
+        if let Some((window, _)) = super::diff_pages::get(key, revision) {
+            let mut metadata = value.clone();
+            metadata.as_object_mut().map(|object| object.remove("patch_page"));
+            super::diff_pages::put(key.to_owned(), window, metadata);
+        }
+    }
+}
+
 pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
@@ -156,6 +185,7 @@ pub(super) fn read(
     let comparison = comparison(repository, scope)?;
     let mut value = report(repository, &comparison, OPERATION, fields)?;
     value["scope"] = json!(scope);
+    remember_metadata(&value);
     Ok(value)
 }
 
@@ -231,11 +261,13 @@ fn report(
         comparison.base,
         comparison.untracked,
         paths,
-        context_lines
+        context_lines,
+        fields.get("scope"),
+        fields.get("from"),
+        fields.get("to")
     ])
     .to_string();
-    let page_key =
-        fields.get("patch_key").and_then(Value::as_str).unwrap_or(&computed_page_key).to_owned();
+    let page_key = computed_page_key;
     if let Some(offset) = page_offset.filter(|offset| *offset > 0) {
         let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
         let Some((window, mut metadata)) = super::diff_pages::get(&page_key, revision) else {

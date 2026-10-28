@@ -54,8 +54,6 @@ pub(super) fn diff(
     let to_object = to_id.map(load).transpose()?;
     if let Some(mut value) = diff::continuation(&target.repository, &request.fields, OPERATION)? {
         value["from"] = json!(from_id);
-        value["complete"] =
-            json!(from_complete && to_object.as_ref().map_or(true, |(_, complete)| *complete));
         if let Some(to_id) = to_id {
             value["to"] = json!(to_id);
         }
@@ -87,6 +85,7 @@ pub(super) fn diff(
     if let Some(to_id) = to_id {
         value["to"] = json!(to_id);
     }
+    diff::remember_metadata(&value);
     Ok(value)
 }
 
