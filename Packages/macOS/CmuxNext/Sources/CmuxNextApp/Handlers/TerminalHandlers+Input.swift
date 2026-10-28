@@ -7,7 +7,7 @@ import CmuxNextDaemon
 import CmuxNextScreenshots
 import CmuxNextTerminal
 import CmuxNextTerminalFind
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 
 // Find (the terminal's find bar over Ghostty search, the browser's find bar, the chat's) and input
 // sent through the daemon.

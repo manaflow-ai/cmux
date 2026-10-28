@@ -182,11 +182,11 @@ fn args_with_hooks(
     let mut merged = Map::new();
     let mut remaining = Vec::with_capacity(args.len());
     let mut index = 0;
-    while index < args.len() {
-        let argument = &args[index];
+    while let Some(argument) = args.get(index) {
         index += 1;
         if argument == "--" {
-            remaining.extend_from_slice(&args[index - 1..]);
+            remaining.push(argument.clone());
+            remaining.extend_from_slice(crate::panic_free::rest_after(args, index));
             break;
         }
         let value = if argument == "--settings" {
@@ -255,7 +255,7 @@ fn write_settings_file(dir: &Path, data: &[u8], now: SystemTime) -> anyhow::Resu
     cmux_blocking::fs::create_dir_all(dir).context("create the settings directory")?;
     crate::blocking::fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let digest = Sha256::digest(data);
-    let name = digest[..16].iter().map(|byte| format!("{byte:02x}")).collect::<String>();
+    let name = digest.iter().take(16).map(|byte| format!("{byte:02x}")).collect::<String>();
     let path = dir.join(format!("{name}.json"));
     prune_settings_files(dir, &path, now);
     let reusable = cmux_blocking::fs::symlink_metadata(&path)
@@ -539,8 +539,8 @@ mod launch_classification {
     /// Whether the arguments ask only for help or version output.
     fn informational(args: &[String]) -> bool {
         let mut index = 0;
-        while index < args.len() {
-            let argument = args[index].as_str();
+        while let Some(argument) = args.get(index) {
+            let argument = argument.as_str();
             if argument == "--" {
                 return false;
             }
@@ -562,14 +562,14 @@ mod launch_classification {
     /// Whether the first positional word is a management subcommand such as `mcp` or `doctor`.
     fn management(args: &[String]) -> bool {
         let mut index = 0;
-        while index < args.len() {
-            let argument = args[index].as_str();
+        while let Some(argument) = args.get(index) {
+            let argument = argument.as_str();
             if argument == "--" {
                 return false;
             }
             if is_positional(argument) {
                 return match argument {
-                    "agents" => agents_json(&args[index + 1..]),
+                    "agents" => agents_json(crate::panic_free::rest_after(args, index + 1)),
                     "daemon" => management_subcommand(args, index + 1, DAEMON_SUBCOMMANDS),
                     command => MANAGEMENT_COMMANDS.contains(&command),
                 };
@@ -606,8 +606,8 @@ mod launch_classification {
 
     /// Whether the next positional word after skipped log options is one of `allowed`.
     fn management_subcommand(args: &[String], mut index: usize, allowed: &[&str]) -> bool {
-        while index < args.len() {
-            let argument = args[index].as_str();
+        while let Some(argument) = args.get(index) {
+            let argument = argument.as_str();
             if argument == "--" {
                 return false;
             }
@@ -631,7 +631,7 @@ mod launch_classification {
     /// How many arguments the option at `index` spans, or `None` when it is
     /// unknown or malformed.
     fn option_width(args: &[String], index: usize) -> Option<usize> {
-        let argument = args[index].as_str();
+        let argument = args.get(index)?.as_str();
         let name = option_name(argument);
         let next = args.get(index + 1).map(String::as_str);
         if INFORMATIONAL.contains(&name) || BOOLEAN.contains(&name) {
@@ -661,7 +661,7 @@ mod launch_classification {
         next?;
         if VARIADIC.contains(&name) {
             let values =
-                args[index + 1..].iter().take_while(|value| !value.starts_with('-')).count();
+                args.iter().skip(index + 1).take_while(|value| !value.starts_with('-')).count();
             return (values > 0).then_some(values + 1);
         }
         Some(2)

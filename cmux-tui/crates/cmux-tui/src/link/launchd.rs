@@ -82,7 +82,8 @@ fn launchctl(arguments: &[&str]) -> io::Result<()> {
     if status.success() {
         Ok(())
     } else {
-        Err(io::Error::other(format!("launchctl {} failed: {status}", arguments[0])))
+        let verb = arguments.first().copied().unwrap_or_default();
+        Err(io::Error::other(format!("launchctl {verb} failed: {status}")))
     }
 }
 

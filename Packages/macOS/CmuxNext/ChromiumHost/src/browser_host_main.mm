@@ -86,6 +86,7 @@
 #include "host_hang_watcher.h"
 #include "host_input.h"
 #include "host_page_activity.h"
+#include "host_provider_link.h"
 #include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
@@ -705,6 +706,8 @@ int main(int argc, char* argv[]) {
   HostMain host_main;
   cmux_host::HostPageViews page_views;
   std::unique_ptr<cmux_host::control::Channel> channel;
+  // The browser host's provider link (host_provider_link.h); made with its relays below.
+  std::unique_ptr<cmux_host::ProviderLink> provider_link;
   // Outlives `host`, whose text input flushes it runs.
   struct FrameClock {
     ChromiumHostFrameClock* clock = [[ChromiumHostFrameClock alloc] init];
@@ -739,6 +742,26 @@ int main(int argc, char* argv[]) {
   cmux_host::hang::HostHangWatch hang_watch(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); });
   host.SetHangWatch(true);
+  // Agent CDP from the browser host straight to the pages here (task
+  // p01-process-233): the link's frames reach this thread in batches, and
+  // what the pages answer goes back on the link's writer, never through cmux.
+  cmux_host::AgentRelays agent_relays(cmux_host::AgentRelays::Calls{
+      [&host](int32_t client) { return host.Browser(client); },
+      [](int browser, const char* message) { return cmux_shim_devtools_send(browser, message); },
+      [](int browser, int enabled) { cmux_shim_devtools_watch_events(browser, enabled); },
+      [&provider_link](std::string json) { provider_link->Write(std::move(json)); }});
+  provider_link = std::make_unique<cmux_host::ProviderLink>(
+      &PostToMain,
+      [&agent_relays](std::vector<cmux_host::RelayFrame> frames) {
+        for (const cmux_host::RelayFrame& frame : frames) agent_relays.OnFrame(frame);
+      },
+      [&agent_relays] { agent_relays.LinkEnded(); }, &cmux_host::ProviderLinkPeerSignedAsCmux);
+  host.SetProviderLink(&agent_relays, [&agent_relays, &provider_link](
+                                          const cmux_host::ProviderLinkConfig& config) {
+    if (provider_link->Dials(config)) return;  // the same browser host: the link and its relays stay
+    agent_relays.LinkEnded();
+    provider_link->Connect(config);
+  });
   // Main thread only, like `host`. Ring frames (task 041) go in through
   // `ordered_input` and are dispatched (DispatchInput), then acked, only when
   // the stream lets them run (task 042 on 092's barrier): each paced move or
@@ -879,6 +902,7 @@ int main(int argc, char* argv[]) {
     if (input) input->Stop();  // no batch runs after this, so none reaches a shut down Chromium
     hang_watch.Stop();         // before Chromium shuts down: no dump of its shutdown
     channel->Close();
+    provider_link->Close();  // the browser host relays through cmux again
     cmux_shim_shutdown();
     status = host_main.exit_status();
   } else {
