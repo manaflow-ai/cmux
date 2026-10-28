@@ -147,3 +147,27 @@ async fn a_peer_connection_hears_and_lists_none_of_this_hosts_peers() {
     let theirs = theirs.expect("not found");
     assert!(!theirs.contains("gone"), "a peer's resolve named this host's peers: {theirs}");
 }
+
+/// The refusal for a `PEER/name` session id whose peer is down says that peer is unreachable,
+/// with its state and connection error. A peer's connection gets the answer a name that is no
+/// peer of this host gets instead.
+#[tokio::test]
+async fn a_peer_connection_hears_nothing_of_a_down_peer_in_a_refusal() {
+    let a = hub();
+    let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+    a.add_peer("gone", &format!("ws://127.0.0.1:{port}"), None, None, true).await.unwrap();
+    let mut local = Watcher::new(a.clone(), None).await;
+    let mut peer = Watcher::new(a.clone(), Some(Origin::Peer)).await;
+    let info = |id: &str| json!({"sessionId": id});
+
+    let (_, mine) = local.answer(method::MUX_INFO, info("gone/lane")).await;
+    let mine = mine.expect("refused");
+    assert!(mine.starts_with("peer_unreachable: gone ("), "the unix socket hears why: {mine}");
+
+    let (_, theirs) = peer.answer(method::MUX_INFO, info("gone/lane")).await;
+    let theirs = theirs.expect("refused");
+    let (_, nobody) = peer.answer(method::MUX_INFO, info("nosuch/lane")).await;
+    let nobody = nobody.expect("refused").replace("nosuch", "gone");
+    assert_eq!(theirs, nobody, "a peer's refusal told it of this host's peer");
+    assert!(!theirs.contains("unreachable"), "{theirs}");
+}
