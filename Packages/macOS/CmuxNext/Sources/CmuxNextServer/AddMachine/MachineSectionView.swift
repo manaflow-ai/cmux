@@ -496,8 +496,10 @@ final class MachineSectionAddRow: NSView {
 
     // MARK: Keyboard (Full Keyboard Access: Tab focuses it, Space or Return runs it, as a button)
 
-    override var acceptsFirstResponder: Bool { NSApp.isFullKeyboardAccessEnabled }
-    override var canBecomeKeyView: Bool { NSApp.isFullKeyboardAccessEnabled }
+    /// Whether Full Keyboard Access is on (tests set it).
+    var keyboardAccess: () -> Bool = { NSApp.isFullKeyboardAccessEnabled }
+    override var acceptsFirstResponder: Bool { keyboardAccess() }
+    override var canBecomeKeyView: Bool { keyboardAccess() }
 
     override func becomeFirstResponder() -> Bool {
         guard super.becomeFirstResponder() else { return false }
@@ -520,7 +522,7 @@ final class MachineSectionAddRow: NSView {
 
     /// Space, Return or Enter with no modifier, as a focused button takes them.
     static func activates(_ event: NSEvent) -> Bool {
-        guard event.modifierFlags.intersection([.command, .control, .option]).isEmpty else { return false }
+        guard event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty else { return false }
         return [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "")
     }
 

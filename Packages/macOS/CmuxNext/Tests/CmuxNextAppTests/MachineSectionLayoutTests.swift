@@ -159,8 +159,13 @@ import Testing
         #expect(MachineSectionAddRow.activates(try key("\r")))
         #expect(!MachineSectionAddRow.activates(try key("a")))
         #expect(!MachineSectionAddRow.activates(try key(" ", .command)))
+        #expect(!MachineSectionAddRow.activates(try key(" ", .shift)))
         view.addRow.keyDown(with: try key(" "))
         #expect(added == 1)
+        view.addRow.keyboardAccess = { false }
+        #expect(!view.addRow.acceptsFirstResponder && !view.addRow.canBecomeKeyView)
+        view.addRow.keyboardAccess = { true }
+        #expect(view.addRow.acceptsFirstResponder && view.addRow.canBecomeKeyView)
         #expect(view.addRow.becomeFirstResponder() && view.addRow.showsFocus)
         #expect(view.addRow.resignFirstResponder() && !view.addRow.showsFocus)
     }
@@ -202,7 +207,8 @@ import Testing
         // section sits in a host of its own (with none, AppKit converts from window coordinates).
         let host = FlippedHost(frame: view.frame)
         host.addSubview(view)
-        #expect(host.hitTest(overText) === add)
+        // The host has no superview, so its hitTest takes window (base, unflipped) coordinates.
+        #expect(host.hitTest(host.convert(overText, to: nil)) === add)
         #expect(add.hitTest(NSPoint(x: add.frame.maxX - 2, y: add.frame.midY)) == nil)
         #expect(add.hitTest(NSPoint(x: overText.x, y: add.frame.minY - 4)) == nil)
     }
