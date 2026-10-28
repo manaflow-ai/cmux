@@ -65,6 +65,10 @@ fn main() -> std::process::ExitCode {
     if let Some((mode, holder_args)) = args.split_first()
         && mode == "__holder"
     {
+        // Its black box first (p09-observability-095), as cmux-holder's main.
+        if let Some(dir) = cmux_holder::blackbox_dir(holder_args) {
+            drop(cmux_trace::init_blackbox(dir, cmux_trace::Role::Holder));
+        }
         return match cmux_holder::serve_process(holder_args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
@@ -86,6 +90,12 @@ fn main() -> std::process::ExitCode {
 }
 
 fn run(args: &[String]) -> anyhow::Result<()> {
+    // Single-threaded until the host has left the daemon's session and
+    // closed every inherited descriptor.
     cmux_tui_core::terminal_host_runtime::enter_terminal_host_process()?;
+    // Then the black box (p09-observability-095), before any terminal work:
+    // the app's trace folder, which the daemon shares with its hosts.
+    #[cfg(unix)]
+    drop(cmux_trace::init_blackbox(cmux_trace::process_dir(), cmux_trace::Role::TerminalHost));
     cmux_tui_core::terminal_host_runtime::serve_terminal_host_process(args)
 }
