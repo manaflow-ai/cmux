@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextChromiumRuntime
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
@@ -37,7 +38,10 @@ public struct CmuxNextApp {
         // swaps zones without a moment where no zone owns system memory.
         // Without this, a free() on another thread in that moment crashed
         // with "No zone found" (browser-isolation.md, allocator zone race).
-        _ = cmux_early_malloc_zone_registration()
+        // A sanitizer build keeps Chromium unloaded, so it needs no such zone (SanitizerRuntime).
+        if SanitizerRuntime.detect(environment: ProcessInfo.processInfo.environment).loadsChromium {
+            _ = cmux_early_malloc_zone_registration()
+        }
         #if DEBUG || CMUX_BENCH_HOOKS
         // CMUX_NEXT_MAIN_JOB_CENSUS=1 (startup-queue.py mainjobs): every main job and turn until startup completes
         // (p08-startup-080). Its hook goes in while the process still has one thread, before any main-actor job.
