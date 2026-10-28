@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextHome
 import CmuxNextHomeEngine
 import CmuxNextHostedChief
+import CmuxNextInput
 import CmuxNextPages
 import CmuxNextWakeups
 
@@ -55,9 +56,10 @@ final class HomeHostView: NSView {
     init(services: AppServices, conversation: String) {
         let service = services.home
         let id = ConversationID(conversation)
-        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id, diagrams: service.diagrams,
-                                              openPanel: services.openPanel, mainWork: services.mainWork, deadlines: services.mainDeadlines)
+        transcript = HomeNativeTranscriptView(store: service.homeStore, conversation: id, me: service.homeSource.me.id,
+                                              diagrams: service.diagrams, openPanel: services.openPanel, deadlines: services.mainDeadlines)
         transcript.composerSpellCheckingEnabled = services.settings?.snapshot.agentPaneComposer.spellChecking ?? false
+        transcript.composerTextInputScope = services.inputLatency.textInput.interpreting
         control = HomeChiefControl(services: services, conversation: id, muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         settings = HomeChiefSettingsPopover(content: HomeChiefSettingsView(muxHome: control.brainHome, source: control.engineSource()))
         petRows = ChiefPetSettingsRows(settings: { [weak services] in services?.settings }, homes: services.chiefPetHomes,
@@ -432,8 +434,11 @@ final class HomeHostView: NSView {
     var focusTarget: NSView { transcript.primaryInput }
 
     /// The person opened this conversation from Home (a click, Return, a switch key): the message
-    /// box takes the keyboard, at once or once its first page installs it.
-    func takeKeyboardOnOpen() { transcript.takeKeyboardOnOpen() }
+    /// box takes the keyboard, at once or once its first page installs it. `allowed`: asked now and at
+    /// the install when nobody opened it (`TopHomePageView.focusPrimaryInputUnasked(in:)`).
+    func takeKeyboardOnOpen(while allowed: @escaping @MainActor () -> Bool = { true }) {
+        transcript.takeKeyboardOnOpen(while: allowed)
+    }
 
     /// Whether the pane getting focus moves the keyboard to `focusTarget`
     /// from `responder`: always when it is outside this view; inside, unless

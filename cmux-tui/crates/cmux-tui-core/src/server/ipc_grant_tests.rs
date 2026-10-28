@@ -221,7 +221,15 @@ fn ipc_grant_remote_entry_gets_none() {
 fn ipc_grant_page_relay_gets_none_and_a_later_page_hello_ends_a_grant() {
     let mux = mux("ipc-grant-page");
     let page = Connection::local(&mux);
-    assert!(origin_gate::set_hello(&mux, page.client, HelloRole::PageRelay, None, false, None));
+    assert!(origin_gate::set_hello(
+        &mux,
+        page.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
     assert!(page.advertised().is_empty());
     assert_eq!(page.ask(13)["ok"], true);
     assert!(page.granted().is_empty());
@@ -229,7 +237,15 @@ fn ipc_grant_page_relay_gets_none_and_a_later_page_hello_ends_a_grant() {
     let late = Connection::local(&mux);
     assert_eq!(late.ask(13)["ok"], true);
     assert_eq!(late.granted(), ALL);
-    assert!(origin_gate::set_hello(&mux, late.client, HelloRole::PageRelay, None, false, None));
+    assert!(origin_gate::set_hello(
+        &mux,
+        late.client,
+        HelloRole::PageRelay,
+        None,
+        false,
+        None,
+        false
+    ));
     assert!(late.granted().is_empty());
     mux.shutdown();
 }

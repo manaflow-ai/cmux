@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
+/* cmux-tui mux protocol 12, IR 8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be" as const;
+export const SDK_IR_SHA256 = "8a9866283a47ec9e7be97f2560dca821030bc2dbfa05a573677c94e172d2b72d" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3636,7 +3636,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods, hangs); unknown names are ignored."
     ]
   },
   "server-threads": {
@@ -4931,6 +4931,14 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "input-failed": {
+    "since": 12,
+    "capability": "ipc-frames-v2",
+    "streams": [
+      "attach-byte"
+    ],
+    "emission": "emitted"
+  },
   "keybindings-changed": {
     "since": 12,
     "capability": "keybindings-v1",
@@ -5144,6 +5152,14 @@ export const EVENT_METADATA = {
       "attach-byte",
       "attach-render",
       "attach-browser"
+    ],
+    "emission": "emitted"
+  },
+  "server-diagnostic-site": {
+    "since": 12,
+    "capability": "diagnostic-sites-v1",
+    "streams": [
+      "subscribe"
     ],
     "emission": "emitted"
   },
@@ -7728,6 +7744,115 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ClientHelloFeaturePending": {
+    "additional_properties": false,
+    "fields": {
+      "app": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "daemon": {
+        "constraints": [
+          "The value the daemon keeps for its session."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "name": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeatureReport": {
+    "additional_properties": false,
+    "fields": {
+      "applied": {
+        "constraints": [
+          "The process=daemon kill switches the hello turned off now (a verified app only)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "hash": {
+        "constraints": [
+          "The daemon's values hash after the hello."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "pending": {
+        "constraints": [
+          "Every other difference; the daemon keeps its value until it restarts."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ClientHelloFeaturePending"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloFeatures": {
+    "additional_properties": false,
+    "fields": {
+      "hash": {
+        "constraints": [
+          "FNV-1a 64 of name=1 or name=0 per value in registry order, 16 hex digits; equal to the daemon's skips the comparison."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "values": {
+        "constraints": [
+          "The app's value of each of its daemon and both features, by registry name; at most 512."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "map",
+          "values": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ClientHelloPageOperations": {
     "additional_properties": false,
     "fields": {
@@ -7779,6 +7904,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "string"
+        }
+      },
+      "features": {
+        "constraints": [
+          "A role main hello with features, once the daemon installed its own: what it reconciled (step 2 again, with the proved app's kill switches)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloFeatureReport"
         }
       },
       "install_id": {
@@ -10592,6 +10728,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "value": 1
         }
       },
+      "framed_methods": {
+        "constraints": [
+          "The method ids this daemon answers on REQUEST frames, in id order; a client sends every other command as a line. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "uint16"
+          },
+          "kind": "array"
+        }
+      },
       "generation": {
         "nullable": false,
         "presence": "required",
@@ -10711,6 +10861,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "nullable": false,
         "presence": "required",
         "since": 7,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "sdk_schema_digest": {
+        "constraints": [
+          "FNV-1a 64 of the sdk-schema.json bytes this daemon's method tables came from, as 16 lowercase hex digits. A client sends REQUEST frames only when its own table has the same digest. Only with identify {revisions: true} on a connection offered ipc-frames-v2."
+        ],
+        "nullable": true,
+        "presence": "optional",
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -13588,6 +13749,70 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsHangRecord": {
+    "additional_properties": false,
+    "constraints": [
+      "sequence is the hang's ordinal since daemon start, 1 for the first.",
+      "span is <scope>:<method>, catalog names only.",
+      "duration_ms is the final duration once the scope ended, else how long it had run when it was seen."
+    ],
+    "fields": {
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sequence": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "span": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsHangs": {
+    "additional_properties": false,
+    "constraints": [
+      "over_250ms counts watched scopes busy 250 ms or more since daemon start, each once; it is never reset.",
+      "records keeps the newest 64, oldest first."
+    ],
+    "fields": {
+      "over_250ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "records": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsHangRecord"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsHistogram": {
     "additional_properties": false,
     "constraints": [
@@ -14876,7 +15101,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
       "lock_classes is present only when the request names it in include.",
       "ipc is present only when the request names it in include.",
-      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
+      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last.",
+      "hangs is present only when the request names it in include."
     ],
     "fields": {
       "connections": {
@@ -14893,6 +15119,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsHistogram"
+        }
+      },
+      "hangs": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsHangs"
         }
       },
       "ipc": {
@@ -21886,6 +22120,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "request": {
       "additional_properties": false,
       "fields": {
+        "features": {
+          "constraints": [
+            "Step 1, role main only: the app's daemon features (client_hello.bad_request {field: features} otherwise)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "ClientHelloFeatures"
+          }
+        },
         "install_id": {
           "constraints": [
             "1-128 of A-Z a-z 0-9 _ -. Step 1 with role main: asks for a nonce. Step 2, required: the install id it proves."
@@ -37855,6 +38100,55 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "input-failed": {
+    "additional_properties": false,
+    "constraints": [
+      "Sent on the attach stream an INPUT frame named, when its bytes did not reach the terminal; INPUT frames have no reply. After terminal_ended or not_a_terminal, later INPUT that fails the same way sends no second event until a write reaches a terminal again or the stream id is opened again."
+    ],
+    "fields": {
+      "bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "input-failed"
+        }
+      },
+      "reason": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "terminal_ended",
+            "not_a_terminal",
+            "write_failed",
+            "daemon_handoff",
+            "overflow",
+            "attach_failed"
+          ]
+        }
+      },
+      "stream": {
+        "description": "The attach stream the INPUT frame named; the stream's tag, as on every item of an attach stream.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "keybindings-changed": {
     "additional_properties": false,
     "fields": {
@@ -39185,6 +39479,98 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "server-diagnostic-site": {
+    "additional_properties": false,
+    "fields": {
+      "cause": {
+        "capability": "event-cause-v1",
+        "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "ref",
+          "name": "EventCause"
+        }
+      },
+      "crate": {
+        "description": "Blocking and inversion: the crate of the call site without its version, or other. Never a path.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "server-diagnostic-site"
+        }
+      },
+      "family": {
+        "description": "blocking: a blocking call where blocking is disallowed (or a work item's wait for other work); inversion: a wait on work of lower QoS; hang: a request method that ran past the 250 ms watchdog threshold, or a holder-link frame or a journal commit past its hang tier.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "enum",
+          "values": [
+            "blocking",
+            "inversion",
+            "hang"
+          ]
+        }
+      },
+      "file_hash": {
+        "description": "Blocking and inversion: 16 hex digits, FNV-1a of the file's path from the crate folder on. Never a path.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "kind": {
+        "description": "The blocking kind (cmux_threads BlockingKind names: fs, sleep, recv, priority-inversion, ...), or for a hang its scope: request, holder-link or journal-writer.",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "lane_sync": {
+        "description": "Blocking: a work item's wait for other work.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "line": {
+        "description": "Blocking and inversion: the call site's line.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint32"
+        }
+      },
+      "method": {
+        "description": "Hang: what ran: the request's command or v2 operation name (a colon written as a dot), the holder frame kind (data, exit, ...) or commit-batch.",
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

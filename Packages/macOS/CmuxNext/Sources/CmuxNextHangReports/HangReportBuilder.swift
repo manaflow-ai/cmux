@@ -81,7 +81,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         }
         // Blocking samples have no duration: they take their own slots first, so neither the
         // longest-first cut nor the body cap (which drops from the end) pushes them out.
-        let blocking = wireSchema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
+        let blocking = wireSchema.carriesBlocking ? watchdog.reportedBlocking : []
         // A watched thread's hang goes only in a schema that carries them, and only with its thread; no other sample names one.
         let threadHangs = wireSchema.carriesThreadHangs ? watchdog.threadHangs.filter { $0.thread != nil } : []
         let hangs = watchdog.hangs.filter { $0.source != .hangWatch }
@@ -160,6 +160,7 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// Frames of a blocking detector stack (image UUID + offset, innermost first): each through the
     /// classifier by its loaded image, so a third-party or unknown image is ``HangReportFrame/other``.
     public func frames(blocking stack: [BlockingFrame]) -> [HangReportFrame] {
+        // memory: fixed a local of one stack, kept by no one: at most `HangSample.maxFrames` (64) image records of a few strings each
         var loaded: [UUID: LoadedImage?] = [:]
         return stack.prefix(HangSample.maxFrames).map { frame in
             let image: LoadedImage?
@@ -176,6 +177,7 @@ public nonisolated struct HangReportBuilder: Sendable {
 
     /// Frames of a MetricKit call stack tree.
     func frames(_ callStackTree: Data) -> [HangReportFrame] {
+        // memory: fixed a local of one stack, kept by no one: one image record per binary of this MetricKit stack
         var loaded: [String: LoadedImage?] = [:]
         return reader.stack(callStackTree).map { raw in
             let uuid = raw.binaryUUID?.uppercased()

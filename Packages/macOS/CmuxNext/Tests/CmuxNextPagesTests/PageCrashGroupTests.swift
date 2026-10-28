@@ -46,11 +46,14 @@ struct PageCrashGroupTests {
     }
 
     /// A host (WebKit only without `chromium`); with `lifecycle`, as the app makes it with `pageLifecycle` on.
+    /// `webKitGroups`: every page of a sharing group joins the host's WebKit groups (`webKitPageProcessGroups`).
     private func makeHost(lifecycle: Bool, rig: LifecycleDeadlineRig, renderers: Renderers = Renderers(),
-                          chromium: FakeChromiumHosting? = nil, chromiumGroups: Bool = false) -> WebUIHost {
+                          chromium: FakeChromiumHosting? = nil, chromiumGroups: Bool = false,
+                          webKitGroups: Bool = false) -> WebUIHost {
         let host = WebUIHost(chromium: chromium, openPanel: nil,
                              memory: QuietMemoryRegistry(),
-                             deadlines: LifecycleDeadlineRig.never)
+                             deadlines: LifecycleDeadlineRig.never,
+                             processGroups: WebProcessGroups(pagesPerProcess: 8, groupsEverySharingPage: webKitGroups))
         if lifecycle { host.lifecycle = PageLifecycle(deadlines: rig.scheduler) }
         host.crashGroups = PageCrashGroups(chromiumSharesByGroup: chromiumGroups) { renderers.ids[ObjectIdentifier($0)] }
         return host
@@ -197,6 +200,38 @@ struct PageCrashGroupTests {
         now += 30
         other.contentProcessTerminated()
         // Grouped, the death of renderer 7 counted once and the loop used the rest; apart, the other
+        // page's budget holds only its own two crashes.
+        #expect(log.reloading(of: other) == [true, !grouped])
+        withExtendedLifetime(window) {}
+    }
+
+    /// With `webKitPageProcessGroups` the privileged WebKit pages share a WebContent process, so they
+    /// share its crash budget as the agent pages do; off, each keeps its own (p07-memory-087).
+    @Test(arguments: [false, true])
+    func privilegedWebKitPagesShareABudgetOnlyInTheHostsWebKitGroups(grouped: Bool) async throws {
+        let rig = LifecycleDeadlineRig(), renderers = Renderers()
+        let host = makeHost(lifecycle: true, rig: rig, renderers: renderers, webKitGroups: grouped)
+        let log = CrashLog()
+        var now = start
+        let (window, views) = try await openPages(2, of: privileged, host: host, log: log) { now }
+        defer { close(views, host: host) }
+        let looping = views[0], other = views[1]
+        #expect(views.allSatisfy { $0.crash.sharesWebKitProcess == grouped })
+        for view in views { renderers.commit(view, in: .webKit(pid: 100)) }
+        looping.contentProcessTerminated()
+        other.contentProcessTerminated()
+        #expect(looping.crash.reloads == 1, "the shown page of the dead process did not reload")
+        #expect(other.crash.needsReload, "the hidden page of the dead process does not load at its show")
+        for pid: Int32 in 101...103 {
+            now += 30
+            renderers.commit(looping, in: .webKit(pid: pid))
+            looping.contentProcessTerminated()
+        }
+        #expect(log.reloading(of: looping) == [true, true, true, false])
+        renderers.commit(other, in: .webKit(pid: 200))
+        now += 30
+        other.contentProcessTerminated()
+        // Grouped, the death of process 100 counted once and the loop used the rest; apart, the other
         // page's budget holds only its own two crashes.
         #expect(log.reloading(of: other) == [true, !grouped])
         withExtendedLifetime(window) {}

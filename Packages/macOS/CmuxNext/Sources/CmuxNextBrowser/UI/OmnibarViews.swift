@@ -88,7 +88,7 @@ final class OmnibarPillView: NSView {
     /// A hidden tab's pill repaints once, when it shows (R-appear).
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        visibilityNode.deferUntilVisible(key: Self.appearanceKey) { [weak self] in self?.appearanceChanged() }
+        visibilityNode.deferAppearance(owner: Self.appearanceKey) { [weak self] in self?.appearanceChanged() }
     }
 
     /// The ``visibilityNode`` key of the pill's deferred repaint.

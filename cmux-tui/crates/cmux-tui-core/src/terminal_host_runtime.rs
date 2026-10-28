@@ -213,6 +213,11 @@ pub struct TerminalHostRecord {
     /// reject a ClientHello carrying `FLAG_INPUT_FLOW`.
     #[serde(default)]
     pub supports_input_flow: bool,
+    /// Additive control capability (p02-threads-236). Missing/false records
+    /// belong to hosts that would end the connection on the unknown
+    /// SetThreadQos message, so the daemon never sends it to them.
+    #[serde(default)]
+    pub supports_thread_qos: bool,
     /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
     /// ends its terminal after this long with no client. `None` (normal
     /// installs, and hosts from before this field): it never does; only a
@@ -244,6 +249,7 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_shell_activity", &self.supports_shell_activity)
             .field("supports_trace_control", &self.supports_trace_control)
             .field("supports_input_flow", &self.supports_input_flow)
+            .field("supports_thread_qos", &self.supports_thread_qos)
             .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
@@ -656,6 +662,8 @@ mod unix {
 #[cfg(any(unix, windows))]
 pub use shared::attachment::HostAttachment;
 #[cfg(any(unix, windows))]
+pub(crate) use shared::attachment::HostReaper;
+#[cfg(any(unix, windows))]
 pub(crate) use shared::attachment::launch::adopt_terminal_host_with_kitty_limits;
 #[cfg(any(unix, windows))]
 pub use shared::attachment::launch::{
@@ -673,6 +681,8 @@ pub(crate) use shared::codec::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
+pub(crate) use shared::host_crash::append_to_panic_log as append_host_crash_to_panic_log;
+pub use shared::host_crash::{HostPanicLog, PANIC_LOG_SOURCE};
 // The decoders the cmux-tui/fuzz targets drive (crate::fuzz_entry).
 #[cfg(all(any(unix, windows), feature = "fuzz"))]
 pub(crate) use shared::codec::{

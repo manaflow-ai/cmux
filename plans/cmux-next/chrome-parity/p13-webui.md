@@ -1093,6 +1093,18 @@ Change: a fork export posts a string to the page's registered receiver; router b
 Acceptance: 0 evaluate calls for deliveries; events queue until the receiver registers; code lands only with a
 gain beyond noise in renderer CPU per 1,000 events or p99 delivery at 10 Hz x 10 pages. Test: fork test, bridge
 suite, delivery bench with and without the flag.
+As built: fork API 39, manaflow-ai/cef `cp/p13-webui-079` (37353c1b, on `cp/p06-scheduler-212`; not built yet). 077 took 38 first, so the fork line takes 39 in the train (086).
+`cmux_tab_page_push(browser, text, length)` sends over the main frame's `cef::mojom::RenderFrame` pipe, so pushes
+keep their order with the frame's scripts; the renderer defines `cmuxPageListen` only in the main world of a
+cmux-page main frame and keeps pushes until the receiver registers or a frozen page runs again. The shim export
+`cmux_shim_tab_page_push` is a host-mode post; `CEFForkFeatures.pagePush` needs it and API 39. Default-off feature
+`pagePushChannel`: the bridge's FIFO (`ChromiumPageHostBridge`) carries scripts and pushes in order, a run of
+envelopes is its JSON array (`PageRouter.receiveManyData`) and a main-frame reply is `{"r":seq,"d":doc,"v":reply}` (`doc`: the sending document's token, since every
+document counts seq from 1; another document's receiver ignores the reply); the
+page script's receiver hands runs to pageClient's `__cmuxPageHostListen` receiver (held until it registers). Page
+to host stays the DevTools binding until 013. Bench: `bench-webui.py push` with and without
+`--enable-feature pagePushChannel` (`debug.page ping` round trips, page renderer CPU per 1,000 deliveries,
+`debug.webui` `script_deliveries`/`data_deliveries`); not run, so the feature stays off (perf-lead.md row).
 
 **080 Frozen chats leave acpmux.** Files: AgentPaneTransport.swift, AgentPaneView+Transport.swift, AgentPageHibernation.swift.
 Change: a frozen chat with no running turn closes its transport connection; thaw reconnects with replay from the

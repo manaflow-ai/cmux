@@ -238,6 +238,7 @@ fn lease_socket_path(
     // chmods an existing caller-owned directory. A pathname swap after this
     // point therefore requires the same OS identity (which already has full
     // daemon authority) or root.
+    // SAFETY: geteuid takes no arguments, cannot fail, and touches no memory.
     validate_socket_directory_for_uid(parent, unsafe { libc::geteuid() })?;
 
     let lock_path = sibling_lock_path(&path).map_err(UnixSocketError::Io)?;
@@ -400,7 +401,12 @@ mod tests {
     fn bind_keeps_its_file_system_work_off_the_runtime_thread() {
         // cmux_blocking's block_on disallows blocking on its thread: a
         // file-system call left there panics in debug and counts as stalled.
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-remote-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let directory = tempfile::tempdir().unwrap();
         fs::set_permissions(directory.path(), fs::Permissions::from_mode(0o700)).unwrap();
         let socket = directory.path().join("daemon.sock");

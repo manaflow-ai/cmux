@@ -13,6 +13,7 @@
 pub mod client;
 pub mod holder;
 pub mod link;
+pub mod panic_log;
 pub mod pty;
 pub mod ring;
 pub mod wire;
@@ -207,6 +208,16 @@ pub fn parse_version_line(line: &str) -> Option<(u16, u16)> {
 /// only when it can take it exclusively.
 pub const IN_USE_LOCK: &str = "in-use.lock";
 
+/// A holder process's entry: installs the panic log ([`panic_log::install`],
+/// `holder-panics.jsonl` beside the socket), then [`serve`]s. Every holder
+/// process calls this: the standalone `cmux-holder` and the built-in
+/// `__holder` of `cmux-tui-host` and `cmux-tui` that the daemon falls back
+/// to. In-process test holders call [`serve`], which installs no hook.
+pub fn serve_process(args: &[String]) -> io::Result<()> {
+    panic_log::install(args);
+    serve(args)
+}
+
 /// Run a holder process: `--socket PATH` (and `--idle-exit-ms N`, the idle
 /// exit; default [`holder::IDLE_EXIT`]), the owner token as 64 hex
 /// characters on stdin, `ready` on stdout once it listens. `--version`
@@ -283,6 +294,11 @@ pub fn serve(args: &[String]) -> io::Result<()> {
     // holder-lifetime directory beside its socket, in the daemon's private
     // socket directory. The file opens on a one-shot thread, never the loop.
     drop(cmux_trace::init_blackbox(socket.with_extension("trace"), cmux_trace::Role::Holder));
+    // The hang watch, before the loop registers: a hang appends a line to
+    // `hangs-<pid>.jsonl` in the same directory, from the watch's own thread.
+    if let Err(error) = cmux_hang_watch::init(socket.with_extension("trace")) {
+        eprintln!("cmux-holder: the loop is not hang-watched: {error}");
+    }
     let mut holder = holder::Holder::new(listener, token)?;
     holder.set_child_open_file_limit(child_open_file_limit);
     holder.set_orphan_grace(orphan_grace);

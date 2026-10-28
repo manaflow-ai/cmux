@@ -68,7 +68,12 @@ Inputs (paths relative to --root, the repository by default):
          handed to CEFRuntime's sendAsync, siteCall
          or profileWrite (CEFRuntime+HostReplies.swift), which await the answer the same way in
          both backends, and a mint_returns id call in the mint form (its id keys a `.reply(for:`
-         wait for its reply_event).
+         wait for its reply_event). A site listed with needs
+         `client` is a local export the client defines by hand (HOST/client, outside generated/)
+         with the in-process contract, so the same call serves both backends: `change` names the
+         client's wire entry point (cmux_remote::PostPasswordReveal), and the site stays listed
+         until HOST/client both defines the export and calls that entry point outside its own
+         declarations and definitions (the transport sends it).
 
 Outputs (written by a run without a check flag; --check fails when one is stale):
 
@@ -214,11 +219,13 @@ OPTIONAL_EXPORT_FIELDS = EXPORT_FIELDS | {"fork_api"}  # fork_api: the fork API 
 DOCUMENTED_FIELDS = EXPORT_FIELDS | set(TOP_LISTS)  # what `fields` in the ops JSON explains
 EVENT_FIELDS = {"kind", "value", "refreshes", "reason"}
 REWRITE_FIELDS = {"site", "exports", "needs", "change", "task"}
-REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept")
+REWRITE_NEEDS = ("after_attach", "reply", "pending_tab", "host_exit", "kept", "client")
 # A listed site with one of these needs is done as the entry says; a `reply` site is done only in the
 # token form (TOKEN_FORM_CALLS). A `pending_tab` site still needs its work: once done, its entry
-# becomes `kept`, with a change that names the task that did it.
+# becomes `kept`, with a change that names the task that did it. A `client` site is done once the
+# hand-written client defines its export and calls the wire entry point its change names (CLIENT_WIRE).
 SETTLED_NEEDS = ("after_attach", "host_exit", "kept")
+CLIENT_WIRE = re.compile(r"\bcmux_remote::(Post\w+)\b")  # a `client` entry's wire entry point
 # CEFRuntime functions that send an async op and await its answer the same way in both backends
 # (CEFRuntime+HostReplies.swift, task p01-process-021): an async call in a closure handed to one is in
 # the token form, and --swift-sites no longer lists it. So is a preinit call whose verdict is a
@@ -566,6 +573,7 @@ class Rewrite:
     exports: list[str]
     needs: str
     site: str
+    wire: str = ""  # needs client: the client's wire entry point (CLIENT_WIRE)
 
 
 @dataclass
@@ -881,13 +889,20 @@ def load_ops(header: Header, root: Path) -> tuple[Model | None, list[str], dict[
                 problems.append(f"{label}: {name!r} is no classified export")
             elif entry.get("needs") == "after_attach" and name in ops and ops[name].cls != "mirror":
                 problems.append(f"{label}: needs after_attach is for mirror reads; {name} is {ops[name].cls}")
+            elif entry.get("needs") == "client" and name in ops and ops[name].cls != "local":
+                problems.append(f"{label}: needs client is for local exports the client defines; {name} is {ops[name].cls}")
+        client_wire = CLIENT_WIRE.search(str(entry.get("change") or "")) if entry.get("needs") == "client" else None
+        if entry.get("needs") == "client" and client_wire is None:
+            problems.append(f"{label}: needs client names the client's wire entry point in change "
+                            f"(cmux_remote::PostPasswordReveal)")
         if entry.get("needs") not in REWRITE_NEEDS:
             problems.append(f"{label}: needs {entry.get('needs')!r} is not one of {', '.join(REWRITE_NEEDS)}")
         if not isinstance(entry.get("change"), str) or not entry["change"].strip():
             problems.append(f"{label}: change says what the site becomes")
         if not isinstance(entry.get("task"), str) or not re.fullmatch(r"p\d{2}-[a-z0-9]+-\d{3}[a-z]?", entry["task"]):
             problems.append(f"{label}: task {entry.get('task')!r} is not a task id (p01-process-015)")
-        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site))
+        rewrites.append(Rewrite(rel, functions, names, str(entry.get("needs")), site,
+                                client_wire.group(1) if client_wire else ""))
 
     # What the generated code depends on (op ids, classes, wire kinds, events), not reasons or prose.
     def op_wire(e: Export) -> list:
@@ -1279,6 +1294,9 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
                 lines.append(f"        {n}[i].{f[1]} = {s}.data();")
                 lines.append(f"        {n}[i].{f[2]} = {s}.size();")
                 slot += 1
+            elif f[1].endswith("browser_id"):
+                # A browser id in a record is cmux's, as a browser argument is: mapped to Chromium's.
+                lines.append(f"        {n}[i].{f[1]} = ctx.Browser(static_cast<int32_t>(r.I64()));")
             else:
                 lines.append(f"        {n}[i].{f[1]} = r.I64();")
         lines.append("      }")
@@ -1820,6 +1838,20 @@ def hand_written(root: Path, folder: str) -> str:
     return "\n".join(parts)
 
 
+def calls(code: str, name: str) -> bool:
+    """Whether `code` calls the free function `name` (qualified or not), apart from its declarations and
+    definitions (a type word before the name) and member calls of the same name (R().Name)."""
+    for m in re.finditer(rf"(?:\b\w+\s*::\s*)*\b{re.escape(name)}\s*\(", code):
+        before = code[:m.start()].rstrip()
+        if before.endswith((".", "->")):
+            continue
+        word = re.search(r"\b(\w+)\s*[*&]*$", before)
+        if word is not None and word.group(1) != "return":
+            continue
+        return True
+    return False
+
+
 def defines(code: str, name: str) -> bool:
     for m in re.finditer(rf"\b{re.escape(name)}\s*\(", code):
         try:
@@ -2233,10 +2265,11 @@ def first_argument(text: str, begin: int, close: int) -> str:
     return text[begin:close]
 
 
-def site_settled(model: Model, site: Site, op: Op) -> bool:
+def site_settled(model: Model, site: Site, op: Op, client: str) -> bool:
     """Whether a call site already meets host mode, so --swift-sites no longer lists it: an async call, or
     a preinit answered by a wire:REPLY verdict, in the token form, a mint_returns id call in the mint
-    form, or a site a host_mode_rewrites entry settles (SETTLED_NEEDS)."""
+    form, a site a host_mode_rewrites entry settles (SETTLED_NEEDS), or a `client` one whose export
+    `client` (hand_written HOST/client) defines and whose wire entry point it calls."""
     if site.token_form and op.cls in TOKEN_FORM_CLASSES:
         return True
     if site.token_form and op.cls in TOKEN_FORM_VERDICT_CLASSES and op.reply_event == REPLY_WIRE:
@@ -2244,6 +2277,8 @@ def site_settled(model: Model, site: Site, op: Op) -> bool:
     if site.mint_form and op.cls == "mint" and op.mint_returns == "id" and op.reply_event:
         return True
     rewrite = rewrite_for(model, site)
+    if rewrite is not None and rewrite.needs == "client":
+        return defines(client, site.export) and calls(client, rewrite.wire)
     return rewrite is not None and rewrite.needs in SETTLED_NEEDS
 
 
@@ -2668,9 +2703,10 @@ def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
 
 def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
     rows = []
+    client = hand_written(root, CLIENT_SRC)
     for site in swift_sites(root):
         op = model.ops.get(site.export)
-        if op is None or site_settled(model, site, op):
+        if op is None or site_settled(model, site, op, client):
             continue
         reasons = site_reasons(model, op, site)
         if reasons:

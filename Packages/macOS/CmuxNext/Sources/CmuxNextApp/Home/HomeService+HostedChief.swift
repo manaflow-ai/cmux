@@ -7,6 +7,7 @@ import Foundation
 /// The Hosted Chief's wiring (CmuxNextHostedChief owns the copy and the brain check).
 extension HomeService {
     func wireHostedChief() {
+        guard let services else { return }
         // The auth, not Cloud; the feed only at the first call: Home is wired at launch, the feed starts with Cloud (p08-startup 020).
         let auth = services.cloudAuth
         let owner = chief

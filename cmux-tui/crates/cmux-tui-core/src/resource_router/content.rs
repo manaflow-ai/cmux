@@ -6,13 +6,12 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use base64::Engine;
-use ghostty_vt::{
-    KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, StyledRun, UnderlineStyle,
-    key_input_from_chord, rows_to_runs,
-};
+use ghostty_vt::{KeyEncoder, Mods, MouseAction, MouseButton, MouseInput, key_input_from_chord};
 use regex::Regex;
 use serde_json::{Map, Value, json};
 
+mod history_json;
+use history_json::history_rows_json;
 mod targeted_browser;
 use targeted_browser::targeted_browser_effect_projection;
 
@@ -165,12 +164,14 @@ fn terminal_history_read(
     let styled = request.fields.get("styled").and_then(Value::as_bool).unwrap_or(true);
     let (start, next, rows) = surface
         .try_with_terminal(|terminal| {
-            let total = u64::from(terminal.history_rows());
-            let end = before.unwrap_or(total).min(total);
-            let start = end.saturating_sub(u64::from(limit));
-            let count = u16::try_from(end.saturating_sub(start))
-                .expect("history page is bounded by the uint16 limit");
-            let cells = terminal.styled_history_rows(start as u32, count)?;
+            let total = terminal.history_rows();
+            // A `before` past the end (even past u32) reads the newest page.
+            let end = before
+                .and_then(|before| u32::try_from(before).ok())
+                .map_or(total, |before| before.min(total));
+            let count = u16::try_from(end).map_or(limit, |end| end.min(limit));
+            let start = end.saturating_sub(u32::from(count));
+            let cells = terminal.styled_history_rows(start, count)?;
             Ok::<_, ghostty_vt::Error>((
                 start,
                 (start > 0).then_some(start),
@@ -328,20 +329,20 @@ fn terminal_process_get(
     let executable = argv.first().cloned();
     let mut children = direct_child_pids(pid);
     children.sort_unstable();
-    let mut value = json!({
-        "pid":pid,
-        "argv":argv,
-        "children":children,
-        "foreground_cwd":crate::platform::foreground_cwd(pid),
-        "foreground_executable":crate::platform::foreground_process_name(pid),
-    });
+    let mut value = Map::from_iter([
+        ("pid".to_string(), json!(pid)),
+        ("argv".to_string(), json!(argv)),
+        ("children".to_string(), json!(children)),
+        ("foreground_cwd".to_string(), json!(crate::platform::foreground_cwd(pid))),
+        ("foreground_executable".to_string(), json!(crate::platform::foreground_process_name(pid))),
+    ]);
     if let Some(executable) = executable {
-        value["executable"] = json!(executable);
+        value.insert("executable".to_string(), json!(executable));
     }
     if let Some(cwd) = surface.local_cwd() {
-        value["cwd"] = json!(cwd);
+        value.insert("cwd".to_string(), json!(cwd));
     }
-    Ok(value)
+    Ok(Value::Object(value))
 }
 
 fn terminal_effect(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value, ResourceError> {
@@ -653,7 +654,7 @@ fn terminal_move(mux: &Arc<Mux>, request: ParsedResourceRequest) -> Result<Value
             &mutation,
         )
         .map_err(resource_operation_error)?;
-    commit.result["terminal"].as_str().ok_or_else(|| {
+    commit.result.get("terminal").and_then(Value::as_str).ok_or_else(|| {
         ResourceError::operation_failed(
             "terminal.move",
             "terminal move commit omitted its public identity",
@@ -808,7 +809,8 @@ fn terminal_scroll_viewport(
 }
 
 fn terminal_keys(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
-    let keys = intent_string_array(fields, "keys", "terminal.input.keys")?;
+    let keys =
+        intent_string_array(fields, "keys", "terminal.input.keys").map_err(ActionFailure::Known)?;
     let mut encoder = KeyEncoder::new().map_err(|error| {
         ActionFailure::Known(ResourceError::operation_failed(
             "terminal.input.keys",
@@ -842,8 +844,15 @@ fn terminal_keys(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
 
 fn terminal_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), ActionFailure> {
     let kind = required_intent_string(fields, "kind", "terminal.input.mouse")?;
-    let row = required_u64_action(fields, "row")? as u16;
-    let column = required_u64_action(fields, "column")? as u16;
+    let coordinate = |field: &str| {
+        u16::try_from(required_u64_action(fields, field)?).map_err(|_| {
+            ActionFailure::Known(validation_error(
+                "mouse cell exceeds uint16",
+                json!({"field":field}),
+            ))
+        })
+    };
+    let (row, column) = (coordinate("row")?, coordinate("column")?);
     let mods = terminal_modifiers(fields)?;
     let (cols, rows) = surface.size();
     let button =
@@ -1016,7 +1025,18 @@ fn browser_mouse(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
     let x = required_f64(fields, "x_px")?;
     let y = required_f64(fields, "y_px")?;
     let button = fields.get("button").and_then(Value::as_str);
-    let click_count = fields.get("click_count").and_then(Value::as_u64).map(|value| value as u32);
+    let click_count = fields
+        .get("click_count")
+        .and_then(Value::as_u64)
+        .map(|count| {
+            u32::try_from(count).map_err(|_| {
+                ActionFailure::Known(validation_error(
+                    "click_count exceeds uint32",
+                    json!({"field":"click_count"}),
+                ))
+            })
+        })
+        .transpose()?;
     let pointer_frame_seq = required_decimal_action(fields, "pointer_frame_seq")?;
     surface
         .browser_mouse_event_confirmed(event_type, x, y, button, click_count, pointer_frame_seq)
@@ -1037,12 +1057,7 @@ fn browser_wheel(surface: &Surface, fields: &Map<String, Value>) -> Result<(), A
 
 fn validate_terminal_effect_fields(request: &ParsedResourceRequest) -> Result<(), ResourceError> {
     if request.envelope.operation == ResourceOperation::TerminalInputKeys {
-        for key in intent_string_array(&request.fields, "keys", "terminal.input.keys").map_err(
-            |failure| match failure {
-                ActionFailure::Known(error) => error,
-                ActionFailure::Indeterminate(_) => unreachable!("validation has no effects"),
-            },
-        )? {
+        for key in intent_string_array(&request.fields, "keys", "terminal.input.keys")? {
             if key_input_from_chord(&key).is_none() {
                 return Err(validation_error("terminal key chord is invalid", json!({"key":key})));
             }
@@ -1091,52 +1106,6 @@ pub(super) fn browser_surface_for_id(
         let surface = state.surfaces.get(&surface_id)?.clone();
         (surface.kind() == SurfaceKind::Browser).then_some((surface_id, surface))
     })
-}
-
-fn history_rows_json(rows: &[Vec<ghostty_vt::Cell>], styled: bool) -> Vec<Value> {
-    let runs = rows_to_runs(rows);
-    runs.iter()
-        .enumerate()
-        .map(|(row, runs)| {
-            let runs = if styled {
-                runs.iter().map(styled_run_json).collect()
-            } else {
-                vec![json!({
-                    "text":runs.iter().map(|run| run.text.as_str()).collect::<String>(),
-                    "fg":null,
-                    "bg":null,
-                    "attrs":0,
-                })]
-            };
-            json!({"row":row as u16,"runs":runs})
-        })
-        .collect()
-}
-
-fn styled_run_json(run: &StyledRun) -> Value {
-    let mut value = json!({
-        "text":run.text,
-        "fg":run.fg.map(rgb_hex),
-        "bg":run.bg.map(rgb_hex),
-        "attrs":u32::from(run.attrs),
-    });
-    if let Some(underline) = run.underline {
-        value["underline"] = json!(match underline {
-            UnderlineStyle::Single => "single",
-            UnderlineStyle::Double => "double",
-            UnderlineStyle::Curly => "curly",
-            UnderlineStyle::Dotted => "dotted",
-            UnderlineStyle::Dashed => "dashed",
-        });
-    }
-    if let Some(width_hint) = run.width_hint {
-        value["width_hint"] = json!(width_hint);
-    }
-    value
-}
-
-fn rgb_hex(color: ghostty_vt::Rgb) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
 
 fn upsert_change(resource: &str, id: &str, value: Value) -> Value {
@@ -1213,7 +1182,7 @@ where
     })
 }
 
-fn optional_decimal(
+pub(super) fn optional_decimal(
     fields: &Map<String, Value>,
     field: &str,
 ) -> Result<Option<u64>, ResourceError> {
@@ -1279,25 +1248,25 @@ fn intent_string_array(
     fields: &Map<String, Value>,
     field: &str,
     operation: &str,
-) -> Result<Vec<String>, ActionFailure> {
+) -> Result<Vec<String>, ResourceError> {
     fields
         .get(field)
         .and_then(Value::as_array)
         .ok_or_else(|| {
-            ActionFailure::Known(ResourceError::operation_failed(
+            ResourceError::operation_failed(
                 operation,
                 "stored content effect array is malformed",
                 json!({"field":field}),
-            ))
+            )
         })?
         .iter()
         .map(|value| {
             value.as_str().map(str::to_string).ok_or_else(|| {
-                ActionFailure::Known(ResourceError::operation_failed(
+                ResourceError::operation_failed(
                     operation,
                     "stored content effect array item is malformed",
                     json!({"field":field}),
-                ))
+                )
             })
         })
         .collect()
@@ -1484,8 +1453,8 @@ fn browser_key_description(value: &str) -> BrowserKeyDescription {
             text: None,
         };
     }
-    if canonical.chars().count() == 1 {
-        let character = canonical.chars().next().expect("counted one character");
+    let mut characters = canonical.chars();
+    if let (Some(character), None) = (characters.next(), characters.next()) {
         let (code, vkey) = if character.is_ascii_alphabetic() {
             (
                 format!("Key{}", character.to_ascii_uppercase()),

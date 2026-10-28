@@ -173,6 +173,12 @@ import func CmuxSafeConcurrency.withOnceContinuation
 
     /// Pushes and flushes so far (tests and the bench read them).
     public private(set) var flushes = 0
+    /// The frozen page's connection closes once the send line is empty (``closeWhileFrozen()``).
+    var closesWhenSent = false
+    /// The connection a freeze closed, until the page opens its next one (``closeWhileFrozen()``).
+    public internal(set) var closedForFreeze: Int?
+    /// Connections the page opened again after a freeze closed its last one (tests and the acpmux bench).
+    public private(set) var freezeReconnects = 0
 
     /// The app's one main-thread scheduler: the socket's wakes and the page's sends land on it as classed tasks.
     public let mainWork: MainWorkScheduler
@@ -213,6 +219,11 @@ import func CmuxSafeConcurrency.withOnceContinuation
     /// Opens a new socket (closing the current one) and returns its id once it is open.
     public func open(_ connection: AcpmuxConnection) async throws(AgentPaneTransportError) -> Int {
         close(connection: current)
+        closesWhenSent = false
+        if closedForFreeze != nil {
+            closedForFreeze = nil
+            freezeReconnects += 1
+        }
         pacer.reset()
         // A reconnect drops every ticket of the old connection.
         gestures.clearTickets()
@@ -299,8 +310,11 @@ import func CmuxSafeConcurrency.withOnceContinuation
         guard !draining else { return }
         draining = true
         // task-owner: the send line's one drain; it ends when the line is empty
-        // main-hop-allow: drain() is the send line's main-actor async loop: each pass's checks run off main (analyze) and its sends on the socket's queue; the task only runs it, in the frames' order
-        Task { [weak self] in await self?.drain() }
+        // main-hop-allow: drain() is the send line's main-actor async loop: each pass's checks run off main (analyze) and its sends on the socket's queue; the task only runs it, in the frames' order, then notes the empty line (sendLineDidEmpty: a deferred freeze close runs only after the last frame went out)
+        Task { [weak self] in
+            await self?.drain()
+            self?.sendLineDidEmpty()
+        }
     }
 
     nonisolated enum Step: Sendable { case sent, refused(AgentPaneTransportError), stop(AgentPaneTransportError) }
@@ -340,15 +354,16 @@ import func CmuxSafeConcurrency.withOnceContinuation
         return gestures.reserve(connection: current, intent: intent)
     }
 
-    /// Closes the connection if it is the current one.
-    public func close(connection id: Int) {
+    /// Closes the connection if it is the current one. The page gets `reason` with the close.
+    public func close(connection id: Int, reason: String = "") {
         guard id == current, let socket else { return }
-        socket.close(code: 1000, reason: "", error: nil)
+        socket.close(code: 1000, reason: reason, error: nil)
         localAppToken = nil
         promptRelay?.ended(byDaemon: false)
     }
 
-    private func arrived(_ id: Int) {
+    /// Frames or the close arrived on connection `id`: the pacer arranges their flush.
+    func arrived(_ id: Int) {
         guard id == current, let socket else { return }
         pacer.schedule(urgent: socket.pageWaits) { [weak self] in self?.flush() ?? AgentPaneFlush(delivered: false, more: false) }
     }

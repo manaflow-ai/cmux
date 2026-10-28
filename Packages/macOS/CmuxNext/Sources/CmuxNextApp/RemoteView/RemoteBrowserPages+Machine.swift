@@ -26,7 +26,8 @@ extension RemoteBrowserPages {
         let carrier = services.remoteLocalhost.browserCarrier(machine: machine, port: runtime.port)
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next", token: runtime.secret, carrier: carrier,
-                                                     machineName: services.machines.machineName(machine) ?? machine),
+                                                     machineName: services.machines.machineName(machine) ?? machine,
+                                                     mainWork: services.mainWork),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
         tab.pane.view.pointerFrames = services.remotePointerFrames
         let hosts = services.machineBrowserHosts

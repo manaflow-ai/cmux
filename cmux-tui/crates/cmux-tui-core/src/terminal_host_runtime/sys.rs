@@ -66,7 +66,8 @@ pub(crate) use windows::listener::HostListener;
 pub(crate) use windows::seams::*;
 #[cfg(windows)]
 pub(crate) use windows::standby::{
-    HostProcessStartFailed, SpawnedHostProcess, StandbyTerminalHost, host_bootstrap_streams,
+    HostProcessStartFailed, HostReaper, SpawnedHostProcess, StandbyTerminalHost,
+    host_bootstrap_streams,
 };
 #[cfg(windows)]
 pub(crate) use windows_stubs::*;
@@ -137,5 +138,9 @@ mod windows_stubs {
     }
 
     /// Windows hosts write no signal breadcrumbs yet.
-    pub(crate) fn remove_terminal_loss_signals(_record_path: &Path) {}
+    pub(crate) fn remove_terminal_loss_signals(
+        _record_path: &Path,
+        _panic_log: Option<&crate::terminal_host_runtime::HostPanicLog>,
+    ) {
+    }
 }
