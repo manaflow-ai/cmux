@@ -125,7 +125,7 @@ jobs:
           key="$(sed -n 's/^key=//p' "$RUNNER_TEMP/plan.env")"
           branch="devbox-rebake/${key:0:12}"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
+          open="$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=${GITHUB_REF_NAME}&head=${GITHUB_REPOSITORY_OWNER}:${branch}" --jq '.[0].html_url // empty')"
           if [ "$FORCE" != "true" ] && [ -n "$open" ]; then
             echo "$open already publishes these inputs; nothing to do"
             echo "go=false" >> "$GITHUB_OUTPUT"
@@ -241,7 +241,7 @@ jobs:
             "| kind | size | version | snapshot |" \
             "|---|---|---|---|" \
             "$rows")"
-          url="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=${GITHUB_REPOSITORY_OWNER}:${BRANCH}" --jq '.[0].html_url // empty')"
+          url="$(GH_TOKEN="$APP_TOKEN" gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&base=${BASE}&head=${GITHUB_REPOSITORY_OWNER}:${BRANCH}" --jq '.[0].html_url // empty')"
           if [ -z "$url" ]; then
             url="$(GH_TOKEN="$APP_TOKEN" gh api -X POST "repos/$GITHUB_REPOSITORY/pulls" \
               -f head="$BRANCH" -f base="$BASE" -f title="$title" -f body="$body" --jq .html_url)"
