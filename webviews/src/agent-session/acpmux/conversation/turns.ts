@@ -13,7 +13,9 @@ import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
+import { isSubagentGroup, WORKFLOW_CARD } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
+import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
 import { editedPaths, isBareShellName, toolLabel } from "../toolPaths";
 import { shortCommand } from "./shortCommand";
@@ -338,6 +340,7 @@ function openFolds(
   end: number,
   expanded: ReadonlySet<string>,
 ): string {
+  if (expanded.size === 0) return "";
   if (expanded.has(`${WORKED}-${rows[start]!.id}`)) return "1";
   for (let index = start + 1; index < end; index += 1) {
     const row = rows[index]!;
@@ -361,7 +364,7 @@ function shapedTurn(
   lineBelow = false,
 ): AcpmuxRow[] {
   const user = rows[start]!;
-  const open = openFolds(rows, start, end, expanded);
+  const open = live ? "" : openFolds(rows, start, end, expanded);
   // A running turn changes with every event.
   const cached = live ? undefined : shapedTurns.get(user);
   if (
@@ -529,7 +532,7 @@ function shapeTurn(
     const after = segment.after ?? [];
     // Work after the last answer folds with the work before it, so the answer stays last.
     // Edits after it join the card too, so its Undo covers the whole turn.
-    const work = [...before, ...after];
+    const work = [...before, ...after].filter((row) => !staysOut(row));
     edits.push(...work.filter(isEdit));
     if (work.length) {
       folded = true;
@@ -561,9 +564,14 @@ function shapeTurn(
           })),
         );
     }
+    // Context and actionable rows stay available beside the fold. Render cards keep their
+    // source order among them, before or after the answer exactly where the call happened.
+    const outside = (rows: readonly AcpmuxRow[]) =>
+      rows.flatMap((row) => (staysOut(row) ? [endedPlan(row)] : renderRows([row], version)));
+    shaped.push(...outside(before));
     if (said) shaped.push(said);
+    shaped.push(...outside(after));
   }
-  shaped.push(...renderRows(body, version));
   shaped.push(...editsCard(edits));
   const preview = turnPreviewCardsOn() ? turnPreviewUrl(user, turn) : undefined;
   if (preview) shaped.push({ id: `${PREVIEW}-${user.id}`, version, at: summary.at, kind: PREVIEW, text: preview });
@@ -652,6 +660,36 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
     },
   ];
 }
+
+/// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
+/// the turn's todo list (cx-ncc.80), whose last state is what the turn got done, and the notes
+/// below. Where a subagent ended and a compaction are the turn's work and fold with it (Leo,
+/// 2026-10-21: fold only the work, "compaction and subagent/system notices" among it).
+const staysOut = (row: AcpmuxRow) =>
+  isSubagentGroup(row) ||
+  (row.kind === "plan" && row.plan !== undefined) ||
+  (row.kind === "activity" && row.items?.some((item) => awaitsPermission(item.tool))) ||
+  row.kind === "backgroundTask" ||
+  // An error or a refusal the pane noted, and an ask still waiting on the person.
+  row.kind === "notice" ||
+  row.kind === "permission" ||
+  // A move to the fallback harness changes who answers the rest of the turn; folded, nobody would
+  // see it happened.
+  row.kind === "failover" ||
+  // A policy the harness cannot keep: the agent runs without the asks the person chose.
+  row.kind === "policyUnenforced" ||
+  // A paused agent pair waits for the person's Resume.
+  row.kind === "agentPair" ||
+  // Where the session started: what it runs on.
+  row.kind === "sessionStart" ||
+  // A session offer waits for the person's Start or Dismiss.
+  row.kind === "sessionOffer" ||
+  // A chat the turn started keeps its card in sight (started/startedSessions.ts).
+  row.kind === STARTED_SESSIONS ||
+  // So does a Claude workflow it started (Labs, summary/WorkflowCard.tsx).
+  row.kind === WORKFLOW_CARD ||
+  // What the person answered an agent's question, which shaped the rest of the turn.
+  row.kind === QUESTION_RECORD;
 
 /// A finished turn's todo list: a step the agent left in progress no longer spins. The version
 /// moves off the live one (v to 2v + 1), so the memoized row draws again when the turn ends.
