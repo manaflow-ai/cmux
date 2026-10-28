@@ -139,9 +139,20 @@ class CLAGuardGitReadsTests(unittest.TestCase):
         self.assertEqual(calls, [])
 
     def test_a_head_that_changes_policy_is_judged_against_the_base(self):
-        # Were the base's files read from the head, base and head would match
-        # and the guard would pass the change as "unchanged".
-        head = self.commit_head(policy_change=True)
+        # The base carries an unreviewed edit of cla.yml; the head puts back
+        # the reviewed file. Judged against the base's file, that is a policy
+        # change: it needs a trusted approval, and none exists, so the guard
+        # rejects it. Were the base's files read from the head, base and head
+        # would both be the reviewed file and the guard would pass it as
+        # "unchanged".
+        git(self.repo, "checkout", "-q", "-b", "edited-base", self.base)
+        with (self.repo / CLA_WORKFLOW).open("a") as workflow:
+            workflow.write("# an edit on the base\n")
+        git(self.repo, "commit", "-q", "-am", "edited base")
+        self.base = git(self.repo, "rev-parse", "HEAD")
+        (self.repo / CLA_WORKFLOW).write_text(self.base_workflow)
+        git(self.repo, "commit", "-q", "-am", "head restores the reviewed policy")
+        head = git(self.repo, "rev-parse", "HEAD")
         api = {f"repos/{REPOSITORY}/pulls/7": self.pull_request(head),
                f"repos/{REPOSITORY}/pulls/7/reviews?per_page=100&page=1": []}
         result, calls = self.run_driver("main", head, api)
