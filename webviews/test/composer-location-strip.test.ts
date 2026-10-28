@@ -340,6 +340,27 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       expect(noteRect).not.toBeNull();
       expect(projectRect).not.toBeNull();
       expect(noteRect!.height).toBeLessThanOrEqual(16);
+      const noteVisibility = await note.evaluate((element) => {
+        const style = getComputedStyle(element);
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const text = range.getBoundingClientRect();
+        const box = element.getBoundingClientRect();
+        return {
+          lineHeight: parseFloat(style.lineHeight),
+          paddingTop: parseFloat(style.paddingTop),
+          paddingBottom: parseFloat(style.paddingBottom),
+          borderTop: parseFloat(style.borderTopWidth),
+          textTop: text.top,
+          textBottom: text.bottom,
+          boxTop: box.top,
+          boxBottom: box.bottom,
+        };
+      });
+      expect(noteVisibility.paddingTop + noteVisibility.paddingBottom + noteVisibility.borderTop).toBe(0);
+      expect(noteVisibility.textTop).toBeGreaterThanOrEqual(noteVisibility.boxTop - 1);
+      expect(noteVisibility.textBottom).toBeLessThanOrEqual(noteVisibility.boxBottom + 1);
+      expect(noteRect!.height).toBeGreaterThanOrEqual(noteVisibility.lineHeight);
       expect(projectRect!.y).toBeGreaterThanOrEqual(viewportRect!.y);
       expect(projectRect!.y + projectRect!.height).toBeLessThanOrEqual(viewportRect!.y + viewportRect!.height);
       expect(viewportRect!.y + viewportRect!.height).toBeLessThanOrEqual(popupRect!.y + popupRect!.height);

@@ -1032,7 +1032,6 @@
 @media (max-height: 260px) {
   .acpmux-folder-popover .ui-combobox-pinned { flex: none; max-height: 54px; overflow: auto; }
   .acpmux-folder-popover .ui-combobox-scroll { max-height: none; }
-  .acpmux-folder-popover .acpmux-location-note { flex: none; max-height: 16px; margin: 2px 0 0; padding: 0 8px; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 .acpmux-folder-popover .ui-combobox-scroll { display: flex; flex: 1; flex-direction: column; min-height: 0; overflow: hidden; }
 .acpmux-folder-popover .ui-combobox-scroll > .ui-combobox-viewport { flex: 1; height: 0; min-height: 0; max-height: 100%; overflow: auto; }
@@ -1076,6 +1075,9 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
   line-height: 16px;
+}
+@media (max-height: 260px) {
+  .acpmux-folder-popover .acpmux-location-note { flex: none; max-height: 16px; margin: 2px 0 0; padding: 0 8px; border: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
 /* A repository's other worktrees (projectRepos.ts) sit under its row, their branch glyph where the
    row's badge is, so the names line up with the repository's. The count at the end of the row opens
