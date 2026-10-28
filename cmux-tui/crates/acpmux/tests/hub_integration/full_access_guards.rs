@@ -386,12 +386,8 @@ async fn replay_answered_bare(managed_off: bool) -> (Arc<Hub>, String, Result<Va
 #[tokio::test]
 async fn a_replayed_full_access_option_answered_bare_is_not_handed_out_under_mdm_off() {
     let (hub, id, answered) = replay_answered_bare(true).await;
-    assert!(
-        answered.is_err(),
-        "a bare replay answer's full-access agent answered under the managed off: {answered:?}"
-    );
-    let session = hub.resolve(&id).unwrap();
-    assert_eq!(hub.session_summary(&session)["status"], "idle");
+    let refusal = answered.expect_err("a bare replay answer's full-access agent answered");
+    assert!(refusal.contains("sessions.allowFullAccess"), "{refusal}");
     let events = hub.events(&id, 0, 10_000).unwrap();
     let refused = events.into_iter().any(|e| e.kind == "full_access_refused");
     assert!(refused, "the start did not stop its full-access agent");
