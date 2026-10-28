@@ -1,5 +1,5 @@
 // l10n-allow-file: gallery fixtures (sample prompts, replies, commands and chat names), not shipped UI.
-// One sample of every transcript row type the agent pane's row registry draws (App.tsx
+// One sample of every transcript row type the agent pane's row registry draws (rows/registry.ts
 // `defaultRegistry`), keyed by row type: the rows `VirtualTranscript` gets after `turnView`, not
 // the raw snapshot. The gallery entry `agent-pane.transcript-row-types` draws each type in the real
 // transcript, and test/transcript-row-types.test.tsx pins each type's rendered DOM, so a move of a
