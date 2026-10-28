@@ -65,7 +65,7 @@ export function SubagentSummaryCard({
   const total = counts.running + counts.queued + counts.done + counts.failed;
   const countItems = [
     { key: "running", text: t("summary.subagents.running", { n: counts.running }), count: counts.running },
-    { key: "queued", text: `${counts.queued} queued`, count: counts.queued },
+    { key: "queued", text: t("workflow.queued", { n: counts.queued }), count: counts.queued },
     { key: "done", text: t("summary.subagents.done", { n: counts.done }), count: counts.done },
     { key: "failed", text: t("summary.subagents.failed", { n: counts.failed }), count: counts.failed },
   ].filter((item) => item.count > 0);
