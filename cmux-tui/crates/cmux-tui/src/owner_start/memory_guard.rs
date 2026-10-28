@@ -164,7 +164,7 @@ where
                     (watch.alert)(memory, crossed);
                 }
                 // A periodic sample is this thread's intended behavior, not a wait on a condition.
-                std::thread::sleep(watch.interval);
+                cmux_blocking::thread::sleep(watch.interval);
                 if stop.is_stopped() {
                     return;
                 }
@@ -198,7 +198,7 @@ fn append(path: &Path, line: &serde_json::Value) {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
-    if let Ok(mut file) = options.open(path) {
+    if let Ok(mut file) = crate::blocking::fs::open_with(&options, path) {
         let _ = file.write_all(format!("{line}\n").as_bytes());
     }
 }

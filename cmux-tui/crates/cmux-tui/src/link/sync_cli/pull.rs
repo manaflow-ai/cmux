@@ -111,9 +111,9 @@ pub(super) fn pull_kept(
     remote_root: &str,
     keep_new: &dyn Fn(&str) -> bool,
 ) -> anyhow::Result<Pulled> {
-    let local =
-        std::fs::canonicalize(local).with_context(|| format!("cannot open {}", local.display()))?;
-    if !std::fs::metadata(&local)?.is_dir() {
+    let local = cmux_blocking::fs::canonicalize(local)
+        .with_context(|| format!("cannot open {}", local.display()))?;
+    if !cmux_blocking::fs::metadata(&local)?.is_dir() {
         bail!("{} is not a folder", local.display());
     }
     let git = GitDirs::of(&local)?;
@@ -303,7 +303,7 @@ fn apply(
     for step in planned {
         match step.step {
             Step::Write { staged, permissions, revision, sha256 } => {
-                bytes += std::fs::metadata(staging.0.join(&staged))?.len();
+                bytes += cmux_blocking::fs::metadata(staging.0.join(&staged))?.len();
                 transaction.write(&step.relative, &staged, expected(&step.local).as_ref())?;
                 written += 1;
                 next.files.insert(step.relative, Pushed { sha256, permissions, revision });
@@ -481,7 +481,7 @@ fn pushed_folders(manifest: &Manifest) -> BTreeSet<String> {
 /// can't be read.
 fn local_names(local: &Path, dir: &str) -> Vec<String> {
     let path = if dir.is_empty() { local.to_path_buf() } else { local.join(dir) };
-    std::fs::read_dir(path)
+    cmux_blocking::fs::read_dir(path)
         .map(|entries| {
             entries
                 .filter_map(Result::ok)
@@ -503,7 +503,7 @@ fn hook_folders(local: &Path) -> anyhow::Result<Vec<String>> {
     };
     let inside = if path.is_absolute() {
         // `local` is canonical; so is the hooks folder when it exists.
-        let path = std::fs::canonicalize(&path).unwrap_or(path);
+        let path = cmux_blocking::fs::canonicalize(&path).unwrap_or(path);
         let Ok(inside) = path.strip_prefix(local) else { return Ok(Vec::new()) };
         inside.to_path_buf()
     } else {
@@ -629,9 +629,7 @@ impl Staging {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |since| since.as_nanos());
         let path = parent.join(format!(".cmux-sync-pull-{}-{nanos}", std::process::id()));
-        std::fs::DirBuilder::new()
-            .mode(0o700)
-            .create(&path)
+        crate::blocking::fs::create_dir_with(std::fs::DirBuilder::new().mode(0o700), &path)
             .with_context(|| format!("cannot make {}", path.display()))?;
         Ok(Self(path, std::cell::Cell::new(0), std::cell::Cell::new(false)))
     }
@@ -657,12 +655,14 @@ impl Staging {
             self.1.set(number);
             let name = format!("file-{number}");
             let path = self.0.join(&name);
-            let file = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .mode(0o600)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&path)?;
+            let file = crate::blocking::fs::open_with(
+                std::fs::OpenOptions::new()
+                    .write(true)
+                    .create_new(true)
+                    .mode(0o600)
+                    .custom_flags(libc::O_NOFOLLOW),
+                &path,
+            )?;
             let mut out = Hashing { file, hasher: Sha256::new() };
             remote
                 .read_into(target, &mut out, MAX_FILE_BYTES)?
@@ -671,11 +671,11 @@ impl Staging {
             if after.as_ref().and_then(|stat| stat["revision"].as_str()) != Some(revision.as_str())
             {
                 drop(out);
-                let _ = std::fs::remove_file(&path);
+                let _ = cmux_blocking::fs::remove_file(&path);
                 continue;
             }
             out.file.set_permissions(std::fs::Permissions::from_mode(permissions))?;
-            out.file.sync_all()?;
+            crate::blocking::fs::sync_all(&out.file)?;
             let sha256 = hex(&out.hasher.finalize());
             return Ok(Staged { name, sha256, permissions, revision });
         }
@@ -706,7 +706,7 @@ impl Drop for Staging {
         if self.2.get() || std::thread::panicking() {
             return;
         }
-        let _ = std::fs::remove_dir_all(&self.0);
+        let _ = cmux_blocking::fs::remove_dir_all(&self.0);
     }
 }
 

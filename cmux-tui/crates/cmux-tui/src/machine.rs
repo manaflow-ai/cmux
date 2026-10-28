@@ -705,7 +705,7 @@ impl Drop for MachineUpdateStream {
             // bounded channel observes cancellation instead of deadlocking.
             self.receiver.take();
             if let Some(worker) = self.worker.take() {
-                let _ = worker.join();
+                let _ = crate::blocking::thread::join(worker);
             }
         }
     }

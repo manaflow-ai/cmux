@@ -160,7 +160,7 @@ impl SignalRecord {
     /// `Ok` once the thread recorded the signal; [`SignalRecordFailed`] when
     /// its body unwound (its sender dropped without a record).
     pub(crate) fn finish(self) -> Result<(), SignalRecordFailed> {
-        self.0.recv().map_err(|_| SignalRecordFailed)
+        cmux_blocking::sync::recv(&self.0).map_err(|_| SignalRecordFailed)
     }
 }
 
@@ -236,8 +236,8 @@ fn wait_for_stop(stopped: impl Fn() -> bool) {
 
 /// Wakes `run_headless`. Callers set their flag first; the wait re-checks
 /// every flag under this lock, so no wake is lost.
-static HEADLESS_WAKE: (std::sync::Mutex<u64>, std::sync::Condvar) =
-    (std::sync::Mutex::new(0), std::sync::Condvar::new());
+static HEADLESS_WAKE: (std::sync::Mutex<u64>, cmux_threads::sync::Condvar) =
+    (std::sync::Mutex::new(0), cmux_threads::sync::Condvar::new());
 
 pub(crate) fn wake_headless() {
     let (lock, wake) = &HEADLESS_WAKE;
