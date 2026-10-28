@@ -50,4 +50,31 @@ import Testing
         panel.layoutSubtreeIfNeeded()
         #expect(panel.intro.isHidden)
     }
+
+    /// A fresh install's first-run panel, in a window and laid out, before and after the intro shows and
+    /// across scale changes. Spacing after the intro while it is not an arranged view raised in NSStackView
+    /// and crashed Home on its first open.
+    @Test func theFirstRunPanelLaysOutAndRescalesWithAndWithoutTheIntro() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 340, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
+        defer { window.close() }
+        window.isReleasedWhenClosed = false
+        let panel = HomeFirstRunView(frame: NSRect(x: 0, y: 0, width: 340, height: 700))
+        window.contentView = panel
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.introText == nil)
+
+        panel.applyScale(1.25)
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.intro.isHidden)
+
+        panel.setIntro(HomeStrings.firstRunIntro)
+        panel.applyScale(1.5)
+        panel.layoutSubtreeIfNeeded()
+        #expect(!panel.intro.isHidden)
+
+        panel.setIntro(nil)
+        panel.applyScale(1)
+        panel.layoutSubtreeIfNeeded()
+        #expect(panel.intro.isHidden)
+    }
 }
