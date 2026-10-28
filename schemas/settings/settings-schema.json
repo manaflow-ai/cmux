@@ -34299,7 +34299,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "click",
+      "default" : "focus",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",

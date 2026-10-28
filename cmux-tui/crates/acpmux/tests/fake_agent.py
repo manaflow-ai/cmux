@@ -1503,6 +1503,14 @@ def main():
             if CODEX_STORE:
                 target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
+            # FAKE_ASK_HOLDS_STDIN=<path>: after an "ask:" prompt, read nothing more until that
+            # file exists: a long answer then waits in the agent host's stdin writer, as it does
+            # for a harness that stopped reading.
+            hold = os.environ.get("FAKE_ASK_HOLDS_STDIN")
+            if hold and "".join(b.get("text", "") for b in params.get("prompt", [])).startswith("ask:"):
+                import time as clock  # main() binds `time` locally
+                while not os.path.exists(hold):
+                    clock.sleep(0.02)
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))
         elif rid is not None:
