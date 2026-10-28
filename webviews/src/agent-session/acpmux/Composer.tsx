@@ -91,7 +91,12 @@ import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion }
 import { useHeaderState } from "./header/headerState";
 import { queuePauseReason } from "./queuePause";
 import { stopTurnFromAction } from "./stopTurnAction";
-import { composerPlusRegistry, composerPlusSections, runComposerPlusAction } from "./composerPlusRegistry";
+import {
+  composerPlusRegistry,
+  composerPlusSections,
+  runComposerPlusAction,
+  type ComposerPlusExtension,
+} from "./composerPlusRegistry";
 import { openPicker } from "./pickerOpeners";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -269,6 +274,10 @@ type Props = {
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
   searchFiles?: FileSearchSource;
+  /// Live tools, chats and tabs from the existing command-palette registry.
+  plusExtensions?: readonly ComposerPlusExtension[];
+  /// Runs a host-provided command-palette action from the + menu.
+  onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
@@ -363,6 +372,8 @@ export function Composer({
   onImportFile,
   searchFiles,
   capture,
+  plusExtensions,
+  onPlusCommand,
   upload,
   localPaths,
   onProject,
@@ -1883,6 +1894,7 @@ export function Composer({
                     composerPlusRegistry({
                       commands,
                       translate: t,
+                      extensions: plusExtensions,
                       canCapture: Boolean(capture && allowImages),
                       canChooseProject: locationVisible && Boolean(projectChoices || onBrowseProject),
                       ...(planChoice && plan
@@ -1956,6 +1968,7 @@ export function Composer({
                                 else if (action === "searchFiles") setFindingFiles(true);
                                 else if (action === "composer.commands") openCommands();
                               },
+                              extension: onPlusCommand,
                               slash: pickFromPlus,
                             });
                           },

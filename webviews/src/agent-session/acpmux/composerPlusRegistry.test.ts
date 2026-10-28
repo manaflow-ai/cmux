@@ -26,6 +26,7 @@ test("the plus registry exposes the Add and Files sections in command order", ()
   ]);
   expect(rows.at(-1)?.name).toBe("Files and chats");
   expect(rows.every((row) => row.icon && row.description && row.action)).toBe(true);
+  expect(rows.find((row) => row.id === "add.files")?.description).toBe("Attach files or folders as context");
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {
@@ -129,6 +130,21 @@ test("the same registry action reaches the composer handler with its exact plan 
     }),
   ).toBe(true);
   expect(calls).toEqual(["composer.planMode:claude-plan"]);
+});
+
+test("host palette actions dispatch through the extension handler", () => {
+  const calls: string[] = [];
+  expect(
+    runComposerPlusAction(
+      { kind: "command", id: "palette.openBrowser" },
+      {
+        command: () => calls.push("command"),
+        extension: (id) => calls.push(id),
+        slash: () => calls.push("slash"),
+      },
+    ),
+  ).toBe(true);
+  expect(calls).toEqual(["palette.openBrowser"]);
 });
 
 test("unknown actions cannot silently close the + menu", () => {
