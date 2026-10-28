@@ -3967,16 +3967,73 @@ mod tests {
         assert!(!target.path().join("sessions").exists());
     }
 
+    /// `/bin/sh -c script` in its own process group, as the mux owner starts.
+    #[cfg(unix)]
+    fn spawn_detached_shell(script: &str) -> Child {
+        let mut command = Command::new("/bin/sh");
+        command.arg("-c").arg(script);
+        configure_detached_process(&mut command);
+        command.spawn().unwrap()
+    }
+
+    /// A mux owner that exits says why, from its own last log line: a session
+    /// another daemon owns names the way out instead of only the log path.
+    #[cfg(unix)]
+    #[test]
+    fn owner_that_exits_on_an_owned_session_says_the_session_is_in_use() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        fs::write(&log, "cmux-tui: an older run's line\n").unwrap();
+        let mut child = spawn_detached_shell(&format!(
+            "echo 'cmux-tui: workspace session is already owned by another daemon: /s/main-1f.lock: try_lock failed' >> '{}'; exit 1",
+            log.display()
+        ));
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_secs(10),
+            "remote mux owner",
+            &log,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("in use by another cmux daemon"), "{error}");
+        assert!(error.contains("--session"), "{error}");
+        assert!(error.contains(&log.display().to_string()), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn owner_that_exits_names_its_last_log_line() {
+        let directory = tempfile::tempdir().unwrap();
+        let socket = directory.path().join("missing.sock");
+        let log = directory.path().join("daemon.log");
+        let mut child = spawn_detached_shell(&format!(
+            "echo 'cmux-tui: cannot open session \"main\": its saved state is incompatible' >> '{}'; exit 1",
+            log.display()
+        ));
+
+        let error = wait_for_detached_socket(
+            &mut child,
+            &socket,
+            Duration::from_secs(10),
+            "remote mux owner",
+            &log,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("its saved state is incompatible"), "{error}");
+    }
+
     #[cfg(unix)]
     #[test]
     fn timed_out_detached_child_is_killed_and_reaped() {
         let directory = tempfile::tempdir().unwrap();
         let socket = directory.path().join("missing.sock");
         let log = directory.path().join("daemon.log");
-        let mut command = Command::new("/bin/sleep");
-        command.arg("30");
-        configure_detached_process(&mut command);
-        let mut child = command.spawn().unwrap();
+        let mut child = spawn_detached_shell("exec /bin/sleep 30");
         let pid = child.id() as libc::pid_t;
 
         let error = wait_for_detached_socket(
