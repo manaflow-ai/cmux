@@ -118,8 +118,23 @@ import Testing
         withExtendedLifetime(observer) {}
     }
 
-    /// On the real main run loop with no input pending: a classed run-loop block runs in its callout and posts from
-    /// any thread run in their arrival turns, each class in its FIFO order.
+    /// An off-main input post counts as pending input from its post until it runs on the main run loop; visible work
+    /// posted meanwhile yields to it and runs after.
+    @Test func anOffMainInputPostIsPendingInputUntilItRuns() {
+        let rig = ClassedRig()
+        let log = ClassedLog()
+        rig.work.postFromAnyThread(class: .input, owner: rig.work.board.owner("any-thread")) { log.entries.append("input") }
+        #expect(rig.work.board.pendingInputCount == 1)
+        rig.work.post(.visible, owner: "visible") { log.entries.append("visible") }
+        spinMainRunLoop { log.entries == ["input"] }
+        #expect(log.entries == ["input"])
+        #expect(rig.work.board.pendingInputCount == 0)
+        rig.turns.runAll()
+        #expect(log.entries == ["input", "visible"])
+    }
+
+    /// On the real main run loop with no input pending: a classed run-loop block runs in its callout and off-main posts
+    /// (`postFromAnyThread`, made here on main) run in their arrival turns, each class in its FIFO order.
     @Test func runLoopBlocksAndAnyThreadPostsRunOnTheMainRunLoop() {
         let rig = ClassedRig()
         let log = ClassedLog()
