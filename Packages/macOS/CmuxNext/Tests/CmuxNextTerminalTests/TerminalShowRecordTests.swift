@@ -13,6 +13,8 @@ import Testing
 @MainActor @Suite(.serialized, .enabled(if: TypingFrameProbe.hooksEveryLayer, "renderer-owned frames set no layer contents"))
 struct TerminalShowRecordTests {
     nonisolated final class ShownLayer: CALayer {}
+    /// Its own class: the hook is installed once per layer class, with one gate (TypingFrameProbe.installed).
+    nonisolated final class ClearedLayer: CALayer {}
 
     @Test func theFirstFrameAfterTheUnpauseIsRecordedOnce() {
         let gate = TerminalContentsGate()
@@ -73,7 +75,7 @@ struct TerminalShowRecordTests {
 
     /// Clearing the layer (a purged held frame: `contents = nil`) is no frame: the pane shows nothing yet.
     @Test func clearedContentsAreNoFrame() throws {
-        let layer = ShownLayer()
+        let layer = ClearedLayer()
         let gate = TerminalContentsGate()
         TypingFrameProbe.install(on: layer, gate: gate)
         let clock = TestClock(100)
