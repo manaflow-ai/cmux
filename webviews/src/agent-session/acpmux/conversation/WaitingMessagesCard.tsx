@@ -72,10 +72,10 @@ export function WaitingMessagesCard({
   return (
     <div className="cv-waiting" data-open={open || undefined} data-delivery={waiting.delivery}>
       {/* Find counts the messages' text, not the head's names. */}
-      <div className="cv-waiting__line" data-find-skip="">
+      <div className="cv-received__line cv-waiting__line" data-find-skip="">
         <button
           type="button"
-          className="cv-waiting__toggle"
+          className="cv-received__toggle cv-waiting__toggle"
           aria-expanded={open}
           aria-controls={bodyId}
           title={senders.join(", ")}

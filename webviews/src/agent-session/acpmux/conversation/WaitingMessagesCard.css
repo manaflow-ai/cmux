@@ -1,34 +1,18 @@
-/* Several other sessions' waiting messages as one card (WaitingMessagesCard.tsx): its head is one
-   26px line in the received line's place and type, in `.cv-received`'s 2px margins (model.ts
-   estimates that): the chevron in the icon column, the count, the senders muted and cut with an
-   ellipsis (none in a narrow pane), the quiet delivery note at the end. Open, the messages sit under it, each as its own
-   received card in its own place (an indent would push a steer's line, its hover actions and its
-   note past a narrow pane's edge). Never an opaque or bordered box, and nothing animates in: only
-   the chevron turns (`.cv-rotor`). */
+/* Several other sessions' waiting messages as one card (WaitingMessagesCard.tsx): its head is a
+   received line (`.cv-received__line` and its toggle, conversation.css: 26px, the note's gutter),
+   in `.cv-received`'s 2px margins (model.ts estimates that): the chevron in the icon column, the
+   count, the senders muted and cut with an ellipsis (none in a narrow pane), the quiet delivery
+   note at the end. Open, the messages sit under it, each as its own received card in its own place
+   (an indent would push a steer's line, its hover actions and its note past a narrow pane's edge).
+   Never an opaque or bordered box, and nothing animates in: only the chevron turns (`.cv-rotor`). */
 .cv-waiting {
   margin: 2px 0;
 }
 .cv-waiting__line {
   container-type: inline-size;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-  height: 26px;
-  padding-right: 28px;
-  color: var(--cv-text-dim);
-  white-space: nowrap;
-  user-select: none;
 }
-.cv-waiting__toggle {
-  all: unset;
-  display: inline-flex;
-  flex: 1;
-  align-items: center;
+.cv-received__toggle.cv-waiting__toggle {
   gap: 8px;
-  min-width: 0;
-  height: 26px;
-  cursor: pointer;
 }
 .cv-waiting__icon {
   display: flex;
@@ -57,15 +41,6 @@
   .cv-waiting__senders {
     display: none;
   }
-}
-.cv-waiting__toggle:hover,
-.cv-waiting__toggle:focus-visible {
-  color: var(--cv-text);
-}
-.cv-waiting__toggle:focus-visible {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
-  outline-offset: 1px;
-  border-radius: 4px;
 }
 .cv-waiting__messages[hidden] {
   display: none;
