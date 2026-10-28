@@ -534,6 +534,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     #[cfg(target_os = "linux")]
     tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
 
+    #[cfg(all(unix, feature = "tailnet"))]
+    let tailnet = crate::tailnet::embedded_service::Service::spawn(hub.clone());
     let shutdown = async {
         #[cfg(unix)]
         {
@@ -554,6 +556,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         _ = shutdown => {}
     }
     tracing::info!("shutting down");
+    #[cfg(all(unix, feature = "tailnet"))]
+    tailnet.shutdown().await;
     // A node a person started closes with the daemon; its saved login stays.
     // The controller is made here if no request made it (it holds no node
     // until a start), so a start racing this shutdown is refused either way.
