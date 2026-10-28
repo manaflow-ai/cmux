@@ -74,7 +74,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         }
         const projects = popup.locator('[role="option"]:has(.acpmux-location-row)');
         expect(await projects.count()).toBe(3);
-        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup);
+        await reachable(projects.last(), popup.locator(".ui-combobox-viewport"), popup, false);
         await contained(page, popup);
         expect(await page.getByRole("button", { name: "Folder", exact: true }).getAttribute("aria-expanded")).toBe("true");
       } finally {
@@ -97,7 +97,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         expect(await gpu.count()).toBe(1);
         expect(await gpu.locator('[data-connected="true"]').count()).toBe(1);
         expect(await gpu.locator("kbd").innerText()).toBe("⌥⌘2");
-        await reachable(gpu, popup.locator(".acpmux-location-folders"), popup);
+        await reachable(gpu, popup.locator(".acpmux-location-folders"), popup, false);
         await contained(page, popup);
       } finally {
         await page.close();
@@ -152,7 +152,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
         const actions = popup.locator(".ui-combobox-pinned");
         const before = await actions.boundingBox();
         const last = popup.locator('[role="option"]').filter({ has: page.locator(`[data-path$="/project-${count}"]`) });
-        await reachable(last, popup.locator(".ui-combobox-viewport"), popup);
+        await reachable(last, popup.locator(".ui-combobox-viewport"), popup, false);
         expect(await actions.boundingBox()).toEqual(before);
         await contained(page, popup);
       } finally {
