@@ -199,3 +199,7 @@ fn produce(surface: &Weak<Surface>, requested: u64) -> bool {
         .is_some_and(|mux| pty.frame_requests.flush_scroll(&mux, pty.event_surface_id));
     built || colors_pending || scrolled
 }
+
+#[cfg(test)]
+#[path = "frame_producer_tests.rs"]
+mod tests;
