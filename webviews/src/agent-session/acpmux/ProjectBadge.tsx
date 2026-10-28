@@ -15,7 +15,7 @@ export function projectKind(project: Pick<Project, "cwd" | "peer" | "host">): Pr
 
 /// The project's own icon when the host finds one on this Mac (projectIcon.ts: its GitHub owner's
 /// avatar, else an icon file in the folder or its repository), else its framework's or language's
-/// mark, else a plain folder; an icon WebKit cannot draw falls back to the mark or the folder too.
+/// mark; an icon WebKit cannot draw falls back to the mark or a quiet monogram.
 /// If there is no icon, use a quiet monogram with no tile; never repeat a generic folder tile.
 export function ProjectBadge({ project }: { project: Project }) {
   const kind = projectKind(project);

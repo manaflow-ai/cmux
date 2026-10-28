@@ -26,7 +26,7 @@ type Row = { key: string; project?: Project };
 const NO_PROJECT_KEY = "\u0000none";
 const rowKey = (project: Project) => (project.peer ? `${project.peer}\u0000${project.cwd}` : project.cwd);
 
-/// The project pill on the composer's tray: it opens a menu above the tray with a search field over the
+/// The project pill on the composer's tray: it opens a menu below the tray with a search field over the
 /// projects the user has chats in, newest first. Picking one other than the current
 /// project starts a new chat there. The search field keeps focus; arrows move the
 /// highlight, Enter picks and Escape closes back to the pill.
