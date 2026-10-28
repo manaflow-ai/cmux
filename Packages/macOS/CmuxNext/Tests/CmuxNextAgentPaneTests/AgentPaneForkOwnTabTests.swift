@@ -38,7 +38,7 @@ struct AgentPaneForkOwnTabTests {
     /// older page) uses the default destination; an unknown one uses the same default.
     @Test(arguments: [
         ("right", AgentForkDestination.right), ("left", .left), ("up", .up), ("down", .down),
-        ("tab", .tab), ("workspace", .workspace), ("window", .window), ("sideways", .default),
+        ("tab", .tab), ("workspace", .workspace), ("window", .window),
     ])
     func aForkOpensAtTheDestinationThePageNames(placement: String, destination: AgentForkDestination) async {
         let opened = Opened()
@@ -49,11 +49,12 @@ struct AgentPaneForkOwnTabTests {
         #expect(opened.destinations == [destination])
     }
 
-    @Test func aForkWithoutAPlacementUsesTheSharedDefault() async {
+    @Test(arguments: [nil, "sideways"] as [String?])
+    func aForkWithoutAPlacementUsesTheSharedDefault(placement: String?) async {
         let opened = Opened()
         let model = Self.pane(opened: opened)
         model.transport.sessions.add("fork")
-        _ = await model.respond(to: Self.openTab("fork"))
+        _ = await model.respond(to: Self.openTab("fork", placement: placement))
         #expect(opened.destinations == [.default])
     }
 
