@@ -98,6 +98,8 @@ import Testing
         return (directory, SingleInstanceGuard.ownerURL(lockURL: directory.appending(path: "instance.lock")))
     }
 
+    private typealias Identity = SingleInstanceGuard.Identity
+
     /// Nightly proof, 2026-10-27: the bundle id resolved to an older copy (`/Users/Shared/.../cmux NEXT DAILY.app`,
     /// no guard) while another copy held the claim; `open -b` started the older one, whose Chromium failed. The
     /// helper goes to the path the claim's owner recorded, whatever the bundle id resolves to.
@@ -105,12 +107,12 @@ import Testing
         let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let running = SingleInstanceGuard.Owner(pid: 58353, bundlePath: "/Applications/cmux NEXT.app",
-                                                executablePath: "/Applications/cmux NEXT.app/Contents/MacOS/cmux")
+        let runningIdentity = Identity(executablePath: "/Applications/cmux NEXT.app/Contents/MacOS/cmux", started: "1793137000.5")
+        let running = SingleInstanceGuard.Owner(pid: 58353, bundlePath: "/Applications/cmux NEXT.app", identity: runningIdentity)
         let launchServicesPick = "/Users/Shared/cmux-capture/dailyuse/cmux NEXT DAILY.app"
         SingleInstanceGuard.writeOwner(running, at: url)
         let resolved = try #require(SingleInstanceGuard.runningCopy(at: url, selfPID: 59556) { pid in
-            pid == 58353 ? "/Applications/cmux NEXT.app/Contents/MacOS/cmux" : "\(launchServicesPick)/Contents/MacOS/cmux"
+            pid == 58353 ? runningIdentity : Identity(executablePath: "\(launchServicesPick)/Contents/MacOS/cmux", started: "1")
         })
         #expect(resolved == running)
         let output = try helperArguments(appPath: resolved.bundlePath, urls: [try #require(URL(string: "https://maps.google.com/"))])
@@ -120,37 +122,46 @@ import Testing
         #expect(try helperArguments(appPath: resolved.bundlePath, urls: []) == "-a /Applications/cmux NEXT.app\n")
     }
 
-    /// A record that no longer names a live copy (the pid ended or now runs something else, this very process, a
-    /// missing, oversized or garbled file) resolves to nothing, so the hand-off launches nothing.
+    /// A record that no longer names a live copy (the pid ended, or was reused, even by the same executable started
+    /// later; this very process; a missing, oversized or garbled file) resolves to nothing, so nothing launches.
     @Test func anUnprovableOwnerResolvesToNothing() throws {
         let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
-        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in "/x" } == nil, "no record (owner not written yet)")
+        let identity = Identity(executablePath: "/Applications/cmux.app/Contents/MacOS/cmux", started: "1793137000.5")
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in identity } == nil, "no record (owner not written yet)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        let owner = SingleInstanceGuard.Owner(pid: 4242, bundlePath: "/Applications/cmux.app",
-                                              executablePath: "/Applications/cmux.app/Contents/MacOS/cmux")
+        let owner = SingleInstanceGuard.Owner(pid: 4242, bundlePath: "/Applications/cmux.app", identity: identity)
         SingleInstanceGuard.writeOwner(owner, at: url)
-        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in owner.executablePath } == owner)
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in identity } == owner)
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in nil } == nil, "pid ended")
-        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in "/usr/bin/vim" } == nil, "pid reused")
-        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 4242) { _ in owner.executablePath } == nil, "itself")
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in Identity(executablePath: "/usr/bin/vim", started: "1793137000.5") }
+            == nil, "pid reused by another program")
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in Identity(executablePath: identity.executablePath, started: "1793137900.1") }
+            == nil, "pid reused by another copy of the same executable")
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 4242) { _ in identity } == nil, "itself")
         try Data((owner.record + String(repeating: "x", count: 70 * 1024)).utf8).write(to: url)
-        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in owner.executablePath } == nil, "oversized")
+        #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 1) { _ in identity } == nil, "oversized")
         #expect(SingleInstanceGuard.Owner(record: "") == nil)
-        #expect(SingleInstanceGuard.Owner(record: "abc\n/a.app\n/a\n") == nil)
+        #expect(SingleInstanceGuard.Owner(record: "abc\n/a.app\n/a\n1.0\n") == nil)
+        #expect(SingleInstanceGuard.Owner(record: "42\n/a.app\n/a\n") == nil, "no start time")
         #expect(SingleInstanceGuard.Owner(record: owner.record) == owner)
     }
 
-    /// The real lookup: a pid no application has resolves to nothing; this test process, when LaunchServices
-    /// knows it as an application, resolves as an owner, and a new record replaces a longer stale one whole.
-    @Test func theLiveLookupNamesOnlyARunningApplication() throws {
-        #expect(SingleInstanceGuard.processExecutablePath(99_999_999) == nil)
+    /// The real lookups: the kernel's start time of this process is stable and a pid nobody has gets none; a pid no
+    /// application has resolves to nothing; this test process, when LaunchServices knows it as an application,
+    /// resolves as an owner, and a new record replaces a longer stale one whole.
+    @Test func theLiveLookupNamesOnlyTheRecordedProcess() throws {
+        let started = try #require(SingleInstanceGuard.processStartTime(getpid()))
+        #expect(SingleInstanceGuard.processStartTime(getpid()) == started)
+        #expect(SingleInstanceGuard.processStartTime(99_999_999) == nil)
+        #expect(SingleInstanceGuard.processIdentity(99_999_999) == nil)
         let (directory, url) = ownerFile()
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try Data(String(repeating: "stale record\n", count: 50).utf8).write(to: url)
-        guard let executable = SingleInstanceGuard.processExecutablePath(getpid()) else { return }  // a bare test runner
-        let owner = SingleInstanceGuard.Owner(pid: getpid(), bundlePath: "/Applications/cmux.app", executablePath: executable)
+        guard let identity = SingleInstanceGuard.processIdentity(getpid()) else { return }  // a bare test runner
+        #expect(identity.started == started)
+        let owner = SingleInstanceGuard.Owner(pid: getpid(), bundlePath: "/Applications/cmux.app", identity: identity)
         SingleInstanceGuard.writeOwner(owner, at: url)
         #expect(SingleInstanceGuard.runningCopy(at: url, selfPID: 0) == owner)
     }

@@ -30,27 +30,43 @@ public nonisolated struct SingleInstanceGuard: Equatable, Sendable {
         case handOff(activates: Bool)
     }
 
+    /// What proves a pid is still the copy that wrote a record: its executable and its start time. A reused pid
+    /// (even one running the same executable) has a later start time.
+    public nonisolated struct Identity: Equatable, Sendable {
+        /// The executable, symlinks resolved.
+        public var executablePath: String
+        /// The kernel's start time of the process, `seconds.microseconds`.
+        public var started: String
+
+        public init(executablePath: String, started: String) {
+            self.executablePath = executablePath
+            self.started = started
+        }
+    }
+
     /// The copy that holds the claim, as it recorded itself in `instance.owner`.
     public nonisolated struct Owner: Equatable, Sendable {
         public var pid: pid_t
         /// Its `.app` bundle: where the hand-off sends the URLs (`open -a`).
         public var bundlePath: String
-        /// Its executable (symlinks resolved): proves `pid` is still that copy.
-        public var executablePath: String
+        /// Proves `pid` is still that copy.
+        public var identity: Identity
 
-        public init(pid: pid_t, bundlePath: String, executablePath: String) {
+        public init(pid: pid_t, bundlePath: String, identity: Identity) {
             self.pid = pid
             self.bundlePath = bundlePath
-            self.executablePath = executablePath
+            self.identity = identity
         }
 
-        /// The lock file's contents: one line each for the pid, the bundle path and the executable.
-        public var record: String { "\(pid)\n\(bundlePath)\n\(executablePath)\n" }
+        /// The record's contents: one line each for the pid, the bundle path, the executable and the start time.
+        public var record: String { "\(pid)\n\(bundlePath)\n\(identity.executablePath)\n\(identity.started)\n" }
 
         public init?(record: String) {
             let lines = record.split(separator: "\n", omittingEmptySubsequences: false)
-            guard lines.count >= 3, let pid = pid_t(lines[0]), pid > 0, !lines[1].isEmpty, !lines[2].isEmpty else { return nil }
-            self.init(pid: pid, bundlePath: String(lines[1]), executablePath: String(lines[2]))
+            guard lines.count >= 4, let pid = pid_t(lines[0]), pid > 0, !lines[1].isEmpty, !lines[2].isEmpty, !lines[3].isEmpty
+            else { return nil }
+            self.init(pid: pid, bundlePath: String(lines[1]),
+                      identity: Identity(executablePath: String(lines[2]), started: String(lines[3])))
         }
     }
 
@@ -126,28 +142,43 @@ public nonisolated extension SingleInstanceGuard {
         try? Data(owner.record.utf8).blockingWrite(to: url, options: .atomic)
     }
 
-    /// The running copy recorded at `url` (``ownerURL(lockURL:)``), if its pid is alive, is not `selfPID`, and
-    /// still runs the recorded executable (a reused pid or a record from a copy that has ended is nil). Call it
-    /// off the main thread.
+    /// The running copy recorded at `url` (``ownerURL(lockURL:)``), if its pid is not `selfPID` and still has the
+    /// recorded ``Identity`` (an ended copy, or a reused pid, even one running the same executable, is nil). Call
+    /// it off the main thread.
     static func runningCopy(at url: URL, selfPID: pid_t = getpid(),
-                            executablePath: (pid_t) -> String? = SingleInstanceGuard.processExecutablePath) -> Owner? {
+                            identity: (pid_t) -> Identity? = SingleInstanceGuard.processIdentity) -> Owner? {
         guard let data = try? Data(blockingContentsOf: url), data.count <= 64 * 1024,
               let owner = Owner(record: String(decoding: data, as: UTF8.self)), owner.pid != selfPID,
-              executablePath(owner.pid) == owner.executablePath else { return nil }
+              identity(owner.pid) == owner.identity else { return nil }
         return owner
     }
 
-    /// `pid`'s executable as LaunchServices has it registered (`NSRunningApplication`, thread safe; never a
-    /// process scan), symlinks resolved; nil when no running application has that pid.
-    static func processExecutablePath(_ pid: pid_t) -> String? {
-        guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return nil }
-        return app.executableURL?.resolvingSymlinksInPath().path
+    /// `pid`'s ``Identity``: its executable as LaunchServices has it registered (`NSRunningApplication`, thread
+    /// safe) and its start time (``processStartTime(_:)``); nil when no running application has that pid. Never a
+    /// process scan: one lookup of one recorded pid.
+    static func processIdentity(_ pid: pid_t) -> Identity? {
+        guard let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated,
+              let executable = app.executableURL, let started = processStartTime(pid) else { return nil }
+        return Identity(executablePath: executable.resolvingSymlinksInPath().path, started: started)
+    }
+
+    /// `pid`'s start time from the kernel (`sysctl` `KERN_PROC_PID`, one pid), `seconds.microseconds`; nil when no
+    /// process has that pid.
+    static func processStartTime(_ pid: pid_t) -> String? {
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var name: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        guard sysctl(&name, UInt32(name.count), &info, &size, nil, 0) == 0, size > 0, info.kp_proc.p_pid == pid else { return nil }
+        let start = info.kp_proc.p_un.__p_starttime
+        return "\(start.tv_sec).\(start.tv_usec)"
     }
 
     /// This process as the claim's owner; nil when it has no executable.
     static var currentOwner: Owner? {
-        guard let executable = Bundle.main.executableURL else { return nil }
-        return Owner(pid: getpid(), bundlePath: Bundle.main.bundlePath, executablePath: executable.resolvingSymlinksInPath().path)
+        let pid = getpid()
+        guard let executable = Bundle.main.executableURL, let started = processStartTime(pid) else { return nil }
+        return Owner(pid: pid, bundlePath: Bundle.main.bundlePath,
+                     identity: Identity(executablePath: executable.resolvingSymlinksInPath().path, started: started))
     }
 
     /// This launch's lock file, nil when it is not guarded.
