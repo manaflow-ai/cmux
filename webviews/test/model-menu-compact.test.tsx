@@ -713,7 +713,7 @@ test("a switch acpmux refuses is named on the Account row", async () => {
   expect(itemsOf(menu()!).some((row) => row === "AccountCouldn’t switch account")).toBe(true);
 });
 
-test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", async () => {
+test("Cmd-Ctrl-M over the compact menu uses the same picker component as its click", async () => {
   await mount({ routes: [] });
   await open();
   expect(menu()).not.toBeNull();
@@ -723,8 +723,8 @@ test("Cmd-Ctrl-M over the compact menu opens the full picker in its place", asyn
     );
   });
   await settle();
-  expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
-  expect(menu()).toBeNull();
+  expect(menu()).not.toBeNull();
+  expect(doc().querySelector(".acpmux-mp")).toBeNull();
 });
 
 // Leo 2026-10-19: a started chat's menu drew a rail of its one harness, then offered Add harness….

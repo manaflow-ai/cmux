@@ -676,7 +676,10 @@ export function ModelPicker(props: ModelPickerProps) {
       window.removeEventListener("blur", blur);
     };
   }, [close, open]);
-  useEffect(() => registerPicker(modelText, () => showRef.current()), [modelText]);
+  useEffect(
+    () => registerPicker(modelText, () => (quick !== undefined ? setQuickOpen(true) : showRef.current())),
+    [modelText, quick],
+  );
   // The footer's harness item opens this menu: its rail is the composer's harness switcher.
   const opener = props.opener;
   const compact = quick !== undefined;
@@ -693,7 +696,8 @@ export function ModelPicker(props: ModelPickerProps) {
       // Cmd-Ctrl-M opens the picker (Lawrence 2026-10-08); typing then searches every harness.
       if (event.metaKey && event.ctrlKey && !event.altKey && event.key.toLowerCase() === "m") {
         event.preventDefault();
-        showRef.current();
+        if (quick !== undefined) setQuickOpen(true);
+        else showRef.current();
       }
     };
     window.addEventListener("keydown", key);
