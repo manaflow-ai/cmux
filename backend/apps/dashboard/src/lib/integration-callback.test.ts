@@ -31,3 +31,14 @@ test("does not route malformed or untrusted callback state", () => {
     ),
   ).toBeUndefined()
 })
+
+
+test("completion frame uses the originating team, not the dashboard search scope", () => {
+  const state = token({ team: "team_0123456789abcdef0123" })
+  const search = { state: "not-the-original-state", team: "team_abcdef0123456789abcd", code: "provider-code", installation_id: "123", setup_action: "install", error: "ignored" }
+  expect(integrationCompletionRequest(state, search)).toEqual({
+    params: { state, code: "provider-code", installation_id: "123", setup_action: "install" },
+    team: "team_0123456789abcdef0123",
+    idempotency_key: `complete:${state.slice(-40)}`,
+  })
+})

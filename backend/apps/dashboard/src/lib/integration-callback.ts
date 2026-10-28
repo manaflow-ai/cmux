@@ -24,7 +24,12 @@ export const integrationTeamHint = (state: string | undefined): string | undefin
 }
 
 export const integrationCompletionRequest = (state: string, extra: { code?: string; installation_id?: string; setup_action?: string } = {}) => ({
-  params: { state, ...extra },
+  params: {
+    state,
+    ...(extra.code ? { code: extra.code } : {}),
+    ...(extra.installation_id ? { installation_id: extra.installation_id } : {}),
+    ...(extra.setup_action ? { setup_action: extra.setup_action } : {}),
+  },
   team: integrationTeamHint(state),
   idempotency_key: `complete:${state.slice(-40)}`,
 })
