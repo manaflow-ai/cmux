@@ -1,3 +1,4 @@
+import CmuxWorkspaces
 import Foundation
 
 @MainActor
@@ -10,90 +11,69 @@ final class SurfaceResumeRunPromptBatch {
     }
 
     private(set) var stickyDecision: StickyDecision?
-    private var activePassDepth = 0
-    private var claimedAgentRestoreKeys: Set<String> = []
-    private var ownedAgentRestoreKeysByPanelID: [UUID: String] = [:]
+    private var claims = RestorePassCheckpointClaimStore()
 
     private init() {}
 
     var effectiveDecision: StickyDecision? {
-        activePassDepth > 0 ? stickyDecision : nil
+        claims.isRestoring ? stickyDecision : nil
     }
 
     /// Outcome of claiming automatic startup for one agent checkpoint.
-    enum AgentRestoreClaim: Equatable {
-        /// No restore pass is active, so the checkpoint is not tracked.
-        case unscoped
-        /// This panel owns automatic startup for the checkpoint.
-        case owner
-        /// Another panel already owns automatic startup for the checkpoint.
-        case duplicate
-    }
+    typealias AgentRestoreClaim = RestorePassCheckpointClaimStore.Claim
 
     /// Claims one agent checkpoint for the current restore pass. The first
     /// panel carrying a checkpoint owns automatic startup; every later panel
     /// with the same checkpoint is a duplicate.
     func claimAgentRestore(kind: String, sessionID: String) -> AgentRestoreClaim {
-        guard activePassDepth > 0 else { return .unscoped }
-        let key = agentRestoreKey(kind: kind, sessionID: sessionID)
-        return claimedAgentRestoreKeys.insert(key).inserted ? .owner : .duplicate
+        claims.claim(agentRestoreKey(kind: kind, sessionID: sessionID))
     }
 
     /// Releases a claim this panel took as `.owner` when the panel could not
     /// be attached, so a later panel carrying the checkpoint may start it.
     func releaseAgentRestore(kind: String, sessionID: String) {
-        guard activePassDepth > 0 else { return }
-        claimedAgentRestoreKeys.remove(agentRestoreKey(kind: kind, sessionID: sessionID))
+        claims.release(agentRestoreKey(kind: kind, sessionID: sessionID))
     }
 
     /// Associates an owned claim with the attached panel across container transfers.
     func recordAgentRestoreOwner(panelID: UUID, kind: String, sessionID: String) {
-        guard activePassDepth > 0 else { return }
-        ownedAgentRestoreKeysByPanelID[panelID] = agentRestoreKey(kind: kind, sessionID: sessionID)
+        claims.recordOwner(agentRestoreKey(kind: kind, sessionID: sessionID), panelID: panelID)
     }
 
     /// Releases only the claim this panel owned when its destination rejected it.
     func releaseAgentRestore(panelID: UUID) {
-        guard let key = ownedAgentRestoreKeysByPanelID.removeValue(forKey: panelID) else { return }
-        claimedAgentRestoreKeys.remove(key)
+        claims.release(panelID: panelID)
     }
 
     /// Builds the canonical key shared by all representations of a checkpoint.
-    private func agentRestoreKey(kind: String, sessionID: String) -> String {
+    private func agentRestoreKey(kind: String, sessionID: String) -> RestorePassCheckpointClaimStore.Checkpoint {
         let normalizedKind = kind.trimmingCharacters(in: .whitespacesAndNewlines)
-        return normalizedKind + "\u{1f}" + ManagedAgentSessionIdentity.canonicalSessionID(
+        return .init(
             kind: normalizedKind,
-            sessionID: sessionID
+            sessionID: ManagedAgentSessionIdentity.canonicalSessionID(kind: normalizedKind, sessionID: sessionID)
         )
     }
 
     /// Starts a nested restore pass and retains claims from its enclosing pass.
     func beginRestorePass() {
-        activePassDepth += 1
+        claims.beginRestorePass()
     }
 
     /// Ends a nested restore pass and clears claims when the outer pass ends.
     func endRestorePass() {
-        activePassDepth -= 1
-        if activePassDepth <= 0 {
-            activePassDepth = 0
-            stickyDecision = nil
-            claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
-            ownedAgentRestoreKeysByPanelID.removeAll()
-        }
+        claims.endRestorePass()
+        if !claims.isRestoring { stickyDecision = nil }
     }
 
     /// Records the restore prompt decision for the active pass.
     func recordDecision(_ decision: StickyDecision) {
-        guard activePassDepth > 0 else { return }
+        guard claims.isRestoring else { return }
         stickyDecision = decision
     }
 
     /// Clears the prompt decision, claims, and ownership bookkeeping.
     func reset() {
-        activePassDepth = 0
-        claimedAgentRestoreKeys.removeAll(keepingCapacity: false)
-        ownedAgentRestoreKeysByPanelID.removeAll()
+        claims.reset()
         stickyDecision = nil
     }
 }
