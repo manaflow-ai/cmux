@@ -229,7 +229,16 @@ try:
     finally:
         stop_probes()
 
-    after_sidebar = sidebar()
+    before_keys = {row.get("key") for row in before_rows}
+
+    def settled_sidebar():
+        # Creation has settled when the daemon-confirmed list holds exactly one row the launch did not have.
+        report = sidebar()
+        rows = workspace_rows(report)
+        added = [row for row in rows if row.get("key") not in before_keys]
+        return report if len(rows) == len(before_rows) + 1 and len(added) == 1 else None
+
+    after_sidebar = wait_for("Cmd-N creation to settle", settled_sidebar, timeout=30)
     after_rows = ordered(workspace_rows(after_sidebar))
     save_json("after-sidebar.json", after_sidebar)
     save_json("after-windows.json", require_result("debug.windows"))
@@ -258,7 +267,6 @@ try:
     save_json("display-probe.json", display)
     save_json("frame-strip.json", strip)
 
-    before_keys = {row.get("key") for row in before_rows}
     observed_keys = []
     for native_frame in motion_frames:
         for key in (native_frame.get("views") or {}):
@@ -280,6 +288,8 @@ try:
                                   "opacity": box[4] if len(box) > 4 else 1})
     expected_index = before_selected + 1 if args.placement == "afterCurrent" else (0 if args.placement == "top" else len(before_rows))
     first_index = positions[0]["index"] if positions else None
+    final_key = next(row.get("key") for row in after_rows if row.get("key") not in before_keys)
+    final_index = next(i for i, row in enumerate(after_rows) if row.get("key") == final_key)
     receipt = {
         "head": args.head,
         "app": args.app,
@@ -287,12 +297,14 @@ try:
         "launch_proof": launch_proof,
         "placement": args.placement,
         "before": {"workspaces": len(before_rows), "selected_index": before_selected, "rows": before_rows},
-        "after": {"workspaces": len(after_rows), "rows": after_rows, "new_keys": new_keys},
+        "after": {"workspaces": len(after_rows), "rows": after_rows, "new_keys": new_keys,
+                  "final_key": final_key, "final_index": final_index},
         "expected_new_index": expected_index,
         "new_row_positions": positions,
         "first_painted_index": first_index,
         "first_painted_after_current": first_index == expected_index,
         "row_stayed_at_expected_index": bool(positions) and all(p["index"] == expected_index for p in positions),
+        "final_row_at_expected_index": final_index == expected_index,
         "motion_frames": len(motion_frames),
         "display_probe": display,
         "frame_strip": strip,
@@ -303,6 +315,10 @@ try:
     save_json("receipt.json", receipt)
     if not positions or first_index != expected_index or any(p["index"] != expected_index for p in positions):
         raise RuntimeError(f"first painted row index {first_index}; expected {expected_index}")
+    if final_key not in observed_keys:
+        raise RuntimeError(f"final new row {final_key} never painted during the capture")
+    if final_index != expected_index:
+        raise RuntimeError(f"final new row index {final_index}; expected {expected_index}")
     print(json.dumps({"ok": True, "receipt": str(OUT / "receipt.json"), "first_painted_index": first_index,
                       "expected_index": expected_index, "motion_frames": len(motion_frames)}, sort_keys=True))
 finally:
