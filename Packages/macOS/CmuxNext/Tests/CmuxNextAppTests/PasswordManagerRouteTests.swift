@@ -5,25 +5,50 @@ import CmuxNextDaemon
 import Foundation
 import Testing
 
-/// cx-d0d.76, decision CHROME-INTERNAL-PAGES P4: Chromium's own password
-/// manager (`chrome://password-manager`, `chrome://settings/passwords`)
-/// exports passwords past `browser.passwords.allowExport`, so a person's
-/// path there opens cmux's Passwords page instead, as `chrome://settings`
-/// opens Settings. Runs the app's action registry against a same-tree
-/// cmux-tui daemon, as New Browser Tab with a URL reaches it.
+/// Settings > Browser > Autofill and passwords (Lawrence 2026-10-28: "use native chrome UIs and
+/// functionality for both of them"): the person's password manager and contact info are Chromium's
+/// own pages, in a Chromium tab of the browser profile, backed by the same stores the save prompt
+/// and autofill write. `chrome://password-manager` and `chrome://settings/passwords` load
+/// Chromium's page (they no longer open a cmux page), Manage Passwords and Manage Addresses open
+/// it in the profile they name, and the palette's Passwords opens Chromium's page too. Runs the
+/// app's action registry against a same-tree cmux-tui daemon, as the palette and the Settings
+/// page reach it.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(2)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct PasswordManagerRouteTests {
     @Test(arguments: ["chrome://password-manager/passwords", "chrome://settings/passwords"])
-    func chromiumsPasswordManagerOpensCmuxsPasswordsPage(_ address: String) async throws {
+    func chromiumsPasswordManagerOpensInAChromiumTab(_ address: String) async throws {
         try await Self.withApp { services, _ in
             let invocation = ActionInvocation(arguments: ["url": .string(address)])
             #expect(services.registry.perform("openBrowser", invocation: invocation))
-            // A store page tab, or an app-only one while the daemon cannot hold page tabs yet.
-            try await Self.until({ services.pages.window(showing: .passwords, windows: services.windows.controllers) != nil },
-                                 report: { WindowStateReport.describe(services, page: .passwords) })
-            #expect(!Self.tabs(services).contains { $0.url?.contains("password") == true && $0.page == nil },
-                    "Chromium's password manager opened in a browser tab")
+            try await Self.until({ Self.chromiumTab(services, address) != nil },
+                                 report: { "tabs: \(Self.tabs(services).map { "\($0.url ?? "-") \($0.browserEngine ?? "-")" })" })
         }
+    }
+
+    @Test(arguments: [("browserProfile.managePasswords", "chrome://password-manager/passwords"),
+                      ("browserProfile.manageAddresses", "chrome://settings/addresses")])
+    func manageOpensChromiumsPageInTheProfile(_ action: String, _ address: String) async throws {
+        try await Self.withApp { services, _ in
+            let profile = try #require(services.browserProfiles.ordered.first)
+            #expect(services.registry.descriptor(for: ActionID(action)) != nil, "\(action) is not an action")
+            let invocation = ActionInvocation(target: ActionTargetRef(kind: .browserProfile, id: profile.id), origin: .user)
+            #expect(services.registry.perform(ActionID(action), invocation: invocation))
+            try await Self.until({ Self.chromiumTab(services, address).map(services.browserProfiles.profileID(ofTab:)) == profile.id },
+                                 report: { "tabs: \(Self.tabs(services).map { "\($0.url ?? "-") \($0.browserEngine ?? "-")" })" })
+        }
+    }
+
+    @Test func palettePasswordsOpensChromiumsPasswordManager() async throws {
+        try await Self.withApp { services, _ in
+            #expect(services.registry.perform("passwords.open"))
+            try await Self.until({ Self.chromiumTab(services, "chrome://password-manager/passwords") != nil },
+                                 report: { "tabs: \(Self.tabs(services).map { "\($0.url ?? "-") \($0.browserEngine ?? "-")" })" })
+        }
+    }
+
+    /// A Chromium tab whose address is `address` (or a page under it, as Chromium redirects).
+    static func chromiumTab(_ services: AppServices, _ address: String) -> TabModel? {
+        tabs(services).first { $0.browserEngine == BrowserEngineTag.cef.rawValue && ($0.url?.hasPrefix(address) ?? false) }
     }
 
     static func tabs(_ services: AppServices) -> [TabModel] {
