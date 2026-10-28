@@ -15,42 +15,52 @@ struct CloudHandoffTurnOpenerTests {
         CloudHandoffTurn(id: Self.id, sessionId: session, machine: machine, turn: turn, state: state, status: status)
     }
 
-    /// Runs the opener against a scripted store: `made` answers the create, `begun` the turn's begin.
-    private func open(_ made: CloudHandoffTurn, begun: CloudHandoffTurn? = nil) async throws -> (turn: Int?, begins: [Int]) {
+    /// Runs the opener against a scripted store: `made` answers the create, `begun` each begin in turn.
+    private func open(_ made: CloudHandoffTurn, begun: [CloudHandoffTurn] = []) async throws -> (opened: CloudHandoffTurnOpener.Opened, begins: [Int]) {
         var begins: [Int] = []
         let opened = try await CloudHandoffTurnOpener.open(session: "s-1", machine: "vm_a", make: { _, _ in made }, begin: { _, after in
             begins.append(after)
-            return try #require(begun)
+            return try #require(begun.count >= begins.count ? begun[begins.count - 1] : nil)
         })
-        return (opened?.number, begins)
+        return (opened, begins)
     }
 
     @Test func aNewHandoffsFirstTurnIsNamed() async throws {
         let opened = try await open(view(turn: 1, status: "starting"))
-        #expect(opened.turn == 1)
+        #expect(opened.opened == .turn(id: Self.id, number: 1))
         #expect(opened.begins.isEmpty)
     }
 
     @Test func aTurnThatEndedBeginsTheNext() async throws {
         for status in ["done", "failed", "cancelled"] {
-            let opened = try await open(view(turn: 3, status: status), begun: view(turn: 4, status: "starting"))
-            #expect(opened.turn == 4, "\(status)")
+            let opened = try await open(view(turn: 3, status: status), begun: [view(turn: 4, status: "starting")])
+            #expect(opened.opened == .turn(id: Self.id, number: 4), "\(status)")
             #expect(opened.begins == [3])
         }
     }
 
-    @Test func aRunningTurnAClosedHandoffOrAnotherMachineNamesNone() async throws {
-        #expect(try await open(view(turn: 2, status: "running")).turn == nil)
-        #expect(try await open(view(turn: 2, status: "needs-you")).turn == nil)
-        #expect(try await open(view(turn: 2, status: "done", state: "closed")).turn == nil)
-        #expect(try await open(view(turn: 1, status: "starting", machine: "vm_b")).turn == nil)
+    @Test func aRunningTurnAClosedHandoffOrAnotherMachineNamesNoneAndSaysWhy() async throws {
+        #expect(try await open(view(turn: 2, status: "running")).opened == .refused("handoff.turn_running"))
+        #expect(try await open(view(turn: 2, status: "needs-you")).opened == .refused("handoff.turn_running"))
+        #expect(try await open(view(turn: 2, status: "done", state: "closed")).opened == .refused("handoff.closed"))
+        #expect(try await open(view(turn: 1, status: "starting", machine: "vm_b")).opened == .refused("handoff.conflict"))
     }
 
     @Test func aBeginAnotherDeviceWonIsNamedOnlyWhileItHasNotRun() async throws {
         var conflict = view(turn: 5, status: "starting")
         conflict.refusal = "handoff.turn_conflict"
-        #expect(try await open(view(turn: 4, status: "done"), begun: conflict).turn == 5)
-        #expect(try await open(view(turn: 4, status: "done"), begun: view(turn: 5, status: "running")).turn == nil)
+        #expect(try await open(view(turn: 4, status: "done"), begun: [conflict]).opened == .turn(id: Self.id, number: 5))
+        #expect(try await open(view(turn: 4, status: "done"), begun: [view(turn: 5, status: "running")]).opened == .refused("handoff.turn_running"))
+    }
+
+    @Test func aTurnAnotherDeviceBeganAndFinishedBeginsTheOneAfter() async throws {
+        var ended = view(turn: 5, status: "done")
+        ended.refusal = "handoff.turn_conflict"
+        let opened = try await open(view(turn: 4, status: "done"), begun: [ended, view(turn: 6, status: "starting")])
+        #expect(opened.opened == .turn(id: Self.id, number: 6))
+        #expect(opened.begins == [4, 5])
+        // A begin that answers no newer turn names none.
+        #expect(try await open(view(turn: 4, status: "done"), begun: [view(turn: 4, status: "done")]).opened == .refused("handoff.turn_conflict"))
     }
 
     @Test func theStoresHandoffIsReadAndItsMachineTokenIsNot() throws {

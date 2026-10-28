@@ -12,12 +12,20 @@ public nonisolated enum AgentPaneHandoffPrompt {
     public static let prefix = "handoff-"
 
     /// The prompt's own id: `id` without a hand-off turn's `handoff-<turn>-`, else `id` as it is.
+    /// One label only: an id under two (`handoff-1-handoff-2-x`) is its own id as it is, so a ticket
+    /// for `handoff-2-x` never allows it.
     public static func ownID(_ id: String) -> String {
-        guard id.hasPrefix(prefix) else { return id }
+        guard let own = stripped(id), stripped(own) == nil else { return id }
+        return own
+    }
+
+    /// `id` without its `handoff-<turn>-`, or nil when it names no turn.
+    private static func stripped(_ id: String) -> String? {
+        guard id.hasPrefix(prefix) else { return nil }
         let rest = id.dropFirst(prefix.count)
-        guard let dash = rest.firstIndex(of: "-") else { return id }
+        guard let dash = rest.firstIndex(of: "-") else { return nil }
         let turn = rest[..<dash], own = rest[rest.index(after: dash)...]
-        guard (1...15).contains(turn.count), turn.first != "0", turn.allSatisfy({ $0.isASCII && $0.isNumber }), !own.isEmpty else { return id }
+        guard (1...15).contains(turn.count), turn.first != "0", turn.allSatisfy({ $0.isASCII && $0.isNumber }), !own.isEmpty else { return nil }
         return String(own)
     }
 }

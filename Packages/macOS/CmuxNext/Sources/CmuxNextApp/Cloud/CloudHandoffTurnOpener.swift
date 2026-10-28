@@ -34,11 +34,13 @@ struct CloudHandoffTurnOpener {
     /// The page's reply: `{turn}`, or a refusal code.
     func reply(session: String, machine: String, host: String?) async -> [String: Any] {
         do {
-            guard let turn = try await Self.open(session: session, machine: machine, client: ownerClient()) else {
-                return AgentPaneReply.failure(code: "handoff.turn_running", message: "handoff.turn_running")
+            switch try await Self.open(session: session, machine: machine, client: ownerClient()) {
+            case .turn(let id, let number):
+                services.agentTabs.pageChats.handoffNotices?.watch(handoff: id, session: session, host: host)
+                return AgentPaneReply.success(["turn": number])
+            case .refused(let code):
+                return AgentPaneReply.failure(code: code, message: code)
             }
-            services.agentTabs.pageChats.handoffNotices?.watch(handoff: turn.id, session: session, host: host)
-            return AgentPaneReply.success(["turn": turn.number])
         } catch {
             services.cloud.logger.error("hand-off turn not opened: \(CloudStrings.errorText(error), privacy: .public)")
             let code = Self.storeCode(error) ?? "handoff.unavailable"
@@ -46,10 +48,18 @@ struct CloudHandoffTurnOpener {
         }
     }
 
+    /// What ``open(session:machine:client:)`` found: the turn a prompt names, or why none.
+    enum Opened: Equatable {
+        case turn(id: String, number: Int)
+        /// `handoff.conflict` (the session's hand-off is on another machine), `handoff.closed`,
+        /// `handoff.turn_running` (a turn runs or waits for the person) or `handoff.turn_conflict`
+        /// (other devices kept beginning turns).
+        case refused(String)
+    }
+
     /// The turn a prompt of `session` on `machine` names: the session's hand-off is made or read, then
-    /// its current turn is named when it has not run yet, or the next one begins once it ended. Nil
-    /// while a turn runs or waits for the person, or when the hand-off is closed.
-    static func open(session: String, machine: String, client: CloudOwnerAPIClient) async throws -> (id: String, number: Int)? {
+    /// its current turn is named when it has not run yet, or the next one begins once it ended.
+    static func open(session: String, machine: String, client: CloudOwnerAPIClient) async throws -> Opened {
         try await open(session: session, machine: machine,
                        make: { try await client.handoffOpen(session: $0, machine: $1) },
                        begin: { try await client.handoffBeginTurn($0, after: $1) })
@@ -58,21 +68,27 @@ struct CloudHandoffTurnOpener {
     /// ``open(session:machine:client:)`` over its two calls (tests stand in for the store).
     static func open(session: String, machine: String,
                      make: (String, String) async throws -> CloudHandoffTurn,
-                     begin: (String, Int) async throws -> CloudHandoffTurn) async throws -> (id: String, number: Int)? {
-        let handoff = try await make(session, machine)
+                     begin: (String, Int) async throws -> CloudHandoffTurn) async throws -> Opened {
+        var handoff = try await make(session, machine)
         // One hand-off per session, made with this machine: one on another machine (a chat moved
         // since) is not this chat's turn to name.
-        guard handoff.sessionId == session, handoff.machine == machine else { return nil }
-        switch handoff.next {
-        case .name(let turn): return (handoff.id, turn)
-        case .none: return nil
-        case .begin(let after):
-            let begun = try await begin(handoff.id, after)
-            // Another device began the next turn first (`turn_conflict`): it is named while it has
-            // not run yet, as a repeat of the same begin is.
-            guard case .name(let turn) = begun.next, begun.id == handoff.id, turn > after else { return nil }
-            return (begun.id, turn)
+        guard handoff.sessionId == session, handoff.machine == machine else { return .refused("handoff.conflict") }
+        // Another device may begin (and even finish) the next turn first (`turn_conflict` answers
+        // the hand-off as it is): its turn is named while it has not run yet, and one that already
+        // ended begins the one after. A few tries, then the prompt goes unnamed.
+        for _ in 0..<3 {
+            switch handoff.next {
+            case .name(let turn): return .turn(id: handoff.id, number: turn)
+            case .none: return .refused(handoff.state == "closed" ? "handoff.closed" : "handoff.turn_running")
+            case .begin(let after):
+                let begun = try await begin(handoff.id, after)
+                guard begun.id == handoff.id, begun.sessionId == session, begun.machine == machine, begun.turn > after else {
+                    return .refused("handoff.turn_conflict")
+                }
+                handoff = begun
+            }
         }
+        return .refused("handoff.turn_conflict")
     }
 
     /// Why no hand-off turn opens at all now: Cloud off by policy, Labs off, or not signed in (the
