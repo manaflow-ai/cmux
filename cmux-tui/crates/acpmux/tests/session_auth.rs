@@ -37,8 +37,11 @@ fn hub(root: &Path) -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE], "family": "claude"},
-            // A harness whose own check passes only in the env its preset `checked-two` sets.
+            // A harness whose own check passes only in the env its preset `checked-two` or the
+            // chat's own env sets.
             "checked": {"argv": ["python3", FAKE], "family": "plain"},
+            // A profile whose own route `acct` (an account home) its chats spawn on.
+            "acct": {"argv": ["python3", FAKE], "family": "claude", "env": {"ACPMUX_PROFILE_ROUTE": "acct"}},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
@@ -50,7 +53,9 @@ fn hub(root: &Path) -> Arc<Hub> {
         "autoResumeDelaysMs": [],
     }))
     .unwrap();
-    let check = ["sh", "-c", "test \"$WHO\" = two"].map(String::from).to_vec();
+    let check = ["sh", "-c", "test \"$WHO\" = two || test -n \"$CMUX_WORKSPACE_ID\""]
+        .map(String::from)
+        .to_vec();
     let auth = AuthNotes { check, ..Default::default() };
     cfg.profile_meta
         .insert("checked".into(), ProfileMeta { auth: Some(auth), ..Default::default() });
@@ -210,4 +215,34 @@ async fn session_auth_checks_in_the_chats_own_env() {
     let plain = c.new_session_of("checked").await;
     let out = c.auth(json!({"sessionId": plain, "refresh": true})).await;
     assert_eq!(state(&out), ("signedOut", "authCheck"), "{out}");
+    // The chat's own env (`_meta.acpmux.env`) is in its check's env too, as at its spawn.
+    let workspace = "0b3c5d1e-2f40-4a6b-8c9d-0e1f2a3b4c5d";
+    let meta = json!({"harness": "checked", "env": {"CMUX_WORKSPACE_ID": workspace}});
+    let own = c.new_session_with(meta).await;
+    let out = c.auth(json!({"sessionId": own, "refresh": true})).await;
+    assert_eq!(state(&out), ("ready", "authCheck"), "{out}");
+}
+
+/// A chat whose profile names its own route (`ACPMUX_PROFILE_ROUTE`) is reported on that
+/// route and signs in to its account home, as its spawn runs it.
+#[tokio::test]
+async fn session_auth_names_the_route_the_chat_spawns_on() {
+    let root = scratch("profile-route");
+    let hub = hub(&root);
+    let mut c = client(&hub);
+    let home = root.join("acct");
+    let params = json!({"id": "acct", "kind": "direct-subscription", "families": ["claude"],
+                        "accountHome": home});
+    let added = c.call("_acpmux/route/add", params).await;
+    assert!(added.get("error").is_none(), "{added}");
+    let id = c.new_session_of("acct").await;
+    c.prompt(&id, &format!("fail-streamed: {NOT_SIGNED_IN}")).await;
+    let out = c.auth(json!({"sessionId": id})).await;
+    assert_eq!(state(&out), ("signedOut", "turn"), "{out}");
+    assert_eq!(out["routeId"], "acct", "{out}");
+    assert_eq!(
+        out["login"]["command"],
+        format!("CLAUDE_CONFIG_DIR={} claude auth login", home.display()),
+        "{out}"
+    );
 }

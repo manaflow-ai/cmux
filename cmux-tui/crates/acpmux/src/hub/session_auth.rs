@@ -23,6 +23,7 @@ use crate::protocol::auth::{
     SessionAuthSource as Source, SessionAuthState as State,
 };
 use crate::{route_account, routes};
+use std::collections::BTreeMap;
 
 /// A chat's sign-in as one of its turns showed it.
 #[derive(Debug, Clone, PartialEq)]
@@ -200,11 +201,15 @@ impl Hub {
             .as_ref()
             .map(|p| crate::config::derive_family(&harness, p))
             .unwrap_or_else(|| harness.clone());
-        let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
-        let route_id = routes::bound_route(&routes::bindings(&state), &meta.id, workspace, &family)
-            .map(|(id, _)| id);
-        let route = route_id.as_ref().and_then(|id| routes::find(dir.as_deref(), id).ok());
-        let home = self.home_of(&meta, &family, route.as_ref()).await;
+        let route = route_of(
+            &routes::bindings(&state),
+            dir.as_deref(),
+            &meta,
+            &family,
+            profile.as_ref().map(|p| &p.env),
+        );
+        let route_id = route.as_ref().map(|(r, _)| r.id.clone());
+        let home = self.home_of(&meta, &family, route.as_ref().map(|(r, scope)| (r, *scope))).await;
         let var = route_account::home_var(&family);
         let mut facts = Facts {
             harness: harness.clone(),
@@ -223,9 +228,8 @@ impl Hub {
             && refresh
             && let Some(mut profile) = profile
         {
-            // The chat's own env (its preset's and its chat store's over the profile's), as
-            // its harness runs.
-            profile.env = self.harness_env(&meta).await.1;
+            // The chat's own env as its spawn builds it (`route_account::spawn_env`).
+            profile.env = route_account::spawn_env(&meta, self.harness_env(&meta).await.1);
             if let (Some(var), Some(home)) = (var, &home) {
                 profile.env.insert(var.to_owned(), home.display().to_string());
             }
@@ -239,20 +243,43 @@ impl Hub {
         Ok(facts.decide())
     }
 
-    /// The account home `meta`'s chat runs in when it is not the CLI's default: its recorded
-    /// store or its env's, else the route's for a chat that has not started.
+    /// The account home `meta`'s chat runs in when it is not the CLI's default, as its spawn
+    /// picks it on `route` (and the scope that chose it; `Hub::apply_route_for`): a chat whose
+    /// conversation has a home keeps it; else a route picked for the chat or its profile puts
+    /// its own home over a pinned one, and any other route's home applies only where nothing
+    /// pins one.
     async fn home_of(
         &self,
         meta: &SessionMeta,
         family: &str,
-        route: Option<&routes::Route>,
+        route: Option<(&routes::Route, &str)>,
     ) -> Option<PathBuf> {
         let (_, env) = self.harness_env(meta).await;
-        route_account::current_home(meta, family, &env).or_else(|| {
-            let route_home = route.and_then(|r| r.file.account_home.as_ref());
-            route_home.filter(|_| !route_account::has_home(meta)).map(PathBuf::from)
-        })
+        let pinned = route_account::current_home(meta, family, &env);
+        if route_account::has_home(meta) {
+            return pinned;
+        }
+        let picked =
+            route.filter(|(_, scope)| pinned.is_none() || matches!(*scope, "chat" | "profile"));
+        picked.and_then(|(r, _)| r.file.account_home.as_ref().map(PathBuf::from)).or(pinned)
     }
+}
+
+/// The route `meta`'s chat spawns on and the scope that chose it, as its spawn picks it
+/// (`routes::spawn_route`): only one that is there and serves the harness.
+fn route_of(
+    bindings: &routes::Bindings,
+    dir: Option<&Path>,
+    meta: &SessionMeta,
+    family: &str,
+    profile_env: Option<&BTreeMap<String, String>>,
+) -> Option<(routes::Route, &'static str)> {
+    let workspace = meta.session_env.get("CMUX_WORKSPACE_ID").map(String::as_str);
+    let no_env = BTreeMap::new();
+    let env = profile_env.unwrap_or(&no_env);
+    let (id, scope) = routes::spawn_route(bindings, &meta.id, workspace, family, env)?;
+    let route = routes::find(dir, &id).ok().filter(|r| r.serves(family))?;
+    Some((route, scope))
 }
 
 #[cfg(test)]
