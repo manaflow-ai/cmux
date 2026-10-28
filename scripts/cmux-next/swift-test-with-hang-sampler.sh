@@ -50,10 +50,7 @@ helpers="$log.helpers"
 : > "$helpers"
 # A test's name from a Swift Testing console line, and whether that line is a FINISH.
 #
-# One definition, used by the watchdog below and by report(): they are the only two readers, and
-# having a copy each is how a finish shape came to be handled by one and not the other. The
-# watchdog's copy still read a known-issue pass as unfinished after report()'s was fixed, so a
-# healthy run whose other tests kept going for stuck_limit would have been sampled and KILLED.
+# One definition for the watchdog and report(): a copy each once let them disagree.
 #
 # Every terminal line a test can get, measured against the reporter rather than assumed:
 #   ✔ Test f() passed after 0.001 seconds.
@@ -64,14 +61,9 @@ helpers="$log.helpers"
 #   ➜ Test f() skipped.
 #   ➜ Test f() was cancelled after 0.001 seconds.                  swift-testing 6.3, Test.cancel()
 #   ✔ Test f(n:) with 2 test cases passed after 0.003 seconds.     parameterized
-# Both verbs on every marker, because which marker carries which verb is the reporter's business.
-# name_of must strip each of those tails: a tail it leaves behind becomes part of the key, so the
-# finish is filed under a name no start ever used and the test reads as unfinished forever.
-#
-# Separate anchored alternatives, NEVER a bracket set: awk reads [✔✘➜━] as the set of BYTES those
-# characters are made of, and each ends in a byte another also contains, so match() lands
-# mid-character and every line matches. Anchored at the line start, so a test's own output
-# ("debug: ✔ Test hung() passed...") cannot self-report.
+# name_of strips each tail, or the finish is filed under a name no start used.
+# Anchored alternatives, NEVER a bracket set: awk reads [✔✘➜━] as a set of BYTES and every line
+# matches. Anchored, so a test's own output cannot self-report.
 names_awk='
   function name_of(line) {
     sub(/^[^ ]+ Test /, "", line)
@@ -103,17 +95,9 @@ names_awk='
     fo = first_open_run(n)
     return started[n] >= fo ? started[n] - fo + 1 : 0
   }
-  # The key a run is counted and timed under. Per RUN, not per name: the watchdog remembers when
-  # it first saw each key, so if run 2 of a name were keyed the same as run 1, it would inherit
-  # run 1 starting time and be killed for an age it never reached.
-  #
-  # A run key is the run number, a separator, then the name -- the number FIRST, and on every run
-  # including the first. A display name is whatever the author wrote, so no suffix form is safe:
-  # with readable text, run 2 of `duplicate` collided with run 1 of a test actually named
-  # `duplicate (run 2)`, and with the separator as a suffix it still collided with a name that
-  # contains the separator. As a prefix, everything up to the FIRST separator is digits this
-  # function wrote, so two different runs can never produce one key whatever the name holds.
-  # Keys are internal; run_label turns one back into words for a message.
+  # The key a run is counted and timed under, per RUN so run 2 never inherits the age of run 1:
+  # the run number, a separator, then the name. Number FIRST: a display name can hold anything,
+  # so no suffix form is collision-free. run_label turns a key back into words.
   function run_sep() {
     return sprintf("%c", 1)
   }
@@ -144,20 +128,9 @@ names_awk='
     if (at > 1 && substr(key, 1, at - 1) ~ /^[0-9]+$/) return substr(key, at + 1)
     return key
   }'
-# The bookkeeping both readers do, in one place for the same reason is_finish is: the watchdog and
-# the report must never be able to disagree about what is still running.
-#
-# Occurrences, matched in order, not a set of names. One log can hold the same test name more than
-# once (the isolated-suite step runs each suite in its own process, appending to one log). With a
-# set, run 1 finishing covered run 2 starting, so a truncation that only lost names an earlier
-# block had already run and summarized read as a pass.
-#
-# A finish only ever closes a start that is still open. A finish with no open start is ignored
-# rather than banked, which is what keeps two shapes harmless: a parameterized test prints a finish
-# per case ("✔ Test case passing 1 argument ... passed after ...") whose start line the rule below
-# deliberately skips, and a test skipped before it ran prints a "➜ ... skipped." with no start at
-# all. Banked, either could have closed a later, real run of the same name.
-#
+# The bookkeeping both readers share. Occurrences matched in order, not a set of names: one log
+# can hold the same name more than once. A finish only closes a start still open; one with no
+# open start (a parameterized case finish) is ignored, never banked for a later run.
 # A skip closes nothing: swift-testing skips a test INSTEAD of starting it, and two suites can
 # share a bare name, so suite B's skip of exportIsFresh() would close suite A's lost start (seen
 # once in 220 skips on a real log). It still counts as watchdog progress.
@@ -260,27 +233,20 @@ sample_and_kill() {
       }
     ' "$seen" "$open" > "$stuck"
     mv "$seen.next" "$seen"
-    # An open test is not a RUNNING test. swift-testing prints every test "started." as it enters
-    # the run, but SWT_EXPERIMENTAL_MAXIMUM_PARALLELIZATION_WIDTH (6 in cmux-next.yml) lets only a
-    # few execute at a time, so on this suite thousands of tests are legitimately open, and
-    # waiting, for far longer than this limit. Measured on the selected-targets step of
-    # cmux#25391 run 40313902783: 7159 started, 2003 finished, 3927 open past 300 s, and the
-    # watchdog killed the step at exit 143 with nothing wrong -- the same 3925 on the merge-base
-    # parser, so this is the premise of the check, not the accounting under it.
-    #
-    # Lack of PROGRESS is the signal that survives any width: while tests are running, finishes
-    # keep arriving, and a run that is truly stuck stops producing them. So the age of an open
-    # test only says which tests to NAME; whether the run is stuck is whether any test has
-    # finished in the last stuck_limit seconds.
-    # -E, not plain grep: the pattern is an alternation, and basic grep reads its parentheses
-    # and pipes as literal text, so it matched nothing, progress never advanced after the first
-    # poll, and the watchdog killed a run that was finishing a test every second.
+    # An open test is not a RUNNING test: swift-testing prints "started." as a test is scheduled,
+    # and width 6 lets only a few run, so thousands sit open past this limit on a healthy run
+    # (cmux#25391 run 40313902783: 3927 open past 300 s, killed with nothing wrong). The signal
+    # is PROGRESS: stuck means no test finished in stuck_limit; open ages only pick the names.
+    # grep -E: the pattern is an alternation.
     finishes=$(grep -cE "$finish_re" "$log" 2>/dev/null || true)
     finishes=${finishes:-0}
-    # With no test open (before the first starts, or after the last finishes), any output is
-    # progress; silence for the whole limit is a hang too (a helper that never exits).
+    # With no test open, any output is progress, and silence for the whole limit is a hang too
+    # (a helper that never exits after its summary). Only once a test has started: before
+    # that, output can lag minutes behind a healthy run (a broad pass printed nothing for 356 s,
+    # then its first 2,000 lines at once), so the whole-run limit is the guard there.
     size=$(wc -c < "$log" 2>/dev/null | tr -d ' ')
-    if [ "$finishes" != "$last_finishes" ] || { [ ! -s "$open" ] && [ "${size:-0}" != "$last_size" ]; }; then
+    if [ "$finishes" != "$last_finishes" ] || { [ ! -s "$open" ] && [ "${size:-0}" != "$last_size" ]; } \
+      || ! grep -q '^◇ Test ' "$log" 2>/dev/null; then
       last_progress="$now"
     fi
     last_finishes="$finishes"
@@ -343,16 +309,9 @@ report() {
       if (count > max) out = out "; and " (count - max) " more"
       return out
     }
-    # Every rule below is anchored at the start of the line, deliberately. A reporter marker found
-    # ANYWHERE on the line would read the output of a test as a reporter event too, so a test that
-    # writes "debug: ✔ Test hung() passed after 0.001 seconds." could mark itself finished and a
-    # truncated run would pass -- the one failure this whole check exists to prevent. Anchoring
-    # trades that for the opposite risk: a test that writes without a trailing newline runs its
-    # output into the next reporter line, that finish is not seen, and the start of it makes a
-    # whole run look truncated. That is a red naming the exact test rather than silence, so it is
-    # the better of the two. Measured before choosing: of ~12000 marker lines across three real job
-    # logs (a healthy run, the #23680 truncation and the live #25364 one) every one was anchored,
-    # so the run-on shape is hypothetical while the false pass defeats the gate.
+    # Every rule is anchored, so a test printing a reporter-like line cannot mark itself finished.
+    # The cost (output run on into a reporter line hides that finish) is a named red, not a pass;
+    # all ~12000 marker lines in three real job logs were anchored.
     /^✘ Test .* recorded an issue at / {
       name = name_of($0)
       if (!(name in red)) {
@@ -397,14 +356,9 @@ report() {
         }
         exit 3
       }
-      # A summary line is not proof the run was whole. The summary counts the tests that
-      # REPORTED, so a run that ends while tests are still going can still print one, and then a
-      # truncated run reads as a normal result -- or as a pass, when the tests that did report
-      # were green. Two things hold on a whole run and fail on a truncated one: every test the
-      # log shows starting also finishes, and the summaries count at least as many tests as
-      # started. Not equality: a skipped test prints no "started." line (so the summary runs
-      # ahead of the starts -- 2 starts against "3 tests" on the green fixture, and a healthy
-      # CmuxNextAppTests run measured 399 started, 399 finished, "399 tests in 80 suites").
+      # A summary counts the tests that REPORTED, so a truncated run can still print one. Whole
+      # means every start finished and the summaries count at least the starts (not equality:
+      # a skipped test prints no start).
       if (has_summary && start_count > 0) {
         if (open_count > 0 || summary_tests < start_count) {
           if (open_count > 0)

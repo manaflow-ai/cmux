@@ -659,6 +659,12 @@ STUB_SLEEP=60 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1
 grep '^::error title=cmux-next swift test stuck' <<<"$out" | grep -q 'no test open' \
   || fail "the stuck error does not say no test was open" "$out"
 
+# Before any test run has started, silence is not a hang: output has lagged minutes behind a
+# healthy pass. The whole-run limit guards that stretch, not the stall rule.
+: > "$TMP/quiet.out"
+STUB_SLEEP=5 CMUX_NEXT_TEST_STUCK_SECONDS=2 CMUX_NEXT_TEST_STUCK_POLL_SECONDS=1 run quiet 0
+[[ "$out" != *"swift test stuck"* ]] || fail "the stall rule killed a pass before any test run started" "$out"
+
 # An open test is not a RUNNING test, so age alone must never end a run. swift-testing prints
 # every test "started." as it enters the run while the parallelization width lets only a few
 # execute, so on the real suite thousands of tests sit open, and waiting, far past this limit:
