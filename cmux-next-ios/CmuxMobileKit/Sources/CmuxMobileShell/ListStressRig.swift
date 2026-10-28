@@ -87,6 +87,9 @@ final class ListStressRig: NSObject {
             FrameIntervalLog.shared.begin("\(screen)-open")
             shell.workspacesPath = [opened]
             try? await Task.sleep(for: .seconds(2.5))
+            // A main thread blocked past the window resumes here first: let the display link log
+            // that long frame before the window closes (it was dropped, so a stalled open read as 0).
+            try? await Task.sleep(for: .milliseconds(100))
             FrameIntervalLog.shared.end()
             logMemory("\(screen)-opened")
             if screen == "diff" {
