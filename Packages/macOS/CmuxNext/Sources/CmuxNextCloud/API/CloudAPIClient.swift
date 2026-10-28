@@ -1,5 +1,7 @@
 public import Foundation
 import CmuxNextCompat
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// The `/api/vm` REST client (web/app/api/vm). Native auth is
 /// `Authorization: Bearer <access>` plus `X-Stack-Refresh-Token`; the team
@@ -512,7 +514,7 @@ public struct CloudAPIClient: Sendable {
 /// group would wait for its cancelled child, so ``withDeadline`` can't promise that.
 nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private struct State {
-        var continuation: CheckedContinuation<T, any Error>?
+        var continuation: OnceContinuation<T, any Error>?
         var cancels: [@Sendable () -> Void] = []
         /// The caller was cancelled, possibly before the continuation was registered: no work starts.
         var cancelled = false
@@ -522,13 +524,13 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     static func race(_ bound: Duration, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 let cancelled = gate.state.withLock { state -> Bool in
                     if !state.cancelled { state.continuation = continuation }
                     return state.cancelled
                 }
                 // Cancelled first: answered now, and no Run is created.
-                guard !cancelled else { return continuation.resume(throwing: CancellationError()) }
+                guard !cancelled else { continuation.resume(throwing: CancellationError()); return }
                 // concurrency-allow: the race answers at the bound without awaiting this task; it is cancelled then.
                 let job = Task { do { gate.finish(.success(try await work())) } catch { gate.finish(.failure(error)) } }
                 // concurrency-allow: one-shot timer, cancelled when the work answers first.
@@ -556,7 +558,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
 
     /// The first answer wins; later ones are dropped.
     private func finish(_ result: Result<T, any Error>) {
-        let taken = state.withLock { state -> (CheckedContinuation<T, any Error>, [@Sendable () -> Void])? in
+        let taken = state.withLock { state -> (OnceContinuation<T, any Error>, [@Sendable () -> Void])? in
             guard let continuation = state.continuation else { return nil }
             state.continuation = nil
             defer { state.cancels = [] }

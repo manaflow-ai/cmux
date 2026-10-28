@@ -6,7 +6,6 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import CmuxNextRemoteView
 import CmuxNextSettings
-import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxTheme
 import Foundation

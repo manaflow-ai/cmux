@@ -58,7 +58,7 @@ import func CmuxSafeConcurrency.withOnceContinuation
     var pending: [PendingSend] = []
     var draining = false
     /// Waiting on the send line to drain (``lineDrained(within:)``).
-    var drainWaiters: [CheckedContinuation<Void, Never>] = []
+    var drainWaiters: [OnceContinuation<Void, OnceContinuationError>] = []
     /// The user's gestures in this pane; a granting frame consumes one.
     public let gestures: AgentPaneUserGestures
     /// This Mac's acpmux socket from the last handshake (the agent CLI card's update and restart).

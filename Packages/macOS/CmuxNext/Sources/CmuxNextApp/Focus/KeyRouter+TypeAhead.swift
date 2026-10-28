@@ -5,7 +5,6 @@ import CmuxNextFocusUI
 import CmuxNextPages
 import CmuxNextTerminal
 import CmuxNextFocus
-import CmuxNextFocusUI
 import CmuxNextLaunch
 
 // Typing into a screen before it can take keys (spec app-screens.md section

@@ -1,4 +1,7 @@
 import AppKit
+import class CmuxSafeConcurrency.OnceContinuation
+import enum CmuxSafeConcurrency.OnceContinuationError
+import func CmuxSafeConcurrency.withOnceContinuation
 
 // cmux: MessagesLab ced183d Host.swift's context-menu glyphs and item icons (not vendored), for
 // the pane's menu (PaneMenu.swift, PaneInteractions.swift). Differences are marked `cmux:`.
@@ -79,13 +82,14 @@ enum MenuGlyphs {
     /// A GCD utility thread, not BackgroundWork: this shared package cannot reach CmuxNextWakeups (lead, 2026-10-25).
     private static func loadArt() async -> [String: NSImage] {
         let bundle = messagesBundle, names = Array(messagesAssets.values)
-        return await withCheckedContinuation { done in
+        // An abandoned read (never: the block always resumes) leaves the art unloaded, as a missing bundle does.
+        return (try? await withOnceContinuation { (done: OnceContinuation<[String: NSImage], OnceContinuationError>) in
             DispatchQueue.global(qos: .utility).async {
                 var read: [String: NSImage] = [:]
                 for name in names { read[name] = bundle?.image(forResource: name) }
                 done.resume(returning: read)
             }
-        }
+        }) ?? [:]
     }
     /// The palette's last cell (Messages, macOS 27): the filled grinning face of the compose
     /// bar's emoji button (private `emoji.face.grinning`), white; else the public symbol.

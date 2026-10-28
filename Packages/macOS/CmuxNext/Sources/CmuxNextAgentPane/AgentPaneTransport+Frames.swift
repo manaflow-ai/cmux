@@ -205,7 +205,7 @@ extension AgentPaneTransport {
         draining = false
         let waiting = drainWaiters
         drainWaiters = []
-        for waiter in waiting { waiter.resume() }
+        for waiter in waiting { waiter.resume(returning: ()) }
     }
 
     /// Waits until the send line is empty (every frame handed over before now sent or refused), at
@@ -219,9 +219,10 @@ extension AgentPaneTransport {
             guard let self else { return }
             let waiting = self.drainWaiters
             self.drainWaiters = []
-            for waiter in waiting { waiter.resume() }
+            for waiter in waiting { waiter.resume(returning: ()) }
         }
-        await withCheckedContinuation { drainWaiters.append($0) }
+        // A dropped waiter (never: the drain or the deadline resumes it) ends the wait like the deadline.
+        _ = try? await withOnceContinuation { (waiter: OnceContinuation<Void, OnceContinuationError>) in drainWaiters.append(waiter) }
         deadline.cancel()
         return pending.isEmpty && !draining
     }

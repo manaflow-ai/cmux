@@ -21,7 +21,7 @@ public final class ChiefBrainWatch {
     private let watching: Watching?
     /// Whether a pid runs an `optchat-chief`; the tests name a stand-in process instead.
     private let isChiefHost: (pid_t) -> Bool
-    private var source: (any DispatchSourceProcess)?
+    private var source: ChiefBrainExitSource?
     /// The kernel sources that look for a host's lock while none is watched (see ``armOnLock``).
     private var lockFileSource: (any DispatchSourceFileSystemObject)?
     private var lockFolderSource: (any DispatchSourceFileSystemObject)?
@@ -83,15 +83,8 @@ public final class ChiefBrainWatch {
             }
         }
         setWatched(pid)
-        let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: .main)
-        weak let weakSelf = self
-        source.setEventHandler {
-            // The exit is handled in the source's own callout, with no second hop.
-            // main-proof: the source's queue is DispatchQueue.main, whose handlers run on the main thread.
-            MainActor.assumeIsolated { weakSelf?.exited(pid) }
-        }
-        self.source = source
-        source.resume()
+        // The exit is handled in the source's own callout, with no second hop.
+        source = ChiefBrainExitSource(pid: pid) { [weak self] pid in self?.exited(pid) }
         // An exit before the source was armed raises no event.
         if kill(pid, 0) != 0, errno == ESRCH { exited(pid) }
     }
