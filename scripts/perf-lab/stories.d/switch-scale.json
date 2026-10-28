@@ -1,0 +1,22 @@
+{
+  "id": "switch-scale",
+  "tier": "T2",
+  "description": "Every switch a person makes (space by key and swipe, screen, workspace by click, Cmd-digit, Ctrl-Cmd-] and palette, tab, pane, window, Home and back) at 10 and 1,000 workspaces of the switch-at-scale fixture in the running app (switch-scale-bench.py, a bounded live realization: all workspaces, spaces, groups and 3 windows, the hot set at full shape): input to the commit of the new content, the time a sample shows it, main-thread busy time, blank frames, missed frames, keys to the focused terminal, and the footprint over 1,000 workspace switches.",
+  "command": ["scripts/cmux-next/switch-scale-bench.py", "--workspaces", "10,1000", "--switches", "200", "--stop"],
+  "session": "stress",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "switch_scale\\.(space|space_swipe|screen|workspace_click|workspace_digit|workspace_next|workspace_palette|tab|pane|window|home)\\.[0-9]+\\.(input_to_commit|content_seen|main_busy|keys_live)", "unit": "ms", "better": "lower"},
+    {"name": "switch_scale\\.(space|space_swipe|screen|workspace_click|workspace_digit|workspace_next|workspace_palette|tab|pane|window|home)\\.[0-9]+\\.(blank_frames|missed_frames)", "unit": "count", "better": "lower"},
+    {"name": "switch_scale\\.memory\\.[0-9]+\\.footprint", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 3000,
+  "needs": ["debug:debug.workspace_switch", "debug:debug.tab_switch", "debug:debug.pane_focus", "debug:debug.frames",
+            "debug:debug.surfaces", "debug:debug.key", "debug:debug.mouse", "debug:debug.windows",
+            "file:scripts/perf-lab/corpus/stories/switch_scale.py"],
+  "owner": "Performance Lead",
+  "component": "Switch>Scale",
+  "runs": ["scripts/perf-lab/corpus/stories/switch_scale.py"]
+}
