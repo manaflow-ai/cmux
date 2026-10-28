@@ -370,6 +370,7 @@ export function AllChatsList({
   onViewOnly,
   onBring,
   now: fixedNow,
+  scrollParent,
 }: {
   load: LoadChatsPage;
   onOpen(key: string): void;
@@ -382,6 +383,8 @@ export function AllChatsList({
   /// Rows select, and the menu's Bring into Active Sessions opens the selection (cx-zlnl).
   onBring?(keys: string[]): void;
   now?: number;
+  /** New Tab scrolls the whole page; History retains its own list viewport. */
+  scrollParent?: string;
 }) {
   const t = useT();
   const nt = useNt();
@@ -658,6 +661,7 @@ export function AllChatsList({
           <div className="nt-all-scroll" onContextMenuCapture={() => (menuKey.current = undefined)}>
             <VirtualList
               className="nt-all-list"
+              scrollParent={scrollParent}
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- VirtualList's role prop, its scroller is a div
               role="list"
               label={nt("allChats")}

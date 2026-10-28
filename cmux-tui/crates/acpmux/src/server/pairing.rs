@@ -60,7 +60,7 @@ pub(super) fn admit(
             tracing::warn!("refused a pairing ticket from {from}: plain ws:// from another host");
             return Err(Refusal::WrongToken);
         }
-        if !hub.pairing.ticket_open(secret) {
+        if !hub.pairing.ticket_open(secret, hub.person.instance()) {
             return Err(Refusal::WrongToken);
         }
         return Ok(Admitted::Ticket((*secret).to_owned()));
@@ -157,7 +157,7 @@ async fn redeem(hub: &Arc<Hub>, secret: &str, params: Value) -> Result<Value, Rp
     let advertise = (text("advertiseUrl"), text("advertiseToken"));
     let taken = hub.config.read().await.peers.contains_key(&name)
         || hub.peers().iter().any(|p| p.get("name").and_then(Value::as_str) == Some(name.as_str()));
-    let redeemed = hub.pairing.redeem(secret, &name, |role| {
+    let redeemed = hub.pairing.redeem(secret, &name, hub.person.instance(), |role| {
         if role != Role::Daemon {
             return Ok(());
         }
@@ -292,8 +292,14 @@ async fn mint(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
             "a ticket is redeemed only over wss://, or ws:// to a loopback host; {url:?} is neither"
         )));
     }
-    let (ticket, record) =
-        hub.pairing.mint(role, ttl, label, url.clone(), crate::pairing::machine_name())?;
+    let (ticket, record) = hub.pairing.mint(
+        role,
+        ttl,
+        label,
+        url.clone(),
+        crate::pairing::machine_name(),
+        hub.person.instance().to_owned(),
+    )?;
     Ok(json!({
         "ticket": ticket.encode(),
         "id": record.id,

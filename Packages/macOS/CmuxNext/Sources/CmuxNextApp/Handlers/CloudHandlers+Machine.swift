@@ -22,6 +22,9 @@ extension CloudHandlers {
                 show(try await firstWorkspace(on: session, context), context)
             }
         }
+        bind("cloudOpenDesktop", registry, reason: reason) { invocation in
+            try openDesktop(try machine(invocation, context), context, viewer: invocation["viewer"]?.stringValue)
+        }
         bind("cloudSSH", registry, reason: reason) { invocation in
             let session = try machine(invocation, context)
             guard attachable(session) else { throw ActionFailure(message: CloudStrings.notConnected) }
