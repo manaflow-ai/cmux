@@ -320,6 +320,28 @@ fn a_live_resize_without_its_end_settles_after_its_deadline() {
     assert_eq!(mirror.divergence(&surface), None);
 }
 
+/// A long drag whose steps keep coming is not cut short by the settle
+/// deadline: it counts from the newest step, not from the first.
+#[test]
+fn a_live_resize_with_steady_steps_does_not_settle_early() {
+    let mux = Mux::new_for_test("mirror-live-resize-long", SurfaceOptions::default());
+    let surface = mirror_test_surface(&mux);
+    let mut mirror = PinnedByteMirror::attach(&surface);
+    let started = Instant::now();
+    let mut step = 0u16;
+    while started.elapsed() < LIVE_RESIZE_SETTLE + Duration::from_millis(1500) {
+        surface.set_live_resize(true);
+        assert!(surface.resize(81 + step % 20, 11).unwrap());
+        mirror.drain();
+        step += 1;
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(mirror.replays, 0, "the live resize settled while its steps kept coming");
+    surface.set_live_resize(false);
+    assert_eq!(mirror.divergence(&surface), None);
+    assert_eq!(mirror.replays, 1);
+}
+
 /// A terminal of 120x40 with 10k colored lines of scrollback, for the bench.
 fn deep_history_surface(mux: &Arc<Mux>, id: SurfaceId) -> Arc<Surface> {
     let options = SurfaceOptions {

@@ -674,6 +674,14 @@ impl PtySurface {
     }
 }
 
+/// Milliseconds since the process's first live resize, at least 1 (0 marks
+/// no live resize in `PtyTerminalRuntime::live_resize`).
+fn live_resize_clock() -> u64 {
+    static EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    let epoch = *EPOCH.get_or_init(Instant::now);
+    u64::try_from(epoch.elapsed().as_millis()).unwrap_or(u64::MAX).max(1)
+}
+
 impl PtyTerminalRuntime {
     /// Every viewer gets complete colors with its new grid (replay viewers
     /// in their replay, snapshot viewers in their READY): no colors change
@@ -694,40 +702,60 @@ impl PtyTerminalRuntime {
         self.taps.lock().recover_poison().retain(|tap| tap.request_replay(live));
     }
 
-    /// A live resize starts (`live`) or ends. While it runs, byte mirrors'
-    /// replays wait (the resize applies the grid; output keeps flowing);
-    /// its end makes the one replay of the final grid due, which the
-    /// viewer's drain builds. A live resize whose end does not come in
-    /// [`LIVE_RESIZE_SETTLE`] (the app crashed mid-drag) ends on its own.
+    /// A live resize starts or continues (`live`), or ends. While it runs,
+    /// byte mirrors' replays wait (the resize applies the grid; output keeps
+    /// flowing); its end makes the one replay of the final grid due, which
+    /// the viewer's drain builds. A live resize with no step and no end for
+    /// [`LIVE_RESIZE_SETTLE`] (the app crashed mid-drag) ends on its own:
+    /// one delayed work item per live resize, which re-arms itself while
+    /// steps keep coming, not one per step.
     pub(super) fn set_live_resize(self: &Arc<Self>, live: bool) {
         if !live {
             self.live_resize.store(0, Ordering::Release);
             self.release_live_replays();
             return;
         }
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        let generation = NEXT.fetch_add(1, Ordering::Relaxed);
-        self.live_resize.store(generation, Ordering::Release);
+        let now = live_resize_clock();
+        // The newest step's time; 0 means no live resize.
+        if self.live_resize.swap(now, Ordering::AcqRel) == 0 {
+            self.arm_live_resize_settle(LIVE_RESIZE_SETTLE);
+        }
+    }
+
+    /// Ends the live resize once [`LIVE_RESIZE_SETTLE`] passed since its
+    /// newest step, re-arming for the rest while steps keep coming.
+    fn arm_live_resize_settle(self: &Arc<Self>, delay: Duration) {
         let runtime = Arc::downgrade(self);
         let settle = move || {
             let Some(runtime) = runtime.upgrade() else { return };
-            // A newer live resize keeps its own deadline.
-            if runtime
+            let last = runtime.live_resize.load(Ordering::Acquire);
+            if last == 0 {
+                return; // ended
+            }
+            let quiet = Duration::from_millis(live_resize_clock().saturating_sub(last));
+            if let Some(rest) = LIVE_RESIZE_SETTLE.checked_sub(quiet).filter(|rest| !rest.is_zero())
+            {
+                runtime.arm_live_resize_settle(rest);
+            } else if runtime
                 .live_resize
-                .compare_exchange(generation, 0, Ordering::AcqRel, Ordering::Acquire)
+                .compare_exchange(last, 0, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
                 runtime.release_live_replays();
+            } else {
+                // A step landed meanwhile: look again after its quiet time.
+                runtime.arm_live_resize_settle(LIVE_RESIZE_SETTLE);
             }
         };
-        // A delayed work item at the deadline, not a thread waiting for it:
-        // an end that came first makes it a no-op.
-        let posted = self.mux.upgrade().is_some_and(|mux| {
-            mux.post_live_resize_settle(LIVE_RESIZE_SETTLE, Box::new(settle.clone()))
-        });
+        // A delayed work item at the deadline, not a thread waiting for it.
+        let posted = self
+            .mux
+            .upgrade()
+            .is_some_and(|mux| mux.post_live_resize_settle(delay, Box::new(settle.clone())));
         if !posted {
             // No owner to keep a deadline: a held replay would never come.
-            settle();
+            self.live_resize.store(0, Ordering::Release);
+            self.release_live_replays();
         }
     }
 

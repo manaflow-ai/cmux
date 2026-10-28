@@ -317,8 +317,8 @@ pub struct PtyTerminalRuntime {
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
     /// A live resize runs (a drag the app marks live): byte mirrors' replays
-    /// wait for its end. The generation of the live resize that set it, so a
-    /// settle deadline of an earlier one leaves a newer one alone.
+    /// wait for its end. The time of its newest step (`live_resize_clock`),
+    /// 0 when none runs; its settle deadline counts from there.
     pub(super) live_resize: AtomicU64,
     pub(super) title: RankedMutex<String>,
     pub(super) pwd: Mutex<Option<String>>,
