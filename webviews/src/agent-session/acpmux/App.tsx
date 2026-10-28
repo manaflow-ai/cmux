@@ -127,7 +127,7 @@ import { createAcpmuxDebug, type AcpmuxDebug } from "./debug";
 import { pageAction } from "./automation";
 import { acpWire } from "./wire";
 import { acpmuxPerf, type MountedSpan } from "./perf";
-import { keepHandoff, snapshotFrames } from "./snapshotFrames";
+import { snapshotFrames } from "./snapshotFrames";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
@@ -7081,7 +7081,7 @@ function AcpmuxPane() {
       if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
       activePresentation?.stop();
-      const presentation = snapshotFrames(nextFrame, (next) => setSnapshot((current) => keepHandoff(current, next)));
+      const presentation = snapshotFrames(nextFrame, setSnapshot);
       activePresentation = presentation;
       try {
         acpmuxPerf.markAgent("handshakeStart");

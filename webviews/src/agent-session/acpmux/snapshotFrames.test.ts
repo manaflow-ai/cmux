@@ -1,14 +1,18 @@
 import { expect, test } from "bun:test";
 import type { AcpmuxSnapshot } from "./model";
 import { noChat as emptySnapshot } from "../../gallery/fixtures/acpmux";
-import { keepHandoff, snapshotFrames } from "./snapshotFrames";
+import { snapshotFrames } from "./snapshotFrames";
 
 function rig() {
   const frames: (() => void)[] = [];
   const shown: AcpmuxSnapshot[] = [];
+  let current = emptySnapshot();
   const presenter = snapshotFrames(
     (run) => frames.push(run),
-    (next) => shown.push(next),
+    (update) => {
+      current = update(current);
+      shown.push(current);
+    },
   );
   return { frames, shown, presenter, paint: () => frames.shift()?.() };
 }
@@ -72,8 +76,8 @@ test("a disconnected client cannot overwrite ready or error state while the repl
   const frames: (() => void)[] = [];
   let shown = emptySnapshot();
   const schedule = (run: () => void) => frames.push(run);
-  const publish = (next: AcpmuxSnapshot) => {
-    shown = next;
+  const publish = (update: (current: AcpmuxSnapshot) => AcpmuxSnapshot) => {
+    shown = update(shown);
   };
   const old = snapshotFrames(schedule, publish);
   old.push({ ...emptySnapshot(), sessionId: "old" });
@@ -122,8 +126,8 @@ test("a retained closed-client callback cannot change bookkeeping or shared stor
   const connect = () => {
     const presentation = snapshotFrames(
       (run) => frames.push(run),
-      (next) => {
-        shown = next;
+      (update) => {
+        shown = update(shown);
       },
     );
     const receive = presentation.guard((next: AcpmuxSnapshot) => {
@@ -175,7 +179,7 @@ test("a stopped connection cannot run a second disconnect callback", () => {
   expect(disconnected).toBe(1);
 });
 
-test("the publish fold keeps the newer handoff record carried by a coalesced snapshot", () => {
+test("the frame reducer preserves the latest ready handoff record", () => {
   const frames: (() => void)[] = [];
   let shown = {
     ...emptySnapshot(),
@@ -185,8 +189,8 @@ test("the publish fold keeps the newer handoff record carried by a coalesced sna
   } as unknown as AcpmuxSnapshot;
   const presenter = snapshotFrames(
     (run) => frames.push(run),
-    (next) => {
-      shown = keepHandoff(shown, next);
+    (update) => {
+      shown = update(shown);
     },
   );
   const newer = {
@@ -209,8 +213,8 @@ test("an explicit handoff clear remains cleared through a same-frame partial sna
   } as unknown as AcpmuxSnapshot;
   const presenter = snapshotFrames(
     (run) => frames.push(run),
-    (next) => {
-      shown = keepHandoff(shown, next);
+    (update) => {
+      shown = update(shown);
     },
   );
   presenter.push({ ...shown, handoff: { ready: true } });
@@ -229,8 +233,8 @@ test("a handoff record cannot cross a same-frame session change and return", () 
   } as unknown as AcpmuxSnapshot;
   const presenter = snapshotFrames(
     (run) => frames.push(run),
-    (next) => {
-      shown = keepHandoff(shown, next);
+    (update) => {
+      shown = update(shown);
     },
   );
   presenter.push({ ...emptySnapshot(), sessionId: "chat-B", canHandoff: true });
@@ -238,4 +242,28 @@ test("a handoff record cannot cross a same-frame session change and return", () 
   frames.shift()?.();
   expect(shown.sessionId).toBe("chat-A");
   expect(shown.handoff?.record).toBeUndefined();
+});
+
+test("a frame folds against the state current when React applies its updater", () => {
+  const frames: (() => void)[] = [];
+  const updates: ((current: AcpmuxSnapshot) => AcpmuxSnapshot)[] = [];
+  const presenter = snapshotFrames(
+    (run) => frames.push(run),
+    (update) => updates.push(update),
+  );
+  presenter.push({
+    ...emptySnapshot(),
+    sessionId: "chat",
+    canHandoff: true,
+    handoff: { ready: false },
+  });
+  frames.shift()?.();
+  const committedAfterScheduling = {
+    ...emptySnapshot(),
+    sessionId: "chat",
+    canHandoff: true,
+    handoff: { ready: true, record: { id: "committed-after-scheduling" } },
+  } as unknown as AcpmuxSnapshot;
+  const shown = updates[0]!(committedAfterScheduling);
+  expect(shown.handoff?.record).toBe(committedAfterScheduling.handoff!.record);
 });

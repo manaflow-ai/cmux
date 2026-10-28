@@ -6,7 +6,6 @@ export function keepHandoff(current: AcpmuxSnapshot | undefined, next: AcpmuxSna
   if (
     next.canHandoff &&
     !next.handoff?.ready &&
-    !next.handoff?.record &&
     current &&
     next.sessionId === current.sessionId &&
     current.handoff?.record
@@ -15,10 +14,13 @@ export function keepHandoff(current: AcpmuxSnapshot | undefined, next: AcpmuxSna
   return next;
 }
 
-export function snapshotFrames(schedule: (run: () => void) => void, publish: (value: AcpmuxSnapshot) => void) {
+export function snapshotFrames(
+  schedule: (run: () => void) => void,
+  publish: (update: (current: AcpmuxSnapshot) => AcpmuxSnapshot) => void,
+) {
   let active = true;
   let queued = false;
-  let pending: AcpmuxSnapshot | undefined;
+  let pending: AcpmuxSnapshot[] = [];
   return {
     guard<Args extends unknown[]>(receive: (...args: Args) => void) {
       return (...args: Args) => {
@@ -27,19 +29,21 @@ export function snapshotFrames(schedule: (run: () => void) => void, publish: (va
     },
     push(value: AcpmuxSnapshot) {
       if (!active) return;
-      pending = keepHandoff(pending, value);
+      pending.push(value);
       if (queued) return;
       queued = true;
       schedule(() => {
         queued = false;
-        const next = pending;
-        pending = undefined;
-        if (active && next) publish(next);
+        const batch = pending;
+        pending = [];
+        // Fold once against React's actual current state. Pre-folding and then falling back to
+        // committed state would erase an explicit handoff clear or a session boundary.
+        if (active && batch.length) publish((current) => batch.reduce(keepHandoff, current));
       });
     },
     stop() {
       active = false;
-      pending = undefined;
+      pending = [];
     },
   };
 }
