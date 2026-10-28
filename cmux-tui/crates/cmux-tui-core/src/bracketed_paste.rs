@@ -60,6 +60,20 @@ mod tests {
     }
 
     #[test]
+    fn a_huge_nested_marker_paste_is_linear() {
+        // `ESC[20` k times, an end marker, then `1~` k times: every removal
+        // joins a new marker. 4 MiB must take well under a second.
+        let k = 1 << 20;
+        let mut text = b"\x1b[20".repeat(k / 4);
+        text.extend_from_slice(END);
+        text.extend_from_slice(&b"1~".repeat(k / 4));
+        let started = std::time::Instant::now();
+        let framed = frame(&text);
+        assert!(started.elapsed() < std::time::Duration::from_secs(2), "{:?}", started.elapsed());
+        assert!(framed[START.len()..framed.len() - END.len()].windows(END.len()).all(|w| w != END));
+    }
+
+    #[test]
     fn keeps_other_escapes() {
         assert_eq!(&*without_end_markers(b"\x1b[200~x\x1b[31m"), b"\x1b[200~x\x1b[31m");
     }
