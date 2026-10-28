@@ -21,6 +21,7 @@ pub fn release(connection: &Connection) -> Result<(), HistoryError> {
 
 /// The heap bytes `connection`'s page caches hold now
 /// (`SQLITE_DBSTATUS_CACHE_USED`), or `None` when SQLite refuses the query.
+#[allow(unsafe_code)] // rusqlite has no safe `sqlite3_db_status`; SAFETY below.
 pub fn cache_used_bytes(connection: &Connection) -> Option<u64> {
     let mut current = 0;
     let mut highwater = 0;

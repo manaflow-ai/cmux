@@ -43,7 +43,9 @@ final class ScreenBarController {
     init(content: WorkspaceContentController, node: VisibilityNode? = nil) {
         self.content = content
         // The workspace's node once it has one (p06-scheduler-023); until then the bar's own, always visible.
-        let node = node ?? content.visibilityNode ?? VisibilityNode(root: "screen-bar", own: .visible)
+        let node = node ?? content.visibilityNode
+            ?? VisibilityNode(root: "screen-bar", own: .visible, workCounts: content.services.visibilityWorkCounts)
+        // The strip's node is under it: a hidden bar or workspace defers the strip's syncs to its show.
         view = TabStripView(model: model, input: content.services.inputTap, deadlines: content.services.mainDeadlines, visibilityNode: node)
         view.hoverFrameInput = content.services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
         view.scrollFrameInput = content.services.tabScrollFrameInput  // scroll by translation once per frame (`tabStripScrollFrames`)

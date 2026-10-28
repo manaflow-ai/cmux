@@ -5,7 +5,8 @@
 //! not on a thread of its own: its descriptor's readiness queues a run, and
 //! a resize that drained the readiness kicks one. A holder or byte-backend
 //! terminal has no PTY descriptor in this process and keeps its blocking
-//! `surface-<id>-reader` thread.
+//! `surface-<id>-reader` thread, which follows the terminal's class
+//! (`surface/thread_qos.rs`); the shared read loop does not.
 
 use std::io::Read;
 #[cfg(unix)]
@@ -90,8 +91,16 @@ impl LocalReader {
             kick.kick();
             return Ok(TerminalReader::Looped);
         }
-        let thread =
-            crate::echo_thread::spawn(format!("surface-{id}-reader"), move || self.run_blocking())?;
+        // Its own thread follows the terminal's class (surface/thread_qos.rs).
+        let thread_qos = match self.surface.as_pty() {
+            Some(pty) => pty.thread_qos.clone(),
+            None => cmux_threads::DesiredQos::new(crate::echo_thread::ECHO_PATH_QOS),
+        };
+        let thread = crate::echo_thread::spawn_following(
+            format!("surface-{id}-reader"),
+            thread_qos,
+            move || self.run_blocking(),
+        )?;
         Ok(TerminalReader::Thread(thread))
     }
 
@@ -140,6 +149,8 @@ impl LocalReader {
         let mut would_block =
             crate::backoff::Backoff::new(Duration::from_millis(1), Duration::from_millis(50));
         loop {
+            // The class a view change asked for, applied after each wake.
+            cmux_threads::apply_pending_qos();
             match self.step() {
                 Step::Read => would_block.reset(),
                 // No parser or source lock is held across backoff.
