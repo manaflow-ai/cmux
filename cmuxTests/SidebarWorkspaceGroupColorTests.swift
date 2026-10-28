@@ -120,6 +120,33 @@ struct SidebarWorkspaceGroupColorTests {
         #expect(colors.isEmpty)
     }
 
+    /// Group colors follow the sidebar's effective membership, where two groups claiming one
+    /// live anchor resolve to the lowest group id whatever order the groups come in.
+    @Test func twoGroupsClaimingOneAnchorResolveToTheLowestGroupId() throws {
+        let anchor = Workspace(title: "Anchor", initialSurface: .cloudVMLoading)
+        defer { anchor.teardownAllPanels() }
+        let lowId = try #require(UUID(uuidString: "00000000-0000-0000-0000-000000000001"))
+        let highId = try #require(UUID(uuidString: "FFFFFFFF-0000-0000-0000-000000000001"))
+        let groups = [highId, lowId].map { id in
+            WorkspaceGroup(
+                id: id,
+                name: "group",
+                isCollapsed: false,
+                isPinned: false,
+                anchorWorkspaceId: anchor.id,
+                customColor: nil,
+                iconSymbol: nil
+            )
+        }
+        for ordered in [groups, groups.reversed()] {
+            let membership = SidebarWorkspaceRenderItem.effectiveGroupIdByWorkspaceId(
+                tabs: [anchor],
+                groupsById: Dictionary(uniqueKeysWithValues: ordered.map { ($0.id, $0) })
+            )
+            #expect(membership[anchor.id] == lowId)
+        }
+    }
+
     @Test func groupWithoutOwnColorUsesItsByCwdConfigColor() throws {
         let configColor = "#7A4FD8"
         let (root, configStore) = try Self.makeConfigStore(byCwdColor: configColor)

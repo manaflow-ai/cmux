@@ -226,14 +226,14 @@ enum SidebarWorkspaceRenderItem {
             }
             return group.id
         })
-        let groupIdByLiveAnchor = groupsById.values
-            .filter { renderableGroupIds.contains($0.id) }
-            .sorted { $0.id.uuidString < $1.id.uuidString }
-            .reduce(into: [UUID: UUID]()) { result, group in
-                guard let liveAnchorId = group.liveAnchorWorkspaceId,
-                      result[liveAnchorId] == nil else { return }
-                result[liveAnchorId] = group.id
-            }
+        // When two renderable groups claim one live anchor, the lowest group id wins.
+        // One pass: this runs on every sidebar render and snapshot refresh.
+        var groupIdByLiveAnchor: [UUID: UUID] = [:]
+        for group in groupsById.values where renderableGroupIds.contains(group.id) {
+            guard let liveAnchorId = group.liveAnchorWorkspaceId else { continue }
+            if let current = groupIdByLiveAnchor[liveAnchorId], current.uuidString < group.id.uuidString { continue }
+            groupIdByLiveAnchor[liveAnchorId] = group.id
+        }
         return Dictionary(uniqueKeysWithValues: tabs.map { tab in
             let effectiveGroupId = groupIdByLiveAnchor[tab.id]
                 ?? tab.groupId.flatMap { renderableGroupIds.contains($0) ? $0 : nil }
