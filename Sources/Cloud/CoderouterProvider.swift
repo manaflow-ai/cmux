@@ -187,6 +187,19 @@ struct CoderouterSetupWorkspaceCoordinator {
         return .created(workspace: workspace, manager: manager)
     }
 
+    /// Opens the next interactive setup terminal in the resolved workspace.
+    func launchAccountTerminal(in workspaceID: UUID) async throws {
+        _ = try await TerminalController.surfaceNewTerminal(
+            machine: .local,
+            command: ["sh", "-lc", initialTerminalCommand ?? provider.addCommand],
+            cwd: nil,
+            name: "CodeRouter",
+            remoteWorkspaceID: nil,
+            destination: .workspace(id: workspaceID, placement: .split),
+            focus: true
+        )
+    }
+
     private static func persistedLocalWorkspace(
         using persistence: CoderouterSetupWorkspacePersistence
     ) -> (workspace: Workspace, manager: TabManager)? {

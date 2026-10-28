@@ -1,3 +1,4 @@
+import AppKit
 import CmuxAuthRuntime
 import Foundation
 import Testing
@@ -428,5 +429,65 @@ struct CoderouterFailureRowTests {
 
         let healthy = try #require(CloudTreeNodeBuilder.coderouterNode(CloudTreeCoderouterSection()).children.first)
         #expect(healthy.kind == .coderouterProviderGroup(.codex, count: 0))
+    }
+}
+
+@MainActor
+@Suite("CodeRouter setup terminal admission", .serialized, .exclusiveAppContext)
+struct CoderouterSetupTerminalTests {
+    @Test("A missing setup destination leaves no terminal in another workspace")
+    func missingDestinationDoesNotLaunchElsewhere() async throws {
+        let fixture = try Fixture()
+        defer { fixture.close() }
+        let before = Set(fixture.app.workspace.panels.keys)
+        let coordinator = CoderouterSetupWorkspaceCoordinator(
+            managerSource: { fixture.app.manager },
+            provider: .codex,
+            initialTerminalCommand: "printf 'setup'"
+        )
+
+        await #expect(throws: (any Error).self) {
+            try await coordinator.launchAccountTerminal(in: UUID())
+        }
+
+        #expect(Set(fixture.app.workspace.panels.keys) == before)
+        #expect(fixture.app.manager.tabs.count == 1)
+    }
+
+    @MainActor
+    private struct Fixture {
+        let app: VaultPaneAppFixture
+        let window: NSWindow
+        let previousProvider: (any SurfaceProvider)?
+        let previousManager: TabManager?
+
+        init() throws {
+            previousProvider = SurfaceCatalog.shared.provider(for: .local)
+            previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+            app = try VaultPaneAppFixture()
+            window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 1_000, height: 700),
+                styleMask: [.titled], backing: .buffered, defer: false
+            )
+            window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(app.windowID.uuidString)")
+            let context = try #require(app.appDelegate.mainWindowContexts.values.first { $0.windowId == app.windowID })
+            context.window = window
+            app.manager.window = window
+            app.workspace.bonsplitController.setContainerFrame(window.contentLayoutRect)
+            SurfaceCatalog.shared.register(LocalSurfaceProvider.shared)
+            TerminalController.shared.setActiveTabManager(app.manager)
+        }
+
+        func close() {
+            app.manager.tabs.forEach { $0.teardownAllPanels() }
+            app.tearDown()
+            if let previousProvider {
+                SurfaceCatalog.shared.register(previousProvider)
+            } else {
+                SurfaceCatalog.shared.unregister(machine: .local)
+            }
+            TerminalController.shared.setActiveTabManager(previousManager)
+            window.close()
+        }
     }
 }

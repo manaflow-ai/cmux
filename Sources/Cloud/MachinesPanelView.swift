@@ -770,15 +770,7 @@ struct MachinesPanelView: View {
 
             do {
                 guard coderouterStore.isCurrentAddTask(addGeneration), currentCoderouterScope == scope else { return }
-                _ = try await TerminalController.surfaceNewTerminal(
-                    machine: .local,
-                    command: ["sh", "-lc", command],
-                    cwd: nil,
-                    name: "CodeRouter",
-                    remoteWorkspaceID: nil,
-                    destination: .workspace(id: workspace.id, placement: .split),
-                    focus: true
-                )
+                try await coordinator.launchAccountTerminal(in: workspace.id)
                 launched = true
             } catch {
                 viewModel.noteTreeFailure(error.localizedDescription)
