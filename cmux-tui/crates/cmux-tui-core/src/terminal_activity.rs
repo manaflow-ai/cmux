@@ -144,6 +144,10 @@ pub(crate) struct ShellActivity {
     /// Whether the terminal's own shell held the foreground when checked
     /// after the last mark; `None` until checked.
     shell_foreground: Option<bool>,
+    /// The PTY's foreground group leader that check saw (`foreground_check`
+    /// in the record, so a client and a test read what the daemon decided
+    /// from, not only whether `shell_idle` is there).
+    foreground_leader: Option<u32>,
     /// Counts marks and inputs, so a foreground check that raced one of them
     /// is dropped ([`Self::record_foreground`]).
     epoch: u64,
@@ -168,6 +172,7 @@ impl ShellActivity {
         // prompt drawn, the line editor reading) is when it holds the
         // terminal itself.
         self.shell_foreground = None;
+        self.foreground_leader = None;
         self.epoch = self.epoch.wrapping_add(1);
         match mark {
             ShellMark::CommandStart => {
@@ -234,6 +239,9 @@ impl ShellActivity {
     pub(crate) fn note_input(&mut self) -> bool {
         self.epoch = self.epoch.wrapping_add(1);
         self.input_after_prompt = true;
+        // The last check was of the shell before this input: it says nothing now.
+        self.shell_foreground = None;
+        self.foreground_leader = None;
         self.published.3.is_some()
     }
 
@@ -243,6 +251,8 @@ impl ShellActivity {
     pub(crate) fn note_replayed_output(&mut self) {
         self.epoch = self.epoch.wrapping_add(1);
         self.input_after_prompt = true;
+        self.shell_foreground = None;
+        self.foreground_leader = None;
     }
 
     /// Notes that input may reach the PTY without this daemon seeing it
@@ -281,9 +291,28 @@ impl ShellActivity {
     /// ([`Self::foreground_check_due`]): `holds` is whether the terminal's
     /// own shell held the foreground. A mark or input since then drops it.
     pub(crate) fn record_foreground(&mut self, epoch: u64, holds: bool) {
+        self.record_foreground_leader(epoch, holds, None);
+    }
+
+    /// [`Self::record_foreground`] with the foreground group leader the check
+    /// saw (`None`: the lookup failed).
+    pub(crate) fn record_foreground_leader(
+        &mut self,
+        epoch: u64,
+        holds: bool,
+        leader: Option<u32>,
+    ) {
         if epoch == self.epoch {
             self.shell_foreground = Some(holds);
+            self.foreground_leader = leader;
         }
+    }
+
+    /// The last foreground check after the last mark: whether the terminal's
+    /// own shell held the foreground (and no other process shares its group),
+    /// and the leader it saw. `None` until checked.
+    pub(crate) fn foreground_check(&self) -> Option<(bool, Option<u32>)> {
+        self.shell_foreground.map(|own| (own, self.foreground_leader))
     }
 
     /// Since when the terminal's own shell sits idle at its prompt (the
@@ -332,6 +361,7 @@ impl ShellActivity {
         self.prompt_since_ms = snapshot.prompt_since_ms;
         self.input_after_prompt = true;
         self.shell_foreground = None;
+        self.foreground_leader = None;
         self.epoch = self.epoch.wrapping_add(1);
     }
 
@@ -444,6 +474,13 @@ pub(crate) fn prompt_json(since_ms: u64) -> Value {
 /// The `shell_idle` field of a terminal record (its prompt's time).
 pub(crate) fn shell_idle_json(since_ms: u64) -> Value {
     json!({"since_ms": since_ms.to_string()})
+}
+
+/// The `foreground_check` field of a terminal record: the daemon's last
+/// foreground check behind `shell_idle` (`own`; `leader`, null when the lookup
+/// failed).
+pub(crate) fn foreground_check_json(own: bool, leader: Option<u32>) -> Value {
+    json!({"own": own, "leader": leader})
 }
 
 /// The `last_output` field of a terminal record.

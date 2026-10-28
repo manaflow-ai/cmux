@@ -75,7 +75,22 @@ impl Surface {
         let due = pty.terminal_metadata.lock().recover_poison().activity.foreground_check_epoch();
         let Some(epoch) = due else { return };
         let holds = !self.is_dead() && own_program_holds_foreground(pty.pid, &pty.command);
-        pty.terminal_metadata.lock().recover_poison().activity.record_foreground(epoch, holds);
+        let leader = foreground_leader(pty.pid);
+        pty.terminal_metadata
+            .lock()
+            .recover_poison()
+            .activity
+            .record_foreground_leader(epoch, holds, leader);
+    }
+
+    /// The daemon's last foreground check behind `shell_idle`: `extra.foreground_check`.
+    pub(crate) fn terminal_foreground_check(&self) -> Option<(bool, Option<u32>)> {
+        self.as_pty()?
+            .terminal_metadata
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .activity
+            .foreground_check()
     }
 
     /// Notes that input may reach this terminal's PTY without the daemon
@@ -337,6 +352,20 @@ impl PtyTerminalRuntime {
             *previous = value;
             self.directory_pending.store(true, Ordering::Release);
         }
+    }
+}
+
+/// The PTY's foreground group leader of the terminal's child `pid`; `None`
+/// when unknown (and on Windows).
+fn foreground_leader(pid: Option<u32>) -> Option<u32> {
+    #[cfg(unix)]
+    {
+        platform::foreground_leader(pid?)
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        None
     }
 }
 

@@ -35,6 +35,11 @@ fn terminal_extra(harness: &RecoveryHarness) -> serde_json::Value {
 /// Starts the interactive bash in a new workspace, waits for its prompt and
 /// for the daemon to publish it idle. `None` when bash is not installed.
 fn start_bash(name: &str) -> Option<(RecoveryHarness, u64)> {
+    start_bash_with(name, "")
+}
+
+/// [`start_bash`] with `rc` first in its rc file (`set +m`).
+fn start_bash_with(name: &str, rc_prefix: &str) -> Option<(RecoveryHarness, u64)> {
     let Some(bash) = find(&["/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash"]) else {
         eprintln!("skipped: bash is not installed");
         return None;
@@ -46,8 +51,10 @@ fn start_bash(name: &str) -> Option<(RecoveryHarness, u64)> {
     let rc = harness.dir.join("bashrc");
     fs::write(
         &rc,
-        "PS1='\\[\\033]133;A\\007\\]idle> \\[\\033]133;B\\007\\]'\n\
-         unset PROMPT_COMMAND\nHISTFILE=/dev/null\n",
+        format!(
+            "{rc_prefix}PS1='\\[\\033]133;A\\007\\]idle> \\[\\033]133;B\\007\\]'\n\
+             unset PROMPT_COMMAND\nHISTFILE=/dev/null\n"
+        ),
     )
     .unwrap();
     let created = request(
@@ -93,6 +100,40 @@ fn type_text(harness: &RecoveryHarness, surface: u64, text: &str) {
     );
 }
 
+/// The pid of the terminal's own process (`process-info`).
+fn shell_pid(harness: &RecoveryHarness, surface: u64) -> u64 {
+    let info = request(
+        &harness.socket,
+        serde_json::json!({"id": 4, "cmd": "process-info", "surface": surface}),
+    );
+    info["pid"].as_u64().unwrap_or_else(|| panic!("no pid: {info}"))
+}
+
+/// Waits until the daemon's foreground check after the last mark has run and
+/// says the terminal's own shell does NOT hold the foreground, and returns
+/// the leader it saw. A check that is broken (says own) or never runs fails
+/// here, whatever the timing: the test reads the daemon's decision
+/// (`extra.foreground_check`), not only that `shell_idle` is absent.
+fn wait_for_foreign_foreground(harness: &RecoveryHarness, what: &str) -> Option<u64> {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let extra = terminal_extra(harness);
+        if let Some(own) = extra["foreground_check"]["own"].as_bool() {
+            assert!(
+                !own,
+                "{what}: the daemon's foreground check says the shell holds the foreground: {extra}"
+            );
+            assert!(extra.get("shell_idle").is_none(), "{what}: not idle: {extra}");
+            return extra["foreground_check"]["leader"].as_u64();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "{what}: the foreground check never ran after the mark: {extra}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 /// Asserts the old prompt fact still stands (a close that trusts it alone
 /// reads the tab idle) while `shell_idle` says no, and keeps saying no for
 /// `hold` (the daemon's foreground check runs after the mark, on its work
@@ -113,10 +154,17 @@ fn assert_not_idle(harness: &RecoveryHarness, hold: Duration, what: &str) {
 #[test]
 fn shell_idle_a_plain_prompt_with_no_input_is_idle() {
     let _exclusive = exclusive_process_test();
-    let Some((harness, _surface)) = start_bash("shell-idle-plain") else { return };
+    let Some((harness, surface)) = start_bash("shell-idle-plain") else { return };
     let extra = terminal_extra(&harness);
     assert!(extra.get("activity").is_none(), "{extra}");
     assert!(extra["shell_idle"]["since_ms"].is_string(), "{extra}");
+    // The decision behind it: the shell itself leads the foreground.
+    assert_eq!(extra["foreground_check"]["own"], true, "{extra}");
+    assert_eq!(
+        extra["foreground_check"]["leader"].as_u64(),
+        Some(shell_pid(&harness, surface)),
+        "{extra}"
+    );
 }
 
 #[test]
@@ -128,6 +176,13 @@ fn shell_idle_a_nested_shell_prompt_in_a_foreground_child_is_not_idle() {
     // the echoed command line.
     type_text(&harness, surface, "sh -c 'printf \"\\033]133;A\\007%s> \" nested; sleep 600'\r");
     assert!(wait_for_screen(&harness.socket, surface, "nested> ").contains("nested> "));
+    // The job (the nested sh) leads the foreground, not the shell: asserted on
+    // the daemon's own check, so a check that always says own fails here.
+    let leader = wait_for_foreign_foreground(&harness, "a nested prompt");
+    assert!(
+        leader.is_some_and(|leader| leader != shell_pid(&harness, surface)),
+        "the job leads the foreground: {leader:?}"
+    );
     assert_not_idle(&harness, Duration::from_millis(500), "a nested prompt");
 }
 
@@ -171,7 +226,42 @@ fn shell_idle_a_program_execed_in_the_shells_place_is_not_idle() {
         &format!("exec {other} -c 'printf \"\\033]133;A\\007%s> \" execd; read line'\r"),
     );
     assert!(wait_for_screen(&harness.socket, surface, "execd> ").contains("execd> "));
+    // The same process leads the foreground, but runs another program.
+    let leader = wait_for_foreign_foreground(&harness, "an exec'd shell");
+    assert_eq!(leader, Some(shell_pid(&harness, surface)), "the exec'd image keeps the pid");
     assert_not_idle(&harness, Duration::from_millis(500), "an exec'd shell");
+}
+
+/// The lead, 2026-10-28: a shell with job control off (`set +m`) runs its
+/// jobs in its own process group, so its group leading the foreground proves
+/// nothing. A background job, and a foreground job that prints its own
+/// prompt mark (a nested shell over ssh), both share the shell's group: not
+/// idle. Before, both read idle (a close with no question).
+#[test]
+fn shell_idle_job_control_off_a_job_in_the_shells_group_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash_with("shell-idle-nojobs", "set +m\n") else { return };
+    // A background job, then the next prompt.
+    type_text(&harness, surface, "sleep 600 &\r");
+    let leader = wait_for_foreign_foreground(&harness, "a background job, job control off");
+    assert_eq!(
+        leader,
+        Some(shell_pid(&harness, surface)),
+        "job control off: the shell's own group leads"
+    );
+    assert_not_idle(&harness, Duration::from_millis(500), "a background job, job control off");
+}
+
+#[test]
+fn shell_idle_job_control_off_a_nested_prompt_is_not_idle() {
+    let _exclusive = exclusive_process_test();
+    let Some((harness, surface)) = start_bash_with("shell-idle-nojobs-nested", "set +m\n") else {
+        return;
+    };
+    type_text(&harness, surface, "sh -c 'printf \"\\033]133;A\\007%s> \" nested; sleep 600'\r");
+    assert!(wait_for_screen(&harness.socket, surface, "nested> ").contains("nested> "));
+    wait_for_foreign_foreground(&harness, "a nested prompt, job control off");
+    assert_not_idle(&harness, Duration::from_millis(500), "a nested prompt, job control off");
 }
 
 #[test]
