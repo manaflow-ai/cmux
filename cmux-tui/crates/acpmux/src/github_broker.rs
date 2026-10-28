@@ -221,8 +221,12 @@ pub fn gh_args(r: &GithubActionParams) -> Vec<String> {
     a
 }
 
+/// `gh`'s output as text: every GitHub token cut out (`redact_github_tokens`), then at most
+/// `OUTPUT_MAX` bytes.
 fn clean_output(bytes: &[u8]) -> String {
-    let mut out = String::from_utf8_lossy(bytes).into_owned();
+    // Cut out tokens first: `[redacted]` is longer than the shortest token, so cutting to the
+    // limit before would let the output grow past it.
+    let mut out = redact_github_tokens(&String::from_utf8_lossy(bytes));
     if out.len() > OUTPUT_MAX {
         let mut end = OUTPUT_MAX;
         while !out.is_char_boundary(end) {
@@ -313,11 +317,11 @@ async fn execute(r: &GithubActionParams) -> Result<String, RpcError> {
     if !status.success() {
         return Err(RpcError::new(
             -32041,
-            format!("GitHub refused the action: {}", redact_github_tokens(&clean_output(&stderr))),
+            format!("GitHub refused the action: {}", clean_output(&stderr)),
         )
         .with_data(json!({"reason": "github.command_failed"})));
     }
-    Ok(redact_github_tokens(&clean_output(&stdout)))
+    Ok(clean_output(&stdout))
 }
 
 /// The env every `gh` the broker runs gets: only the Mac's keyring login (`token` None: every
