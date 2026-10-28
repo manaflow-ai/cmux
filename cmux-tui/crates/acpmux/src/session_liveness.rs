@@ -63,13 +63,15 @@ impl HarnessFailures {
 fn redact(error: &str) -> String {
     // The shared scanner deliberately ignores short arbitrary tokens. Diagnostics
     // must also hide those when explicitly labelled and all URL query credentials.
+    // A credential value is masked whole: a quoted one to its closing quote (escapes
+    // included, or to the end when the error was cut off), else up to whitespace or a comma.
+    const VALUE: &str = r#"(?:"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[^\s,"']+)"#;
     static CREDENTIALS: std::sync::LazyLock<Option<regex::Regex>> = std::sync::LazyLock::new(
         || {
-            regex::Regex::new(
-            // A labelled value is masked whole: a quoted one to its closing quote (escapes
-            // included, or to the end when truncated), else up to whitespace or a comma.
-            r#"(?i)[a-z][a-z0-9+.-]*://[^\s<>"']+|\b(?:bearer|basic)\s+[^\s,"']+|\b(?:[a-z_]*(?:token|secret|password|api[_-]?key))["']?\s*[:=]\s*(?:"(?:[^"\\]|\\.)*"?|'(?:[^'\\]|\\.)*'?|[^\s,"']+)"#,
-        ).ok()
+            regex::Regex::new(&format!(
+                r#"(?i)[a-z][a-z0-9+.-]*://[^\s<>"']+|\b(?:bearer|basic)\s+{VALUE}|\b(?:[a-z_]*(?:token|secret|password|api[_-]?key))["']?\s*[:=]\s*{VALUE}"#
+            ))
+            .ok()
         },
     );
     let Some(pattern) = CREDENTIALS.as_ref() else { return "[redacted]".into() };
@@ -150,6 +152,8 @@ mod tests {
             (r#"HTTP 503 password="correct horse, battery staple" retry"#, "horse"),
             (r#"HTTP 503 {"api_key": "a b\"c, d"} retry"#, "c, d"),
             ("HTTP 503 secret='one two, three'", "two"),
+            (r#"HTTP 401 Authorization: Bearer "abc123""#, "abc123"),
+            (r#"HTTP 401 Authorization: Basic 'dXNlcjpwYXNz word'"#, "word"),
             (r#"HTTP 503 token="cut off before the quote"#, "before"),
         ] {
             let redacted = redact(error);
