@@ -13,6 +13,7 @@ import type { StartedSession } from "../started/startedSessions";
 import type { SummaryCardControl } from "./cardState";
 import type { InspectorProcess } from "../inspector/processes";
 import { SummaryCard } from "./SummaryCard";
+import { ArtifactPanel } from "../conversation/ArtifactPanel";
 import { SummaryButton } from "./SummaryButton";
 import type { WorkflowActions } from "./WorkflowSummary";
 import type { WorkflowSummary } from "./workflow";
@@ -22,7 +23,7 @@ import { realWorkflowFixture } from "../realWorkflowFixture";
 type Props = Pick<
   ComponentProps<typeof SummaryCard>,
   "rows" | "background" | "sessions" | "onAttach" | "workflow" | "workflowActions"
-> & { tabRowHeight?: number };
+> & { tabRowHeight?: number; preview?: boolean };
 
 const none = () => undefined;
 /// The inline column, shown and open.
@@ -37,7 +38,7 @@ const card: SummaryCardControl = {
   fold: none,
 };
 
-function GallerySummaryCard({ tabRowHeight, ...props }: Props) {
+function GallerySummaryCard({ tabRowHeight, preview, ...props }: Props) {
   return (
     <div
       className="acpmux-shell"
@@ -56,12 +57,19 @@ function GallerySummaryCard({ tabRowHeight, ...props }: Props) {
           </div>
         )}
       </div>
-      <SummaryCard
-        card={card}
-        subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
-        onOpenOutput={none}
-        {...props}
-      />
+      {preview ? (
+        <ArtifactPanel
+          artifact={{ kind: "markdown", lang: "markdown", code: "# Preview\nA document beside the chat." }}
+          onClose={none}
+        />
+      ) : (
+        <SummaryCard
+          card={card}
+          subagents={{ views: undefined, current: undefined, asks: new Set(), onOpen: none }}
+          onOpenOutput={none}
+          {...props}
+        />
+      )}
     </div>
   );
 }
@@ -155,6 +163,10 @@ export default componentEntry<Props>({
   covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
+    "preview-tab-row": {
+      note: "The Preview sibling obeys the same native tab-row clearance, both beside the chat and covering a narrow pane.",
+      props: { tabRowHeight: 32, preview: true, rows: [] },
+    },
     "shared-tab-row": {
       note: "The inline Summary column beside the chat, under a 32px native tab row. Two commands and a failed subagent keep long counts visible with a right ellipsis, outside the native header holes.",
       props: {
@@ -169,6 +181,15 @@ export default componentEntry<Props>({
                 task: "Review",
                 parent: null,
                 state: "failed",
+                startedAt: minutesAgo(2),
+                endedAt: minutesAgo(1),
+              },
+              {
+                id: "stopped-review",
+                name: "Stopped check",
+                task: "Stopped check",
+                parent: null,
+                state: "cancelled",
                 startedAt: minutesAgo(2),
                 endedAt: minutesAgo(1),
               },

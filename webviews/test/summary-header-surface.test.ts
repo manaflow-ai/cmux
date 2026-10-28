@@ -56,14 +56,18 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             const header = head.getBoundingClientRect();
             const text = counts.getBoundingClientRect();
             const style = getComputedStyle(counts);
+            const tab = document.querySelector(".acpmux-header[data-tab-row]")!.getBoundingClientRect();
             return {
               top: rect.top - shell.getBoundingClientRect().top,
+              intersectsTabRow:
+                rect.left < tab.right && rect.right > tab.left && rect.top < tab.bottom && rect.bottom > tab.top,
               toolsRight: document.querySelector(".acpmux-header-tools")!.getBoundingClientRect().right,
               shellRight: shell.getBoundingClientRect().right,
               bottom: rect.bottom - shell.getBoundingClientRect().bottom,
               text: counts.textContent,
               countsInside: text.left >= header.left && text.right <= header.right,
               overflow: style.overflowX,
+              truncated: counts.scrollWidth > counts.clientWidth,
               ellipsis: style.textOverflow,
               background: style.backgroundColor,
               backdrop: style.backdropFilter,
@@ -74,9 +78,11 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
           });
           expect(actual.text).toContain("2 commands · 1 failed");
           expect(actual.top).toBeGreaterThanOrEqual(height);
+          expect(actual.intersectsTabRow).toBe(false);
           expect(actual.bottom).toBeLessThanOrEqual(0);
           expect(actual.toolsRight).toBe(actual.shellRight);
           expect(actual.countsInside).toBe(true);
+          expect(actual.truncated).toBe(true);
           expect(actual).toMatchObject({
             overflow: "hidden",
             ellipsis: "ellipsis",
@@ -86,6 +92,33 @@ await requireBrowserLane("summary-header-surface.test.ts", async () => {
             before: "none",
             after: "none",
           });
+        } finally {
+          await page.close();
+        }
+      });
+    }
+  }
+  for (const width of [640, 1000]) {
+    for (const height of [28, 40]) {
+      test(`Preview leaves the ${height}px native row clear at ${width}px`, async () => {
+        const page = await browser.newPage({ viewport: { width, height: 560 }, reducedMotion: "reduce" });
+        try {
+          const port = (server.httpServer!.address() as { port: number }).port;
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.summary-card", { variant: "preview-tab-row" })}`,
+          );
+          await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
+          await page.locator(".acpmux-shell").evaluate((node, pixels) => {
+            (node as HTMLElement).style.setProperty("--acpmux-tab-row-height", `${pixels}px`);
+          }, height);
+          await page.locator(".acpmux-artifact").waitFor();
+          const actual = await page.evaluate(() => {
+            const shell = document.querySelector(".acpmux-shell")!.getBoundingClientRect();
+            const panel = document.querySelector(".acpmux-artifact")!.getBoundingClientRect();
+            return { top: panel.top - shell.top, bottom: panel.bottom - shell.bottom };
+          });
+          expect(actual.top).toBe(height);
+          expect(actual.bottom).toBeLessThanOrEqual(0);
         } finally {
           await page.close();
         }
