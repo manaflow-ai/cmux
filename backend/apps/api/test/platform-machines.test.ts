@@ -111,7 +111,7 @@ describe("PlatformMachines (workerd)", { timeout: 60_000 }, () => {
       await stub.fakeControl({ advance_ms: 6 * 60_000 })
       await fireAlarm(stub)
     }
-    const owner = { identity: `user:${c.user}`, kind: "session", user: c.user, team: c.team }
+    const owner = { identity: `user:${c.user}`, kind: "session" as const, user: c.user, team: c.team }
     expect((await stub.readOp(c.team, owner, "cloud.machine.get", { machine })).value).toMatchObject({ status: "failed" })
     expect(await rpc.destroy(c, machine)).toMatchObject({ ok: false, retryable: true })
     await stub.fakeControl({ fail_next: 0 } as never)
