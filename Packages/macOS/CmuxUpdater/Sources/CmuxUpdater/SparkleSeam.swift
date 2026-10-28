@@ -305,6 +305,10 @@ final class SparkleDriverBridge: NSObject, @preconcurrency SPUUserDriver, @preco
         driver.allowedChannels()
     }
 
+    func updater(_ updater: SPUUpdater, shouldProceedWithUpdate updateItem: SUAppcastItem, updateCheck: SPUUpdateCheck) throws {
+        try forwardShouldProceed(with: UpdateAppcastItem(updateItem), check: updateCheck)
+    }
+
     /// Asks the driver whether a check of kind `check` may go on with `item`; throws the hold
     /// (``StagedRollout/errorDomain``) when it may not.
     func forwardShouldProceed(with item: UpdateAppcastItem, check: SPUUpdateCheck) throws {
