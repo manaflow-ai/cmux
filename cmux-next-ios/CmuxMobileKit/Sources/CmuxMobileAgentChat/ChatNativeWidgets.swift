@@ -90,11 +90,15 @@ struct ChatNativeWidgets {
         let attributed = text(prompt, styles.font(.body), .label, lineBreak: .byWordWrapping, lineSpacing: 4)
         let maxText = width * 0.8 - 32
         let measured = size(attributed, width: maxText)
-        let bubble = CGSize(width: min(measured.width, maxText) + 32, height: measured.height + 22)
+        // SwiftUI's height: n lines 4 pt apart (TextKit also counts the spacing under the last line).
+        let lines = Layout.lineCount(attributed, width: maxText)
+        let lineHeight = (styles.font(.body).lineHeight * 3).rounded(.up) / 3
+        let textHeight = CGFloat(lines) * lineHeight + CGFloat(lines - 1) * 4
+        let bubble = CGSize(width: min(measured.width, maxText) + 32, height: textHeight + 22)
         let x = width - bubble.width
         var drawn = Drawn()
         drawn.boxes.append(.init(frame: CGRect(x: x, y: 0, width: bubble.width, height: bubble.height), fill: .cmuxMobileBubble, radius: 20))
-        drawn.texts.append(.init(text: attributed, frame: CGRect(x: x + 16, y: 11, width: bubble.width - 32, height: measured.height)))
+        drawn.texts.append(.init(text: attributed, frame: CGRect(x: x + 16, y: 11, width: bubble.width - 32, height: max(textHeight, measured.height))))
         return Layout(content: .drawn(drawn), height: bubble.height)
     }
 

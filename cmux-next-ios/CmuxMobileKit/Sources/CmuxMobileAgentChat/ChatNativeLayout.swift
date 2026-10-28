@@ -277,6 +277,7 @@ struct ChatNativeLayout: @unchecked Sendable {
         let rows = [table.header] + table.rows
         var texts: [[NSAttributedString]] = []
         var sizes: [[CGSize]] = []
+        var labelHeights: [Int: [Int: CGFloat]] = [:]
         var widths = Array(repeating: CGFloat(72), count: columns)
         for (r, row) in rows.enumerated() {
             var line: [NSAttributedString] = []
@@ -297,7 +298,12 @@ struct ChatNativeLayout: @unchecked Sendable {
                 let size = measure(text, width: cellWidth)
                 widths[c] = max(widths[c], cellWidth)
                 line.append(text)
-                lineSizes.append(CGSize(width: cellWidth, height: size.height))
+                // The row's height as SwiftUI sets it: lines of the cell font's height (a monospaced
+                // run such as `0` does not make its line taller), 5 pt between lines.
+                let lines = lineCount(text, width: cellWidth)
+                let base = ((r == 0 ? bold : font).lineHeight * 3).rounded(.up) / 3
+                lineSizes.append(CGSize(width: cellWidth, height: CGFloat(lines) * base + CGFloat(lines - 1) * 5))
+                labelHeights[r, default: [:]][c] = size.height
             }
             texts.append(line)
             sizes.append(lineSizes)
@@ -317,7 +323,8 @@ struct ChatNativeLayout: @unchecked Sendable {
             var x = lead
             for (c, text) in line.enumerated() {
                 // Each cell's text is as wide as its column, so the column's alignment applies across it.
-                cells.append(Text(text: text, frame: CGRect(x: x + 12, y: y + 10, width: widths[c], height: sizes[r][c].height)))
+                cells.append(Text(text: text, frame: CGRect(x: x + 12, y: y + 10, width: widths[c],
+                                                            height: max(sizes[r][c].height, labelHeights[r]?[c] ?? 0))))
                 x += widths[c] + 24
             }
             y += rowHeight
@@ -325,6 +332,21 @@ struct ChatNativeLayout: @unchecked Sendable {
         return ChatNativeLayout(content: .table(Table(cells: cells, rules: rules, contentSize: CGSize(width: total + lead * 2, height: y),
                                                       plainText: table.plainText)),
                                 height: y)
+    }
+
+    /// The lines `text` takes at `width` (TextKit).
+    static func lineCount(_ text: NSAttributedString, width: CGFloat) -> Int {
+        guard text.length > 0 else { return 1 }
+        let storage = NSTextStorage(attributedString: text)
+        let manager = NSLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: width, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        manager.addTextContainer(container)
+        storage.addLayoutManager(manager)
+        manager.ensureLayout(for: container)
+        var lines = 0
+        manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, _, _ in lines += 1 }
+        return max(lines, 1)
     }
 
     /// Text laid out at `width` as UILabel draws it, rounded up to the pixel grid.
