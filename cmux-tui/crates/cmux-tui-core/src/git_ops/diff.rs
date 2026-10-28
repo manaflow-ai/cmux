@@ -90,12 +90,55 @@ impl ChangedFile {
     }
 }
 
+/// Serve a continuation from its immutable capture before rebuilding a live
+/// comparison. This matters for checkpoint-to-working-tree reads: unrelated
+/// working-tree changes must not invalidate an already-issued page cursor.
+pub(super) fn continuation(
+    repository: &Repository,
+    fields: &Map<String, Value>,
+    operation: &'static str,
+) -> Result<Option<Value>, ResourceError> {
+    let Some(offset) = fields
+        .get("patch_offset")
+        .and_then(|value| serde_json::from_value::<WireDecimal>(value.clone()).ok())
+        .map(WireDecimal::get)
+    else {
+        return Ok(None);
+    };
+    if offset == 0 {
+        return Ok(None);
+    }
+    let Some(key) = fields.get("patch_key").and_then(Value::as_str) else {
+        return Ok(None);
+    };
+    let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
+    let Some((window, mut metadata)) = super::diff_pages::get(key, revision) else {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "the patch capture expired; restart at offset zero",
+            json!({"code":"patch_expired"}),
+        ));
+    };
+    let bytes = window.read(offset, PATCH_PAGE_BYTES).map_err(|_| {
+        ResourceError::operation_failed(
+            operation,
+            "could not read the captured patch",
+            json!({"code":"patch_read_failed"}),
+        )
+    })?;
+    metadata["patch_page"] = page_value(&window, offset, bytes)?;
+    Ok(Some(metadata))
+}
+
 pub(super) fn read(
     repository: &Repository,
     fields: &Map<String, Value>,
 ) -> Result<Value, ResourceError> {
     let scope = fields.get("scope").and_then(Value::as_str).unwrap_or("uncommitted");
     pathspecs(fields)?;
+    if let Some(value) = continuation(repository, fields, OPERATION)? {
+        return Ok(value);
+    }
     let comparison = comparison(repository, scope)?;
     let mut value = report(repository, &comparison, OPERATION, fields)?;
     value["scope"] = json!(scope);
@@ -165,7 +208,7 @@ fn report(
             "continuing a patch requires the first page's revision",
         ));
     }
-    let page_key = json!([
+    let computed_page_key = json!([
         repository.root,
         operation,
         comparison.revisions,
@@ -177,6 +220,8 @@ fn report(
         context_lines
     ])
     .to_string();
+    let page_key =
+        fields.get("patch_key").and_then(Value::as_str).unwrap_or(&computed_page_key).to_owned();
     if let Some(offset) = page_offset.filter(|offset| *offset > 0) {
         let revision = fields.get("patch_revision").and_then(Value::as_str).unwrap_or_default();
         let Some((window, mut metadata)) = super::diff_pages::get(&page_key, revision) else {
@@ -270,6 +315,7 @@ fn report(
             offset,
             fields,
         )?;
+        value["patch_key"] = json!(page_key);
         super::diff_pages::put(page_key, window, value.clone());
         value["patch_page"] = page;
     }

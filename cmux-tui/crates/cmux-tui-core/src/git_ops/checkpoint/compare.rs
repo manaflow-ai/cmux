@@ -42,6 +42,13 @@ pub(super) fn diff(
     let Some(target) = target(mux, store, request, OPERATION, false)? else {
         return Err(not_found(from_id));
     };
+    if let Some(mut value) = diff::continuation(&target.repository, &request.fields, OPERATION)? {
+        value["from"] = json!(from_id);
+        if let Some(to_id) = to_id {
+            value["to"] = json!(to_id);
+        }
+        return Ok(value);
+    }
     let load = |id: &str| {
         let stored = store
             .load(&target.repository_id, id)
