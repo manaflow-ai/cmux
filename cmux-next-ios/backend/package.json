@@ -15,6 +15,7 @@
   "dependencies": {
     "drizzle-orm": "0.45.4",
     "jose": "6.2.12",
+    "mysql2": "3.23.1",
     "pg": "8.23.0"
   },
   "devDependencies": {
