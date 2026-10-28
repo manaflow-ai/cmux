@@ -20,8 +20,8 @@ export function draftTextActions(client: DraftClient, native: Native) {
     "chat.readDraft": async ({ sessionId }: Record<string, unknown>) => {
       const id = String(sessionId),
         version = edits.get(id)?.version ?? 0;
-      const durable = await client.readDraft(id).catch(() => undefined);
       return ordered(id, async () => {
+        const durable = await client.readDraft(id).catch(() => undefined);
         const newer = () => {
           const edit = edits.get(id);
           return edit && edit.version > version ? edit.text : undefined;
@@ -53,7 +53,8 @@ export function draftTextActions(client: DraftClient, native: Native) {
       known.set(id, { version, text: value });
       return ordered(id, async () => {
         await native("chat.draftText.set", { sessionId: id, text: value }).catch(() => undefined);
-      }).then(() => client.writeDraft(id, value));
+        return client.writeDraft(id, value);
+      });
     },
   };
 }

@@ -503,6 +503,7 @@ export function Composer({
   /// for this assignment only; later chat switches must use the selected session's own draft.
   const initialSessionResolved = useRef(sessionId !== undefined);
   const initialHandshakeDraft = useRef<string | undefined>(undefined);
+  const editedBeforeFirstSession = useRef(false);
   if (!initialSessionResolved.current && sessionId === undefined && draft !== undefined)
     initialHandshakeDraft.current = draft;
   const hydratedSession = useRef<string | undefined>(undefined);
@@ -704,7 +705,7 @@ export function Composer({
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
-    if (!draft || field.current?.value()) return;
+    if (!draft || field.current?.value() || editedBeforeFirstSession.current) return;
     notTyped();
     field.current?.reset(draft);
     setText((current) => seededText(current, draft));
@@ -717,8 +718,10 @@ export function Composer({
   useEffect(() => {
     if (persistedSession.current === sessionId) return;
     // A switch's new session has no draft yet: the prompt typed before the pick moves to it.
-    const carried = carryPrompt.current ? (field.current?.value() ?? text) : "";
     const previous = persistedSession.current;
+    const firstSession = previous === undefined && !initialSessionResolved.current;
+    const editedFirst = firstSession && editedBeforeFirstSession.current;
+    const carried = carryPrompt.current || editedFirst ? (field.current?.value() ?? text) : "";
     if (previous && hydratedSession.current === previous) writePersistedDraft(previous, field.current?.value() ?? text);
     // This composer leaves that chat: only a quit compares its queued text, and only for the chat shown.
     forgetQueuedDraft(previous);
@@ -726,7 +729,7 @@ export function Composer({
     // Another chat's prompt comes in: no key before it was typing for this one.
     notTyped();
     hydratedSession.current = undefined;
-    editedBeforeHydration.current = false;
+    editedBeforeHydration.current = editedFirst;
     restoringSession.current = true;
     const restored = readPersistedDraft(sessionId) ?? "";
     // A relaunch draft arrives with the handshake at the same time as the session reset. Keep it
@@ -736,10 +739,12 @@ export function Composer({
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
     // The first assignment can race the handshake draft effect; use that seed once, then never
     // carry it into a newly selected session.
-    const firstSession = previous === undefined && !initialSessionResolved.current;
-    if (firstSession) initialSessionResolved.current = true;
+    if (firstSession) {
+      initialSessionResolved.current = true;
+      editedBeforeFirstSession.current = false;
+    }
     const handshake = draft ?? initialHandshakeDraft.current;
-    const initial = firstSession ? (handshake ?? restored) || carried || "" : restored || carried || "";
+    const initial = editedFirst ? carried : firstSession ? (handshake ?? (restored || carried)) : restored || carried;
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
@@ -1381,6 +1386,7 @@ export function Composer({
   promptChange.current = (value, at) => {
     edit(value, at);
     if (performance.now() - typedAt.current >= TYPED_WINDOW_MS) return;
+    if (sessionId === undefined) editedBeforeFirstSession.current = true;
     if (hydratedSession.current !== sessionId) editedBeforeHydration.current = true;
     // One change per key: what the field does after it (normalizing) is not another.
     typedAt.current = Number.NEGATIVE_INFINITY;

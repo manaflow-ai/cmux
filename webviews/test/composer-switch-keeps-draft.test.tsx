@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { draftTextActions } from "../src/agent-session/acpmux/draftTextActions";
 
@@ -101,6 +102,7 @@ async function render(sessionId: string | undefined, props: { draft?: string; sw
 }
 
 const prompt = () => host.querySelector('[role="combobox"]')?.textContent ?? "";
+const field = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
 
 test("a harness switch keeps the typed prompt through the new session", async () => {
   await render("chat-a", { draft: "compare these cars" });
@@ -131,6 +133,28 @@ test("the handshake draft survives the first session assignment but not a later 
   await render("handshake-a", { draft: "from the relaunch handshake" });
   expect(prompt()).toBe("from the relaunch handshake");
   await render("handshake-b");
+  expect(prompt()).toBe("");
+});
+
+test("a typed handshake draft survives first assignment but not a later chat switch", async () => {
+  await render(undefined, { draft: "from the relaunch handshake" });
+  await act(async () => field().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => field().insertTyped(" edited"));
+  await render("handshake-a", { draft: "from the relaunch handshake" });
+  expect(prompt()).toBe("from the relaunch handshake edited");
+  await render("handshake-b");
+  expect(prompt()).toBe("");
+});
+
+test("deleting a handshake draft stays empty on first session assignment", async () => {
+  await render(undefined, { draft: "delete me" });
+  await act(async () =>
+    host
+      .querySelector<HTMLElement>('[role="combobox"]')!
+      .dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Backspace", bubbles: true })),
+  );
+  await act(async () => field().writeText("", 0, 0));
+  await render("deleted-handshake", { draft: "delete me" });
   expect(prompt()).toBe("");
 });
 

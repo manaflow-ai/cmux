@@ -83,6 +83,32 @@ test("writes mirror the same session and text before daemon persistence", async 
   ]);
 });
 
+test("a read queued behind a daemon write sees the newest text", async () => {
+  let daemon = "";
+  let release!: () => void;
+  const writeStarted = Promise.withResolvers<void>();
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const actions = draftTextActions(
+    {
+      readDraft: async () => ({ sessionId, draft: daemon }),
+      writeDraft: async (_id, text) => {
+        writeStarted.resolve();
+        await blocked;
+        daemon = text;
+      },
+    },
+    async () => undefined,
+  );
+  const write = actions["chat.writeDraft"]({ sessionId, text: "new local" });
+  await writeStarted.promise;
+  const read = actions["chat.readDraft"]({ sessionId });
+  release();
+  await write;
+  expect(await read).toEqual({ sessionId, draft: "new local" });
+});
+
 for (const duringMirrorSync of [false, true]) {
   test(`a newer local write wins during ${duringMirrorSync ? "mirror sync" : "daemon read"}`, async () => {
     let release!: () => void, reached!: () => void;
