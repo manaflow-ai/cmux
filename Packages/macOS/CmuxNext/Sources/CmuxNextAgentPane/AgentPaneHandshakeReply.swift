@@ -27,6 +27,8 @@ enum AgentPaneHandshakeReply {
                 }
                 handshake.harness = seed.harness
                 handshake.model = seed.model
+                handshake.peer = seed.host
+                if let peer = seed.host { handshake.machineName = peer }
                 if seed.showsHarnesses { handshake.harnesses = true }
                 (handshake.adopt, handshake.pastTurns) = (seed.adopt, await AgentPanePastTurn.turns(of: seed.pastChat))
             }
@@ -41,7 +43,7 @@ enum AgentPaneHandshakeReply {
             // A new tab page is a new chat on every host, the mock included: the page
             // never falls back to the most recent session behind it. Its chat starts in
             // the page's folder unless a seed named one.
-            if model.sessionId == nil, let newTab = model.newTab {
+            if model.sessionId == nil, handshake.peer == nil, let newTab = model.newTab {
                 handshake.newTab = newTab
                 handshake.newSession = true
                 if handshake.cwd == nil { handshake.cwd = newTab.cwd }
@@ -58,8 +60,10 @@ enum AgentPaneHandshakeReply {
             // they read this Mac's folders and disk (cx-k21v).
             let started = handshake.connection?.remote != nil
             if started { await model.startFolders.applyRemote(to: &handshake, model: model) }
-            let filled = started ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
-            if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
+            // A peer's folder belongs to that peer. Never resolve it against this Mac's
+            // workspace/agent-home or read local Git data at the same path.
+            let filled = started || handshake.peer != nil ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
+            if !started, handshake.peer == nil { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
             handshake.revealTurn = model.pendingRevealTurn
             model.pendingRevealTurn = nil
             // Only a fresh page reads it; a reconnect keeps it for the page's own ready.
@@ -75,7 +79,7 @@ enum AgentPaneHandshakeReply {
             // A filled-in folder stays the workspace's, no root of its own (cx-9aps).
             if let cwd = handshake.cwd, !filled { model.handshakeCwd = cwd }
             if let session = handshake.sessionId { model.transport.sessions.add(session) }
-            if handshake.connection?.remote != nil { model.remoteChat = true }
+            if handshake.connection?.remote != nil || handshake.peer != nil { model.remoteChat = true }
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil

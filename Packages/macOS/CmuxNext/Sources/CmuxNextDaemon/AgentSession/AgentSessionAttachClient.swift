@@ -122,8 +122,8 @@ public actor AgentSessionAttachClient {
     /// `agent_session.needs_keyed_start` and its facts in ``AgentSessionAttachError/details``. A
     /// daemon without `agent-session-start-keyed-reason-v1` gets no such param (it would refuse it).
     ///
-    /// `model` is included only when the daemon advertises `agent-session-start-model-v1`; older
-    /// daemons receive the same cwd/harness start they have always received.
+    /// An explicit `model` requires `agent-session-start-model-v1`; older daemons retain the
+    /// existing cwd/harness start when no model was requested.
     ///
     /// `ownerLink`: set for a Cloud machine (from the app's own record of it, never the guest's).
     /// A chat starts there only while it gives the same link id before the connection and as the
@@ -142,6 +142,9 @@ public actor AgentSessionAttachClient {
         let (transport, served) = try await liveConnection()
         guard served.start else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
+        }
+        guard model == nil || served.model else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not support choosing a start model")
         }
         let callerOwnsVM = try await Self.ownerAnswer(ownerLink, before: before)
         let params = Self.startParams(cwd: cwd, harness: harness, homeConfirmed: homeConfirmed, personKey: personKey,

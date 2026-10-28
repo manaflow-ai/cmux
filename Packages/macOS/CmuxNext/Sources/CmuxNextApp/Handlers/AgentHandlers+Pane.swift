@@ -40,61 +40,121 @@ extension AgentHandlers {
         })
     }
 
-    /// Resolves an explicit host/machine argument to that machine's most recently focused pane.
-    /// The same seed is used for local, peer and Cloud starts, so CLI, MCP and palette agree.
+    /// Resolve the host from the composer's inventory before creating any tab. This is one
+    /// action path for CLI, MCP and the palette, including unknown/offline rejection.
     static func openOnHost(_ invocation: ActionInvocation, context: AppActionContext) -> Bool {
         guard let raw = invocation["host"] else { return false }
-        let wanted = raw.targetValue?.id ?? raw.stringValue
-        guard let wanted, !wanted.isEmpty else { return false }
-        let machines = context.services.machines
-        let daemon: DaemonService?
-        if wanted == MachineRegistry.localID {
-            daemon = machines.local
-        } else {
-            daemon = machines.remoteDaemons.first {
-                machines.machineName($0.machineID) == wanted || $0.machineID == wanted
-            }
-        }
-        guard let daemon else {
-            context.registry.refuse(WorkspaceVerbStrings.noMachine)
+        guard let wanted = raw.targetValue?.id ?? raw.stringValue, !wanted.isEmpty else {
+            context.refuse(WorkspaceVerbStrings.noMachine)
             return true
         }
-        // A retained connection can outlive a dropped link while the daemon retries; require the
-        // same live state the environment picker exposes before accepting an explicit destination.
-        guard daemon.isLive else {
-            context.registry.refuse(WorkspaceVerbStrings.machineNotConnected)
-            return true
+        let destinations = AgentChatDestinations(services: context.services)
+        let capturedByCaller = context.registry.isCapturingWork
+        let task = Task { @MainActor () -> Result<[String: ActionResultValue], ActionWorkFailure> in
+            let result = await createOnHost(wanted, invocation: invocation, destinations: destinations, context: context)
+            if !capturedByCaller, case .failure(let failure) = result { context.registry.refuse(failure.message) }
+            return result
         }
-        let placement: AgentChatPlacement
-        if let target = invocation.target {
-            guard let requested = AgentChatPlacement.resolve(target, services: context.services),
-                  requested.daemon.machineID == daemon.machineID else {
-                context.registry.refuse(WorkspaceVerbStrings.noMachine)
-                return true
-            }
-            placement = requested
-        } else {
-            let candidates = daemon.store.workspaces.flatMap { workspace in
-                workspace.screens.flatMap(\.panes).map { (workspace, $0) }
-            }
-            guard let (workspace, pane) = candidates.max(by: { $0.1.focusedAt < $1.1.focusedAt }) else {
-                context.registry.refuse(MiscHandlerStrings.noPane)
-                return true
-            }
-            placement = AgentChatPlacement(pane: pane, workspace: workspace, daemon: daemon)
-        }
-        let requested = seed(for: invocation)
-        let seed = AgentPaneSeed(cwd: placement.cwd(requested.cwd),
-                                 harness: requested.harness, model: requested.model, host: wanted)
-        do {
-            let selects = context.services.paneController(for: placement.pane) == nil
-            context.registry.track(result: try placement.openTab(seed: seed, selects: selects, services: context.services))
-        } catch let failure as ActionFailure {
-            context.registry.refuse(failure.message)
-        } catch {
-            context.registry.refuse(RefusalStrings.agentTabCreateFailed)
-        }
+        context.registry.track(result: task)
         return true
+    }
+
+    static func createOnHost(_ wanted: String, invocation: ActionInvocation, destinations: AgentChatDestinations,
+                             context: AppActionContext) async -> Result<[String: ActionResultValue], ActionWorkFailure> {
+        let rows = await destinations.load()
+        guard !Task.isCancelled else { return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected)) }
+        guard let destination = AgentChatDestinations.resolve(wanted, in: rows) else {
+            return .failure(ActionWorkFailure(refusal: .notFound, reason: WorkspaceVerbStrings.noMachine))
+        }
+        guard destination.isReady else {
+            return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.machineNotConnected))
+        }
+        var routed = invocation
+        if case .peer(let peer) = destination.route {
+            // A peer does not need a cmux workspace daemon. The tab stays in the requested
+            // local pane while the Environment picker's chat.new path starts it on the peer.
+            let local = invocation.target.map { AgentChatPlacement.resolve($0, services: context.services)?.daemon.isLocal == true }
+                ?? context.services.activeDaemon.isLocal
+            guard local else { return .failure(ActionWorkFailure(refusal: .unavailable, reason: WorkspaceVerbStrings.noMachine)) }
+            routed.arguments["host"] = .string(peer)
+        }
+        // Capture child work synchronously inside this task, then await it here. The outer
+        // CLI/MCP run must not answer before tab creation or lose the new tab's result fields.
+        var failure: ActionWorkFailure?
+        let captured = context.registry.capturingRun {
+            let refused = context.registry.capturingRefusal {
+                if case .cloud(let id) = destination.route { openCloudChat(routed, machine: id, context: context) }
+                else { openLocalChat(routed, context: context) }
+            }
+            if let refused { failure = ActionWorkFailure(refusal: .unavailable, reason: refused) }
+        }
+        if let failure { return .failure(failure) }
+        for work in captured.work {
+            if let failure = await work.value { return .failure(failure) }
+        }
+        var fields: [String: ActionResultValue] = [:]
+        for result in captured.results {
+            switch await result.value {
+            case .success(let value): fields.merge(value, uniquingKeysWith: { _, new in new })
+            case .failure(let error): return .failure(error)
+            }
+        }
+        return .success(fields)
+    }
+
+    static func openLocalChat(_ invocation: ActionInvocation, context: AppActionContext) {
+        if openTargetedChat(invocation, context: context) { return }
+        if let pane = context.scope(invocation).pane,
+           DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
+        withAgentPane(invocation, context: context, seed: seed(for: invocation)) { pane in
+            openNewAgentChat(in: pane, invocation: invocation, context: context)
+        }
+    }
+
+    private static func openCloudChat(_ invocation: ActionInvocation, machine: String,
+                                      context: AppActionContext) {
+        let services = context.services
+        let task: ActionResultWork = Task { @MainActor in
+            do {
+                guard services.cloud.isSignedIn, services.cloud.hasLoadedCurrentMachines,
+                      let session = services.machines.session(machine) else {
+                    return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
+                }
+                try await CloudHandlers.attached(session, invocation)
+                let anchor: (id: String, pane: PaneModel)
+                if let target = invocation.target {
+                    guard let placement = AgentChatPlacement.resolve(target, services: services),
+                          placement.daemon.machineID == session.daemon.machineID else {
+                        return .failure(ActionWorkFailure(WorkspaceVerbStrings.noMachine))
+                    }
+                    anchor = (placement.workspace.id, placement.pane)
+                } else {
+                    let first = try await CloudHandlers.terminalAnchor(on: session, context)
+                    anchor = (first.id, first.pane)
+                }
+                var requested = seed(for: invocation)
+                // This tab's native remote host already routes to the Cloud machine. It must not
+                // also ask that machine's acpmux for a peer of the same name.
+                requested.host = nil
+                let pending = try services.agentTabs.open(in: anchor.pane.handle, of: session.daemon,
+                                                          seed: AgentPaneSeedSource(requested))
+                let created = try await pending.value()
+                if invocation.allowsViewChange, let controller = services.paneController(for: anchor.pane) {
+                    controller.selectWhenReported(surface: created.surface)
+                }
+                return .success(["tab": .string(created.key), "pane": .string(anchor.pane.resourceID?.rawValue ?? anchor.pane.id),
+                                 "workspace": .string(anchor.id)])
+            } catch let failure as ActionFailure {
+                return .failure(ActionWorkFailure(failure.message))
+            } catch let failure as AgentTabRefusal {
+                return .failure(ActionWorkFailure(failure.message))
+            } catch is CancellationError {
+                return .failure(ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected))
+            } catch {
+                return .failure(ActionWorkFailure(RefusalStrings.agentTabCreateFailed))
+            }
+        }
+        context.registry.track(result: task)
     }
 
     /// New Agent Chat that a script or agent aims at a pane or a workspace (the CLI, MCP; #23016),
@@ -123,7 +183,8 @@ extension AgentHandlers {
             return true
         }
         let requested = seed(for: invocation)
-        let seed = AgentPaneSeed(cwd: place.cwd(requested.cwd), harness: requested.harness, model: requested.model)
+        let seed = AgentPaneSeed(cwd: requested.host == nil ? place.cwd(requested.cwd) : requested.cwd,
+                                 harness: requested.harness, model: requested.model, host: requested.host)
         do {
             services.registry.track(result: try place.openTab(seed: seed, selects: shown == nil, services: services))
         } catch let failure as ActionFailure {

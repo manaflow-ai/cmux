@@ -59,3 +59,24 @@ test("explicit harness and model survive first-send creation at the requested cw
     expect(run.snapshot().summary).toMatchObject({ cwd: "/tmp", harness: "fake", model: "fixture-model" });
   } finally { run.client.close(); }
 });
+
+test("a model-only seed remains sessionless until send and keeps the requested folder", async () => {
+  const run = await start({ cwd: "/tmp", model: "fixture-model" });
+  try {
+    expect(run.starts()).toBe(0);
+    await run.client.ensureSession();
+    expect(run.snapshot().summary).toMatchObject({ cwd: "/tmp", model: "fixture-model" });
+    await run.client.ensureSession();
+    expect(run.starts()).toBe(1);
+  } finally { run.client.close(); }
+});
+
+test("peer creation records the remote folder and all explicit startup picks", async () => {
+  const run = await start({ cwd: "/local/unused" });
+  try {
+    await run.client.create("fake", "/remote/project", "dev-box", false, "fixture-model");
+    expect(run.snapshot().summary).toMatchObject({ cwd: "/remote/project", peer: "dev-box", harness: "fake", model: "fixture-model" });
+    await run.client.ensureSession();
+    expect(run.starts()).toBe(1);
+  } finally { run.client.close(); }
+});

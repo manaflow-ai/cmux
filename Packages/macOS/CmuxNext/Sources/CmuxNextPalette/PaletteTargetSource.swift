@@ -30,6 +30,9 @@ public protocol PaletteTargetSource: AnyObject {
     /// whole list unless the action takes only some of them (Reopen Saved
     /// Tab Group… lists saved groups, not open ones).
     func targets(of kind: ActionTargetKind, for action: ActionID) -> [PaletteTargetOption]
+    /// An optional live inventory read when the argument page opens. Its cached rows may draw
+    /// immediately; the palette's existing provider task is cancelled when the page closes.
+    func targetRefresh(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () async -> [PaletteTargetOption])?
     /// The object's own name, which a rename prompt starts from; nil when
     /// it has none (an untitled object shows a fallback label instead).
     func title(of target: ActionTargetRef) -> String?
@@ -39,6 +42,8 @@ public protocol PaletteTargetSource: AnyObject {
 }
 
 extension PaletteTargetSource {
+    public func targetRefresh(of kind: ActionTargetKind, for action: ActionID) -> (@MainActor () async -> [PaletteTargetOption])? { nil }
+
     /// The kind's whole list, for sources no action narrows.
     public func targets(of kind: ActionTargetKind, for action: ActionID) -> [PaletteTargetOption] {
         targets(of: kind)

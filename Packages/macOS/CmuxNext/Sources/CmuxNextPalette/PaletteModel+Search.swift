@@ -22,7 +22,8 @@ extension PaletteModel {
             }
             if let items = provider.immediateItems {
                 state.providerItems[provider.id] = items
-            } else {
+            }
+            if provider.immediateItems == nil || provider.refreshesOnOpen {
                 pending.insert(provider.id)
             }
         }
@@ -62,7 +63,7 @@ extension PaletteModel {
             for provider in load.providers {
                 if let items = provider.immediateItems {
                     state.providerItems[provider.id] = items
-                    continue
+                    if !provider.refreshesOnOpen { continue }
                 }
                 let providerID = provider.id
                 state.pendingProviders.insert(providerID)

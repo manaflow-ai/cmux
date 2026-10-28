@@ -10,6 +10,8 @@ public nonisolated protocol AgentPaneHostProviding: Sendable {
     /// Starts the daemon before a page is visible. Callers may treat this as
     /// best effort because the normal page handshake still reports failures.
     func prewarm() async throws
+    /// The peers listed by the same daemon the composer Environment picker reads.
+    func chatPeers() async throws -> [AgentChatPeer]
     /// The handshake for a page that lost its daemon. Starts one only after a
     /// crash, so a daemon the user stopped stays stopped.
     func reconnectHandshake(sessionId: String?) async throws -> AgentPaneHandshake
@@ -39,6 +41,8 @@ extension AgentPaneHostProviding {
     }
 
     public func prewarm() async throws {}
+
+    public func chatPeers() async throws -> [AgentChatPeer] { [] }
 
     /// Hosts without a daemon know no session folders.
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? { nil }
@@ -256,6 +260,14 @@ public actor AcpmuxHost: AgentPaneHostProviding {
 
     public func prewarm() async throws {
         _ = try await endpoint(startsDaemon: true)
+    }
+
+    public func chatPeers() async throws -> [AgentChatPeer] {
+        // Validate the app's daemon/home just as a composer handshake does. Listing never
+        // starts another daemon; the tab store already prewarms its own host.
+        _ = try await endpoint(startsDaemon: false)
+        guard let environment else { throw AgentPaneHostError.acpmuxNotFound }
+        return try await AcpmuxStatusClient.chatPeers(socketPath: environment.socketPath)
     }
 
     public func sessionFolder(sessionId: String) async throws -> AgentPaneSessionFolder? {

@@ -17,7 +17,7 @@ nonisolated extension CatalogArgument {
 
     /// A connected peer or Cloud machine where a new agent chat starts.
     static var agentHostMachine: ActionArgument {
-        ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Host", bundle: .module),
+        ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                        kind: .target(.machine))
     }
 

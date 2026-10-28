@@ -111,6 +111,10 @@ export type AcpmuxHostConfig = {
   prompt?: string;
   /** The model a new chat starts on before its first prompt. */
   model?: string;
+  /** Explicit startup harness; omitted uses the existing daemon default. */
+  harness?: string;
+  /** Validated peer selected by the host's New Agent Chat action. */
+  peer?: string;
   /** An outside Claude Code or Codex chat this pane resumes once it connects. */
   adopt?: AcpmuxAdopt;
   /** A chat opened for its workspace (Cmd-I's chat dock): its first prompt carries the workspace
@@ -6022,7 +6026,7 @@ export class AcpmuxDirectClient {
   /// `noProject` starts it in no project: the host's agent-home folder, never the inherited cwd.
   /// `model`: the model to start on (a chat on another machine starts on the one the page showed).
   create(
-    harness?: string,
+    harness: string | undefined = this.host.harness,
     cwd?: string,
     peer?: string,
     noProject = false,

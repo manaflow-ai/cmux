@@ -41,24 +41,14 @@ final class WindowTargetSource: PaletteTargetSource {
         return options.filter { $0.id != shown } + options.filter { $0.id == shown }
     }
 
-    /// The same destination inventory used by remote workspace actions: this Mac, every
-    /// registered SSH/Cloud peer, and its live connection state. Offline rows remain visible
-    /// to explain why a palette pick cannot run.
+    /// Connected machines: this Mac, then each Cloud machine (New Workspace on Machine…).
     private func machines() -> [PaletteTargetOption] {
         let machines = services.machines
         let local = Self.symbol(machines.icon(machine: MachineRegistry.localID), or: "laptopcomputer")
         var options = [PaletteTargetOption(id: MachineRegistry.localID, title: WorkspaceVerbStrings.thisMac, symbol: local)]
-        for daemon in machines.remoteDaemons {
-            let connected: Bool
-            switch daemon.store.connectionState {
-            case .connected: connected = true
-            case .connecting, .disconnected, .failed: connected = false
-            }
-            let title = machines.machineName(daemon.machineID) ?? daemon.machineID
-            let symbol = Self.symbol(machines.icon(machine: daemon.machineID), or: machines.session(daemon.machineID) != nil ? "cloud" : "network")
-            options.append(PaletteTargetOption(id: daemon.machineID, title: title,
-                                               subtitle: ControlSessions.state(daemon.store.connectionState), symbol: symbol,
-                                               isEnabled: connected))
+        for session in machines.cloud where session.daemon.connection != nil {
+            options.append(PaletteTargetOption(id: session.machineID, title: session.machine.displayName ?? session.machineID,
+                                               symbol: Self.symbol(machines.icon(machine: session.machineID), or: "cloud")))
         }
         return options
     }

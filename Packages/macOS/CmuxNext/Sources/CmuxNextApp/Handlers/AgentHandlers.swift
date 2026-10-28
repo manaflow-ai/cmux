@@ -98,18 +98,12 @@ enum AgentHandlers {
         registry.bind("palette.computerUse.screenRecording", run: { _ in context.services.onboarding.computerUseSetup.open(.screenRecording) })
         registry.bindAgentPane { invocation in
             if openOnHost(invocation, context: context) { return }
-            if openTargetedChat(invocation, context: context) { return }
-            if let pane = context.scope(invocation).pane,
-               DockedAgentChat.open(from: pane, invocation: invocation, services: context.services) { return }
-            withAgentPane(invocation, context: context, seed: seed(for: invocation)) { pane in
-                openNewAgentChat(in: pane, invocation: invocation, context: context)
-            }
+            openLocalChat(invocation, context: context)
         }
-        registry.bind("palette.newAgentChatOn", run: { invocation in
-            guard invocation["host"]?.targetValue?.id != nil || invocation["host"]?.stringValue != nil else {
-                return context.refuse(WorkspaceVerbStrings.noMachine)
-            }
-            _ = openOnHost(invocation, context: context)
+        registry.bindEffect("palette.newAgentChatOn", effect: { invocation in
+            guard invocation["host"] != nil else { return .refused(WorkspaceVerbStrings.noMachine) }
+            _ = registry.perform("palette.newAgentChat", invocation: invocation)
+            return .done
         })
         registry.bindAgentPaneSessionInfo { invocation in
             focusedAgentView(context, invocation)?.toggleSessionInfo()
@@ -310,14 +304,29 @@ enum AgentHandlers {
             pane.newAgentTab()
             return
         }
-        _ = pane.openAgentTab(seed: AgentPaneSeedSource(seed(for: invocation)))
+        let requested = seed(for: invocation)
+        // An explicit peer never inherits a path or draft from this Mac. Local argument-only
+        // invocations override just the supplied values and keep the existing inheritance.
+        guard requested.host == nil else {
+            _ = pane.openAgentTab(seed: AgentPaneSeedSource(requested))
+            return
+        }
+        let inherited = pane.agentSeedFromSelectedTab()
+        _ = pane.openAgentTab(seed: AgentPaneSeedSource {
+            var seed = await inherited?.peek() ?? AgentPaneSeed()
+            seed.cwd = requested.cwd ?? seed.cwd
+            seed.harness = requested.harness ?? seed.harness
+            seed.model = requested.model ?? seed.model
+            return seed
+        })
     }
 
     static func seed(for invocation: ActionInvocation) -> AgentPaneSeed {
-        AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
+        let host = invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue
+        return AgentPaneSeed(cwd: invocation["cwd"]?.stringValue,
                       harness: invocation["harness"]?.stringValue,
                       model: invocation["model"]?.stringValue,
-                      host: invocation["host"]?.targetValue?.id ?? invocation["host"]?.stringValue)
+                      host: host == MachineRegistry.localID ? nil : host)
     }
 
     /// Fork Conversation's actions, in the palette step's order (the default destination first).

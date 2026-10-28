@@ -7183,6 +7183,7 @@ function AcpmuxPane() {
           prompt?: string;
           promptTicket?: { promptId?: unknown; ticket?: unknown };
           harness?: string;
+          peer?: string;
           adopt?: unknown;
           surface?: unknown;
           linkScheme?: unknown;
@@ -8047,7 +8048,11 @@ function AcpmuxPane() {
         if (prompt && ticket) heldPrompt.keep(ticket);
         // A chat seeded with an agent starts on it, the prompt queued on the switch; a switch
         // that fails hands it back to the composer.
-        if (harness && prompt) {
+        if (host.peer && !host.sessionId && !client.attachedSession() && !client.adopted) {
+          // The Environment picker's existing action owns peer creation and persistence. An
+          // explicit host chooses it too, without inventing a second session/new handler.
+          await window.cmuxAcpmuxActions["chat.new"]!({ peer: host.peer, cwd: host.cwd, harness, model });
+        } else if (harness && prompt) {
           void harnessSwitch.switchTo(harness, host.cwd, { model });
           void send(prompt, [], undefined, false, ticket?.promptId).catch(() => undefined);
         } else if (prompt) void send(prompt, [], undefined, false, ticket?.promptId).catch(() => setDraft(prompt));
