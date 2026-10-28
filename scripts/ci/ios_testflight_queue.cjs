@@ -25,8 +25,8 @@ const WORKFLOW = 'ios-testflight.yml';
 const UPLOAD_JOB = 'Upload to TestFlight';
 const DEFERRED_ARTIFACT = 'ios-testflight-deferred';
 const QUEUE_EVENTS = ['push', 'schedule', 'workflow_dispatch'];
-// GitHub's documented cap on attempts of one run; a refused re-run below this
-// may be another reconciler's re-run still starting, so it is left alone.
+// GitHub's cap on attempts of one run. A refused re-run is never skipped: it
+// may be another reconciler's re-run still starting.
 const MAX_RUN_ATTEMPTS = 50;
 // A run whose jobs never started after this long is in GitHub's queued limbo
 // (cancel, force-cancel and rerun all fail) and is not treated as active.
@@ -37,32 +37,39 @@ function minutesSince(timestamp) {
   return Number.isFinite(ms) ? (Date.now() - ms) / 60_000 : 0;
 }
 
-// Runs created in the last RUN_WINDOW_DAYS, every page, newest first. An
-// active run older than that is defunct; a queued run of any age is found by
-// its marker, not by this list.
-const RUN_WINDOW_DAYS = 3;
+// GitHub's statuses for a run that has not finished.
+const ACTIVE_STATUSES = ['queued', 'in_progress', 'waiting', 'requested', 'pending'];
 
+// The newest 100 main runs (the failed-upload check reads them) plus every
+// active main run of any age, every page, newest first. A re-run keeps its
+// first attempt's creation time, so no creation window can bound this.
 async function listMainRuns({ github, owner, repo }) {
-  const since = new Date(Date.now() - RUN_WINDOW_DAYS * 86_400_000).toISOString();
   const perPage = 100;
-  const runs = [];
-  for (let page = 1, pageCount = 1; page <= pageCount; page += 1) {
-    const response = await github.rest.actions.listWorkflowRuns({
+  const list = (extra) =>
+    github.rest.actions.listWorkflowRuns({
       owner,
       repo,
       workflow_id: WORKFLOW,
       branch: 'main',
-      created: `>=${since}`,
       per_page: perPage,
-      page,
+      ...extra,
     });
-    const pageRuns = response.data.workflow_runs || [];
-    runs.push(...pageRuns);
-    const totalCount = Number(response.data.total_count ?? pageRuns.length);
-    pageCount = Math.max(1, Math.ceil(totalCount / perPage));
-    if (pageRuns.length === 0) break;
+  const byId = new Map();
+  const add = (runs) => {
+    for (const run of runs) byId.set(Number(run.id), run);
+  };
+  add((await list({ page: 1 })).data.workflow_runs || []);
+  for (const status of ACTIVE_STATUSES) {
+    for (let page = 1, pageCount = 1; page <= pageCount; page += 1) {
+      const response = await list({ status, page });
+      const pageRuns = response.data.workflow_runs || [];
+      add(pageRuns);
+      const totalCount = Number(response.data.total_count ?? pageRuns.length);
+      pageCount = Math.max(1, Math.ceil(totalCount / perPage));
+      if (pageRuns.length === 0) break;
+    }
   }
-  return runs;
+  return [...byId.values()].sort((a, b) => Number(b.id) - Number(a.id));
 }
 
 // Marker artifacts by run id, oldest run first.
@@ -226,24 +233,24 @@ async function reconcile({ github, context, core }, state) {
         continue;
       }
       const attempts = Number(run.run_attempt ?? 1);
-      try {
-        await github.rest.actions.reRunWorkflow({ owner, repo, run_id: runId });
-      } catch (error) {
-        const status = Number(error.status);
-        if (!(status >= 400 && status < 500) || attempts + 1 < MAX_RUN_ATTEMPTS) {
-          // Most likely another reconciler started it a moment ago; if not,
-          // the next poll tries again. Never move past it here.
-          core.warning(`could not re-run queued TestFlight run ${runId}; the next poll retries`);
-          return null;
-        }
-        // GitHub refuses this re-run for good (attempt limit): say so loudly
-        // and keep the line moving.
+      if (attempts >= MAX_RUN_ATTEMPTS) {
+        // GitHub allows no further attempt of this run: say so loudly and
+        // keep the line moving.
         core.error(
           `dropping queued TestFlight run ${runId} from the upload queue: ` +
-          `GitHub refused attempt ${attempts + 1} (HTTP ${status}); dispatch it again`
+          `it is at GitHub's limit of ${MAX_RUN_ATTEMPTS} attempts; dispatch it again`
         );
         await deleteMarkers({ github, owner, repo }, markers.get(runId));
         continue;
+      }
+      try {
+        await github.rest.actions.reRunWorkflow({ owner, repo, run_id: runId });
+      } catch (error) {
+        // Most likely another reconciler started it a moment ago; if not, the
+        // next poll tries again. Never move past it on a refusal.
+        core.debug(`re-run of ${runId} refused: ${error.message}`);
+        core.warning(`could not re-run queued TestFlight run ${runId}; the next poll retries`);
+        return null;
       }
       core.notice(`started queued TestFlight run ${runId} (attempt ${attempts + 1})`);
       return runId;

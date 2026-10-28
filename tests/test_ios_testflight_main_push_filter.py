@@ -280,6 +280,7 @@ const artifactRequests = [];
 const priorRunStatuses = [];
 const uploadJobStatuses = [];
 const deletedArtifacts = [];
+const activeRunRequests = [];
 const reRuns = [];
 const markerRuns = scenario.deferredMarkers;
 let workflowRunCalls = 0;
@@ -375,6 +376,14 @@ const github = {{
   rest: {{
     actions: {{
       listWorkflowRuns: async (request) => {{
+        if (request.status) {{
+          // The active-run listing: only runs in that status.
+          activeRunRequests.push(request);
+          const runs = Number(request.page ?? 1) === 1
+            ? priorRuns({{ page: 1 }}).filter((run) => run.status === request.status)
+            : [];
+          return {{ data: {{ total_count: runs.length, workflow_runs: runs }} }};
+        }}
         workflowRunCalls += 1;
         workflowRunRequests.push(request);
         if (
@@ -598,6 +607,7 @@ process.stdout.write(JSON.stringify({{
   producedArtifactName,
   deletedArtifacts,
   reRuns,
+  activeRunRequests,
 }}));
 """
     assert BUN is not None, "bun is required to execute the decide job harness"
@@ -1021,9 +1031,14 @@ def test_manual_run_queues_behind_an_earlier_upload_instead_of_sleeping() -> Non
 
     assert result["waitCalls"] == []
     assert result["workflowRunCalls"] == 1
-    # Every page of a bounded window, so no older active run is missed.
-    assert result["workflowRunRequests"][0]["created"].startswith(">=")
-    assert result["workflowRunRequests"][0]["page"] == 1
+    # Active runs of any age, by status, so no older active run is missed.
+    assert sorted(request["status"] for request in result["activeRunRequests"]) == [
+        "in_progress",
+        "pending",
+        "queued",
+        "requested",
+        "waiting",
+    ]
     assert result["priorRunStatuses"] == ["in_progress"]
     # One look at the blocking run's jobs, not one per minute.
     assert result["uploadJobStatuses"] == ["in_progress"]
@@ -1157,10 +1172,7 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
         prior_sha="base-sha",
         head_sha="head-sha",
         changed_files=("ios/cmux/App.swift",),
-        deferred_markers=(
-            {"runId": 70, "rerunStatus": 403, "runAttempt": 49},
-            {"runId": 80},
-        ),
+        deferred_markers=({"runId": 70, "runAttempt": 50}, {"runId": 80}),
     )
     assert refused["deletedArtifacts"] == [1070]
     assert refused["reRuns"] == [80]
@@ -1178,16 +1190,20 @@ def test_queue_drops_a_run_github_refuses_to_re_run_but_not_one_already_started(
     assert raced["deletedArtifacts"] == []
     assert raced["reRuns"] == []
 
-    transient = run_decision_scenario(
-        event_name="schedule",
-        schedule=IOS_SCHEDULES[0],
-        prior_sha="base-sha",
-        head_sha="head-sha",
-        changed_files=("ios/cmux/App.swift",),
-        deferred_markers=({"runId": 70, "rerunStatus": 502}, {"runId": 80}),
-    )
-    assert transient["deletedArtifacts"] == []
-    assert transient["reRuns"] == []
+    for status in (409, 422, 502):
+        transient = run_decision_scenario(
+            event_name="schedule",
+            schedule=IOS_SCHEDULES[0],
+            prior_sha="base-sha",
+            head_sha="head-sha",
+            changed_files=("ios/cmux/App.swift",),
+            deferred_markers=(
+                {"runId": 70, "rerunStatus": status, "runAttempt": 49},
+                {"runId": 80},
+            ),
+        )
+        assert transient["deletedArtifacts"] == []
+        assert transient["reRuns"] == []
 
 
 def test_queued_run_builds_when_its_turn_comes() -> None:
