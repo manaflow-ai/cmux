@@ -60,11 +60,13 @@ pull request adding one more missing translation to a base already red there
 would otherwise pass as the base's (2026-10-19: base reds in the cmux-next
 checks job refused every feat-cmux-next PR, and --override cannot waive lint).
 
-A test helper that dies on a signal names different in-flight tests and
-crashed-thread frames each run, so its crash lines are not compared: the
-base's job must have died on the same signal, which makes the crash the
-base's (2026-10-09: a base SIGTRAP refused every feat-cmux-next PR). Failed
-steps and any test red before the crash are still compared.
+A job that runs tests is judged per test by scripts/ci/test_reds.py, the one
+classifier for "red on the base, so not ours" (the same file as on
+feat-cmux-next; 2026-10-28: cmux#26346 landed with its own test helper crash
+because the job was red on the base too). A failing test the base does not
+fail is the head's; a crash (signal, abort, EXC_*, Fatal error) is the head's
+whatever the base shows; and a run whose per-test results are cut short is
+the head's, since nothing in it can be compared.
 
 A red step that prints no test name, error line or crash (defaults-snapshot's
 `... changed` / `not stamped`) is compared by what its failed steps printed,
@@ -110,6 +112,9 @@ from pathlib import Path
 _spec = importlib.util.spec_from_file_location("main_fix_evidence", Path(__file__).with_name("main_fix_evidence.py"))
 _evidence = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_evidence)
+_spec = importlib.util.spec_from_file_location("test_reds", Path(__file__).with_name("test_reds.py"))
+test_reds = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(test_reds)
 GitHub, Refused, job_for, latest_checks = _evidence.GitHub, _evidence.Refused, _evidence.job_for, _evidence.latest_checks
 RateLimited = _evidence.RateLimited
 
@@ -637,6 +642,7 @@ class Head:
     def __init__(self, repo: str, job: dict, log: str):
         self.job, self.name, self.url = job, job.get("name", ""), job_url(repo, job)
         self.steps, self.tests, self.errors = signature(job, log)
+        self.log, self.own = log, test_reds.read(log)
         self.crash = crash_signals(log)
         self.soft = soft_failed_steps(job, log)
         self.lint = bool(LINT.search(self.name))
@@ -654,8 +660,12 @@ class Head:
     def mismatch(self, base_job: dict, base_log: str, where: str) -> str | None:
         """Why `base_job` does not fail the way this head job does, or None when it does."""
         base_steps, base_tests, base_errors = signature(base_job, base_log)
+        verdict = test_reds.classify(self.log, base_log, self.name, where)
+        if verdict is not None and verdict.own:
+            return "; ".join(verdict.reasons)[:800]
+        # Not a test job (a compile or tool that died on a signal): the base must have died the same way.
         if missing := sorted(self.crash - crash_signals(base_log)):
-            return f"the test helper died on signal {', '.join(missing)}, and {where} did not"
+            return f"the process died on signal {', '.join(missing)}, and {where} did not"
         compared = [("failed steps", self.steps, base_steps), ("failing tests", self.tests, base_tests)]
         if self.by_output:
             try:
@@ -1044,6 +1054,10 @@ def judge(repo: str, base: str, sha: str, runs: list[int], github, *, checks: li
             raise
         except Refused as cut_short:
             refusals.append(f"{cut_short} (at {short(sha)}, {job_url(repo, job)})")
+            continue
+        if test_reds.is_test_red(head.own, name) and (head.own.crashes or head.own.truncated):
+            refusals.append(f"'{name}' at {short(sha)} ({head.url}): " + "; ".join(head.own.crashes + head.own.truncated[:1])[:800]
+                            + " (a crash or a cut-short run is never a base red)")
             continue
         if head.lint and not head.printed:
             refusals.append(f"'{name}' at {short(sha)} ({head.url}): its failed steps printed nothing to compare "
