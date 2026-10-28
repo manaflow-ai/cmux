@@ -8,7 +8,8 @@
   the seed of the newest commit whatever order the seeds were uploaded in, and installs nothing
   when that seed is not newer than the host's cache;
 - bytes that do not match the record's digest are never installed, a download past the record's
-  size is cut off, and a seed that unpacks past its declared size is refused as it streams;
+  size is cut off, and a seed that unpacks past its declared size, or carries more tar metadata
+  than the bound, is refused as it streams, before tarfile reads it into memory;
 - without the store's URL and token nothing is fetched or published, and a pack without --out
   writes only the host's origin marker;
 - the workflow hands the token only to the DEV landing compile, from the next-dev-cas environment.
@@ -286,6 +287,48 @@ class SeedTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in reader.iterdir()), [seed.CAS_DIR], "a refused seed left files")
         with self.assertRaisesRegex(seed.reuse.Miss, "cache size"):
             seed.check_record(manifest(run_id=1, cas_bytes=seed.CAS_MAX_BYTES + 1), KEY, FIELDS, 1)
+
+    def test_tar_metadata_past_the_bound_is_refused_before_tarfile_holds_it(self):
+        # A PAX record is read whole, into memory, before tarfile yields its member: 16 MiB of
+        # metadata in a seed of a few hundred bytes (zstd) must be refused as it streams, under a
+        # small unpack limit and under a large one alike.
+        env = dict(self.env)
+        if shutil.which("zstd"):
+            env["CMUX_NEXT_DEV_CAS_ZSTD"] = shutil.which("zstd")
+        tar_path = self.root / "pax.tar"
+        with tarfile.open(tar_path, "w", format=tarfile.PAX_FORMAT) as tar:
+            info = tarfile.TarInfo(f"{seed.CAS_DIR}/v1.3/data")
+            info.size = 1
+            info.pax_headers = {"comment": "x" * (16 << 20)}
+            tar.addfile(info, io.BytesIO(b"x"))
+        blob = self.root / "pax.tar.zst"
+        with tar_path.open("rb") as source, blob.open("wb") as sink:
+            seed.subprocess.run([env["CMUX_NEXT_DEV_CAS_ZSTD"], "-q", "-c"], stdin=source, stdout=sink, check=True)
+        reader = self.root / "r"
+        for limit in (10 << 10, 64 << 20):
+            with self.subTest(limit=limit):
+                shutil.rmtree(reader, ignore_errors=True)
+                make_cas(reader, "kept")
+                handed = []
+
+                class Spy(seed.CappedStream):
+                    def read(self, size=-1):
+                        chunk = super().read(size)
+                        handed.append(len(chunk))
+                        return chunk
+
+                with mock.patch.object(seed, "CappedStream", Spy):
+                    with self.assertRaisesRegex(seed.Miss, "more than its record declares|tar metadata"):
+                        seed.extract(blob, reader, env, max_bytes=limit)
+                self.assertLess(sum(handed), 2 << 20, "tarfile was handed the 16 MiB PAX record")
+                self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "kept")
+                self.assertEqual(sorted(p.name for p in reader.iterdir()), [seed.CAS_DIR])
+        # A seed whose metadata stays small still unpacks under a limit just above its data.
+        writer = self.root / "w"
+        make_cas(writer, "fresh")
+        seed.pack(writer, self.root / "out", env)
+        seed.extract(self.root / "out" / seed.BLOB, reader, env, max_bytes=64 << 10)
+        self.assertEqual((reader / seed.CAS_DIR / "v1.3/data").read_text(), "fresh")
 
     def test_without_the_store_nothing_is_fetched_or_published(self):
         host = self.root / "dd"

@@ -65,6 +65,10 @@ MAX_BLOB_BYTES = 8 * 1024**3
 # the most entries it may hold: a seed past either is refused mid-stream, whatever its digest.
 EXTRACT_SLACK_BYTES = 64 * 1024**2
 MAX_MEMBERS = 2_000_000
+# The most tar metadata (headers, PAX records, padding) the stream may carry between one member's
+# data and the next member: tarfile reads a PAX record whole, into memory, before it yields the
+# member, so this bounds that read.
+MAX_METADATA_BYTES = 1024**2
 ZSTD_EXIT_SECONDS = 60
 # How many of the most recently uploaded trusted records a reader validates; it installs the one of
 # the newest commit among them, whatever order they were uploaded in.
@@ -222,6 +226,31 @@ def copy_bounded(source, sink, left: int) -> int:
     return left
 
 
+class CappedStream:
+    """The decompressed seed as tarfile reads it, refused mid-stream past TOTAL bytes in all, or past
+    MAX_METADATA_BYTES beyond the data of the member last yielded. Every byte tarfile reads (headers
+    and PAX records included, which it reads before yielding a member) passes through here, so
+    neither the disk nor the runner's memory takes more than the bound."""
+
+    def __init__(self, raw, total: int, metadata: int = MAX_METADATA_BYTES):
+        self.raw, self.total_left, self.metadata = raw, total, metadata
+        self.gap_left = metadata
+
+    def allow(self, data_bytes: int) -> None:
+        """A member was yielded: its DATA_BYTES may follow, then the next member's metadata."""
+        self.gap_left = self.metadata + max(0, data_bytes)
+
+    def read(self, size: int = -1) -> bytes:
+        chunk = self.raw.read(1 << 20 if size is None or size < 0 else min(size, 1 << 20))
+        self.total_left -= len(chunk)
+        self.gap_left -= len(chunk)
+        if self.total_left < 0:
+            raise Miss("the seed unpacks to more than its record declares")
+        if self.gap_left < 0:
+            raise Miss(f"the seed holds more than {self.metadata} bytes of tar metadata at once")
+        return chunk
+
+
 def extract(blob: Path, derived_data: Path, env: dict[str, str], max_bytes: int = CAS_MAX_BYTES) -> None:
     """Unpack the seed into derived_data/.cas-seed-incoming, then swap it in for the CAS. A member
     outside CompilationCache.noindex, a link or a device refuses the whole seed, and so does
@@ -242,9 +271,11 @@ def unpack(blob: Path, incoming: Path, env: dict[str, str], max_bytes: int) -> N
     left, members = max_bytes, 0
     with blob.open("rb") as source:
         zstd = subprocess.Popen([zstd_binary(env), "-q", "-d", "-c"], stdin=source, stdout=subprocess.PIPE)
+        stream = CappedStream(zstd.stdout, max_bytes)
         try:
-            with tarfile.open(fileobj=zstd.stdout, mode="r|") as tar:
+            with tarfile.open(fileobj=stream, mode="r|") as tar:
                 for member in tar:
+                    stream.allow(member.size if member.isfile() else 0)
                     members += 1
                     if members > MAX_MEMBERS:
                         raise Miss(f"the seed holds more than {MAX_MEMBERS} entries")
@@ -264,14 +295,17 @@ def unpack(blob: Path, incoming: Path, env: dict[str, str], max_bytes: int) -> N
                         left = copy_bounded(data, sink, left)
                     os.chmod(target, (member.mode & 0o755) | 0o600)
             # The tar ended; zstd may still be writing its padding and exiting. Drain it to EOF,
-            # counted against the same bound, and let it finish on its own.
-            while chunk := zstd.stdout.read(1 << 20):
-                left -= len(chunk)
-                if left < 0:
-                    raise Miss("the seed unpacks to more than its record declares")
+            # through the same bounds, and let it finish on its own.
+            stream.allow(0)
+            while stream.read(1 << 20):
+                pass
             status = zstd.wait(timeout=ZSTD_EXIT_SECONDS)
         except tarfile.TarError as error:
             raise Miss(f"the seed is not a readable tar: {error}") from error
+        except Miss:
+            raise
+        except (OSError, ValueError, EOFError) as error:
+            raise Miss(f"the seed could not be unpacked: {error}") from error
         except subprocess.TimeoutExpired as error:
             raise Miss(f"zstd did not exit within {ZSTD_EXIT_SECONDS} s of its output ending") from error
         finally:
