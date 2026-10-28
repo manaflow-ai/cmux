@@ -513,6 +513,16 @@ test("short-circuit and negated shell forms reflect executed mutations", () => {
       ),
     ),
   ).toMatchObject([{ number: 50, kind: "pullRequest" }]);
+  expect(
+    sessionSummary(
+      toolsRows(
+        shell(
+          "if false; then echo https://github.com/acme/app/pull/49; else echo https://github.com/acme/app/pull/50; fi",
+        ),
+      ),
+      "acme/app",
+    ).sources,
+  ).toEqual([{ url: "https://github.com/acme/app/pull/50", label: "acme/app #50", kind: "pullRequest" }]);
 });
 
 test("issue commands do not hide unrelated references on the same shell line", () => {

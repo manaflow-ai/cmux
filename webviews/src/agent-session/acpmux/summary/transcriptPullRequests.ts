@@ -137,9 +137,19 @@ const callText = (command: string) =>
     })
     .replace(/(^|[ \t;&|])#.*$/gm, "$1");
 
+/// Shell text after dropping unexecuted short-circuit and conditional branches. Changes and Sources
+/// must scan the same executed command text or they will disagree about URLs from `if false` arms.
+const executedShellText = (command: string): string =>
+  callText(command)
+    .replace(/\bif\s+false\b([\s\S]*?)\bfi\b/g, (_, body: string) => body.match(/\belse\b([\s\S]*)/)?.[1] ?? "")
+    .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
+    .replace(/\bfalse\s*\|\|\s*/g, "")
+    .replace(/\btrue\s*&&\s*/g, "")
+    .replace(/\bfalse\s*&&\s*([^;&|\n]+)/g, "false");
+
 /// Command text suitable for Sources scanning: payloads such as PR comment bodies are data, not
 /// activity or external references.
-export const pullRequestSourceCommand = (command: string): string => callText(command);
+export const pullRequestSourceCommand = executedShellText;
 
 /// Only explicit JSON title fields or a `.title` query are title evidence.
 function outputTitle(tool: Tool): string | undefined {
@@ -202,17 +212,8 @@ function toolFindings(tool: Tool): Finding[] {
   if (!succeeded(tool)) return [];
   const command = tool.command ?? "";
   // Strip body/title payloads before URL and shorthand scans; those are data, not activity.
-  const plain = callText(command);
-  const scanPlain = plain
-    .replace(/\bif\s+false\b([\s\S]*?)\bfi\b/g, (_, body: string) => body.match(/\belse\b([\s\S]*)/)?.[1] ?? "")
-    .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
-    .replace(/\bfalse\s*\|\|\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;&|\n]+)/g, "false");
-  const parts = callText(command)
-    .replace(/\btrue\s*\|\|\s*([^;&|\n]+)/g, "true")
-    .replace(/\bfalse\s*\|\|\s*/g, "")
-    .replace(/\btrue\s*&&\s*/g, "")
-    .replace(/\bfalse\s*&&\s*([^;&|\n]+)/g, "false")
+  const scanPlain = executedShellText(command);
+  const parts = executedShellText(command)
     .replace(/(?<!\\)\$\(([^()]*)\)/g, "\n$1\n")
     .split(/[\n;&|]+/);
   let skipFalseBranch = false;
