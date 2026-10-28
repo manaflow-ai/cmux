@@ -53,6 +53,9 @@ parser.add_argument("--apps-sha256", default="", help="comma list of fleet app a
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--tag")
+parser.add_argument("--features", default="",
+                    help="one entry per app, separated by '/': the CMUX_ENABLE_FEATURES of that run (comma list, empty: defaults), "
+                         "so one build runs twice, with its defaults and with switches on")
 parser.add_argument("--families", default="", help="comma list, one per app: next (cmux-next) or classic (default next)")
 parser.add_argument("--scenarios", default="terminal,split,newtab,browser")
 parser.add_argument("--rounds", type=int, default=6, help="measured rounds per scenario")
@@ -255,12 +258,15 @@ def photon_ms(frames, key_ns, next_cap_ns, big_area):
 # ---------------------------------------------------------------- the two app families
 class NextApp:
     family = "next"
+    enable_features = ""
 
     def __init__(self, app, zdot, out):
         self.app, self.out = app, out
         self.probe = os.path.join(out, "typing-probe.csv")
         env = {"CMUX_NEXT_TYPING_PROBE": self.probe, "CMUX_NEXT_HANG_THRESHOLD_MS": str(opts.hang_ms),
                **shipping_env(draw=False), **shell_env(zdot)}
+        if self.enable_features:
+            env["CMUX_ENABLE_FEATURES"] = self.enable_features
         self.bench = BenchApp(app, out=out, config={"browser": {"defaultEngine": "chromium"}}, window=(40, 40, 1400, 900),
                               log_name="app-first5s.log", env=env)
         with open(os.path.join(self.bench.scratch, "ghostty"), "w") as f:
@@ -653,12 +659,14 @@ def hops(rounds):
     return out
 
 
-def measure(app_path, zdot, result, family):
-    out = os.path.join(OUT, os.path.basename(app_path).replace(" ", "_").removesuffix(".app"))
+def measure(app_path, zdot, result, family, features=""):
+    out = os.path.join(OUT, os.path.basename(app_path).replace(" ", "_").removesuffix(".app") + (f"-on{len(result['apps'])}" if features else ""))
     os.makedirs(out, exist_ok=True)
+    NextApp.enable_features = features
     app = (NextApp if family == "next" else ClassicApp)(app_path, zdot, out)
     app.zdot = zdot
-    entry = {"app": os.path.basename(app_path), "family": family, "scenarios": {}}
+    label = os.path.basename(app_path) + (" +felt" if features else "")
+    entry = {"app": label, "family": family, "enable_features": features, "scenarios": {}}
     result["apps"].append(entry)
     note(f"=== {entry['app']} ({family})")
     try:
@@ -741,8 +749,9 @@ def main():
             continue
         apps.append(got.stdout.strip().splitlines()[-1])
     families = [f for f in opts.families.split(",") if f]
+    features = opts.features.split("/") if opts.features else []
     for i, app in enumerate(apps):
-        measure(app, zdot, result, families[i] if i < len(families) else "next")
+        measure(app, zdot, result, families[i] if i < len(families) else "next", features[i] if i < len(features) else "")
     save(result)
     return 0
 
