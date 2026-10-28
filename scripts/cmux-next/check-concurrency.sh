@@ -60,9 +60,14 @@
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
+#   pipe reads: `availableData` inside a `readabilityHandler` closure. A
+#               failed read(2) (EBADF, EIO) raises an Objective-C exception
+#               Swift cannot catch, which aborts the app (cmuxterm-hq#4753);
+#               use CmuxNextCompat's `handle.readReady()`. A reviewed
+#               exception carries `// pipe-read-allow: <reason>`.
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
-#               generic-class deinit, task-local and workspace-open rules; CI
-#               blocks on it.
+#               generic-class deinit, task-local, workspace-open and pipe-read
+#               rules; CI blocks on it.
 #   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
 #               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
 #               is current, a task local lives in the thread's fallback storage,
@@ -201,8 +206,36 @@ WORKSPACE_SYNC = re.compile(r"NSWorkspace\.shared\.(open\((?:[^,()]|\([^()]*\))*
 WORKSPACE_HELPER = "CmuxNextCompat/NSWorkspace+Background.swift"
 ALLOW = re.compile(r"//\s*concurrency-allow:\s*\S")
 COMMENT_ONLY = re.compile(r"^\s*(//|\*|/\*)")
+# A readability handler's closure literal, and `availableData` read inside one (cmuxterm-hq#4753).
+READABILITY_HANDLER = re.compile(r"\breadabilityHandler\s*=\s*\{")
+AVAILABLE_DATA = re.compile(r"\bavailableData\b")
+PIPE_READ_ALLOW = re.compile(r"//\s*pipe-read-allow:\s*\S")
+STRING_LITERAL = re.compile(r'"(?:[^"\\]|\\.)*"')
 
-def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared):
+
+def readability_handler_lines(lines):
+    """Which lines are inside a `readabilityHandler = { ... }` closure, by brace depth (strings and
+    `//` comments ignored); the line that opens one counts."""
+    inside = [False] * len(lines)
+    depth = 0
+    open_handlers = []  # the depth of each enclosing handler's opening brace
+    for index, line in enumerate(lines):
+        code = STRING_LITERAL.sub('""', line).split("//", 1)[0]
+        opening = {match.end() - 1 for match in READABILITY_HANDLER.finditer(code)}
+        inside[index] = bool(open_handlers)
+        for column, char in enumerate(code):
+            if char == "{":
+                depth += 1
+                if column in opening:
+                    open_handlers.append(depth)
+                    inside[index] = True
+            elif char == "}":
+                if open_handlers and open_handlers[-1] == depth:
+                    open_handlers.pop()
+                depth -= 1
+    return inside
+
+def crash_class_hits(code, lines, index, default_main, main_lines, relative, generic_declared, handler_lines):
     """The crash-class rules (CHECK_CONCURRENCY_ONLY=crash-class; CI blocks on them)."""
     hits = []
     if ISOLATED_DEINIT.match(code):
@@ -226,6 +259,10 @@ def crash_class_hits(code, lines, index, default_main, main_lines, relative, gen
     if WORKSPACE_SYNC.search(code) and relative != WORKSPACE_HELPER and not allowed(lines, index):
         hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
                     "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
+    if handler_lines[index] and AVAILABLE_DATA.search(code) and not allowed(lines, index, PIPE_READ_ALLOW):
+        hits.append("availableData in a readabilityHandler (a failed read raises an Objective-C exception Swift "
+                    "cannot catch, which aborts the app, cmuxterm-hq#4753); switch on handle.readReady(): "
+                    ".bytes, .retry (return), .end (clear the handler)")
     return hits
 
 
@@ -274,6 +311,7 @@ for dirpath, _, files in os.walk(sources):
         default_main = swift_scope.default_isolation(
             os.path.relpath(path, root).replace(os.sep, "/"), TARGETS) is True
         main_lines = main_actor_scope.main_actor_lines(lines, default_main)
+        handler_lines = readability_handler_lines(lines)
         for index, line in enumerate(lines):
             if COMMENT_ONLY.match(line):
                 continue
@@ -287,7 +325,7 @@ for dirpath, _, files in os.walk(sources):
             if ONLY == "synchronization":
                 continue
             hits = crash_class_hits(code, lines, index, default_main, main_lines, relative.replace(os.sep, "/"),
-                                    generic_declared)
+                                    generic_declared, handler_lines)
             if ONLY == "crash-class":
                 for name in hits:
                     print(f"concurrency: {os.path.relpath(path, root)}:{index + 1}: {name}")
