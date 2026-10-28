@@ -97,17 +97,7 @@ class JsonLineConnection:
             raise ValueError("send timeout must be finite and greater than zero")
         deadline = None if timeout is None else time.monotonic() + timeout
         encoded = self._encode(value)
-        if deadline is None:
-            self._send_lock.acquire()
-        else:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0 or not self._send_lock.acquire(
-                timeout=min(remaining, threading.TIMEOUT_MAX)
-            ):
-                raise _DispatchTimeoutError(
-                    "session socket write lock timed out",
-                    write_started=False,
-                )
+        self._acquire_send_lock(deadline)
         try:
             if self._write_poisoned:
                 raise CmuxConnectionError(
@@ -148,13 +138,7 @@ class JsonLineConnection:
             raise ValueError("send timeout must be finite and greater than zero")
         encoded = self._encode(value)
         deadline = time.monotonic() + timeout
-        if not self._send_lock.acquire(
-            timeout=min(timeout, threading.TIMEOUT_MAX)
-        ):
-            raise _DispatchTimeoutError(
-                "session socket write lock timed out",
-                write_started=False,
-            )
+        self._acquire_send_lock(deadline)
         try:
             if self._write_poisoned:
                 raise CmuxConnectionError(
@@ -190,6 +174,20 @@ class JsonLineConnection:
     ) -> None:
         """Writes one frame within the supplied total dispatch timeout."""
         self.send_bounded_if(value, timeout, lambda: True)
+
+    def _acquire_send_lock(self, deadline: Optional[float]) -> None:
+        """Wait for the writer within the deadline and platform timeout range."""
+        if deadline is None:
+            self._send_lock.acquire()
+            return
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise _DispatchTimeoutError(
+                    "session socket write lock timed out", write_started=False
+                )
+            if self._send_lock.acquire(timeout=min(remaining, threading.TIMEOUT_MAX)):
+                return
 
     def _encode(self, value: Mapping[str, Any]) -> bytes:
         try:
