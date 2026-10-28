@@ -299,7 +299,8 @@ export function ComposerContext({
   const offload: OffloadKind | undefined = started && environments && onOffload ? offloads[0] : undefined;
   // A first computer is discoverable without Labs, including from a started local chat.
   // Existing machines and the preview picker keep their own connection choices.
-  const onboardingConnect = !environments && !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
+  const onboardingConnect =
+    !environments && !computers.some((computer) => computer.id !== "local") ? onConnect : undefined;
   const computerDisabled = readOnly && !offload && (started || !onConnect) && !onboardingConnect;
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
@@ -445,8 +446,16 @@ export function ComposerContext({
               extras={
                 onboardingConnect
                   ? [
-                      { id: "addMachine", label: t(CONTEXT_LABELS.addComputer), onSelect: () => onboardingConnect?.("addMachine") },
-                      { id: "cloud", label: t(CONTEXT_LABELS.newCloudMachine), onSelect: () => onboardingConnect?.("cloud") },
+                      {
+                        id: "addMachine",
+                        label: t(CONTEXT_LABELS.addComputer),
+                        onSelect: () => onboardingConnect?.("addMachine"),
+                      },
+                      {
+                        id: "cloud",
+                        label: t(CONTEXT_LABELS.newCloudMachine),
+                        onSelect: () => onboardingConnect?.("cloud"),
+                      },
                     ]
                   : !started && onConnect && !connectOnlyWhenEmpty
                     ? [

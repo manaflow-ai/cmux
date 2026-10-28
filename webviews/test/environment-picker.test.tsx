@@ -256,7 +256,10 @@ for (const started of [false, true]) {
     expect(calls).toEqual([["connect", "addMachine"]]);
     await openPicker();
     await act(async () => actions()[1]!.click());
-    expect(calls).toEqual([["connect", "addMachine"], ["connect", "cloud"]]);
+    expect(calls).toEqual([
+      ["connect", "addMachine"],
+      ["connect", "cloud"],
+    ]);
     expect(doc().querySelector(".acpmux-env-popover")).toBeNull();
   });
 }

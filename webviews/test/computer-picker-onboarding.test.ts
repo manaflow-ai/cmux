@@ -33,7 +33,9 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
         const page = await browser!.newPage({ viewport: { width: 900, height: 650 }, colorScheme });
         try {
           const port = (vite!.httpServer!.address() as { port: number }).port;
-          await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant: "computer-first-setup", colorScheme })}`);
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame(entry, { variant: "computer-first-setup", colorScheme })}`,
+          );
           await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
           const computer = page.locator('.acpmux-location-picker[data-kind="computer"] > button');
           if (!(await computer.getAttribute("aria-expanded"))?.includes("true")) await computer.click();
@@ -50,14 +52,16 @@ await requireBrowserLane("computer-picker-onboarding.test.ts", async () => {
           }
           await add.click();
           await page.waitForFunction(() =>
-            (window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] })
-              .cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "device.add"),
+            (
+              window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
+            ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "device.add"),
           );
           await computer.click();
           await cloud.click();
           await page.waitForFunction(() =>
-            (window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] })
-              .cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "newCloudMachine"),
+            (
+              window as unknown as { cmuxGalleryLog: { method: string; params?: { id?: string } }[] }
+            ).cmuxGalleryLog.some((call) => call.method === "action.run" && call.params?.id === "newCloudMachine"),
           );
         } finally {
           await page.close();
