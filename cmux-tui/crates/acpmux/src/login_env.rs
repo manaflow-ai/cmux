@@ -806,10 +806,10 @@ const URL_OPENER: &str = "cmux-open-url";
 /// cmux browser tab and not in the default browser. Set before the agent's shells
 /// run the user's files, so a `.zprofile` that sets `BROWSER=open` only when it is
 /// unset (prezto's stock one) keeps it. `None` when this daemon already has a
-/// `BROWSER` (the person's, which wins), or without a bundled CLI whose bin dir
-/// holds an executable opener (an older app).
+/// `BROWSER` or the person added `BROWSER` to `loginEnvAllow` (theirs wins), or
+/// without a bundled CLI whose bin dir holds an executable opener (an older app).
 pub fn agent_browser_env() -> Option<&'static str> {
-    if std::env::var_os("BROWSER").is_some_and(|v| !v.is_empty()) {
+    if std::env::var_os("BROWSER").is_some_and(|v| !v.is_empty()) || extra_exact("BROWSER") {
         return None;
     }
     let bin = std::env::var_os(BUNDLED_CLI_ENV)

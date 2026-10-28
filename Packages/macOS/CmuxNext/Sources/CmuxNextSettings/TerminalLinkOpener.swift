@@ -15,7 +15,8 @@ public import Foundation
 /// cmux terminals set `BROWSER` to the bundled `cmux-open-url`, and put `open` and `xdg-open`
 /// shims first on `PATH` that send an http(s) URL there (any other `open` goes to `/usr/bin/open`).
 /// It asks the app (`browser.open_link`), which picks the target here: the first rule that
-/// matches, else ``defaultTarget``. A `BROWSER` the user sets wins over all of it. When the app
+/// matches, else ``defaultTarget``. A `BROWSER` the user sets wins over all of it, except
+/// `BROWSER=open` (prezto's default when unset), which names no browser. When the app
 /// cannot be reached the URL goes to the default browser. The macOS default browser never changes.
 public nonisolated struct TerminalLinkOpener: Sendable, Hashable {
     /// The target when no rule matches. `cmux` by default.

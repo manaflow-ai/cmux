@@ -5,11 +5,17 @@ public import Foundation
 /// authorize page, or a login page. ``LinkRouting/signInPagesInCmux`` opens one in a cmux browser
 /// tab (where the person's passkeys and saved passwords work) whatever the other link settings say.
 ///
-/// The test is on the URL alone, so every entry point agrees: a whole path segment that names a
-/// sign-in step (`device`, `devicelogin`, `activate`, `login`, `signin`, `sign-in`, `oauth`,
-/// `oauth2`, `authorize`, `auth`, `sso`), a host that serves only sign-ins (`login.*`, `signin.*`,
-/// `accounts.*`, `device.sso.*`), or a `user_code` query item. A segment is matched whole, so
-/// `auth.rs` in a repository path or `devices` in a guide's path is not a sign-in page.
+/// The test is on the URL alone, so every entry point agrees. A page is a sign-in page when:
+/// - a `user_code` query item is in its query or its fragment (`aws sso login`, `#/device?user_code=`);
+/// - a path segment is `authorize` or `devicelogin` (OAuth authorize pages, Microsoft's device page);
+/// - its last segment is `login`, `signin`, `sign-in`, `sign_in` or `activate`;
+/// - its last segment is `device` with a `code` query item, or in a path of at most two segments
+///   (`github.com/login/device`, `auth.openai.com/codex/device`, `google.com/device`);
+/// - its last segment is `auth` after an `oauth` or `oauth2` segment (Google's `/o/oauth2/v2/auth`);
+/// - or its host serves only sign-ins (`signin.*`, `device.sso.*`).
+///
+/// Whole segments in those places only, so a repository or docs path (`golang/oauth2`,
+/// `src/auth`, `studio/run/device`, `auth.rs`) is not a sign-in page.
 ///
 /// ```swift
 /// URL(string: "https://example.com/device?code=ABCD-1234").flatMap(SignInPage.init(url:)) // a sign-in page
@@ -24,18 +30,21 @@ public nonisolated struct SignInPage: Sendable, Hashable {
         guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               let host = url.host?.lowercased(), !host.isEmpty else { return nil }
         let segments = url.pathComponents.map { $0.lowercased() }.filter { $0 != "/" }
-        let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
-        let signInHost = Self.hostPrefixes.contains { host.hasPrefix($0) }
-        guard signInHost || segments.contains(where: Self.segments.contains)
-            || query.contains(where: { $0.name.lowercased() == "user_code" }) else { return nil }
+        let query = (URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []).map { $0.name.lowercased() }
+        let fragment = url.fragment?.lowercased() ?? ""
+        let last = segments.last ?? ""
+        let signIn = query.contains("user_code") || fragment.contains("user_code=")
+            || segments.contains("authorize") || segments.contains("devicelogin")
+            || Self.lastSegments.contains(last)
+            || (last == "device" && (query.contains("code") || segments.count <= 2))
+            || (last == "auth" && segments.dropLast().contains { $0 == "oauth" || $0 == "oauth2" })
+            || Self.hostPrefixes.contains { host.hasPrefix($0) }
+        guard signIn else { return nil }
         self.url = url
     }
 
-    /// Path segments that name a sign-in or device-approval step.
-    private static let segments: Set<String> = [
-        "device", "devicelogin", "activate", "login", "signin", "sign-in", "sign_in", "oauth", "oauth2",
-        "authorize", "auth", "sso",
-    ]
+    /// Last path segments that name a sign-in step.
+    private static let lastSegments: Set<String> = ["login", "signin", "sign-in", "sign_in", "activate"]
     /// Host prefixes of hosts that serve only sign-ins.
-    private static let hostPrefixes = ["login.", "signin.", "accounts.", "device.sso."]
+    private static let hostPrefixes = ["signin.", "device.sso."]
 }

@@ -78,10 +78,12 @@ Settings > Terminal > Opening Links, or `~/.config/cmux/cmux.json`:
 Sign-in and device-code pages open in a cmux browser tab, where your cmux
 browser passkeys and saved passwords work, even when other links go elsewhere
 (`"browser.openSignInPagesInCmux": true`, the default). A sign-in page is an
-http(s) URL with a path segment such as `device`, `login`, `signin`, `oauth`,
-`authorize` or `auth`, a sign-in host (`login.*`, `signin.*`, `accounts.*`,
-`device.sso.*`) or a `user_code` query item: GitHub's device page, the Codex and
-OpenCode device codes, AWS SSO, Google and Microsoft sign-ins.
+http(s) URL whose path ends in `login`, `signin`, `sign-in` or `activate`, ends
+in `device` (with a `code` query item or at most two path segments), has an
+`authorize` or `devicelogin` segment or `oauth2/…/auth`, carries a `user_code`
+item, or is on a `signin.*` or `device.sso.*` host: GitHub's device page, the
+Codex and OpenCode device codes, AWS SSO, Google and Microsoft sign-ins. A
+repository or docs path such as `golang/oauth2` or `docs/guides/auth` is not one.
 
 - It wins over `terminal.linkOpener.default`, `browser.openLinksInCmuxBrowser`
   and `browser.hostsToOpenInEmbeddedBrowser`. A `terminal.linkOpener` rule that

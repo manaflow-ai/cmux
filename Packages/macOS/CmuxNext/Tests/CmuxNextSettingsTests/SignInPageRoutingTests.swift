@@ -32,6 +32,7 @@ import Testing
         "https://www.google.com/device",
         "https://app.example.com/login?next=/",
         "https://example.com/sign-in",
+        "https://x.awsapps.com/start/#/device?user_code=ABCD-EFGH",
     ])
     func signInPagesAreRecognized(text: String) throws {
         #expect(SignInPage(url: try Self.url(text)) != nil, "\(text)")
@@ -43,6 +44,12 @@ import Testing
         "https://github.com/manaflow-ai/cmux/blob/main/auth.rs",
         "https://news.ycombinator.com/item?id=1",
         "https://docs.example.com/guides/devices",
+        "https://github.com/golang/oauth2",
+        "https://pkg.go.dev/golang.org/x/oauth2",
+        "https://github.com/o/r/tree/main/src/auth",
+        "https://supabase.com/docs/guides/auth",
+        "https://developer.android.com/studio/run/device",
+        "https://login.gov/help/",
         "file:///tmp/login",
         "mailto:login@example.com",
     ])
