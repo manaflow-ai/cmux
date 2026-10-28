@@ -400,8 +400,9 @@ pub(crate) fn same_program(running: &str, spawned: &str) -> bool {
 }
 
 /// Whether `command`, the argv the daemon spawned for a terminal, is an
-/// interactive shell: a known shell with no command of its own (`-c`,
-/// `--command`). Only a shell's prompt can be idle: a terminal that runs ssh
+/// interactive shell: a known shell with no command (`-c`, `--command`) and
+/// no script of its own (a word that is not an option, other than the file
+/// of `--rcfile` or `--init-file`). Only a shell's prompt can be idle: a terminal that runs ssh
 /// or `docker exec` itself shows the remote shell's prompt marks while its
 /// own program holds the foreground, and `bash -c 'a; b'` runs its commands
 /// in its own process group.
@@ -411,12 +412,23 @@ pub(crate) fn spawned_shell(command: &[String]) -> bool {
         &["bash", "zsh", "fish", "sh", "dash", "ksh", "mksh", "tcsh", "csh", "nu", "elvish"];
     let Some((program, arguments)) = command.split_first() else { return false };
     let name = program.rsplit('/').next().unwrap_or(program).trim_start_matches('-');
-    SHELLS.contains(&name)
-        && !arguments.iter().any(|argument| {
-            let short_command =
-                argument.starts_with('-') && !argument.starts_with("--") && argument.contains('c');
-            short_command || argument == "--command" || argument == "--execute"
-        })
+    if !SHELLS.contains(&name) {
+        return false;
+    }
+    let mut arguments = arguments.iter();
+    while let Some(argument) = arguments.next() {
+        if argument == "--rcfile" || argument == "--init-file" {
+            arguments.next();
+            continue;
+        }
+        let short_command =
+            argument.starts_with('-') && !argument.starts_with("--") && argument.contains('c');
+        let script = !argument.starts_with('-') && !argument.starts_with('+');
+        if short_command || script || argument == "--command" || argument == "--execute" {
+            return false;
+        }
+    }
+    true
 }
 
 /// The `activity` field of a terminal record.
@@ -633,6 +645,7 @@ mod tests {
         assert!(!spawned_shell(&["bash".into(), "-c".into(), "a; b".into()]));
         assert!(!spawned_shell(&["bash".into(), "-lc".into(), "a".into()]));
         assert!(!spawned_shell(&["fish".into(), "--command".into(), "a".into()]));
+        assert!(!spawned_shell(&["bash".into(), "script.sh".into()]), "a script");
         assert!(!spawned_shell(&[]));
     }
 
