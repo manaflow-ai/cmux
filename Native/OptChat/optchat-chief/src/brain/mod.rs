@@ -869,6 +869,9 @@ pub struct Brain {
     approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
+    /// Replies whose pictures and videos a preview thread of this run is
+    /// uploading (previews.rs `UNTIL_UPLOADED`), by outbox key.
+    uploading: HashSet<String>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
     /// `turns::MAX_CUTS` the next one fails as before, never a loop.
     cuts: u32,
@@ -1016,6 +1019,7 @@ impl Brain {
             unanswered: Vec::new(),
             approval_told: HashSet::new(),
             previewer: None,
+            uploading: HashSet::new(),
             cuts: 0,
             resume_at: None,
             orphan_wait: None,
