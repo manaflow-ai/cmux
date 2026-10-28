@@ -16,21 +16,23 @@ public final class GitHubConnections {
     @ObservationIgnored private let scope: () -> Scope?
     @ObservationIgnored private let call: Call
     @ObservationIgnored private let open: (URL) -> Void
+    @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var connectKeys: [Scope: String] = [:]
     private var loadedScope: Scope?
     private var workingScope: Scope?
     private var generation = 0
-    @ObservationIgnored private var authorizations: [Scope: (id: String, url: URL)] = [:]
+    @ObservationIgnored private var authorizations: [Scope: (id: String, url: URL, expires: Date)] = [:]
     private(set) var connections: [JSONValue] = []
     private(set) var configured = false
     private var errorScope: Scope?
     public var error: Bool { scope() != nil && errorScope == scope() }
     public var pending: Bool { currentConnections.contains { $0["status"]?.stringValue == "pending" } || scope().map { authorizations[$0] != nil } == true }
 
-    public init(scope: @escaping () -> Scope?, call: @escaping Call, open: @escaping (URL) -> Void) {
+    public init(scope: @escaping () -> Scope?, call: @escaping Call, open: @escaping (URL) -> Void, now: @escaping () -> Date = Date.init) {
         self.scope = scope
         self.call = call
         self.open = open
+        self.now = now
     }
 
     public var scopeIsSignedOut: Bool { scope() == nil }
@@ -63,6 +65,10 @@ public final class GitHubConnections {
             switch action {
             case "githubConnect":
                 guard ready else { return }
+                if let authorization = authorizations[bound], authorization.expires <= now() {
+                    authorizations[bound] = nil
+                    connectKeys[bound] = nil
+                }
                 if let authorization = authorizations[bound] {
                     open(authorization.url)
                 } else {
@@ -71,7 +77,7 @@ public final class GitHubConnections {
                     guard scope() == bound, generation == ticket else { return }
                     guard let raw = value["authorize_url"]?.stringValue, let url = Self.installationURL(raw),
                           let id = value["connection"]?["id"]?.stringValue, !id.isEmpty else { throw GitHubFailure.invalidReply }
-                    authorizations[bound] = (id, url)
+                    authorizations[bound] = (id, url, Self.authorizationExpiration(url) ?? now())
                     open(url)
                 }
             case "githubDisconnect":
@@ -104,6 +110,17 @@ public final class GitHubConnections {
               url.user == nil, url.password == nil, url.port == nil,
               url.path.range(of: #"^/apps/[A-Za-z0-9-]+/installations/new$"#, options: .regularExpression) != nil else { return nil }
         return url
+    }
+
+    /// Expiry is only a cache hint; the API still verifies the signed state on completion.
+    private nonisolated static func authorizationExpiration(_ url: URL) -> Date? {
+        guard let token = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first(where: { $0.name == "state" })?.value else { return nil }
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return nil }
+        var payload = String(parts[1]).replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
+        guard let data = Data(base64Encoded: payload), let value = try? JSONValue.parse(data), let expires = value["exp"]?.doubleValue else { return nil }
+        return Date(timeIntervalSince1970: expires)
     }
 
     /// The existing API identity contract (`domains/user.ts::stackTeamIdFor`).

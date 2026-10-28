@@ -33,7 +33,7 @@ import Testing
                 #expect(params == ["provider": "github"])
                 #expect(mutation != nil)
                 connected = true
-                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=sample"]
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             if connected { return ["connections": [["id": "sample", "provider": "github", "status": "pending"]], "providers": [["provider": "github", "configured": true]]] }
             return self.listing
@@ -117,7 +117,7 @@ import Testing
             if op == "integration.connect" {
                 keys.append(key)
                 if keys.count == 1 { throw GitHubConnections.GitHubFailure.refused }
-                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=sample"]
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
             }
             return self.listing
         }, open: { _ in })
@@ -139,6 +139,31 @@ import Testing
         await model.connect()
         #expect(connects == 0)
         #expect(model.pageState["outcome"] == "connected")
+    }
+
+    @Test func anExpiredAuthorizationStartsANewAttempt() async {
+        var clock = Date(timeIntervalSince1970: 4102444799)
+        var keys: [String?] = []
+        let model = GitHubConnections(scope: { self.scope }, call: { _, op, _, key in
+            if op == "integration.connect" {
+                keys.append(key)
+                return ["connection": ["id": "sample"], "authorize_url": "https://github.com/apps/cmux/installations/new?state=a.eyJleHAiOjQxMDI0NDQ4MDB9.b"]
+            }
+            return ["connections": [["id": "sample", "provider": "github", "status": "pending"]], "providers": [["provider": "github", "configured": true]]]
+        }, open: { _ in }, now: { clock })
+        await model.connect()
+        clock = clock.addingTimeInterval(1)
+        await model.connect()
+        #expect(keys.count == 2)
+        #expect(keys[0] != keys[1])
+    }
+
+    @Test func theCLIReportsAConnectionFailureAsFailure() async {
+        let model = GitHubConnections(scope: { self.scope }, call: { _, _, _, _ in throw GitHubConnections.GitHubFailure.refused }, open: { _ in })
+        let result = await AccountsHandlers.githubConnectResult(model)
+        guard case .failure(let error) = result else { Issue.record("the command reported success after a failed request"); return }
+        #expect(!error.message.isEmpty)
+        #expect(model.pageState["outcome"] == "failed")
     }
 
     @Test func theGuideAndCLIShareAWaitingConnectAction() throws {
