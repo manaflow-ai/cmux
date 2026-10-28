@@ -41,6 +41,15 @@
 //! stream then carries only those events, cmd_subscribe.rs). This keeps
 //! every other legacy command away from page JS; page JS never sends the
 //! `subscribe` (the host does, in its relay handshake).
+//!
+//! Page streams (`page-streams-v1`, request-origin.md "Page streams"): a
+//! page relay hello with `streams: true` (and no `page`) makes one
+//! connection carry every page, a stream per page. The connection's own
+//! lines (stream 0) are then only `open-stream {stream, page}` and
+//! `close-stream {stream}`; every `cmux.protocol/2` request names its open
+//! stream in `origin.stream`. Any other connection refuses `open-stream`
+//! with `origin.forbidden {reason: page_stream_not_here}`: page streams
+//! never live on the main connection, whose origin is not page.
 
 use crate::panic_free::JsonFields;
 use cmux_features::Live;
@@ -49,9 +58,15 @@ use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
 use zeroize::Zeroizing;
 
 use super::*;
-use crate::request_origin::{HelloRole, RequestOrigin, page_router_table, valid_install_id};
+use std::num::NonZeroU16;
+
+use crate::request_origin::{
+    HelloRole, OpenStreamRefusal, RequestOrigin, page_router_table, valid_install_id,
+};
 
 const CLIENT_HELLO: &str = "client-hello";
+const OPEN_STREAM: &str = "open-stream";
+const CLOSE_STREAM: &str = "close-stream";
 /// Most feature values one hello may carry (the registry has far fewer).
 const MAX_HELLO_FEATURES: usize = 512;
 /// Longest feature name or hash a hello may carry.
@@ -164,6 +179,9 @@ pub(super) struct HelloGate {
     transport: ClientTransport,
     window: Window,
     page_relay: bool,
+    /// A streamed page relay (`page-streams-v1`): its own lines are only
+    /// `open-stream` and `close-stream`.
+    page_streams: bool,
     /// A page relay whose page hears subscribe events (page-router.json
     /// `events`): its `subscribe` line goes to dispatch, which narrows the
     /// stream to those events.
@@ -214,6 +232,7 @@ impl HelloGate {
             transport,
             window: Window::Open { identified: false },
             page_relay: false,
+            page_streams: false,
             page_events: false,
             scoped_raw: None,
         }
@@ -247,13 +266,17 @@ impl HelloGate {
         line: &str,
         peer: impl FnOnce() -> Peer,
     ) -> Option<Value> {
-        // After the window closes only a late hello, or any line of a page
-        // relay, is looked at here; the test is a superset of those cases.
+        // After the window closes only a late hello, a page stream command
+        // (refused off a streamed relay), or any line of a page relay, is
+        // looked at here; the test is a superset of those cases.
         if let Some(allowed) = self.scoped_raw {
             return scoped_refusal(line, allowed);
         }
         let open = !matches!(self.window, Window::Closed);
-        if !open && !self.page_relay && !line.contains(CLIENT_HELLO) {
+        let looked_at = open
+            || self.page_relay
+            || [CLIENT_HELLO, OPEN_STREAM, CLOSE_STREAM].iter().any(|cmd| line.contains(cmd));
+        if !looked_at {
             return None;
         }
         let window = std::mem::replace(&mut self.window, Window::Closed);
@@ -288,10 +311,19 @@ impl HelloGate {
                     prove(mux, client, &value, &install_id, &nonce, features.as_ref())
                 }
             },
+            // Page streams live only on a streamed page relay, never on the
+            // main connection (request-origin.md "Page streams").
+            Some(OPEN_STREAM | CLOSE_STREAM) if !self.page_streams => {
+                Err(page_stream_not_here(origin_gate::derived_origin(mux, client)))
+            }
+            Some(OPEN_STREAM) => open_stream(mux, client, &value),
+            Some(CLOSE_STREAM) => close_stream(mux, client, &value),
             Some("identify") if matches!(window, Window::Open { identified: false }) => {
                 self.window = Window::Open { identified: true };
                 return None;
             }
+            // Stream 0 of a streamed page relay opens and closes streams only.
+            _ if self.page_streams => return Some(stream_zero_refusal(id)),
             Some("identify") if self.page_relay => return None,
             Some("subscribe") if self.page_relay => {
                 return (!self.page_events || !page_relay_subscribe(&value))
@@ -326,6 +358,9 @@ impl HelloGate {
                 "page" => {
                     "client-hello page is for role page_relay: 1-64 characters of a-z 0-9 -, starting with a letter"
                 }
+                "streams" => {
+                    "client-hello streams is a boolean, true only for role page_relay without a page"
+                }
                 "features" => {
                     "client-hello features is for role main: {hash?: string, values: {name: bool}}, at most 512 values"
                 }
@@ -353,6 +388,13 @@ impl HelloGate {
             }
             Some(_) => return Err(bad("page")),
         };
+        // One page relay connection for every page, a stream per page
+        // (page-streams-v1): its pages come with open-stream, not here.
+        let streams = match value.get("streams") {
+            None | Some(Value::Null | Value::Bool(false)) => false,
+            Some(Value::Bool(true)) if role == HelloRole::PageRelay && page.is_none() => true,
+            Some(_) => return Err(bad("streams")),
+        };
         let features = HelloFeatures::parse(value.get("features")).map_err(|()| bad("features"))?;
         if features.is_some() && role != HelloRole::Main {
             return Err(bad("features"));
@@ -361,10 +403,11 @@ impl HelloGate {
         // Prover A, outside every lock: role main on a signed build.
         let signed =
             role == HelloRole::Main && mux.control_clients.app_trust.signature_proves(peer.token);
-        if !origin_gate::set_hello(mux, client, role, peer.key, signed, page.clone()) {
+        if !origin_gate::set_hello(mux, client, role, peer.key, signed, page.clone(), streams) {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
+        self.page_streams = streams;
         self.page_events =
             page.as_deref().is_some_and(|page| !page_router_table::page_events(page).is_empty());
         let mut data = json!({
@@ -375,6 +418,9 @@ impl HelloGate {
             data.insert("page", json!(page));
             data.insert("page_operations", page_router_table::page_operations(page));
             data.insert("page_events", json!(page_router_table::page_events(page)));
+        }
+        if streams {
+            data.insert("page_streams", json!(true));
         }
         // A signed app is verified now; an install-key app only after step 2.
         if let Some(report) = features.as_ref().and_then(|features| features.reconcile(mux, signed))
@@ -437,6 +483,93 @@ fn page_relay_refusal(id: Option<Value>) -> Value {
         "error_code": "origin.forbidden",
         "error_details": {"required": "agent", "derived": RequestOrigin::Page.wire_name()},
     })
+}
+
+/// The answer to any line of a streamed page relay's stream 0 that is not
+/// `open-stream`, `close-stream` or a `cmux.protocol/2` request.
+fn stream_zero_refusal(id: Option<Value>) -> Value {
+    json!({
+        "id": id,
+        "ok": false,
+        "error": "stream 0 of a streamed page relay only opens and closes page streams",
+        "error_code": "origin.forbidden",
+        "error_details": {"reason": "stream_zero", "derived": RequestOrigin::Page.wire_name()},
+    })
+}
+
+/// `open-stream` or `close-stream` on a connection that is not a streamed
+/// page relay (the main connection, a one-page relay, a WebSocket).
+fn page_stream_not_here(derived: RequestOrigin) -> Refusal {
+    (
+        "origin.forbidden",
+        "only a streamed page relay connection opens page streams",
+        Some(json!({"reason": "page_stream_not_here", "derived": derived.wire_name()})),
+    )
+}
+
+fn page_stream_bad_request(field: &str) -> Refusal {
+    let message = match field {
+        "stream" => "a page stream id is 1-65535 (stream 0 is the connection's own)",
+        "page" => "a page id is 1-64 characters of a-z 0-9 -, starting with a letter",
+        _ => "open-stream takes stream and page, close-stream takes stream",
+    };
+    ("page_stream.bad_request", message, Some(json!({"field": field})))
+}
+
+/// The line's `stream` once every member is one of `members`.
+fn stream_member(value: &Value, members: &[&str]) -> Result<NonZeroU16, Refusal> {
+    let object = value.as_object().ok_or_else(|| page_stream_bad_request("cmd"))?;
+    if let Some(unknown) = object.keys().find(|key| !members.contains(&key.as_str())) {
+        return Err(page_stream_bad_request(unknown));
+    }
+    object
+        .get("stream")
+        .and_then(Value::as_u64)
+        .and_then(|stream| u16::try_from(stream).ok())
+        .and_then(NonZeroU16::new)
+        .ok_or_else(|| page_stream_bad_request("stream"))
+}
+
+/// `open-stream {stream, page}`: the stream speaks for `page` until
+/// `close-stream`. The reply's `relay_id` is the stream's
+/// `relay_connection_id` for `origin.confirmation.issue`.
+fn open_stream(mux: &Mux, client: u64, value: &Value) -> Result<Value, Refusal> {
+    let stream = stream_member(value, &["cmd", "id", "stream", "page"])?;
+    let page = value
+        .get("page")
+        .and_then(Value::as_str)
+        .filter(|page| page_router_table::valid_page_id(page))
+        .ok_or_else(|| page_stream_bad_request("page"))?;
+    let relay_id =
+        origin_gate::open_page_stream(mux, client, stream, page.to_owned()).map_err(|refusal| {
+            match refusal {
+                OpenStreamRefusal::InUse => (
+                    "page_stream.in_use",
+                    "the page stream is open, and its page never changes: close it first",
+                    Some(json!({"stream": stream})),
+                ),
+                OpenStreamRefusal::Limit => (
+                    "page_stream.limit",
+                    "this page relay has as many open page streams as it may",
+                    Some(json!({"limit": MAX_SERVER_CONNECTIONS})),
+                ),
+                OpenStreamRefusal::NotStreamed => page_stream_not_here(RequestOrigin::Page),
+            }
+        })?;
+    Ok(json!({
+        "stream": stream,
+        "page": page,
+        "relay_id": relay_id.to_string(),
+        "page_operations": page_router_table::page_operations(page),
+    }))
+}
+
+/// `close-stream {stream}`: ends the stream and every token issued for it;
+/// idempotent (`closed: false` for a stream that was not open).
+fn close_stream(mux: &Mux, client: u64, value: &Value) -> Result<Value, Refusal> {
+    let stream = stream_member(value, &["cmd", "id", "stream"])?;
+    let closed = origin_gate::close_page_stream(mux, client, stream);
+    Ok(json!({"stream": stream, "closed": closed}))
 }
 
 /// A page relay's `subscribe`: the page's event stream only, so no member

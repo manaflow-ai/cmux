@@ -5,10 +5,13 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework   (artifact)
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
-#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug and bench builds only, prototype;
-#                                                                build-chromium-host.sh)
+#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Chromium's browser process behind
+#                                                                browserHost.helper; build-chromium-host.sh)
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
 #                                                                cmux loads in host mode)
+#   Contents/Resources/crash_reporter.cfg                       (with the host in Debug and bench builds:
+#                                                                Chromium's Crashpad, local dumps only;
+#                                                                chromium-host-crash-reporter.cfg)
 #
 # then signs them inside out with the build's identity (ad hoc for dev
 # builds) through sign-cef.sh. Xcode signs the outer app afterwards; release
@@ -67,11 +70,13 @@ cef_dsyms="$(dirname "$TARGET_BUILD_DIR")/CEF-dSYMs"
 # Remove the complete CEF payload when this build explicitly has no CEF. A
 # valid prior payload must not survive a skip, or a dependency-analysis stamp
 # would make the app claim CEF is unavailable while still shipping stale code.
+crash_config="$app/Contents/Resources/crash_reporter.cfg"
 remove_embed() {
   local binary
   for binary in "${embedded_dsyms[@]}"; do rm -rf "$TARGET_BUILD_DIR/$binary.dSYM"; done
   rm -rf "$cef_dsyms"
   rm -rf "$frameworks/$FW_NAME" "$frameworks/libcmux_cef_shim.dylib" "$frameworks/libcmux_cef_shim_remote.dylib"
+  rm -f "$crash_config"
   for helper in "$frameworks"/*" Helper"*.app "$frameworks"/*" Chromium Host.app" "$app/Contents/MacOS/"*" Chromium Host"; do
     if [[ -e "$helper" ]]; then rm -rf "$helper"; fi
   done
@@ -164,15 +169,14 @@ else
   arch_dists=("$cef_dir")
 fi
 
-# 1b. The Chromium host's executable (Debug and bench builds only; see 3b), cached by
+# 1b. The Chromium host's executable (every configuration; see 3b), cached by
 # build-chromium-host.sh apart from the shim, so a host edit changes neither
 # the shim's key nor the runtime pack's.
 #
-# The host is a prototype that is off by default (browserHost.helper).
-# A host that does not build costs this Debug or bench build the host app only: a
-# warning, and the app then reports that it has none. It never fails the
-# build, the way a missing CEF artifact does not. CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1
-# makes it a build failure (the prototype's own verification builds).
+# The host is off by default (browserHost.helper). A host that does not build
+# costs this build the host only: a warning, and the app then reports that it
+# has none. It never fails the build, the way a missing CEF artifact does not.
+# CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1 makes it a build failure.
 host_out=""
 host_key=""
 # Sets host_out and host_key; non-zero when a host build fails. Called as an
@@ -208,13 +212,7 @@ build_chromium_host() {
   host_out="$dir"
   host_key="$key"
 }
-# A bench build (reload.sh --config bench: Release with -DCMUX_BENCH_HOOKS) compiles the host's
-# Swift side and `debug.chromium_host` in, so chromium-host-bench.py measures it there too.
-host_build=0
-if [[ "${CONFIGURATION:-}" == "Debug" || " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]]; then
-  host_build=1
-fi
-if (( host_build )) && ! build_chromium_host; then
+if ! build_chromium_host; then
   host_out=""
   host_key=""
   if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" ]]; then
@@ -403,8 +401,9 @@ done
 # which CEF's main_bundle_path does not change), and only the outer app holds
 # the framework and the helpers. From its own Frameworks/<Product> Chromium
 # Host.app every helper failed to load the framework and the host aborted
-# (2026-10-24). Debug and bench builds only, so Release, RC and NIGHTLY bundles do not
-# change.
+# (2026-10-24). Every configuration carries it: Release, RC and NIGHTLY sign it as
+# nested code before the app and notarize it with the app (sign-cef.sh, task
+# p01-process-088).
 rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
 # The remote shim goes with it: the shim ABI cmux loads instead of
 # libcmux_cef_shim.dylib in host mode (p01-process.md 3.2), from the same build.
@@ -421,8 +420,21 @@ if [[ -n "$host_out" ]]; then
     cp "$host_out/libcmux_cef_shim_remote.dylib" "$remote_shim"
     printf '%s' "$host_key $product" > "$host_stamp"
   fi
+  # Crashpad for the host and its helpers (p01-process.md task 226): CEF reads crash_reporter.cfg from the main
+  # bundle's Resources and starts the handler in CefInitialize, in-process Chromium's too. Only with the host, and
+  # only in builds whose Swift can run it and read its dumps (Debug, and a bench build: Release with
+  # -DCMUX_BENCH_HOOKS; ChromiumHostSupervisor and the dump collector are compiled out elsewhere). Release, RC and
+  # NIGHTLY carry the host since p01-process-088 but never start it, so they keep Chromium's crash reporting off.
+  if [[ "${CONFIGURATION:-}" == "Debug" || " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]]; then
+    mkdir -p "$app/Contents/Resources"
+    if ! cmp -s "$SCRIPT_DIR/chromium-host-crash-reporter.cfg" "$crash_config"; then
+      cp "$SCRIPT_DIR/chromium-host-crash-reporter.cfg" "$crash_config"
+    fi
+  else
+    rm -f "$crash_config"
+  fi
 else
-  rm -f "$host_binary" "$remote_shim"
+  rm -f "$host_binary" "$remote_shim" "$crash_config"
 fi
 
 printf '%s' "$shim_key $product" > "$binary_stamp"

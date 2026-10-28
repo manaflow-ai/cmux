@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeatures
 package import CmuxNextHibernation
+import CmuxNextHostPressure
 import CmuxNextInput
 import CmuxNextMemory
 import CmuxNextPages
@@ -25,7 +26,7 @@ extension AppServices {
     func startHibernation(settings: SettingsController) {
         followMemorySaver(settings)
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility))
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible, followsTabVisibility: features.isEnabled(.chromiumTabVisibility), freezeEligibility: features.isEnabled(.memoryFreezeEligibility))
         cache.hibernation = hibernation
         cache.webKit.hidesHiddenTabs = features.isEnabled(.webkitHiddenTabs) // WebKit tabs follow their hides too (p14-energy-059)
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
@@ -39,8 +40,11 @@ extension AppServices {
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
-        hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
+        hibernation.freezesOffScreenShownPages = features.isEnabled(.offScreenWindowPageFreeze)
+        hibernation.discardsCrashedSubframes = features.isEnabled(.memoryDiscardCrashedSubframes)
+        hibernation.openerLinks = { [weak self] in self?.scriptOpenerLinks() ?? [:] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
+        hibernation.admission = WakeAdmission(isEnabled: features.isEnabled(.memoryWakeAdmission), freeBytes: { HostSampler().freePhysicalBytes() })
         hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
@@ -103,18 +107,18 @@ extension AppServices {
     func startHibernationMeasurements() {
         memoryFootprints.start()
         if features.isEnabled(.occludedWindowDiscard), let hibernation = cache.hibernation {
-            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }))
+            hibernation.follow(WindowOcclusionChecker(windows: { [weak self] in self?.windows.controllers.compactMap(\.window) ?? [] }, workspaceEvents: workspaceEvents, mainWork: mainWork))
         }
-        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies() }
+        if features.isEnabled(.windowOcclusionFamily) { windowOcclusionFamilies = WindowOcclusionChecker.feedingFamilies(workspaceEvents: workspaceEvents, mainWork: mainWork) }
     }
 
-    /// Tab `key` and every tab script can reach from it through `window.opener`
-    /// (`BrowserScriptOpeners`: its opener, the tabs it opened, theirs), for a discard of the whole
-    /// group (`FrozenGrowthRule`). Runs only on such a discard.
-    func openerGroup(of key: String) -> Set<String> {
+    /// Each tab script opened with a live `window.opener` and its opener, by key (`BrowserScriptOpeners`): the opener groups'
+    /// links (`FrozenGrowthRule.openerGroups`). Free with no such tab, else one walk of the tabs, at most once per plan.
+    func scriptOpenerLinks() -> [String: String] {
+        let scriptOpeners = cache.pageRequests.scriptOpeners
+        guard !scriptOpeners.isEmpty else { return [:] }
         let keys = Dictionary(cache.browsers.map { (ObjectIdentifier($0.value.tab), $0.key) }) { first, _ in first }
-        let openers = cache.pageRequests.scriptOpeners.openers { keys[ObjectIdentifier($0)] }
-        return FrozenGrowthRule.openerGroup(of: key, openers: openers)
+        return scriptOpeners.openers { keys[ObjectIdentifier($0)] }
     }
 
     /// The parked workspaces of every window: none at critical memory pressure, one teardown per release
@@ -151,6 +155,15 @@ extension AppServices {
             deadline: MainDeadline(owner: "HiddenFrameLRU.cull", workClass: .background, scheduler: mainDeadlines),
             evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
+    }
+
+    /// A window's detach of workspaces hidden past the grace with `hiddenWorkspaceDetachAfterGrace`
+    /// (p03-rendering-096), on one background deadline; nil while off: hidden workspaces stay in their window.
+    func makeHiddenWorkspaceDetach() -> HiddenWorkspaceDetach? {
+        guard features.isEnabled(.hiddenWorkspaceDetachAfterGrace) else { return nil }
+        return HiddenWorkspaceDetach(
+            grace: Feature.hiddenWorkspaceDetachAfterGrace.durationParam("grace") ?? .seconds(30),
+            deadline: MainDeadline(owner: "HiddenWorkspaceDetach", workClass: .background, scheduler: mainDeadlines))
     }
 }
 

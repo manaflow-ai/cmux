@@ -4,6 +4,7 @@
 //! it so one slow surface cannot stall the rest.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Condvar, Mutex};
 use std::collections::VecDeque;
 use std::sync::Arc;
@@ -63,10 +64,15 @@ impl DeadlineFanoutPool {
             state.worker_count += 1;
             let inner = self.inner.clone();
             // The pool's workers share one name; server.threads counts them.
-            if std::thread::Builder::new()
-                .name("mux-deadline".into())
-                .spawn(move || deadline_fanout_worker(inner))
-                .is_err()
+            // A request waits on the batch's deadline: the dispatcher's class.
+            if supervised::spawn_at(
+                "mux-deadline",
+                crate::thread_qos::ThreadType::Interactive.qos(),
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || deadline_fanout_worker(inner),
+            )
+            .is_err()
             {
                 state.worker_count -= 1;
                 if state.worker_count == 0 {

@@ -89,6 +89,7 @@ public nonisolated struct HangReportBuilder: Sendable {
         report.hangs = (blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))).map { sample in
             var sample = sample
             sample.mainTask = wireSchema.carriesTaskAttribution ? sample.mainTask.map(Self.safeTask) : nil
+            sample.startup = wireSchema.carriesStartupTag && sample.source == .watchdog ? sample.startup.flatMap(Self.safeStartup) : nil
             if sample.source != .hangWatch { sample.thread = nil }
             return sample
         }
@@ -160,6 +161,7 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// Frames of a blocking detector stack (image UUID + offset, innermost first): each through the
     /// classifier by its loaded image, so a third-party or unknown image is ``HangReportFrame/other``.
     public func frames(blocking stack: [BlockingFrame]) -> [HangReportFrame] {
+        // memory: fixed a local of one stack, kept by no one: at most `HangSample.maxFrames` (64) image records of a few strings each
         var loaded: [UUID: LoadedImage?] = [:]
         return stack.prefix(HangSample.maxFrames).map { frame in
             let image: LoadedImage?
@@ -176,6 +178,7 @@ public nonisolated struct HangReportBuilder: Sendable {
 
     /// Frames of a MetricKit call stack tree.
     func frames(_ callStackTree: Data) -> [HangReportFrame] {
+        // memory: fixed a local of one stack, kept by no one: one image record per binary of this MetricKit stack
         var loaded: [String: LoadedImage?] = [:]
         return reader.stack(callStackTree).map { raw in
             let uuid = raw.binaryUUID?.uppercased()
@@ -241,6 +244,16 @@ public nonisolated struct HangReportBuilder: Sendable {
         let identifier = task.owner.range(of: #"^[A-Za-z][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil
         let userNamed = userNamedOwnerPrefixes.contains { task.owner.hasPrefix($0) }
         return HangSample.MainTask(owner: identifier && !userNamed ? task.owner : HangSample.MainTask.other, taskClass: taskClass)
+    }
+
+    /// `startup` with a phase of ``HangSample/Startup/phases`` (else nil: no field) and a task name that is a
+    /// code identifier of at most 64 letters, digits, `.`, `_` and `-` (else ``HangSample/Startup/other``).
+    static func safeStartup(_ startup: HangSample.Startup) -> HangSample.Startup? {
+        guard HangSample.Startup.phases.contains(startup.phase) else { return nil }
+        let task = startup.task.map { task in
+            task.range(of: #"^[A-Za-z][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil ? task : HangSample.Startup.other
+        }
+        return HangSample.Startup(phase: startup.phase, task: task)
     }
 
     /// `yyyy-MM-dd`, else `1970-01-01`.

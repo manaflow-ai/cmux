@@ -1,3 +1,4 @@
+import struct CmuxSafeConcurrency.OwnerReference
 import AppKit
 import CmuxNextActions
 import CmuxNextPalette
@@ -11,12 +12,14 @@ import os
 /// reloads the file, so the optimistic registry change never outlives it.
 @MainActor
 final class PaletteShortcutEditor: PaletteShortcutEditing {
-    private unowned let services: AppServices
+    private let servicesReference: OwnerReference<AppServices>
+    /// The app's services, which own this; nil (reported) only once they are gone.
+    private var services: AppServices? { servicesReference.resolve() }
     private let settings: SettingsController
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "shortcuts")
 
     init(services: AppServices, settings: SettingsController) {
-        self.services = services
+        servicesReference = OwnerReference(services: services)
         self.settings = settings
     }
 
@@ -24,6 +27,9 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
     /// (the user's Ghostty keybind for window, tab and split actions, named
     /// by the cmux action it runs).
     func environment(for event: NSEvent?) -> ShortcutEditEnvironment {
+        guard let services else {
+            return ShortcutEditEnvironment(ghosttyBinding: { _ in nil }, chromeChords: BrowserChordTable.chromeReserved)
+        }
         let registry = services.registry
         let ghostty: String? = event.flatMap { event in
             services.keyRouter.ghosttyBinding(for: event).map { id in registry.descriptor(for: id)?.title ?? id.rawValue }
@@ -45,6 +51,7 @@ final class PaletteShortcutEditor: PaletteShortcutEditing {
     }
 
     private func write(_ body: @escaping @MainActor (SettingsController) async throws -> Void) {
+        guard let services else { return }
         let settings = settings, logger = logger
         // main-hop-allow: the write is SettingsController's own main-actor async write (its file write runs off main); the task only starts it and reports a refusal
         services.registry.track(Task {

@@ -39,6 +39,7 @@ nonisolated extension CEFShimLibrary {
         fileDialogAnswer = { a0, a1, a2 in unsafe Self.withCString(a2) { s2 in unsafe cFileDialogAnswer(a0, a1, s2) } }
         browserSetLayerHosting = try r("cmux_shim_browser_set_layer_hosting")
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
+        browserSetResizeFence = r.inProcess("cmux_shim_browser_set_resize_fence")
         browserSetEmbedderActive = try r("cmux_shim_browser_set_embedder_active")
         let cBrowserAccessibilityToken: @convention(c) (Int32, Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32,
                                                         UnsafeMutablePointer<UInt8>?, Int32) -> Int32 =
@@ -64,6 +65,7 @@ nonisolated extension CEFShimLibrary {
         browserSetPageDisplay = try r("cmux_shim_browser_set_page_display")
         unsafe initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
+        setPumpTimeSlice = try r("cmux_shim_set_pump_time_slice")
         unsafe setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         let cSetEnergySaver: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_set_energy_saver")
         setEnergySaver = { a0, a1 in unsafe Self.withCString(a1) { s1 in unsafe cSetEnergySaver(a0, s1) } }
@@ -163,6 +165,7 @@ nonisolated extension CEFShimLibrary {
         windowCount = try r("cmux_shim_window_count")
         shutdown = try r("cmux_shim_shutdown")
         unsafe setWindowRequestHandler = try r("cmux_shim_set_window_request_handler")
+        unsafe setWindowRequestPolicy = try r("cmux_shim_set_window_request_policy")
         unsafe setFocusRequestHandler = try r("cmux_shim_set_focus_request_handler")
         foreignBrowserCount = try r("cmux_shim_foreign_browser_count")
         let cDownloadURL: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32 = try unsafe r("cmux_shim_download_url")
@@ -287,6 +290,7 @@ nonisolated extension CEFShimLibrary {
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
         dragTarget = try CEFShimDragTargetOps(r)
+        locks = try CEFShimLockOps(r)
         popupMenus = try CEFShimPopupMenuOps(r)
         suggestions = try CEFShimSuggestionOps(r)
         choosers = try CEFShimChooserOps(r)

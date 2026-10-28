@@ -22,12 +22,25 @@ public protocol ChromiumHostSupervising: AnyObject {
     func observeHostEnds(_ ended: @escaping @MainActor () -> Void)
 }
 
+/// A ``ChromiumHostSupervising`` that can end its running host at once, so the next start gets a new
+/// one: the busy banner's Reload Chromium (task p01-process-084), as Chrome's hung page dialog ends
+/// the renderer that stopped answering (`RenderProcessHost::Shutdown`). A hung UI thread reads no
+/// quit, so this is a kill; the host's end then reaches the runtime as any crash does.
+/// `ChromiumHostSupervisor` conforms (task 080).
+public protocol ChromiumHostReloading: ChromiumHostSupervising {
+    /// Ends the running host (none running: nothing).
+    func reloadHost()
+}
+
 /// One host's wire, as the supervisor hands it to the runtime.
 public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     /// The control channel's socket (task 012).
     public var controlFD: Int32
     /// The input ring's descriptor, -1 while the host has none (task 041).
     public var inputRingFD: Int32
+    /// The bootstrap name the host checked the input ring's doorbell in under
+    /// (``ChromiumHostInputRingRegion``'s, passed in its `--input-doorbell`); nil while it has none.
+    public var inputDoorbellName: String?
     /// The host's output ring's descriptor, -1 while the host has none.
     public var outputRingFD: Int32
     /// `libcmux_cef_shim_remote.dylib`, the remote shim that speaks this wire
@@ -41,10 +54,11 @@ public nonisolated struct ChromiumHostAttachment: Sendable, Equatable {
     /// `ChromiumHostResizeFenceChannel`, task 052); nil for a host spawned without one.
     public var resizeFence: String?
 
-    public init(controlFD: Int32, inputRingFD: Int32 = -1, outputRingFD: Int32 = -1, remoteShim: URL,
-                frameworkLocales: [String], resizeFence: String? = nil) {
+    public init(controlFD: Int32, inputRingFD: Int32 = -1, inputDoorbellName: String? = nil, outputRingFD: Int32 = -1,
+                remoteShim: URL, frameworkLocales: [String], resizeFence: String? = nil) {
         self.controlFD = controlFD
         self.inputRingFD = inputRingFD
+        self.inputDoorbellName = inputDoorbellName
         self.outputRingFD = outputRingFD
         self.remoteShim = remoteShim
         self.frameworkLocales = frameworkLocales

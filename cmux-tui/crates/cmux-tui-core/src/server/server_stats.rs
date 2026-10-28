@@ -46,6 +46,9 @@ const IPC: &str = "ipc";
 /// wait by method (`ipc_methods`, request_spans.rs). It is not `ipc`: that
 /// section counts the IPC layer itself (streams, frames, parses, syscalls).
 const IPC_METHODS: &str = "ipc_methods";
+/// The optional section that counts watched scopes busy past 250 ms, with
+/// their span and duration (request_watchdog.rs, cmux-tui-util `hang_watch`).
+const HANGS: &str = "hangs";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -71,6 +74,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         ipc: wants(IPC).then(|| mux.ipc_stats().snapshot()),
         ipc_methods: wants(IPC_METHODS)
             .then(|| mux.request_stats().methods().snapshot(RequestMethod::of_slot)),
+        hangs: wants(HANGS).then(|| mux.request_watchdog.hangs()),
     }
 }
 
@@ -411,10 +415,13 @@ const DIAGNOSTIC_SITES_THREAD: &str = "mux-diag-sites";
 pub(crate) fn forward_diagnostic_sites(mux: &Arc<Mux>) {
     let Some(feed) = blocking::take_first_sites() else { return };
     let mux = Arc::downgrade(mux);
-    let started =
-        cmux_threads::spawn(DIAGNOSTIC_SITES_THREAD, cmux_threads::ThreadQos::Utility, move || {
-            forward_first_sites(&feed, &mux);
-        });
+    let started = crate::supervised::spawn_at(
+        DIAGNOSTIC_SITES_THREAD,
+        cmux_threads::ThreadQos::Utility,
+        crate::supervised::Fatal,
+        crate::supervised::ShutdownBehavior::Continue,
+        move || forward_first_sites(&feed, &mux),
+    );
     if let Err(error) = started {
         eprintln!("cmux-tui: cannot start {DIAGNOSTIC_SITES_THREAD}: {error}");
     }

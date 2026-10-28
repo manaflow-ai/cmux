@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 /// Maximum UTF-8 byte length of one untrusted field in terminal diagnostics.
 pub(crate) const DIAGNOSTIC_FIELD_MAX_BYTES: usize = 256;
 
@@ -57,8 +55,6 @@ fn escape_character(character: char) -> String {
     }
 }
 
-fn unicode_escape(character: char) -> String {
-    let mut escaped = String::new();
-    write!(&mut escaped, "\\u{{{:X}}}", character as u32).expect("write to String");
-    escaped
+pub(crate) fn unicode_escape(character: char) -> String {
+    format!("\\u{{{:X}}}", u32::from(character))
 }

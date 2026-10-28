@@ -161,9 +161,13 @@ pub(crate) fn run_host_parser(
         }
     };
     let hang_watch = HostLoop::Parser.register();
-    while let Ok(command) = waits::recv(&parser_command_receiver) {
+    // The parser's wait for its next command is idle: it holds no one
+    // else's work at the top of its loop (p02-threads 308).
+    while let Ok(command) = waits::idle_recv(&parser_command_receiver) {
         // One hang-watch scope per command, after its wait.
         let _item = HostLoop::Parser.watch(&hang_watch);
+        // The class the daemon set (SetThreadQos), applied on this thread.
+        cmux_threads::apply_pending_qos();
         // One `task.host_parse` slice per command, after its wait: terminal hash, command kind
         // and, for Output, its bytes.
         let _parse = cmux_trace::trace_scope!(

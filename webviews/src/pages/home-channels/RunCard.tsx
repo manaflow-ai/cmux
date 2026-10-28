@@ -10,6 +10,7 @@ import { ToolRows } from "../../agent-session/acpmux/conversation/TurnRows";
 import { formatDuration } from "../../agent-session/acpmux/conversation/turns";
 import type { AcpmuxActivity, AcpmuxRow } from "../../agent-session/acpmux/model";
 import type { Strings } from "../shared/i18n";
+import { shownElapsed, useElapsedNow } from "../../ui/useElapsedNow";
 import { liveReply, tail, useLiveRun, type LiveBook } from "./live";
 import { isStale, runTokens, useLiveRuns, useRunEntry, type RunBook, type RunEntry } from "./runs";
 import { Avatar } from "./Avatar";
@@ -104,23 +105,19 @@ export function runBlocks(run: HomeRun, steps: readonly HomeRunStep[]): RunBlock
   return blocks;
 }
 
-/** Ticks once a second while `running` (the "Working for" clock); a finished run holds still. */
-export function useNow(running: boolean): number {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    if (!running) return;
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(timer);
-  }, [running]);
-  return now;
+/** The page clock's time (ui/pageClock.ts), ticking while `running` (the "Working for" clock); a
+ * finished run holds still. It ticks each second; given `since` (the run's start), each minute
+ * once the run is past a minute, as its label then shows whole minutes (runLabel). */
+export function useNow(running: boolean, since?: number): number {
+  return useElapsedNow(since, { enabled: running });
 }
 
 /** "Working for 42s" / "Worked for 1m 12s" / "Failed after 8s" / "Stopped after 3s", or
- * "No update for 34m" for a running run that stopped answering. */
+ * "No update for 34m" for a running run that stopped answering. A running time past a minute
+ * shows whole minutes ("Working for 3m"); a finished one shows its exact time. */
 export function runLabel(run: HomeRun, now: number, strings: Strings): string {
-  if (isStale(run, now)) return strings.format("run.label.stale", formatDuration(now - run.updatedAt));
-  const ms = (run.endedAt ?? now) - run.startedAt;
+  if (isStale(run, now)) return strings.format("run.label.stale", formatDuration(shownElapsed(now - run.updatedAt)));
+  const ms = run.endedAt === undefined ? shownElapsed(now - run.startedAt) : run.endedAt - run.startedAt;
   const time = formatDuration(Math.max(0, ms));
   return strings.format(`run.label.${run.status}`, time);
 }
@@ -155,7 +152,7 @@ const CARD_LIVE_CHARS = 240;
 
 export function RunCard({ entry, author, strings, onOpen, onLoad, live, draftTurn, agentNames }: RunCardProps) {
   const { run, steps } = entry;
-  const now = useNow(run.status === "running");
+  const now = useNow(run.status === "running", run.startedAt);
   const status = shownStatus(run, now);
   const running = status === "running";
   const streamed = useLiveRun(live, run.conversation, run.author, run.id);

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// ``CEFPagePush`` and ``CEFForkFeatures/pagePush`` (p13-webui-079): a push reaches the shim's
-/// `cmux_shim_tab_page_push` only with fork API 39 and the export, and never before the browser exists.
+/// `cmux_shim_tab_page_push` only with fork API 43 and the export, and never before the browser exists.
 @MainActor
 struct CEFPagePushTests {
     @Test func theGateNeedsTheForkAPIAndTheExport() {

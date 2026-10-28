@@ -19,6 +19,7 @@ use super::{
 };
 use crate::mux::Mux;
 use crate::platform::{self, transport};
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::ThreadQos;
 
 /// A bound local server whose lifecycle endpoint is not ready yet.
@@ -416,9 +417,17 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        let _ = super::spawn_connection_reader("mux-conn", move || {
-            handle_connection_with_permit(mux, stream, render_service, Some(permit));
-        });
+        let setup_mux = mux.clone();
+        let _ = super::spawn_connection_reader(
+            "mux-conn",
+            move || {
+                let peer = super::origin_gate::AcceptedPeer::resolve(&setup_mux, &*stream);
+                (stream, peer)
+            },
+            move |(stream, peer)| {
+                handle_connection_with_permit(mux, stream, peer, render_service, Some(permit));
+            },
+        );
     }
 }
 
@@ -547,42 +556,48 @@ pub(super) fn spawn_accept_loop(
     slot: Arc<super::restoring::SessionSlot>,
     shutdown: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
-    cmux_threads::spawn("mux-server", ACCEPT_THREAD_QOS, move || {
-        // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
-        // accepts, and an immediate retry ran this thread at 100% CPU until
-        // descriptors freed up. Space those retries; per-connection errors
-        // need none because the next accept blocks.
-        let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
-        let mut buffer_log = SocketBufferLog::default();
-        loop {
-            let stream = match listener.accept() {
-                Ok(stream) => {
-                    backoff.reset();
-                    stream
-                }
-                Err(error) => {
-                    if shutdown.load(Ordering::Acquire) {
-                        break;
+    supervised::spawn_at(
+        "mux-server",
+        ACCEPT_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
+            // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
+            // accepts, and an immediate retry ran this thread at 100% CPU until
+            // descriptors freed up. Space those retries; per-connection errors
+            // need none because the next accept blocks.
+            let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
+            let mut buffer_log = SocketBufferLog::default();
+            loop {
+                let stream = match listener.accept() {
+                    Ok(stream) => {
+                        backoff.reset();
+                        stream
                     }
-                    if crate::backoff::accept_error_needs_backoff(&error) {
-                        backoff.sleep();
+                    Err(error) => {
+                        if shutdown.load(Ordering::Acquire) {
+                            break;
+                        }
+                        if crate::backoff::accept_error_needs_backoff(&error) {
+                            backoff.sleep();
+                        }
+                        continue;
                     }
-                    continue;
+                };
+                if shutdown.load(Ordering::Acquire) {
+                    break;
                 }
-            };
-            if shutdown.load(Ordering::Acquire) {
-                break;
+                if let Some(result) = size_connection_buffers(stream.as_ref())
+                    && let Some(line) = buffer_log.line(&result)
+                {
+                    eprintln!("{line}");
+                }
+                if let Some((session, stream)) = slot.route(stream) {
+                    session.serve(stream);
+                }
             }
-            if let Some(result) = size_connection_buffers(stream.as_ref())
-                && let Some(line) = buffer_log.line(&result)
-            {
-                eprintln!("{line}");
-            }
-            if let Some((session, stream)) = slot.route(stream) {
-                session.serve(stream);
-            }
-        }
-    })?;
+        },
+    )?;
     Ok(())
 }
 

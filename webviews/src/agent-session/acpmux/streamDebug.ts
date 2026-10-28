@@ -27,12 +27,29 @@ const SAMPLE = [
   "which is where a burst of text makes the transcript jump instead of flow.\n\n",
 ].join("");
 
-const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
+/** The bench's clock, frames and delta timer (the browser's; a fake clock in tests). */
+export interface StreamSeams {
+  frame(): Promise<number>;
+  now(): number;
+  every(ms: number, callback: () => void): unknown;
+  cancelEvery(handle: unknown): void;
+}
+
+export const browserStreamSeams: StreamSeams = {
+  frame: () => new Promise<number>((resolve) => requestAnimationFrame(resolve)),
+  now: () => performance.now(),
+  // wakeup-allow: debug feeder of `debug.agent_pane action=stream`; deltas come on a timer as a
+  // socket's do, and runStream cancels it at its deadline, hidden or not.
+  every: (ms, callback) => setInterval(callback, ms),
+  cancelEvery: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
 
 export async function runStream(
   replaceRows: (rows: AcpmuxRow[]) => void,
   options: StreamOptions = {},
+  seams: StreamSeams = browserStreamSeams,
 ): Promise<Record<string, unknown>> {
+  const frame = seams.frame;
   acpmuxPerf.enable();
   const base = syntheticRows(Math.max(3, Math.floor(options.rows ?? 2000)));
   const seconds = Math.max(0.5, options.seconds ?? 6);
@@ -58,19 +75,22 @@ export async function runStream(
     version += 1;
     replaceRows([...base, { id: "debug-stream", version, at, kind: "assistant", text, streaming }]);
   };
-  const end = performance.now() + seconds * 1000;
-  // The feeder stops itself at `end`: a page that hides mid-run draws no frames, so the frame loop
-  // below cannot be what stops it.
-  // wakeup-allow: debug `debug.agent_pane action=stream` only, for its `seconds`.
-  const feeder = setInterval(() => {
-    if (performance.now() >= end) {
-      clearInterval(feeder);
-      return;
-    }
+  // The feeder ends at the deadline by itself: frames stop while the pane is hidden, the timer
+  // does not.
+  const end = seams.now() + seconds * 1000;
+  let ended = false;
+  const finish = () => {
+    if (ended) return;
+    ended = true;
+    seams.cancelEvery(feeder);
+    push(false);
+  };
+  const feeder = seams.every(chunkMs, () => {
+    if (seams.now() >= end) return finish();
     text += SAMPLE.repeat(2).slice(source % SAMPLE.length, (source % SAMPLE.length) + chunkChars);
     source += chunkChars;
     push(true);
-  }, chunkMs);
+  });
   const timestamps: number[] = [];
   const growth: number[] = [];
   let detached = 0;
@@ -82,7 +102,6 @@ export async function runStream(
   const scrollHeights: number[] = [];
   let shown = 0;
   let lastHeight = scroller.scrollHeight;
-  let ended = false;
   let tail = 0;
   while (tail < 30) {
     const now = await frame();
@@ -101,11 +120,7 @@ export async function runStream(
     const visible = document.querySelector('[data-row-id="debug-stream"]')?.textContent?.length ?? shown;
     steps.push(Math.max(0, visible - shown));
     shown = Math.max(shown, visible);
-    if (!ended && now >= end) {
-      ended = true;
-      clearInterval(feeder);
-      push(false);
-    }
+    if (now >= end) finish();
     if (ended) tail += 1;
   }
   const sorted = [...growth].sort((a, b) => a - b);

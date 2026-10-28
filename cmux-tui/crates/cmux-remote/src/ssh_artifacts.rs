@@ -507,6 +507,7 @@ pub(crate) async fn fetch_published(payload: &PublishedPayload) -> Result<PathBu
             let (sender, receiver) = watch::channel(None);
             downloads.insert(payload.cache_path.clone(), receiver.clone());
             let payload = payload.clone();
+            // supervise-allow: one shared download; a panic drops DownloadEntry and `sender`, so every waiter gets "the download stopped" and the next fetch starts again.
             tokio::spawn(async move {
                 let _entry = DownloadEntry(payload.cache_path.clone());
                 let _ = sender.send(Some(download(&payload).await));
@@ -695,7 +696,12 @@ mod tests {
         let digest = format!("{:x}", Sha256::digest(b"linux build"));
         let manifest = serde_json::json!({ "commit": "build", "binaries": { name: digest } });
         std::fs::write(artifacts.join("manifest.json"), manifest.to_string()).unwrap();
-        let runtime = cmux_blocking::runtime::current_thread().build().unwrap();
+        let runtime = cmux_blocking::runtime::current_thread(
+            "cmux-remote-test",
+            cmux_threads::ThreadQos::Utility,
+        )
+        .build()
+        .unwrap();
         let stalled = cmux_blocking::counts().stalled;
 
         let resolved = cmux_blocking::runtime::block_on(

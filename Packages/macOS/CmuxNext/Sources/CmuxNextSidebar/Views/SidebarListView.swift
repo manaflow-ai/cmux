@@ -139,8 +139,10 @@ final class SidebarListView: NSView {
     var groupEditing: SidebarGroupEditing { SidebarGroupEditing(list: self) }
     /// Drag autoscroll frames from the window's FrameScheduler.
     lazy var autoscroll = SidebarDragAutoscroll(list: self)
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Per-display-frame samples for the drag feel proof (`debug.sidebar_rows` motion).
     lazy var motionProbe = SidebarMotionProbe(list: self)
+    #endif
     /// Main-thread milliseconds of the last drag move (`SidebarMotionFrame.dragWorkMs`).
     var lastDragWorkMs: Double = 0
     var external: ExternalDrag?
@@ -197,6 +199,7 @@ final class SidebarListView: NSView {
         layerContentsRedrawPolicy = .never
         decorations.autoresizingMask = [.width, .height]
         addSubview(decorations)
+        addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect], owner: self))
         setAccessibilityRole(.outline)
         setAccessibilityLabel(Strings.sidebarLabel)
         hoverCard.list = self
@@ -313,15 +316,6 @@ final class SidebarListView: NSView {
     var metrics: SidebarLayoutMetrics { .standard }
     var inset: CGFloat { SidebarStyle.horizontalInset }
     // MARK: - Hover
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach(removeTrackingArea)
-        addTrackingArea(NSTrackingArea(
-            rect: .zero,
-            options: [.mouseMoved, .mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
-            owner: self
-        ))
-    }
     override func mouseMoved(with event: NSEvent) { frameInputHover.moved(event) }
     // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
     override func mouseEntered(with event: NSEvent) {

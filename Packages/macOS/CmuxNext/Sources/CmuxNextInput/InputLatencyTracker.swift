@@ -27,6 +27,9 @@ import Darwin
 ///   its events' `EventMetrics` (cc/metrics/compositor_frame_reporter.cc, `DidPresentCompositorFrame`). While no
 ///   page reports (``pagesReportPresentation`` off: an in-process page, a host whose fork has no feedback), a page's
 ///   slot closes as a view's does, with its turn's commit estimate.
+/// - In DEV and bench builds a WebKit page reports, by its own clock, when the frame after its handler of an input
+///   painted (``WebPageInputTiming``, p04-input-099): ``pagePresented(_:eventNanos:at:)`` closes the page's slot with
+///   source ``InputPresentationSource/pageEstimated``.
 /// - Estimates come from ``InputPresentationEstimating`` (`PresentationClock`): resolved by the window's next real
 ///   tick, with how the vsync was found (``InputPresentationSource``) and whether the display has a variable refresh
 ///   rate. Then the slot closes, goes into the single-writer ``InputLatencyRing`` and is recorded as one
@@ -68,6 +71,8 @@ public final class InputLatencyTracker {
         let window: NSWindow?
         /// Where the input landed; ``setTarget(_:_:)`` changes it while the turn is open.
         var target: InputTarget
+        /// What the person did (a page's report names its event's kind, ``pagePresented(_:eventNanos:at:)``).
+        let kind: InputEventKind
         /// The slot carries a `key.frame` or `key.scroll_frame` interval.
         let hasFrameInterval: Bool
     }
@@ -77,6 +82,7 @@ public final class InputLatencyTracker {
         let token: InputLatencyToken
         let window: NSWindow?
         let target: InputTarget
+        let kind: InputEventKind
         /// The latest `contentSubmitted` that still counts (`CLOCK_UPTIME_RAW`).
         let deadline: UInt64
     }
@@ -174,7 +180,7 @@ public final class InputLatencyTracker {
     public func begin(event: NSEvent, kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       arrivedMain: UInt64? = nil) -> InputLatencyToken? {
         begin(kind: kind, target: target, entrypoint: entrypoint, eventTimestamp: event.timestamp, window: event.window,
-              arrivedMain: arrivedMain)
+              arrivedMain: arrivedMain, keyCode: kind.isKey ? event.keyCode : 0)
     }
 
     /// ``begin(event:kind:target:entrypoint:arrivedMain:)`` with the event's fields.
@@ -188,16 +194,19 @@ public final class InputLatencyTracker {
     ///     scheduler.
     ///   - arrivedMain: When the event reached the main thread, or nil when unknown (also when 0 or after now).
     ///   - frameInterval: The older interval the slot also carries (`key.frame`, `key.scroll_frame`), or nil.
+    ///   - keyCode: The virtual key code of a key event (pairs its press and release into one interaction), else 0.
     /// - Returns: The slot's token, or nil when the table is full.
     // perf-hot: 0.5us key-dispatch
     // perf-hot: 0.5us input-latency-mark
     public func begin(kind: InputEventKind, target: InputTarget, entrypoint: InputEntrypoint,
                       eventTimestamp: TimeInterval, window: NSWindow?,
-                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil) -> InputLatencyToken? {
+                      arrivedMain: UInt64? = nil, frameInterval: InputFrameInterval? = nil,
+                      keyCode: UInt16 = 0) -> InputLatencyToken? {
         let dispatchStart = now()
         let arrived = arrivedMain.flatMap { $0 != 0 && $0 <= dispatchStart ? $0 : nil }
         let generated = Self.generatedNanos(eventTimestamp: eventTimestamp, arrived: arrived ?? dispatchStart)
-        guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated) else {
+        guard let token = table.begin(kind: kind, target: target, entrypoint: entrypoint, generated: generated,
+                                      keyCode: keyCode) else {
             return nil
         }
         if let arrived { table.mark(token, .arrivedMain, at: arrived) }
@@ -208,7 +217,7 @@ public final class InputLatencyTracker {
             frameIntervals.begin(token, frameInterval, target: target, eventTimestamp: eventTimestamp)
             hasFrameInterval = true
         }
-        pending.append(Pending(token: token, window: window, target: target, hasFrameInterval: hasFrameInterval))
+        pending.append(Pending(token: token, window: window, target: target, kind: kind, hasFrameInterval: hasFrameInterval))
         boundary.arm()
         return token
     }
@@ -271,7 +280,7 @@ public final class InputLatencyTracker {
             }
             if entry.hasFrameInterval { frameIntervals?.end(entry.token, target: entry.target, outcome: outcome) }
             if waitsForLaterFrame(entry.target) {
-                waiting.append(Waiting(token: entry.token, window: entry.window, target: entry.target,
+                waiting.append(Waiting(token: entry.token, window: entry.window, target: entry.target, kind: entry.kind,
                                        deadline: commitEnd &+ Self.contentDeadlineNanos))
             } else if outcome == .committed {
                 awaitPresented(entry.token, committedAt: commitEnd, in: entry.window)

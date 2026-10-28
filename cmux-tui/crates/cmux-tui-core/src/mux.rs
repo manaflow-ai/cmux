@@ -224,11 +224,13 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod metrics_file;
 #[cfg(any(debug_assertions, feature = "oracle"))]
 mod oracle;
 mod pinned_columns;
 mod power_source;
 mod sqlite_trim;
+mod viewport_scroll;
 mod workspace_name;
 use kitty_reservation::kitty_image_limits_exceed;
 mod agent_presence;
@@ -426,6 +428,7 @@ use crate::model::{
     LayoutColumn, LayoutMutationKey, LayoutResizeOwner, Node, Pane, Screen, State, Workspace,
 };
 use crate::pairing::PairingBroker;
+use crate::panic_free::RecoverPoison;
 use crate::resource::{
     AgentPublicId, ContentPublicId, FrontendProjectionPublicId, NotificationPublicId,
     PairingRequestPublicId, PanePublicId, PublicSlotIndexes, ResourceError, ResourceOperation,
@@ -674,7 +677,7 @@ pub struct Mux {
     /// again. The rows live in the workspace registry (`terminal_commands`).
     terminal_command_history: AtomicBool,
     /// The command history worker's bounded queue (`mux/command_history.rs`).
-    command_history_worker: Mutex<Option<SyncSender<command_history::CommandHistoryMessage>>>,
+    command_history_worker: Mutex<Option<command_history::CommandHistoryQueue>>,
     notification_ledger: Mutex<VecDeque<ResourceNotification>>,
     /// Per-client read marks. The shared unread marker above answers "does this terminal need
     /// attention on the shared console"; this map answers "has this client install seen this
@@ -890,7 +893,7 @@ impl Mux {
         // Session and machine identity never change for the life of a mux, so
         // selector resolution must not queue behind the registry mutex, which
         // the journal writer holds across every fsync.
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         resolve_resource_selectors(
             &state,
             ResourceSelectorContext {
@@ -944,7 +947,7 @@ impl Mux {
     }
 
     pub fn surface(&self, id: SurfaceId) -> Option<Arc<Surface>> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         state.surfaces.get(&id).or_else(|| state.terminal_runtime_by_id(id)).cloned()
     }
 
@@ -952,17 +955,17 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().terminal_catalog.get(terminal_id).cloned()
+        self.state.lock().recover_poison().terminal_catalog.get(terminal_id).cloned()
     }
 
     #[cfg(test)]
     pub(crate) fn remove_surface_runtime_for_test(&self, id: SurfaceId) -> Option<Arc<Surface>> {
-        self.state.lock().unwrap().surfaces.remove(&id)
+        self.state.lock().recover_poison().surfaces.remove(&id)
     }
 
     #[cfg(test)]
     pub(crate) fn insert_surface_runtime_for_test(&self, surface: Arc<Surface>) {
-        let previous = self.state.lock().unwrap().surfaces.insert(surface.id, surface);
+        let previous = self.state.lock().recover_poison().surfaces.insert(surface.id, surface);
         assert!(previous.is_none(), "test surface id already exists");
     }
 
@@ -971,7 +974,7 @@ impl Mux {
         &self,
         terminal_id: &TerminalPublicId,
     ) -> Option<Arc<Surface>> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         state.remove_catalog_terminal(terminal_id)
     }
 
@@ -980,11 +983,11 @@ impl Mux {
     /// The state lock is held for the duration of `f`; do not call back
     /// into `Mux` methods that take it (`surface()`, `close_pane()`, ...).
     pub fn with_state<R>(&self, f: impl FnOnce(&State) -> R) -> R {
-        f(&self.state.lock().unwrap())
+        f(&self.state.lock().recover_poison())
     }
 
     pub fn surface_count(&self) -> usize {
-        self.state.lock().unwrap().surfaces.len()
+        self.state.lock().recover_poison().surfaces.len()
     }
 
     fn active_surface_in_state(state: &State) -> Option<SurfaceId> {
@@ -996,27 +999,10 @@ impl Mux {
         self.with_state(Self::active_surface_in_state)
     }
 
-    /// Scroll one backend-owned view without mutating the terminal runtime
-    /// shared by the terminal's other placements.
-    pub fn scroll_surface_viewport(&self, surface: &Surface, delta: isize) -> anyhow::Result<()> {
-        let before = surface.view_scrollbar();
-        let after = surface.view_scroll_delta(delta)?;
-        if after != before
-            && let Some(scrollbar) = after
-        {
-            self.emit(MuxEvent::ScrollChanged {
-                surface: surface.id,
-                offset: scrollbar.offset,
-                at_bottom: !scrollbar.scrolled_back(),
-            });
-        }
-        Ok(())
-    }
-
     fn workspace_key_for_pane(&self, pane: PaneId) -> Option<String> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         let (workspace, _) = state.screen_of(pane)?;
-        Some(state.workspaces[workspace].key.clone())
+        state.workspaces.get(workspace).map(|workspace| workspace.key.clone())
     }
 
     /// Reconcile a surface whose child exited before its tree insert
@@ -1052,7 +1038,7 @@ impl Mux {
             return;
         }
         let workspace_key = {
-            let state = self.state.lock().unwrap();
+            let state = self.state.lock().recover_poison();
             state.workspaces.iter().find_map(|workspace| {
                 workspace
                     .screens
@@ -1067,7 +1053,7 @@ impl Mux {
     }
 
     fn sidebar_surface_exited(&self, id: SurfaceId) -> bool {
-        let mut runtime = self.sidebar_plugin.lock().unwrap();
+        let mut runtime = self.sidebar_plugin.lock().recover_poison();
         if runtime.surface != Some(id) {
             return false;
         }
@@ -1077,7 +1063,7 @@ impl Mux {
         runtime.last_error = Some("sidebar plugin exited".to_string());
         runtime.retry_at = Some(Instant::now() + delay);
         drop(runtime);
-        self.state.lock().unwrap().surfaces.remove(&id);
+        self.state.lock().recover_poison().surfaces.remove(&id);
         true
     }
 }

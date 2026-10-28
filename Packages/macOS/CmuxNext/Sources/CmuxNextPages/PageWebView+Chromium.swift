@@ -29,14 +29,14 @@ extension PageWebView {
     /// - Returns: Chromium, or WebKit and why.
     public static func engineDecision(for descriptor: PageDescriptor, options: PageEngineOptions,
                                       hosting: (any PageChromiumHosting)? = PageWebView.chromiumHosting) -> PageEngineDecision {
-        // A live web override reaches only WebKit pages; deciding also arms its watch, so a launch
-        // whose first page is a Chromium one still reads web-dev.json.
-        if hosting != nil { WebDevOverrideWatcher.shared.start() }
+        // A live web override reaches only WebKit pages. Its watch is armed by the first page the host
+        // opens in either engine, a preloaded one included (``WebUIHost/devOverride``), so a launch whose
+        // first page is a Chromium one still reads web-dev.json.
         return engineDecisionNow(for: descriptor, options: options, hosting: hosting)
     }
 
-    /// ``engineDecision(for:options:hosting:)`` with no side effect (it arms no web-override watch): for a
-    /// caller that only asks where a page would show (``PageHostPool/servesOpens(hosting:)``).
+    /// ``engineDecision(for:options:hosting:)`` with the Chromium host given: for a caller that only asks
+    /// where a page would show.
     ///
     /// - Parameters:
     ///   - descriptor: The page.
@@ -71,7 +71,12 @@ extension PageWebView {
     /// page thaws before it shows, whichever path showed it (``thawPage()``, which runs its held
     /// pushes); the glass feed stops while the page is hidden and pushes what changed on the show's
     /// next frame (``GlassBackdropFeed/setPageShown(_:)``); a page whose renderer died while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``); a page
-    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``).
+    /// that hangs shows its "Page unresponsive" card only while it shows (``PageHangNotice``); a page
+    /// whose web files changed while it was hidden (``bundleStale``, set only with feature
+    /// `webUpdateReloadOnShow`) is handed to the safe point as it shows (``WebBundleSafePoint``), which
+    /// asks it before it reloads, so a reload never loses what it holds; its crash reload loads the
+    /// new files instead. A parked preload keeps its mark for its claim, which loads the new files
+    /// (``bindClaim(routes:route:documentAttributes:surface:dynamicResources:)``).
     func setEngineVisible(_ visible: Bool) {
         engineVisible = visible
         if visible { thawPage() }
@@ -79,7 +84,10 @@ extension PageWebView {
         chromiumSession?.page.setVisible(visible)
         chromiumSession?.hang.visibilityChanged(visible)
         holdDeliveryWhileHidden(visible: visible)
+        let showsStale = visible && bundleStale && !isParkedSpare
+        if showsStale, crash.needsReload { bundleStale = false }
         crash.engineVisibilityChanged(visible, page: self)
+        if showsStale, bundleStale { bundleSafePoint?.staleShown(self) }
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
@@ -108,8 +116,9 @@ extension PageWebView {
     /// Starts the Chromium page and loads the document at ``route`` in it (as it stands once the page
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time. A browser that ends with its Chromium Host while the page
-    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``).
-    func startChromium(hosting: any PageChromiumHosting) {
+    /// is made or set up waits for the supervisor instead (``PageChromiumRecovery``). `origin` goes to the host as
+    /// the engine's tab origin, whose launch order is the only wait for a restored page.
+    func startChromium(hosting: any PageChromiumHosting, origin: PageChromiumOrigin) {
         traceMark(.chromiumStart)
         webKitPieces?.view.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: userContent)
@@ -127,7 +136,7 @@ extension PageWebView {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen, window: window, origin: origin)
             } catch {
                 // Cancelled: the page closed, was discarded, fell back or its browser ended meanwhile.
                 guard let self, !Task.isCancelled else { return }

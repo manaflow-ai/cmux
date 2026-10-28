@@ -210,6 +210,21 @@ the connection with `bad_message` and the reason (`bad_magic`, `unknown_kind`,
 `frames_not_negotiated`, `line_too_long`, `invalid_utf8`, `truncated`).
 Nothing after the bad byte is interpreted.
 
+An INPUT frame (p05-ipc-078) is the raw bytes of a `send` to the surface of
+the attach stream it names, with no JSON and no base64. Its aux is the key
+press's flow id (0: none), which joins the daemon's flow hops to the echo, as
+`send`'s `flow` does. It runs on its stream's sequence after that stream's
+earlier items, is never parsed and is never answered. When its bytes do not
+reach the terminal, the stream gets the event `input-failed{stream, reason,
+bytes}` ([events.md](events.md#input-failed)); while the terminal stays ended,
+later INPUT on the same open of the stream sends no second event. INPUT obeys
+a line's gates: after a shutdown acknowledgement or a committed handoff it
+closes the connection, and during a pending handoff it is refused with
+`daemon_handoff`. INPUT sent right behind its stream's `attach-surface` waits
+for that reply ([events.md](events.md#attach-streams)). An INPUT frame on a
+stream the connection never announced is a bad message (`unknown_stream`),
+and so is one from a remote-relay client (`remote_input`).
+
 #### Bulk payloads: SNAPSHOT, SNAPSHOT_MORE, REPLAY
 
 A snapshot viewer's `snapshot` events (READY, local-history READY, history and
@@ -517,6 +532,20 @@ capability again in a later `set-client-info`. A later page-relay
 `client-hello` also ends every grant. The daemon checks a grant again each
 time the grant is used.
 
+An equal `api_revision` does not prove that the two method tables are
+equal: a new command is additive and needs no new revision. A REQUEST frame
+with a method id or priority hint that the daemon's table does not have
+closes the connection. A method that the daemon serves only as a line gets
+the ERROR `method_not_framed` before it runs, so a retry would run it after
+the requests written behind it. So, on a connection that is offered
+`ipc-frames-v2`, `identify {revisions: true}` also returns
+`sdk_schema_digest` (FNV-1a 64 of the `sdk-schema.json` bytes that the
+daemon's method tables come from, as 16 lowercase hex digits) and
+`framed_methods` (the method ids that the daemon answers on frames, in id
+order). A client sends REQUEST frames only when its own table has the same
+digest, and only for the methods in `framed_methods`. It sends every other
+command as a line.
+
 ### Attach frames
 
 Status: encoder only (p05-ipc-076). `attach-frames-v1` stays unbound until
@@ -620,7 +649,10 @@ to see that the schema is current. It never changes an existing id, family,
 advances each family's `next_ordinal` and never lowers it, so an id is never
 given twice, even after its command is removed. `clients` and
 `spawns_terminal` follow their sources on every run, so `--check` fails when
-a source changed and the schema did not.
+a source changed and the schema did not. The `ios` source is the iOS client's
+command table, `CmuxTUICommand` in `Packages/iOS/CmuxMobileSSH`; the Mac's phone
+lane generator (`scripts/cmux-next/gen-phone-lane-fields.py`) refuses a
+`clients: ios` command that `DaemonLanePolicy.allowedCommands` does not allow.
 
 `api-compat-check` (cmux-api-compat, `src/wire.rs`) compares the ids of
 `sdk-schema.json` and `resource-operations-v2.json` with the append-only
