@@ -1,6 +1,7 @@
 import CmuxNextPages
 import AppKit
 import CmuxNextBrowser
+import CmuxNextInputModel
 import CmuxNextSettings
 import CmuxNextTerminal
 
