@@ -12,6 +12,7 @@ import type { ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import { liftInlineImages, withoutDataUris } from "../src/agent-session/acpmux/inlineImages";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
+import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -189,6 +190,7 @@ async function openComposer(
 }
 
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
+const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
 
 /// Pastes on the prompt field as WebKit delivers it: one ClipboardEvent with the clipboard's data.
 async function paste(clipboard: { files?: File[]; html?: string; plain?: string }) {
@@ -537,4 +539,140 @@ test("a chat's draft read before its kept attachments places them once they come
   await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "the kept image in the text");
   expect(field().textContent).not.toContain(MARK);
   expect(field().textContent).not.toContain(image.id);
+});
+
+// Review of #26545: after a send cleared the prompt, its Undo brought back the sent attachments'
+// tokens (U+FFFC, the id, U+FFFC) with no attachment to draw, and the next send sent them as raw
+// text. They went with the first prompt: an undo of the clear brings back the words, and a resend
+// (in the undo's own task too) sends the words with no token and no attachment.
+test("sending, undoing the clear, and resending never sends a sent attachment's token", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "sent-then-undone",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  // A person sends a moment after writing: the field's history keeps the clear as its own step
+  // (prosemirror-history joins steps less than 500 ms apart).
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 600)));
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
+  await until(() => !field().textContent?.includes("before"), "the cleared prompt");
+  // Undo, and a send in the same task, before anything after the undo ran.
+  await act(async () => {
+    markdownField().undo();
+    composer.current!.send();
+  });
+  await until(() => field().textContent?.includes("before") === true, "the undone clear");
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(field().querySelector("[data-inline-attachment]")).toBeNull();
+  expect(field().textContent).not.toContain(MARK);
+  expect(markdownField().value()).not.toContain(MARK);
+  expect(composer.current!.wakeState().attachments ?? []).toEqual([]);
+  if (sent.length === 1) await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(2);
+  const resent = sent[1]!;
+  expect(resent.attachments).toEqual([]);
+  expect(resent.text).toContain("before");
+  expect(resent.text).toContain("after");
+  expect(resent.text).not.toContain(MARK);
+  expect(resent.text).not.toContain(image.id);
+  expect(JSON.stringify(promptBlocks(resent.text, resent.attachments))).not.toContain(image.id);
+});
+
+// Review of #26545: a failed attachment's Retry read its file again as a new paste under a new id,
+// so the failed tile's node left the text and the retried attachment went in at the caret wherever
+// it was by then. The retried attachment is the same one, where it was pasted, and goes with the
+// prompt there.
+test("a retried attachment keeps its id and its place in the text, wherever the caret is", async () => {
+  let uploads = 0;
+  // The host refuses the first upload and takes the retry.
+  const upload = async (files: File[]) => {
+    uploads += 1;
+    return uploads === 1 ? { error: "The upload failed." } : { paths: files.map((file) => `/tmp/${file.name}`) };
+  };
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent, { upload });
+  await act(async () => composer.current!.restore("before after", []));
+  await until(() => field().textContent?.includes("before after") === true, "the prompt");
+  await act(async () => markdownField().setCaret("before ".length));
+  const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
+  const archive = new File([new Uint8Array(64)], "notes.bin", { type: "application/octet-stream" });
+  Object.defineProperty(event, "clipboardData", {
+    value: { files: [archive], types: ["Files"], getData: () => "" },
+  });
+  await act(async () => {
+    field().dispatchEvent(event);
+  });
+  const retry = () => field().querySelector<HTMLElement>('[data-state="failed"] .acpmux-md-inline-retry');
+  await until(() => Boolean(retry()), "the failed tile");
+  const original = field().querySelector("[data-inline-attachment]")!.getAttribute("data-inline-attachment")!;
+  const placedAt = markdownField().value();
+  expect(placedAt.indexOf("before")).toBeLessThan(placedAt.indexOf(MARK));
+  expect(placedAt.indexOf(MARK)).toBeLessThan(placedAt.indexOf("after"));
+  // The caret moves on before the Retry.
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => {
+    retry()!.click();
+  });
+  await until(() => (composer.current!.wakeState().attachments ?? []).length === 1, "the retried attachment");
+  await until(() => Boolean(field().querySelector('[data-inline-attachment] [data-state="ready"]')), "its chip");
+  expect(uploads).toBe(2);
+  const [attachment] = composer.current!.wakeState().attachments!;
+  expect(attachment!.id).toBe(original);
+  expect(attachment!.path).toBe("/tmp/notes.bin");
+  const nodes = [...field().querySelectorAll("[data-inline-attachment]")].map((node) =>
+    node.getAttribute("data-inline-attachment"),
+  );
+  expect(nodes).toEqual([original]);
+  expect(markdownField().value()).toBe(placedAt);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  expect(sent[0]!.text).toBe(placedAt);
+  expect(sent[0]!.attachments.map((each) => [each.id, each.path])).toEqual([[original, "/tmp/notes.bin"]]);
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  expect(blocks[0]).toEqual({ type: "text", text: "before " });
+  // Pasted at "before |after": nothing between the attachment and "after".
+  expect(blocks.at(-1)).toEqual({ type: "text", text: "after" });
+});
+
+// 2df2917eec9 kept every sent attachment out of the text for good, so a prompt the host put back after
+// its send (a refusal, Edit on a failed prompt) lost its attachments: the same ids come back, and
+// they are the composer's again.
+test("a prompt put back after its send keeps its inline attachment, and sends it again", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "put-back",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  const prompt = `before ${inlineToken(image.id)} after`;
+  await act(async () => composer.current!.restore(prompt, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(1);
+  // The host refused it: the composer gets the prompt back, then the person types on.
+  await act(async () => composer.current!.restore(sent[0]!.text, sent[0]!.attachments));
+  await act(async () => markdownField().setCaret(Number.MAX_SAFE_INTEGER));
+  await act(async () => markdownField().insertTyped("!"));
+  for (let turn = 0; turn < 5; turn++) await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  expect(field().querySelector("[data-inline-attachment] img")).not.toBeNull();
+  expect((composer.current!.wakeState().attachments ?? []).map((attachment) => attachment.id)).toEqual([image.id]);
+  await act(async () => composer.current!.send());
+  expect(sent).toHaveLength(2);
+  expect(sent[1]!.text).toBe(`${prompt}!`);
+  expect(sent[1]!.attachments.map((attachment) => attachment.id)).toEqual([image.id]);
 });

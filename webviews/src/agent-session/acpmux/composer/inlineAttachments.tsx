@@ -46,7 +46,8 @@ export function useInlineAttachments(options: Options) {
   /// Placeholders this composer placed in the text, until each is a chip or gone.
   const placed = useRef(new Set<string>());
   /// Attachments sent with a prompt: an undo of the send's clear brings their nodes back with no
-  /// attachment to draw, so they leave the text again.
+  /// attachment to draw, so they leave the text again. One the host puts back (a refusal, Edit on a
+  /// failed prompt) is the composer's again.
   const sentIds = useRef(new Set<string>());
   useLayoutEffect(() => {
     removed.current.clear();
@@ -89,6 +90,9 @@ export function useInlineAttachments(options: Options) {
   };
   const known = (id: string) =>
     placed.current.has(id) || live.current.pending.some((chip) => chip.id === id) || sourceFor(id) !== undefined;
+  /// Whether `id` went with a prompt and has not been put back.
+  const isSent = (id: string) =>
+    sentIds.current.has(id) && !live.current.attachmentsRef.current.some((attachment) => attachment.id === id);
 
   const [api] = useState(() => ({
     /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
@@ -111,9 +115,10 @@ export function useInlineAttachments(options: Options) {
     edited(markdown: string) {
       const before = seen.current;
       seen.current = markdown;
-      const stale = inlineTokenIds(markdown).filter((id) => sentIds.current.has(id));
+      const stale = inlineTokenIds(markdown).filter(isSent);
       // After the edit's own render: the field is still dispatching it.
-      if (stale.length) queueMicrotask(() => stale.forEach((id) => live.current.field.current?.removeInline(id)));
+      if (stale.length)
+        queueMicrotask(() => stale.filter(isSent).forEach((id) => live.current.field.current?.removeInline(id)));
       const was = inlineTokenIds(before, known);
       const now = inlineTokenIds(markdown, known);
       if (!was.length && !now.length) return;
@@ -176,6 +181,7 @@ export function useInlineAttachments(options: Options) {
   }));
 
   useLayoutEffect(() => {
+    for (const attachment of options.attachments) sentIds.current.delete(attachment.id);
     api.ready();
   }, [options.attachments, api]);
   // Also when placing starts (the strip view switched to inline, shell mode ended): what was added
