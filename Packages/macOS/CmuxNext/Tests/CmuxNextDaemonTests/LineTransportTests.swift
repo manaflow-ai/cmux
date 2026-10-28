@@ -196,6 +196,9 @@ import Testing
     /// Each link kind reads and writes at its role's class, read back from the kernel on the reader thread: the
     /// terminal attach link (typed keys and their echo) at user-interactive, the control link (commands, replies,
     /// automation and sidebar events) one class below, so its churn never shares typing's class.
+    /// The class is sampled in a reply handler: a light item, which the reader runs inline while its lane is empty.
+    /// An event is a heavy item and runs on the decode lane at ``DaemonWireStats/Role/decodeQoS`` (utility on an
+    /// attach link), so an event handler does not show the reader's class.
     @Test(arguments: [DaemonWireStats.Role.control, .terminalAttach])
     func eachLinkKindReadsAndWritesAtItsClass(role: DaemonWireStats.Role) async throws {
         let typing = role == .terminalAttach
@@ -205,11 +208,19 @@ import Testing
         let transport = try LineTransport(path: daemon.path, role: role, stats: nil)
         try daemon.accept()
         defer { transport.close() }
-        // The class the kernel runs the reader thread at, sampled inside its event handler.
+        // The class the kernel runs the reader thread at, sampled inside a reply handler (inline on the reader).
         let (classes, continuation) = AsyncStream<UInt32>.makeStream()
-        transport.start(onEvent: { _, _, _ in continuation.yield(qos_class_self().rawValue) }, onClose: { _ in })
+        transport.start(onEvent: { _, _, _ in }, onClose: { _ in })
+        let sent = transport.send(cmd: "identify", onReply: { _ in continuation.yield(qos_class_self().rawValue) }) {
+            Self.line($0, "identify")
+        }
+        guard case .success = sent else {
+            Issue.record("identify not sent: \(sent)")
+            return
+        }
 
-        daemon.write([#"{"event":"probe"}"#])
+        let id = try daemon.readRequestID()
+        daemon.write([#"{"id":\#(id),"ok":true,"data":{}}"#])
         var iterator = classes.makeAsyncIterator()
         let observed = await iterator.next()
 
