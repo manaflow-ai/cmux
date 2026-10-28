@@ -54,6 +54,7 @@ Object.assign(scope, replacements);
 const { act } = await import("react");
 const { createRoot } = await import("react-dom/client");
 const { UserBubble } = await import("../src/agent-session/acpmux/conversation/UserBubble");
+const { foldMotion } = await import("../src/agent-session/acpmux/conversation/fold");
 const { FindReveal } = await import("../src/agent-session/acpmux/conversation/chatFind");
 const { resetTranscriptDisclosure } = await import("../src/agent-session/acpmux/conversation/transcriptDisclosure");
 const { pasteRanges, COLLAPSED_PROMPT_LINES } = await import("../src/agent-session/acpmux/conversation/promptCollapse");
@@ -288,6 +289,37 @@ try {
       else delete (dom.window.Range.prototype as unknown as Record<string, unknown>).getBoundingClientRect;
       if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
       else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
+    }
+  });
+
+  test("a prompt mount does not read animation styles until the person toggles its fold", () => {
+    resetTranscriptDisclosure();
+    const duration = foldMotion.duration;
+    const reducedMotion = foldMotion.reducedMotion;
+    const animate = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "animate");
+    let durationReads = 0;
+    Object.defineProperty(dom.window.HTMLElement.prototype, "animate", {
+      configurable: true,
+      value: () => ({ cancel() {} }),
+    });
+    foldMotion.reducedMotion = () => false;
+    foldMotion.duration = () => {
+      durationReads += 1;
+      return 0;
+    };
+    try {
+      act(() => root.unmount());
+      root = createRoot(host);
+      render(prompt("user-fold-style", lines(20)));
+      expect(durationReads).toBe(0);
+      click(toggle()!);
+      expect(body().classList.contains("is-clamped")).toBe(false);
+      expect(durationReads).toBe(1);
+    } finally {
+      foldMotion.duration = duration;
+      foldMotion.reducedMotion = reducedMotion;
+      if (animate) Object.defineProperty(dom.window.HTMLElement.prototype, "animate", animate);
+      else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).animate;
     }
   });
 
