@@ -400,7 +400,7 @@
 
 /* Pinned actions are Tab stops outside the results so typing still highlights the first match. */
 .ui-combobox-pinned-list { display: flex; flex-direction: column; min-height: 0; }
-.ui-combobox-pinned { flex: none; border-bottom: .5px solid var(--ui-border, color-mix(in srgb, currentColor 12%, transparent)); margin-bottom: 4px; padding-bottom: 4px; }
+.ui-combobox-pinned { flex: none; margin-bottom: 4px; padding-bottom: 4px; }
 .ui-combobox-scroll { min-height: 0; }
 
 .ui-combobox-pinned > button { display: flex; align-items: center; width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; }

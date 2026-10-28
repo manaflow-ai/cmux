@@ -355,7 +355,7 @@ test("the project list announces the committed project and private-folder select
       ),
     );
     await click(host.querySelector<HTMLButtonElement>("button")!);
-    const selected = document.querySelector('[role="option"][aria-current="true"]');
+    const selected = document.querySelector('[aria-current="true"]');
     expect(selected).toBeTruthy();
     expect(selected!.textContent).toContain(privateFolder ? "Do not work in a project" : "current");
     await key(document.querySelector<HTMLInputElement>('[role="combobox"]')!, "Escape");
