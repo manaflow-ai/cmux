@@ -113,6 +113,19 @@ fn note_unfinished_tool(open: &mut Vec<UnfinishedTool>, omitted: &mut bool, upda
     }
 }
 
+/// Collects tool calls in the cut turn for the journal-fold regression test.
+#[cfg(test)]
+fn unfinished_tools(records: &[EventRecord]) -> (Vec<UnfinishedTool>, usize) {
+    let mut open = Vec::<UnfinishedTool>::new();
+    let mut omitted = false;
+    for record in records {
+        if let Some(update) = tool_update(record) {
+            note_unfinished_tool(&mut open, &mut omitted, update);
+        }
+    }
+    (open, if omitted { 1 } else { 0 })
+}
+
 /// The text the agent gets: the cut turn's prompt, then what was steered into it.
 fn continue_text(prompts: &[String], tools: &[UnfinishedTool], omitted_tools: usize) -> String {
     let mut text = String::from(
