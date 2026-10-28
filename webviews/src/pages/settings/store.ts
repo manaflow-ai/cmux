@@ -43,6 +43,8 @@ import {
   type AgentsRun,
   type AgentsState,
   type ChannelsState,
+  type CloudEnvironmentsRun,
+  type CloudEnvironmentsState,
   type DevicesRun,
   type DevicesRunResult,
   type DevicesState,
@@ -622,6 +624,22 @@ export class SettingsStore {
   async runHarnesses(run: HarnessesRun): Promise<void> {
     await this.request("cmux.settings.harnesses.run", run);
     await this.fetchNative(settingsKeys.harnesses);
+  }
+
+  /** Settings > Accounts > Cloud Environments: the host's state (null when the host has none). */
+  async environments(): Promise<CloudEnvironmentsState | null> {
+    const reply = await this.request("cmux.settings.environments.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Cloud Environments gesture, then the fresh state; the host's failure text, else null. */
+  async runEnvironments(
+    run: CloudEnvironmentsRun,
+  ): Promise<{ state: CloudEnvironmentsState | null; error: string | null }> {
+    const reply = await this.request("cmux.settings.environments.run", run);
+    const state = await this.environments();
+    if (!reply.ok) return { state, error: reply.error.message };
+    return { state, error: reply.value?.error ?? null };
   }
 
   /** One Devices gesture, then a fresh read of the part; answers the host's result (a refusal

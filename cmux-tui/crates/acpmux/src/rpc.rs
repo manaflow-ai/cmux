@@ -288,6 +288,8 @@ pub mod method {
     pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     /// Retry a chat's failed last turn now (`hub/auto_resume/retry_turn.rs`).
     pub const MUX_RETRY: &str = "_acpmux/retry";
+    /// What this daemon knows of a chat's sign-in (`hub/session_auth.rs`).
+    pub const MUX_SESSION_AUTH: &str = "_acpmux/session/auth";
     pub const MUX_INFO: &str = "_acpmux/info";
     /// Metadata-only paths for a session's config and state files; local Unix socket only.
     pub const MUX_SESSION_FILES: &str = "_acpmux/session_files";
@@ -307,6 +309,11 @@ pub mod method {
     /// The person proof for this connection's challenge (`hub/person.rs`).
     pub const MUX_PERSON_PROVE: &str = "_acpmux/person_prove";
     pub const MUX_PERSON_HOLDS: &str = "_acpmux/person_holds";
+    /// Explicit person-only controls for the daemon-owned embedded tailnet.
+    pub const MUX_TAILNET_START: &str = "_acpmux/tailnet/start";
+    pub const MUX_TAILNET_LOGIN: &str = "_acpmux/tailnet/login";
+    pub const MUX_TAILNET_STATE: &str = "_acpmux/tailnet/state";
+    pub const MUX_TAILNET_LOGOUT: &str = "_acpmux/tailnet/logout";
     /// The person's phones that may sign an allow (`hub/approvers.rs`).
     pub const MUX_APPROVERS_SET: &str = "_acpmux/approvers_set";
     /// The person's app: the folders of the workspaces its daemon lists now,
@@ -518,6 +525,9 @@ pub mod method {
     /// To local watchers when a new chat's start mode may have changed (a
     /// mode pick, a config reload): ask `_acpmux/start_mode` again. `{}`.
     pub const MUX_START_MODE_CHANGED: &str = "_acpmux/start_mode_changed";
+    /// To watchers on each change of a peer link's state: `{peer, state, lastSeen, error, at}`
+    /// (`protocol/peer_state.rs`).
+    pub const MUX_PEER_STATE_CHANGED: &str = "_acpmux/peer_state_changed";
     /// Sent to the prompting connection as soon as a `session/prompt` is
     /// recorded, before the turn ends: `{sessionId, promptId, turnId, queued}`.
     pub const MUX_PROMPT_ACCEPTED: &str = "_acpmux/prompt_accepted";
