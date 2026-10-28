@@ -1,5 +1,5 @@
 import { Context, Schema } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiGroup, HttpApiMiddleware, HttpApiSecurity, OpenApi } from "effect/http-api"
 import { GrantId, IdempotencyKey, InstallId, Origin, Revision, TeamId, UserId } from "./schemas.ts"
 
 /** The authenticated principal of a request. Never read from a request body. */
