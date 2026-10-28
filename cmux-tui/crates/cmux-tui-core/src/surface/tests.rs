@@ -20,6 +20,8 @@ mod hosted;
 #[cfg(unix)]
 mod hosted_input_outage;
 mod input;
+#[cfg(unix)]
+mod input_backlog;
 mod lifecycle;
 #[cfg(unix)]
 mod local_resize_order;
