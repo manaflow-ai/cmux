@@ -1,10 +1,15 @@
 @testable import CmuxNextApp
 import CmuxNextActions
+import CmuxNextRemote
 import Testing
 
 @Suite struct RemoteConnectRecoveryTests {
-    @Test func aLoadedConnectionCanBeHandledWithoutAnExistingWindow() {
-        #expect(RemoteHandlers.shouldHandleConnectionObservation(loaded: true, hasWindow: false))
+    @Test func aConnectingObservationStaysAliveWithoutAnExistingWindow() {
+        #expect(!RemoteHandlers.shouldEndConnectionObservation(status: .connecting, hasWindow: false))
+    }
+
+    @Test func aDaemonFailureClearsRetrySuppression() {
+        #expect(RemoteHandlers.shouldClearRetrySuppression(for: "daemon handshake failed"))
     }
 
     @MainActor @Test func newGroupFocusRequestEnablesInteractiveFlowDuringCapture() {

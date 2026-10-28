@@ -12,11 +12,15 @@ import CmuxNextServer
 /// installing run in tasks; failures surface as a sheet in the UI and as a
 /// refusal on the control socket.
 enum RemoteHandlers {
-    /// Whether a connection observation can be handled by the presentation task.
-    /// A loaded workspace is handled by `CloudHandlers.show`, which can create a
-    /// window when the app has none; recovery still needs an existing window.
-    static func shouldHandleConnectionObservation(loaded: Bool, hasWindow: Bool) -> Bool {
-        loaded || hasWindow
+    /// Whether the observation task should end before handling this update.
+    static func shouldEndConnectionObservation(status: SSHConnectionMachine.Status, hasWindow: Bool) -> Bool {
+        !hasWindow
+    }
+
+    /// A daemon failure can arrive while the SSH link remains connected, so it
+    /// must clear the retry suppression independently of link status changes.
+    static func shouldClearRetrySuppression(for failure: String?) -> Bool {
+        false
     }
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
@@ -195,7 +199,6 @@ enum RemoteHandlers {
                 (daemon.store.isLoaded && daemon.connection != nil, session.linkStatus, session.daemonFailure, session.connectRecoveryAttempt)
             }) {
                 guard !Task.isCancelled else { return }
-                guard Self.shouldHandleConnectionObservation(loaded: loaded, hasWindow: window != nil) else { return }
                 if loaded {
                     recovery.stop()
                     let id: String?
@@ -204,9 +207,10 @@ enum RemoteHandlers {
                     if let id, !Task.isCancelled { CloudHandlers.show(id, context) }
                     return
                 }
-                guard let window else { return }
+                if Self.shouldEndConnectionObservation(status: status, hasWindow: window != nil) { return }
                 if status == .offline { return }
-                if !session.connectRecoveryRetrying && (status.needsRecovery || failure != nil) {
+                if Self.shouldClearRetrySuppression(for: failure) { session.connectRecoveryRetrying = false }
+                if let window, !session.connectRecoveryRetrying && (status.needsRecovery || failure != nil) {
                     let detail = RemoteStrings.detail(session) ?? ""
                     let spec = SSHConnectRecovery.spec(title: RemoteStrings.connectFailedTitle(session.host.label),
                         detail: detail, cancel: CloudStrings.cancel, copy: RemoteStrings.copyError,
