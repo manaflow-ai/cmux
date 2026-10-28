@@ -308,3 +308,26 @@ async fn a_decline_before_the_restored_task_claims_it_stays_the_answer() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A chat with a prompt that waits for the owner is not moved: the daemon it goes to may be an
+/// older build that would run it unapproved. The move is refused `transfer.held_prompts` and the
+/// chat stays here, unfrozen; once the owner declines it, the chat moves (review of #26747).
+#[tokio::test]
+async fn a_chat_is_not_moved_while_a_prompt_waits_for_the_owner() {
+    let hub = hub();
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let waiting = c.queue(held(&session, "g-1", "guest words")).await;
+    let begin = json!({"sessionId": session, "interrupt": true});
+    let refused = c.reply("_acpmux/transfer_begin", begin.clone()).await;
+    assert_eq!(reason(&refused), "transfer.held_prompts", "{refused}");
+    assert_eq!(refused.pointer("/error/data/promptIds"), Some(&json!(["g-1"])), "{refused}");
+    assert!(c.records(&session, "transfer_aborted").await.len() == 1);
+    // Still the owner's to answer here, and the chat still takes prompts.
+    c.call("session/prompt", prompt(&session, "p-owner", "owner words", None)).await;
+    c.call("_acpmux/queue_decline", answer(&session, "g-1", None)).await;
+    assert_eq!(reason(&c.reply_to(waiting).await), "queue.declined");
+    let moved = c.call("_acpmux/transfer_begin", begin).await;
+    let abort = json!({"sessionId": session, "transferId": moved["transferId"]});
+    c.call("_acpmux/transfer_abort", abort).await;
+}
