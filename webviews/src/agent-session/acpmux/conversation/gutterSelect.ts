@@ -80,7 +80,7 @@ type CaretDocument = Document & {
 };
 
 const INTERACTIVE_TARGETS =
-  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy, .cv-received__body[data-cut], .acpmux-edited-title--toggle, .acpmux-turn-preview-frame';
+  'button, a[href], input, textarea, select, label, summary, [contenteditable="true"], [draggable="true"], [data-interactive], [role="button"], [role="link"], [role="menuitem"], [role="option"], [role="textbox"], [role="combobox"], [role="listbox"], [role="menu"], [role="dialog"], .cv-worked, .cv-activity, .cv-tool, .cv-iconbtn, .acpmux-row__copy, .acpmux-turn-preview-frame';
 
 /// The caret at a client point: the standard caretPositionFromPoint, else WebKit's and older
 /// Chromium's caretRangeFromPoint.
