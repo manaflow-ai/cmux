@@ -285,7 +285,7 @@ async function commandPage(
     );
   await act(async () => renderPage());
   const setSandboxed = async (value: boolean) => {
-    if (common.runMode) common.runMode.mode = value ? "sandboxed" : "persistent";
+    if ("runMode" in common) common.runMode.mode = value ? "sandboxed" : "persistent";
     else common.importSandboxed = value;
     await act(async () => renderPage());
   };
