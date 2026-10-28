@@ -29,12 +29,17 @@ extension MobileShellComposite {
         // the same method-pinned allowlist as the control dial or it could
         // ride relay or discovered paths the method forbids. Tailscale
         // sessions use their raw route and never enter this Iroh lane.
+        let pairingID = MobilePairedMac.pairingID(
+            macDeviceID: activeTicket.macDeviceID,
+            instanceTag: activeMacInstanceTag
+        )
         let request = CmxByteTransportRequest(
             route: activeRoute,
             expectedPeerDeviceID: activeTicket.macDeviceID,
             authorizationMode: .transportAdmission,
             sessionPurpose: .featureLane,
-            irohDirectOnlyDialCandidates: irohMethodPinnedDialCandidates(
+            irohDirectOnlyDialCandidates: directDialCandidatesByPairingID[pairingID]
+                ?? irohMethodPinnedDialCandidates(
                 forMacDeviceID: activeTicket.macDeviceID,
                 instanceTag: activeMacInstanceTag
             )

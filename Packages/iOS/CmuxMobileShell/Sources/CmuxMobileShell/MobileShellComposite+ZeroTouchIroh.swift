@@ -17,7 +17,7 @@ extension MobileShellComposite {
         generation: Int,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
-        let discovered = await loadDirectoryCandidates(scope: scope)
+        let discovered = await loadDirectoryCandidates(scope: scope, publish: false)
         guard generation == storedMacReconnectGeneration,
               await isScopeCurrent(scope) else { return [] }
 
@@ -30,8 +30,11 @@ extension MobileShellComposite {
 
     /// One owner for the directory shown in Computers and used for first-pair
     /// dialing. A superseded or cancelled read cannot restore stale rows.
-    func loadDirectoryCandidates(scope: MobileShellScopeSnapshot) async -> [MobileDiscoveredIrohMac] {
-        directoryCandidatesGeneration &+= 1
+    func loadDirectoryCandidates(
+        scope: MobileShellScopeSnapshot,
+        publish: Bool = true
+    ) async -> [MobileDiscoveredIrohMac] {
+        if publish { directoryCandidatesGeneration &+= 1 }
         let generation = directoryCandidatesGeneration
         guard let personalIrohDiscovery else {
             discoveredIrohMacs = []
@@ -50,8 +53,10 @@ extension MobileShellComposite {
                   !isHiddenMacPairingKey(key, hiddenIDs: hiddenIDs) else { return false }
             return seen.insert(key.pairingID).inserted
         }
-        guard generation == directoryCandidatesGeneration else { return [] }
-        discoveredIrohMacs = visible
+        if publish {
+            guard generation == directoryCandidatesGeneration else { return [] }
+            discoveredIrohMacs = visible
+        }
         return visible
     }
 
@@ -142,7 +147,7 @@ extension MobileShellComposite {
         scope: MobileShellScopeSnapshot,
         excluding pairingIDs: Set<String>
     ) async -> [MobilePairedMac] {
-        let discovered = await loadDirectoryCandidates(scope: scope)
+        let discovered = await loadDirectoryCandidates(scope: scope, publish: false)
         guard await isScopeCurrent(scope) else { return [] }
 
         return await zeroTouchIrohCandidates(

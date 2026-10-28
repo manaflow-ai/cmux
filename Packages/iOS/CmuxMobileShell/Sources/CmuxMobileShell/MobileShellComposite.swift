@@ -1221,6 +1221,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// private path before the first dial succeeds.
     public internal(set) var discoveredIrohMacs: [MobileDiscoveredIrohMac] = []
     var directoryCandidatesGeneration = 0
+    var directDialCandidatesByPairingID: [String: [CmxIrohDirectDialCandidate]] = [:]
     /// Revokes a hidden computer's account bindings when the user forgets it.
     /// Optional so tests and non-iOS hosts run without the transport graph; when
     /// `nil`, the Forget action is a no-op and the row stays put.
@@ -3259,13 +3260,25 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         } catch {
             return false
         }
-        return await connectDiscoveredIrohMac(
+        let candidates = sockets.map {
+            CmxIrohDirectDialCandidate(address: $0.address.value, port: $0.port)
+        }
+        directDialCandidatesByPairingID[MobilePairedMac.pairingID(
+            macDeviceID: path.macDeviceID,
+            instanceTag: path.instanceTag
+        )] = candidates
+        let connected = await connectDiscoveredIrohMac(
             macDeviceID: path.macDeviceID,
             instanceTag: path.instanceTag,
-            directOnlyDialCandidates: sockets.map {
-                CmxIrohDirectDialCandidate(address: $0.address.value, port: $0.port)
-            }
+            directOnlyDialCandidates: candidates
         )
+        if !connected {
+            directDialCandidatesByPairingID.removeValue(forKey: MobilePairedMac.pairingID(
+                macDeviceID: path.macDeviceID,
+                instanceTag: path.instanceTag
+            ))
+        }
+        return connected
     }
 
     /// Connect a directory-only Mac after the user has supplied a private path.
