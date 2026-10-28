@@ -238,6 +238,9 @@ impl App {
         else {
             return RenderAction::Draw;
         };
+        if !self.docks.loaded {
+            self.restore_docks_from_session();
+        }
         self.docks.pending_edge = None;
         let edge = |action: Action| match action {
             Action::DockWorkspaceLeft | Action::ToggleDockLeft => Some(DockEdge::Left),
