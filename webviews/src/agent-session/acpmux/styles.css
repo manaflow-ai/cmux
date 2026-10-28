@@ -292,8 +292,8 @@
 .acpmux-project-button{display:inline-flex;align-items:center;gap:5px;height:24px;max-width:220px;padding:0;border:0;border-radius:3px;background:none;color:var(--agent-muted);font:inherit;cursor:pointer;white-space:nowrap}
 .acpmux-project-button:hover,.acpmux-project-button[aria-expanded="true"]{color:var(--agent-text);background:none}
 .acpmux-project-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}@media (prefers-reduced-motion:no-preference){.acpmux-project-button{transition:background-color var(--agent-motion-hover) var(--agent-ease-out)}}.acpmux-project-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
-.ui-popup.acpmux-project-menu{position:relative;inset:auto;width:300px;max-width:calc(100vw - 32px);max-height:min(520px,calc(var(--available-height,100vh) - 24px));overflow:hidden;font-size:13px;--acpmux-project-menu-edge:4px}
-.acpmux-project-menu>div{display:flex;flex-direction:column;min-height:0}
+.ui-popup.acpmux-project-menu{position:relative;inset:auto;display:flex;flex-direction:column;width:300px;max-width:calc(100vw - 32px);max-height:min(520px,calc(var(--available-height,100vh) - 24px));overflow:hidden;font-size:13px;--acpmux-project-menu-edge:4px}
+.acpmux-project-menu>div{display:flex;flex:1;flex-direction:column;min-height:0}
 .acpmux-project-menu .ui-combobox-list{display:flex;flex:1;flex-direction:column;min-height:0;overflow:hidden}
 .acpmux-project-menu .ui-combobox-list:not(.ui-combobox-pinned-list){overflow:auto}
 .acpmux-project-menu .ui-combobox-pinned-list{display:flex;flex-direction:column;min-height:0}
