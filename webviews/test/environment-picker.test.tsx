@@ -908,7 +908,9 @@ test("Auto shows its destination before opening and keeps explicit machines avai
   });
   // The scope line (`auto-scope-look` default arm `dot`): one "Auto · gpu-box" label, which is also
   // its accessible value.
-  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(`${t("composer.auto")} · gpu-box`);
+  expect(computerButton()?.querySelector(".acpmux-location-label")?.textContent).toBe(
+    `${t("composer.auto")} · gpu-box`,
+  );
   expect(computerButton()?.querySelector(".acpmux-location-tag")).toBeNull();
   expect(computerButton()?.getAttribute("aria-label")).toBe(
     `${t("composer.environment")}: ${t("composer.auto")} · gpu-box`,
