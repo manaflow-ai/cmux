@@ -650,7 +650,7 @@ def main_thread_tree(path, min_share=0.02, limit=260):
 def run_round(app, scenario, index, sampled):
     name, modifiers = (CLASSIC_OPEN_KEYS if app.family == "classic" else OPEN_KEYS)[scenario]
     app.commit_probe = scenario in ("newtab", "browser")
-    app.page_target = scenario == "newtab"
+    app.page_target = False  # New Tab keys go to the shell window: the hold takes and replays them (11:40Z rerun)
     nkeys = int(round(opts.seconds / opts.interval))
     rows_before = app.probe_rows()
     base = max([int(r["index"]) for r in rows_before if (r.get("index") or "").isdigit()], default=-1)
