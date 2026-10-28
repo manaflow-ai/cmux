@@ -46,6 +46,10 @@ public struct UpdateAppcastItem: Sendable {
     public var fileURL: URL? { sparkle.fileURL }
     /// Whether the item lists any delta update.
     public var listsDeltas: Bool { !(sparkle.deltaUpdates?.isEmpty ?? true) }
+    /// The item's staged-rollout percentage as written (`<cmux:rolloutPercent>`), when it has one
+    /// (``StagedRollout``). Sparkle keeps every element it does not know in the item's
+    /// properties under its qualified name.
+    public var rolloutPercent: String? { sparkle.propertiesDictionary[StagedRollout.element] as? String }
 }
 
 // MARK: - Choices, checks and permission

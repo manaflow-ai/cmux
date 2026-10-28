@@ -42,6 +42,9 @@ final class UpdateDriver {
     /// Holds back a fresh update without deltas for one scheduled check
     /// (``UpdateController/pendingDeltaWindow``); nil offers every update at once.
     var pendingDeltaWait: PendingDeltaWait?
+    /// Holds a scheduled check back from an item whose staged rollout has not reached this
+    /// install (``UpdateController/stagedRollout``); nil offers every item.
+    var stagedRollout: StagedRollout?
     /// The current time, for ``pendingDeltaWait`` (replaced by tests).
     var now: () -> Date = Date.init
     /// The update a background check accepted, and its held install once it is ready.

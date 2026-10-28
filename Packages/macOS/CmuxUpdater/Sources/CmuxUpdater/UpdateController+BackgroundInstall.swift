@@ -150,6 +150,14 @@ extension UpdateController {
         set { driver.skipsBuildsThrough = newValue }
     }
 
+    /// The staged rollout that decides whether a scheduled check takes an item with a
+    /// `<cmux:rolloutPercent>` (``StagedRollout``). The controller sets it at init from the seed
+    /// in its defaults; nil offers every item at once.
+    public var stagedRollout: StagedRollout? {
+        get { driver.stagedRollout }
+        set { driver.stagedRollout = newValue }
+    }
+
     /// How long after its `pubDate` an update that lists no Sparkle deltas is held back from a
     /// scheduled check, so the delta its feed lists minutes later is downloaded instead of the
     /// full archive. A held update is taken by the next scheduled check either way, and a check
