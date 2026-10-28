@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Oracle invariants I1-I7 (p15-oracle-110), I9 (p15-oracle-205), I10 (p15-oracle-206) and I17-I18
-(p15-oracle-188) over one case trace.
+"""Oracle invariants I1-I7 (p15-oracle-110), I8 (p15-oracle-204), I9 (p15-oracle-205), I10 (p15-oracle-206),
+I11-I15 (p15-oracle-217), I16 (p15-oracle-236) and I17-I18 (p15-oracle-188) over one case trace.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md section 3F ("Invariants at every checkpoint") and
-plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`. Later tasks add
-I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
+plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`.
 
 | Id | Rule                                                                  | Reads                          |
 | I1 | each mutation gives exactly one receipt or one typed error            | step replies                   |
@@ -14,8 +13,15 @@ I8 (204), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
 | I5 | 0 `debug.desync` violations                                           | invariants facet               |
 | I6 | no orphan processes or sockets at teardown                            | teardown record                |
 | I7 | a hidden-workspace change does no view work                           | step layoutCounters + topology |
+| I8 | the model folded from `session.events` == daemon facet at its cursor | eventLogs + daemon facet       |
 | I9 | journal restore_preview == live daemon facet on the restorable sections | restorePreviews + daemon facet |
 | I10| a same-key retry: same result, replayed, same journal head and facets | replies + retry before/settled |
+| I11| 0 new main-thread blocking sites in the step (perf-owner queue)     | sideChannels.blocking          |
+| I12| no main-thread hang > 250 ms in the step (perf-owner queue)          | sideChannels.hangs             |
+| I13| each action the step ran reached its commit in budget (perf-owner)   | sideChannels.actionBudget      |
+| I14| idle wakeups within budget after the settle (perf-owner queue)       | sideChannels.wakeups           |
+| I15| daemon fd, thread and child counts at teardown == after setup        | setup/teardown.daemonResources |
+| I16| the daemon panic log is empty at teardown (no panic, no lock-rank panic) | teardown panicLog              |
 | I17| 0 unexpected child exits unless `allow_crashes` covers the kind       | crashes facet + case            |
 | I18| live-object counts return to the fixture baseline after teardown      | liveObjects + daemon.oracle    |
 
@@ -60,10 +66,71 @@ Chromium's session restore
 check (chrome/browser/sessions/session_restore_browsertest.cc restores the commands SessionService wrote and
 compares the restored windows and tabs with the ones that wrote them), run on every checkpoint instead of
 once per test. A preview at another sequence, or with no journal checkpoint yet, is not checked.
+I11-I14 read the app's own diagnostics: two readings per step, which driver_app.py takes when it writes a trace
+(`run-case --trace`). `before` is just before the step acts and `after` is once it settled (before the settled
+capture), of `debug.blocking` (I11), `debug.hangs` (I12) and `debug.action_budget` (I13); `debug.wakeups` is read
+at the settle and again after the settled capture (`settled`, `idle`: I14). Each counter counts since launch, so
+a step's share is the rise from its before reading; a count that falls was reset, and its value is the rise.
+- I11: a `main` context site of the blocking detector whose call count rose, or a rise of the main context's
+  `overflow` (calls past the site table). A `--config bench` build has no detector (`compiled_in` false): not
+  checked, never passed (BlockingControl's own rule). Chrome: base/threading/thread_restrictions.h, where a
+  ScopedBlockingCall on the UI thread fails a DCHECK in a browser test.
+- I12: a `stall` record newer than the before reading's newest and longer than 250 ms, or a rise of `count250`
+  (work gaps of 250 ms and up, StallCounts) that no such record names. Chrome: the jank threshold of
+  content/browser/scheduler/responsiveness/calculator.cc and the hang watcher (base/threading/hang_watcher.h).
+- I13: a run of the monitor's `recent` ring newer than the before reading's newest, with the outcome
+  `committed` and a `commit_ms` over `action_budget_ms` (10 ms). A `missed` or `nested` run has no commit time
+  and is not judged. Chrome: the EventLatency histograms (cc/metrics/event_metrics.h), input to frame shown.
+- I14: in the window between the two `debug.wakeups` readings (their `uptime_s`), the WakeupLedger's rise over
+  every owner except the oracle's own control reads (`Control.frames`) is at most the idle budget times the
+  window, rounded up. The budget is `sessions.light.kinds.app.main_wakes_per_s` of
+  scripts/cmux-next/idle-budget.json, the session of an oracle launch (one visible window with terminals). A
+  frame client still active at the idle reading wakes every display frame: each is a violation of its own.
+  Chrome: base/process/process_metrics.h GetIdleWakeupsPerSecond, read by its power tests once the page settled.
+A case that arms the turn recorder (`recorderArmed`: a `turn` checkpoint of driver_app.py) reads facets inside
+each action's turn, which costs that turn its budget, so I11-I14 are not checked for it; the perf readings come
+from runs with the recorder disarmed. I11-I14 violations go to the perf owner queue (plans/cmux-next/perf-lead.md),
+not to the case: they are in the report's `perfQueue`, never in `violations`, so they fail neither the case nor
+its baseline, and `check --perf-queue FILE` appends each one as a JSON line. Each names its source method and step.
+
+I15 compares the case daemon's open descriptors, threads and child processes at teardown (after the case's last
+step and fixture teardown, before the daemon stops) with the counts after setup (resource_counts.py: the daemon
+driver's case daemon, the app driver's tag daemon). A reading of another pid (a step restarted the daemon) is
+not checked. Each reading also carries the daemon's `liveObjects` (oracle-state) read with it: the counts are
+compared only when those objects (all but the timing kinds) are the same at both readings, since a terminal the
+case leaves open holds its host, descriptors and stream threads by design; such a case is not checked here, and
+I18 judges the objects themselves. Chrome: base/test/launcher/test_launcher.cc fails a test that leaves a child
+process, after the test closed its windows.
+
+I16 reads the panic logs the case's daemon processes wrote, after they exited (`read_panic_log` on the case
+root). The session owner appends one JSON line per panic, a caught one too, to `owner-panics-<session>.jsonl`
+beside its sessions directory (cmux-tui-core/src/diagnostics/owner_panic_log.rs); the acpmux daemon writes
+`$ACPMUX_HOME/panics.jsonl` (crates/acpmux/src/daemon.rs). Both use the cmux-panic-log line (message,
+location file:line:col, thread, test, backtrace). Every line is a violation naming its message and location;
+a line that is not a record is one too. A lock-rank panic is the lock-order assertion of
+cmux-tui-core/src/lock_rank.rs, which builds only with debug assertions: the oracle profile keeps them
+(cmux-tui/Cargo.toml [profile.oracle]), and `lock_ranks_compiled_in` proves a binary has the checker before a
+driver runs cases on it. This is Chrome's CheckedLock (base/task/common/checked_lock_impl.cc), whose
+acquisition-order DCHECKs dcheck_always_on keeps in an optimized build, and blinkpy's driver
+(third_party/blink/tools/blinkpy/web_tests/port/driver.py), which fails a test on crash output even when its
+text output matched.
 I18 compares the owned-object counts of `liveObjects` and `daemon.oracle.liveObjects` at the teardown
 checkpoint with those at the case's first checkpoint, the fixture baseline. `subscriptions` and `tasks`
 are timing state (armed observations, pending deadlines), not owned objects: a difference there is
 reported as not checked, never a failure.
+I8 folds each `eventLogs` entry (event_log.py SessionFold: a snapshot item resets, a delta applies after its
+generation and previous_revision check) up to each checkpoint's `daemon.session.cursor` and compares the fold
+with the facet's session: both through the schema's capture and volatile rules, rows keyed by id (the order
+of rows is the daemon's, not state), `clients/*/self` out (it names the asking connection, and the facet and
+the stream are two connections). A difference names its snapshot pointer, the first differing event (the
+stream item that brought the fold to the cut where the difference first shows) and, as context, the last
+event that set the differing row (stream item sequence and change index) or the snapshot item when no event
+touched it, as components/sync's FakeServerVerifier compares a client's synced model with the server's at
+the same progress marker. A log that broke its own protocol (a gap, a delta before a snapshot) is an I8
+violation `in` the event log; a cut the log never reached is a violation unless the stream ended (then not
+checked; the oracle's own teardown cancel, event_log.ORACLE_TEARDOWN, is no end). A cut before the log's
+first snapshot item (an earlier generation, as after a daemon restart, or a lower revision of its own) is
+not compared.
 
 The checks run on raw checkpoints, before normalize.py: I4 pairs the cut by the raw sequences that the
 canonical form drops (x-oracle-volatile), and ids of one run need no relabeling to be compared with
@@ -83,29 +150,49 @@ Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, d
                                                   cmux-tui-core/src/resource_router.rs mutation_result),
                 "checkpoints": {"before"?|"turn"?|"settled"?: snapshot-v1 (raw)},
                 "layoutCounters"?: {"before": {name: n}, "after": {name: n}},  (debug.layout_counters)
-                "restorePreviews"?: {"before"?|"turn"?|"settled"?: oracle-restore-preview reply}}],
+                "restorePreviews"?: {"before"?|"turn"?|"settled"?: oracle-restore-preview reply},
+                "sideChannels"?: {"blocking"|"hangs"|"actionBudget": {"before", "after"},
+                                  "wakeups"?: {"settled", "idle"}}
+                                                  (each reading is the method's result, or {"error": the
+                                                  control error})}],
      "allow_crashes"?: [case-v1 allowCrash],
-     "teardown"?: {"processes": [{"pid", "command"}], "sockets": [path],
-                   "checkpoint"?: snapshot-v1 (raw, after the case's teardown and a settle)}}
+     "eventLogs"?: [event_log.py EventLog.record(): {"name", "connection"?, "items", "end"?}],
+     "recorderArmed"?: true                       (the case armed debug.oracle.recorder: no I11-I14),
+     "setup"?: {"daemonResources"?: resource_counts.py reading + "liveObjects"?: oracle-state liveObjects},
+     "teardown"?: {"processes"?: [{"pid", "command"}], "sockets"?: [path],
+                   "panicLog"?: [{"log", "line", "message", "location", "thread", "test", "lockRank"}]
+                                                  (read_panic_log of the case root, after the daemon exited),
+                   "checkpoint"?: snapshot-v1 (raw, after the case's teardown and a settle),
+                   "daemonResources"?: the same, read after the last step}}
+A teardown with neither `processes` nor `sockets` does not check I6.
 Step fields missing from the trace come from the case (`--case`), matched by step id; so does
 `allow_crashes` when the trace has none.
 
-Not run by oracle.py yet: its driver protocol (017) returns canonical checkpoints only. `driver_daemon.py
-run-case --trace TRACE.json` writes a partial trace (each step's id, op, raw checkpoints and I9's
-restorePreviews, through the facet's journalHead after a journal checkpoint at setup), so I9 runs on daemon
-cases. Replies, layoutCounters and teardown are in no driver trace yet. A follow-up of 017, 023 and 047
-carries them in the driver result and makes `perform_run` turn a violation into a case Failure; until then
-`invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
+The daemon driver (driver_daemon.py) writes this trace as its result's `trace` (raw checkpoints, replies,
+eventLogs; no layoutCounters) and fails a case on an I8 violation. Its `teardown` holds I16's panicLog only:
+the driver applies I16 to its case results itself (driver_daemon.apply_panic_log). `driver_daemon.py
+run-case --trace TRACE.json` writes it to a file and adds I9's restorePreviews (through the facet's
+journalHead, after a journal checkpoint at setup), so I9 runs on daemon cases, and I15's daemon readings
+(`setup` and `teardown` daemonResources). `driver_app.py run-case --trace DIR` writes each run's raw
+checkpoints, its sideChannels (I11-I14) and I15's readings of the tag daemon. The driver protocol of
+oracle.py (017) keeps canonical checkpoints only: a follow-up of 017, 023 and 047 carries the trace in every
+driver result and makes `perform_run` turn any violation into a case Failure; until then `invariants.py
+check` runs on a trace file and `--selftest` on synthetic traces.
 
 Report (`cmux.oracle.invariants/v1`): {"case", "violations": [{"invariant", "step", "checkpoint",
-"in": "snapshot"|"step"|"teardown", "pointer", "message"}], "notChecked": [{"invariant", "step",
-"reason"}], "checked": {id: count}}. A snapshot pointer is facet-rooted like the Expectations pointer
-suffix (`/topology/topology/workspaces/0`); a step pointer points into the step's trace record and a
-teardown pointer into `teardown`. An invariant that applies but lacks its input is notChecked, never
-passed.
+"in": "snapshot"|"step"|"teardown"|"eventLog", "pointer", "message", "source"?}], "perfQueue": [the same, each
+with its "source"], "notChecked": [{"invariant", "step", "reason"}], "checked": {id: count}}. `source` is the
+method or counter that a side-channel violation read. A snapshot pointer is facet-rooted like the Expectations
+pointer suffix (`/topology/topology/workspaces/0`); a step pointer points into the step's trace record, a
+teardown pointer into `teardown` and an eventLog pointer into the trace's `eventLogs`. An invariant that applies
+but lacks its input is notChecked, never passed.
 
 Usage:
-  invariants.py check TRACE.json [--case CASE.json] [--json]   exit 0 clean, 1 violations, 2 bad input
+  invariants.py check TRACE.json [--case CASE.json] [--json] [--perf-queue FILE]
+                                       exit 0 clean (perfQueue lines do not count), 1 violations, 2 bad input
+  invariants.py i8-walks [--seeds N]                           I8 on N seeded walks (default 10,000)
+  invariants.py panic-log CASE_ROOT [--json]                   I16 on a case root: exit 0 clean, 1 panics, 2 bad input
+  invariants.py lock-ranks BINARY                              exit 0 when the binary has the lock-rank checker, else 1
   invariants.py --list                                         the invariants, their rule and pointer
   invariants.py --selftest                                     synthetic violation of each invariant
 """
@@ -114,9 +201,14 @@ from __future__ import annotations
 
 import argparse
 import copy
+import fnmatch
+import io
 import json
+import math
+import os
 import re
 import sys
+import tempfile
 import unittest
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -130,8 +222,10 @@ if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 from check_snapshot_schema import capture  # noqa: E402
 from normalize import MAX_SAFE_INT, _precision_decimals, canonical_json  # noqa: E402
+import event_log  # noqa: E402
 SNAPSHOT_SCHEMA = REPO / "schemas" / "oracle" / "snapshot-v1.schema.json"
 EXAMPLE_SNAPSHOT = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
+IDLE_BUDGET = REPO / "scripts" / "cmux-next" / "idle-budget.json"
 
 TRACE_SCHEMA = "cmux.oracle.trace/v1"
 REPORT_SCHEMA = "cmux.oracle.invariants/v1"
@@ -156,6 +250,14 @@ TIMING_LIVE_KINDS = frozenset({"subscriptions", "tasks"})
 BOOKKEEPING_FACETS = frozenset({"intents", "switches", "liveObjects", "crashes", "invariants"})
 # The crash kinds of the crashes facet and case-v1 `crashKind`, in schema order.
 CRASH_KINDS = ("renderer", "gpu", "browser", "utility", "daemon", "holder")
+# The panic logs cmux-panic-log users write (owner_panic_log.rs, acpmux daemon.rs panic_log_path). The memory
+# and hang logs beside them (`owner-memory-*`, `owner-hangs-*`) are not panics.
+PANIC_LOG_NAMES = ("owner-panics-*.jsonl", "panics.jsonl")
+# The literal start of lock_rank.rs's panic message: a lock-rank panic line starts with it, and a binary whose
+# rank checker is compiled in holds it as bytes.
+LOCK_RANK_PANIC_PREFIX = "lock order violation: acquiring "
+# The longest panic message a violation repeats; the line itself stays in the log with its backtrace.
+MAX_PANIC_MESSAGE_CHARS = 2000
 # debug.layout_counters values that count view work (DebugLayoutCounters.swift). Left out:
 # topology_sends (the control topology, a model), indicator_resyncs (the sidebar shows hidden
 # workspaces' rows), pane_count_changes and sources (not counters).
@@ -172,6 +274,23 @@ VIEW_WORK_COUNTERS = (
 # Containment kinds whose ids I2 holds stable. Clients, notifications, splits and streams are not
 # identities a step keeps: a reconnect gives a new client, a layout edit a new split.
 STRUCTURAL_KINDS = ("session", "window", "workspace", "screen", "pane", "tab", "terminal", "browser")
+# I11-I14: the app's debug methods behind each `sideChannels` key of a step (driver_app.py reads them), and the
+# names of the key's two readings.
+SIDE_CHANNELS = {"blocking": "debug.blocking", "hangs": "debug.hangs", "actionBudget": "debug.action_budget",
+                 "wakeups": "debug.wakeups"}
+SIDE_READINGS = {"blocking": ("before", "after"), "hangs": ("before", "after"), "actionBudget": ("before", "after"),
+                 "wakeups": ("settled", "idle")}
+PERF_QUEUE = "perf-owner"
+# I12: the hang MetricKit and Xcode Organizer count, and StallCounts.edge250 (HangLog.swift).
+HANG_MS = 250.0
+# I13 when a reply has no action_budget_ms: ActionBudgetMonitor's budget (CLAUDE.md, < 10 ms to the commit).
+ACTION_BUDGET_MS = 10.0
+# I14: the idle-budget.json session of an oracle launch, and the frame-queue owner the oracle's own control
+# reads tick (AppControl's FrameBatcher "Control.frames"): its wakes are the driver's, not the app's.
+IDLE_SESSION = "light"
+DRIVER_WAKE_OWNERS = frozenset({"Control.frames"})
+# I15: the counts of a resource_counts.py reading.
+RESOURCE_COUNTS = ("fds", "threads", "children")
 
 
 @dataclass(frozen=True)
@@ -180,6 +299,8 @@ class Invariant:
     rule: str
     pointer: str
     task: str
+    # Where a violation goes: the case (it fails the case) or the perf owner's queue (I11-I14).
+    queue: str = "case"
 
 
 INVARIANTS: Tuple[Invariant, ...] = (
@@ -198,6 +319,10 @@ INVARIANTS: Tuple[Invariant, ...] = (
               "teardown: /processes/<n> or /sockets/<n>", "p15-oracle-110"),
     Invariant("I7", "a hidden-workspace change does no view work (debug.layout_counters)",
               "step: /layoutCounters/after/<counter>", "p15-oracle-110"),
+    Invariant("I8", "a client model folded from session.events == daemon facet at the same sequence",
+              "snapshot: the facet value that differs, /daemon/session/<table>/<n>/..., the event that set it "
+              "in the message (eventLog: /eventLogs/<n>/items/<i> when the log breaks its own protocol)",
+              "p15-oracle-204"),
     Invariant("I9", "journal restore_preview == live daemon facet on the restorable sections",
               "snapshot: /daemon/session/<section>/... (the live value the restore misses) or /daemon/journalHead",
               "p15-oracle-205"),
@@ -206,6 +331,21 @@ INVARIANTS: Tuple[Invariant, ...] = (
               "step: /replies/0/... of the retry (/replies/0/result/replayed: the flag); snapshot: /daemon/journalHead "
               "or the first facet value that differs",
               "p15-oracle-206"),
+    Invariant("I11", "0 new main-thread blocking sites during the step (debug.blocking)",
+              "step: /sideChannels/blocking/after/sites/<n> or .../contexts/main/overflow", "p15-oracle-217",
+              PERF_QUEUE),
+    Invariant("I12", "no main-thread hang > 250 ms during the step (debug.hangs)",
+              "step: /sideChannels/hangs/after/records/<n> or /sideChannels/hangs/after/count250", "p15-oracle-217",
+              PERF_QUEUE),
+    Invariant("I13", "each action the step ran reached its commit in < 10 ms (debug.action_budget)",
+              "step: /sideChannels/actionBudget/after/recent/<n>", "p15-oracle-217", PERF_QUEUE),
+    Invariant("I14", "idle wakeups within budget after the settle (debug.wakeups)",
+              "step: /sideChannels/wakeups/idle/ledger/<n> or /sideChannels/wakeups/idle/active_frame_clients/<n>",
+              "p15-oracle-217", PERF_QUEUE),
+    Invariant("I15", "daemon fd, thread and child counts at teardown == after setup",
+              "teardown: /daemonResources/<fds|threads|children>", "p15-oracle-217"),
+    Invariant("I16", "the daemon panic log is empty at teardown: no panic, no lock-rank panic",
+              "teardown: /panicLog/<n>", "p15-oracle-236"),
     Invariant("I17", "0 unexpected child exits unless allow_crashes covers the kind",
               "snapshot: /crashes/exits/<n> (an exit the app saw) or /crashes/counts/<kind>", "p15-oracle-188"),
     Invariant("I18", "live-object counts return to the fixture baseline after teardown",
@@ -227,10 +367,14 @@ class Violation:
     pointer: str
     message: str
     where: str = "snapshot"
+    # The method or counter a side-channel invariant read (I11-I15); None for the facet invariants.
+    source: Optional[str] = None
 
     def to_json(self) -> Dict[str, Any]:
         value = asdict(self)
         value["in"] = value.pop("where")
+        if value["source"] is None:
+            del value["source"]
         return value
 
 
@@ -245,6 +389,8 @@ class NotChecked:
 class Report:
     case: str
     violations: List[Violation] = field(default_factory=list)
+    # I11-I14 violations: the perf owner's queue, not the case's (they never fail it).
+    perf_queue: List[Violation] = field(default_factory=list)
     not_checked: List[NotChecked] = field(default_factory=list)
     checked: Dict[str, int] = field(default_factory=lambda: {inv.id: 0 for inv in INVARIANTS})
 
@@ -253,9 +399,14 @@ class Report:
             "schema": REPORT_SCHEMA,
             "case": self.case,
             "violations": [v.to_json() for v in self.violations],
+            "perfQueue": [v.to_json() for v in self.perf_queue],
             "notChecked": [asdict(n) for n in self.not_checked],
             "checked": dict(self.checked),
         }
+
+    def queue_lines(self) -> List[Dict[str, Any]]:
+        """One perf-owner queue line per perfQueue violation: the case, the step and the source it read."""
+        return [{"queue": PERF_QUEUE, "case": self.case, **v.to_json()} for v in self.perf_queue]
 
 
 # ---------------------------------------------------------------------------------------------- inputs
@@ -263,6 +414,11 @@ class Report:
 
 def escape(token: Any) -> str:
     return str(token).replace("~", "~0").replace("/", "~1")
+
+
+def position(state: "State") -> Tuple[int, int]:
+    """A checkpoint's place in case order: (step index, checkpoint order)."""
+    return state.step.index, CHECKPOINT_ORDER.index(state.checkpoint)
 
 
 def pointer(*tokens: Any) -> str:
@@ -329,6 +485,9 @@ class Trace:
     steps: List[Step]
     teardown: Optional[Mapping[str, Any]]
     allow_crashes: List[Mapping[str, Any]] = field(default_factory=list)
+    setup: Optional[Mapping[str, Any]] = None
+    recorder_armed: bool = False
+    event_logs: List[Mapping[str, Any]] = field(default_factory=list)
 
     def states(self) -> List[State]:
         out = []
@@ -368,10 +527,30 @@ def load_trace(document: Any, case: Optional[Mapping[str, Any]] = None) -> Trace
     if not isinstance(allow, list) or not all(isinstance(entry, Mapping) and entry.get("kind") in CRASH_KINDS
                                                for entry in allow):
         raise TraceError(f"allow_crashes: want a list of {{kind, reason, steps?, max?}} with kind in {CRASH_KINDS}")
-    return Trace(str(name), steps, teardown, list(allow))
+    setup = document.get("setup")
+    if setup is not None and not isinstance(setup, Mapping):
+        raise TraceError("setup: want an object")
+    armed = document.get("recorderArmed", False)
+    if not isinstance(armed, bool):
+        raise TraceError("recorderArmed: want a boolean")
+    for step in steps:
+        channels = step.record.get("sideChannels")
+        if channels is not None and (not isinstance(channels, Mapping) or set(channels) - set(SIDE_CHANNELS)):
+            raise TraceError(f"steps/{step.index}/sideChannels: want an object keyed by {', '.join(SIDE_CHANNELS)}")
+    logs = document.get("eventLogs", [])
+    if not isinstance(logs, list) or not all(isinstance(log, Mapping) and isinstance(log.get("items"), list)
+                                             for log in logs):
+        raise TraceError("eventLogs: want a list of {name, connection?, items: [...], end?}")
+    return Trace(str(name), steps, teardown, list(allow), setup, armed, list(logs))
 
 
 # ---------------------------------------------------------------------------------------------- volatile mask
+
+
+def session_node(schema: Mapping[str, Any]) -> Mapping[str, Any]:
+    """The snapshot schema's `facets.daemon` object branch's `session` property."""
+    daemon = schema["properties"]["facets"]["properties"]["daemon"]
+    return next(b for b in daemon.get("oneOf", [daemon]) if "session" in b.get("properties", {}))["properties"]["session"]
 
 
 class Projector:
@@ -407,6 +586,13 @@ class Projector:
 
     def facet(self, name: str, value: Any) -> Any:
         return self.strip(value, self.facets.get(name))
+
+    def daemon_session(self, session: Mapping[str, Any], *, wire: bool) -> Any:
+        """The daemon facet's `session`, stripped like `facet`. A `wire` value (a ResourceSnapshot as the daemon
+        sends it) first takes check_snapshot_schema.py's capture rules, as the driver applies them to the facet;
+        a facet value has them already (a `derive: sha256` field would hash twice)."""
+        node = session_node(self.schema)
+        return self.strip(capture(self.schema, node, session) if wire else session, node)
 
     def strip(self, value: Any, node: Any) -> Any:
         branches = self._branches(node) if node is not None else []
@@ -599,15 +785,22 @@ def strings_in(value: Any) -> Iterator[str]:
 
 
 class Checker:
-    def __init__(self, trace: Trace, projector: "Projector"):
+    def __init__(self, trace: Trace, projector: "Projector", wake_budget: Optional[float] = None):
         self.trace = trace
         self.projector = projector
         self.report = Report(trace.case)
         self.states = trace.states()
+        # I14's idle wakeups per second; None reads idle-budget.json when I14 first needs it.
+        self.wake_budget = wake_budget
+        self._perf_steps: Optional[List[Step]] = None
 
     def violate(self, inv: str, step: Optional[Step], checkpoint: Optional[str], at: str, message: str,
-                where: str = "snapshot") -> None:
-        self.report.violations.append(Violation(inv, step.id if step else None, checkpoint, at, message, where))
+                where: str = "snapshot", source: Optional[str] = None) -> None:
+        violation = Violation(inv, step.id if step else None, checkpoint, at, message, where, source)
+        if BY_ID[inv].queue == PERF_QUEUE:
+            self.report.perf_queue.append(violation)
+        else:
+            self.report.violations.append(violation)
 
     def skip(self, inv: str, step: Optional[Step], reason: str) -> None:
         self.report.not_checked.append(NotChecked(inv, step.id if step else None, reason))
@@ -892,8 +1085,8 @@ class Checker:
     # I6 -----------------------------------------------------------------------------------------------
     def i6(self) -> None:
         teardown = self.trace.teardown
-        if teardown is None:
-            self.skip("I6", None, "the trace has no teardown record")
+        if teardown is None or not {"processes", "sockets"} & set(teardown):
+            self.skip("I6", None, "the trace has no teardown process or socket record")
             return
         self.checked("I6")
         for i, process in enumerate(teardown.get("processes") or []):
@@ -942,6 +1135,151 @@ class Checker:
                 if delta > 0:
                     self.violate("I7", step, None, f"/layoutCounters/after/{name}",
                                  f"{name} +{delta} while the step changed hidden workspace {workspace}", "step")
+
+    # I8 -----------------------------------------------------------------------------------------------
+    def cuts(self) -> List[Tuple[State, Mapping[str, Any], str, int]]:
+        """The checkpoints whose daemon facet has a session cursor: (state, session, generation, revision)."""
+        out = []
+        for state in self.states:
+            session = (facet(state.snapshot, "daemon") or {}).get("session")
+            cursor = session.get("cursor") if isinstance(session, Mapping) else None
+            revision = event_log.revision_of(cursor)
+            if revision is not None and cursor.get("generation") is not None:
+                out.append((state, session, str(cursor["generation"]), revision))
+        return out
+
+    def i8(self) -> None:
+        if not self.trace.event_logs:
+            self.skip("I8", None, "the trace has no event log")
+            return
+        cuts = self.cuts()
+        if not cuts:
+            self.skip("I8", None, "no checkpoint has a daemon facet with a session cursor")
+            return
+        for n, log in enumerate(self.trace.event_logs):
+            self.i8_log(n, log, cuts)
+
+    @staticmethod
+    def cuts_before_log(items: List[Any], cuts: List[Tuple[State, Mapping[str, Any], str, int]]) -> Optional[Set[int]]:
+        """The indexes of the cuts that come before the log's first snapshot item (generation g, revision r): a
+        cut in the same generation at a lower revision, and every cut before the first cut of g (an earlier
+        generation: case order is time order). A log whose first item is no snapshot skips nothing (the fold
+        reports it). None: no cut is in a generation the log has a snapshot of, so no cut can be compared."""
+        first = items[0].get("item") if items and isinstance(items[0], Mapping) else None
+        if not isinstance(first, Mapping) or first.get("kind") != "snapshot":
+            return set()
+        cursor = first.get("cursor")
+        start = event_log.revision_of(cursor)
+        if start is None:
+            return set()
+        opened = str(cursor.get("generation"))
+        logged = {str((entry.get("item") or {}).get("cursor", {}).get("generation"))
+                  for entry in items if isinstance(entry, Mapping) and isinstance(entry.get("item"), Mapping)
+                  and entry["item"].get("kind") == "snapshot" and isinstance(entry["item"].get("cursor"), Mapping)}
+        first_cut = next((k for k, cut in enumerate(cuts) if cut[2] == opened), None)
+        if first_cut is None:
+            first_cut = next((k for k, cut in enumerate(cuts) if cut[2] in logged), None)
+        if first_cut is None:
+            return None
+        return set(range(first_cut)) | {k for k, cut in enumerate(cuts) if cut[2] == opened and cut[3] < start}
+
+    def i8_log(self, n: int, log: Mapping[str, Any], cuts: List[Tuple[State, Mapping[str, Any], str, int]]) -> None:
+        """Fold one log forward through the cuts in case order and compare at each cut it reaches."""
+        name = log.get("name", n)
+        items = log["items"]
+        before_log = self.cuts_before_log(items, cuts)
+        if before_log is None:
+            self.skip("I8", cuts[0][0].step, f"event log {name} has no snapshot item in the generation of any cut")
+            return
+        # Where the stream opened and where its end was seen, as case positions (step index, checkpoint order):
+        # a cut before the first or at or after the second is not compared (event_log.py: openedAt, endedAt).
+        steps = {step.id: step.index for step in self.trace.steps}
+        if log.get("openedAt") in steps:
+            opened = (steps[log["openedAt"]], CHECKPOINT_ORDER.index("turn"))
+            before_log |= {k for k, cut in enumerate(cuts) if position(cut[0]) < opened}
+        end = log.get("end")
+        # The oracle's own cancel at teardown comes after every cut: the stream was open at each of them.
+        if not isinstance(end, Mapping) or end.get("reason") == event_log.ORACLE_TEARDOWN:
+            end = None
+        seen = log.get("endedAt") if end is not None else None
+        ended = None
+        if isinstance(seen, Mapping) and seen.get("step") in steps:
+            checkpoint = seen.get("checkpoint")
+            ended = (steps[seen["step"]], CHECKPOINT_ORDER.index(checkpoint if checkpoint in CHECKPOINT_ORDER else "turn"))
+        fold = event_log.SessionFold()
+        pos, before = 0, None
+        reported: Optional[str] = None
+        for k, (state, session, generation, revision) in enumerate(cuts):
+            if k in before_log:
+                continue
+            if ended is not None and position(state) >= ended:
+                self.skip("I8", state.step, f"event log {name} ended ({end.get('reason')}) before this checkpoint")
+                return
+            while pos < len(items) and not (fold.generation == generation and fold.revision is not None
+                                             and fold.revision >= revision):
+                before = fold.revision
+                try:
+                    fold.apply(pos, items[pos])
+                except event_log.FoldError as error:
+                    self.checked("I8")
+                    self.violate("I8", state.step, None, pointer("eventLogs", n, "items", pos),
+                                 f"event log {name}, stream item {items[pos].get('sequence')}: {error}", "eventLog")
+                    return
+                pos += 1
+            if fold.generation == generation and fold.revision == revision:
+                self.checked("I8")
+                found = self.fold_difference(fold, session, pos - 1, items[pos - 1])
+                # One difference that persists over later cuts is reported where it first shows (as I5).
+                if found is not None and found[2] != reported:
+                    self.violate("I8", state.step, state.checkpoint, found[0], f"event log {name}: {found[1]}")
+                reported = found[2] if found is not None else None
+                continue
+            if fold.generation == generation and fold.revision is not None and fold.revision > revision:
+                if fold.base_revision is not None and revision < fold.base_revision:
+                    continue  # a cut before the snapshot item this log reset to after a generation change
+                self.checked("I8")
+                self.violate("I8", state.step, state.checkpoint, "/daemon/session/cursor/revision",
+                             f"event log {name} has no item at revision {revision}: stream item "
+                             f"{items[pos - 1].get('sequence')} goes from {before} to {fold.revision}")
+                continue
+            at = f"generation {fold.generation} revision {fold.revision}" if fold.revision is not None else "no item"
+            if end is not None:
+                self.skip("I8", state.step, f"event log {name} ended ({end.get('reason')}) at {at}, before the "
+                                            f"cut at generation {generation} revision {revision}")
+            else:
+                self.checked("I8")
+                self.violate("I8", state.step, state.checkpoint, "/daemon/session/cursor/revision",
+                             f"event log {name} stops at {at} while open; the daemon facet is at generation "
+                             f"{generation} revision {revision}: session.events did not deliver the change")
+            return  # the log has nothing after this cut: every later cut is the same finding
+
+    def fold_model(self, session: Mapping[str, Any], *, wire: bool) -> Dict[str, Any]:
+        model = event_log.keyed(self.projector.daemon_session(session, wire=wire))
+        for row in model["clients"].values():
+            if isinstance(row, dict):
+                row.pop("self", None)  # names the asking connection: the stream and the facet are two
+        return model
+
+    def fold_difference(self, fold: "event_log.SessionFold", session: Mapping[str, Any], arrived: int,
+                        entry: Mapping[str, Any]) -> Optional[Tuple[str, str, str]]:
+        """(facet pointer, message, identity) of the first difference between the fold and the facet's session.
+        The first differing event is `entry`, log item `arrived`: the item that brought the fold to this cut,
+        where the difference first shows. The last event that set the differing row is context."""
+        found = first_difference(self.fold_model(fold.render(), wire=True), self.fold_model(session, wire=False))
+        if found is None:
+            return None
+        at, mine, theirs = found
+        tokens = [t.replace("~1", "/").replace("~0", "~") for t in at.split("/")[1:]]
+        path = event_log.row_index(session, tokens)
+        if path is None:  # the fold has a row the daemon does not: point at its table
+            path = event_log.row_index(session, tokens[:-1]) or tokens[:-1]
+        where = pointer("daemon", "session", *path)
+        kind = (entry.get("item") or {}).get("kind") if isinstance(entry, Mapping) else None
+        first = f"first differing event stream item {entry.get('sequence')} (items/{arrived}, {kind})"
+        event = fold.event_for(event_log.touched_key(tokens))
+        message = (f"{at.lstrip('/')}: fold {json.dumps(mine, sort_keys=True)[:120]}, daemon "
+                   f"{json.dumps(theirs, sort_keys=True)[:120]}; {first}; row: {event}")
+        return where, message, f"{at}={json.dumps(mine, sort_keys=True)}|{json.dumps(theirs, sort_keys=True)}"
 
     # I9 -----------------------------------------------------------------------------------------------
     def i9(self) -> None:
@@ -1064,6 +1402,194 @@ class Checker:
             self.violate("I10", retry, None, at, f"the retry of {original.id} replied {REPLAY_FLAG} "
                          f"{json.dumps(flag)}, not true: the daemon ran the call again instead of replaying its "
                          "receipt", "step")
+
+    # I11-I14 ------------------------------------------------------------------------------------------
+    def perf_steps(self) -> List[Step]:
+        """The steps I11-I14 read. At the first call, notes once per invariant why a whole case is not checked."""
+        if self._perf_steps is not None:
+            return self._perf_steps
+        perf = ("I11", "I12", "I13", "I14")
+        self._perf_steps = []
+        if self.trace.recorder_armed:
+            for inv in perf:
+                self.skip(inv, None, "the case arms debug.oracle.recorder, whose turn reads cost each action's turn "
+                                     "its budget; the perf readings come from runs with the recorder disarmed")
+        elif not any("sideChannels" in step.record for step in self.trace.steps):
+            for inv in perf:
+                self.skip(inv, None, "no step has sideChannels readings (a daemon trace, or an app run without "
+                                     "--trace)")
+        else:
+            self._perf_steps = list(self.trace.steps)
+        return self._perf_steps
+
+    def readings(self, inv: str, step: Step, key: str) -> Optional[Tuple[Mapping[str, Any], Mapping[str, Any]]]:
+        """The step's two readings of `key`, or None after noting why they cannot be compared."""
+        source = SIDE_CHANNELS[key]
+        names = SIDE_READINGS[key]
+        channel = (step.record.get("sideChannels") or {}).get(key)
+        if not isinstance(channel, Mapping) or not all(isinstance(channel.get(n), Mapping) for n in names):
+            self.skip(inv, step, f"no {source} readings {names[0]} and {names[1]}")
+            return None
+        for name in names:
+            if "error" in channel[name]:
+                self.skip(inv, step, f"{source} refused at {name}: {json.dumps(channel[name]['error'])[:200]}")
+                return None
+        return channel[names[0]], channel[names[1]]
+
+    def i11(self) -> None:
+        for step in self.perf_steps():
+            found = self.readings("I11", step, "blocking")
+            if found is None:
+                continue
+            before, after = found
+            if before.get("compiled_in") is not True or after.get("compiled_in") is not True:
+                self.skip("I11", step, "debug.blocking has no detector in this build (compiled_in false, a --config "
+                                       "bench build): run a debug build")
+                continue
+            self.checked("I11")
+            was = {site_key(s): s for s in before.get("sites") or () if isinstance(s, Mapping)}
+            for n, site in enumerate(after.get("sites") or ()):
+                if not isinstance(site, Mapping) or site.get("context") != "main":
+                    continue
+                prior = was.get(site_key(site))
+                calls = rise(prior.get("count") if prior else 0, site.get("count"))
+                if calls:
+                    self.violate("I11", step, None, f"/sideChannels/blocking/after/sites/{n}",
+                                 f"{site.get('kind')} {site.get('seam_kind')} at {site.get('location')} blocked the "
+                                 f"main thread {calls} time(s) during the step (max {site.get('max_ms')} ms)", "step",
+                                 SIDE_CHANNELS["blocking"])
+            main_before = ((before.get("contexts") or {}).get("main") or {}).get("overflow", 0)
+            main_after = ((after.get("contexts") or {}).get("main") or {}).get("overflow", 0)
+            unrecorded = rise(main_before, main_after)
+            if unrecorded:
+                self.violate("I11", step, None, "/sideChannels/blocking/after/contexts/main/overflow",
+                             f"{unrecorded} main-thread blocking call(s) past the detector's site table during the "
+                             "step", "step", SIDE_CHANNELS["blocking"])
+
+    def i12(self) -> None:
+        for step in self.perf_steps():
+            found = self.readings("I12", step, "hangs")
+            if found is None:
+                continue
+            before, after = found
+            if before.get("installed") is False or after.get("installed") is False:
+                self.skip("I12", step, "debug.hangs: the main-thread watchdog is not running (installed false)")
+                continue
+            self.checked("I12")
+            newest = max((number(r.get("sequence")) for r in before.get("records") or () if isinstance(r, Mapping)),
+                         default=0)
+            named = 0
+            for n, record in enumerate(after.get("records") or ()):
+                if not isinstance(record, Mapping) or number(record.get("sequence")) <= newest:
+                    continue
+                if record.get("kind", "stall") != "stall" or number(record.get("duration_ms")) <= HANG_MS:
+                    continue
+                named += 1
+                self.violate("I12", step, None, f"/sideChannels/hangs/after/records/{n}",
+                             f"the main thread stalled {record.get('duration_ms')} ms during the step (over "
+                             f"{HANG_MS:g} ms; cpu {record.get('cpu_ms')} ms)", "step", SIDE_CHANNELS["hangs"])
+            gaps = rise(before.get("count250"), after.get("count250"))
+            if gaps > named:
+                self.violate("I12", step, None, "/sideChannels/hangs/after/count250",
+                             f"{gaps - named} main-thread work gap(s) of {HANG_MS:g} ms or more during the step that "
+                             "no stall record names", "step", SIDE_CHANNELS["hangs"])
+
+    def i13(self) -> None:
+        for step in self.perf_steps():
+            found = self.readings("I13", step, "actionBudget")
+            if found is None:
+                continue
+            before, after = found
+            self.checked("I13")
+            budget = number(after.get("action_budget_ms")) or ACTION_BUDGET_MS
+            newest = max((number(r.get("sequence")) for r in before.get("recent") or () if isinstance(r, Mapping)),
+                         default=0)
+            for n, run in enumerate(after.get("recent") or ()):
+                if not isinstance(run, Mapping) or number(run.get("sequence")) <= newest:
+                    continue
+                if run.get("outcome") != "committed" or number(run.get("commit_ms")) <= budget:
+                    continue
+                self.violate("I13", step, None, f"/sideChannels/actionBudget/after/recent/{n}",
+                             f"action {run.get('id')} ({run.get('entrypoint')}) reached its commit in "
+                             f"{run.get('commit_ms')} ms, over the {budget:g} ms budget", "step",
+                             SIDE_CHANNELS["actionBudget"])
+
+    def idle_budget(self) -> float:
+        if self.wake_budget is None:
+            self.wake_budget = idle_wake_budget()
+        return self.wake_budget
+
+    def i14(self) -> None:
+        for step in self.perf_steps():
+            if "settled" not in step.checkpoints and "wakeups" not in (step.record.get("sideChannels") or {}):
+                continue  # no settle: no idle after it to measure
+            found = self.readings("I14", step, "wakeups")
+            if found is None:
+                continue
+            settled, idle = found
+            window = number(idle.get("uptime_s")) - number(settled.get("uptime_s"))
+            if window <= 0:
+                self.skip("I14", step, f"debug.wakeups readings span no time ({window:g} s)")
+                continue
+            self.checked("I14")
+            source = SIDE_CHANNELS["wakeups"]
+            for n, client in enumerate(idle.get("active_frame_clients") or ()):
+                if client not in DRIVER_WAKE_OWNERS:
+                    self.violate("I14", step, None, f"/sideChannels/wakeups/idle/active_frame_clients/{n}",
+                                 f"frame client {client} is still active after the settle: it wakes every display "
+                                 "frame", "step", source)
+            was = {(e.get("owner"), e.get("reason")): e.get("count") for e in settled.get("ledger") or ()
+                   if isinstance(e, Mapping)}
+            woke: List[Tuple[int, str, int]] = []
+            for n, entry in enumerate(idle.get("ledger") or ()):
+                if not isinstance(entry, Mapping) or entry.get("owner") in DRIVER_WAKE_OWNERS:
+                    continue
+                count = rise(was.get((entry.get("owner"), entry.get("reason")), 0), entry.get("count"))
+                if count:
+                    woke.append((n, f"{entry.get('owner')}:{entry.get('reason')}", count))
+            budget = self.idle_budget()
+            allowed = math.ceil(budget * window)
+            total = sum(count for _, _, count in woke)
+            if total > allowed:
+                woke.sort(key=lambda w: (-w[2], w[0]))
+                owners = ", ".join(f"{name} +{count}" for _, name, count in woke[:5])
+                self.violate("I14", step, None, f"/sideChannels/wakeups/idle/ledger/{woke[0][0]}",
+                             f"{total} wakeup(s) in the {window:.2f} s after the settle, over {allowed} ({budget:g}/s, "
+                             f"idle-budget.json {IDLE_SESSION}): {owners}", "step", source)
+
+    # I15 ----------------------------------------------------------------------------------------------
+    def i15(self) -> None:
+        start = (self.trace.setup or {}).get("daemonResources")
+        end = (self.trace.teardown or {}).get("daemonResources")
+        if not isinstance(start, Mapping) or not isinstance(end, Mapping):
+            self.skip("I15", None, "no daemon resource reading both after setup and at teardown")
+            return
+        if start.get("pid") != end.get("pid"):
+            self.skip("I15", None, f"the daemon at teardown (pid {end.get('pid')}) is not the one after setup (pid "
+                                   f"{start.get('pid')}): a step restarted it")
+            return
+        objects = [reading.get("liveObjects") for reading in (start, end)]
+        if not all(isinstance(counts, Mapping) for counts in objects):
+            self.skip("I15", None, "a daemon resource reading has no liveObjects: whether the case closed what it "
+                                   "opened is not known")
+            return
+        kinds = sorted((set(objects[0]) | set(objects[1])) - TIMING_LIVE_KINDS)
+        still_open = [f"{kind} {objects[0].get(kind)} -> {objects[1].get(kind)}" for kind in kinds
+                      if objects[0].get(kind) != objects[1].get(kind)]
+        if still_open:
+            self.skip("I15", None, f"the daemon's objects at teardown are not those after setup "
+                                   f"({', '.join(still_open)}): their descriptors, threads and hosts are not a leak "
+                                   "(I18 judges the objects)")
+            return
+        self.checked("I15")
+        for name in RESOURCE_COUNTS:
+            then, now = start.get(name), end.get(name)
+            if then == now:
+                continue
+            what = f" ({now - then:+d})" if isinstance(then, int) and isinstance(now, int) else ""
+            self.violate("I15", None, "teardown", f"/daemonResources/{name}",
+                         f"daemon {end.get('pid')} has {now} {name} at teardown, {then} after setup{what}", "teardown",
+                         str(end.get("source") or start.get("source") or "resource_counts.py"))
 
     # I17 ----------------------------------------------------------------------------------------------
     def exit_step(self, state: State) -> Optional[Step]:
@@ -1189,11 +1715,51 @@ class Checker:
                     continue
                 self.violate("I18", None, "teardown", pointer(*path, kind), message)
 
+    # I16 ----------------------------------------------------------------------------------------------
+    def i16(self) -> None:
+        log = (self.trace.teardown or {}).get("panicLog")
+        if not isinstance(log, list):
+            self.skip("I16", None, "the trace has no teardown panic log")
+            return
+        self.checked("I16")
+        for i, entry in enumerate(log):
+            self.violate("I16", None, None, f"/panicLog/{i}", panic_message(entry), "teardown")
+
     def run(self) -> Report:
-        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i9, self.i10, self.i17,
-                      self.i18):
+        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i8, self.i9, self.i10,
+                      self.i11, self.i12, self.i13, self.i14, self.i15, self.i16, self.i17, self.i18):
             check()
         return self.report
+
+
+def number(value: Any) -> float:
+    """A counter or a duration of a side-channel reply; anything else is 0 (bools are not numbers)."""
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+
+
+def rise(then: Any, now: Any) -> int:
+    """How much a counter since launch rose between two readings; one that fell was reset, so its value is the rise."""
+    a, b = int(number(then)), int(number(now))
+    return b if b < a else b - a
+
+
+def site_key(site: Mapping[str, Any]) -> Tuple[Any, ...]:
+    """A debug.blocking site's identity: the same call site in the same context, kind and seam kind."""
+    return site.get("context"), site.get("kind"), site.get("seam_kind"), site.get("location")
+
+
+def idle_wake_budget(path: Path = IDLE_BUDGET, session: str = IDLE_SESSION) -> float:
+    """The app's idle main wakes per second (I14): the session's `kinds.app.main_wakes_per_s`, else the kind's own
+    (idle-budget.json's lookup order). Raises TraceError when the file sets neither."""
+    budget = json.loads(path.read_text(encoding="utf-8"))
+    for value in (((budget.get("sessions") or {}).get(session) or {}).get("kinds", {}).get("app", {})
+                  .get("main_wakes_per_s"),
+                  (budget.get("kinds") or {}).get("app", {}).get("main_wakes_per_s")):
+        if isinstance(value, Mapping):
+            value = value.get(session)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            return float(value)
+    raise TraceError(f"{path}: no main_wakes_per_s for the app in session {session}")
 
 
 def compared_sections(sections: Mapping[str, Any], live: Mapping[str, Any]) -> List[str]:
@@ -1330,10 +1896,88 @@ def load_schema(path: Path = SNAPSHOT_SCHEMA) -> Dict[str, Any]:
 
 
 def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
-                schema: Optional[Mapping[str, Any]] = None) -> Report:
-    """I1-I7, I9, I10 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
+                schema: Optional[Mapping[str, Any]] = None, wake_budget: Optional[float] = None) -> Report:
+    """I1-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace.
+    `wake_budget` is I14's idle wakeups per second (default: idle-budget.json's, read when a step needs it)."""
     trace = load_trace(document, case)
-    return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
+    return Checker(trace, Projector(schema if schema is not None else load_schema()), wake_budget).run()
+
+
+# ---------------------------------------------------------------------------------------------- I16 inputs
+
+
+def find_panic_logs(case_root: Path) -> List[Path]:
+    """Every panic log under the case root, a directory's own before its subdirectories', each in name order.
+    Symlinks are never followed: the case root is the driver's own directory, and a link out of it would read
+    another case's log."""
+    found = []
+    for directory, dirs, files in os.walk(case_root, followlinks=False):
+        dirs.sort()
+        for name in sorted(files):
+            path = Path(directory) / name
+            if any(fnmatch.fnmatchcase(name, pattern) for pattern in PANIC_LOG_NAMES) and not path.is_symlink():
+                found.append(path)
+    return found
+
+
+def read_panic_log(case_root: Path) -> List[Dict[str, Any]]:
+    """The teardown `panicLog` of a case root whose daemon processes have exited: one entry per log line,
+    `{log (relative to the root), line (1-based), message, location, thread, test, lockRank}`. A line that is
+    not a JSON object is an entry whose message says so. Raises OSError when the root cannot be read."""
+    if not case_root.is_dir():
+        raise FileNotFoundError(f"case root {case_root} is not a directory")
+    entries = []
+    for log in find_panic_logs(case_root):
+        relative = log.relative_to(case_root).as_posix()
+        text = log.read_bytes().decode("utf-8", errors="replace")
+        for number, raw in enumerate(text.splitlines(), start=1):
+            if not raw.strip():
+                continue
+            try:
+                record = json.loads(raw)
+            except ValueError:
+                record = None
+            if not isinstance(record, dict):
+                record = {"message": f"not a panic log record: {raw[:200]!r}"}
+            message = str(record.get("message") or "(no message)")
+            if len(message) > MAX_PANIC_MESSAGE_CHARS:
+                message = message[:MAX_PANIC_MESSAGE_CHARS] + "..."
+            thread = record.get("thread")
+            entries.append({"log": relative, "line": number, "message": message,
+                            "location": str(record.get("location") or ""),
+                            "thread": thread if isinstance(thread, str) else None,
+                            "test": record.get("test") is True,
+                            "lockRank": message.startswith(LOCK_RANK_PANIC_PREFIX)})
+    return entries
+
+
+def panic_message(entry: Any) -> str:
+    """One panicLog entry as a failure text: kind, location, message, thread, and its log line."""
+    if not isinstance(entry, Mapping):
+        return f"panic log entry is not an object: {entry!r:.200}"
+    kind = "lock-rank panic" if entry.get("lockRank") else "panic"
+    where = f" at {entry['location']}" if entry.get("location") else ""
+    details = [f"thread {entry['thread']!r}" if entry.get("thread") else "",
+               "debug test trigger" if entry.get("test") else "",
+               f"{entry.get('log', '?')}:{entry.get('line', '?')}"]
+    return f"{kind}{where}: {entry.get('message', '(no message)')} ({', '.join(d for d in details if d)})"
+
+
+def lock_ranks_compiled_in(binary: Path, chunk_size: int = 1 << 20) -> bool:
+    """True when the binary holds lock_rank.rs's panic text, so its rank checker is built in. A build without
+    debug assertions compiles the checker out (`#[cfg(debug_assertions)] mod held`) and the text with it; the
+    oracle profile keeps them. Raises OSError when the binary cannot be read."""
+    needle = LOCK_RANK_PANIC_PREFIX.encode()
+    tail = b""
+    with binary.open("rb") as handle:
+        while True:
+            chunk = handle.read(max(chunk_size, len(needle)))
+            if not chunk:
+                return False
+            window = tail + chunk
+            if needle in window:
+                return True
+            tail = window[-(len(needle) - 1):]
 
 
 # ---------------------------------------------------------------------------------------------- self test
@@ -1345,8 +1989,21 @@ def _example() -> Dict[str, Any]:
 
 def _trace(*steps: Dict[str, Any], teardown: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     doc: Dict[str, Any] = {"schema": TRACE_SCHEMA, "case": "selftest/case", "steps": list(steps)}
-    doc["teardown"] = {"processes": [], "sockets": []} if teardown is None else teardown
+    doc["teardown"] = {"processes": [], "sockets": [], "panicLog": []} if teardown is None else teardown
     return doc
+
+
+LOCK_RANK_MESSAGE = (
+    "lock order violation: acquiring mux.state (MuxState) while this thread holds pty.term (Terminal); "
+    "the order is workspace.registry > journal.writer > mux.state > pty.term > leaf (see PtyTerminalRuntime)"
+)
+
+
+def _panic_line(message: str, location: str, thread: str = "mux-worker", test: bool = False) -> str:
+    """One line in the cmux-panic-log record shape (cmux-tui/crates/cmux-panic-log/src/lib.rs)."""
+    return json.dumps({"session": "oracle", "owner_pid": 4242, "message": message, "location": location,
+                       "thread": thread, "at_ms": 1, "test": test,
+                       "backtrace": "   0: std::backtrace::Backtrace::force_capture\n"})
 
 
 WS = "ws_000000000000000000000000000000b1"
@@ -1475,14 +2132,149 @@ def _bump_sequences(snapshot: Dict[str, Any], by: int) -> Dict[str, Any]:
     snap["facets"]["topology"]["topology"]["sequence"] += by
     snap["facets"]["topology"]["generation"] += by
     snap["facets"]["daemon"]["journalHead"] += by
+    session = snap["facets"]["daemon"]["session"]
+    for holder in (session["cursor"], session["session"]):
+        holder["revision"] = str(int(holder["revision"]) + by)
     return snap
+
+
+# The wire text of every `derive: sha256` field of the example's daemon session (setUpClass captures it).
+PLAIN_TEXT = "oracle"
+DERIVED_TEXTS = (("terminals", ("title",)), ("notifications", ("title", "subtitle", "body")))
+
+
+def _wire_session(snapshot: Mapping[str, Any]) -> Dict[str, Any]:
+    """The ResourceSnapshot the daemon sent for this snapshot's daemon facet: its derived texts are PLAIN_TEXT."""
+    session = copy.deepcopy(snapshot["facets"]["daemon"]["session"])
+    for table, names in DERIVED_TEXTS:
+        for row in session[table]:
+            for name in names:
+                if row.get(name) is not None:
+                    row[name] = PLAIN_TEXT
+    return session
+
+
+def _log(*snapshots: Mapping[str, Any], name: str = "driver") -> Dict[str, Any]:
+    """The session.events log of a daemon that went through these checkpoints' daemon facets."""
+    return event_log.log_of([_wire_session(s) for s in snapshots], name)
+
+
+def _i8_base(schema: Mapping[str, Any]) -> Dict[str, Any]:
+    """The example snapshot whose daemon facet holds what the driver captures from the wire."""
+    base = _example()
+    base["facets"]["daemon"]["session"] = capture(schema, session_node(schema), _wire_session(base))
+    return base
+
+
+def _i8_walk(base: Mapping[str, Any], seed: int, length: int = 6) -> List[Dict[str, Any]]:
+    """A seeded walk of daemon facets from `base`: each step renames a tab or the workspace, adds a terminal
+    tab or closes one it added, and moves the revision."""
+    import random
+
+    rng = random.Random(seed)
+    walk: List[Dict[str, Any]] = [copy.deepcopy(dict(base))]
+    added: List[str] = []
+    for k in range(length):
+        snap = _bump_sequences(walk[-1], 1)
+        session = snap["facets"]["daemon"]["session"]
+        choice = rng.choice(("rename-tab", "rename-workspace", "add-tab", "close-tab"))
+        if choice == "add-tab" or (choice == "close-tab" and not added):
+            tab, term = f"tab_{seed:016x}{k:016x}", f"term_{seed:016x}{k:016x}"
+            snap = _add_tab(snap, PANE1, tab, term)
+            added.append(tab)
+        elif choice == "close-tab":
+            gone = added.pop(rng.randrange(len(added)))
+            session["tabs"] = [t for t in session["tabs"] if t["id"] != gone]
+            session["terminals"] = [t for t in session["terminals"] if gone not in t.get("tab_ids", [])]
+        elif choice == "rename-tab":
+            rng.choice(session["tabs"])["name"] = f"n{k}"
+        else:
+            session["workspaces"][0]["name"] = f"w{k}"
+        walk.append(snap)
+    return walk
+
+
+def i8_walks(seeds: Iterable[int], schema: Mapping[str, Any]) -> List[str]:
+    """I8 on seeded walks (`invariants.py i8-walks`): each walk's log, folded, must equal every checkpoint, and
+    the same log with one seeded upsert corrupted must fail I8 at that item's checkpoint, naming the change.
+    Returns one line per seed that does not."""
+    import random
+
+    base = _i8_base(schema)
+    projector = Projector(schema)
+    failures: List[str] = []
+    for seed in seeds:
+        walk = _i8_walk(base, seed)
+        log = _log(*walk)
+        doc = _trace(*({"id": f"s{i}", "op": "settle", "checkpoints": {"settled": s}} for i, s in enumerate(walk)))
+        doc["eventLogs"] = [log]
+        report = Checker(load_trace(doc), projector).run()
+        clean = [v for v in report.violations if v.invariant == "I8"]
+        if clean or report.checked["I8"] != len(walk):
+            failures.append(f"seed {seed}: clean walk gave {[v.to_json() for v in clean]}, "
+                            f"checked {report.checked['I8']} of {len(walk)}")
+            continue
+        upserts = [(i, c) for i in range(1, len(log["items"]))
+                   for c, change in enumerate(log["items"][i]["item"]["changes"]) if change["kind"] == "upsert"]
+        item, change = random.Random(seed).choice(upserts)
+        log["items"][item]["item"]["changes"][change]["value"]["oracle_corrupt"] = True
+        found = [v for v in Checker(load_trace(doc), projector).run().violations if v.invariant == "I8"]
+        named = f"last event stream item {item} (items/{item}, change {change})"
+        first = f"first differing event stream item {item} (items/{item}, delta)"
+        if not found or found[0].step != f"s{item}" or named not in found[0].message or first not in found[0].message:
+            failures.append(f"seed {seed}: corrupting items/{item} change {change} gave "
+                            f"{[v.to_json() for v in found][:1]}")
+    return failures
+
+
+def _set_tab_name(snapshot: Dict[str, Any], tab: str, name: Optional[str], by: int = 1) -> Dict[str, Any]:
+    snap = _bump_sequences(snapshot, by)
+    for row in snap["facets"]["daemon"]["session"]["tabs"]:
+        if row["id"] == tab:
+            row["name"] = name
+    return snap
+
+
+MAIN_SITE = {"context": "main", "kind": "blocking-call", "seam_kind": "none", "location": "SessionStore.swift:88",
+             "count": 2, "total_ms": 3.0, "max_ms": 2.0}
+POOL_SITE = {**MAIN_SITE, "context": "pool", "location": "FileReader.swift:12"}
+DAEMON_RESOURCES = {"pid": 4242, "fds": 31, "threads": 9, "children": 1, "source": "/proc/<pid>/fd",
+                    "liveObjects": {"workspaces": 1, "terminals": 1, "holders": 1, "subscriptions": 2}}
+
+
+def _side_channels(**change: Any) -> Dict[str, Any]:
+    """One step's sideChannels with nothing to report: the after readings repeat the before ones plus a fast
+    committed run, a short stall, the driver's own control frames and one idle wake in 2 s (budget 0.5/s)."""
+    blocking = {"compiled_in": True, "mode": "log", "pool_mode": "log", "overflow": 0,
+                "contexts": {"main": {"sites": 1, "count": 2, "overflow": 0},
+                             "pool": {"sites": 1, "count": 2, "overflow": 0}},
+                "sites": [MAIN_SITE, POOL_SITE]}
+    hangs_before = {"installed": True, "threshold_ms": 50, "count": 1, "count250": 0,
+                    "records": [{"sequence": 3, "kind": "stall", "duration_ms": 120.0, "cpu_ms": 110.0}]}
+    hangs_after = {**hangs_before, "count": 2,
+                   "records": [{"sequence": 4, "kind": "stall", "duration_ms": 80.0, "cpu_ms": 70.0}]}
+    run = {"sequence": 7, "id": "workspace.new", "entrypoint": "socket", "commit_ms": 4.0, "outcome": "committed"}
+    budget_before = {"action_budget_ms": 10, "recent": [run]}
+    budget_after = {"action_budget_ms": 10, "recent": [run, {**run, "sequence": 8, "commit_ms": 6.5}]}
+    settled = {"uptime_s": 100.0, "active_frame_clients": [],
+               "ledger": [{"owner": "IdleScheduler", "reason": "period", "count": 4},
+                          {"owner": "Control.frames", "reason": "frame", "count": 30}]}
+    idle = {"uptime_s": 102.0, "active_frame_clients": ["Control.frames"],
+            "ledger": [{"owner": "Control.frames", "reason": "frame", "count": 50},
+                       {"owner": "IdleScheduler", "reason": "period", "count": 5}]}
+    channels: Dict[str, Any] = {"blocking": {"before": blocking, "after": copy.deepcopy(blocking)},
+                                "hangs": {"before": hangs_before, "after": hangs_after},
+                                "actionBudget": {"before": budget_before, "after": budget_after},
+                                "wakeups": {"settled": settled, "idle": idle}}
+    channels.update(change)
+    return channels
 
 
 class InvariantsSelfTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.schema = load_schema()
-        cls.base = _example()
+        cls.base = _i8_base(cls.schema)
 
     def check(self, doc: Dict[str, Any], case: Optional[Dict[str, Any]] = None) -> Report:
         return check_trace(doc, case, self.schema)
@@ -1496,14 +2288,19 @@ class InvariantsSelfTest(unittest.TestCase):
         return [n for n in report.not_checked if BY_ID[n.invariant].task == "p15-oracle-110"]
 
     def test_every_invariant_has_an_id_a_rule_and_a_pointer(self) -> None:
-        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I9", "I10", "I17", "I18"])
+        self.assertEqual([inv.id for inv in INVARIANTS],
+                         [f"I{n}" for n in range(1, 19)])
+        self.assertEqual([inv.id for inv in INVARIANTS if inv.queue == PERF_QUEUE], ["I11", "I12", "I13", "I14"])
         for inv in INVARIANTS:
             self.assertTrue(inv.rule and inv.pointer.split(":")[0] in {"step", "snapshot", "teardown"}, inv)
 
     def test_a_clean_trace_has_no_violation_and_checks_every_invariant(self) -> None:
         closed = _bump_sequences(_close_tab2(self.base), 1)
-        restorable, raw = _restorable(self.schema, closed)
-        hidden_before = _bump_sequences(_with_hidden_workspace(self.base), 2)
+        # The base's daemon facet is the capture of its wire session (_i8_base), so that wire is both what the
+        # event log delivered (I8) and what the journal restores (I9).
+        raw = _wire_session(closed)
+        reopened = _bump_sequences(self.base, 2)
+        hidden_before = _bump_sequences(_with_hidden_workspace(self.base), 3)
         renamed = _bump_sequences(hidden_before, 1)
         renamed["facets"]["daemon"]["session"]["workspaces"][1]["name"] = "renamed"
         turn = copy.deepcopy(closed)
@@ -1513,14 +2310,14 @@ class InvariantsSelfTest(unittest.TestCase):
             {"id": "close", "op": "action.run", "target": {"tab": TAB2}, "replies": [{"receipt": "action.applied"}],
              "checkpoints": {"before": self.base, "turn": turn, "settled": closed}},
             {"id": "read", "op": "resource.call", "readOnly": True, "replies": [],
-             "checkpoints": {"settled": restorable},
-             "restorePreviews": {"settled": _restore_reply(raw, restorable["facets"]["daemon"]["journalHead"])}},
+             "checkpoints": {"settled": closed},
+             "restorePreviews": {"settled": _restore_reply(raw, closed["facets"]["daemon"]["journalHead"])}},
             {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
              "replies": [{"receipt": "mutation_result", "result": {"value": {"tab_id": TAB2}, "replayed": False}}],
-             "checkpoints": {"settled": _bump_sequences(self.base, 1)}},
+             "checkpoints": {"settled": reopened}},
             {"id": "reopen-retry", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
              "replies": [{"receipt": "mutation_result", "result": {"value": {"tab_id": TAB2}, "replayed": True}}],
-             "checkpoints": {"before": _bump_sequences(self.base, 1), "settled": _bump_sequences(self.base, 1)}},
+             "checkpoints": {"before": reopened, "settled": reopened}},
             {"id": "new-hidden", "op": "resource.call", "target": {"session": "session_00000000000000000000000000000002"},
              "replies": [{"receipt": "mutation_result", "result": {"workspace": HIDDEN_WS}}],
              "checkpoints": {"settled": hidden_before}},
@@ -1530,9 +2327,15 @@ class InvariantsSelfTest(unittest.TestCase):
              "layoutCounters": {"before": {"pane_snapshots": 4, "indicator_resyncs": 1},
                                 "after": {"pane_snapshots": 4, "indicator_resyncs": 2}}},
         )
+        for record in doc["steps"]:
+            record["sideChannels"] = _side_channels()  # an app driver trace reads them on every step
         doc["teardown"]["checkpoint"] = self.base
+        doc["setup"] = {"daemonResources": copy.deepcopy(DAEMON_RESOURCES)}
+        doc["teardown"]["daemonResources"] = copy.deepcopy(DAEMON_RESOURCES)
+        doc["eventLogs"] = [_log(self.base, closed, reopened, hidden_before, renamed)]
         report = self.check(doc)
         self.assertEqual(report.violations, [], [v.to_json() for v in report.violations])
+        self.assertEqual(report.perf_queue, [], [v.to_json() for v in report.perf_queue])
         self.assertEqual(report.not_checked, [])
         self.assertTrue(all(report.checked[inv.id] > 0 for inv in INVARIANTS), report.checked)
 
@@ -1820,6 +2623,174 @@ class InvariantsSelfTest(unittest.TestCase):
         report = self.check(_trace(step))
         self.assertEqual([(n.invariant, n.step) for n in self.core(report)], [("I7", "tab-in-hidden")])
 
+    # I8
+    def i8_check(self, logs: List[Dict[str, Any]], *snapshots: Dict[str, Any]) -> Report:
+        doc = _trace(*({"id": f"s{i}", "op": "settle", "checkpoints": {"settled": s}} for i, s in enumerate(snapshots)))
+        doc["eventLogs"] = logs
+        return self.check(doc)
+
+    @staticmethod
+    def i8_of(report: Report) -> List[Violation]:
+        return [v for v in report.violations if v.invariant == "I8"]
+
+    def tab_index(self, snapshot: Mapping[str, Any], tab: str) -> int:
+        return [t["id"] for t in snapshot["facets"]["daemon"]["session"]["tabs"]].index(tab)
+
+    def i8_walk(self) -> List[Dict[str, Any]]:
+        s1 = _set_tab_name(self.base, TAB1, "one")
+        return [self.base, s1, _set_tab_name(s1, TAB2, "two")]
+
+    @staticmethod
+    def tab_change(log: Dict[str, Any], item: int) -> Tuple[int, Dict[str, Any]]:
+        changes = log["items"][item]["item"]["changes"]
+        return next((i, c) for i, c in enumerate(changes) if c["resource"] == "tab")
+
+    def test_i8_a_dropped_change_is_named_where_it_first_shows(self) -> None:
+        walk = self.i8_walk()
+        log = _log(*walk)
+        index, _ = self.tab_change(log, 1)
+        del log["items"][1]["item"]["changes"][index]
+        report = self.i8_check([log], *walk)
+        found = self.i8_of(report)
+        self.assertEqual([(v.step, v.checkpoint, v.pointer) for v in found],
+                         [("s1", "settled", f"/daemon/session/tabs/{self.tab_index(walk[1], TAB1)}/name")],
+                         "the difference that persists at s2 is reported once")
+        self.assertIn('fold null, daemon "one"', found[0].message)
+        self.assertIn("first differing event stream item 1 (items/1, delta)", found[0].message)
+        self.assertIn("row: no event since stream item 0 (items/0, snapshot)", found[0].message)
+        self.assertEqual(report.checked["I8"], 3)
+
+    def test_i8_a_dropped_delete_names_the_delta_of_the_cut(self) -> None:
+        added = _add_tab(_bump_sequences(self.base, 1), PANE1, TAB3, TERM3)
+        closed = _bump_sequences(added, 1)
+        session = closed["facets"]["daemon"]["session"]
+        session["tabs"] = [t for t in session["tabs"] if t["id"] != TAB3]
+        session["terminals"] = [t for t in session["terminals"] if t["id"] != TERM3]
+        walk = [self.base, added, closed]
+        log = _log(*walk)
+        changes = log["items"][2]["item"]["changes"]
+        changes[:] = [c for c in changes if not (c["kind"] == "delete" and c["resource"] == "tab")]
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s2"])
+        self.assertIn("first differing event stream item 2 (items/2, delta)", found[0].message)
+        self.assertIn("row: last event stream item 1 (items/1, change", found[0].message,
+                      "the create is context, not the first differing event")
+
+    def test_i8_a_wrong_value_names_the_event_that_set_it(self) -> None:
+        walk = self.i8_walk()
+        log = _log(*walk)
+        index, change = self.tab_change(log, 1)
+        change["value"]["name"] = "wrong"
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s1"])
+        self.assertIn(f"last event stream item 1 (items/1, change {index})", found[0].message)
+
+    def test_i8_a_gap_is_a_violation_in_the_event_log(self) -> None:
+        walk = self.i8_walk()
+        log = _log(*walk)
+        del log["items"][1]
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([(v.where, v.pointer) for v in found], [("eventLog", "/eventLogs/0/items/1")])
+        self.assertIn("gap: the delta starts at revision 43, the fold is at 42", found[0].message)
+
+    def test_i8_a_delta_over_a_cut_fails_it(self) -> None:
+        walk = self.i8_walk()
+        found = self.i8_of(self.i8_check([_log(walk[0], walk[2])], *walk))
+        self.assertEqual([(v.step, v.pointer) for v in found], [("s1", "/daemon/session/cursor/revision")])
+        self.assertIn("no item at revision 43", found[0].message)
+
+    def test_i8_a_log_that_stops_while_open_fails_and_an_ended_one_is_not_checked(self) -> None:
+        walk = self.i8_walk()
+        stopped = _log(walk[0])
+        found = self.i8_of(self.i8_check([stopped], *walk))
+        self.assertEqual([(v.step, v.pointer) for v in found], [("s1", "/daemon/session/cursor/revision")])
+        self.assertIn("did not deliver", found[0].message)
+        ended = {**_log(walk[0]), "end": {"reason": "canceled"}}
+        report = self.i8_check([ended], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual([(n.invariant, n.step) for n in report.not_checked if n.invariant == "I8"], [("I8", "s1")])
+        canceled_by_oracle = {**_log(walk[0]), "end": {"reason": event_log.ORACLE_TEARDOWN}}
+        found = self.i8_of(self.i8_check([canceled_by_oracle], *walk))
+        self.assertEqual([(v.step, v.pointer) for v in found], [("s1", "/daemon/session/cursor/revision")],
+                         "the oracle's teardown cancel is no end: the stream was open at every cut")
+        self.assertIn("did not deliver", found[0].message)
+
+    def with_watcher(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """The snapshot at the same revision with one more client: a connection opened, the revision did not move."""
+        snap = copy.deepcopy(snapshot)
+        clients = snap["facets"]["daemon"]["session"]["clients"]
+        clients.append({**copy.deepcopy(clients[0]), "id": "client_000000000000000000000000000000c9",
+                        "attached_terminal_ids": [], "sizes": []})
+        return snap
+
+    def test_i8_skips_cuts_before_the_log_opened_and_after_its_end_was_seen(self) -> None:
+        watched = self.with_watcher(self.base)
+        renamed = _set_tab_name(watched, TAB1, "one")
+        detached = copy.deepcopy(renamed)
+        detached["facets"]["daemon"]["session"]["clients"].pop()
+        walk = [self.base, watched, renamed, detached]
+        log = {**_log(watched, renamed, name="open"), "end": {"reason": "error"}}
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s0", "s3"],
+                         "same revision, other clients: only the steps tell when the stream existed")
+        log.update(openedAt="s1", endedAt={"step": "s3", "checkpoint": "settled"})
+        report = self.i8_check([log], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 2)
+        self.assertEqual([n.step for n in report.not_checked if n.invariant == "I8"], ["s3"])
+        log["end"] = {"reason": event_log.ORACLE_TEARDOWN}
+        found = self.i8_of(self.i8_check([log], *walk))
+        self.assertEqual([v.step for v in found], ["s3"], "the oracle's own cancel has no place in the case")
+
+    def restarted(self, snapshot: Dict[str, Any], generation: str, by: int = 3) -> Dict[str, Any]:
+        snap = _bump_sequences(snapshot, by)
+        session = snap["facets"]["daemon"]["session"]
+        session["cursor"]["generation"] = session["session"]["generation"] = generation
+        return snap
+
+    def test_i8_a_log_opened_after_a_restart_skips_the_cuts_before_it(self) -> None:
+        s1 = _set_tab_name(self.base, TAB1, "one")
+        s2 = self.restarted(s1, "gen-after-restart")
+        s3 = _set_tab_name(s2, TAB2, "two")
+        walk = [self.base, s1, s2, s3]
+        report = self.i8_check([_log(s2, s3, name="after-restart")], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 2, "the two cuts after the restart are compared")
+        dropped = _log(s2, s3, name="after-restart")
+        index, _ = self.tab_change(dropped, 1)
+        del dropped["items"][1]["item"]["changes"][index]
+        found = self.i8_of(self.i8_check([dropped], *walk))
+        self.assertEqual([v.step for v in found], ["s3"], "a cut after the restart is still checked")
+        late = _set_tab_name(s2, TAB1, "late")
+        report = self.i8_check([_log(late, name="late")], self.base, s1, s2, late)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 1, "a cut of the log's generation below its snapshot is skipped")
+        other = self.restarted(s1, "never-cut")
+        report = self.i8_check([_log(other, name="elsewhere")], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual([n.invariant for n in report.not_checked if "elsewhere" in n.reason], ["I8"])
+
+    def test_i8_skips_cuts_before_the_stream_and_the_asking_connection(self) -> None:
+        walk = self.i8_walk()
+        late = _log(walk[1], walk[2], name="open")
+        client = late["items"][0]["item"]["snapshot"]["clients"][0]
+        client["self"] = not client["self"]
+        client["connected_seconds"] = "99"
+        report = self.i8_check([_log(*walk), late], *walk)
+        self.assertEqual(self.i8_of(report), [])
+        self.assertEqual(report.checked["I8"], 5, "3 cuts of the driver log, 2 of the late one")
+
+    def test_i8_without_a_log_or_a_cursor_is_not_checked(self) -> None:
+        report = self.i8_check([], self.base)
+        self.assertIn(("I8", None), [(n.invariant, n.step) for n in report.not_checked])
+        bare = copy.deepcopy(self.base)
+        del bare["facets"]["daemon"]["session"]["cursor"]
+        report = self.i8_check([_log(self.base)], bare)
+        self.assertIn(("I8", None), [(n.invariant, n.step) for n in report.not_checked])
+
+    def test_i8_seeded_walks_fold_clean_and_a_corrupted_change_is_named(self) -> None:
+        self.assertEqual(i8_walks(range(60), self.schema), [])
+
     # I10
     @staticmethod
     def created(tab: str, replayed: bool) -> Dict[str, Any]:
@@ -1908,6 +2879,98 @@ class InvariantsSelfTest(unittest.TestCase):
         report = self.check(doc)
         self.assertEqual(self.i10(report), ([], []))
         self.assertEqual(report.checked["I10"], 0)
+
+    # I16
+    def case_root(self) -> Path:
+        """A case root laid out as hermetic_env.daemon_case makes it: CMUX_TUI_STATE_DIR is <root>/state, so the
+        owner's panic log sits in the root itself, and ACPMUX_HOME defaults to <root>/home/.acpmux."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name) / "c00001"
+        (root / "state").mkdir(parents=True)
+        (root / "home" / ".acpmux").mkdir(parents=True)
+        return root
+
+    def test_i16_a_panic_line_fails_with_its_message_and_location(self) -> None:
+        root = self.case_root()
+        (root / "owner-panics-oracle-abc123.jsonl").write_text(
+            _panic_line("index out of bounds: the len is 2 but the index is 5", "crates/cmux-tui-core/src/layout.rs:812:17")
+            + "\n" + _panic_line(LOCK_RANK_MESSAGE, "crates/cmux-tui-core/src/mux.rs:301:28", test=True) + "\n")
+        log = read_panic_log(root)
+        self.assertEqual([(e["log"], e["line"], e["lockRank"]) for e in log],
+                         [("owner-panics-oracle-abc123.jsonl", 1, False), ("owner-panics-oracle-abc123.jsonl", 2, True)])
+        report = self.check(_trace({"id": "s", "op": "settle"},
+                                   teardown={"processes": [], "sockets": [], "panicLog": log}))
+        self.assertEqual([(v.invariant, v.where, v.pointer) for v in report.violations],
+                         [("I16", "teardown", "/panicLog/0"), ("I16", "teardown", "/panicLog/1")])
+        self.assertEqual(report.violations[0].message,
+                         "panic at crates/cmux-tui-core/src/layout.rs:812:17: index out of bounds: the len is 2 but the "
+                         "index is 5 (thread 'mux-worker', owner-panics-oracle-abc123.jsonl:1)")
+        self.assertTrue(report.violations[1].message.startswith(
+            "lock-rank panic at crates/cmux-tui-core/src/mux.rs:301:28: lock order violation: acquiring mux.state"))
+        self.assertIn("debug test trigger", report.violations[1].message)
+
+    def test_i16_reads_every_log_of_the_root_and_nothing_else(self) -> None:
+        root = self.case_root()
+        self.assertEqual(read_panic_log(root), [])
+        (root / "owner-panics-oracle.jsonl").write_text("\n")
+        (root / "owner-memory-oracle.jsonl").write_text('{"memory_bytes": 1}\n')
+        (root / "owner-hangs-oracle.jsonl").write_text('{"message": "busy"}\n')
+        self.assertEqual(read_panic_log(root), [])
+        (root / "home" / ".acpmux" / "panics.jsonl").write_text(_panic_line("acp", "c.rs:3:3") + "\n")
+        (root / "owner-panics-oracle.jsonl").write_text('{"message": "cut\n')
+        log = read_panic_log(root)
+        self.assertEqual([(e["log"], e["location"]) for e in log],
+                         [("owner-panics-oracle.jsonl", ""), ("home/.acpmux/panics.jsonl", "c.rs:3:3")])
+        self.assertTrue(log[0]["message"].startswith("not a panic log record: "), log[0])
+        with self.assertRaises(FileNotFoundError):
+            read_panic_log(root / "missing")
+
+    def test_i16_does_not_follow_a_symlink_out_of_the_root(self) -> None:
+        root = self.case_root()
+        other = root.parent / "other-case"
+        other.mkdir()
+        (other / "owner-panics-x.jsonl").write_text(_panic_line("not ours", "x.rs:1:1") + "\n")
+        (root / "owner-panics-x.jsonl").symlink_to(other / "owner-panics-x.jsonl")
+        (root / "linked").symlink_to(other, target_is_directory=True)
+        self.assertEqual(read_panic_log(root), [])
+
+    def test_i16_without_a_panic_log_is_not_checked_and_does_not_check_i6(self) -> None:
+        report = self.check(_trace({"id": "s", "op": "settle"}, teardown={"processes": [], "sockets": []}))
+        self.assertEqual(report.violations, [])
+        self.assertIn(("I16", "the trace has no teardown panic log"),
+                      [(n.invariant, n.reason) for n in report.not_checked])
+        report = self.check(_trace({"id": "s", "op": "settle"}, teardown={"panicLog": []}))
+        self.assertEqual(report.checked["I16"], 1)
+        self.assertEqual(report.checked["I6"], 0)
+        self.assertEqual([n.invariant for n in self.core(report)], ["I6"])
+
+    def test_i16_lock_ranks_compiled_in_finds_the_text_across_chunks(self) -> None:
+        needle = LOCK_RANK_PANIC_PREFIX.encode()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        binary = Path(tmp.name) / "cmux-tui"
+        for split in range(1, len(needle)):
+            binary.write_bytes(b"\0" * (64 - split) + needle + b"{name} (")
+            self.assertTrue(lock_ranks_compiled_in(binary, chunk_size=64), split)
+        binary.write_bytes(b"\0" * 200 + needle[:-1] + b"\0")
+        self.assertFalse(lock_ranks_compiled_in(binary, chunk_size=64))
+
+    def test_i16_cli(self) -> None:
+        root = self.case_root()
+        out, err = io.StringIO(), io.StringIO()
+        self.assertEqual(main(["panic-log", str(root)], out, err), 0)
+        (root / "owner-panics-oracle.jsonl").write_text(_panic_line("boom", "a.rs:1:1") + "\n")
+        out = io.StringIO()
+        self.assertEqual(main(["panic-log", str(root), "--json"], out, err), 1)
+        [row] = json.loads(out.getvalue())
+        self.assertEqual((row["location"], row["message"], row["lockRank"]), ("a.rs:1:1", "boom", False))
+        self.assertEqual(main(["panic-log", str(root / "missing")], io.StringIO(), err), 2)
+        binary = root / "cmux-tui"
+        binary.write_bytes(b"\x7fELF release")
+        self.assertEqual(main(["lock-ranks", str(binary)], io.StringIO(), err), 1)
+        binary.write_bytes(b"\x7fELF oracle " + LOCK_RANK_PANIC_PREFIX.encode())
+        self.assertEqual(main(["lock-ranks", str(binary)], io.StringIO(), err), 0)
 
     # I17
     def crash_trace(self, *rises: Tuple[str, str, Optional[Dict[str, int]]], allow: Optional[List[Dict[str, Any]]] = None,
@@ -2142,6 +3205,178 @@ class InvariantsSelfTest(unittest.TestCase):
         self.assertEqual(self.ids(report), [("I9", "/daemon/session/extra")])
         self.assertIn("2 state_upsert/state_delete", report.violations[0].message)
 
+    # I11-I14
+    def side_trace(self, channels: Dict[str, Any], **extra: Any) -> Dict[str, Any]:
+        doc = _trace({"id": "act", "op": "action.run", "args": {"action": "workspace.new"},
+                      "replies": [{"receipt": "action.done"}], "checkpoints": {"settled": self.base},
+                      "sideChannels": channels})
+        doc.update(extra)
+        return doc
+
+    def perf(self, report: Report, inv: str) -> List[Tuple[Optional[str], str, Optional[str]]]:
+        self.assertEqual([v for v in report.violations if v.invariant == inv], [],
+                         "a perf invariant never fails the case")
+        return [(v.step, v.pointer, v.source) for v in report.perf_queue if v.invariant == inv]
+
+    def skipped(self, report: Report, inv: str) -> List[str]:
+        return [n.reason for n in report.not_checked if n.invariant == inv]
+
+    def test_side_channels_of_a_clean_step_are_checked_without_a_queue_line(self) -> None:
+        report = self.check(self.side_trace(_side_channels()))
+        for inv in ("I11", "I12", "I13", "I14"):
+            self.assertEqual(report.checked[inv], 1, inv)
+            self.assertEqual(self.perf(report, inv), [])
+            self.assertEqual(self.skipped(report, inv), [])
+
+    def test_i11_a_new_main_thread_site_and_an_overflow_go_to_the_perf_queue(self) -> None:
+        channels = _side_channels()
+        after = channels["blocking"]["after"]
+        after["sites"][0]["count"] = 3
+        after["sites"][1]["count"] = 9  # the pool: not the main thread
+        after["sites"].append({**MAIN_SITE, "location": "Workspace.swift:40", "count": 1, "max_ms": 12.5})
+        after["contexts"]["main"]["overflow"] = 2
+        report = self.check(self.side_trace(channels))
+        self.assertEqual(self.perf(report, "I11"),
+                         [("act", "/sideChannels/blocking/after/sites/0", "debug.blocking"),
+                          ("act", "/sideChannels/blocking/after/sites/2", "debug.blocking"),
+                          ("act", "/sideChannels/blocking/after/contexts/main/overflow", "debug.blocking")])
+        self.assertIn("SessionStore.swift:88 blocked the main thread 1 time(s)", report.perf_queue[0].message)
+
+    def test_i11_a_bench_build_without_the_detector_is_not_checked(self) -> None:
+        channels = _side_channels()
+        for reading in channels["blocking"].values():
+            reading["compiled_in"] = False
+            reading["sites"] = []
+        report = self.check(self.side_trace(channels))
+        self.assertEqual(report.checked["I11"], 0)
+        self.assertIn("compiled_in false", self.skipped(report, "I11")[0])
+
+    def test_i12_a_long_stall_and_an_unnamed_gap(self) -> None:
+        channels = _side_channels()
+        after = channels["hangs"]["after"]
+        after["count250"] = 2
+        after["records"] = [{"sequence": 3, "kind": "stall", "duration_ms": 400.0},  # before the step
+                            {"sequence": 5, "kind": "busy", "duration_ms": 900.0},  # a busy window, not a hang
+                            {"sequence": 6, "kind": "stall", "duration_ms": 310.0, "cpu_ms": 300.0}]
+        report = self.check(self.side_trace(channels))
+        self.assertEqual(self.perf(report, "I12"),
+                         [("act", "/sideChannels/hangs/after/records/2", "debug.hangs"),
+                          ("act", "/sideChannels/hangs/after/count250", "debug.hangs")])
+        self.assertIn("stalled 310.0 ms", report.perf_queue[0].message)
+        channels["hangs"]["after"]["installed"] = False
+        self.assertIn("installed false", self.skipped(self.check(self.side_trace(channels)), "I12")[0])
+
+    def test_i13_a_committed_run_over_budget(self) -> None:
+        channels = _side_channels()
+        recent = channels["actionBudget"]["after"]["recent"]
+        recent[0]["commit_ms"] = 50.0  # sequence 7: before the step
+        recent.append({**recent[1], "sequence": 9, "id": "pane.split", "commit_ms": 14.2})
+        recent.append({**recent[1], "sequence": 10, "commit_ms": 80.0, "outcome": "missed"})
+        report = self.check(self.side_trace(channels))
+        self.assertEqual(self.perf(report, "I13"), [("act", "/sideChannels/actionBudget/after/recent/2",
+                                                     "debug.action_budget")])
+        self.assertIn("pane.split (socket) reached its commit in 14.2 ms, over the 10 ms budget",
+                      report.perf_queue[0].message)
+
+    def test_i14_a_frame_client_left_running_and_wakeups_over_budget(self) -> None:
+        channels = _side_channels()
+        idle = channels["wakeups"]["idle"]
+        idle["active_frame_clients"] = ["Control.frames", "Motion.clock"]
+        idle["ledger"].append({"owner": "HomeCache", "reason": "deadline", "count": 2})
+        report = self.check(self.side_trace(channels))
+        self.assertEqual(self.perf(report, "I14"),
+                         [("act", "/sideChannels/wakeups/idle/active_frame_clients/1", "debug.wakeups"),
+                          ("act", "/sideChannels/wakeups/idle/ledger/2", "debug.wakeups")])
+        self.assertIn("3 wakeup(s) in the 2.00 s after the settle, over 1 (0.5/s", report.perf_queue[1].message)
+        self.assertIn("HomeCache:deadline +2, IdleScheduler:period +1", report.perf_queue[1].message)
+        tighter = check_trace(self.side_trace(_side_channels()), schema=self.schema, wake_budget=0.0)
+        self.assertEqual(self.perf(tighter, "I14"), [("act", "/sideChannels/wakeups/idle/ledger/1", "debug.wakeups")])
+
+    def test_i14_needs_both_readings_of_a_settled_step(self) -> None:
+        channels = _side_channels()
+        del channels["wakeups"]
+        report = self.check(self.side_trace(channels))
+        self.assertEqual(self.skipped(report, "I14"), ["no debug.wakeups readings settled and idle"])
+        channels["wakeups"] = {"settled": {"error": {"code": "method_not_found"}}, "idle": {}}
+        self.assertIn("refused at settled", self.skipped(self.check(self.side_trace(channels)), "I14")[0])
+
+    def test_perf_invariants_skip_a_recorder_case_and_a_trace_without_side_channels(self) -> None:
+        armed = self.check(self.side_trace(_side_channels(), recorderArmed=True))
+        for inv in ("I11", "I12", "I13", "I14"):
+            self.assertEqual(armed.checked[inv], 0)
+            self.assertEqual(len(self.skipped(armed, inv)), 1)
+            self.assertIn("debug.oracle.recorder", self.skipped(armed, inv)[0])
+        bare = self.check(_trace({"id": "s", "op": "settle", "checkpoints": {"settled": self.base}}))
+        self.assertEqual([len(self.skipped(bare, inv)) for inv in ("I11", "I12", "I13", "I14")], [1, 1, 1, 1])
+        with self.assertRaises(TraceError):
+            self.check(self.side_trace({"layout": {}}))
+
+    def test_perf_queue_lines_do_not_change_the_exit_code(self) -> None:
+        import io
+        import tempfile
+
+        channels = _side_channels()
+        channels["hangs"]["after"]["records"].append({"sequence": 5, "kind": "stall", "duration_ms": 700.0})
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "trace.json"
+            trace.write_text(json.dumps(self.side_trace(channels)))
+            queue = Path(tmp) / "q" / "perf.jsonl"
+            out = io.StringIO()
+            self.assertEqual(main(["check", str(trace), "--perf-queue", str(queue)], out=out), 0, out.getvalue())
+            self.assertIn("I12 selftest/case act perf-owner queue (debug.hangs)", out.getvalue())
+            lines = [json.loads(line) for line in queue.read_text().splitlines()]
+            self.assertEqual(lines, [{"queue": "perf-owner", "case": "selftest/case", "invariant": "I12", "step": "act",
+                                      "checkpoint": None, "in": "step", "source": "debug.hangs",
+                                      "pointer": "/sideChannels/hangs/after/records/1",
+                                      "message": "the main thread stalled 700.0 ms during the step (over 250 ms; cpu "
+                                                 "None ms)"}])
+            out = io.StringIO()
+            self.assertEqual(main(["check", str(trace), "--json"], out=out), 0)
+            self.assertEqual(len(json.loads(out.getvalue())["perfQueue"]), 1)
+
+    # I15
+    def test_i15_a_daemon_that_kept_a_thread_and_a_child(self) -> None:
+        doc = self.side_trace(_side_channels(), setup={"daemonResources": copy.deepcopy(DAEMON_RESOURCES)})
+        doc["teardown"]["daemonResources"] = {**DAEMON_RESOURCES, "threads": 10, "children": 2}
+        report = self.check(doc)
+        self.assertEqual([(v.invariant, v.where, v.pointer, v.source) for v in report.violations
+                          if v.invariant == "I15"],
+                         [("I15", "teardown", "/daemonResources/threads", "/proc/<pid>/fd"),
+                          ("I15", "teardown", "/daemonResources/children", "/proc/<pid>/fd")])
+        self.assertIn("10 threads at teardown, 9 after setup (+1)", report.violations[-2].message)
+        doc["teardown"]["daemonResources"] = copy.deepcopy(DAEMON_RESOURCES)
+        self.assertEqual(self.check(doc).checked["I15"], 1)
+
+    def test_i15_a_restarted_daemon_or_a_missing_reading_is_not_checked(self) -> None:
+        doc = self.side_trace(_side_channels(), setup={"daemonResources": copy.deepcopy(DAEMON_RESOURCES)})
+        doc["teardown"]["daemonResources"] = {**DAEMON_RESOURCES, "pid": 5151, "fds": 3}
+        report = self.check(doc)
+        self.assertEqual([v for v in report.violations if v.invariant == "I15"], [])
+        self.assertIn("a step restarted it", self.skipped(report, "I15")[0])
+        del doc["setup"]
+        self.assertIn("no daemon resource reading", self.skipped(self.check(doc), "I15")[0])
+
+    def test_i15_compares_counts_only_when_the_case_closed_what_it_opened(self) -> None:
+        doc = self.side_trace(_side_channels(), setup={"daemonResources": copy.deepcopy(DAEMON_RESOURCES)})
+        live = {**DAEMON_RESOURCES["liveObjects"], "terminals": 2, "holders": 2}
+        doc["teardown"]["daemonResources"] = {**DAEMON_RESOURCES, "children": 2, "fds": 35, "liveObjects": live}
+        report = self.check(doc)
+        self.assertEqual([v for v in report.violations if v.invariant == "I15"], [])
+        self.assertIn("holders 1 -> 2, terminals 1 -> 2", self.skipped(report, "I15")[0])
+        # A timing count (an event subscription) is no object the case owns: the counts are compared.
+        live = {**DAEMON_RESOURCES["liveObjects"], "subscriptions": 3}
+        doc["teardown"]["daemonResources"] = {**DAEMON_RESOURCES, "fds": 32, "liveObjects": live}
+        self.assertEqual([v.pointer for v in self.check(doc).violations if v.invariant == "I15"],
+                         ["/daemonResources/fds"])
+        del doc["teardown"]["daemonResources"]["liveObjects"]
+        self.assertIn("no liveObjects", self.skipped(self.check(doc), "I15")[0])
+
+    def test_i6_is_not_checked_on_a_teardown_that_lists_nothing(self) -> None:
+        doc = _trace({"id": "s", "op": "settle"}, teardown={"daemonResources": copy.deepcopy(DAEMON_RESOURCES)})
+        report = self.check(doc)
+        self.assertEqual(report.checked["I6"], 0)
+        self.assertEqual([n.invariant for n in self.core(report)], ["I6"])
+
     def test_cli_exit_codes(self) -> None:
         import io
         import tempfile
@@ -2166,10 +3401,43 @@ def print_report(report: Report, out: Any) -> None:
     for v in report.violations:
         where = "/".join(x for x in (v.step, v.checkpoint) if x) or "case"
         print(f"{v.invariant} {report.case} {where} {v.where}:{v.pointer}  {v.message}", file=out)
+    for v in report.perf_queue:
+        print(f"{v.invariant} {report.case} {v.step or 'case'} {PERF_QUEUE} queue ({v.source}) {v.where}:{v.pointer}  "
+              f"{v.message}", file=out)
     for n in report.not_checked:
         print(f"{n.invariant} {report.case} {n.step or 'case'} not checked: {n.reason}", file=out)
     checked = " ".join(f"{k}={n}" for k, n in report.checked.items())
-    print(f"{report.case}: {len(report.violations)} violation(s); checked {checked}", file=out)
+    print(f"{report.case}: {len(report.violations)} violation(s), {len(report.perf_queue)} {PERF_QUEUE} queue "
+          f"line(s); checked {checked}", file=out)
+
+
+def print_panic_log(case_root: Path, as_json: bool, out: Any, err: Any) -> int:
+    try:
+        log = read_panic_log(case_root)
+    except OSError as error:
+        print(f"invariants.py: {error}", file=err)
+        return 2
+    if as_json:
+        print(json.dumps(log, sort_keys=True), file=out)
+    else:
+        for entry in log:
+            print(f"I16 {panic_message(entry)}", file=out)
+        if not log:
+            print(f"I16 holds: no daemon panic log lines under {case_root}", file=out)
+    return 1 if log else 0
+
+
+def print_lock_ranks(binary: Path, out: Any, err: Any) -> int:
+    try:
+        present = lock_ranks_compiled_in(binary)
+    except OSError as error:
+        print(f"invariants.py: {error}", file=err)
+        return 2
+    if present:
+        print(f"{binary}: lock-rank checker present", file=out)
+        return 0
+    print(f"{binary}: no lock-rank checker (built without debug assertions; use linux_run.sh build)", file=out)
+    return 1
 
 
 def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None) -> int:
@@ -2184,6 +3452,15 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
     check.add_argument("--case", type=Path, help="the corpus case, for step fields the trace leaves out")
     check.add_argument("--schema", type=Path, default=SNAPSHOT_SCHEMA)
     check.add_argument("--json", action="store_true", help="print the report as JSON")
+    check.add_argument("--perf-queue", type=Path,
+                       help="append each I11-I14 violation to this file as one perf-owner queue JSON line")
+    walks = sub.add_parser("i8-walks", help="I8 on seeded synthetic walks: clean folds pass, a corrupted change fails")
+    walks.add_argument("--seeds", type=int, default=10000)
+    panics = sub.add_parser("panic-log", help="I16 on a case root whose daemon processes have exited")
+    panics.add_argument("case_root", type=Path)
+    panics.add_argument("--json", action="store_true", help="print the panicLog entries as JSON")
+    ranks = sub.add_parser("lock-ranks", help="whether a cmux-tui binary has the lock-rank checker")
+    ranks.add_argument("binary", type=Path)
     args = parser.parse_args(argv)
     if args.selftest:
         suite = unittest.defaultTestLoader.loadTestsFromTestCase(InvariantsSelfTest)
@@ -2192,6 +3469,16 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
         for inv in INVARIANTS:
             print(f"{inv.id}\t{inv.rule}\t{inv.pointer}\t{inv.task}", file=out)
         return 0
+    if args.command == "i8-walks":
+        failures = i8_walks(range(args.seeds), load_schema())
+        for line in failures:
+            print(line, file=out)
+        print(f"i8-walks: {args.seeds - len(failures)}/{args.seeds} seeds pass", file=out)
+        return 1 if failures else 0
+    if args.command == "panic-log":
+        return print_panic_log(args.case_root, args.json, out, err)
+    if args.command == "lock-ranks":
+        return print_lock_ranks(args.binary, out, err)
     if args.command != "check":
         parser.print_usage(err)
         return 2
@@ -2202,6 +3489,11 @@ def main(argv: Optional[Sequence[str]] = None, out: Any = None, err: Any = None)
     except (OSError, ValueError, TraceError, KeyError, TypeError) as error:
         print(f"invariants.py: {args.trace}: {error}", file=err)
         return 2
+    if args.perf_queue and report.perf_queue:
+        args.perf_queue.parent.mkdir(parents=True, exist_ok=True)
+        with args.perf_queue.open("a", encoding="utf-8") as queue:
+            for line in report.queue_lines():
+                queue.write(json.dumps(line, sort_keys=True) + "\n")
     if args.json:
         print(json.dumps(report.to_json(), sort_keys=True), file=out)
     else:

@@ -35,6 +35,8 @@ rquickjs = "0.14"
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
+# The host's black box (src/bin/cmux-browser-host.rs); std and libc only.
+cmux-trace.workspace = true
 
 # The relay link's peer check (src/provider_link/relay_peer.rs): audit token
 # and code signature, as the link sockets check them.

@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 public import CmuxNextResources
+public import CmuxNextWakeups
 // The list's targets for the app's hover cards (WorkspaceHoverCardController,
 // HoverCardCoordinator): workspace rows, hit-tested by position.
 extension SidebarListViewComponents {
@@ -76,9 +77,12 @@ extension SidebarListViewComponents {
 extension SidebarViewComponents {
     /// CPU and memory for the workspace hover card. Sampled only while a
     /// card is pending or shown.
-    public var resourceSource: (any ResourceSampleSource)? {
-        get { list.hoverCard.resources.source }
-        set { list.hoverCard.resources.setSource(newValue) }
+    public var resourceSource: (any ResourceSampleSource)? { list.hoverCard.resources.source }
+
+    /// Samples the hover card's workspace from `source`, each next sample on `deadlines`, the app's one deadline
+    /// scheduler (`AppServices.mainDeadlines`).
+    public func setResourceSource(_ source: (any ResourceSampleSource)?, deadlines: MainDeadlineScheduler) {
+        list.hoverCard.resources.setSource(source, deadlines: deadlines)
     }
 
     /// Shows workspace `id`'s hover card (CPU and memory) now, until the

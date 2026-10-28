@@ -972,3 +972,5 @@ test where an action from B never resolves A; 222, env-write-allowlist unchanged
 no worse; 240, >= 20 targets on DaemonWire only; 242, Design < 20k lines; 262, a tab move keeps
 TabFeatures and holds no window state, and closing a machine releases all its members; 268, the
 wire target imports only Foundation.
+
+> **Priority (2026-10-28):** lower. Lawrence moves the Mac to the Chromium fork later, so this AppKit-only program pays off after the move. No new p11 waves; finished branches still merge on spare train slots. See [PRIORITIES.md](PRIORITIES.md).

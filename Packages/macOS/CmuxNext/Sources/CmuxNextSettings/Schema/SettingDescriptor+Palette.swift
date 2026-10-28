@@ -1,4 +1,5 @@
-public import CmuxNextDesign
+public import CmuxNextAppearance
+public import CmuxNextDesignTokens
 import Foundation
 
 /// One value the palette offers for a setting (R93): `value` nil resets the

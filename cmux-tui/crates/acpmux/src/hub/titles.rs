@@ -184,7 +184,7 @@ impl Hub {
     pub(super) fn watch_titles(self: &Arc<Self>) {
         let mut events = self.subscribe();
         let hub = Arc::downgrade(self);
-        tokio::spawn(async move {
+        self.supervise("hub.title-watch", Fatal, ShutdownBehavior::Skip, async move {
             loop {
                 let ev = match events.recv().await {
                     Ok(ev) => ev,
@@ -260,7 +260,7 @@ impl Hub {
 
     fn spawn_title_request(self: &Arc<Self>, session: Arc<Session>, request: String) {
         let hub = self.clone();
-        tokio::spawn(async move {
+        self.supervise("hub.title-request", Fatal, ShutdownBehavior::Skip, async move {
             // Let a harness's own session-info title and a manual rename win before spending a
             // completion. This is also the debounce between the prompt placeholder and the model.
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -283,7 +283,7 @@ impl Hub {
         // `rg --files --hidden` over its cwd at start, and one titler per
         // finished chat over all of `$TMPDIR` pegged the Mac's CPU.
         let cwd =
-            tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd).await.ok()?;
+            crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd).await.ok()?;
         let cfg = self.config.read().await;
         if cfg.titles.generate == Some(false) {
             return None;
@@ -470,6 +470,8 @@ async fn run(mut cmd: tokio::process::Command, request: &str) -> Option<String> 
         // all while its leader, not yet reaped, still holds the group's id.
         #[cfg(unix)]
         if let Some(pid) = pid {
+            // SAFETY: killpg takes no pointers; `pid` leads the command's own group
+            // (process_group(0)) and is not reaped while `child` lives.
             unsafe {
                 libc::killpg(pid as i32, libc::SIGKILL);
             }

@@ -1,4 +1,5 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import Foundation
@@ -41,7 +42,9 @@ struct ChiefHomeAcpmux {
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
     ///     on the app's acpmux: the daemon its subagents ran on before the move.
-    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void,
+    ///   - work: the app's blocking-work lanes (`AppServices.work`): a tab's disk check of a kept session runs there.
+    init(home: ChiefHome, local: any AgentPaneHostProviding, work: any MayBlockRunner,
+         ensureHost: @escaping @Sendable () async -> Void,
          ownHost: @escaping @Sendable (AcpmuxEnvironment?) -> any AgentPaneHostProviding = { AcpmuxHost(environment: $0) }) {
         let host = Self.host(muxHome: home.muxHome)
         self.host = host
@@ -57,7 +60,8 @@ struct ChiefHomeAcpmux {
             let own = ownHost(environment)
             let sessionsHome = home.acpmuxHome
             let router: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding = { local in
-                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome, parentTag: tag)
+                AcpmuxChiefSessionRouter(local: local, chief: own, chiefEnvironment: environment, sessionsHome: sessionsHome,
+                                         parentTag: tag, work: work)
             }
             paneHost = router(local)
             localRouter = router
@@ -73,7 +77,9 @@ struct ChiefHomeAcpmux {
         }
         let chief = AcpmuxHost(environment: environment, startsDaemons: false, healReplaced: healReplaced)
         paneHost = chief
-        localRouter = { local in AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag) }
+        localRouter = { local in
+            AcpmuxChiefSessionRouter(local: local, chief: chief, chiefEnvironment: environment, parentTag: tag, work: work)
+        }
     }
 
     /// The acpmux of the Chief home `home` (its socket is `socketPath`), nil without one.

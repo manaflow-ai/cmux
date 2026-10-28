@@ -14,11 +14,13 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
 import CmuxNextHibernation
+import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
@@ -85,7 +87,9 @@ struct AppMemoryConsumers {
         registerBrowserCaches()  // CmuxNextBrowser
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
+        followDaemonMemoryLimit()  // CmuxNextDaemon (p07-memory-109)
         registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
+        registerSmallAppStores()  // CmuxNextDesign, CmuxNextTerminal (p07-memory-083)
         registerGlyphMasks()  // CmuxNextDesign (p03-rendering-075)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
@@ -121,6 +125,29 @@ struct AppMemoryConsumers {
     func registerDaemonCaches() {
         guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
         DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryDaemonLimit` (default off): the local daemon, and through it acpmux, hear the coordinator's level,
+    /// Memory Saver mode and debug override on each change (`memory.limit`) and take the worse of their own level
+    /// and the app's, as Chrome's browser hands each child process its limit (`ChildMemoryConsumerRegistryHost`,
+    /// content/browser/memory_coordinator/README.md). A Cloud machine's daemon does not follow this Mac's memory.
+    func followDaemonMemoryLimit() {
+        guard services.features.isEnabled(.memoryDaemonLimit), services.daemon.isLocal else { return }
+        let coordinator = services.memoryCoordinator, daemon = services.daemon
+        let follow = DaemonMemoryLimitFollow(Self.memoryLimit(of: coordinator), store: daemon.store,
+                                             on: services.mainWork) { [weak daemon] request in
+            _ = await daemon?.run("memory.limit") { _ = try await $0.request(request) }
+        }
+        services.lifetimeFollowers.append(DaemonMemoryLimitLink(
+            follow: follow, registry: coordinator, observeOverrides: { coordinator.observePressureOverride($0) }
+        ) { [weak coordinator] in
+            coordinator.map { Self.memoryLimit(of: $0) } ?? MemoryLimitRequest(level: .normal, mode: .medium)
+        })
+    }
+
+    /// The limit `coordinator` acts on now: its level (the debug override folded in), mode and override.
+    static func memoryLimit(of coordinator: MemoryCoordinator) -> MemoryLimitRequest {
+        MemoryLimitRequest(level: coordinator.level, mode: coordinator.mode, pressureOverride: coordinator.pressureOverride)
     }
 
     /// `memoryBackdropImages` (default off): the windows' decoded backdrop pictures (`backdrops`, the store
@@ -237,6 +264,15 @@ struct AppMemoryConsumers {
         }
     }
 
+    /// `memorySqliteTrim` (default off): one browser profile's visit log, whose SQLite page cache is an
+    /// asynchronous consumer on the log's actor (p07-memory-090); its owner, the history service, keeps the
+    /// registration while it keeps the log. Nil while the feature is off.
+    func registerVisitLog(_ log: BrowserVisitLog) -> AsyncMemoryConsumerRegistration? {
+        guard services.features.isEnabled(.memorySqliteTrim) else { return nil }
+        return AsyncMemoryConsumerRegistration(name: BrowserVisitLog.memoryConsumerName, traits: BrowserVisitLog.memoryTraits,
+                                               consumer: log, registry: services.memoryCoordinator)
+    }
+
     /// `memoryFileHomeCaches`: the apps client's decoded bundle images are one lossless consumer;
     /// their owner, the apps service, calls this when it makes them.
     func registerAppBundleImages(_ cache: AppBundleImageCache) {
@@ -322,5 +358,22 @@ struct AppMemoryConsumers {
     private func registerInternalPageDiscards() {
         guard services.features.isEnabled(.memoryDiscardInternalPages), !services.features.isEnabled(.pageLifecycle) else { return }
         services.pages.enableDiscards(ContentDiscardScheduler(kind: .internalPage, memory: services.memoryCoordinator), on: services.cache)
+    }
+
+    /// `memorySmallAppStores` (default off): the glass lens stills are one lossless consumer, the last quit's
+    /// terminal frames one lossy consumer, and the terminals' Kitty image budget halves below normal pressure
+    /// (p07-memory-083). The changelog page's pictures register with each page (`PageFactory.changelogPage`), and the
+    /// launch reads go at the settle (`LaunchSettle.dropLaunchReads`).
+    private func registerSmallAppStores() {
+        guard services.features.isEnabled(.memorySmallAppStores) else { return }
+        let coordinator = services.memoryCoordinator
+        GlassBackdropImages.shared.registerMemoryConsumer(with: coordinator)
+        services.terminalLaunchFrames.registerMemoryConsumer(with: coordinator)
+        let kittyImages = GhosttyImageStorageBudget(
+            fullBytes: SubsystemBudget.forThisMac(gpuResidentAvailable: false).kittyImageBytesPerSurface,
+            riseDeadline: MainDeadline(owner: "GhosttyImageStorageBudget.rise", workClass: .background, scheduler: services.mainDeadlines),
+            riseDelay: MemoryCoordinator.limitRiseDelay) { GhosttyRuntime.shared.setImageStorageBytesPerScreen($0) }
+        kittyImages.follow(coordinator)
+        services.lifetimeFollowers.append(kittyImages)
     }
 }

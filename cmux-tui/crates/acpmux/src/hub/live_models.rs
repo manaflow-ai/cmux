@@ -11,6 +11,7 @@
 use super::Hub;
 use crate::config::{HarnessKind, HarnessProfile};
 use crate::live_models::{Cache, CacheKey, Cli, LiveModel, PROBE_TIMEOUT};
+use crate::supervised::{Fatal, ShutdownBehavior};
 use serde_json::json;
 use std::collections::BTreeMap;
 use std::sync::{Arc, PoisonError};
@@ -64,7 +65,9 @@ impl Hub {
             list.extend(names.iter().cloned());
         }
         let hub = self.clone();
-        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
+        self.supervise("hub.model-probes", Fatal, ShutdownBehavior::Skip, async move {
+            hub.probe_models_with(false, false, Some(names)).await
+        });
     }
 
     /// Whether the model probes may start harness `name`.
@@ -92,7 +95,7 @@ impl Hub {
     /// before the login environment and the probes, and after memory
     /// pressure emptied them (`memory_consumers.rs`). Whether it added a list.
     pub(super) async fn load_live_cache(&self) -> bool {
-        let cached = tokio::task::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
+        let cached = crate::daemon::spawn_blocking(|| Cache::new(Cache::default_dir()).load_all())
             .await
             .unwrap_or_default();
         self.add_live_lists(cached)
@@ -148,7 +151,7 @@ impl Hub {
         self.wait_startup().await;
         let program = target.argv.first().map(std::path::PathBuf::from);
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
-        let cwd = tokio::task::spawn_blocking(crate::protected_folders::unattended_cwd)
+        let cwd = crate::daemon::spawn_blocking(crate::protected_folders::unattended_cwd)
             .await
             .unwrap_or_else(|_| std::env::temp_dir());
         let started = std::time::Instant::now();
@@ -157,7 +160,7 @@ impl Hub {
                 .await;
         // A list call that started a session leaves no transcript behind.
         let folder = cwd.clone();
-        let _ = tokio::task::spawn_blocking(move || {
+        let _ = crate::daemon::spawn_blocking(move || {
             crate::probe_cleanup::remove_probe_transcripts(&folder)
         })
         .await;
@@ -178,7 +181,7 @@ impl Hub {
         self.probe_errors.lock().unwrap_or_else(PoisonError::into_inner).remove(&harness);
         if let Some(key) = program.as_deref().and_then(CacheKey::of) {
             let (name, list) = (harness.clone(), models.clone());
-            let _ = tokio::task::spawn_blocking(move || {
+            let _ = crate::daemon::spawn_blocking(move || {
                 Cache::new(Cache::default_dir()).store(&name, &key, &list)
             })
             .await;

@@ -24,7 +24,7 @@ struct RelaySession {
     let table: CDPRelayTable
     /// Host commands that arrived while preparing (bounded).
     var queued: [String] = []
-    var deadline: DemandTimer?
+    var deadline: MainDeadline?
     var preparing: Task<Void, Never>?
     /// The tab's capture votes for `Page.captureScreenshot` commands sent and not answered, by raw id.
     var screenshots: [Int: VisibilityCaptureVote] = [:]
@@ -57,12 +57,14 @@ extension BrowserHostProvider {
         let gen = relayGeneration
         var session = RelaySession(generation: gen, table: CDPRelayTable(firstRawID: rawIDCursor[targetID]))
         session.direct = direct
-        let deadline = DemandTimer(owner: "browser-host.relay-prepare", clock: clock)
-        deadline.scheduleOnMain(after: prepareDeadline) { [weak self] in
+        // An agent's request waits on it: automation, flexible (never sooner).
+        let deadline = MainDeadline(owner: "browser-host.relay-prepare", workClass: .automation, scheduler: deadlines)
+        deadline.schedule(after: prepareDeadline) { [weak self] in
             self?.prepareFailed(targetID, gen, "the tab's page did not start in time")
         }
         session.deadline = deadline
         let relay = relay
+        // main-hop-allow: prepareRelay is the app's main-actor async page start (the tab's Chromium browser); the task only hands its answer to prepared
         session.preparing = Task { [weak self] in
             let ready = await relay?.prepareRelay(targetID: targetID) ?? false
             self?.prepared(targetID, gen, ready)
@@ -74,7 +76,7 @@ extension BrowserHostProvider {
         guard var session = relays[targetID], session.generation == gen, case .preparing = session.phase else { return }
         if session.direct {
             guard ready else {
-                prepareFailed(targetID, gen, "the tab is not a Chromium tab, or its page could not start")
+                prepareFailed(targetID, gen, relay?.prepareFailure(targetID: targetID) ?? "the tab is not a Chromium tab, or its page could not start")
                 return
             }
             session.deadline?.cancel()
@@ -89,7 +91,7 @@ extension BrowserHostProvider {
               relay.startRelay(targetID: targetID,
                                onMessage: { [weak self] message in self?.relayFromBrowser(targetID, gen, message) },
                                onEnd: { [weak self] in self?.relayClosedByBrowser(targetID, gen) }) else {
-            prepareFailed(targetID, gen, "the tab is not a Chromium tab, or its page could not start")
+            prepareFailed(targetID, gen, relay?.prepareFailure(targetID: targetID) ?? "the tab is not a Chromium tab, or its page could not start")
             return
         }
         session.deadline?.cancel()

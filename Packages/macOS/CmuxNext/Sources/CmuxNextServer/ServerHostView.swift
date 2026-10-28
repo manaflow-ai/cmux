@@ -83,6 +83,7 @@ public final class ServerHostView: NSView {
         resolveColors()
     }
 
+    // visibility-walk-allow: the glass tint, the wash's layer color and the surface's colors of a menu bar panel or floating card that exists only while it is open; nothing hidden to defer
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         resolveColors()

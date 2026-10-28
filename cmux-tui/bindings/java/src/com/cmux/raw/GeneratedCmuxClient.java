@@ -373,6 +373,11 @@ public abstract class GeneratedCmuxClient {
         return EmptyResult.fromWire(result);
     }
 
+    public final CancelStreamResult cancelStream(CancelStreamRequest request) throws CmuxException {
+        Object result = execute(Commands.CANCEL_STREAM, request.toWire());
+        return CancelStreamResult.fromWire(result);
+    }
+
     public final ChiefInspectResult chiefInspect(ChiefInspectRequest request) throws CmuxException {
         Object result = execute(Commands.CHIEF_INSPECT, request.toWire());
         return ChiefInspectResult.fromWire(result);
@@ -1070,6 +1075,11 @@ public abstract class GeneratedCmuxClient {
     public final EmptyResult markWorkspacesProviderManaged(MarkWorkspacesProviderManagedRequest request) throws CmuxException {
         Object result = execute(Commands.MARK_WORKSPACES_PROVIDER_MANAGED, request.toWire());
         return EmptyResult.fromWire(result);
+    }
+
+    public final Object memoryReport() throws CmuxException {
+        Object result = execute(Commands.MEMORY_REPORT, Map.of());
+        return Wire.immutableJson(result);
     }
 
     public final MintTerminalRendererResult mintTerminalRenderer(MintTerminalRendererRequest request) throws CmuxException {

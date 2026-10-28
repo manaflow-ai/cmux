@@ -33,8 +33,10 @@ use super::TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY;
 use super::TERMINAL_PENDING_SEQUENCE_CAPABILITY;
 use super::VIEW_ATTACHMENT_DETACH_CAPABILITY;
 use super::VIEW_ATTACHMENT_LEASE_CAPABILITY;
+use super::WorkerClass;
 #[cfg(unix)]
 use super::agent_session_attach;
+use super::connection_caller;
 use super::connection_scheduler::connection_qos::ConnectionClassCell;
 use super::sanitize_window_title;
 use super::size_state_event_json;
@@ -339,11 +341,16 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
+    /// The daemon's features, reconciled with each app's client hello
+    /// (client_hello.rs, `install_daemon_features`).
+    pub(super) features: std::sync::OnceLock<cmux_features::Live>,
     /// The binary's page listener opener (`ws-listen-v1`).
     pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The daemon-wide cap on open client-minted attach streams.
+    pub(super) attach_stream_admission: Arc<super::attach_streams::AttachStreamAdmission>,
     /// The framed IPC transports this daemon serves (capabilities.rs).
     pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
@@ -405,6 +412,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
+            features: std::sync::OnceLock::new(),
             page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
@@ -413,6 +421,9 @@ impl ClientRegistry {
             resource_wait_admission: ResourceWorkerAdmission::new(
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
+            ),
+            attach_stream_admission: super::attach_streams::AttachStreamAdmission::new(
+                super::ATTACH_STREAMS_SERVER_CAPACITY,
             ),
             ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
@@ -507,7 +518,8 @@ impl ClientRegistry {
         if record.resource_streams.contains_key(stream_id.as_str()) {
             return Err(ResourceStreamInstallError::Duplicate);
         }
-        let worker_permit = self.resource_stream_admission.try_reserve(client)?;
+        let class = WorkerClass::of(connection_caller(record.transport, &record.writer));
+        let worker_permit = self.resource_stream_admission.try_reserve(client, class)?;
         let canceled = Arc::new(AtomicBool::new(false));
         record.resource_streams.insert(
             stream_id.to_string(),
@@ -563,7 +575,8 @@ impl ClientRegistry {
         if record.resource_waits.contains_key(request_id) {
             return Err(ResourceWaitInstallError::Duplicate);
         }
-        let worker_permit = self.resource_wait_admission.try_reserve(client)?;
+        let class = WorkerClass::of(connection_caller(record.transport, &record.writer));
+        let worker_permit = self.resource_wait_admission.try_reserve(client, class)?;
         let canceled = Arc::new(ResourceWaitCancellation::default());
         record.resource_waits.insert(
             request_id.clone(),
@@ -700,6 +713,7 @@ impl ClientRegistry {
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
                     || capability == crate::event_cause::CAPABILITY
+                    || capability == super::DIAGNOSTIC_SITES_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

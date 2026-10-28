@@ -19,6 +19,10 @@ fn digit(byte: u8) -> Option<usize> {
     DIGITS.iter().position(|d| *d == byte)
 }
 
+fn digit_byte(value: usize) -> Option<u8> {
+    DIGITS.get(value).copied()
+}
+
 fn integer_length(head: u8) -> Option<usize> {
     match head {
         b'a'..=b'z' => Some(usize::from(head - b'a') + 2),
@@ -27,9 +31,9 @@ fn integer_length(head: u8) -> Option<usize> {
     }
 }
 
-fn integer_part(key: &[u8]) -> Option<&[u8]> {
-    let n = integer_length(*key.first()?)?;
-    (n <= key.len()).then(|| &key[..n])
+/// Splits a key into its integer part and its fraction.
+fn split_key(key: &[u8]) -> Option<(&[u8], &[u8])> {
+    key.split_at_checked(integer_length(*key.first()?)?)
 }
 
 /// Whether `key` is a valid sort key.
@@ -42,26 +46,26 @@ pub fn is_valid(key: &str) -> bool {
     {
         return false;
     }
-    match integer_part(bytes) {
-        Some(int) => !bytes[int.len()..].ends_with(b"0"),
+    match split_key(bytes) {
+        Some((_, fraction)) => !fraction.ends_with(b"0"),
         None => false,
     }
 }
 
 fn increment_integer(x: &[u8]) -> Option<Vec<u8>> {
-    let head = x[0];
-    let mut digs = x[1..].to_vec();
+    let (&head, rest) = x.split_first()?;
+    let mut digs = rest.to_vec();
     let mut carry = true;
     for d in digs.iter_mut().rev() {
         if !carry {
             break;
         }
-        let next = digit(*d)? + 1;
-        if next == DIGITS.len() {
-            *d = ZERO;
-        } else {
-            *d = DIGITS[next];
-            carry = false;
+        match digit_byte(digit(*d)? + 1) {
+            Some(next) => {
+                *d = next;
+                carry = false;
+            }
+            None => *d = ZERO,
         }
     }
     if !carry {
@@ -87,17 +91,17 @@ fn increment_integer(x: &[u8]) -> Option<Vec<u8>> {
 }
 
 fn decrement_integer(x: &[u8]) -> Option<Vec<u8>> {
-    let head = x[0];
-    let mut digs = x[1..].to_vec();
+    let (&head, rest) = x.split_first()?;
+    let mut digs = rest.to_vec();
     let mut borrow = true;
     for d in digs.iter_mut().rev() {
         if !borrow {
             break;
         }
-        match digit(*d)? {
-            0 => *d = LAST,
-            n => {
-                *d = DIGITS[n - 1];
+        match digit(*d)?.checked_sub(1) {
+            None => *d = LAST,
+            Some(previous) => {
+                *d = digit_byte(previous)?;
                 borrow = false;
             }
         }
@@ -124,37 +128,40 @@ fn decrement_integer(x: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-/// A fraction strictly between `a` and `b` (`None` = open end).
-fn midpoint(a: &[u8], b: Option<&[u8]>, out: &mut Vec<u8>) {
+/// A fraction strictly between `a` and `b` (`None` = open end). A digit
+/// past the end of `a` reads as `0`, the fraction's implicit trailing zeros.
+fn midpoint(a: &[u8], b: Option<&[u8]>, out: &mut Vec<u8>) -> Option<()> {
     if let Some(b) = b {
-        let mut n = 0;
-        while n < b.len() && a.get(n).copied().unwrap_or(ZERO) == b[n] {
-            n += 1;
-        }
-        if n > 0 {
-            out.extend_from_slice(&b[..n]);
-            let rest_a = if n <= a.len() { &a[n..] } else { &[] };
-            midpoint(rest_a, Some(&b[n..]), out);
-            return;
+        let common = b
+            .iter()
+            .enumerate()
+            .take_while(|(i, d)| a.get(*i).copied().unwrap_or(ZERO) == **d)
+            .count();
+        if let Some((prefix, b_rest)) = b.split_at_checked(common)
+            && !prefix.is_empty()
+        {
+            out.extend_from_slice(prefix);
+            return midpoint(a.get(common..).unwrap_or_default(), Some(b_rest), out);
         }
     }
     let digit_a = a.first().and_then(|d| digit(*d)).unwrap_or(0);
     let digit_b = b.and_then(|b| b.first()).and_then(|d| digit(*d)).unwrap_or(DIGITS.len());
     if digit_b - digit_a > 1 {
-        out.push(DIGITS[(digit_a + digit_b).div_ceil(2)]);
-    } else if let Some(b) = b.filter(|b| b.len() > 1) {
-        out.push(b[0]);
-    } else {
-        out.push(DIGITS[digit_a]);
-        let rest = if a.is_empty() { &[][..] } else { &a[1..] };
-        midpoint(rest, None, out);
+        out.push(digit_byte((digit_a + digit_b).div_ceil(2))?);
+        return Some(());
     }
+    if let Some((&first, _)) = b.filter(|b| b.len() > 1).and_then(<[u8]>::split_first) {
+        out.push(first);
+        return Some(());
+    }
+    out.push(digit_byte(digit_a)?);
+    midpoint(a.split_first().map_or(&[][..], |(_, rest)| rest), None, out)
 }
 
-fn with_fraction(int: &[u8], a: &[u8], b: Option<&[u8]>) -> Vec<u8> {
+fn with_fraction(int: &[u8], a: &[u8], b: Option<&[u8]>) -> Option<Vec<u8>> {
     let mut out = int.to_vec();
-    midpoint(a, b, &mut out);
-    out
+    midpoint(a, b, &mut out)?;
+    Some(out)
 }
 
 /// A key strictly between `a` and `b` (`None` = open end). Returns `None`
@@ -172,30 +179,30 @@ pub fn between(a: Option<&str>, b: Option<&str>) -> Option<String> {
     let key = match (a.map(str::as_bytes), b.map(str::as_bytes)) {
         (None, None) => INTEGER_ZERO.as_bytes().to_vec(),
         (None, Some(b)) => {
-            let ib = integer_part(b)?;
+            let (ib, fb) = split_key(b)?;
             if ib == SMALLEST_INTEGER.as_bytes() {
-                with_fraction(ib, b"", Some(&b[ib.len()..]))
-            } else if ib.len() < b.len() {
+                with_fraction(ib, b"", Some(fb))?
+            } else if !fb.is_empty() {
                 ib.to_vec()
             } else {
                 decrement_integer(ib)?
             }
         }
         (Some(a), None) => {
-            let ia = integer_part(a)?;
+            let (ia, fa) = split_key(a)?;
             match increment_integer(ia) {
                 Some(i) => i,
-                None => with_fraction(ia, &a[ia.len()..], None),
+                None => with_fraction(ia, fa, None)?,
             }
         }
         (Some(a), Some(b)) => {
-            let ia = integer_part(a)?;
-            let ib = integer_part(b)?;
+            let (ia, fa) = split_key(a)?;
+            let (ib, fb) = split_key(b)?;
             if ia == ib {
-                with_fraction(ia, &a[ia.len()..], Some(&b[ib.len()..]))
+                with_fraction(ia, fa, Some(fb))?
             } else {
                 let i = increment_integer(ia)?;
-                if i.as_slice() < b { i } else { with_fraction(ia, &a[ia.len()..], None) }
+                if i.as_slice() < b { i } else { with_fraction(ia, fa, None)? }
             }
         }
     };

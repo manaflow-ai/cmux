@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextDesignTokens
 
 /// The inks a hover card row draws in, resolved in the card's theme scope (Leo 2026-10-19: the
 /// Codex sidebar card and Claude desktop's PR list: "better symbolic depictions of things, maybe
@@ -304,11 +305,11 @@ public final class HoverCardAccessoryView: NSView {
         mark.path = nil
         switch accessory {
         case .dot?:
-            mark.path = CGPath(ellipseIn: CGRect(x: 0, y: midY - Self.dotSize / 2, width: Self.dotSize, height: Self.dotSize), transform: nil)
+            mark.path = CGPath.ellipse(in: CGRect(x: 0, y: midY - Self.dotSize / 2, width: Self.dotSize, height: Self.dotSize))
         case .ring(let fraction, _)?:
             let center = CGPoint(x: Self.ringSize / 2, y: midY)
             let radius = (Self.ringSize - Self.ringWidth) / 2
-            track.path = CGPath(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius), transform: nil)
+            track.path = CGPath.ellipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: 2 * radius, height: 2 * radius))
             let arc = CGMutablePath()
             // From the top, clockwise on screen (y grows up, so the angle falls).
             let start = CGFloat.pi / 2

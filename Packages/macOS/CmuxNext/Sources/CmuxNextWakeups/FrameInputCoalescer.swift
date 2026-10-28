@@ -105,6 +105,7 @@ public final class FrameInputCoalescer {
     public init(scheduler: FrameScheduler, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
         self.scheduler = scheduler
         // Precise: a one-frame deadline that took the 8 ms wake leeway would wait two or three frames.
+        // timer-class-allow: the coalescer's one-frame fallback, an unposted precise scheduler timer (p06 section A)
         fallback = DemandTimer(owner: "FrameInputCoalescer.fallback", policy: .precise, clock: clock, ledger: ledger)
     }
 

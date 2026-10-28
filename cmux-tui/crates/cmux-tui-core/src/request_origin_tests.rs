@@ -10,7 +10,7 @@ fn connection(role: HelloRole, verified_app: bool) -> ConnectionOrigin {
 }
 
 fn claim(origin: RequestOrigin, confirmation: Option<&str>) -> OriginClaim {
-    OriginClaim { claim: origin, confirmation: confirmation.map(str::to_string) }
+    OriginClaim { claim: origin, confirmation: confirmation.map(str::to_string), stream: None }
 }
 
 #[test]
@@ -152,6 +152,67 @@ fn a_relay_holds_a_bounded_number_of_tokens_and_drops_expired_ones() {
     assert_eq!(relay.confirmations[0].token, "t24");
     relay.store_confirmation("late".into(), ResourceOperation::SessionPing, "s".into(), 1_000, 200);
     assert_eq!(relay.confirmations.len(), 1);
+}
+
+fn streamed_relay() -> ConnectionOrigin {
+    ConnectionOrigin {
+        role: HelloRole::PageRelay,
+        page_streams: Some(PageStreams::default()),
+        ..ConnectionOrigin::default()
+    }
+}
+
+fn stream(id: u16) -> NonZeroU16 {
+    NonZeroU16::new(id).unwrap()
+}
+
+#[test]
+fn each_page_stream_holds_its_own_bounded_tokens() {
+    let mut relay = streamed_relay();
+    relay.open_page_stream(stream(1), "history".into(), 101, 4).unwrap();
+    relay.open_page_stream(stream(2), "apps".into(), 102, 4).unwrap();
+    let store = |relay: &mut ConnectionOrigin, token: String, endpoint: u64| {
+        relay.store_named_confirmation(token, "x".into(), "s".into(), Some(endpoint), 1_000, 0);
+    };
+    store(&mut relay, "apps-0".into(), 102);
+    // Stream 1's gestures fill only stream 1's share.
+    for index in 0..40 {
+        store(&mut relay, format!("history-{index}"), 101);
+    }
+    assert_eq!(relay.confirmations.len(), MAX_CONFIRMATIONS_PER_RELAY + 1);
+    assert!(relay.confirmations.iter().any(|held| held.token == "apps-0"));
+    // Closing a stream drops its tokens and only its tokens.
+    assert!(relay.close_page_stream(stream(1)));
+    assert!(!relay.close_page_stream(stream(1)));
+    assert_eq!(relay.confirmations.len(), 1);
+    assert!(!relay.has_page_stream(101));
+    assert!(relay.has_page_stream(102));
+}
+
+#[test]
+fn a_page_stream_never_changes_its_page() {
+    let mut relay = streamed_relay();
+    relay.open_page_stream(stream(1), "history".into(), 101, 2).unwrap();
+    assert_eq!(
+        relay.open_page_stream(stream(1), "apps".into(), 102, 2),
+        Err(OpenStreamRefusal::InUse)
+    );
+    relay.open_page_stream(stream(2), "apps".into(), 103, 2).unwrap();
+    assert_eq!(
+        relay.open_page_stream(stream(3), "apps".into(), 104, 2),
+        Err(OpenStreamRefusal::Limit)
+    );
+    let tagged = OriginClaim { stream: Some(stream(1)), ..claim(RequestOrigin::Page, None) };
+    assert_eq!(relay.request_page(Some(&tagged)), Some("history"));
+    // Not a streamed relay: no stream opens, and a stream tag is refused.
+    let mut main = connection(HelloRole::Main, true);
+    assert_eq!(
+        main.open_page_stream(stream(1), "history".into(), 105, 2),
+        Err(OpenStreamRefusal::NotStreamed)
+    );
+    let ping = ResourceOperation::SessionPing;
+    let refused = outcome(main.request_origin(ping, &json!({}), Some(&tagged), 0));
+    assert_eq!(refused["reason"], "page_stream_not_here");
 }
 
 #[test]

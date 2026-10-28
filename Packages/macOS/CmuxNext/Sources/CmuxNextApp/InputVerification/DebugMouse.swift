@@ -85,7 +85,8 @@ enum DebugMouse {
             events = [mouse(.mouseMoved, at: point, in: window, flags: flags, clicks: 0)]
         case "scroll":
             guard let event = scroll(at: point, in: window, dx: params["dx"]?.doubleValue ?? 0, dy: params["dy"]?.doubleValue ?? 0,
-                                     phase: params["phase"]?.stringValue, flags: flags) else {
+                                     phase: params["phase"]?.stringValue, momentum: params["momentum"]?.stringValue,
+                                     flags: flags) else {
                 return .object(["error": .string("could not synthesize events")])
             }
             guard event.window == nil else {
@@ -100,19 +101,28 @@ enum DebugMouse {
                   let target = frameView.hitTest(frameView.convert(baseLocation(point, in: window), from: nil)) else {
                 return .object(["error": .string("no view under the point")])
             }
-            // A real scroll first meets the layout's event monitor (strip and
-            // row scrolls); a windowless synthesized one skips monitors, so
-            // the layout under the point gets it first, then the view. Both run
-            // inside the app's input dispatch context with a latency slot, as
-            // sendEvent's do, so the scroll is timed to its frame the same way
-            // (`key.scroll_frame`, `input.latency` as automation).
+            // A real scroll first meets the input tap's observers and
+            // intercepts (a hover card's scroll, the layout's routing, the
+            // sidebar's space paging, SidebarSwipeFeed); a windowless
+            // synthesized one skips them, so it goes through the tap's observe
+            // and intercept stages (the layout's intercept passes a windowless
+            // scroll), then the layout under the point, then the view. All run inside the
+            // tap's dispatch scope and the app's input dispatch context with a
+            // latency slot, as sendEvent's do, so the scroll is timed to its
+            // frame the same way (`key.scroll_frame`, `input.latency` as automation).
             let root = sequence(first: target, next: \.superview).lazy.compactMap { $0 as? LayoutRootView }.first
             let movesPointer = params["hover"]?.boolValue != false
             let latencySlot = services.inputLatency.willDeliver(event, in: window, to: target)
-            let layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
-                if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
-                target.scrollWheel(with: event)
-                return false
+            let tap = services.inputTap
+            var layoutTook = false
+            tap.dispatching {
+                layoutTook = services.inputDispatch.dispatching(event) { () -> Bool in
+                    tap.deliverObserve(event)
+                    if tap.deliverIntercepts(event) == .consume { return false }
+                    if let root, root.handleScroll(event, locationInWindow: baseLocation(point, in: window)) { return true }
+                    target.scrollWheel(with: event)
+                    return false
+                }
             }
             if let latencySlot { services.inputLatency.didDispatch(latencySlot, layoutTookScroll: layoutTook) }
             if layoutTook {
@@ -208,22 +218,32 @@ enum DebugMouse {
     /// server addresses a real one.
     /// `phase` (`began`, `changed`, `ended`) makes it a trackpad gesture
     /// event: continuous (precise deltas) with that scroll phase (R99 swipes).
+    /// `momentum` (`began`, `changed`, `ended`) makes it a momentum tick after a
+    /// gesture: continuous, with that momentum phase and no scroll phase, as
+    /// AppKit delivers a trackpad's inertia (chromium-host-bench.py `route`).
     /// `flags` are the modifier keys held (NSEvent's flag bits are CGEvent's).
     private static func scroll(at point: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
-                               flags: NSEvent.ModifierFlags = []) -> NSEvent? {
-        scroll(atBase: baseLocation(point, in: window), in: window, dx: dx, dy: dy, phase: phase, flags: flags)
+                               momentum: String? = nil, flags: NSEvent.ModifierFlags = []) -> NSEvent? {
+        scroll(atBase: baseLocation(point, in: window), in: window, dx: dx, dy: dy, phase: phase, momentum: momentum, flags: flags)
     }
 
     /// ``scroll(at:in:dx:dy:phase:flags:)`` at `base`, a point in `window`'s base coordinates (a page
     /// window's, `scrollPage`).
     static func scroll(atBase base: NSPoint, in window: NSWindow, dx: Double, dy: Double, phase: String? = nil,
-                       flags: NSEvent.ModifierFlags = []) -> NSEvent? {
+                       momentum: String? = nil, flags: NSEvent.ModifierFlags = []) -> NSEvent? {
         guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
                                wheel1: Int32(dy.rounded()), wheel2: Int32(dx.rounded()), wheel3: 0) else { return nil }
         cg.flags = CGEventFlags(rawValue: UInt64(flags.rawValue))
         if let phase, let value = ["began": 1, "changed": 2, "ended": 4][phase] {
             cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
             cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: Int64(value))
+            cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: dx)
+            cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: dy)
+        }
+        // kCGMomentumScrollPhaseBegin, Continue and End.
+        if phase == nil, let momentum, let value = ["began": 1, "changed": 2, "ended": 3][momentum] {
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventMomentumPhase, value: Int64(value))
             cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis2, value: dx)
             cg.setDoubleValueField(.scrollWheelEventPointDeltaAxis1, value: dy)
         }

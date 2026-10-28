@@ -14,6 +14,7 @@
 //!   app's credit.
 
 use crate::panic_free::RecoverPoison;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::Shutdown;
@@ -93,7 +94,9 @@ impl RelaySet {
             emit,
             gone,
         };
-        std::thread::Builder::new().name("cmux-link-accept".into()).spawn(move || accept.run())?;
+        supervised::spawn("cmux-link-accept", Fatal, ShutdownBehavior::Continue, move || {
+            accept.run();
+        })?;
         self.relays.lock().recover_poison().insert(channel.to_owned(), relay);
         Ok(path)
     }
@@ -170,36 +173,48 @@ impl Accept {
 
     fn serve(&self, mut reader: UnixStream, mut writer: UnixStream) {
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
-        let _ = std::thread::Builder::new().name("cmux-link-out".into()).spawn(move || {
-            while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
-                if writer.write_all(&bytes).is_err() {
-                    break;
+        let _ = supervised::spawn_at(
+            "cmux-link-out",
+            crate::thread_qos::ThreadType::Interactive.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                while let Ok(bytes) = links.channels().wait_received(&channel, CHUNK) {
+                    if writer.write_all(&bytes).is_err() {
+                        break;
+                    }
+                    match links.channels().consumed(&channel, bytes.len() as u64) {
+                        Ok(Some(credit)) => emit(credit),
+                        Ok(None) => {}
+                        Err(_) => break,
+                    }
                 }
-                match links.channels().consumed(&channel, bytes.len() as u64) {
-                    Ok(Some(credit)) => emit(credit),
-                    Ok(None) => {}
-                    Err(_) => break,
-                }
-            }
-            let _ = writer.shutdown(Shutdown::Both);
-        });
+                let _ = writer.shutdown(Shutdown::Both);
+            },
+        );
         let (links, channel, emit) = (self.links.clone(), self.channel.clone(), self.emit.clone());
         let (stopped, gone) = (self.stopped.clone(), self.gone.clone());
-        let _ = std::thread::Builder::new().name("cmux-link-in".into()).spawn(move || {
-            let mut buf = vec![0u8; CHUNK];
-            loop {
-                let n = match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => n,
-                };
-                let read = buf.get(..n).unwrap_or(&buf);
-                if links.channels().send_all(&channel, read, &*emit).is_err() {
-                    break;
+        let _ = supervised::spawn_at(
+            "cmux-link-in",
+            crate::thread_qos::ThreadType::Interactive.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                let mut buf = vec![0u8; CHUNK];
+                loop {
+                    let n = match reader.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => n,
+                    };
+                    let read = buf.get(..n).unwrap_or(&buf);
+                    if links.channels().send_all(&channel, read, &*emit).is_err() {
+                        break;
+                    }
                 }
-            }
-            if !stopped.load(Ordering::SeqCst) {
-                gone(&channel);
-            }
-        });
+                if !stopped.load(Ordering::SeqCst) {
+                    gone(&channel);
+                }
+            },
+        );
     }
 }

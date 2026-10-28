@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextHibernation
 import CmuxNextResources
+import CmuxNextWakeups
 import Darwin
 import SwiftUI
 
@@ -24,6 +25,8 @@ final class TaskManagerPageService: InternalPageProvider {
     private let lineage: any ProcessLineage
     private let signaler: any ProcessSignaling
     private(set) var model: TaskManagerModel?
+    /// The app's deadline placer: the model's wait between samples.
+    private let deadlines: MainDeadlineScheduler
 
     /// Whether the page lists the discarded items and what they saved (`taskManagerMemorySaved`).
     let memorySaved: Bool
@@ -40,6 +43,7 @@ final class TaskManagerPageService: InternalPageProvider {
         self.source = AppTaskManagerSource(services: services, memorySaved: memorySaved)
         self.lineage = lineage
         self.signaler = signaler
+        deadlines = services.mainDeadlines
     }
 
     /// Shows the Task Manager tab of the active window, else opens one.
@@ -99,7 +103,8 @@ final class TaskManagerPageService: InternalPageProvider {
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
         let sampling = self.sampling
-        let model = self.model ?? TaskManagerModel(source: sampling.source, memorySaved: sampling.memorySaved, kill: { [weak services] key in
+        let model = self.model ?? TaskManagerModel(source: sampling.source, deadlines: deadlines,
+                                                   memorySaved: sampling.memorySaved, kill: { [weak services] key in
             // The row menu and the button run the action, which asks first.
             _ = services?.registry.perform("taskManager.killProcess",
                                            invocation: ActionInvocation(arguments: ["process": .string(key.description)]))

@@ -14,6 +14,7 @@ use crate::resource::{
     ContentPublicId, FrontendProjectionPublicId, PanePublicId, ScreenPublicId, TabPublicId,
     TerminalPublicId, WorkspacePublicId,
 };
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
 use crate::{Mux, panic_free::RecoverPoison};
 
@@ -393,17 +394,23 @@ impl JournalWriterCompletion {
 }
 
 struct JournalWriter {
-    thread: std::thread::JoinHandle<()>,
+    thread: supervised::SupervisedThread<()>,
     finished: Receiver<()>,
 }
 
 impl JournalWriter {
     fn spawn(name: &str, task: impl FnOnce() + Send + 'static) -> io::Result<Self> {
         let (finished_sender, finished) = sync_channel(1);
-        let thread = cmux_threads::spawn(name, writer_qos::WRITER_QOS, move || {
-            task();
-            let _ = finished_sender.send(());
-        })?;
+        let thread = supervised::spawn_at(
+            name,
+            writer_qos::WRITER_QOS,
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || {
+                task();
+                let _ = finished_sender.send(());
+            },
+        )?;
         Ok(Self { thread, finished })
     }
 
@@ -413,16 +420,24 @@ impl JournalWriter {
         completion: Arc<JournalWriterCompletion>,
     ) -> anyhow::Result<()> {
         let Self { thread, finished } = self;
-        if thread.thread().id() == std::thread::current().id() {
+        if thread.is_current() {
             let reaper_completion = completion.clone();
             let reaper = "mux-session-journal-writer-reaper";
-            let spawn = cmux_threads::spawn(reaper, cmux_threads::ThreadQos::Utility, move || {
-                let result = waits::join(thread).map_err(|_| {
-                    eprintln!("cmux-tui: session journal writer panicked during self-join handoff");
-                    "session journal writer panicked during self-join handoff".to_string()
-                });
-                reaper_completion.finish(result);
-            });
+            let spawn = supervised::spawn_at(
+                reaper,
+                cmux_threads::ThreadQos::Utility,
+                Fatal,
+                ShutdownBehavior::Continue,
+                move || {
+                    let result = thread.join().map_err(|_| {
+                        eprintln!(
+                            "cmux-tui: session journal writer panicked during self-join handoff"
+                        );
+                        "session journal writer panicked during self-join handoff".to_string()
+                    });
+                    reaper_completion.finish(result);
+                },
+            );
             if let Err(error) = spawn {
                 let error =
                     format!("hand off session journal writer self-join to reaper thread: {error}");
@@ -433,7 +448,8 @@ impl JournalWriter {
         }
         let wait = deadline.saturating_duration_since(Instant::now());
         let result = match waits::recv_timeout(&finished, wait) {
-            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => waits::join(thread)
+            Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => thread
+                .join()
                 .map_err(|_| "session journal writer panicked during shutdown".to_string()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
                 "session journal writer did not stop within {} ms; an admitted commit remains \
@@ -787,7 +803,7 @@ impl JournalIngressSender {
             matches!(
                 &*owner,
                 JournalWriterOwner::Running(writer)
-                    if writer.thread.thread().id() == std::thread::current().id()
+                    if writer.thread.is_current()
             )
         })
     }
@@ -1093,7 +1109,15 @@ pub(crate) fn start(
     Ok(())
 }
 
+/// How long one batch commit may run before the release hang watch reports
+/// it. The retry waits between attempts are outside the scope.
+const JOURNAL_BATCH_HANG_DEADLINE: Duration = Duration::from_secs(5);
+
 fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
+    let _hang_watch = cmux_hang_watch::register_thread(
+        cmux_hang_watch::ThreadKind::Lane,
+        "mux-session-journal-writer",
+    );
     loop {
         let Some(batch) = receive_batch(&receivers) else { return };
         let mut pending = VecDeque::from([batch]);
@@ -1142,12 +1166,14 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                 // A commit busy past its hang tier is written to the hang
                 // log with this thread's stack (request_watchdog.rs).
                 let hang = mux.request_watchdog.watch(crate::server::WatchKind::JournalWriter, 0);
+                let watched = cmux_hang_watch::watch(JOURNAL_BATCH_HANG_DEADLINE);
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(watched);
                 drop(hang);
                 match committed {
                     Ok(commits) => {
@@ -2327,8 +2353,10 @@ mod tests {
             release_gate_path.as_os_str(),
         ))
         .unwrap();
+        // SAFETY: `release_gate_path_c` is a NUL-terminated CString that outlives the call.
+        let made_release_gate = unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_gate_path_c.as_ptr(), 0o600) },
+            made_release_gate,
             0,
             "failed to create descendant release gate: {}",
             io::Error::last_os_error()
@@ -2344,8 +2372,11 @@ mod tests {
             std::os::unix::ffi::OsStrExt::as_bytes(release_ready_signal_path.as_os_str()),
         )
         .unwrap();
+        // SAFETY: `release_ready_signal_path_c` is a NUL-terminated CString that outlives the call.
+        let made_ready_signal =
+            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) };
         assert_eq!(
-            unsafe { libc::mkfifo(release_ready_signal_path_c.as_ptr(), 0o600) },
+            made_ready_signal,
             0,
             "failed to create descendant readiness signal: {}",
             io::Error::last_os_error()

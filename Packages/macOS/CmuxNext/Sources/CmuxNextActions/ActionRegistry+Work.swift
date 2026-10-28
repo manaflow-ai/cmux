@@ -20,6 +20,9 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
     /// (`screenshot.unavailable`), with `message` as its reason. Nil for the
     /// default mapping (``refusal``, a timeout, or `daemon_error`).
     public var code: String?
+    /// Typed members the control socket adds to the data of a ``code`` failure, beside its `action` and
+    /// `reason` (for example `deferral`, a deferred wake's raw reason).
+    public var details: [String: String] = [:]
 
     public init(_ message: String, mayHaveApplied: Bool = false, terminalMayAppear: Bool = false) {
         self.message = message
@@ -33,10 +36,11 @@ public struct ActionWorkFailure: Error, Sendable, Hashable, CustomStringConverti
         self.refusal = refusal
     }
 
-    /// A failure the control socket answers with error `code` and `reason`.
-    public init(code: String, reason: String) {
+    /// A failure the control socket answers with error `code` and `reason`, plus `details` in its data.
+    public init(code: String, reason: String, details: [String: String] = [:]) {
         self.init(reason)
         self.code = code
+        self.details = details
     }
 
     public init(stringLiteral value: String) {

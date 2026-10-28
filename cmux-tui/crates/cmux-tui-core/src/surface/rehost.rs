@@ -25,6 +25,8 @@ use std::sync::PoisonError;
 
 use super::*;
 #[cfg(unix)]
+use crate::supervised::{self, Fatal, ShutdownBehavior};
+#[cfg(unix)]
 use crate::terminal_host_runtime::TerminalHostAdoption;
 use crate::terminal_host_runtime::{HostAttachment, TerminalHostIdentity, TerminalHostRecord};
 
@@ -58,7 +60,7 @@ pub(super) fn request_custody(surface: &Arc<Surface>) {
     let surface = Arc::downgrade(surface);
     // The name is unique and within Linux's 15-byte thread name, so a
     // boundary test sees in `/proc` when the custody exchange has finished.
-    let _ = std::thread::Builder::new().name("pty-custody".into()).spawn(move || {
+    let _ = supervised::spawn("pty-custody", Fatal, ShutdownBehavior::Continue, move || {
         let discovery = {
             let Some(surface) = surface.upgrade() else { return };
             let Some(pty) = surface.as_pty() else { return };
@@ -209,6 +211,7 @@ fn replace_host(
             root,
             adoption,
             Some(program_status),
+            mux.host_reaper(),
         ) {
             Ok(attachment) => attachment,
             Err(error) => {
@@ -222,12 +225,14 @@ fn replace_host(
     if !record.workspace_key.is_empty() {
         let _ = attachment.persist_workspace(&record.workspace_key);
     }
+    let panic_log =
+        mux.surface_options.lock().unwrap_or_else(PoisonError::into_inner).host_panic_log.clone();
     crate::terminal_loss_log::record_host_replaced(
         record_path,
         &identity.terminal_id,
         &identity.incarnation,
-        record.host_pid,
-        attachment.record.host_pid,
+        (record.host_pid, attachment.record.host_pid),
+        panic_log.as_ref(),
     );
     mux.note_holder_exit();
     attachment.keep_pty_custody(custody);

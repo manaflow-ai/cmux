@@ -77,6 +77,7 @@ pub fn serve(listener: UnixListener, host: Arc<Host>) -> io::Result<()> {
             continue;
         }
         let host = host.clone();
+        // supervise-allow: one agent connection; a panic ends that connection only (its socket closes).
         let _ =
             std::thread::Builder::new().name("cmux-browser-host-conn".into()).spawn(move || {
                 let _ = handle(stream, &host);
@@ -99,6 +100,7 @@ pub fn inherited_listener(fd: std::os::fd::RawFd) -> io::Result<UnixListener> {
     }
     // SAFETY: fstat(2) on an fd number with a zeroed out buffer.
     let mut stat: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: fstat writes one stat into `stat`, a live local; a closed fd fails with EBADF.
     if unsafe { libc::fstat(fd, &mut stat) } != 0 || (stat.st_mode & libc::S_IFMT) != libc::S_IFSOCK
     {
         return Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{fd}: not a socket")));
@@ -178,6 +180,7 @@ pub fn serve_providers_notifying(
         }
         let (secret, slot, agent_bundle) = (secret.clone(), slot.clone(), agent_bundle.clone());
         let on_change = on_change.clone();
+        // supervise-allow: one provider handshake; a panic ends that connection only (its socket closes) and the app connects again.
         let _ = std::thread::Builder::new().name("cmux-browser-host-provider-accept".into()).spawn(
             move || {
                 let _ = accept_provider(stream, &secret, &slot, &agent_bundle, on_change);

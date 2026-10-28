@@ -1,11 +1,16 @@
 import CmuxNextCompat
 import CmuxNextControl
+import CmuxNextHibernation
 import CmuxNextMemory
 import CmuxNextSettings
 
 /// The memory methods of the control socket:
 ///
 /// - `debug.memory` (every build, read-only): ``DebugMemoryControl``.
+/// - `debug.discards` (every build, read-only): cmux's chrome://discards, the nine content kinds and
+///   one row per content the discard planner's owners report (`ContentDiscardReport.report`). Rows
+///   carry tab keys only, no URL, title or path, so release builds serve it, as Chrome ships
+///   chrome://discards.
 /// - `debug.hibernation.pressure` (DEBUG builds): sets the memory coordinator's pressure override, which
 ///   the coordinator hands to browser tab hibernation (a registered `MemoryLevelConsumer`), so the fleet
 ///   benches (scripts/measure/tab-hibernation.sh) measure pressure without `sudo memory_pressure`.
@@ -17,10 +22,13 @@ import CmuxNextSettings
 enum DebugHibernationControl {
     static func methods(_ services: AppServices) -> [ControlMethod] {
         let memory = DebugMemoryControl(services: services, budget: .forThisMac(gpuResidentAvailable: services.cache.gpuResidency != nil))
+        let discards = ControlMethod.mainActor("debug.discards") { [weak services] call in
+            .value((services?.cache.hibernation?.discards ?? ContentDiscardReport()).report(call.params, now: .now))
+        }.servingRelease()
         #if DEBUG || CMUX_BENCH_HOOKS
-        return [memory.method, pressureMethod(services, history: memory.history, histograms: memory.histograms)]
+        return [memory.method, discards, pressureMethod(services, history: memory.history, histograms: memory.histograms)]
         #else
-        return [memory.method]
+        return [memory.method, discards]
         #endif
     }
 

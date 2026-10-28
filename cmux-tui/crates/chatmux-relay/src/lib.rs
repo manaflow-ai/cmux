@@ -6,6 +6,13 @@
 
 pub mod actions;
 pub mod autostart;
+// The relay's only callers of the std calls the lab's disallowed-methods list
+// (cmux-tui/lab/clippy/clippy.toml) names without a cmux_blocking::fs wrapper.
+#[allow(
+    clippy::disallowed_methods,
+    reason = "each call runs inside cmux_blocking::scoped_blocking_call, as cmux-tui/lab/clippy/clippy.toml names it"
+)]
+mod blocking_fs;
 pub mod cli;
 pub mod config;
 pub mod control;
@@ -15,6 +22,9 @@ pub mod error;
 pub mod fingerprint;
 pub mod journal_forwarder;
 pub mod pairing;
+#[cfg(test)]
+mod panic_deny_tests;
+mod panic_free;
 mod preview_access;
 pub mod preview_proxy;
 pub mod prompt;

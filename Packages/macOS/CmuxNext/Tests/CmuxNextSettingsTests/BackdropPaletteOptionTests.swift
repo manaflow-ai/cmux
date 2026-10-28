@@ -1,4 +1,4 @@
-import CmuxNextDesign
+import CmuxNextAppearance
 @testable import CmuxNextSettings
 import Testing
 

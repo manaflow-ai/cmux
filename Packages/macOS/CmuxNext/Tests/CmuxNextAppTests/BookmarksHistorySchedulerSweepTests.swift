@@ -267,12 +267,12 @@ private final class CountingBarSource: BookmarksBarSource {
 private final class SweepScheduler {
     let input: SweepInput
     let work: MainWorkScheduler
-    private let clock: SweepClock
+    private let clock: BookmarksSweepClock
     private let keeper: FrameClient
     private var timestamp: Double = 0
 
     init() {
-        let input = SweepInput(), clock = SweepClock()
+        let input = SweepInput(), clock = BookmarksSweepClock()
         self.input = input
         self.clock = clock
         work = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: clock.read)) { _ in SweepLink() }
@@ -298,7 +298,7 @@ private final class SweepScheduler {
 }
 
 @MainActor
-private final class SweepClock {
+private final class BookmarksSweepClock {
     var now: UInt64 = 1_000_000_000
     // Strong: the scheduler's stall timer may read it after the test returned.
     var read: () -> UInt64 { { [self] in self.now } }

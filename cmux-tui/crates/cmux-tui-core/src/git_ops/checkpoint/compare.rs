@@ -25,6 +25,7 @@ use super::{Target, not_found, target, writer};
 use crate::Mux;
 use crate::git_ops::diff;
 use crate::git_ops::write_run::{Bound, WriteGit};
+use crate::panic_free::JsonFields;
 use crate::resource::ResourceError;
 use crate::resource_router::ParsedResourceRequest;
 
@@ -39,7 +40,7 @@ pub(super) fn diff(
 ) -> Result<Value, ResourceError> {
     let from_id = request.fields.get("from").and_then(Value::as_str).unwrap_or_default();
     let to_id = request.fields.get("to").and_then(Value::as_str);
-    let Some(target) = target(mux, store, request, OPERATION, false)? else {
+    let Some(target) = target(mux, store, request, OPERATION)? else {
         return Err(not_found(from_id));
     };
     let load = |id: &str| {
@@ -71,12 +72,12 @@ pub(super) fn diff(
         }
     };
     drop(scratch);
-    value["from"] = json!(from_id);
+    value.insert("from", json!(from_id));
     // A side that left eligible files out (too large, over the file limit)
     // cannot show their changes, so the comparison is incomplete.
-    value["complete"] = json!(from_complete && to_complete);
+    value.insert("complete", json!(from_complete && to_complete));
     if let Some(to_id) = to_id {
-        value["to"] = json!(to_id);
+        value.insert("to", json!(to_id));
     }
     Ok(value)
 }

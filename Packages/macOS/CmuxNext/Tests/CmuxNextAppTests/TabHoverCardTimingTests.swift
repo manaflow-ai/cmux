@@ -3,6 +3,7 @@ import AppKit
 import CmuxNextResources
 @testable import CmuxNextTabs
 import Testing
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 
 /// Leo 2026-10-14: tab previews behave like a browser's. A card opens after the hover card delay
@@ -67,7 +68,7 @@ import CmuxNextWakeupsTestSupport
         strip.frame = NSRect(x: 0, y: 300 - TabStripView.preferredHeight, width: 700, height: TabStripView.preferredHeight)
         content.addSubview(strip)
         strip.hoverCards = coordinator
-        if let source { strip.hoverCard.resources.setSource(source) }
+        if let source { strip.setResourceSource(source, deadlines: MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) }
         window.orderFrontRegardless()
         strip.layoutSubtreeIfNeeded()
         return Strip(strip: strip, window: window, coordinator: coordinator, clock: clock)
