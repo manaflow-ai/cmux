@@ -563,6 +563,9 @@ final class TabContentCache {
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
+        // A closed tab is never shown again: its kept last frame (one full-resolution IOSurface and its
+        // HiddenFrameLRU entry) goes with it, not at the warm set's bound (cleanup.md, audit batch 7 A1).
+        lastFrames.remove(key)
         fontScaleWaits[key] = nil
         goneTabs.forget(key)
         browsers.removeValue(forKey: key)?.close()

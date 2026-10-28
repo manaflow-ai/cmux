@@ -7,7 +7,7 @@ public import CmuxNextCompat
 /// at critical). A change of the bound frees nothing at once: it bounds the next frame kept, which
 /// drops the oldest past it. Each frame is one full-resolution drawable (about 20 MB for a
 /// full-screen Retina pane), volatile while it waits, so memory pressure takes its pages first. A
-/// closed tab's frame is never asked for again: it ages out under the bound, volatile meanwhile.
+/// closed tab's frame is never asked for again, so the tab's close removes it (`TabContentCache.release`).
 ///
 /// ## Why this differs from Chrome's FrameEvictionManager
 ///
