@@ -728,6 +728,7 @@ const liveLineClear = async (ctx: PlayContext) => {
           playbackRate: animation.playbackRate,
           currentTime: animation.currentTime,
           duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
         };
       });
     const check = checkRunningLineLoops(loops);
@@ -763,6 +764,7 @@ const runningLineStill =
           playbackRate: animation.playbackRate,
           currentTime: animation.currentTime,
           duration: Number(effect?.getTiming().duration),
+          progress: effect?.getComputedTiming().progress ?? null,
         };
       }),
     );

@@ -18,7 +18,9 @@ const pair = () => {
 const loop = (
   name: string,
   target: Element | null,
-  overrides: Partial<Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration">> = {},
+  overrides: Partial<
+    Pick<RunningLineLoop, "playState" | "playbackRate" | "currentTime" | "duration" | "progress">
+  > = {},
 ): RunningLineLoop => ({
   name,
   target,
@@ -26,6 +28,7 @@ const loop = (
   playbackRate: 1,
   currentTime: 1,
   duration: 2_400,
+  progress: 0.5,
   ...overrides,
 });
 
@@ -48,9 +51,15 @@ test("a duplicate loop on one layer is still a running-line failure", () => {
   expect(hasCompleteRunningLineShimmer(check)).toBe(false);
 });
 
-test("paused, zero-rate, and stalled layers are not treated as shimmer", () => {
+test("paused, zero-rate, stalled, and out-of-range layers are not treated as shimmer", () => {
   const { band, lit } = pair();
-  for (const overrides of [{ playState: "paused" as const }, { playbackRate: 0 }, { currentTime: null }]) {
+  for (const overrides of [
+    { playState: "paused" as const },
+    { playbackRate: 0 },
+    { currentTime: null },
+    { progress: -0.1 },
+    { progress: 1.1 },
+  ]) {
     const check = checkRunningLineLoops([loop("cmux-shimmer-band", band, overrides), loop("cmux-shimmer-lit", lit)]);
     expect(hasCompleteRunningLineShimmer(check)).toBe(false);
   }

@@ -12,6 +12,7 @@ export type RunningLineLoop = {
   playbackRate: number;
   currentTime: CSSNumberish | null;
   duration: number;
+  progress: number | null;
 };
 
 export type RunningLineLoopCheck = {
@@ -28,7 +29,11 @@ export function checkRunningLineLoops(loops: readonly RunningLineLoop[]): Runnin
       Number.isFinite(loop.duration) &&
       loop.duration > 0 &&
       typeof loop.currentTime === "number" &&
-      Number.isFinite(loop.currentTime),
+      Number.isFinite(loop.currentTime) &&
+      typeof loop.progress === "number" &&
+      Number.isFinite(loop.progress) &&
+      loop.progress >= 0 &&
+      loop.progress <= 1,
   );
   const shimmer = active.filter((loop) => {
     if (loop.name === "cmux-shimmer-band") return loop.target?.classList.contains("cv-shimmer__band") ?? false;
