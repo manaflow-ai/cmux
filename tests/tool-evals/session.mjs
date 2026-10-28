@@ -15,6 +15,14 @@ import { columnsOf } from "../agent-evals/snapshot.mjs";
 const APP = JSON.parse(gunzipSync(readFileSync(new URL("./templates/app.json.gz", import.meta.url))).toString());
 
 const pexec = promisify(execFile);
+/** The tools the hybrid surface lists directly: the common-tool sheet of cmux_exec's description. */
+export const CORE_TOOLS = [
+  "workspace_list", "workspace_get", "pane_list", "tab_list", "terminal_list", "terminal_get",
+  "tab_create_terminal", "pane_split", "terminal_input_write", "terminal_wait", "terminal_screen_read",
+  "terminal_history_read", "tab_rename", "tab_close", "tab_focus", "workspace_rename", "tab_group_create",
+  "workspace_group_create", "workspace_place", "workspace_status_set", "notification_create",
+];
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export async function openSession({ cli, name, dir, allTools, setup = [], noApp = false }) {
@@ -49,6 +57,7 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     rmSync(work, { recursive: true, force: true });
   };
   let mcp = null;
+  let directMcp = null;
   let app = null;
   try {
     let ready = false;
@@ -68,10 +77,25 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
     // A terminal reaches its session through CMUX_TUI_SOCKET, not --session (which turns
     // `current` into the focused object).
     const agentEnv = { ...env, CMUX_TUI_SOCKET: socket, CMUX_TUI_TERMINAL_ID: origin.terminal_id };
-    mcp = new McpClient(cli, ["mcp", "serve", ...(allTools ? ["--all-tools"] : [])], agentEnv, work);
-    const init = await mcp.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cmux-tool-evals", version: "1" } });
-    mcp.notify("notifications/initialized");
-    const { tools } = await mcp.request("tools/list", {});
+    const start = async (args) => {
+      const client = new McpClient(cli, ["mcp", "serve", ...args], agentEnv, work);
+      const init = await client.request("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "cmux-tool-evals", version: "1" } });
+      client.notify("notifications/initialized");
+      return { client, init, tools: (await client.request("tools/list", {})).tools };
+    };
+    // `allTools`: true lists every tool; "hybrid" lists cmux_exec plus the CORE tools directly
+    // (a second server with --all-tools answers those).
+    const main = await start(allTools === true ? ["--all-tools"] : []);
+    mcp = main.client;
+    const init = main.init;
+    let tools = main.tools;
+    if (allTools === "hybrid") {
+      const direct = await start(["--all-tools"]);
+      directMcp = direct.client;
+      tools = [...tools, ...direct.tools.filter((t) => CORE_TOOLS.includes(t.name))];
+    }
+    /** The server that answers a tool. */
+    const route = (name) => (directMcp && name !== "cmux_exec" && name !== "cmux_docs" ? directMcp : mcp);
 
     /** Runs one agent shell command whose first word is `cmux`, against this session. */
     const shell = async (argv) => {
@@ -85,12 +109,14 @@ export async function openSession({ cli, name, dir, allTools, setup = [], noApp 
 
     const close = async () => {
       mcp.close();
+      directMcp?.close();
       app?.close();
       await stopDaemon();
     };
-    return { name, env: agentEnv, socket, cmux, mcp, tools, instructions: init.instructions ?? "", origin, aliases, shell, work, close };
+    return { name, env: agentEnv, socket, cmux, mcp, route, tools, instructions: init.instructions ?? "", origin, aliases, shell, work, close };
   } catch (error) {
     mcp?.close();
+    directMcp?.close();
     app?.close();
     await stopDaemon();
     throw error;

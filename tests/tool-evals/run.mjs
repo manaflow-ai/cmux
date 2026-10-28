@@ -188,7 +188,7 @@ async function answerTool(sample, use) {
   }
   if (name.startsWith(PREFIX)) {
     const tool = name.slice(PREFIX.length);
-    const r = await sample.session.mcp.request("tools/call", { name: tool, arguments: input }).catch((e) => ({ isError: true, content: [{ type: "text", text: String(e.message) }] }));
+    const r = await sample.session.route(tool).request("tools/call", { name: tool, arguments: input }).catch((e) => ({ isError: true, content: [{ type: "text", text: String(e.message) }] }));
     const text = (r.content ?? []).map((c) => c.text ?? "").join("\n");
     const sc = r.structuredContent;
     if (tool === "cmux_exec") {
@@ -348,7 +348,7 @@ async function runSample(testCase, surface, index) {
   const dir = join(OUT, surface, testCase.id, `s${index}`);
   mkdirSync(dir, { recursive: true });
   const name = `te${process.pid}-${(jobSeq++).toString(36)}`;
-  const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all", setup: testCase.setup ?? [], noApp: !!testCase.noApp });
+  const session = await openSession({ cli: CLI, name, dir, allTools: surface === "all" ? true : surface === "hybrid" ? "hybrid" : false, setup: testCase.setup ?? [], noApp: !!testCase.noApp });
   const sample = { dir, session, ops: [], shell: [], scripts: [], cliCalls: [], docsCalls: 0, text: "", steps: 0, usage: { input: 0, output: 0, cacheWrite: 0, cacheRead: 0 }, firstInput: 0 };
   try {
     for (const [file, body] of Object.entries(testCase.files ?? {})) {
