@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// A pretend staged update for the Update Ready card (DEV and NIGHTLY; nothing downloads or
@@ -8,6 +9,9 @@ import Foundation
 /// verifiable) or `debug.updater {action: "simulate"}` with real published notes
 /// (``simulate()``): the newest published build's that has highlights, else this build's own,
 /// else the sample notes when offline with nothing cached.
+///
+/// The switch is followed by a `visible` ``ServiceObservation`` on the updater's main-thread
+/// scheduler; the notes are read on a nonisolated task and staged as one `visible` task there.
 @MainActor
 public final class UpdateSimulation {
     /// What a sample stage shows by default, and the pretend version of a simulation whose notes
@@ -15,8 +19,10 @@ public final class UpdateSimulation {
     public nonisolated static let sampleVersion = "1.99.0"
 
     private weak var updater: UpdaterService?
-    private var observation: Task<Void, Never>?
+    private var observation: ServiceObservation<Bool>?
     private var reading: Task<Void, Never>?
+    /// Bumped by every ``simulate()`` and ``end()``, so notes read for an older one stage nothing.
+    private var readings: UInt64 = 0
 
     public init(updater: UpdaterService) {
         self.updater = updater
@@ -37,16 +43,20 @@ public final class UpdateSimulation {
     /// simulation alive. A build without Debug Settings never turns it on.
     public func follow(_ isOn: @escaping @MainActor @Sendable () -> Bool) {
         observation?.cancel()
-        observation = Task {
-            var last = false
-            for await on in ObservationStream(isOn) where on != last {
-                last = on
-                guard self.updater != nil else { return }
-                if on {
-                    self.simulate()
-                } else {
-                    self.end()
-                }
+        guard let updater else { return }
+        var last = false
+        // The apply holds this simulation: the observation is its only owner.
+        observation = ServiceObservation(.visible, owner: "UpdateSimulation.switch", on: updater.mainWork, read: isOn) { on in
+            guard on != last else { return }
+            last = on
+            guard self.updater != nil else {
+                self.observation?.cancel()
+                return
+            }
+            if on {
+                self.simulate()
+            } else {
+                self.end()
             }
         }
     }
@@ -56,14 +66,20 @@ public final class UpdateSimulation {
     @discardableResult
     public func simulate() -> Bool {
         reading?.cancel()
+        readings &+= 1
         guard let updater else { return false }
         let store = updater.changelogNotes ?? updater.releaseNotes
-        let running = updater.identity.build
+        let running = updater.identity.build, mainWork = updater.mainWork, generation = readings
         // Held strongly until the notes are read: a one-shot simulation has no other owner.
-        reading = Task {
+        let land: @MainActor @Sendable (ReleaseNotes?) -> Void = { notes in
+            guard self.readings == generation else { return }
+            self.stage(with: notes)
+        }
+        // task-owner: one read of the notes off main; end() cancels it
+        reading = Task { @concurrent in
             let notes = await Self.notes(store: store, runningBuild: running)
             guard !Task.isCancelled else { return }
-            self.stage(with: notes)
+            mainWork.postFromAnyThread(.visible, owner: "UpdateSimulation.stage") { land(notes) }
         }
         return store != nil
     }
@@ -72,6 +88,7 @@ public final class UpdateSimulation {
     public func end() {
         reading?.cancel()
         reading = nil
+        readings &+= 1
         updater?.debugStage(version: nil, notes: nil)
     }
 
@@ -88,7 +105,7 @@ public final class UpdateSimulation {
 
     /// The newest published notes with highlights, else the running build's own; nil offline
     /// with nothing cached.
-    static func notes(store: ReleaseNotesStore?, runningBuild: String) async -> ReleaseNotes? {
+    @concurrent nonisolated static func notes(store: ReleaseNotesStore?, runningBuild: String) async -> ReleaseNotes? {
         guard let store else { return nil }
         if let build = build(from: await store.index()), let notes = await store.notes(for: build) { return notes }
         return runningBuild.isEmpty ? nil : await store.notes(for: runningBuild)

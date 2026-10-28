@@ -172,7 +172,8 @@ current-version: 7
 compatibility-version: 7
 ...
 EOF
-  # Apple framework stubs (CoreFoundation, CFNetwork, Security, CoreServices) from our own binaries' imports.
+  # Apple framework and libobjc stubs (CoreFoundation, CFNetwork, Foundation, IOKit, Security,
+  # CoreServices, libobjc) from our own binaries' imports.
   python3 "$repo_root/scripts/ci/macos_stubs.py" install "$STUBS_DIR" "$SYSROOT"
   # The SDK version clang records in LC_BUILD_VERSION; the caller passes the Mac build's.
   cat > "$SYSROOT/SDKSettings.json" <<EOF

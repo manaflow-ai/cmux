@@ -155,11 +155,16 @@ pub(super) fn serve_remote_entry_with(
     let shutdown = Arc::new(AtomicBool::new(false));
     let thread_shutdown = shutdown.clone();
     let thread_mux = mux.clone();
-    let thread =
-        supervised::spawn("mux-remote-entry", Fatal, ShutdownBehavior::Continue, move || {
+    let thread = supervised::spawn_at(
+        "mux-remote-entry",
+        listen::ACCEPT_THREAD_QOS,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             let config = EntryConfig { entry_fs, record_checks };
             accept_loop(&thread_mux, &listener, &thread_shutdown, &verifier, &gate, config);
-        })?;
+        },
+    )?;
     Ok(RemoteEntryServer {
         path: path.to_path_buf(),
         identity,
@@ -202,15 +207,34 @@ fn accept_loop(
         let Some(permit) = claim_connection(&connections) else { continue };
         let (mux, verifier, gate, render_service) =
             (mux.clone(), verifier.clone(), gate.clone(), render_service.clone());
-        let _ = spawn_connection_reader("mux-remote-conn", move || {
-            serve_remote_connection(mux, stream, &verifier, gate, render_service, permit, config);
-        });
+        let setup_mux = mux.clone();
+        let _ = spawn_connection_reader(
+            "mux-remote-conn",
+            move || {
+                let peer = origin_gate::AcceptedPeer::resolve(&setup_mux, &stream);
+                (stream, peer)
+            },
+            move |(stream, peer)| {
+                serve_remote_connection(
+                    mux,
+                    stream,
+                    peer,
+                    &verifier,
+                    gate,
+                    render_service,
+                    permit,
+                    config,
+                );
+            },
+        );
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn serve_remote_connection(
     mux: Arc<Mux>,
     stream: UnixStream,
+    peer_identity: origin_gate::AcceptedPeer,
     verifier: &LinkVerifier,
     gate: Arc<dyn RemoteGate>,
     render_service: Arc<RenderService>,
@@ -255,6 +279,7 @@ fn serve_remote_connection(
     serve_line_connection(
         mux,
         stream,
+        peer_identity,
         render_service,
         Some(permit),
         ClientTransport::Remote,

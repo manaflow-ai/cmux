@@ -432,8 +432,11 @@ pub(super) fn start_terminal_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = supervised::spawn(
+    // A control stream, not an echo-path thread: it waits for the attach to
+    // commit, and echo-path threads disallow blocking.
+    let spawn = supervised::spawn_at(
         "mux-resource-terminal-attach",
+        crate::thread_qos::ThreadType::Interactive.qos(),
         Fatal,
         ShutdownBehavior::Continue,
         move || {
@@ -664,8 +667,9 @@ pub(super) fn start_browser_resource_attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = supervised::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-browser-attach",
+        crate::thread_qos::ThreadType::Interactive.qos(),
         Fatal,
         ShutdownBehavior::Continue,
         move || {
@@ -852,8 +856,9 @@ pub(super) fn start_sidebar_resource_attach(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = supervised::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-sidebar-attach",
+        crate::thread_qos::ThreadType::Interactive.qos(),
         Fatal,
         ShutdownBehavior::Continue,
         move || {

@@ -2,7 +2,6 @@
 //! remain unsupported: an actor JSON field is never execution authority.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::path::Path;
 use std::time::Duration;
 
@@ -153,16 +152,16 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let socket = mux.control_clients.agent_sessions.socket();
     let output = writer.clone();
     let request_id = id.clone();
-    let spawned =
-        supervised::spawn("mux-agent-cli-job", Fatal, ShutdownBehavior::Continue, move || {
-            let cli = params.cli;
-            let result = owner.create_agent_cli_update_job(&cli, &mutation, || {
-                prepare(socket.as_deref().ok_or(Failure::Unavailable)?, &cli)
-            });
-            drop(slot);
-            reply(&output, request_id, result);
+    // The job's preparation waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let cli = params.cli;
+        let result = owner.create_agent_cli_update_job(&cli, &mutation, || {
+            prepare(socket.as_deref().ok_or(Failure::Unavailable)?, &cli)
         });
-    if spawned.is_err() {
+        drop(slot);
+        reply(&output, request_id, result);
+    });
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy.into())));
     }
     Some(true)

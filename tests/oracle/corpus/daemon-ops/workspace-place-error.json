@@ -59,19 +59,23 @@
       "args": {
         "method": "workspace.place",
         "params": {
-          "group": ""
+          "group": "oracle-missing-group"
         },
         "idempotencyKey": "workspace-place-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "resource.not_found",
+        "errorDetails": {
+          "scope": "workspace_group",
+          "id": "oracle-missing-group"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "group breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a group id that names no workspace group (state/personal.rs Place, state_not_found)"
     }
   ],
   "invariants": [

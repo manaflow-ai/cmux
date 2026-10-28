@@ -264,11 +264,14 @@ pub(super) fn start_session_event_stream(
     let outbound = start.outbound.clone();
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
-    let spawn = supervised::spawn(
+    let spawn = supervised::spawn_at(
         "mux-resource-session-events",
+        crate::thread_qos::ThreadType::Interactive.qos(),
         Fatal,
         ShutdownBehavior::Continue,
-        move || run_session_event_stream(&worker_mux, client, &worker_writer, start),
+        move || {
+            run_session_event_stream(&worker_mux, client, &worker_writer, start);
+        },
     );
     if spawn.is_err() {
         let _ = mux.control_clients.take_resource_stream(client, &stream_id);

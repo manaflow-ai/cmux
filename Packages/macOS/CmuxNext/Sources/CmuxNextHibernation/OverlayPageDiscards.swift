@@ -83,6 +83,6 @@ extension OverlayPageDiscards: ContentDiscardHost {
     }
 
     package func commitDiscard(_ key: String) {
-        if page(key)?.releaseNow() == true { scheduler.noteDiscarded(key) }
+        if page(key)?.releaseNow() == true { scheduler.noteDiscarded(key) } else { scheduler.noteDiscardFailed(key) }
     }
 }

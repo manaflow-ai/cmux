@@ -47,6 +47,7 @@ use cmux_threads::checked::fs as files;
 use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
 use std::time::{Duration, Instant};
 
@@ -57,6 +58,8 @@ use crate::conversation_store::ConversationEvent;
 use crate::mux::Mux;
 use crate::supervised::{self, Fatal, ShutdownBehavior};
 
+#[cfg(unix)]
+mod brain_exit;
 mod home_files;
 use home_files::{lock_held, remove_brain_home, remove_old_acpmux_homes, stop_lock_holder};
 
@@ -100,6 +103,9 @@ pub struct AppValues {
     pub acpmux_bin: Option<PathBuf>,
     /// `MUX_HARNESS`.
     pub harness: Option<String>,
+    /// The app's pid (`OPTCHAT_OWNER_APP_PID`): once it exits an idle brain
+    /// stops (optchat-chief `owner_app.rs`), as the default Chief's host does.
+    pub owner_app_pid: Option<String>,
 }
 
 static TAKEN: OnceLock<Option<String>> = OnceLock::new();
@@ -258,6 +264,7 @@ pub fn brain_environment(
         ("CMUX_BUNDLED_CLI_PATH", app.bundled_cli.as_ref().map(|p| p.display().to_string())),
         ("ACPMUX_BIN", app.acpmux_bin.as_ref().map(|p| p.display().to_string())),
         ("MUX_HARNESS", app.harness.clone()),
+        ("OPTCHAT_OWNER_APP_PID", app.owner_app_pid.clone()),
     ];
     for (key, value) in optional {
         if let Some(value) = value.filter(|v| !v.is_empty()) {
@@ -517,9 +524,18 @@ pub struct ChiefBrains {
     sender: mpsc::Sender<Signal>,
     thread: Option<supervised::SupervisedThread<()>>,
     mux: Weak<Mux>,
+    live: Arc<AtomicUsize>,
 }
 
 impl ChiefBrains {
+    /// The brains that run or wait to start again after a failure, as the
+    /// supervisor last counted them (after each signal or deadline it
+    /// handled): what keeps a Chief owner whose app quit (cmux-tui
+    /// `headless/chief_owner_exit.rs`).
+    pub fn live(&self) -> Arc<AtomicUsize> {
+        self.live.clone()
+    }
+
     /// Stops every brain (SIGTERM, up to 5 s for them to end, then SIGKILL)
     /// and the supervisor.
     pub fn stop(mut self) {
@@ -560,12 +576,14 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         }
         *installed = Some(sender.clone());
     }
+    let live = Arc::new(AtomicUsize::new(0));
     let mut supervisor = Supervisor {
         mux: Arc::downgrade(mux),
         socket: socket.to_owned(),
         config,
         brains: BTreeMap::new(),
         sender: sender.clone(),
+        live: live.clone(),
     };
     let thread = supervised::spawn("chief-brains", Fatal, ShutdownBehavior::Continue, move || {
         // Before any brain starts: its lock probe cannot race a start.
@@ -576,7 +594,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
         supervisor.run(&inbox);
     })
     .ok()?;
-    Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux) })
+    Some(ChiefBrains { sender, thread: Some(thread), mux: Arc::downgrade(mux), live })
 }
 
 /// The engine a Chief's record names (`cmux chief new --harness unii`, the
@@ -708,6 +726,8 @@ struct Supervisor {
     brains: BTreeMap<String, Brain>,
     #[cfg_attr(not(unix), allow(dead_code))]
     sender: mpsc::Sender<Signal>,
+    /// [`ChiefBrains::live`].
+    live: Arc<AtomicUsize>,
 }
 
 impl Supervisor {
@@ -736,7 +756,16 @@ impl Supervisor {
                 None => {}
             }
             self.on_time();
+            self.count_live();
         }
+    }
+
+    /// Publishes [`ChiefBrains::live`]: brains with a process, or a start
+    /// due after a failure.
+    fn count_live(&self) {
+        let live =
+            self.brains.values().filter(|b| b.process.is_some() || b.retry_at.is_some()).count();
+        self.live.store(live, std::sync::atomic::Ordering::Release);
     }
 
     fn next_deadline(&self) -> Option<Instant> {
@@ -1054,27 +1083,17 @@ impl Supervisor {
             .stderr(log)
             .process_group(0);
         crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
-        let mut child = command.spawn()?;
+        let child = command.spawn()?;
         let pid = child.id();
         let reaped = Arc::new(Mutex::new(false));
-        let (sender, chief, flag) = (self.sender.clone(), record.id.clone(), reaped.clone());
-        supervised::spawn("chief-brain-wait", Fatal, ShutdownBehavior::Continue, move || {
-            let zombie = wait_exited(pid);
-            {
-                // The leader is a zombie now (its id is still taken): end what
-                // is left of its own group (a crashed host's turn processes;
-                // its acpmux has a group of its own), then mark it reaped
-                // before the reap frees the id.
-                let mut reaped = flag.lock().unwrap_or_else(PoisonError::into_inner);
-                if zombie && let Ok(group) = i32::try_from(pid) {
-                    // SAFETY: as Process::signal; the leader is not reaped yet.
-                    unsafe { libc::kill(-group, libc::SIGTERM) };
-                }
-                *reaped = true;
-            }
-            let success = child.wait().is_ok_and(|status| status.success());
-            let _ = sender.send(Signal::Exited { chief, pid, success });
-        })?;
+        // The mux's one reaper waits for the exit (no thread per brain).
+        brain_exit::watch(
+            &mux.reaper,
+            child,
+            record.id.clone(),
+            reaped.clone(),
+            self.sender.clone(),
+        )?;
         Ok(Process { pid, reaped })
     }
 
@@ -1164,27 +1183,6 @@ impl Supervisor {
             if let Some(process) = &brain.process {
                 process.signal(SIGKILL);
             }
-        }
-    }
-}
-
-/// Blocks until child `pid` has exited, without reaping it (`WNOWAIT`);
-/// whether it waits as a zombie now.
-#[cfg(unix)]
-fn wait_exited(pid: u32) -> bool {
-    let id = libc::id_t::from(pid);
-    loop {
-        // SAFETY: a zeroed siginfo_t is a valid out buffer for waitid.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: waitid writes only into `info`; WNOWAIT leaves the child
-        // waitable for Child::wait.
-        let done =
-            unsafe { libc::waitid(libc::P_PID, id, &mut info, libc::WEXITED | libc::WNOWAIT) };
-        if done == 0 {
-            return true;
-        }
-        if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
-            return false;
         }
     }
 }

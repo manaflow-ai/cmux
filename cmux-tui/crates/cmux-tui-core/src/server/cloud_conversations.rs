@@ -6,7 +6,6 @@
 //! requests; their replies are matched by `id`.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 
 use serde::Deserialize;
@@ -612,23 +611,21 @@ pub(super) fn start(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let reply = reply.hand_to_worker();
-    let spawned =
-        supervised::spawn("mux-cloud-request", Fatal, ShutdownBehavior::Continue, move || {
-            let reply = reply.start();
-            let _lock_scope = reply.enter_lock_scope();
-            let _permit = permit;
-            let result =
-                handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
-            reply.reply(|| send(&worker_writer, worker_id, result));
-        });
-    match spawned {
-        Ok(_) => true,
-        Err(error) => send(
+    // The Cloud round trip waits on the network (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let reply = reply.start();
+        let _lock_scope = reply.enter_lock_scope();
+        let _permit = permit;
+        let result =
+            handle_command_with_cancellation(&worker_mux, client, cmd, &worker_writer, None);
+        reply.reply(|| send(&worker_writer, worker_id, result));
+    });
+    posted.is_ok()
+        || send(
             writer,
             id,
-            Err(CloudError::Unavailable(format!("request thread: {error}")).into()),
-        ),
-    }
+            Err(CloudError::Unavailable("the daemon is shutting down".to_owned()).into()),
+        )
 }
 
 fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>) -> bool {

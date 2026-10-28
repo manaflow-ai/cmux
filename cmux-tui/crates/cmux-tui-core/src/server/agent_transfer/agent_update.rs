@@ -43,7 +43,6 @@
 //! bad request; `ids` are only names acpmux matches against its own rows.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::Mutex;
 use std::path::Path;
 use std::sync::Arc;
@@ -266,23 +265,23 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned =
-        supervised::spawn("mux-agent-update", Fatal, ShutdownBehavior::Continue, move || {
-            let result = match verb {
-                Verb::Plan {} => plan(&socket),
-                Verb::Apply(params) => apply(&worker_mux, &socket, params),
+    // The update waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = match verb {
+            Verb::Plan {} => plan(&socket),
+            Verb::Apply(params) => apply(&worker_mux, &socket, params),
+        }
+        .map(|mut value| {
+            if expects_owner {
+                value.insert("machine", json!(worker_mux.machine_public_id));
             }
-            .map(|mut value| {
-                if expects_owner {
-                    value.insert("machine", json!(worker_mux.machine_public_id));
-                }
-                value
-            });
-            drop(slot);
-            reply(&worker_writer, worker_id, result);
+            value
         });
-    // A failed spawn drops the closure and with it the slot.
-    if spawned.is_err() {
+        drop(slot);
+        reply(&worker_writer, worker_id, result);
+    });
+    // A refused post drops the closure and with it the slot.
+    if posted.is_err() {
         return Some(reply(writer, id, Err(Failure::Busy)));
     }
     Some(true)

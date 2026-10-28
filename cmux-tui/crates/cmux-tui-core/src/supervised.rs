@@ -28,7 +28,7 @@ use std::sync::{Arc, OnceLock};
 use std::thread::Thread;
 
 use cmux_panic_log::{FailureSink, FatalReport, SuperviseError, Supervisor};
-use cmux_threads::{BlockingKind, ThreadQos};
+use cmux_threads::{BlockingKind, DesiredQos, ThreadQos};
 
 pub use cmux_panic_log::{Fatal, ShutdownBehavior};
 
@@ -84,14 +84,64 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    spawn_on(process(), name.into(), Some(qos), policy, shutdown, body)
+    spawn_on(process(), name.into(), Some(Registered::at(qos)), policy, shutdown, body)
+}
+
+/// [`spawn_at`] for a thread that follows `desired` (`cmux_threads::spawn_following`):
+/// it starts at `qos` and runs at the class last requested through `desired`.
+pub(crate) fn spawn_following<F, T>(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    desired: DesiredQos,
+    policy: Fatal,
+    shutdown: ShutdownBehavior,
+    body: F,
+) -> io::Result<SupervisedThread<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let registered = Registered { qos, desired: Some(desired) };
+    spawn_on(process(), name.into(), Some(registered), policy, shutdown, body)
+}
+
+/// [`spawn_at`] at the class `crate::thread_qos::spawn_raisable` starts a
+/// Utility or Background thread that may take a ranked lock at
+/// (`cmux_tui_platform::qos::raisable_class`). The supervisor's threads
+/// take the platform's default stack.
+pub(crate) fn spawn_raisable<F, T>(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    policy: Fatal,
+    shutdown: ShutdownBehavior,
+    body: F,
+) -> io::Result<SupervisedThread<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    let qos = cmux_tui_platform::qos::raisable_class(qos);
+    spawn_on(process(), name.into(), Some(Registered::at(qos)), policy, shutdown, body)
+}
+
+/// A thread's `cmux_threads` row: its starting class and, for a thread that
+/// follows one, the desired class it applies later.
+pub(crate) struct Registered {
+    qos: ThreadQos,
+    desired: Option<DesiredQos>,
+}
+
+impl Registered {
+    pub(crate) fn at(qos: ThreadQos) -> Self {
+        Self { qos, desired: None }
+    }
 }
 
 /// [`spawn`] or [`spawn_at`] under `supervisor` (tests pass their own sink).
 pub(crate) fn spawn_on<F, T>(
     supervisor: &Supervisor,
     name: String,
-    qos: Option<ThreadQos>,
+    qos: Option<Registered>,
     policy: Fatal,
     shutdown: ShutdownBehavior,
     body: F,
@@ -109,8 +159,13 @@ where
             let _finished = Finished(Arc::clone(&thread_started));
             thread_started.begin();
             let output = match qos {
-                Some(qos) => {
-                    cmux_threads::register_current(row_name, qos);
+                Some(Registered { qos, desired }) => {
+                    match desired {
+                        Some(desired) => {
+                            cmux_threads::register_current_following(row_name, qos, desired)
+                        }
+                        None => cmux_threads::register_current(row_name, qos),
+                    };
                     let _row = RegistryRow;
                     body()
                 }
@@ -179,6 +234,15 @@ pub struct Unparker(Arc<Started>);
 impl Unparker {
     pub fn unpark(&self) {
         self.0.unpark();
+    }
+
+    /// An unparker of the calling thread, for a test seam that runs a
+    /// thread's work on the test thread instead of starting one.
+    #[cfg(test)]
+    pub(crate) fn current_for_test() -> Self {
+        let started = Started::default();
+        let _ = started.thread.set(std::thread::current());
+        Self(Arc::new(started))
     }
 }
 

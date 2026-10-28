@@ -344,8 +344,9 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut events = mux.subscribe_launch_snapshot();
-    let spawned = supervised::spawn(
+    let spawned = supervised::spawn_raisable(
         "mux-host-replica-changes",
+        crate::thread_qos::ThreadType::Utility.qos(),
         Fatal,
         ShutdownBehavior::Continue,
         move || {
@@ -371,8 +372,12 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
     }
     let weak = Arc::downgrade(mux);
     let mut chats = mux.subscribe_conversations();
-    let spawned =
-        supervised::spawn("mux-host-replica-chief", Fatal, ShutdownBehavior::Continue, move || {
+    let spawned = supervised::spawn_raisable(
+        "mux-host-replica-chief",
+        crate::thread_qos::ThreadType::Utility.qos(),
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             loop {
                 // mq14-allow: this watcher thread waits for its own events.
                 match chats.recv() {
@@ -387,7 +392,8 @@ pub fn install_host_replica(mux: &Arc<Mux>, replica: HostReplica) -> bool {
                     replica.mark_changed();
                 }
             }
-        });
+        },
+    );
     if let Err(error) = spawned {
         eprintln!("cmux-tui: host replica chief watcher unavailable: {error}");
     }

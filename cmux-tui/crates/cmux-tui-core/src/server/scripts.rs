@@ -16,7 +16,6 @@
 //! to an agent may run scripts; the connection's sessions end when it closes.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use std::sync::Arc;
 
 use cmux_app_host::script::{LogSink, ScriptError};
@@ -149,28 +148,26 @@ fn refusal(mux: &Mux, client: u64) -> Option<ScriptError> {
     None
 }
 
-/// Runs `job` off the connection thread and replies with its result.
+/// Runs `job` off the connection thread and replies with its result: a
+/// request wait (`request_wait.rs`; the script host is another process),
+/// not a thread per request.
 fn answer_later(
+    mux: &Mux,
     writer: &MessageWriter,
     id: Option<Value>,
-    request_qos: crate::request_qos::RequestQos,
     job: impl FnOnce() -> Result<Value, ScriptError> + Send + 'static,
 ) -> bool {
-    let writer = writer.clone();
     // The job keeps the cause and class of the frame that started it.
-    let cause = crate::event_cause::EventCause::current();
-    let spawned = supervised::spawn("cmux-script", Fatal, ShutdownBehavior::Continue, {
-        let writer = writer.clone();
-        let id = id.clone();
-        move || {
-            let _cause = request_qos.enter(cause);
-            reply(&writer, id, job());
-        }
+    let (cause, request_qos) = (crate::event_cause::EventCause::current(), mux.request_qos());
+    let (job_writer, job_id) = (writer.clone(), id.clone());
+    let posted = mux.post_request_wait(move || {
+        let _cause = request_qos.enter(cause);
+        reply(&job_writer, job_id, job());
     });
-    match spawned {
-        Ok(_) => true,
-        Err(e) => {
-            reply(&writer, id, Err(ScriptError::new("script.host", format!("no thread: {e}"))))
+    match posted {
+        Ok(()) => true,
+        Err(_) => {
+            reply(writer, id, Err(ScriptError::new("script.host", "the daemon is shutting down")))
         }
     }
 }
@@ -215,11 +212,12 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let request_key = request_id.to_string();
     Some(match command {
         Command::Run { code, args, timeout_ms } => {
+            let owner = mux;
             let mux = mux.clone();
             let budget = Arc::new(LogBudget::default());
             let tag = request_id;
             let log = log_sink(writer, budget.clone(), Arc::new(move || ("request", tag.clone())));
-            answer_later(writer, id, mux.request_qos(), move || {
+            answer_later(owner, writer, id, move || {
                 mux.control_clients
                     .scripts
                     .run(
@@ -236,9 +234,10 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
             })
         }
         Command::Open => {
+            let owner = mux;
             let mux = mux.clone();
             let writer = writer.clone();
-            answer_later(&writer.clone(), id, mux.request_qos(), move || {
+            answer_later(owner, &writer.clone(), id, move || {
                 // The session id is known only after the host starts, so the
                 // sink reads it from a cell set right after.
                 let session_tag = Arc::new(std::sync::OnceLock::<String>::new());
@@ -258,8 +257,9 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
             })
         }
         Command::Eval { session, code, args, timeout_ms } => {
+            let owner = mux;
             let mux = mux.clone();
-            answer_later(writer, id, mux.request_qos(), move || {
+            answer_later(owner, writer, id, move || {
                 mux.control_clients
                     .scripts
                     .eval(

@@ -6,8 +6,7 @@
 //! close with a replay cursor when acpmux or the client falls behind.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -642,21 +641,21 @@ fn attach(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let surface = params.surface;
-    let spawned =
-        supervised::spawn("mux-agent-attach", Fatal, ShutdownBehavior::Continue, move || {
-            connect_and_attach(
-                worker_mux,
-                client,
-                worker_id,
-                socket,
-                surface,
-                record_session,
-                acpmux_params,
-                read_only,
-                worker_writer,
-            );
-        });
-    if spawned.is_err() {
+    // The attach waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        connect_and_attach(
+            worker_mux,
+            client,
+            worker_id,
+            socket,
+            surface,
+            record_session,
+            acpmux_params,
+            read_only,
+            worker_writer,
+        );
+    });
+    if posted.is_err() {
         sessions.lock().reserved.remove(&(client, surface));
         return refuse(writer, id, Refusal::Limit);
     }
@@ -755,16 +754,16 @@ fn run_on_worker(
     let worker_writer = writer.clone();
     let worker_id = id.clone();
     let worker = attachment.clone();
-    let spawned =
-        supervised::spawn("mux-agent-call", Fatal, ShutdownBehavior::Continue, move || {
-            let result = call(&worker, command);
-            worker.calls.fetch_sub(1, Ordering::AcqRel);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            };
-        });
-    if spawned.is_err() {
+    // The call waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = call(&worker, command);
+        worker.calls.fetch_sub(1, Ordering::AcqRel);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+        };
+    });
+    if posted.is_err() {
         attachment.calls.fetch_sub(1, Ordering::AcqRel);
         return refuse(writer, id, Refusal::Limit);
     }

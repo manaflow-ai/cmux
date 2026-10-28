@@ -163,7 +163,7 @@ impl WalDurability {
         let thread_shared = shared.clone();
         let spawned = supervised::spawn_at(
             "sqlite-wal-sync",
-            cmux_threads::ThreadQos::Utility,
+            crate::thread_qos::ThreadType::Utility.qos(),
             Fatal,
             ShutdownBehavior::Continue,
             move || {

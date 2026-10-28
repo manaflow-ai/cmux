@@ -50,7 +50,7 @@ fn join_returns_the_body_value_and_the_row_is_gone() {
     let thread = spawn_on(
         &supervisor,
         name.into(),
-        Some(cmux_threads::ThreadQos::Utility),
+        Some(super::Registered::at(cmux_threads::ThreadQos::Utility)),
         Fatal,
         ShutdownBehavior::Continue,
         move || cmux_threads::snapshot().iter().any(|row| row.name == name),

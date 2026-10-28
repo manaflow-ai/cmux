@@ -40,7 +40,6 @@
 //! `agent_session.acpmux_unavailable`.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::Mutex;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -218,28 +217,28 @@ pub(super) fn start(
     // The start keeps the cause of the frame that asked for it.
     let cause = crate::event_cause::EventCause::current();
     let request_qos = mux.request_qos();
-    let spawned =
-        supervised::spawn("mux-agent-start", Fatal, ShutdownBehavior::Continue, move || {
-            let _cause = request_qos.enter(cause);
-            // A chat never starts in `/`, above the home folder, or in the
-            // home folder unless the person chose it (cx-1bhjj), as on the
-            // Mac. It resolves the folder on disk, so it runs here, not on
-            // the request thread.
-            let result = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
-                .map_err(|refusal| (refusal, None))
-                .and_then(|()| keyed_gate(&socket, &params))
-                .and_then(|()| run(&worker_mux, client, socket, params).map_err(|r| (r, None)));
-            drop(slot);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
-                Err((refusal, Some(data))) => {
-                    super::refuse_with_data(&worker_writer, worker_id, refusal, data)
-                }
-            };
-        });
-    // A failed spawn drops the closure and with it the slot.
-    if spawned.is_err() {
+    // The start waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let _cause = request_qos.enter(cause);
+        // A chat never starts in `/`, above the home folder, or in the
+        // home folder unless the person chose it (cx-1bhjj), as on the
+        // Mac. It resolves the folder on disk, so it runs here, not on
+        // the request thread.
+        let result = super::agent_session_trust::home_rule(&params.cwd, params.home_confirmed)
+            .map_err(|refusal| (refusal, None))
+            .and_then(|()| keyed_gate(&socket, &params))
+            .and_then(|()| run(&worker_mux, client, socket, params).map_err(|r| (r, None)));
+        drop(slot);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err((refusal, None)) => refuse(&worker_writer, worker_id, refusal),
+            Err((refusal, Some(data))) => {
+                super::refuse_with_data(&worker_writer, worker_id, refusal, data)
+            }
+        };
+    });
+    // A refused post drops the closure and with it the slot.
+    if posted.is_err() {
         return refuse(writer, id, Refusal::Limit);
     }
     true

@@ -5,8 +5,8 @@
 //! requires for `_acpmux/prompt_withdraw`, and never starts acpmux.
 
 use crate::panic_free::JsonFields;
+use crate::server::request_hang_watch::ipc_reply;
 use crate::supervised::{self, Fatal, ShutdownBehavior};
-use cmux_threads::checked::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
@@ -89,8 +89,9 @@ impl crate::mux::Mux {
         });
         // The turn's own answer comes when it ends; the link closes first.
         let caller = link.clone();
-        let spawned = supervised::spawn(
+        let spawned = supervised::spawn_raisable(
             "mux-agent-message-prompt",
+            crate::thread_qos::ThreadType::Utility.qos(),
             Fatal,
             ShutdownBehavior::Continue,
             move || {

@@ -70,7 +70,6 @@
 //! receives and 16 moves remembered (24 h each), 8 calls at once.
 
 use crate::panic_free::JsonFields;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::sync::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -602,13 +601,13 @@ fn handle(line: &RouteLine<'_>) -> Option<bool> {
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned =
-        supervised::spawn("mux-agent-transfer", Fatal, ShutdownBehavior::Continue, move || {
-            let result = run(&worker_mux, &socket, prepared);
-            worker_mux.agent_transfers.calls.fetch_sub(1, Ordering::AcqRel);
-            reply(&worker_writer, worker_id, result);
-        });
-    if spawned.is_err() {
+    // The transfer waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = run(&worker_mux, &socket, prepared);
+        worker_mux.agent_transfers.calls.fetch_sub(1, Ordering::AcqRel);
+        reply(&worker_writer, worker_id, result);
+    });
+    if posted.is_err() {
         transfers.calls.fetch_sub(1, Ordering::AcqRel);
         return Some(reply(writer, id, Err(Refusal::Limit.into())));
     }

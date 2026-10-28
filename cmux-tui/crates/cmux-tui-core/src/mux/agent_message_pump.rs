@@ -199,8 +199,9 @@ impl Mux {
         let mux = Arc::clone(self);
         let (session_id, id_owned, recipient_owned) =
             (session_id.to_owned(), id.to_owned(), recipient.to_owned());
-        let spawned = supervised::spawn(
+        let spawned = supervised::spawn_raisable(
             "mux-agent-message-handover",
+            crate::thread_qos::ThreadType::Utility.qos(),
             Fatal,
             ShutdownBehavior::Continue,
             move || mux.hand_over(&session_id, &message, &id_owned, &recipient_owned),

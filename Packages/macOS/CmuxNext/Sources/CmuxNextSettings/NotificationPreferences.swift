@@ -1,5 +1,4 @@
 public import CmuxNextCompat
-public import CmuxNextDesign
 public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.

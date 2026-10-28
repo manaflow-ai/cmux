@@ -37,7 +37,6 @@ use super::agent_session_start::{connect, store_host};
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
 use crate::state::conversation_tabs_store::ConversationTabRecord;
-use crate::supervised::{self, Fatal, ShutdownBehavior};
 
 pub const AGENT_SESSION_TRUST_CAPABILITY: &str = "agent-session-trust-v1";
 
@@ -114,16 +113,16 @@ pub(super) fn trust(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned =
-        supervised::spawn("mux-agent-trust", Fatal, ShutdownBehavior::Continue, move || {
-            let result = run(&worker_mux, &socket, &params);
-            drop(slot);
-            match result {
-                Ok(data) => ok(&worker_writer, worker_id, data),
-                Err(refusal) => refuse(&worker_writer, worker_id, refusal),
-            }
-        });
-    if spawned.is_err() {
+    // The trust call waits on acpmux (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        let result = run(&worker_mux, &socket, &params);
+        drop(slot);
+        match result {
+            Ok(data) => ok(&worker_writer, worker_id, data),
+            Err(refusal) => refuse(&worker_writer, worker_id, refusal),
+        };
+    });
+    if posted.is_err() {
         return refuse(writer, id, Refusal::Limit);
     }
     true

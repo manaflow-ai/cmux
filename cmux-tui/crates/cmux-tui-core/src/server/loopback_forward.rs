@@ -895,21 +895,21 @@ fn open(
     let worker_mux = mux.clone();
     let worker_writer = writer.clone();
     let worker_id = id.clone();
-    let spawned =
-        supervised::spawn("mux-loopback-open", Fatal, ShutdownBehavior::Continue, move || {
-            connect_and_start(
-                worker_mux,
-                client,
-                worker_id,
-                stream,
-                audit_host,
-                port,
-                target,
-                window,
-                worker_writer,
-            );
-        });
-    if spawned.is_err() {
+    // The connect waits on the network (`request_wait.rs`).
+    let posted = mux.post_request_wait(move || {
+        connect_and_start(
+            worker_mux,
+            client,
+            worker_id,
+            stream,
+            audit_host,
+            port,
+            target,
+            window,
+            worker_writer,
+        );
+    });
+    if posted.is_err() {
         forwarder.release(client);
         return open_error(writer, id, OpenError::Limit);
     }
@@ -1016,9 +1016,14 @@ fn connect_and_start(
     ] {
         let worker = stream.clone();
         let worker_mux = mux.clone();
-        let spawned = supervised::spawn(name, Fatal, ShutdownBehavior::Continue, move || {
-            run(worker, worker_mux);
-        });
+        // Bulk page bytes: below every request and keystroke.
+        let spawned = supervised::spawn_raisable(
+            name,
+            crate::thread_qos::ThreadType::Utility.qos(),
+            Fatal,
+            ShutdownBehavior::Continue,
+            move || run(worker, worker_mux),
+        );
         if spawned.is_err() {
             stream.fail(forwarder, "internal", true);
             return;
