@@ -156,10 +156,8 @@ extension PaneHandlers {
         }
     }
 
-    // Key repeats must read after the preceding write, or two quick Cmd-Plus presses
+    // Key repeats read after the preceding write, or two quick Cmd-Plus presses
     // both read 14 and save 15. Keep the chain only until its last write settles.
-    @MainActor private static var chatFontWrite: Task<ActionWorkFailure?, Never>?
-    @MainActor private static var chatFontWriteGeneration = 0
 
     /// One point per key press, within the Settings row's range. An absent value is its 14 pt
     /// default; reset removes the override so later default changes still apply.
@@ -170,13 +168,14 @@ extension PaneHandlers {
             return ctx.refuse(RefusalStrings.settingManaged(managed.key))
         }
         let writer = SettingWriter.currentRun()
-        let previous = chatFontWrite
-        chatFontWriteGeneration += 1
-        let generation = chatFontWriteGeneration
+        let queue = ctx.services.agentChatFontSizeWrites
+        let previous = queue.latest
+        queue.generation += 1
+        let generation = queue.generation
         let task: Task<ActionWorkFailure?, Never> = Task { @MainActor in
             _ = await previous?.value
             defer {
-                if chatFontWriteGeneration == generation { chatFontWrite = nil }
+                if queue.generation == generation { queue.latest = nil }
             }
             let value: JSONValue?
             if id == "resetWorkspaceTerminalFontSize" {
@@ -198,7 +197,7 @@ extension PaneHandlers {
                 return ActionWorkFailure(String(describing: error))
             }
         }
-        chatFontWrite = task
+        queue.latest = task
         ctx.registry.track(task)
     }
 }
