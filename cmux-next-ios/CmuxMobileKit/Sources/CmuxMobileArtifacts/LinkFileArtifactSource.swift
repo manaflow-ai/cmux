@@ -76,6 +76,20 @@ public struct LinkFileArtifactSource: ArtifactSource {
         return data
     }
 
+    /// The rest of `channel` written to `destination`; returns the bytes written.
+    static func download(_ channel: any LinkChannel, to destination: URL, path: String, macName: String) async throws -> Int64 {
+        var data = Data()
+        while let chunk = try await Self.receive(channel, within: idleTimeout, macName: macName) {
+            data.append(chunk)
+            if data.count > maxBytes {
+                await channel.close(code: "cancelled", reason: "preview limit")
+                throw ArtifactUnavailable("This file is larger than \(maxBytes >> 20) MB, too large to preview on the phone.")
+            }
+        }
+        try data.write(to: destination)
+        return Int64(data.count)
+    }
+
     /// How long a read may wait for its next bytes before the preview gives up (a Mac that
     /// went to sleep mid-read left "Loading" up for good).
     public static let idleTimeout: Duration = .seconds(20)
