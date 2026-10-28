@@ -132,15 +132,16 @@ impl SubagentTree {
             params.get("update").map(|u| self.events(u, owner.as_deref())).unwrap_or_default();
         for event in &mut events {
             let Some(id) = event.get("id").and_then(Value::as_str) else { continue };
-            if let Some(preview) = self.previews.get(id) {
-                if !preview.text.is_empty() && event.get("lastMessage").is_none() {
-                    event["lastMessage"] = json!(truncate_last_message(&preview.text));
-                }
-                if event.get("tokens").is_none() {
-                    if let Some(tokens) = preview.tokens {
-                        event["tokens"] = json!(tokens);
-                    }
-                }
+            let Some(preview) = self.previews.get_mut(id) else { continue };
+            // A progress/state event is authoritative over an earlier usage_update;
+            // retain its total for a later lifecycle event that omits tokens.
+            if let Some(tokens) = event.get("tokens").and_then(Value::as_u64) {
+                preview.tokens = Some(tokens);
+            } else if let Some(tokens) = preview.tokens {
+                event["tokens"] = json!(tokens);
+            }
+            if !preview.text.is_empty() && event.get("lastMessage").is_none() {
+                event["lastMessage"] = json!(truncate_last_message(&preview.text));
             }
         }
         let mut fields = Map::new();
@@ -609,6 +610,15 @@ mod codex_tests {
             json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "child", "tokens": 200}),
         );
         assert_eq!(events[0]["tokens"], 200);
+        let completed = subagents(
+            &mut tree,
+            json!({
+                "sessionUpdate": "subagent_state_update",
+                "subagentSessionId": "child",
+                "state": "completed"
+            }),
+        );
+        assert_eq!(completed[0]["tokens"], 200);
     }
 
     #[test]
