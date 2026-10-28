@@ -42,8 +42,8 @@ public nonisolated struct TerminalTermChoice: Sendable, Equatable {
 }
 
 /// Finds whether a terminfo entry is installed where ncurses looks by default, for a `TERM` other than
-/// ``TerminalTermChoice/standard``. The check reads the disk, so it runs on the files lane, once per name per
-/// launch; the standard name reads nothing. A name with no entry gives the standard one and a log line.
+/// ``TerminalTermChoice/standard``. The check reads the disk, so it runs on the files lane, until it finds the
+/// entry (then once per launch); the standard name reads nothing. A name with no entry gives the standard one and a log line.
 public nonisolated final class TerminfoLookup: Sendable {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "terminal")
     /// The lanes the check runs on; nil finds no entry (tests and processes with no lanes).
@@ -79,7 +79,8 @@ public nonisolated final class TerminfoLookup: Sendable {
         guard let work else { return false }
         let (home, fileExists) = (home, fileExists)
         let installed = (try? await work.run(.userBlocking, mayBlock: .files) { Self.isInstalled(name, home: home, fileExists: fileExists) }) ?? false
-        found.withLock { $0[name] = installed }
+        // Only a hit is kept: an entry installed after a miss is found by the next terminal.
+        if installed { found.withLock { $0[name] = true } }
         return installed
     }
 

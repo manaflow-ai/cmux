@@ -15,6 +15,8 @@ nonisolated enum GhosttyConfigTerm {
     static func term(inFiles paths: [String]) -> String? {
         var term: String?
         for path in paths {
+            // The checked seam without a permit: the config build runs on the loader lane (GhosttyLaneConfigLoader's
+            // work.run body), which hands the build closure no BlockingPermit to pass on.
             guard let text = try? String(blockingContentsOf: URL(fileURLWithPath: path), encoding: .utf8) else { continue }
             term = self.term(configText: text, after: term)
         }
