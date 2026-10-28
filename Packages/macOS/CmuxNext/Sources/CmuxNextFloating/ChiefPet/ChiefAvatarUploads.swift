@@ -199,10 +199,8 @@ public final class ChiefAvatarUploads {
     /// `refused`, when given, hears a failure on the main actor as the step ends.
     func storing(from source: URL, for key: String, over mascot: String,
                  refused: (@MainActor @Sendable (Refusal) -> Void)? = nil) -> Task<Result<Void, Refusal>, Never> {
-        guard let folder, Self.isKey(key) else {
-            refused?(.unsaved)
-            return Task { .failure(.unsaved) }
-        }
+        if folder == nil || !Self.isKey(key) { refused?(.unsaved) }
+        guard let folder, Self.isKey(key) else { return Task { .failure(.unsaved) } }
         let generation = tick()
         return serially { [weak self] in
             let result = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { () -> Result<(upload: Upload, image: CGImage), Refusal> in
