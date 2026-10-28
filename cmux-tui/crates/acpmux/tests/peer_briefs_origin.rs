@@ -182,7 +182,7 @@ async fn peer_briefs_name_no_peer() {
         );
     }
     let theirs = call(&a, Some(Origin::Peer), method::MUX_BRIEFS, json!({})).await.unwrap();
-    assert_eq!(ids(&theirs), [here.clone()], "{theirs}");
+    assert_eq!(ids(&theirs), std::slice::from_ref(&here), "{theirs}");
     // Nor does `_acpmux/tasks` list a peer's connection the ledger's briefs a peer ran.
     let tasks = call(&a, None, method::MUX_TASKS, json!({"all": true})).await.unwrap();
     assert!(tasks.to_string().contains(PEER), "the unix socket lists them: {tasks}");
