@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -142,6 +143,8 @@ public final class TerminalSurfaceView: NSView {
     var lastPerformKeyEventTimestamp: TimeInterval?
     /// The key down `keyDown` runs through `interpretKeyEvents`, which `doCommand` re-sends.
     var interpretingKeyDown: NSEvent?
+    /// Stamps the key's input method call in its latency slot (``TextInputStage``), from the window it joined.
+    var textInputStage: TextInputStage?
     /// Where `doCommand` re-sends a chord no one claimed: the app's dispatch (a test records it).
     var resendKey: @MainActor (NSEvent) -> Void = { NSApp.sendEvent($0) }
     var previousPressureStage = 0
@@ -178,6 +181,8 @@ public final class TerminalSurfaceView: NSView {
 
     // MARK: Lifecycle
 
+    /// - Parameter node: The terminal's tab node (`TerminalHostView.node`); nil: no tab (tests), the view's
+    ///   node is a root.
     init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
          echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
@@ -200,9 +205,18 @@ public final class TerminalSurfaceView: NSView {
         self.cursorLayer = cursorLayer
         offScreenRelease = TerminalOffScreenRelease(deadline: gpuResidency?.makeOffScreenDeadline())
         windowWatch = TerminalWindowWatch(node: node)
+        let visibilityNode = node.map { VisibilityNode("terminal.surface", parent: $0) } ?? VisibilityNode(root: "terminal.surface", own: .visible)
+        self.visibilityNode = visibilityNode
+        windowNode = VisibilityNode("terminal.surface.window", own: .hidden, parent: visibilityNode)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         addCursorUpdateArea()
         bridge.target = self
+        // Parking that changed under a hidden view told no one (``AppKit/NSView/notifyParkingChange()``): re-read it
+        // when the view's node shows, before ``windowNode`` hears the flip.
+        placementWatch = visibilityNode.subscribe(owner: "TerminalSurfaceView.placement") { [weak self] visibility in
+            if visibility > .hidden { self?.syncPlacement() }
+        }
+        shownWatch = windowNode.subscribe(owner: "TerminalSurfaceView.shown") { [weak self] _ in self?.syncWindowState() }
         windowWatch.onChange = { [weak self] change in self?.windowStateChanged(change) }
         bridge.followLinkAnswers(on: mainWork)
         // Enter, exit and moves in any window state, one area for the surface's life (`.inVisibleRect`). The I-beam
@@ -327,8 +341,12 @@ public final class TerminalSurfaceView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        textInputStage = (window as? TextInputStageHosting)?.textInputStage
         cursorLayer?.place(in: window)
-        syncWindowState()
+        let before = windowNode.effective
+        syncPlacement()
+        // A move between windows flips nothing: observe the new window (the old one's observers went above).
+        if windowNode.effective == before { syncWindowState() }
     }
 
     /// The view's own overlays (copy mode's box and badge, predictive echo) stay over the cursor layer, as they
@@ -343,53 +361,33 @@ public final class TerminalSurfaceView: NSView {
         cursorLayer?.cellsDidChange()
     }
 
-    // visibility-walk-allow: drawing follows AppKit's own view state in the hide's turn (WindowDrawPolicy), as WindowVisibilitySource says a drawing reader must
-    public override func viewDidHide() {
-        super.viewDidHide()
-        isShown = false
-        // A hidden terminal gets no mouseExited: its link hover and modifier watcher end here.
-        linkPointer.exited()
-        observeWindow(false)
-        updateOcclusion()
+    /// The terminal in the visibility tree (recipe R-hide, TerminalSurfaceView+Visibility.swift): under its
+    /// tab's node, own-hidden while AppKit hides the view or an ancestor.
+    let visibilityNode: VisibilityNode
+    /// The terminal in its window: under ``visibilityNode``, own-hidden while the view is in no window or a
+    /// container above is parked (``syncPlacement()``). Its effective state is the terminal's, so the work a
+    /// terminal that is not shown owes (``DeferredWork``) waits on it.
+    let windowNode: VisibilityNode
+    /// Runs ``syncWindowState()`` on each flip of ``windowNode``.
+    private var shownWatch: VisibilitySubscription?
+    /// Runs ``syncPlacement()`` when ``visibilityNode`` shows.
+    private var placementWatch: VisibilitySubscription?
+    /// In a window, its nodes not hidden and no container above parked (``windowNode``). A layout change of
+    /// a terminal that is not shown records its size only (PL-script A3: a hidden workspace's layout sized
+    /// every warm terminal's surface and resized its PTY); showing it applies the last size once.
+    var isShown: Bool { windowNode.effective > .hidden }
+
+    /// The ``windowNode`` keys of the work a terminal that is not shown owes: each runs once, when it shows.
+    enum DeferredWork: Hashable {
+        /// A forced grid report (`TerminalSession.init`, a new owner); it sizes the surface too.
+        case forcedReport
+        /// The surface's size (a resize, an announced grid, a held grid).
+        case size
+        /// The backing scale and the size it gives.
+        case scale
     }
 
-    // visibility-walk-allow: drawing follows AppKit's own view state in the unhide's turn (WindowDrawPolicy), as WindowVisibilitySource says a drawing reader must
-    public override func viewDidUnhide() {
-        super.viewDidUnhide()
-        syncWindowState()
-    }
-
-    /// Shown in a window: observe it and apply its current scale, screen, size, occlusion and key
-    /// state (each a no-op when unchanged). Parked counts as hidden (``ParkingContainer``).
-    private func syncWindowState() {
-        // visibility-walk-allow: a transition (move, hide, park), not per frame; the surface draws and sizes by AppKit's own state
-        let shown = window != nil && !isHiddenOrHasHiddenAncestor && !isParkedOrHasParkedAncestor
-        isShown = shown
-        observeWindow(shown)
-        if !shown { linkPointer.exited() }
-        if shown {
-            updateContentScale()
-            // A view that joins a pane on a layout spring sends the grid the spring rests at, once; its first
-            // report (held while it was not shown) would be a size no frame rests at.
-            let joined = isInPaneMotion && joinPaneMotion()
-            updateSurfaceSize(forceReport: pendingForcedReport && !joined)
-            pendingForcedReport = false
-        }
-        updateOcclusion()
-        updateFocus()
-    }
-
-    /// Shown in a window, not hidden or parked (``syncWindowState()``). A layout change of a terminal
-    /// that is not shown records its size only (PL-script A3: a hidden workspace's layout sized every
-    /// warm terminal's surface and resized its PTY); showing it applies the last size once.
-    private(set) var isShown = false {
-        didSet { cursorLayer?.setShown(isShown) }
-    }
-    /// A forced grid report asked for while the view was not shown (`TerminalSession.init`, a new owner):
-    /// it goes when the view is shown.
-    private var pendingForcedReport = false
-
-    private func observeWindow(_ observe: Bool) {
+    func observeWindow(_ observe: Bool) {
         guard observe != windowWatch.isWatching else { return }
         windowWatch.stop()
         occlusionWatch = nil
@@ -420,18 +418,19 @@ public final class TerminalSurfaceView: NSView {
         }
     }
 
-    /// AppKit walks hidden and parked views too; a terminal that is not shown applies the scale when
-    /// shown (`syncWindowState`). Each scale or display call is a message that wakes the surface's
+    /// AppKit walks hidden and parked views too; a terminal that is not shown applies the scale once,
+    /// when shown. Each scale or display call is a message that wakes the surface's
     /// renderer thread, which stays parked while the surface is paused and GPU-released.
     public override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard isShown else { return }
-        updateContentScale()
-        updateSurfaceSize()
+        windowNode.deferUntilShown(key: DeferredWork.scale) { [weak self] in
+            self?.updateContentScale()
+            self?.updateSurfaceSize()
+        }
     }
 
-    /// Every frame of a drag resizes a shown surface at once (a hidden one waits to be shown,
-    /// ``syncWindowState()``): the drawable takes
+    /// Every frame of a drag resizes a shown surface at once (a hidden one sizes once, when shown,
+    /// ``updateSurfaceSize(forceReport:)``): the drawable takes
     /// the new size and draws one frame with the text reflowed to it (the
     /// reflow preview, ``updateReflowPreview()``), and the grid report goes to
     /// the owner through `ResizeCoordinator` (next frame, one in flight). The
@@ -439,13 +438,13 @@ public final class TerminalSurfaceView: NSView {
     public override func setFrameSize(_ newSize: NSSize) {
         let resized = newSize != frame.size
         super.setFrameSize(newSize)
-        if resized, isShown { updateSurfaceSize() }
+        if resized { updateSurfaceSize() }
         cursorLayer?.layout(size: newSize)
         copyMode.syncCursor()
     }
 
     /// The window's backing scale and screen to the root layer and surface (``TerminalContentScale``).
-    private func updateContentScale() {
+    func updateContentScale() {
         guard surface != nil else { return }
         let screen = window?.screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
         let backing = TerminalBacking(windowScale: window?.backingScaleFactor,
@@ -502,10 +501,8 @@ public final class TerminalSurfaceView: NSView {
     /// announcement.
     func updateSurfaceSize(forceReport: Bool = false) {
         guard let surface else { return }
-        // Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once it
-        // is shown (`syncWindowState`), a forced report included.
         guard isShown else {
-            pendingForcedReport = pendingForcedReport || forceReport
+            deferSize(forceReport: forceReport)
             return
         }
         let pixels = convertToBacking(bounds.size)
@@ -531,6 +528,27 @@ public final class TerminalSurfaceView: NSView {
         Self.gridReports &+= 1
         let cells = metrics.cellPixels(of: report)
         session?.surfaceDidReport(grid: report, pixelWidth: cells.width, pixelHeight: cells.height)
+    }
+
+    /// Not shown (made, hidden or parked): no size and no report now; the view sizes and reports once, when
+    /// it shows. A forced report sizes the surface too, so it takes the place of a pending size.
+    private func deferSize(forceReport: Bool) {
+        guard forceReport else {
+            windowNode.deferUntilShown(key: DeferredWork.size) { [weak self] in self?.catchUpSize(forceReport: false) }
+            return
+        }
+        windowNode.cancelDeferred(key: DeferredWork.size)
+        windowNode.deferUntilShown(key: DeferredWork.forcedReport) { [weak self] in
+            self?.windowNode.cancelDeferred(key: DeferredWork.size)
+            self?.catchUpSize(forceReport: true)
+        }
+    }
+
+    /// The size a terminal owes when it shows. A view that joins a pane on a layout spring sends the grid the
+    /// spring rests at, once; its held report would be a size no frame rests at.
+    private func catchUpSize(forceReport: Bool) {
+        let joined = isInPaneMotion && joinPaneMotion()
+        updateSurfaceSize(forceReport: forceReport && !joined)
     }
 
     private func publish(size: ghostty_surface_size_s) {
@@ -588,7 +606,7 @@ public final class TerminalSurfaceView: NSView {
 
     /// Focus is first responder in the key window. Ghostty uses it for cursor
     /// style and for focus reports (mode 1004) to the program.
-    private func updateFocus(firstResponder: Bool? = nil) {
+    func updateFocus(firstResponder: Bool? = nil) {
         guard let surface else { return }
         let focused = (firstResponder ?? isFirstResponder) && (window?.isKeyWindow ?? false)
         guard focused != lastFocus else { return }
@@ -623,5 +641,5 @@ public final class TerminalSurfaceView: NSView {
 /// A workspace parked without hiding pauses this surface and drops its window observers, as hiding
 /// does; shown again it catches up (`syncWindowState`).
 extension TerminalSurfaceView: ParkingObserver {
-    public func parkingDidChange() { syncWindowState() }
+    public func parkingDidChange() { syncPlacement() }
 }

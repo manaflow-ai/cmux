@@ -36,6 +36,12 @@
 // critical too while cmux is the active app, and lets App Nap apply when cmux
 // is hidden or every page is (host_page_activity.h, tasks p14-energy-128 and
 // p01-process-222). Its main thread runs user-interactive.
+//
+// Hangs: each turn of the main run loop is a hang watch scope
+// (host_hang_watcher.h, task p01-process-084). A turn of 250 ms or more goes
+// to cmux's hang reports, one still running at 10 s gets a dump without
+// crashing, and the input a turn dispatched is acked at its end, so cmux
+// shows "Chromium is busy" when the UI thread takes no input for 2 s.
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -69,6 +75,7 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_hang_watcher.h"
 #include "host_input.h"
 #include "host_page_activity.h"
 #include "host_switches.h"
@@ -629,16 +636,27 @@ int main(int argc, char* argv[]) {
   // After the framework load, which must run before any other thread exists:
   // NSWorkspace's notifications may start one.
   ParentAppObserver parent_app(page_activity);
+  // The UI thread's turns from here on, and its watcher thread; the HELLO
+  // says the host acks dispatched input and reports its hangs.
+  cmux_host::hang::HostHangWatch hang_watch(
+      [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); });
+  host.SetHangWatch(true);
   // Main thread only, like `host`. Ring frames (task 041) go in through
   // `ordered_input` and are dispatched (DispatchInput), then acked, only when
-  // the stream lets them run (task 042 on 092's barrier).
+  // the stream lets them run (task 042 on 092's barrier): each paced move or
+  // wheel tick by kOpInputAck (host_input.h), and each ordered input frame by
+  // the hang watch at the end of its turn (the host's ack is its dispatch,
+  // p01-process.md 3.1); a kPing's or kStats' seq is its request id and is
+  // never acked.
   cmux_host::WheelPixelCarry wheel_carry;
   cmux_host::control::OrderedStream ordered(
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
   cmux_host::OrderedInput ordered_input(
       ordered,
-      [&host, &wheel_carry, set_event_time = fork_input.set_input_event_time](const cmux_host::Header& frame) {
+      [&host, &wheel_carry, &hang_watch, set_event_time = fork_input.set_input_event_time](
+          const cmux_host::Header& frame) {
         DispatchInput(host, wheel_carry, set_event_time, frame);
+        hang_watch.FrameDispatched(frame);
       },
       [&channel](cmux_host::control::Message acks) {
         if (channel) channel->Send(acks);
@@ -744,6 +762,7 @@ int main(int argc, char* argv[]) {
     });
     CefRunMessageLoop();
     if (input) input->Stop();  // no batch runs after this, so none reaches a shut down Chromium
+    hang_watch.Stop();         // before Chromium shuts down: no dump of its shutdown
     channel->Close();
     cmux_shim_shutdown();
     status = host_main.exit_status();

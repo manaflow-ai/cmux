@@ -34,6 +34,10 @@ import func CmuxSafeConcurrency.withOnceContinuation
 ///   input acks go, `ack(ctx, browser, kind, seq)` on the main thread (task 042); optional.
 /// - `uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq)`: the input seq and control seq of the
 ///   next ring frame (task 092); 0 with no host attached; optional.
+/// - `void cmux_remote_shim_set_host_watch(void* ctx, cmux_remote_host_watch_fn watch)`: where the host
+///   watch goes, `watch(ctx, event, a, b)` on the main thread: input waiting for the host's dispatch,
+///   its progress and its end, and the host's UI hangs (task p01-process-084). Optional: a remote shim
+///   without it has no busy banner.
 ///
 /// Immutable C function pointers and a `dlsym` lookup over a handle that is never closed.
 @safe
@@ -48,6 +52,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias InputAckFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int32, UInt32) -> Void
     typealias SetInputAckFn = @convention(c) (UnsafeMutableRawPointer?, InputAckFn?) -> Void
     typealias OrderInputFn = @convention(c) (UnsafeMutablePointer<UInt32>?) -> UInt32
+    typealias HostWatchFn = @convention(c) (UnsafeMutableRawPointer?, Int32, Int64, Int64) -> Void
+    typealias SetHostWatchFn = @convention(c) (UnsafeMutableRawPointer?, HostWatchFn?) -> Void
     typealias EndedFn = @convention(c) (UnsafeMutableRawPointer?, Int32) -> Void
     typealias SetEndedFn = @convention(c) (UnsafeMutableRawPointer?, EndedFn?) -> Void
 
@@ -61,6 +67,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// The input ring's two entry points (tasks 042 and 092); nil in a dylib built before them.
     private let setInputAckFn: SetInputAckFn?
     private let orderInputFn: OrderInputFn?
+    /// `cmux_remote_shim_set_host_watch`, nil for a remote shim without it.
+    private let setHostWatchFn: SetHostWatchFn?
 
     /// Checks the dylib's ABI identity against `expected`, as ``CEFShimLibrary/open(_:expected:)``
     /// checks the in-process shim, and that it exports the wire entry points and every required
@@ -83,7 +91,8 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
                                         detachFn: resolve("cmux_remote_shim_detach"), setReplyFn: resolve("cmux_remote_shim_set_reply"),
                                         setEndedFn: resolve("cmux_remote_shim_set_ended"),
                                         lastReplyTokenFn: resolve("cmux_remote_shim_last_reply_token"),
-                                        setInputAckFn: setInputAckFn, orderInputFn: orderInputFn)
+                                        setInputAckFn: setInputAckFn, orderInputFn: orderInputFn,
+                                        setHostWatchFn: symbol("cmux_remote_shim_set_host_watch").map { unsafe unsafeBitCast($0, to: SetHostWatchFn.self) })
     }
 
     /// Opens the remote dylib the attachment names (off the main thread: `dlopen` holds dyld's lock).
@@ -105,12 +114,15 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
     /// Releases the host's wire that ``attach(_:replies:helloDeadline:clock:)`` gave the shim, and
     /// its reply and end sinks.
     func detach() {
+        // The host watch hears the detach (input that waited went with the host) before it is cleared.
         detachFn()
         // SAFETY: NULL context and callback clear the reply and end sinks; nothing is read through them.
         unsafe setReplyFn(nil, nil)
         unsafe setEndedFn(nil, nil)
         // SAFETY: NULL context and callback clear the input ack sink the same way.
         unsafe setInputAckFn?(nil, nil)
+        // SAFETY: as above, for the host watch.
+        if let setHostWatchFn { unsafe setHostWatchFn(nil, nil) }
     }
 
     /// The remote shim has the input ring's entry points: input acks and ordered input seqs.
@@ -134,6 +146,17 @@ nonisolated struct CEFRemoteShim: @unchecked Sendable {
         // SAFETY: the shim writes one UInt32 through the pointer, which is valid for the call.
         let seq = unsafe orderInputFn(&ctlSeq)
         return seq == 0 ? nil : (seq, ctlSeq)
+    }
+
+    /// The host watch goes to `monitor` until ``detach()``: false when this remote shim has no host watch.
+    @MainActor
+    func watchHost(_ monitor: ChromiumHostHangMonitor) -> Bool {
+        guard let setHostWatchFn, let token = try? monitor.token() else { return false }
+        // SAFETY: the context is the monitor's registry token, never its address: a frame after the monitor is
+        // gone finds nothing (ChromiumHostHangMonitorRegistration); the callback is a C function of
+        // `cmux_remote_host_watch_fn`.
+        unsafe setHostWatchFn(token.context, ChromiumHostHangMonitor.hostWatchCallback)
+        return true
     }
 
     /// The REPLY token of the async shim call this turn just made (0: it sent nothing).

@@ -27,6 +27,22 @@ struct MobileImageAttachmentPreparerTests {
         )
     }
 
+    /// p02-threads-146: the work runs on the preparer's own queue; a caller cancelled before it starts gets nil.
+    @Test func aCancelledCallerGetsNothing() async throws {
+        let sourceURL = try makeImageFixture(width: 64, height: 64)
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        let task = Task { () -> MobilePreparedImageAttachment? in
+            withUnsafeCurrentTask { $0?.cancel() }
+            return await MobileImageAttachmentPreparer().prepare(url: sourceURL)
+        }
+        #expect(await task.value == nil)
+    }
+
+    @Test func anUnreadableFileGivesNothing() async {
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-missing-\(UUID().uuidString).png")
+        #expect(await MobileImageAttachmentPreparer().prepare(url: missing) == nil)
+    }
+
     private func makeImageFixture(width: Int, height: Int) throws -> URL {
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let context = try #require(CGContext(
