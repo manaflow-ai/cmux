@@ -151,7 +151,7 @@ fn code_block_ignores_superseded_answers_across_reverse_pages() {
             u64::MAX => json!({"events": [
                 superseded(3, "old", "new"), identified_text(4, "new", "No code needed."), end(5),
             ], "hasMore": true}),
-            3 => json!({"events": [end(1), identified_text(2, "old", "```sh\necho obsolete\n```")], "hasMore": false}),
+            3 => json!({"events": [end(1), identified_text(2, "old", "```sh\necho obsolete\n```\n")], "hasMore": false}),
             _ => panic!("unexpected cursor {before}"),
         })
     }).unwrap();
@@ -169,6 +169,36 @@ fn code_block_does_not_join_fences_from_different_assistant_messages() {
     })
     .unwrap();
     assert_eq!(block, Value::Null, "separate messages cannot complete each other's fences");
+}
+
+#[test]
+fn code_block_anonymous_chunks_preserve_message_identity() {
+    let block = load(|_| {
+        Ok(json!({"events": [
+            identified_text(1, "old", "```sh\n"),
+            text(2, "echo obsolete\n"),
+            identified_text(3, "old", "```\n"),
+            superseded(4, "old", "new"),
+            identified_text(5, "new", "No code needed."), end(6),
+        ], "hasMore": false}))
+    })
+    .unwrap();
+    assert_eq!(block, Value::Null, "anonymous chunks must not lose the superseded identity");
+}
+
+#[test]
+fn code_block_adopts_the_first_identity_after_anonymous_chunks() {
+    let events = [text(1, "```sh\necho "), identified_text(2, "old", "ok\n```\n")];
+    let block = load(|_| Ok(json!({"events": events, "hasMore": false}))).unwrap();
+    assert_eq!(block, json!({"language": "sh", "code": "echo ok"}));
+    let mut replaced = events.to_vec();
+    replaced.extend([
+        superseded(3, "old", "new"),
+        identified_text(4, "new", "No code needed."),
+        end(5),
+    ]);
+    let block = load(|_| Ok(json!({"events": replaced, "hasMore": false}))).unwrap();
+    assert_eq!(block, Value::Null, "the adopted identity covers the entire answer");
 }
 
 #[test]
