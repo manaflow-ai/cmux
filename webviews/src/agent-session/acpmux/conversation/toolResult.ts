@@ -321,7 +321,7 @@ export function losesNumbers(printed: string): boolean {
 const MARKDOWN =
   /^(?:#{1,6} \S|```|\s*(?:[-*+]|\d+\.) \S|\|.*\|\s*$|> \S|.*(?:\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*).*)/m;
 const LOG_LINE =
-  /^\s*(?:\[[^\]]+\]\s*)?(?:(?:debug|info|warn|error|trace)\b|(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)/i;
+  /^\s*(?:\[[^\]]+\]\s*)?(?:(?:\[(?:debug|info|warn|error|trace)\]|(?:debug|info|warn|error|trace)\b)|(?:line|row|chunk|step|test|pass|fail)\s+\d+\b)/i;
 /// Results longer than this stay plain text: Markdown is for a result someone reads.
 const MAX_MARKDOWN_CHARS = 20_000;
 
@@ -339,11 +339,11 @@ export function toolResult(
   if (lang === "json" || text.length > MAX_MARKDOWN_CHARS) return { text, lang };
   if (options.kind === "execute") return { text, lang: "text" };
   const lines = text.split("\n").filter(Boolean);
-  const log = lines.length > 1 && lines.every((line) => LOG_LINE.test(line));
+  const log = lines.length > 0 && lines.every((line) => LOG_LINE.test(line));
   const webRead =
     options.markdown ||
     options.kind === "fetch" ||
-    /\b(?:fetch|web[\s._:-]*read)\b/i.test(`${options.title ?? ""} ${options.description ?? ""}`);
+    /^\s*(?:fetch|web[\s._:-]*read)(?:\s|:|$)/i.test(options.title ?? "");
   return {
     text,
     lang: !log && (lang === "markdown" || webRead || MARKDOWN.test(text)) ? "markdown" : "text",

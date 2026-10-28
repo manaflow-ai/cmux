@@ -5,13 +5,22 @@ export function watchOutputViewport(node: HTMLElement, onOverflow: (overflow: bo
   const view = node.ownerDocument.defaultView;
   let frame: number | undefined;
   let alive = true;
-  const measure = () => {
+  const edge = () => {
     if (!alive) return;
     const overflow = node.scrollHeight > node.clientHeight + 1;
     node.toggleAttribute("data-more-below", overflow && node.scrollTop + node.clientHeight < node.scrollHeight - 1);
-    // Keep the measured preview size while it is expanded: collapsing must still offer Show all
-    // when a single logical line wrapped past the compact viewport.
-    if (node.dataset.preview !== "all") onOverflow(overflow);
+  };
+  const measure = () => {
+    if (!alive) return;
+    // Measure the compact cap even while expanded: its own content or width may have changed.
+    // Restore the attribute before paint, and discard only these synchronous observer records.
+    const expanded = node.dataset.preview === "all";
+    if (expanded) node.dataset.preview = "cut";
+    const overflow = node.scrollHeight > node.clientHeight + 1;
+    if (expanded) node.dataset.preview = "all";
+    observer?.takeRecords();
+    onOverflow(overflow);
+    edge();
   };
   const schedule = () => {
     if (frame !== undefined) return;
@@ -33,13 +42,13 @@ export function watchOutputViewport(node: HTMLElement, onOverflow: (overflow: bo
   const sized = view?.ResizeObserver ? new view.ResizeObserver(schedule) : undefined;
   sized?.observe(node);
   if (node.firstElementChild) sized?.observe(node.firstElementChild);
-  node.addEventListener("scroll", measure, { passive: true });
+  node.addEventListener("scroll", edge, { passive: true });
   measure();
   return () => {
     alive = false;
     if (frame !== undefined) view?.cancelAnimationFrame(frame);
     observer?.disconnect();
     sized?.disconnect();
-    node.removeEventListener("scroll", measure);
+    node.removeEventListener("scroll", edge);
   };
 }
