@@ -44,6 +44,9 @@ final class LineTransport: Sendable {
     static let maxRequestLineBytes = 16 << 20
     /// The `code` of a request refused because its line passes ``maxRequestLineBytes``.
     static let requestTooLargeCode = "request_too_large"
+    /// The `code` of a batch refused whole because the writer has no room for all of it
+    /// (``sendNoReplyAll(cmd:count:onError:_:)``).
+    static let backlogFullCode = "connection_backlog_full"
     /// SO_SNDBUF and SO_RCVBUF of the socket, and the reader's read size: the daemon's own value
     /// (p05-ipc-083), so a burst of output or a pipelined handshake moves in a few reads, not in hundreds
     /// of the 8 KiB AF_UNIX default.
@@ -172,8 +175,6 @@ final class LineTransport: Sendable {
     }
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
-    /// Bytes the writer takes now before it refuses a write, which ends the connection (``SocketWriter/room``).
-    var writerRoom: Int { writer.room }
     /// The connection runs through a bridge child (``DaemonBridge``), which carries bytes but no descriptors.
     var bridged: Bool { child != nil }
     /// The writer queue's class (``DaemonWireStats/Role/writerQoS``; tests).
@@ -234,14 +235,80 @@ final class LineTransport: Sendable {
     /// Writes one line that has no `id` and gets no reply (`loopback-data`
     /// and the other stream lines of `loopback-forward-v1`). Ordered with
     /// every other write. False once the socket failed or closed.
+    /// A line the writer refuses ends the connection, as in ``submit(_:deadline:framed:_:)``.
     func sendLine(_ payload: Data) -> Bool {
-        socket.withLock { socket in
+        var writeFailure: String?
+        let sent = socket.withLock { socket -> Bool in
             guard socket.fd >= 0, state.withLock({ $0.closed == nil }) else { return false }
             var line = payload
             line.append(0x0A)
-            guard writer.write(line) == nil else { return false }
+            if let failure = writer.write(line) {
+                writeFailure = failure.description
+                return false
+            }
             recorder?.lineWritten(bytes: line.count)
             return true
+        }
+        // After the socket lock: shutDown takes it again.
+        if let writeFailure { shutDown(.lost(writeFailure)) }
+        return sent
+    }
+
+    /// Sends `count` requests of `cmd` that get no reply (``sendNoReply(cmd:onError:_:)``), all or none: `body`
+    /// encodes request `index` with its id. Under one hold of the socket lock, which every write to the writer
+    /// takes, the lines are checked against the daemon's line limit and, together, against the room the writer
+    /// has, then written back to back. So the batch never goes in part: a refusal throws before the first line
+    /// (`request_too_large` or `connection_backlog_full`) and the connection stays.
+    func sendNoReplyAll(cmd: String, count: Int, onError: (@Sendable (DaemonError) -> Void)? = nil,
+                        _ body: (_ index: Int, _ id: UInt64) throws -> Data) throws {
+        guard count > 0 else { return }
+        var writeFailure: String?
+        let early: (any Error)? = socket.withLock { socket -> (any Error)? in
+            guard socket.fd >= 0 else { return DaemonError.connectionClosed(reason: "socket closed") }
+            let first: UInt64
+            switch state.withLock({ state -> Result<UInt64, DaemonError> in
+                if let reason = state.closed { return .failure(Self.closedError(reason)) }
+                defer { state.nextID &+= UInt64(truncatingIfNeeded: count) }
+                return .success(state.nextID)
+            }) {
+            case .success(let id): first = id
+            case .failure(let error): return error
+            }
+            var messages: [Data] = []
+            messages.reserveCapacity(count)
+            var total = 0
+            var id = first
+            for index in 0..<count {
+                defer { id &+= 1 }
+                let payload: Data
+                do { payload = try body(index, id) } catch { return error }
+                guard payload.count <= Self.maxRequestLineBytes else { return Self.requestTooLarge(cmd: cmd, bytes: payload.count) }
+                let message = Self.message(payload, id: id, cmd: cmd, framing: nil)
+                total += message.count
+                messages.append(message)
+            }
+            guard total <= writer.room else { return Self.backlogFull(cmd: cmd, bytes: total, room: writer.room) }
+            let stamps = messages.map { _ in recorder?.requestSent(cmd) }
+            state.withLock { state in
+                var id = first
+                for stamp in stamps {
+                    state.pending.append(PendingRequest(waiter: .discard(cmd: cmd, onError: onError), sent: stamp), id: id)
+                    id &+= 1
+                }
+            }
+            for message in messages {
+                if let failure = writer.write(message) {
+                    writeFailure = failure.description
+                    break
+                }
+                recorder?.lineWritten(bytes: message.count)
+            }
+            return nil
+        }
+        if let early { throw early }
+        if let writeFailure {
+            shutDown(.lost(writeFailure))
+            throw DaemonError.connectionClosed(reason: writeFailure)
         }
     }
 

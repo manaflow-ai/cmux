@@ -73,6 +73,12 @@ extension LineTransport {
                  code: requestTooLargeCode)
     }
 
+    /// The refusal of a batch of `bytes` the writer has no room for (`room`): nothing of it was sent.
+    static func backlogFull(cmd: String, bytes: Int, room: Int) -> DaemonError {
+        .command(cmd: cmd, message: "too much to send at once: \(bytes) bytes, the connection takes \(room) more now",
+                 code: backlogFullCode)
+    }
+
     static func closedError(_ reason: TransportCloseReason) -> DaemonError {
         switch reason {
         case .closedByClient: .connectionClosed(reason: "closed by client")

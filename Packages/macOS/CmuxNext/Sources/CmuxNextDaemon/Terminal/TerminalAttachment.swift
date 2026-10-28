@@ -224,51 +224,39 @@ public actor TerminalAttachment: TerminalByteChannel {
         enqueueInput(data)
     }
 
-    /// The most input bytes one `send` line carries: a paste goes as consecutive lines of at most this many
-    /// bytes, in order. Its base64 (4/3) with the request's fields stays far below the line the daemon reads
-    /// (``LineTransport/maxRequestLineBytes``, 16 MiB), and a key typed behind a paste waits for one such line on
-    /// the wire, not for the whole paste.
-    static let maxInputBytesPerSend = 1 << 20
-    /// A `send` line's bytes beside its base64: the id, command, surface and flow fields and the newline.
+    /// The most input bytes one `send` line carries: the most whose base64 (4/3) with the request's fields fits
+    /// the line the daemon reads (``LineTransport/maxRequestLineBytes``, 16 MiB), a multiple of 3 so no line but
+    /// the last pads. A paste up to this size is one `send`, one input turn in the daemon, as before; a larger one
+    /// goes as consecutive lines of this size, written back to back (``LineTransport/sendNoReplyAll(cmd:count:onError:_:)``).
+    static let maxInputBytesPerSend = (LineTransport.maxRequestLineBytes - sendLineOverheadBytes) / 4 * 3
+    /// A `send` line's bytes beside its base64: the id, command, surface and flow fields.
     static let sendLineOverheadBytes = 256
 
-    /// The length of `count` bytes in standard padded base64.
-    static func base64Bytes(_ count: Int) -> Int { (count + 2) / 3 * 4 }
-
     /// Synchronous, ordered input path for Ghostty's `io_write_cb` thread.
-    /// Writes from one thread reach the PTY in call order.
+    /// Writes from one thread reach the PTY in call order. Input the connection cannot take whole now (more than
+    /// its writer's room, 64 MiB of lines) is refused whole and logged: a cut paste would run its first part as
+    /// commands.
     public nonisolated func enqueueInput(_ data: Data) {
         guard !data.isEmpty else { return }
         let surface = surface
         let logger = logger
-        // A paste the writer cannot take whole is refused whole, before its first line: a cut paste would run
-        // its first half as commands, and a refused line ends the connection.
-        let lines = (data.count + Self.maxInputBytesPerSend - 1) / Self.maxInputBytesPerSend
-        let wireBytes = Self.base64Bytes(data.count) + lines * Self.sendLineOverheadBytes
-        guard wireBytes <= transport.writerRoom else {
-            logger.error("input of \(data.count, privacy: .public) bytes refused: the daemon connection takes \(transport.writerRoom, privacy: .public) more bytes now")
-            return
-        }
-        // The key press's flow rides the first line: its echo answers that one.
-        var flow = TypingLatencyProbe.shared.openFlow
-        var rest = data.dropFirst(0)
-        while !rest.isEmpty {
-            let piece = rest.prefix(Self.maxInputBytesPerSend)
-            rest = rest.dropFirst(Self.maxInputBytesPerSend)
-            let pieceFlow = flow
-            do {
-                try transport.sendNoReply(cmd: SendInputRequest.command, onError: { error in
-                    logger.error("send failed: \(error.description, privacy: .public)")
-                }) { id in
-                    try WireCoding.encodeRequest(SendInputRequest(surface: surface, bytes: Data(piece), flow: pieceFlow), id: id)
-                }
-                if let pieceFlow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: pieceFlow) }
-            } catch {
-                // The rest of the input cannot follow a line that did not go: the connection closed.
-                logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
-                return
+        let flow = TypingLatencyProbe.shared.openFlow
+        let size = Self.maxInputBytesPerSend
+        let count = (data.count + size - 1) / size
+        do {
+            try transport.sendNoReplyAll(cmd: SendInputRequest.command, count: count, onError: { error in
+                logger.error("send failed: \(error.description, privacy: .public)")
+            }) { index, id in
+                let piece = data.dropFirst(index * size).prefix(size)
+                // The key press's flow rides the first line: its echo answers that one.
+                return try WireCoding.encodeRequest(
+                    SendInputRequest(surface: surface, bytes: Data(piece), flow: index == 0 ? flow : nil), id: id)
             }
-            flow = nil
+            if let flow { TypingLatencyProbe.shared.mark(.socketSubmit, flow: flow) }
+        } catch DaemonError.command(_, let message, _, _, _) {
+            logger.error("input of \(data.count, privacy: .public) bytes refused: \(message, privacy: .public)")
+        } catch {
+            logger.debug("input dropped after close: \(String(describing: error), privacy: .public)")
         }
     }
 
