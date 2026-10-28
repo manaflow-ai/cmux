@@ -19,10 +19,11 @@ public final class DisplayBackdropBinding {
                 displayID: @escaping () -> String?, now: @escaping () -> Date = Date.init,
                 calendar: @escaping () -> Calendar = { .current }) {
         self.window = window; self.scope = scope; self.center = center; self.displayID = displayID; self.now = now; self.calendar = calendar
-        observers.append(center.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.refresh() })
-        observers.append(center.addObserver(forName: .NSSystemClockDidChange, object: nil, queue: .main) { [weak self] _ in self?.refresh() })
-        observers.append(center.addObserver(forName: .NSCalendarDayChanged, object: nil, queue: .main) { [weak self] _ in self?.refresh() })
-        observers.append(center.addObserver(forName: .NSSystemTimeZoneDidChange, object: nil, queue: .main) { [weak self] _ in self?.refresh() })
+        observers.append(center.addObserver(forName: nil, object: nil, queue: .main) { [weak self, weak window] note in
+            guard note.name == NSWindow.didChangeScreenNotification || note.name == .NSSystemClockDidChange || note.name == .NSCalendarDayChanged || note.name == .NSSystemTimeZoneDidChange,
+                  note.name != NSWindow.didChangeScreenNotification || note.object as AnyObject? === window else { return }
+            self?.refresh()
+        })
     }
 
     public func apply(_ root: JSONValue) { self.root = root; refresh() }
