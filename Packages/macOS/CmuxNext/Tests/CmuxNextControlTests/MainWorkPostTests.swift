@@ -209,7 +209,7 @@ import Testing
     @Test func anAutomationContinuationWaitsForTheNextFrameThoughATurnDrainsItsClass() {
         let clock = PostClock()
         let turns = PostTurns()
-        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), performTurn: { turns.queue($0) }) { _ in
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: clock.read), performTurn: turns.perform) { _ in
             PostFakeLink()
         }
         let keeper = LinkKeeper(on: work)
@@ -313,18 +313,6 @@ private final class ChunkedAutomationTask {
     }
 }
 
-/// Main run loop turns the scheduler asked for, run when the test says.
-@MainActor
-private final class PostTurns {
-    private var pending: [@MainActor () -> Void] = []
-
-    func queue(_ turn: @escaping @MainActor () -> Void) { pending.append(turn) }
-
-    func runAll() {
-        while !pending.isEmpty { pending.removeFirst()() }
-    }
-}
-
 /// What the reply saw (a `@Sendable` reply cannot write a captured local).
 @MainActor
 private final class ReplySeen {
@@ -343,6 +331,7 @@ private final class PostTurns {
     var perform: MainWorkScheduler.TurnPerformer { { [weak self] turn in self?.queued.append(turn) } }
 
     /// Runs the turns queued now; returns how many ran.
+    @discardableResult
     func runAll() -> Int {
         let turns = queued
         queued.removeAll()
