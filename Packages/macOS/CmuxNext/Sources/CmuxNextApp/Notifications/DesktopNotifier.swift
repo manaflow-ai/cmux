@@ -136,6 +136,27 @@ final class DesktopNotifier: NSObject {
         for remove in [center.removeDeliveredNotifications(withIdentifiers:), center.removePendingNotificationRequests(withIdentifiers:)] { remove(ids) }
     }
 
+    /// Removes attention banners left by an earlier launch whose marks are no longer live.
+    /// Notification Center does not expose a prefix-delete operation, so inspect both delivered
+    /// and pending requests once after the first live attention list arrives.
+    func withdrawAttentionBanners(except live: Set<String>) async {
+        guard let center = configuredCenter() else { return }
+        let ids = await withCheckedContinuation { continuation in
+            center.getDeliveredNotifications { delivered in
+                let deliveredIDs = delivered.map(\.request.identifier)
+                center.getPendingNotificationRequests { pending in
+                    let all = deliveredIDs + pending.map(\.identifier)
+                    continuation.resume(returning: all.filter {
+                        $0.hasPrefix(NotificationCenterService.attentionBannerPrefix) && !live.contains($0)
+                    })
+                }
+            }
+        }
+        guard !ids.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: ids)
+        center.removePendingNotificationRequests(withIdentifiers: ids)
+    }
+
     /// The banner click path, also used by `debug.notifications` (click).
     func open(id: String, surface: UInt64?) {
         onOpen?(id, surface)

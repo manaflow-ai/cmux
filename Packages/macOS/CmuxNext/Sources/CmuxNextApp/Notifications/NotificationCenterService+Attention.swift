@@ -40,10 +40,19 @@ extension NotificationCenterService {
     /// The marked tabs changed (``AttentionTabsWatch``): banners for new requests, per policy, and
     /// none left for a mark that cleared.
     func attentionMarksChanged(_ items: [AgentPaneAttentionTabs.Item]) {
+        let firstList = attentionSeen == nil
         let changes = Self.attentionChanges(previous: attentionSeen, current: items)
         attentionSeen = items
         desktop.withdraw(changes.withdraw)
         attentionBanners.subtract(changes.withdraw)
+        if firstList {
+            // A prior launch may have left a delivered attention banner behind after its mark
+            // cleared. Reconcile the center once the first live list is available.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                await self.desktop.withdrawAttentionBanners(except: Set(items.map(Self.attentionBannerID)))
+            }
+        }
         // A banner left in Notification Center by an earlier launch is not in this set, so its
         // Show opens nothing even when its request is still the tab's live mark.
         attentionBanners.formUnion(changes.post.map(Self.attentionBannerID))
@@ -55,11 +64,15 @@ extension NotificationCenterService {
         let decision = NotificationPolicy(prefs: preferences).decide(attentionArrival(item))
         note("attention \(item.tabId) \(decision)")
         guard decision.desktop else { return }
+        var decision = decision
+        soundGate.admit(&decision, cooldownSeconds: preferences.sounds.cooldownSeconds)
         let content = bannerFormatter.content(headline: AttentionBannerStrings.needsYou, posterSubtitle: nil, body: item.reason,
                                               workspace: item.workspaceTitle, tab: item.tabTitle, host: nil)
         desktop.post(id: Self.attentionBannerID(item), title: content.title, subtitle: content.subtitle, body: content.body,
                      surface: nil, workspace: nil, defaultSound: decision.sound == "default", category: DesktopNotifier.attentionCategory)
-        if let sound = decision.sound, sound != "default" { NotificationSounds.play(sound) }
+        if let sound = decision.sound, sound != "default" {
+            soundGate.player.play(sound, volume: decision.soundVolume, banner: true)
+        }
     }
 
     /// What the policy reads for `item`'s banner: whether its pane is viewed and its workspace
@@ -68,13 +81,18 @@ extension NotificationCenterService {
         var arrival = NotificationPolicy.Arrival(source: .agent)
         arrival.appActive = NSApp.isActive
         // The row key names the tab's machine (tabs on two machines can share an id).
-        if let services, let (daemon, tab) = AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons) {
+        if let services, let (daemon, tab) = AttentionTabsWatch.locate(item.tabId, in: services.machines.daemons,
+                                                                        expectedAtMs: item.atMs) {
             arrival.paneIsViewed = isViewed(tab, onMachine: daemon.machineID)
             if let model = daemon.store.tab(idOrResource: tab), let pane = daemon.store.pane(holding: model),
                let workspace = daemon.store.workspace(containing: pane.handle) {
                 arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+                (arrival.soundEvent, arrival.soundScope) = soundGate.classify(
+                    level: "warning", source: .agent, agent: model.agentSession?.harness ?? model.agent?.agent,
+                    workspace: workspace.id)
             }
         }
+        if arrival.soundEvent == nil { arrival.soundEvent = .needsInput }
         let components = Calendar.current.dateComponents([.hour, .minute], from: Date())
         arrival.minuteOfDay = (components.hour ?? 0) * 60 + (components.minute ?? 0)
         return arrival

@@ -43,8 +43,10 @@ final class AttentionTabsWatch {
                 for pane in screen.panes {
                     for tab in pane.tabs {
                         guard let attention = tab.attention else { continue }
+                        let tabKey = key(machine: machine, tab: tab.id)
+                        guard !tabKey.isEmpty else { continue }
                         items.append(AgentPaneAttentionTabs.Item(
-                            tabId: key(machine: machine, tab: tab.id), reason: attention.reason, workspaceTitle: workspace.displayName,
+                            tabId: tabKey, reason: attention.reason, workspaceTitle: workspace.displayName,
                             tabTitle: tab.displayTitle, atMs: attention.atMs))
                     }
                 }
@@ -57,7 +59,10 @@ final class AttentionTabsWatch {
     /// its machine's id, `/`, and its tab id, since tabs on two machines can share an id. The
     /// digest keeps the key inside ``AgentPaneAttentionTabs/maximumTabID`` however long the
     /// machine id is, and a tab id holds no `/`.
-    static func key(machine: String, tab: String) -> String { "\(machineDigest(machine))/\(tab)" }
+    static func key(machine: String, tab: String) -> String {
+        let key = "\(machineDigest(machine))/\(tab)"
+        return key.utf8.count <= AgentPaneAttentionTabs.maximumTabID ? key : ""
+    }
 
     /// The first 8 bytes of SHA-256 of `machine`, in hex.
     static func machineDigest(_ machine: String) -> String {
@@ -66,10 +71,14 @@ final class AttentionTabsWatch {
 
     /// The machine (of `daemons`) and tab id that row key `key` names; nil for a key that names
     /// no connected machine.
-    static func locate(_ key: String, in daemons: [DaemonService]) -> (daemon: DaemonService, tab: String)? {
+    static func locate(_ key: String, in daemons: [DaemonService], expectedAtMs: UInt64? = nil)
+        -> (daemon: DaemonService, tab: String)? {
         guard let slash = key.lastIndex(of: "/") else { return nil }
         let digest = key[..<slash], tab = String(key[key.index(after: slash)...])
-        guard !tab.isEmpty, let daemon = daemons.first(where: { machineDigest($0.machineID) == digest }) else { return nil }
+        guard key.utf8.count <= AgentPaneAttentionTabs.maximumTabID, !tab.isEmpty,
+              let daemon = daemons.first(where: { machineDigest($0.machineID) == digest }) else { return nil }
+        if let expectedAtMs,
+           daemon.store.tab(idOrResource: tab)?.attention?.atMs != expectedAtMs { return nil }
         return (daemon, tab)
     }
 }

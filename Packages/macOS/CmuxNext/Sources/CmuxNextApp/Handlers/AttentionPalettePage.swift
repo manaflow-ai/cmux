@@ -21,7 +21,10 @@ struct AttentionPalettePage {
     /// user's jump on the row's own machine, ``AppServices/revealTab(_:onMachine:intent:)``.
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         AgentPaneAttentionTabs.shared.onOpen = { [weak services = context.services] key in
-            guard let services, let (daemon, tab) = AttentionTabsWatch.locate(key, in: services.machines.daemons) else { return false }
+            guard let services,
+                  let item = AgentPaneAttentionTabs.shared.items.first(where: { $0.tabId == key }),
+                  let (daemon, tab) = AttentionTabsWatch.locate(key, in: services.machines.daemons,
+                                                                expectedAtMs: item.atMs) else { return false }
             return services.revealTab(tab, onMachine: daemon.machineID)
         }
         // An open page follows the marks: a cleared mark's row goes, a new one comes.
