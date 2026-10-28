@@ -452,6 +452,12 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     let bundled = dir.join("cmux.app/Contents/Resources/bin");
     std::fs::create_dir_all(&bundled).unwrap();
     write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    // The app's URL opener (scripts/cmux-next/url-open/cmux-open-url): an
+    // agent's `BROWSER`, as in the app's terminals, so a sign-in page a tool
+    // opens (`gh auth login`, `aws sso login`, Python's webbrowser) lands in a
+    // cmux tab, and prezto's `.zprofile` (`BROWSER=open` when unset) in the
+    // agent's `zsh -lc` keeps it.
+    write_executable(bundled.join("cmux-open-url"), "#!/bin/sh\nexit 0\n");
     // The app's agent zsh layer (Resources/cmux-cli-path/zsh-agent): the
     // agent's own `zsh -lc` runs the user's .zprofile, which may put the old
     // `cmux` first again; the layer moves the bundled one back after it.
@@ -480,6 +486,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         .env("CMUX_SOCKET_PATH", &app_socket)
         .env("CMUX_BUNDLE_ID", "com.cmuxterm.app.next.debug.cli")
         .env("ZDOTDIR", &user_zdotdir)
+        .env_remove("BROWSER")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
@@ -506,8 +513,14 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
         .await;
     let id = s["sessionId"].as_str().unwrap().to_owned();
     let mut answers = Vec::new();
-    for name in ["PATH", "CMUX_SOCKET_PATH", "CMUX_BUNDLE_ID", "ZDOTDIR", "CMUX_CLI_AGENT_ZDOTDIR"]
-    {
+    for name in [
+        "PATH",
+        "CMUX_SOCKET_PATH",
+        "CMUX_BUNDLE_ID",
+        "ZDOTDIR",
+        "CMUX_CLI_AGENT_ZDOTDIR",
+        "BROWSER",
+    ] {
         rpc.call(
             "session/prompt",
             json!({"sessionId": id, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
@@ -539,6 +552,7 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     assert_eq!(seen[2], "CMUX_BUNDLE_ID=com.cmuxterm.app.next.debug.cli");
     assert_eq!(seen[3], format!("ZDOTDIR={}", agent_zsh.display()), "{seen:?}");
     assert_eq!(seen[4], format!("CMUX_CLI_AGENT_ZDOTDIR={}", user_zdotdir.display()), "{seen:?}");
+    assert_eq!(seen[5], "BROWSER=cmux-open-url", "{seen:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
