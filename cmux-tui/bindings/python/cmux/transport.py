@@ -221,7 +221,10 @@ class JsonLineConnection:
         remaining_bytes = memoryview(encoded + b"\n")
         write_started = False
         original_timeout = self._socket.gettimeout()
-        self._socket.settimeout(0.0)
+        try:
+            self._socket.settimeout(0.0)
+        except OSError as error:
+            raise CmuxConnectionError(f"socket write setup failed: {error}") from error
         try:
             while remaining_bytes:
                 remaining_time = deadline - time.monotonic()
