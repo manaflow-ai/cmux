@@ -14,10 +14,7 @@ const NOW = 1_000_000;
 const nodes = realWorkflowFixture(NOW);
 const [workflowNode] = nodes;
 const [workflow] = createWorkflowAdapter()(nodes, "workflow-session");
-const [runningWorkflow] = createWorkflowAdapter()(
-  realWorkflowFixture(NOW, 8_760),
-  "workflow-session",
-);
+const [runningWorkflow] = createWorkflowAdapter()(realWorkflowFixture(NOW, 8_760), "workflow-session");
 const text = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")
@@ -35,9 +32,7 @@ test("a real Claude workflow replay folds into its phases, agents, states, model
     tokens: 84_080,
     counts: { done: 3, started: 3 },
   });
-  expect(
-    workflow!.phases.map(({ id, name, state, agentIds }) => ({ id, name, state, agentIds })),
-  ).toEqual([
+  expect(workflow!.phases.map(({ id, name, state, agentIds }) => ({ id, name, state, agentIds }))).toEqual([
     {
       id: "1",
       name: "Count",
@@ -92,9 +87,7 @@ test("the replay renders in the transcript card, Session Info tasks and summary"
   const summary = renderToStaticMarkup(<WorkflowSummaries workflows={[workflow!]} />);
   expect(text(card)).toContain("count-files-fixture Workflow 3 agents 10s");
   expect(card.match(/acpmux-workflow-dot"/g)?.length).toBe(3);
-  expect(text(tasks)).toContain(
-    "count-files-fixture 10s Workflow · Finished · 3 agents · 84k tokens",
-  );
+  expect(text(tasks)).toContain("count-files-fixture 10s Workflow · Finished · 3 agents · 84k tokens");
   expect(text(tasks)).toContain("Count 2/2 Report 1/1");
   expect(text(summary)).toContain("count-files-fixture");
   expect(text(summary)).toContain("3/3");

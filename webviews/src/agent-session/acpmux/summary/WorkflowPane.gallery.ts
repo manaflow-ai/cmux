@@ -24,13 +24,7 @@ const paneSnapshot = (stage: PaneStage) => {
         : workflowFixture(stage, GALLERY_NOW)
   ).filter((node) => node.kind === "workflow");
   const started =
-    stage === "running"
-      ? 13 / 60
-      : stage === "real-running"
-        ? 8.76 / 60
-        : stage === "real-run"
-          ? 10.78 / 60
-          : 2;
+    stage === "running" ? 13 / 60 : stage === "real-running" ? 8.76 / 60 : stage === "real-run" ? 10.78 / 60 : 2;
   return chat(
     [
       user(PROMPT, started + 0.2),
