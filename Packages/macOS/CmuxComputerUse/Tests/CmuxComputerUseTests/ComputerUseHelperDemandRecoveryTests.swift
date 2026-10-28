@@ -56,20 +56,54 @@ struct ComputerUseHelperDemandRecoveryTests {
         let first = runtime.requestHelperForToolInvocation()
         let second = runtime.requestHelperForToolInvocation()
         #expect(first != nil)
+        #expect(first == second)
         await first?.value
         await second?.value
         // One failed native launch per recovery; the parallel call joined it.
         #expect(harness.launches.count == afterStartup + 1)
     }
+
+    @Test func repeatedToolInvocationsSkipTheBackoffAtMostOncePerInterval() async throws {
+        let harness = try DemandRecoveryHarness()
+        defer { harness.remove() }
+        let runtime = harness.runtime
+        await runtime.setEnabled(true)
+        await runtime.requestHelperForToolInvocation()?.value
+        let afterFirstCall = harness.launches.count
+
+        // An agent retrying straight away against a helper that will not come
+        // up is paced by the backoff instead of relaunching on every call.
+        await runtime.requestHelperForToolInvocation()?.value
+        #expect(harness.launches.count == afterFirstCall)
+
+        harness.clock.now += ComputerUseRuntimeService.toolInvocationStartInterval
+        await runtime.requestHelperForToolInvocation()?.value
+        #expect(harness.launches.count == afterFirstCall + 1)
+    }
+
+    @Test func disablingDuringAToolInvocationRecoveryLaunchesNothing() async throws {
+        let harness = try DemandRecoveryHarness()
+        defer { harness.remove() }
+        let runtime = harness.runtime
+        await runtime.setEnabled(true)
+        let afterStartup = harness.launches.count
+
+        let recovery = try #require(runtime.requestHelperForToolInvocation())
+        await runtime.setEnabled(false)
+        await recovery.value
+        #expect(harness.launches.count == afterStartup)
+        #expect(runtime.requestHelperForToolInvocation() == nil)
+    }
 }
 
-/// A runtime over a synthetic helper, private defaults and a frozen clock, so
-/// the launch backoff never expires during a test.
+/// A runtime over a synthetic helper, private defaults and a clock that only
+/// a test advances, so the launch backoff never expires on its own.
 @MainActor
 private struct DemandRecoveryHarness {
     let fixture: HelperRuntimeFixture
     let defaultsSuite = "cmux.computer-use.demand-recovery.\(UUID().uuidString)"
     let launches = LaunchRecorder()
+    let clock = ManualUptime()
     let runtime: ComputerUseRuntimeService
 
     init() throws {
@@ -77,10 +111,11 @@ private struct DemandRecoveryHarness {
         let defaults = try #require(UserDefaults(suiteName: defaultsSuite))
         runtime = ComputerUseRuntimeService(
             bundle: fixture.bundle, paths: fixture.paths, userDefaults: defaults,
-            uptime: { 100 }, isDisabledByPolicy: { false },
+            uptime: { [clock] in clock.now }, isDisabledByPolicy: { false },
             helperTrust: HelperRuntimeFixture.trustingEveryHelper
         )
         runtime.helperLauncher = launches.launch
+        runtime.helperRegistrar = { _ in }
     }
 
     func remove() {
@@ -103,4 +138,9 @@ private final class LaunchRecorder {
             return nil
         }
     }
+}
+
+@MainActor
+private final class ManualUptime {
+    var now: TimeInterval = 100
 }

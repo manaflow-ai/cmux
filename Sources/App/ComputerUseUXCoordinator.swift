@@ -349,7 +349,7 @@ final class ComputerUseUXCoordinator {
         let ownsLocalSurface = surfaceID.map {
             ownsSurface($0, event.workspaceId.flatMap(UUID.init(uuidString:)))
         } == true
-        if isComputerUseInvocation, hasValidSurface, ownsLocalSurface {
+        if isComputerUseInvocation, hasValidSurface, ownsLocalSurface, featureEnabled() {
             // The agent's cmux-cua proxy only waits briefly for the app-owned
             // daemon. Start a helper that is down now instead of leaving it to
             // background recovery, whose backoff can outlast the call. Every
