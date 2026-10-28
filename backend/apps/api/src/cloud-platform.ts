@@ -103,11 +103,15 @@ export const platformMetadata = (m: MachineRow): PlatformReply<PlatformMachine> 
   return ok({ id: m.id, region: "global", state, shape })
 }
 
-export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall): Promise<PlatformReply> => {
+export const platformCall = async (host: PlatformHost, user: string, call: PlatformCall, recoveryOnly = false): Promise<PlatformReply> => {
   // Find and delete reach only this user's own platform boots, and a delete only stops cost: both work
   // after the user lost access to the team, so a setup's cleanup always deletes its builder.
-  const cleanup = call.op === "find" || call.op === "destroy"
-  if (!cleanup && !(await host.mayUse(user).catch(() => false))) return refused("auth.forbidden", "this user may not use the team's machines", false)
+  const cleanup = call.op === "find" || call.op === "destroy" || call.op === "providerInfo"
+  if ((call.op === "create" || call.op === "fork") && (recoveryOnly || !host.providerInfo().available)) return host.operations.recover(host, user, call)
+  if (!cleanup && !(await host.mayUse(user).catch(() => false))) {
+    if (call.op === "create" || call.op === "fork") return host.operations.recover(host, user, call)
+    return refused("auth.forbidden", "this user may not use the team's machines", false)
+  }
   const p = platformPrincipal(host.team, user)
   const submit = (op: string, params: unknown, k: string) => host.submit(p, { t: "op", op, params, idempotency_key: k, origin: "script" }).then(replyOf)
   /** A machine this user's platform boots made, or a refusal (another person's machine is not found). */
@@ -116,7 +120,7 @@ export const platformCall = async (host: PlatformHost, user: string, call: Platf
     return m && m.platform === true && m.creator === user ? m : refused("cloud.machine.not_found", "no such setup machine in this team", false)
   }
   switch (call.op) {
-    case "providerInfo": return ok(host.providerInfo())
+    case "providerInfo": return ok({ ...host.providerInfo(), ...(recoveryOnly ? { available: false } : {}) })
     case "create":
     case "fork": {
       if (!host.providerInfo().available) return refused("cloud.provider.unavailable", "the Freestyle provider is not configured on this deployment", false)

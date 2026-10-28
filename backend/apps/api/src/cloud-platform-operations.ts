@@ -23,6 +23,8 @@ interface Operation {
   due: number
   error?: string
 }
+type Request = { name: string; shape?: PlatformShape; snapshot?: string; machine?: string; labels?: Record<string, string> }
+const matchesRequest = (o: Operation, input: Request) => o.source === input.machine && o.image === input.snapshot && (!input.shape || sameShape(o.target, input.shape)) && labelKey(o.labels) === labelKey(input.labels)
 const RETRY_MS = 5_000
 const DEADLINE_MS = 15 * 60_000
 const opKey = (user: string, name: string) => `${user}:${name}`
@@ -99,11 +101,49 @@ export class PlatformOperations {
     o.due = now
     this.put(o)
   }
-  async request(host: PlatformHost, user: string, input: { name: string; shape?: PlatformShape; snapshot?: string; machine?: string; labels?: Record<string, string> }, now: number): Promise<PlatformReply<PlatformMachine>> {
+  /** Recovery only: no writes, provider reads, continuation, or membership dependency. The user
+   * owns the journal key and child. Conservative starting metadata carries the ID needed for cleanup
+   * even when credentials are gone and the current provider size cannot be confirmed. */
+  recover(host: PlatformHost, user: string, input: Request): PlatformReply<PlatformMachine> {
+    const o = this.read(opKey(user, input.name))
+    if (!o) return refused("cloud.provider.unavailable", "no existing machine request can be recovered while this provider is unavailable", false)
+    if (!matchesRequest(o, input)) return refused("idempotency.conflict", "this name belongs to another machine request", false)
+    const id = o.child ?? host.ledger(ledgerKey(platformPrincipal(host.team, user).identity, this.stepKey(o, "create")))?.machine
+    const m = id ? host.machine(id) : undefined
+    if (m && m.platform === true && m.creator === user) return { ok: true, value: { id: m.id, region: "global", state: o.error || m.status === "failed" ? "failed" : m.status === "deleting" ? "stopped" : "starting", shape: o.confirmedShape ?? o.target, targetShape: o.target } }
+    if (terminal(o)) return refused("cloud.machine.not_found", "the machine for this request is gone", false)
+    return refused("mutation.indeterminate", "the recorded request is awaiting cleanup; no new work was started", true)
+  }
+
+  /** Fence every pending child BEFORE CloudCore retries its ledger. A failed delete admission
+   * must abort the wake: running the base pass without its cancellation could create a new VM.
+   * Captures retain their journal until the ordinary capture ledger settles; no restore follows. */
+  async stopAllocations(host: PlatformHost, now: number): Promise<void> {
+    if (!this.exists()) return
+    const pending = this.sql.exec<{ data: string }>("SELECT data FROM cloud_platform_operations WHERE due IS NOT NULL").map(({ data }) => JSON.parse(data) as Operation)
+    for (const o of pending) {
+      const identity = platformPrincipal(host.team, o.user).identity
+      o.child ??= host.ledger(ledgerKey(identity, this.stepKey(o, "create")))?.machine
+      o.snapshot ??= host.ledger(ledgerKey(identity, this.stepKey(o, "capture")))?.snapshot
+      o.error ??= "the provider was disabled before provisioning completed"
+      o.phase = "cleanup"
+      o.due = now
+      this.put(o)
+    }
+    for (const o of pending) {
+      const m = o.child ? host.machine(o.child) : undefined
+      const p = platformPrincipal(host.team, o.user)
+      if (m && m.status !== "deleting") await host.submit(p, { t: "op", op: "cloud.machine.delete", params: { machine: m.id }, idempotency_key: this.stepKey(o, `delete:${m.revision}`), origin: "script" })
+      const create = host.ledger(ledgerKey(p.identity, this.stepKey(o, "create")))
+      if (create?.state === "pending" && !create.cancel) throw new Error("platform create cancellation has not committed")
+    }
+  }
+
+  async request(host: PlatformHost, user: string, input: Request, now: number): Promise<PlatformReply<PlatformMachine>> {
     const key = opKey(user, input.name)
     let o = this.read(key)
     if (o) {
-      if (o.source !== input.machine || o.image !== input.snapshot || (input.shape && !sameShape(o.target, input.shape)) || labelKey(o.labels) !== labelKey(input.labels)) return refused("idempotency.conflict", "this name belongs to another machine request", false)
+      if (!matchesRequest(o, input)) return refused("idempotency.conflict", "this name belongs to another machine request", false)
     } else {
       if (input.snapshot) {
         const image = host.snapshot(input.snapshot)
