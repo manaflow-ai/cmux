@@ -125,7 +125,7 @@ export type QuickFamilies = {
   forkReady?: boolean;
 };
 
-/// How many rows a list shows at once (keys 1 to 9 pick a tab's rows).
+/// Keys 1 to 9 pick a tab's first rows; this does not limit the visible model list.
 const FILTER_ROWS = 9;
 const EFFORT_SLIDER_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"]);
 
@@ -134,31 +134,6 @@ const rowValue = (model: Pick<QuickModel, "family" | "id">) => `${model.family}\
 /// provider's than the row lands, when the running one is unavailable.
 const runsOffers = (model: Pick<QuickModel, "id" | "offers">, current: string | undefined) =>
   !!model.offers?.some((offer) => offer.id === current);
-
-/// One row of any tab, for the width probe: its label, its secondary value, and whether it opens a
-/// submenu (a chevron), shows a number key, or shows the chosen model's check (wider: it has its own
-/// leading padding).
-export type ProbeRow = { label: string; value?: string; sub?: boolean; shortcut?: boolean; check?: boolean };
-
-/// Invisible width probes keep tab changes from resizing the surface horizontally. They never
-/// reserve height: the visible models and controls alone determine how tall the menu is.
-function QuickMenuSpacer({ widths }: { widths: ProbeRow[] }) {
-  return (
-    <div className="acpmux-quick-spacer" aria-hidden="true" inert>
-      <div className="acpmux-quick-probe">
-        {widths.map((row, index) => (
-          <div key={index} className={`ui-menu-item acpmux-quick-item${row.sub ? " acpmux-quick-sub" : ""}`}>
-            <span className="acpmux-menu-label">{row.label}</span>
-            {row.value && <span className="acpmux-quick-value">{row.value}</span>}
-            {row.check && <span className="ui-menu-check">✓</span>}
-            {row.sub && <span className="ui-submenu-chevron" />}
-            {row.shortcut && <span className="ui-menu-shortcut">9</span>}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 /// What the composer hands the model picker for its compact menu; the picker adds the models.
 export type QuickMenuExtras = Pick<QuickMenu, "effort" | "account" | "fast" | "searchField" | "providers">;
@@ -279,7 +254,7 @@ export function QuickModelMenu({
   // What the list draws: the search's matches, else the tab's top models.
   const rows: QuickModel[] =
     query && search
-      ? search.find(query).slice(0, FILTER_ROWS)
+      ? search.find(query)
       : !families
         ? models.map((model) => ({ ...model, family: "" }))
         : (shown?.models ?? []);
@@ -314,7 +289,7 @@ export function QuickModelMenu({
   /// them. Digits on an empty field still pick a row, and Left and Right move along the rail.
   const fieldKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.metaKey || event.ctrlKey || event.altKey) return;
-    if (event.nativeEvent.isComposing) {
+    if (event.nativeEvent.isComposing || event.keyCode === 229) {
       event.stopPropagation();
       return;
     }
@@ -330,7 +305,8 @@ export function QuickModelMenu({
       ? (activeAccount?.name ?? t("picker.harnessLogin"))
       : undefined;
   const keyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing) return;
+    if (event.metaKey || event.ctrlKey || event.altKey || event.nativeEvent.isComposing || event.keyCode === 229)
+      return;
     // Only the menu's own keys, not a submenu's (React carries those up through the portal).
     if (!event.currentTarget.contains(event.target as Node)) return;
     popup.current = event.currentTarget;
@@ -388,39 +364,6 @@ export function QuickModelMenu({
       }
     }
   };
-  // Every tab's unfiltered rows, for the width the menu holds while open.
-  const widths: ProbeRow[] = families
-    ? [
-        ...families.list.flatMap((family): ProbeRow[] => [
-          ...family.models.flatMap((model): ProbeRow[] => {
-            // The tag and the provider take the row's width too.
-            const label = model.tag ? `${model.name} ${model.tag}` : model.name;
-            const value = model.provider ? { value: model.provider } : {};
-            return [
-              family.id === families.current && model.id === current
-                ? { label, ...value, check: true }
-                : { label, ...value, shortcut: true },
-              ...(family.id === families.current && runsOffers(model, current)
-                ? [
-                    {
-                      label: t("picker.provider"),
-                      value: model.offers?.find((offer) => offer.id === current)?.provider,
-                      sub: true,
-                    },
-                  ]
-                : []),
-            ];
-          }),
-          ...(family.note && family.models.length === 0 ? [{ label: family.note }] : []),
-          ...(family.note && family.logIn ? [{ label: t("harness.logIn") }] : []),
-          ...(family.fork ? [{ label: t("picker.forkTo", { harness: family.name }) }] : []),
-        ]),
-        ...(effort && levels.length > 1 ? [{ label: t("effort.title"), value: level?.name, sub: true }] : []),
-        { label: t("picker.moreModels"), sub: true },
-        ...(account ? [{ label: t("picker.account"), value: accountValue, sub: true }] : []),
-        ...(fast ? [{ label: t("picker.fastMode") }] : []),
-      ]
-    : [];
   const currentValue = families ? rowValue({ family: families.current ?? "", id: current ?? "" }) : (current ?? "");
   // Keep the model menu's normal state as a compact list. A typed query remains labelled so the
   // filtered context is visible, while the static "Model · this session" caption adds no
@@ -634,6 +577,7 @@ export function QuickModelMenu({
       {!query && !forkTab && (!inlineMore || (onChatTab && account)) && <MenuSeparator />}
       {!query && !inlineMore && families && ((shown?.more.length ?? 0) > 0 || families.onAddHarness) && (
         <Submenu
+          align="start"
           className="acpmux-quick-item acpmux-quick-sub"
           popupClassName="acpmux-quick-menu acpmux-quick-more"
           label={<span className="acpmux-menu-label">{t("picker.moreModels")}</span>}
@@ -790,7 +734,6 @@ export function QuickModelMenu({
               onScroll={(event) => setScrolled(event.currentTarget.scrollTop > 0)}
             >
               <div className="acpmux-quick-list">{list}</div>
-              <QuickMenuSpacer widths={widths} />
             </div>
           </div>
         ) : (

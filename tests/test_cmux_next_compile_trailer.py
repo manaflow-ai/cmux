@@ -151,7 +151,7 @@ class CompileTrailerTests(unittest.TestCase):
 
     def test_rule_b_a_rebase_onto_a_change_in_a_dependency_is_refused(self):
         self.git("checkout", "-q", "-b", "topic")
-        self.swift_edit()
+        self.swift_edit(text="public struct Kit { let b = Base() }\n")  # the push uses what upstream renames
         compiled = self.commit("kit change")
         job = self.job(compiled)
         self.git("checkout", "-q", "feat-cmux-next")
@@ -378,10 +378,160 @@ class CompileTrailerTests(unittest.TestCase):
                                            {f"{PKG}/Sources/Other/Other.swift": "public struct Other { let y = 2 }\n"})
         self.assertFalse(refused, lines)
 
+    # Per-symbol rule (b) (2026-10-28): a751 was refused 11 times out of 15 rebased pushes because feat-cmux-next
+    # got new Swift in CmuxNextApp's dependency modules during every 7-10 min compile, none of it touching what the
+    # push used. Rule (b) now asks whether the upstream change and the push's change can meet: a declaration one side
+    # changed or removed that the other side's files name, a new declaration both sides could see, or the push's own
+    # change differing from the one compiled. The rename safety cases above still refuse.
+    def kit_app(self, extra=""):
+        """A Kit module with a few declarations and an App module that uses Kit (the CmuxNextApp shape)."""
+        self.write(f"{PKG}/Sources/Kit/Kit.swift",
+                   "public struct Kit {\n    public init() {}\n    public func run() -> Int { 1 }\n}\n"
+                   "public enum Mode {\n    case a\n    case b\n}\n"
+                   "public protocol Runner {\n    func go()\n}\n"
+                   "public struct Point {\n    public var x: Int\n}\n" + extra)
+        self.write(f"{PKG}/Sources/Kit/Tools.swift", "public func helper() -> Int {\n    return 1\n}\n")
+        self.write(f"{PKG}/Sources/App/App.swift", "import Kit\nstruct App {\n    let kit = Kit()\n}\n")
+        self.with_manifest(MANIFEST.replace('.target(name: "Other"),',
+                                            '.target(name: "Other"),\n        .target(name: "App", dependencies: ["Kit"]),'))
+
+    APP = f"{PKG}/Sources/App/Feature.swift"
+    KIT = f"{PKG}/Sources/Kit/Kit.swift"
+
+    def test_per_symbol_an_upstream_body_change_in_a_dependency_passes(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Sources/Kit/Tools.swift": "public func helper() -> Int {\n    return 2\n}\n"})
+        self.assertFalse(refused, lines)
+
+    def test_per_symbol_an_upstream_change_the_push_does_not_name_passes(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Sources/Kit/Tools.swift": "public func helper(_ n: Int) -> Int {\n    return n\n}\n"})
+        self.assertFalse(refused, lines)
+
+    def test_per_symbol_an_upstream_change_in_the_push_s_own_module_it_does_not_name_passes(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {f"{PKG}/Sources/App/Other.swift": "struct Elsewhere {\n    let n = 2\n}\n"})
+        self.assertFalse(refused, lines)
+
+    def test_per_symbol_an_upstream_new_member_on_a_type_the_push_does_not_name_passes(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { helper() }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    public var x: Int\n",
+                                            "    public var x: Int\n    public func feature() -> Int { x }\n")})
+        self.assertFalse(refused, lines)
+
+    # Safety cases the per-symbol rule must keep refusing.
+    def test_per_symbol_an_upstream_rename_of_a_function_the_push_calls_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("func run()", "func start()")})
+        self.assertTrue(refused, lines)
+        self.assertIn("run", lines[0])
+
+    def test_per_symbol_an_upstream_signature_change_on_a_continuation_line_is_refused(self):
+        self.kit_app(extra="public func make(\n    a: Int\n) -> Int { a }\n")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { make(a: 1) }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    a: Int\n", "    a: Int,\n    b: Int\n")})
+        self.assertTrue(refused, lines)
+        self.assertIn("make", lines[0])
+
+    def test_per_symbol_an_upstream_stored_property_on_a_struct_the_push_builds_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nlet origin = Point(x: 0)\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    public var x: Int\n",
+                                                                                   "    public var x: Int\n    public var y: Int\n")})
+        self.assertTrue(refused, lines)
+        self.assertIn("Point", lines[0])
+
+    def test_per_symbol_an_upstream_enum_case_with_a_push_switch_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc name(_ m: Mode) -> Int {\n    switch m {\n"
+                                                      "    case .a: return 1\n    case .b: return 2\n    }\n}\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    case b\n", "    case b\n    case c\n")})
+        self.assertTrue(refused, lines)
+        self.assertIn("Mode", lines[0])
+
+    def test_per_symbol_an_upstream_protocol_requirement_the_push_conforms_to_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nstruct Fast: Runner {\n    func go() {}\n}\n"},
+                                           {self.KIT: self.read(self.KIT).replace("    func go()\n", "    func go()\n    func stop()\n")})
+        self.assertTrue(refused, lines)
+        self.assertIn("Runner", lines[0])
+
+    def test_per_symbol_an_upstream_attribute_on_a_type_the_push_uses_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc feature() -> Int { Kit().run() }\n"},
+                                           {self.KIT: self.read(self.KIT).replace("public struct Kit {", "@MainActor\npublic struct Kit {")})
+        self.assertTrue(refused, lines)
+        self.assertIn("Kit", lines[0])
+
+    def test_per_symbol_an_upstream_use_of_a_function_the_push_renames_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({f"{PKG}/Sources/Kit/Tools.swift": "public func assist() -> Int {\n    return 1\n}\n"},
+                                           {self.APP: "import Kit\nfunc feature() -> Int { helper() }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("helper", lines[0])
+
+    def test_per_symbol_the_same_new_name_on_both_sides_is_refused(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nfunc shared() -> Int { 1 }\n"},
+                                           {f"{PKG}/Sources/Kit/More.swift": "public func shared() -> Int { 2 }\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("shared", lines[0])
+
+    def test_per_symbol_a_name_inside_a_string_or_comment_does_not_count(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\n// helper() is not called here\nlet s = \"helper\"\n"},
+                                           {f"{PKG}/Sources/Kit/Tools.swift": "public func helper(_ n: Int) -> Int {\n    return n\n}\n"})
+        self.assertFalse(refused, lines)
+
+    def test_per_symbol_a_name_in_a_string_interpolation_counts(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nlet s = \"n=\\(helper())\"\n"},
+                                           {f"{PKG}/Sources/Kit/Tools.swift": "public func helper(_ n: Int) -> Int {\n    return n\n}\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("helper", lines[0])
+
+    def test_per_symbol_an_own_file_edited_after_the_compile_is_refused_even_with_unrelated_upstream(self):
+        self.kit_app()
+        refused, lines = self.rebased_push({self.APP: "import Kit\nlet a = 1\n"},
+                                           {f"{PKG}/Sources/Other/Other.swift": "public struct Other { let y = 2 }\n"},
+                                           edit_after={self.APP: "import Kit\nlet a = Kit.missing\n"})
+        self.assertTrue(refused, lines)
+        self.assertIn("App", lines[0])
+
+    def test_per_symbol_a_private_upstream_change_of_a_name_the_push_also_uses_passes(self):
+        self.kit_app(extra="public struct Box {\n    private enum CodingKeys: String {\n        case a\n    }\n}\n")
+        refused, lines = self.rebased_push({self.APP: "import Kit\nstruct Mine {\n    enum CodingKeys: String {\n        case z\n    }\n}\n"},
+                                           {self.KIT: self.read(self.KIT).replace("        case a\n", "        case a\n        case b\n")})
+        self.assertFalse(refused, lines)
+
+    def test_per_symbol_a_rebase_conflict_resolved_after_the_compile_is_refused(self):
+        self.kit_app(extra="public let names = [\"a\"]\n")
+        self.git("checkout", "-q", "-b", "topic")
+        self.write(self.KIT, self.read(self.KIT).replace('[\"a\"]', '[\"a\", \"own\"]'))
+        job = self.job(self.commit("own change"))
+        self.git("checkout", "-q", "feat-cmux-next")
+        self.write(self.KIT, self.read(self.KIT).replace('[\"a\"]', '[\"a\", \"up\"]'))
+        upstream = self.commit("upstream")
+        self.git("checkout", "-q", "topic")
+        self.git("reset", "-q", "--hard", upstream)
+        self.write(self.KIT, self.read(self.KIT).replace('[\"a\", \"up\"]', '[\"a\", \"up\", \"own\"]'))
+        head = self.commit(f"own change, conflict resolved\n\nCompiled: {job}")
+        refused, lines = self.check(head, base=upstream)
+        self.assertTrue(refused, lines)
+        self.assertIn("not the one the compile job compiled", lines[0])
+
+    def read(self, rel):
+        return (self.repo / rel).read_text()
+
     def test_a_silent_controller_uses_the_job_record_an_earlier_push_read(self):
         # PL-instant's push: refused twice, then let through when the controller missed the bound on the third try.
         self.git("checkout", "-q", "-b", "topic")
-        self.swift_edit()
+        self.swift_edit(text="public struct Kit { let b = Base() }\n")
         job = self.job(self.commit("kit change"))
         self.git("checkout", "-q", "feat-cmux-next")
         self.swift_edit("Base", "public struct Renamed {}\n")
