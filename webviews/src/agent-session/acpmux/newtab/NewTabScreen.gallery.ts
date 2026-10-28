@@ -665,11 +665,11 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.waitFor(
-          () => ctx.document.querySelector(".nt-pickers .acpmux-newtab-plus .acpmux-picker-button") !== null,
+          () => ctx.document.querySelector(".nt-composer .acpmux-newtab-plus .acpmux-picker-button") !== null,
         );
         await ctx.click({ selector: ".acpmux-newtab-plus .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-newtab-plus [data-value="attach"]') !== null);
-        const input = ctx.document.querySelector<HTMLInputElement>(".nt-pickers .acpmux-attach-input");
+        const input = ctx.document.querySelector<HTMLInputElement>(".nt-composer .acpmux-attach-input");
         if (!input || !input.multiple) throw new Error("the New Tab attachment chooser is missing or single-file");
       },
     },
@@ -820,9 +820,8 @@ export default agentPaneEntry({
         });
         // The rows stay inside the list's box after a scroll too (cx-p8ul): every drawn row sits
         // within the scroller, below the field. The scroll is a measured step, so the play reports.
-        await ctx.scroll({ selector: ".nt-all-list" }, "bottom");
-        if ((ctx.document.querySelector(".nt-all-list")?.scrollTop ?? 0) === 0)
-          throw new Error("All chats did not scroll");
+        await ctx.scroll({ selector: ".nt-screen" }, "bottom");
+        if ((ctx.document.querySelector(".nt-screen")?.scrollTop ?? 0) === 0) throw new Error("New Tab did not scroll");
         const list = ctx.document.querySelector(".nt-all-list")!.getBoundingClientRect();
         const rows = [...ctx.document.querySelectorAll(".nt-all-item:not(.is-loader)")];
         if (rows.length === 0) throw new Error("All chats drew no rows");

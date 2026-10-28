@@ -115,6 +115,8 @@ enum Strings {
         }
     }
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
+    /// A listed tab row's hover close.
+    static var closeTab: String { String(localized: "sidebar.a11y.closeTab", defaultValue: "Close tab", bundle: .module) }
     static var pinWorkspace: String { String(localized: "sidebar.a11y.pinWorkspace", defaultValue: "Pin workspace", bundle: .module) }
     static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.

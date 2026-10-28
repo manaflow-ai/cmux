@@ -639,7 +639,8 @@ class BaseReds(unittest.TestCase):
             {"id": 7, "name": "cmux-next generated files", "conclusion": "cancelled"},
             {"id": 8, "name": "cmux app scheme compile (Debug)", "conclusion": "failure"},
         ]}
-        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug)"})
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, "2026-10-19T03:02:59.1Z error: x\n", "")
+        self.assertEqual(controller.failing_on_base("b" * 40), {"cmux app scheme compile (Debug): error error: x"})
         self.assertIn("event=push", controller.gh.runs.call_args.args[1])
 
     def test_a_stack_waits_once_for_the_bases_own_tree_run(self):
@@ -722,7 +723,56 @@ class BaseReds(unittest.TestCase):
         self.assertEqual(set(controller.failed_jobs(2, detail=True)) - base, {"cmux-next swift test"})
         crash = "2026-10-19T03:02:59.1Z error: Exited with unexpected signal code 5\n".replace("Exited", "exited")
         controller.gh.gh.return_value = subprocess.CompletedProcess([], 0, crash, "")
-        self.assertIn("cmux-next swift test: crash signal 5", set(controller.failed_jobs(3, detail=True)) - base)
+        stack = set(controller.failed_jobs(3, detail=True))
+        self.assertIn("cmux-next swift test: the test process crashed (signal 5) (job 8, never a base red)", stack - base)
+        # The same crash on the base excuses nothing: each crash is keyed by its own job.
+        controller.gh.api.return_value = {"jobs": [
+            {"id": 9, "name": "cmux-next swift test", "conclusion": "failure", "steps": steps}]}
+        self.assertEqual(stack - set(controller.failed_jobs(4, detail=True)), stack)
+
+    def test_a_non_test_jobs_crash_signal_still_keys_its_failure(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess(
+            [], 0, "2026-10-19T03:02:59.1Z the test helper died on signal 11\n", "")
+        self.assertIn("cmux app scheme compile (Debug): crash signal 11",
+                      controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}))
+
+    def test_an_unreadable_no_verdict_compile_log_is_keyed_by_its_own_job(self):
+        controller = self.controller()
+        steps = [{"name": "Wait", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
+        for name in ("cmux-next fleet Release compile", "cmux-next app compile (build fleet)"):
+            with self.subTest(name=name):
+                self.assertEqual(controller.expand_job(name, 7, {"steps": steps}),
+                                 {f"{name}: log unreadable (job 7, never a base red)"})
+
+    def test_a_compile_with_no_verdict_is_keyed_by_its_own_job(self):
+        """The fleet Release compile's "no result" compiled nothing: the base showing the same line (its own
+        sha aside) excuses nothing."""
+        controller = self.controller()
+        name = "cmux-next fleet Release compile"
+        steps = [{"name": "Wait for the fleet Release compile and publish cmux-next/compile", "conclusion": "failure"}]
+
+        def no_result(sha):
+            return subprocess.CompletedProcess(
+                [], 0, f"2026-10-28T08:40:00.1Z ##[error]cmux-next/compile is not a pass for {sha} (no result)\n", "")
+
+        controller.gh.gh.return_value = no_result("7ea21d1ce82ffaecc58599ae3f6bbf95afd92c51")
+        base = controller.expand_job(name, 4, {"steps": steps})
+        controller.gh.gh.return_value = no_result("df40f81342c8bb1eb135ced40728a4e7a090ed49")
+        stack = controller.expand_job(name, 5, {"steps": steps})
+        self.assertEqual(stack, {f"{name}: no compile verdict (job 5, never a base red)"})
+        self.assertEqual(stack - base, stack)
+
+    def test_an_unreadable_log_fails_closed_only_for_a_test_job(self):
+        controller = self.controller()
+        steps = [{"name": "Build", "conclusion": "failure"}]
+        controller.gh.gh.return_value = subprocess.CompletedProcess([], 1, "", "boom")
+        self.assertEqual(controller.expand_job("cmux app scheme compile (Debug)", 5, {"steps": steps}),
+                         {"cmux app scheme compile (Debug)"})
+        self.assertEqual(controller.expand_job("cmux-next swift test", 6, {"steps": steps}),
+                         {"cmux-next swift test: log unreadable (job 6, never a base red)"})
 
     def test_a_probe_stopped_before_its_run_is_found_cancels_it(self):
         controller = self.controller()
