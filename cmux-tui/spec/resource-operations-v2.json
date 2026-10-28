@@ -9030,6 +9030,56 @@
       },
       "extra": false
     },
+    "GitPatchPage": {
+      "kind": "object",
+      "fields": {
+        "offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint64"
+          }
+        },
+        "next_offset": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint64"
+          }
+        },
+        "total_bytes": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint64"
+          }
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 64,
+            "max_length": 64
+          }
+        },
+        "data_base64": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "complete": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
+        }
+      },
+      "extra": false
+    },
     "GitDiffResult": {
       "kind": "object",
       "fields": {
@@ -9107,7 +9157,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -9116,6 +9166,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -10029,7 +10096,7 @@
             "kind": "primitive",
             "name": "uint32"
           },
-          "description": "total_files minus the files returned."
+          "description": "Files after this page; continue with next_path as after_path."
         },
         "untracked_skipped": {
           "required": false,
@@ -10038,6 +10105,23 @@
             "name": "uint32"
           },
           "description": "Untracked files left out to keep the read bounded."
+        },
+        "patch_page": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitPatchPage"
+          },
+          "description": "With patch_offset: a bounded page of the selected file's raw unified patch, with a digest of the complete output. Join decoded bytes only while revision remains identical."
+        },
+        "next_path": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "If files remain after this page, pass this path as after_path to read the next page."
         }
       },
       "extra": false
@@ -19416,6 +19500,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint64"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision. A different source refuses with repository_changed, so pages from different file states are never joined."
           }
         },
         "extra": false
@@ -19982,6 +20093,33 @@
             },
             "default": 500,
             "description": "Files returned, in path order; the rest are counted in files_omitted."
+          },
+          "after_path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Read files strictly after this path in path order; the previous reply's next_path continues a large file listing."
+          },
+          "patch_offset": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint64"
+            },
+            "description": "A raw patch byte offset. Requires include_patch and exactly one changed text file in paths; returns patch_page instead of clipped file.patch. Start at 0."
+          },
+          "patch_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 64,
+              "max_length": 64
+            },
+            "description": "The first patch_page revision. A different source refuses with repository_changed, so pages from different file states are never joined."
           }
         },
         "extra": false

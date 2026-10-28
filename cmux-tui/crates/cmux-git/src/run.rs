@@ -14,6 +14,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::Duration;
 
+use sha2::{Digest, Sha256};
 use wait_timeout::ChildExt;
 
 /// The git every run starts, found on `PATH`. The diff sidecar starts the
@@ -28,6 +29,14 @@ pub struct GitOutput {
     pub stdout: Vec<u8>,
     /// Output past the caller's limit was read and dropped.
     pub truncated: bool,
+    /// Present only for a window read: identity and size of the entire stdout,
+    /// including bytes outside the retained window.
+    pub window: Option<GitWindow>,
+}
+
+pub struct GitWindow {
+    pub total_bytes: u64,
+    pub sha256: String,
 }
 
 #[derive(Debug)]
@@ -79,7 +88,21 @@ pub fn run_git_within(
     max_stdout: usize,
     deadline: Duration,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_stdout, deadline, None, &[])
+    run(directory, overrides, arguments, max_stdout, deadline, None, &[], None)
+}
+
+/// Retains only `limit` bytes at `offset`, while hashing and draining stdout to
+/// the end. A client can join bounded pages and refuse a changed source by its
+/// digest, without retaining the complete patch in the server's memory.
+pub fn run_git_window_within(
+    directory: &Path,
+    overrides: &[Override],
+    arguments: &[&str],
+    offset: u64,
+    limit: usize,
+    deadline: Duration,
+) -> Result<GitOutput, GitFailure> {
+    run(directory, overrides, arguments, limit, deadline, None, &[], Some(offset))
 }
 
 /// [`run_git_within`] whose new objects go to `scratch`, an empty folder the
@@ -103,7 +126,7 @@ pub fn run_git_scratch_objects_within(
         ("GIT_OBJECT_DIRECTORY", scratch.as_os_str()),
         ("GIT_ALTERNATE_OBJECT_DIRECTORIES", alternate.as_os_str()),
     ];
-    run(directory, overrides, arguments, max_stdout, deadline, None, &env)
+    run(directory, overrides, arguments, max_stdout, deadline, None, &env, None)
 }
 
 /// `path` as one entry of `GIT_ALTERNATE_OBJECT_DIRECTORIES`, a
@@ -147,7 +170,7 @@ pub fn run_git_records_within(
     deadline: Duration,
     keep: fn(&[u8]) -> bool,
 ) -> Result<GitOutput, GitFailure> {
-    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[])
+    run(directory, overrides, arguments, max_kept, deadline, Some(keep), &[], None)
 }
 
 thread_local! {
@@ -219,6 +242,7 @@ fn run(
     deadline: Duration,
     keep: Option<fn(&[u8]) -> bool>,
     env: &[(&str, &OsStr)],
+    window_offset: Option<u64>,
 ) -> Result<GitOutput, GitFailure> {
     let deadline = deadline.min(DEADLINE);
     if deadline.is_zero() {
@@ -252,9 +276,15 @@ fn run(
         stop(&mut child);
         return Err(GitFailure::Unavailable("git output pipes are missing".to_string()));
     };
-    let stdout = thread::spawn(move || match keep {
-        Some(keep) => drain_records(stdout, max_stdout, keep),
-        None => drain(stdout, max_stdout),
+    let stdout = thread::spawn(move || match window_offset {
+        Some(offset) => drain_window(stdout, offset, max_stdout),
+        None => {
+            let (bytes, truncated) = match keep {
+                Some(keep) => drain_records(stdout, max_stdout, keep),
+                None => drain(stdout, max_stdout),
+            };
+            (bytes, truncated, None)
+        }
     });
     let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
     let status = match child.wait_timeout(deadline) {
@@ -272,12 +302,40 @@ fn run(
             return Err(GitFailure::Unavailable(error.to_string()));
         }
     };
-    let (stdout, truncated) = stdout.join().unwrap_or_default();
+    let (stdout, truncated, window) = stdout.join().unwrap_or_default();
     let (stderr, _) = stderr.join().unwrap_or_default();
     if !status.success() {
         return Err(GitFailure::Exit(explained(String::from_utf8_lossy(&stderr).trim())));
     }
-    Ok(GitOutput { stdout, truncated })
+    Ok(GitOutput { stdout, truncated, window })
+}
+
+fn drain_window(
+    mut reader: impl Read,
+    offset: u64,
+    limit: usize,
+) -> (Vec<u8>, bool, Option<GitWindow>) {
+    let mut kept = Vec::new();
+    let mut total = 0_u64;
+    let mut hash = Sha256::new();
+    let mut chunk = [0_u8; 16 * 1024];
+    loop {
+        match reader.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(read) => {
+                hash.update(&chunk[..read]);
+                let skip = offset.saturating_sub(total).min(read as u64) as usize;
+                let take = (read - skip).min(limit.saturating_sub(kept.len()));
+                kept.extend_from_slice(&chunk[skip..skip + take]);
+                total = total.saturating_add(read as u64);
+            }
+            Err(error) if error.kind() == ErrorKind::Interrupted => {}
+            Err(_) => return (Vec::new(), true, None),
+        }
+    }
+    let sha256 = hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    let truncated = offset.saturating_add(kept.len() as u64) < total;
+    (kept, truncated, Some(GitWindow { total_bytes: total, sha256 }))
 }
 
 /// Confines `command`, a git that only reads, so neither the caller's
@@ -441,6 +499,24 @@ fn drain(mut reader: impl Read, limit: usize) -> (Vec<u8>, bool) {
 #[cfg(test)]
 mod background_tests {
     use super::*;
+
+    #[test]
+    fn window_keeps_only_its_bytes_but_hashes_the_complete_output() {
+        let source = "head café tail".as_bytes();
+        let (first, more, first_window) = drain_window(source, 0, 8);
+        let (second, more_second, second_window) = drain_window(source, 8, 8);
+        assert!(more);
+        assert!(!more_second);
+        assert_eq!([first, second].concat(), source);
+        let first_window = first_window.unwrap();
+        let second_window = second_window.unwrap();
+        assert_eq!(first_window.total_bytes, source.len() as u64);
+        assert_eq!(first_window.sha256, second_window.sha256);
+        assert_eq!(
+            first_window.sha256,
+            "62d58f00ac6da603f09e3abd398469875f74f1ce760d50daca81b2cc89febf13"
+        );
+    }
 
     #[cfg(unix)]
     #[test]

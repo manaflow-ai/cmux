@@ -6,6 +6,7 @@ use std::fs::{File, OpenOptions};
 use std::io::Read;
 use std::path::{Component, Path};
 
+use base64::Engine as _;
 use cmux_git::diff::{Comparison, ScopeError, diff_args, untracked_args};
 use cmux_git::run::GitOutput;
 use serde_json::{Map, Value, json};
@@ -28,6 +29,8 @@ const MAX_UNTRACKED_FILES: usize = 200;
 const MAX_UNTRACKED_FILE_BYTES: u64 = 2 * 1024 * 1024;
 /// git's own test for a binary file: a NUL in the first 8000 bytes.
 const BINARY_PROBE_BYTES: usize = 8000;
+/// Base64 keeps arbitrary UTF-8 boundaries intact across bounded replies.
+const PATCH_PAGE_BYTES: usize = 512 * 1024;
 
 #[derive(Debug)]
 struct ChangedFile {
@@ -135,6 +138,13 @@ fn report(
     // changes view show more lines (cx-ncc.85).
     let context_lines = limit(fields, "context_lines", 3).min(MAX_CONTEXT_LINES);
     let paths = pathspecs(fields)?;
+    let page_offset = fields.get("patch_offset").and_then(Value::as_u64);
+    if page_offset.is_some() && (!include_patch || paths.len() != 1) {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "a patch page requires include_patch and exactly one file path",
+        ));
+    }
 
     let mut files = tracked(repository, comparison, operation, &paths)?;
     let mut untracked_skipped = 0;
@@ -153,9 +163,13 @@ fn report(
     let additions = files.iter().map(|file| file.additions).sum::<u64>();
     let deletions = files.iter().map(|file| file.deletions).sum::<u64>();
     let total_files = files.len();
+    if let Some(after_path) = fields.get("after_path").and_then(Value::as_str) {
+        files.retain(|file| file.path.as_str() > after_path);
+    }
+    let page_files = files.len();
     files.truncate(max_files);
-    let files_omitted = total_files - files.len();
-    let wants_patch = include_patch && comparison.revisions.is_some();
+    let files_omitted = page_files - files.len();
+    let wants_patch = include_patch && page_offset.is_none() && comparison.revisions.is_some();
     if wants_patch && files.iter().any(|file| file.status != "untracked") {
         let batches = if files_omitted == 0 {
             // Every file is returned: the request's own paths select them.
@@ -184,7 +198,79 @@ fn report(
     if untracked_skipped > 0 {
         value["untracked_skipped"] = json!(clamp(untracked_skipped as u64));
     }
+    if files_omitted > 0 {
+        if let Some(last) = files.last() {
+            value["next_path"] = json!(last.path);
+        }
+    }
+    if let Some(offset) = page_offset {
+        if files.len() != 1 || files[0].path != paths[0] || !files[0].has_patch() {
+            return Err(ResourceError::validation_invalid(
+                Some("paths"),
+                "a patch page requires one changed text file",
+            ));
+        }
+        value["patch_page"] = patch_page(
+            repository,
+            comparison,
+            operation,
+            &files[0],
+            context_lines,
+            offset,
+            fields,
+        )?;
+    }
     Ok(value)
+}
+
+fn patch_page(
+    repository: &Repository,
+    comparison: &Comparison,
+    operation: &'static str,
+    file: &ChangedFile,
+    context_lines: usize,
+    offset: u64,
+    fields: &Map<String, Value>,
+) -> Result<Value, ResourceError> {
+    let paths = returned_paths(std::slice::from_ref(file));
+    let unified = format!("--unified={context_lines}");
+    let arguments = diff_args(comparison, &["--patch", "--full-index", &unified], &paths);
+    let output = repository
+        .run_window(&arguments, offset, PATCH_PAGE_BYTES)
+        .map_err(|failure| git_failed(operation, &failure))?;
+    let Some(window) = output.window else {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "could not read the patch page",
+            json!({"code":"patch_read_failed"}),
+        ));
+    };
+    if fields
+        .get("patch_revision")
+        .and_then(Value::as_str)
+        .is_some_and(|expected| expected != window.sha256)
+    {
+        return Err(ResourceError::operation_failed(
+            operation,
+            "the file changed while its patch was loading",
+            json!({"code":"repository_changed"}),
+        ));
+    }
+    if offset > window.total_bytes {
+        return Err(ResourceError::validation_invalid(
+            Some("patch_offset"),
+            "patch_offset is past the end of the patch",
+        ));
+    }
+    let next = offset + output.stdout.len() as u64;
+    Ok(json!({
+        "offset": offset,
+        "next_offset": next,
+        "total_bytes": window.total_bytes,
+        "revision": window.sha256,
+        "data_base64": base64::engine::general_purpose::STANDARD.encode(output.stdout),
+        "complete": next == window.total_bytes,
+    }))
 }
 
 /// A scope's comparison, with `git.diff`'s errors.
