@@ -89,14 +89,18 @@ struct AgentPaneDictationAudioTests {
         let audio = try #require(await recording.finish())
         #expect(recording.omission == nil)
         #expect(audio.data == nil, "past the inline budget the recording goes as its file")
-        #expect(audio.byteCount == 44 + 150 * 16_000 * 2)
+        let headerBytes = DictationAudioRecording.headerBytes
+        #expect(audio.byteCount == headerBytes + 150 * 16_000 * 2)
         let file = try #require(audio.file)
         let wav = try Data(contentsOf: file)
         #expect(wav.count == audio.byteCount)
-        let dataBytes = wav[40..<44].enumerated().reduce(0) { $0 | Int($1.element) << (8 * $1.offset) }
+        #expect(String(decoding: wav.prefix(4), as: UTF8.self) == "RIFF")
+        #expect(String(decoding: wav[(headerBytes - 8)..<(headerBytes - 4)], as: UTF8.self) == "data")
+        let dataBytes = wav[(headerBytes - 4)..<headerBytes].enumerated().reduce(0) { $0 | Int($1.element) << (8 * $1.offset) }
         #expect(dataBytes == 150 * 16_000 * 2, "the header names every sample")
         let expected = Int(Int16(0.1 * Float(Int16.max)))
-        #expect(samples(wav).allSatisfy { abs($0 - expected) <= 1 })
+        let fileSamples = stride(from: headerBytes, to: wav.count - 1, by: 2).map { Int(Int16(bitPattern: UInt16(wav[$0]) | UInt16(wav[$0 + 1]) << 8)) }
+        #expect(fileSamples.allSatisfy { abs($0 - expected) <= 1 })
         let mode = try FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
     }

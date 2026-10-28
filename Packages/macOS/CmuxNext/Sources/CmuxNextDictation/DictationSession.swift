@@ -216,8 +216,8 @@ public final class DictationSession {
         closing = Task { [weak self] in
             let audio = await recording.finish()
             guard let self, ending == self.generation, !Task.isCancelled else {
-                // task-owner: one delete of a dropped recording; nothing waits for it
-                if let file = audio?.file { Task.detached(priority: .utility) { try? FileManager.checked.removeItem(at: file) } }
+                // A dropped recording goes whole: its file and the folder it owns, on its writer.
+                if audio?.file != nil { recording.discard() }
                 return
             }
             self.closing = nil

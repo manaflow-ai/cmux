@@ -199,18 +199,21 @@ public final class DictationAudioRecording: Sendable {
     /// Removes the file (a cancelled or superseded session), on the writer queue after what came
     /// before it. A ``finish()`` after this answers nil once the file is gone.
     public func discard() {
-        state.withLock { $0.finished = true }
-        discardMarked?()
-        // A write or finish enqueued before this runs first; this one ends the file for good.
-        writer.async {
-            // Final: a later write or finish finds `failed` and keeps nothing.
-            self.output.withLock { output in
-                output.failed = true
-                try? output.handle?.close()
-                output.handle = nil
+        // Enqueued under the lock, as `append` and `finish` enqueue theirs: the writer runs a write,
+        // a finish's close, this delete and a later finish's answer in the order the lock saw them.
+        state.withLock { state in
+            state.finished = true
+            writer.async {
+                // Final: a later write or finish finds `failed` and keeps nothing.
+                self.output.withLock { output in
+                    output.failed = true
+                    try? output.handle?.close()
+                    output.handle = nil
+                }
+                self.removeFile()
             }
-            self.removeFile()
         }
+        discardMarked?()
     }
 
     // MARK: - On `writer`
@@ -265,24 +268,63 @@ public final class DictationAudioRecording: Sendable {
             removeFile()
             return nil
         }
-        let byteCount = 44 + samples * MemoryLayout<Int16>.size
-        guard byteCount <= Self.inlinePromptBytes else { return DictationAudio(file: file, byteCount: byteCount) }
-        let data = try? Data(blockingContentsOf: file)
+        let dataBytes = samples * MemoryLayout<Int16>.size
+        // A prompt's audio block is a plain 44-byte-header WAV, what every model reads; the file's
+        // samples follow its own (longer) header.
+        let inlineBytes = 44 + dataBytes
+        guard inlineBytes <= Self.inlinePromptBytes else {
+            return DictationAudio(file: file, byteCount: Self.headerBytes + dataBytes)
+        }
+        let data = (try? Data(blockingContentsOf: file)).map { Self.plainHeader(samples: samples) + $0.dropFirst(Self.headerBytes) }
         removeFile()
-        return data.map { DictationAudio(byteCount: byteCount, data: $0) }
+        return data.map { DictationAudio(byteCount: inlineBytes, data: $0) }
     }
 
-    /// The 44-byte header of a 16 kHz mono 16-bit PCM WAV holding `samples` samples.
+    /// The file's header length: RIFF's 12 bytes, a 36-byte JUNK (or ds64) chunk, the 24-byte fmt
+    /// chunk and the data chunk's 8. Fixed, so the samples never move whatever the recording's length.
+    static let headerBytes = 80
+
+    /// The file's ``headerBytes``-long header for `samples` samples of 16 kHz mono 16-bit PCM. Up to
+    /// 4 GiB of data it is a WAV whose JUNK chunk holds the room RF64 needs; past that the same
+    /// bytes are RF64 (EBU Tech 3306): `RF64`, the 64-bit sizes in a ds64 chunk, and the 32-bit
+    /// size fields set to 0xFFFFFFFF. No length is too long.
     static func header(samples: Int) -> Data {
-        let rate = UInt32(sampleRate)
-        let bytes = UInt32(clamping: samples * MemoryLayout<Int16>.size)
+        let dataBytes = UInt64(max(samples, 0)) * UInt64(MemoryLayout<Int16>.size)
+        let riffBytes = UInt64(headerBytes - 8) + dataBytes
+        let large = riffBytes > UInt64(UInt32.max)
+        var data = Data(capacity: headerBytes)
+        func put(_ text: String) { data.append(contentsOf: Array(text.utf8)) }
+        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        put(large ? "RF64" : "RIFF"); put(large ? UInt32.max : UInt32(riffBytes)); put("WAVE")
+        if large {
+            put("ds64"); put(UInt32(28))
+            put(riffBytes); put(dataBytes); put(UInt64(max(samples, 0))); put(UInt32(0))
+        } else {
+            put("JUNK"); put(UInt32(28)); data.append(Data(count: 28))
+        }
+        putFormat(into: &data)
+        put("data"); put(large ? UInt32.max : UInt32(dataBytes))
+        return data
+    }
+
+    /// A plain 44-byte WAV header for `samples` samples (at most 4 GiB of data: a prompt's audio).
+    static func plainHeader(samples: Int) -> Data {
+        let bytes = UInt32(clamping: max(samples, 0) * MemoryLayout<Int16>.size)
         var data = Data(capacity: 44)
         func put(_ text: String) { data.append(contentsOf: Array(text.utf8)) }
         func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
         put("RIFF"); put(36 &+ bytes); put("WAVE")
-        put("fmt "); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
-        put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
+        putFormat(into: &data)
         put("data"); put(bytes)
         return data
+    }
+
+    /// The fmt chunk: PCM, mono, 16 kHz, 16-bit.
+    private static func putFormat(into data: inout Data) {
+        let rate = UInt32(sampleRate)
+        func put(_ text: String) { data.append(contentsOf: Array(text.utf8)) }
+        func put<T: FixedWidthInteger>(_ value: T) { withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) } }
+        put("fmt "); put(UInt32(16)); put(UInt16(1)); put(UInt16(1))
+        put(rate); put(rate * 2); put(UInt16(2)); put(UInt16(16))
     }
 }
