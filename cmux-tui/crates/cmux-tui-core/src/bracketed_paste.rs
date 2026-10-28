@@ -3,8 +3,8 @@
 //! A program that turned the mode on treats everything between the markers as
 //! pasted text, never as keys. An end marker inside the text would end the
 //! paste early and make the rest typed input, so [`frame`] removes every end
-//! marker from the text first, until none is left: removing one may join the
-//! bytes around it into another.
+//! marker from the text first, also one that removing another joins, in one
+//! linear pass.
 
 /// The start marker.
 pub const START: &[u8] = b"\x1b[200~";
@@ -17,9 +17,14 @@ pub fn without_end_markers(text: &[u8]) -> std::borrow::Cow<'_, [u8]> {
     if !contains(text, END) {
         return std::borrow::Cow::Borrowed(text);
     }
-    let mut out = text.to_vec();
-    while let Some(at) = find(&out, END) {
-        out.drain(at..at + END.len());
+    // One pass: a marker completed at the end of what is kept is dropped at
+    // once, which also catches one that dropping an earlier marker joins.
+    let mut out = Vec::with_capacity(text.len());
+    for &byte in text {
+        out.push(byte);
+        if out.ends_with(END) {
+            out.truncate(out.len() - END.len());
+        }
     }
     std::borrow::Cow::Owned(out)
 }

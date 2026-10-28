@@ -15,6 +15,9 @@ import GhosttyNextKit
 extension TerminalSurfaceView {
     public override func keyDown(with event: NSEvent) { // perf-hot: 1ms terminal-key (every key typed into a terminal)
         if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyReachedTerminal(bridgeObject.typingSurface, display: FrameScheduler.appDisplays.display(of: window)) }
+        // A key event AppKit delivered to this view: the person's input (a binding action a
+        // script runs never comes through here).
+        clipboardRequests.noteUserInput()
         if TerminalClipboardRequests.isPasteChord(event), !clipboardRequests.userPasteInProgress {
             return clipboardRequests.asUserPaste { keyDown(with: event) }
         }

@@ -39,11 +39,8 @@ final class TerminalClipboardRequests {
         return body()
     }
 
-    /// Marks the synchronous Ghostty call made by a user's key, click, copy
-    /// key or menu; it is also the person's latest input in this terminal
-    /// (``noteUserInput()``).
+    /// Marks the synchronous Ghostty call made by a user's copy key or menu.
     func asUserClipboardWrite<T>(_ body: () -> T) -> T {
-        noteUserInput()
         let previous = userClipboardWriteInProgress
         userClipboardWriteInProgress = true
         defer { userClipboardWriteInProgress = previous }
@@ -62,8 +59,9 @@ final class TerminalClipboardRequests {
         self.clock = clock
     }
 
-    /// The person pressed a key or a mouse button in this terminal: one
-    /// clock read per key.
+    /// The person pressed a key or a mouse button in this terminal (a real
+    /// key-down or mouse-down event from the window server, never a binding
+    /// action a script ran): one clock read per key.
     func noteUserInput() {
         lastUserInput = clock.now
     }
