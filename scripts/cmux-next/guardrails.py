@@ -1922,7 +1922,7 @@ RULES = (
          "`item(atRow:`, `selectedRow(inColumn:`)",
          "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
          "AppKit raises NSRangeException for such an index and the app ends (#24776, NSBrowser itemAtRow:inColumn:)",
-         "CmuxNextCompat's checked accessors: `table.clickedRowIfValid` / `selectedRowIfValid`, "
+         "CmuxNextCompatAppKit's checked accessors: `table.clickedRowIfValid` / `selectedRowIfValid`, "
          "`browser.clickedItemIfValid` / `selectedItemIfValid` / `item(ifValidRow:inColumn:)`; still check the row "
          "against the model array you index",
          "// index-allow: <why the index is valid here>",
@@ -3604,7 +3604,8 @@ RULES += (
 
 # ---------------------------------------------------------------- main-blocking / thread-doc (PL-blocking)
 # plans/cmux-next/threading-model.md: the main thread never blocks (Chrome's ScopedBlockingCall). The runtime
-# detector (CmuxNextCompat/Threading) is the real guard; these rules are the early warning on what a push adds.
+# detector (CmuxNextCompat/Threading, CmuxNextCompatAppKit/Threading) is the real guard; these rules are the early
+# warning on what a push adds.
 # They judge only the lines the push changed (no whole-file context scan), so the gate stays fast.
 # The block owns its lines from here to `RULES += BLOCKING_RULES`; other rules go above it.
 THREADING_DOC = "plans/cmux-next/threading-model.md"
@@ -3613,14 +3614,16 @@ PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
 # The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose, as does
 # CmuxThreading, the leaf that gives the linked Shared/iOS packages their `blockingCall` seam and Mutex.
 THREADING_LEAF = "Packages/Shared/CmuxThreading/"
-BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
+BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompatAppKit/Threading/",
+                  SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
             r"setAttributes|moveItem|copyItem|linkItem|replaceItemAt|destinationOfSymbolicLink|createSymbolicLink|"
             r"trashItem|url")
-# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading; the rest (sync XPC proxies,
-# AppleScript, condition locks, asyncAndWait, LSCopy*) move to an async API. A `.wait(` or an SMAppService
+# Raw blocking primitives: most have a checked seam in CmuxNextCompat/Threading (the NSWorkspace queries in
+# CmuxNextCompatAppKit/Threading); the rest (sync XPC proxies, AppleScript, condition locks, asyncAndWait,
+# LSCopy*) move to an async API. A `.wait(` or an SMAppService
 # `.unregister()` preceded by `await` in its statement is the async overload (Backoff.wait, a continuation,
 # `try await service.unregister()`), never a blocking one: see blocking_match.
 # Process launch matches any receiver chain (`try box.process.run()`, ProcessRunner.swift:74).
@@ -4891,13 +4894,14 @@ BLOCKING_RULES = (
          "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
          "LSCopy, NSWorkspace app and icon queries, SMAppService, AuthorizationCopyRights, AppleScript) instead of its "
          "checked seam",
-         "the runtime detector sees only the seams in CmuxNextCompat/Threading: a raw call that later runs on the "
-         "main thread blocks it unseen",
+         "the runtime detector sees only the seams in CmuxNextCompat/Threading and CmuxNextCompatAppKit/Threading: a "
+         "raw call that later runs on the main thread blocks it unseen",
          "use the seam: `FileManager.checked.<op>`, `Data(blockingContentsOf:)`, `String(blockingContentsOf:)`, "
          "`url.blockingResourceValues`, `handle.blockingReadToEnd()`, `semaphore.blockingWait()`, "
          "`queue.blockingSync`, `process.blockingWaitUntilExit()`, `process.blockingRun()`, "
          "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
-         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
+         "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon` (import CmuxNextCompatAppKit), "
+         "`blockingSMAppService*`, "
          "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
          "`asyncAndWait`, LSCopy) use the async API. In a linked Shared/iOS package, wrap it in CmuxThreading's "
          "`blockingCall(.fileIO | .systemCall | ...) { ... }` and run it through the package's MayBlockRunner",

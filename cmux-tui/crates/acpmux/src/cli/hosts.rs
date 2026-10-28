@@ -9,6 +9,7 @@
 
 use crate::cli::output::print_json;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use anyhow::{Context, Result, anyhow};
 use cmux_server_core::units::LaunchdJob;
 use serde_json::{Value, json};
@@ -542,17 +543,17 @@ fn daemon_config(existing: &str, port: u16, fresh: &str) -> Value {
     let kept = cfg.pointer("/websocket/token").and_then(Value::as_str).map(str::to_owned);
     let mut websocket =
         cfg.get("websocket").cloned().filter(Value::is_object).unwrap_or_else(|| json!({}));
-    websocket["listen"] = json!(format!("127.0.0.1:{port}"));
-    websocket["token"] = json!(kept.clone().unwrap_or_else(|| fresh.to_owned()));
+    websocket.set("listen", json!(format!("127.0.0.1:{port}")));
+    websocket.set("token", json!(kept.clone().unwrap_or_else(|| fresh.to_owned())));
     if kept.is_none() {
-        websocket["tokenRotated"] = json!(1);
+        websocket.set("tokenRotated", json!(1));
     }
-    cfg["websocket"] = websocket;
+    cfg.set("websocket", websocket);
     if cfg.get("store").is_none() {
-        cfg["store"] = json!({"mode": "local"});
+        cfg.set("store", json!({"mode": "local"}));
     }
     if cfg.get("permissionPolicy").is_none() {
-        cfg["permissionPolicy"] = json!("ask");
+        cfg.set("permissionPolicy", json!("ask"));
     }
     cfg
 }

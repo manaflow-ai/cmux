@@ -51,7 +51,12 @@
 //                                              it when it detaches the page window, and
 //                                              holds its App Nap activity while a page is
 //                                              shown (host_page_activity.h)
-//   kOpBrowserAccessibilityToken                the generated case; for a browser cmux
+//   kOpProviderLink                             the browser host's provider socket and the
+//                                              relay credential (host_provider_link.h):
+// the host dials its own link
+//                                              and relays the raw DevTools of the pages the
+//                                              browser host attaches, never through cmux
+//   kOpBrowserAccessibilityToken               the generated case; for a browser cmux
 //                                              minted whose creation has not come, held
 //                                              and run once its AFTER_CREATED went out
 //                                              (task 049) and after the ack of the op whose
@@ -132,6 +137,7 @@
 #include "host_locks.h"
 #include "host_mirror.h"
 #include "host_page_activity.h"
+#include "host_provider_link.h"
 #include "host_resize.h"
 #include "host_window_request_ids.h"
 #include "host_text_input.h"
@@ -372,6 +378,15 @@ class HostContext {
   // kLocksHelloName); nullptr takes kOpSetLockHandler and changes nothing.
   void SetLockHandler(SetLockHandlerFn set_lock_handler) { set_lock_handler_ = set_lock_handler; }
 
+  // The provider link (browser_host_main.mm, before Attach, which then lists
+  // kProviderLinkHelloName): kOpProviderLink goes to
+  // `connect`, and the raw DevTools of a page the link relays go to `relays`,
+  // not to cmux (host_provider_link.h). Without it kOpProviderLink changes nothing.
+  void SetProviderLink(AgentRelays* relays, std::function<void(const ProviderLinkConfig&)> connect) {
+    agent_relays_ = relays;
+    connect_provider_link_ = std::move(connect);
+  }
+
   // What the shown page count holds (browser_host_main.mm, before Attach):
   // the count goes to it after each kOpBrowserSetPageVisibility, at each
   // browser's close and once initialize returned; nullptr holds nothing.
@@ -436,6 +451,10 @@ class HostContext {
   bool HandleEnergySaver(const control::Message& message);
   // kOpSetLockHandler: false for a malformed op.
   bool HandleLockHandler(const control::Message& message);
+  // kOpProviderLink: false for a malformed op.
+  bool HandleProviderLink(const control::Message& message);
+  // cmux's kOpDevtoolsWatchEvents with a provider link: false for a malformed op.
+  bool HandleDevToolsWatch(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -554,6 +573,9 @@ class HostContext {
   EnergySaverFn energy_saver_ = nullptr;
   bool hang_watch_ = false;
   SetLockHandlerFn set_lock_handler_ = nullptr;
+  // The provider link's relays and its dial (SetProviderLink); nullptr: no link.
+  AgentRelays* agent_relays_ = nullptr;
+  std::function<void(const ProviderLinkConfig&)> connect_provider_link_;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

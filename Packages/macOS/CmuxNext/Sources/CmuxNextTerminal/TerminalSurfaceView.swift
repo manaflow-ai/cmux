@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
-import CmuxNextInput
+public import CmuxNextInput
 import CmuxNextTerminalGeometry
 import CmuxNextTrace
 import CmuxNextWakeups
@@ -18,7 +18,7 @@ import QuartzCore
 ///
 /// Created and owned by ``TerminalSession``; embed ``TerminalSession/view``,
 /// not this view directly.
-public final class TerminalSurfaceView: NSView {
+public final class TerminalSurfaceView: NSView, KeyEquivalentOwningSurface {
     // MARK: State
 
     /// SAFETY: the view's live surface: made in `init`, freed only in `deinit`, and never
@@ -198,7 +198,7 @@ public final class TerminalSurfaceView: NSView {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
         let cursorLayer = externalCursor && TerminalCursorLayer.isAvailable ? TerminalCursorLayer() : nil
         let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks,
-                                   cursor: cursorLayer?.presenter)
+                                   keySlots: echoStages, cursor: cursorLayer?.presenter)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session

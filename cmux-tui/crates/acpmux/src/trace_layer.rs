@@ -37,6 +37,15 @@ const fn bit(category: u64) -> u8 {
     category.trailing_zeros() as u8
 }
 
+/// The name of [`EVENT_CATEGORY`], read at compile time.
+const EVENT_CATEGORY_NAME: &str =
+    match cmux_trace::category::NAMES.split_at_checked(bit(EVENT_CATEGORY) as usize) {
+        Some((_, [name, ..])) => name,
+        _ => "",
+    };
+// A category bit past the name table fails the build, not a trace.
+const _: () = assert!(!EVENT_CATEGORY_NAME.is_empty(), "the log category has no name");
+
 /// log2 of the `tracing` callsites the layer names; past them, events of new callsites are not
 /// recorded.
 const CALLSITE_BITS: u32 = 10;
@@ -108,7 +117,8 @@ impl NameTable {
         let start = (key.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (u64::BITS - self.bits)) as usize;
         let mask = self.slots.len() - 1;
         for probe in 0..MAX_PROBE {
-            let slot = &self.slots[(start + probe) & mask];
+            // `mask` is the power-of-two length minus one: every probe is a slot.
+            let slot = self.slots.get((start + probe) & mask)?;
             let claimed = match slot.key.load(Ordering::Acquire) {
                 0 => slot
                     .key
@@ -139,7 +149,7 @@ impl NameTable {
 /// `log.<hash>~<tail>:<line>`. So every site keeps its own name, and two long targets with one tail
 /// stay apart.
 fn site_text(target: &str, line: Option<u32>) -> String {
-    let category = cmux_trace::category::NAMES[usize::from(bit(EVENT_CATEGORY))];
+    let category = EVENT_CATEGORY_NAME;
     let line = line.map(|line| format!(":{line}")).unwrap_or_default();
     let full = format!("{category}.{target}{line}");
     if full.len() <= NAME_TEXT_BYTES {
@@ -148,12 +158,10 @@ fn site_text(target: &str, line: Option<u32>) -> String {
     // The low 32 bits of the hash: enough to tell apart the few long targets of one process.
     let head = format!("{category}.{:08x}~", fnv1a(FNV_OFFSET, target.as_bytes()) as u32);
     let room = NAME_TEXT_BYTES - head.len() - line.len();
-    let mut start = target.len() - room;
-    while !target.is_char_boundary(start) {
-        start += 1;
-    }
-    let tail = &target[start..];
-    let tail = tail.find("::").map_or(tail, |at| &tail[at + 2..]);
+    // The last `room` bytes, from the first character boundary in them.
+    let start = target.len() - room;
+    let tail = (start..=target.len()).find_map(|at| target.get(at..)).unwrap_or_default();
+    let tail = tail.split_once("::").map_or(tail, |(_, rest)| rest);
     format!("{head}{tail}{line}")
 }
 

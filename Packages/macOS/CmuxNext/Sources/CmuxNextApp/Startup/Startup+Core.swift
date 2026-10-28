@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompatAppKit
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLaunch

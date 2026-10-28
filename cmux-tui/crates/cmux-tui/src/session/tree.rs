@@ -437,12 +437,13 @@ impl TreeView {
         else {
             return false;
         };
-        self.active_workspace = workspace_index;
-        let workspace = &mut self.workspaces[workspace_index];
+        let Some(workspace) = self.workspaces.get_mut(workspace_index) else { return false };
+        let Some(screen) = workspace.screens.get_mut(screen_index) else { return false };
+        let Some(pane) = screen.panes.get_mut(pane_index) else { return false };
+        pane.active_tab = tab_index;
+        screen.active_pane = pane.id;
         workspace.active_screen = screen_index;
-        let screen = &mut workspace.screens[screen_index];
-        screen.active_pane = screen.panes[pane_index].id;
-        screen.panes[pane_index].active_tab = tab_index;
+        self.active_workspace = workspace_index;
         true
     }
 

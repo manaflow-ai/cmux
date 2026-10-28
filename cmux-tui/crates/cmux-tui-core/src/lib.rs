@@ -75,6 +75,7 @@ mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod input_flow;
+mod input_stages;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;
@@ -112,6 +113,7 @@ mod shell_integration;
 use cmux_tui_util::short_id;
 mod sidebar_resource;
 pub mod sizing_policy;
+pub mod startup_marks;
 mod state;
 pub mod store_schemas;
 /// Every thread this crate starts runs under the process supervisor.

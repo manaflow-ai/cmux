@@ -127,30 +127,30 @@
       "CmuxNextRemoteLocalhost",
       "CmuxNextServerHelper",
       "CmuxNextCLIInstall",
+      "CmuxNextOracle",
+      "OracleConfigDump",
       "CmuxNextInputModel",
       "CZlib"
     ],
     "testTargets": [
       "CmuxNextActionsTests",
+      "CmuxNextBrowserImportTests",
       "CmuxNextChromiumRuntimeTests",
       "CmuxNextCodeRouterTests",
       "CmuxNextCompatTests",
-      "CmuxNextControlTests",
-      "CmuxNextDaemonTests",
       "CmuxNextDevicesTests",
       "CmuxNextErrorJournalTests",
       "CmuxNextFeaturesTests",
       "CmuxNextFilesTests",
-      "CmuxNextHangReportsTests",
+      "CmuxNextHibernationTests",
       "CmuxNextHostPressureTests",
       "CmuxNextImportSuggestionsTests",
       "CmuxNextKeepAwakeTests",
       "CmuxNextMetricsTests",
       "CmuxNextMobileTests",
-      "CmuxNextSignpostsTests",
+      "CmuxNextOracleTests",
       "CmuxNextTraceTests",
       "CmuxNextVSCodeServerTests",
-      "CmuxNextWakeupsTests",
       "CmuxNextWorkspaceRepairTests"
     ],
     "products": [],
@@ -159,6 +159,7 @@
       "Packages/Shared/CMUXMobileCore",
       "Packages/Shared/CmuxAgentBrands",
       "Packages/Shared/CmuxAuthRuntime",
+      "Packages/Shared/CmuxFuzzSupport",
       "Packages/Shared/CmuxInstallAuthCore",
       "Packages/Shared/CmuxIrxTransport",
       "Packages/Shared/CmuxSafeConcurrency",
@@ -178,6 +179,9 @@
       "CmuxNextBrowserImport": [
         "CZlib"
       ],
+      "CmuxNextBrowserImportTests": [
+        "CZlib"
+      ],
       "CmuxNextChromiumRuntime": [
         "Crypto"
       ],
@@ -194,9 +198,6 @@
         "CZlib",
         "Crypto"
       ],
-      "CmuxNextDaemonTests": [
-        "Crypto"
-      ],
       "CmuxNextDesignTokens": [
         "Crypto"
       ],
@@ -206,7 +207,16 @@
       "CmuxNextDevicesTests": [
         "Crypto"
       ],
+      "CmuxNextFeaturesTests": [
+        "Crypto"
+      ],
+      "CmuxNextHangReports": [
+        "Crypto"
+      ],
       "CmuxNextMobile": [
+        "Crypto"
+      ],
+      "CmuxNextOracle": [
         "Crypto"
       ],
       "CmuxNextRemote": [
@@ -228,13 +238,33 @@
         "CmuxNextLayout",
         "CmuxNextSidebar",
         "CmuxNextTabs"
+      ],
+      "CmuxNextBrowserImport": [
+        "CmuxNextCompatAppKit"
+      ],
+      "CmuxNextCloud": [
+        "CmuxNextCompatAppKit"
+      ],
+      "CmuxNextControl": [
+        "CmuxNextInputCore"
+      ],
+      "CmuxNextDaemon": [
+        "CmuxNextIPC"
+      ],
+      "CmuxNextHangReports": [
+        "CmuxNextInputCore"
+      ],
+      "CmuxNextSignposts": [
+        "CmuxNextSignpostsC"
+      ],
+      "CmuxNextWakeups": [
+        "CmuxNextCompatAppKit",
+        "CmuxNextInputCore"
       ]
     },
     "absent": [
-      "CmuxNextOracle",
       "OracleReplay",
       "OracleInputWalk",
-      "OracleConfigDump",
       "CmuxNextHeadless"
     ]
   }

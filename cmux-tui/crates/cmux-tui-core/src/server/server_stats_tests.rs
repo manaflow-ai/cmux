@@ -340,15 +340,14 @@ fn ipc_after_a_bad_line(label: &str, bytes: &[u8]) -> crate::diagnostics::IpcSna
     let server = listener.accept().unwrap();
     let server_mux = mux.clone();
     let handler = std::thread::spawn(move || {
-        let peer = origin_gate::AcceptedPeer::resolve(&server_mux, &*server);
-        serve_line_connection(
+        serve_connection(
             server_mux,
             server,
-            peer,
             Arc::new(RenderService::new()),
             None,
             ClientTransport::Unix,
-            &admission::LocalAdmission,
+            Box::new(admission::LocalAdmission),
+            Box::<frame_dispatch::RequestFrames>::default(),
         );
     });
     // The daemon closes as soon as it has read the bad bytes, so the write

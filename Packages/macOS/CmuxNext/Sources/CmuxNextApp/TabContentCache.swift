@@ -200,6 +200,8 @@ final class TabContentCache {
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
     let resizes: ResizeCoordinator
+    /// Takes the daemon's stages of each key echo of a local terminal; set by the App.
+    var terminalKeyStamps: (any TerminalKeyStampSink)?
 
     /// - Parameters:
     ///   - chromium: The Chromium engine's slot: its stores now, the engine (and the App's wiring) at its first read.
@@ -276,7 +278,8 @@ final class TabContentCache {
         let io = DaemonTerminalIO(target: target, resizes: resizes, visible: render, gate: gate, createIntent: create?.intentID ?? 0, creatingInput: gate.flatMap { gate in daemon.creatingInput(tab.terminalID) { gate.isResolved } },
                                   burstTrace: pageRequests.services?.burstTrace, policyBlocked: daemon.policyBlock.check,
                                   hangWatch: daemon.hangWatch, screenChanged: pageRequests.services?.terminalScreenChanged,
-                                  streamFocus: streamFocus, connection: { try await daemon.machineConnection() })
+                                  keyStamps: daemon.isLocal ? terminalKeyStamps : nil, streamFocus: streamFocus,
+                                  connection: { try await daemon.machineConnection() })
         let session = makeSession(io: io, tab: tab, daemon: daemon); session.traceCreate(create, surface: tab.surface.rawValue)
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate, mainWork: mainWork)
@@ -514,7 +517,10 @@ final class TabContentCache {
     /// (yet) or `tab` has one: `tab` then makes its own.
     func moveBrowser(_ key: String, to tab: TabModel) -> Bool {
         guard !pendingBrowsers.contains(key), browsers[tab.id] == nil, let entry = browsers.removeValue(forKey: key) else { return false }
-        if let node = tabNodes.removeValue(forKey: key), tabNodes[tab.id]?.node == nil { tabNodes[tab.id] = node } // the page's node goes with it
+        if let node = tabNodes.removeValue(forKey: key)?.node, tabNodes[tab.id]?.node == nil { // the page's node goes with it
+            tabNodes[tab.id] = WeakTabNode(node: node)
+            daemon.trackVisibility(ofTab: tab.id, node: node)
+        }
         release(key, displacing: false)
         mount(entry, as: tab.id)
         goneTabs.track(tab.id, in: browserTabs.daemon(for: tab).store) { [weak self] in self?.release($0) }
@@ -589,6 +595,7 @@ final class TabContentCache {
         if let node = tabNodes[key]?.node { return node }
         let node = VisibilityNode("tab:\(key)", own: .hidden, parent: unselectedTabs)
         tabNodes[key] = WeakTabNode(node: node)
+        daemon.trackVisibility(ofTab: key, node: node)  // the daemon holds a hidden tab's field events (frontend.visibility.set)
         if tabNodes.count >= tabNodesPruneAt {
             tabNodes = tabNodes.filter { $0.value.node != nil }
             tabNodesPruneAt = max(64, tabNodes.count * 2)

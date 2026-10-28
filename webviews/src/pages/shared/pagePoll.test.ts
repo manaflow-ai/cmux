@@ -6,10 +6,10 @@ import { FakeLifecycleDocument, FakePollClock, flushMicrotasks } from "../../../
 import { PageLifecycle } from "./pageLifecycle";
 import { type PollTick, startPagePoll } from "./pagePoll";
 
-function setup(options: { parked?: boolean; hidden?: boolean } = {}) {
+function setup(options: { hidden?: boolean } = {}) {
   const doc = new FakeLifecycleDocument();
   if (options.hidden) doc.visibilityState = "hidden";
-  const lifecycle = new PageLifecycle(doc, options.parked ?? false);
+  const lifecycle = new PageLifecycle(doc);
   const clock = new FakePollClock();
   const ticks: PollTick[] = [];
   return { doc, lifecycle, clock, ticks, run: (tick: PollTick) => void ticks.push(tick) };
@@ -64,13 +64,15 @@ describe("startPagePoll", () => {
     expect(ticks).toEqual([{ resumed: false }, { resumed: true }]);
   });
 
-  test("a parked document runs nothing until the host claims it", async () => {
-    const { lifecycle, clock, ticks, run } = setup({ parked: true });
+  // A parked (pooled or preloaded) page is hidden by its engine until native shows its view
+  // (pageLifecycle.ts, p13-webui-033: the engine is the one visibility truth).
+  test("a parked document, hidden by its engine, runs nothing until it is shown", async () => {
+    const { doc, lifecycle, clock, ticks, run } = setup({ hidden: true });
     startPagePoll(run, 1000, { lifecycle, timers: clock });
     await clock.advance(MINUTE);
     expect(ticks.length).toBe(0);
     expect(clock.started).toBe(0);
-    lifecycle.claimed();
+    doc.show();
     expect(ticks.length).toBe(1);
   });
 

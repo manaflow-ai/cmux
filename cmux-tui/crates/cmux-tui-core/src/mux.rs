@@ -771,7 +771,7 @@ pub struct Mux {
     terminal_exit_detaches: Arc<TerminalExitDetachTracker>,
     terminal_adoption_insert_failures: AtomicU64,
     template_completion_failures: AtomicU64,
-    server_lifecycle_ready: AtomicBool,
+    server_startup: crate::startup_marks::ServerStartup,
     shutting_down: AtomicBool,
     /// When this owner's session (and the previous owner's) was shutting
     /// down: signal exits then are host losses (`session-shutdown`).
@@ -841,6 +841,10 @@ pub struct Mux {
     /// The daemon-wide sequenced pool: every connection's control sequence
     /// and stream sequences run on its fixed workers.
     pub(crate) sequenced_pool: crate::server::SequencedPool,
+    /// The one `mux-io` loop that reads and writes every local connection
+    /// (server/mux_io.rs).
+    #[cfg(unix)]
+    pub(crate) mux_io: crate::server::MuxIo,
     /// Records requests that run past 250 ms (server-stats `slow_requests`).
     pub(crate) request_watchdog: crate::server::RequestWatchdog,
     /// The blocking, inversion and slow-request sites of this daemon life

@@ -1,6 +1,6 @@
 public import AppKit
 import CmuxNextCompat
-import CmuxNextInput
+public import CmuxNextInput
 import CmuxNextRemoteLayer
 import CmuxNextWakeups
 import QuartzCore
@@ -42,7 +42,7 @@ import QuartzCore
 /// wait, and what waited leaves ahead of them. With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
-public final class ChromiumHostPageView: NSView {
+public final class ChromiumHostPageView: NSView, KeyEquivalentOwningSurface {
     /// Where the page's input goes.
     enum InputTarget: Equatable, Sendable {
         /// This view: it is hit-testable and becomes first responder (host mode).

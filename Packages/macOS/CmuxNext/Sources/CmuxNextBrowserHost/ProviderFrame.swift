@@ -25,6 +25,12 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
     case input(event: DriverJSON)
     /// Whether agents may drive a CEF tab (app -> host; interim extension rule).
     case tabAccess(targetID: String, extensionHostAccess: Bool, userOverride: Bool, extensions: [String])
+    /// Make a CEF tab agent-ready for the Chromium Host's relay link (host -> app): the app
+    /// answers with the event `tab.relay.direct` or `tab.relay.failed`, and relays no CDP of the tab itself.
+    case cdpPrepare(targetID: String)
+    /// A capture command went straight to the Chromium Host (host -> app): the tab's capture vote starts or
+    /// ends. `capture` is `screenshot` (one per `id`, until its reply) or `screencast`.
+    case cdpCapture(targetID: String, capture: String, active: Bool, id: UInt64?)
     /// A frame tag this app does not know (a newer host); ignored.
     case unknown(tag: String)
 
@@ -43,6 +49,8 @@ public nonisolated enum ProviderFrame: Hashable, Sendable {
         case .userInput: "user.input"
         case .input: "input"
         case .tabAccess: "tab.access"
+        case .cdpPrepare: "cdp.prepare"
+        case .cdpCapture: "cdp.capture"
         case .unknown(let tag): tag
         }
     }
@@ -66,6 +74,8 @@ extension ProviderFrame: CustomStringConvertible, CustomDebugStringConvertible, 
         case .userInput(let target): "user.input(\(target))"
         case .input(let event): "input(\(Self.inputLabel(event)))"
         case .tabAccess(let target, let access, let override, _): "tab.access(\(target), \(access), override: \(override))"
+        case .cdpPrepare(let target): "cdp.prepare(\(target))"
+        case .cdpCapture(let target, let capture, let active, _): "cdp.capture(\(target), \(capture), \(active))"
         case .unknown(let tag): "unknown(\(tag))"
         }
     }

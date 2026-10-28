@@ -1,8 +1,0 @@
-{// "quoted"
-"appearan\u0063\u0065":{/* // inside */ "m\u0061chi\u006eeCo\u006c\u006frs":{},},/* // inside */ "\u0074\u0061bs":{// a { brace
-"new\u0054\u0061bWidget\u0073":{"\u0063h\u0061\u0074s":1}},// url: https://localhost/x
-"edit\u006fr":{// url: https://localhost/x
-"lin\u006be\u0064E\u0064\u0069ti\u006e\u0067":null},"app":{"\u0071u\u0069\u0074Beh\u0061\u0076io\u0072":"end-e\u0076e\u0072yt\u0068\u0069ng",},// "quoted"
-"\u0073i\u0064ebar":{"\u0062or\u0064erW\u0069dth":2.25},// a { brace
-"b\u0072ow\u0073\u0065\u0072":{"pa\u0073swords":{"genera\u0074e":true},},// note
-"u\u0069":{/* block */ "an\u0069m\u0061tions":{/* {"k": 1} */ "hom\u0065":true,}}}

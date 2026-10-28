@@ -493,14 +493,11 @@ fn take_lock(socket: &Path) -> io::Result<Option<std::fs::File>> {
     if error.kind() == io::ErrorKind::WouldBlock { Ok(None) } else { Err(error) }
 }
 
-/// Listens on `socket` (the lock holder removes a stale file first), read
-/// and write for this user only.
+/// Listens on `socket` (the lock holder replaces a stale file), read and
+/// write for this user only from the moment it exists (cmux-unix-socket
+/// `bind_private`).
 fn bind(socket: &Path) -> io::Result<UnixListener> {
-    use std::os::unix::fs::PermissionsExt;
-    let _ = cmux_blocking::fs::remove_file(socket);
-    let listener = UnixListener::bind(socket)?;
-    crate::blocking::fs::set_permissions(socket, std::fs::Permissions::from_mode(0o600))?;
-    Ok(listener)
+    crate::blocking::fs::bind_private_socket(socket)
 }
 
 fn say(line: &str) {

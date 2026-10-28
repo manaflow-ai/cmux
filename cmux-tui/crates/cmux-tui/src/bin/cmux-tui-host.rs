@@ -64,12 +64,14 @@ fn main() -> std::process::ExitCode {
     // The holder of every PTY (cmux-holder) runs from this small binary too,
     // with the same panic log (holder-panics.jsonl).
     #[cfg(unix)]
-    if args.first().map(String::as_str) == Some("__holder") {
+    if let Some((mode, holder_args)) = args.split_first()
+        && mode == "__holder"
+    {
         // Its black box first, as cmux-holder's main.
-        if let Some(dir) = cmux_holder::blackbox_dir(&args[1..]) {
+        if let Some(dir) = cmux_holder::blackbox_dir(holder_args) {
             drop(cmux_trace::init_blackbox(dir, cmux_trace::Role::Holder));
         }
-        return match cmux_holder::serve_process(&args[1..]) {
+        return match cmux_holder::serve_process(holder_args) {
             Ok(()) => std::process::ExitCode::SUCCESS,
             Err(error) => {
                 eprintln!("cmux-tui-host holder: {error}");

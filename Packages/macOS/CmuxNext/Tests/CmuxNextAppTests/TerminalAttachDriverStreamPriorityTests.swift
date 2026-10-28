@@ -181,7 +181,7 @@ nonisolated private final class RankLink: TerminalAttachLink {
 
     var priorities: [TerminalStreamPriority] { sent.withLock { $0 } }
 
-    func sendInput(_ data: Data) {}
+    func sendInput(_ data: Data, keyFlow: UInt64) {}
     func sendClaim(reporting size: CellSize) {}
     func sendTakeOver(reporting size: CellSize, setLatest: Bool) {}
     func sendHidden(_ hidden: Bool) {}

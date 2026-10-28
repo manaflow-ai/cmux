@@ -1,6 +1,7 @@
 //! Client side: `cmux host dial` (the stdio bridge the apps use, the same
 //! contract as `cmux link dial`) and `cmux host list` (discovery).
 
+use crate::json_fields::JsonFields;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream};
 use std::sync::mpsc;
@@ -115,11 +116,11 @@ pub(crate) fn dial(host: &str, port: u16) -> i32 {
         Ok(pair) => pair,
         Err(e) => return dial_failed("unreachable", &format!("{e:#}")),
     };
-    if reply["ok"].as_bool() != Some(true) {
-        let code = reply["error_code"].as_str().unwrap_or("refused").to_owned();
+    if reply.field("ok").as_bool() != Some(true) {
+        let code = reply.field("error_code").as_str().unwrap_or("refused").to_owned();
         return dial_failed(&code, "the host refused the connection");
     }
-    let line = json!({"ok": true, "host": target.name, "address": target.addr.to_string(), "access": reply["access"]});
+    let line = json!({"ok": true, "host": target.name, "address": target.addr.to_string(), "access": reply.field("access")});
     eprintln!("{line}");
     let _ = io::stderr().flush();
     if stream.set_read_timeout(None).is_err() || stream.set_write_timeout(None).is_err() {
@@ -146,7 +147,11 @@ pub(crate) fn dial(host: &str, port: u16) -> i32 {
         match tcp_read.read(&mut buf) {
             Ok(0) | Err(_) => break,
             Ok(n) => {
-                if stdout.write_all(&buf[..n]).and_then(|()| stdout.flush()).is_err() {
+                if crate::panic_free::reported_prefix(&buf, n)
+                    .and_then(|chunk| stdout.write_all(chunk))
+                    .and_then(|()| stdout.flush())
+                    .is_err()
+                {
                     break;
                 }
             }
@@ -226,10 +231,10 @@ pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Resu
                 "name": item.node.short_name(),
                 "dns_name": item.node.dns_name,
                 "address": item.addr.to_string(),
-                "os": reply["host"]["os"],
-                "version": reply["host"]["version"],
-                "session": reply["host"]["session"],
-                "access": reply["host"]["access"],
+                "os": reply.field("host").field("os"),
+                "version": reply.field("host").field("version"),
+                "session": reply.field("host").field("session"),
+                "access": reply.field("host").field("access"),
                 "tags": item.node.tags,
             })),
             Ok(reply) => others.push(json!({
@@ -245,7 +250,7 @@ pub(crate) fn list(json_out: bool, all: bool, port: Option<u16>) -> anyhow::Resu
         let mut out =
             json!({"hosts": hosts, "probed": found.len(), "self": status.this.short_name()});
         if all {
-            out["not_hosts"] = Value::Array(others);
+            out.insert("not_hosts", Value::Array(others));
         }
         println!("{out}");
         return Ok(());

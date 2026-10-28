@@ -75,7 +75,7 @@ public struct DaemonConnectionConfiguration: Sendable {
     /// Terminal views attach as client-minted streams on this connection (`attach-streams-v1`)
     /// instead of a connection each: the `terminalStreams` feature, on by default in DEV and NIGHTLY.
     /// The connection echoes the grant and, with `sizingDevice`, joins shared sizing as that device; a daemon that does not offer the
-    /// grant keeps every view on a connection of its own (``TerminalAttachment/attach(on:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:)``).
+    /// grant keeps every view on a connection of its own (``TerminalAttachment/attach(on:target:size:claimGeometry:snapshotVersion:localHistory:images:clientName:device:hangs:createIntent:inputQueue:keyStamps:)``).
     /// Only a `main` connection streams terminals.
     public var terminalStreams = false
     /// The device this connection's terminal streams are sized for (`shared-sizing-v1`): the views of one

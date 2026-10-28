@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextDesign

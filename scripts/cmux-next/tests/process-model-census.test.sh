@@ -43,7 +43,7 @@ EOF
 printf '%s\n' $'102\t'"$B/Contents/Resources/bin/cmux" $'104\t'"$B/Contents/Resources/bin/cmux" \
   $'151\t'"$B/Contents/Resources/bin/cmux" $'152\t'"$B/Contents/Resources/bin/cmux" > "$dir/exe.txt"
 printf '%s\n' \
-  $'102\tuser-initiated\tmux-conn' $'102\tuser-initiated\tmux-conn' $'102\tdefault\tsurface-12-reader' \
+  $'102\tuser-initiated\tmux-seq-control' $'102\tuser-initiated\tmux-seq-control' $'102\tdefault\tsurface-12-reader' \
   $'102\tdefault\tsurface-13-reader' $'102\tdefault\tmain' $'110\tuser-initiated\tholder-link' \
   $'100\tuser-interactive\t' $'100\tdefault\t' $'100\tuser-interactive\tcmux-next main-thread watchdog' \
   $'100\tutility\tcom.cmuxterm.next.terminal.output' $'100\tdefault\tcom.apple.NSEventThread' \
@@ -88,7 +88,7 @@ eq("another tag's host", report["foreign_hosts"], 1)
 eq("daemon threads", roles["daemon"]["threads"], 5)
 eq("daemon peak (the next daemon during the restart)", roles["daemon"]["peak_threads"], 20)
 eq("app peak (sampled above now)", roles["app"]["peak_threads"], 6)
-eq("daemon names", roles["daemon"]["threads_by_name"], {"mux-conn": 2, "surface-<n>-reader": 2, "main": 1})
+eq("daemon names", roles["daemon"]["threads_by_name"], {"mux-seq-control": 2, "surface-<n>-reader": 2, "main": 1})
 eq("daemon qos", roles["daemon"]["threads_by_qos"], {"default": 3, "user-initiated": 2})
 eq("app unnamed", roles["app"]["threads_by_name"]["<unnamed>"], 2)
 eq("rss", roles["vt_worker"]["rss_mb"], round(8000 / 1024, 1))
@@ -126,7 +126,7 @@ EOF
 cat > "$tmp/doc.md" <<'EOF'
 # threads
 ## Registered threads and queues
-- `cmux-next main-thread watchdog`, `com.cmuxterm.chromium-host.read` (user-initiated), `mux-conn` (user-initiated),
+- `cmux-next main-thread watchdog`, `com.cmuxterm.chromium-host.read` (user-initiated), `mux-seq-control` (user-initiated),
   `surface-<id>-reader`, `<pid>`
 ## Reviewed blocking allowances
 - `holder-link`
@@ -143,7 +143,7 @@ assert doc["qos_mismatch"] == [{"name": "com.cmuxterm.chromium-host.read", "doc"
                                 "observed": {"default": 1}}], doc["qos_mismatch"]
 EOF
 printf '%s\n' '## Registered threads and queues' \
-  '- `cmux-next main-thread watchdog`, `com.cmuxterm.chromium-host.read`, `mux-conn` (user-initiated),' \
+  '- `cmux-next main-thread watchdog`, `com.cmuxterm.chromium-host.read`, `mux-seq-control` (user-initiated),' \
   '  `surface-<id>-reader`, `main`, `holder-link`, `com.cmuxterm.next.terminal.output`' > "$tmp/doc-ok.md"
 python3 -I "$CENSUS" --from "$dir" --check-thread-doc "$tmp/doc-ok.md" > "$tmp/doc-ok.txt" \
   || { echo "FAIL: a doc that lists every name must pass" >&2; cat "$tmp/doc-ok.txt" >&2; exit 1; }
@@ -222,7 +222,7 @@ cat > "$rust/ps.txt" <<EOF
   102     1  60000 $B/Contents/Resources/bin/cmux-tui --headless --session cmux-app-t1 --socket /tmp/t1.sock
   110     1   5000 $HX/abc/cmux-holder --owner cmux_DEV_t1:t1@102
 EOF
-printf '%s\n' $'102\tdefault\tmux-conn' $'102\tdefault\tmux-server' $'102\tdefault\tmux-session-journal-writer' \
+printf '%s\n' $'102\tdefault\tmux-remote-conn' $'102\tdefault\tmux-server' $'102\tdefault\tmux-session-journal-writer' \
   $'102\tdefault\tmux-session-journal-writer-fanout' $'110\tdefault\tholder-link' > "$rust/threads.txt"
 printf '{"bundle": "%s", "tag": "t1"}\n' "$B" > "$rust/session.json"
 python3 -I "$CENSUS" --from "$rust" --json --check-thread-doc > "$tmp/rust.json" \
@@ -234,7 +234,7 @@ assert doc["judged"] == 5 and doc["unlisted"] == [] and doc["qos_mismatch"] == [
 EOF
 # An owner-table row's QoS cell is compared; `not set` names no class.
 printf '%s\n' '| Thread / queue | Owns | QoS |' '|---|---|---|' \
-  '| **Daemon** `mux-conn`, `mux-server` | requests | user-initiated |' \
+  '| **Daemon** `mux-remote-conn`, `mux-server` | requests | user-initiated |' \
   '| **Journal** `mux-session-journal-writer` (+ `-fanout`) | disk | not set |' \
   '| **Holder** `cmux-holder`, `holder-link` | PTYs | utility (link) |' > "$tmp/table.md"
 code=0
@@ -244,7 +244,7 @@ python3 -I - "$tmp/table.json" <<'EOF'
 import json, sys
 doc = json.load(open(sys.argv[1]))["thread_doc"]
 assert doc["unlisted"] == [], doc["unlisted"]
-assert sorted(m["name"] for m in doc["qos_mismatch"]) == ["holder-link", "mux-conn", "mux-server"], doc["qos_mismatch"]
+assert sorted(m["name"] for m in doc["qos_mismatch"]) == ["holder-link", "mux-remote-conn", "mux-server"], doc["qos_mismatch"]
 EOF
 
 # perf-stress-session.py terminal_counts: a terminal shows only as the selected tab of a pane on the shown

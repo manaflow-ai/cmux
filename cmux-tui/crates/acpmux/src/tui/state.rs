@@ -89,6 +89,13 @@ pub struct NewForm {
     pub field: usize,
 }
 
+impl NewForm {
+    /// The chosen permission policy: `policy` indexes [`POLICIES`] (the form's keys wrap it).
+    pub fn policy_name(&self) -> Option<&'static str> {
+        POLICIES.get(self.policy).copied()
+    }
+}
+
 /// A pending session: shown in the sidebar, created on first send.
 #[derive(Debug, Clone)]
 pub struct Draft {

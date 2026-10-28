@@ -68,11 +68,11 @@ impl FileBrowser {
     }
 
     pub fn visible_entries(&self) -> impl Iterator<Item = &FileEntry> {
-        self.visible.iter().map(|index| &self.entries[*index])
+        self.visible.iter().filter_map(|index| self.entries.get(*index))
     }
 
     pub fn visible_entry(&self, index: usize) -> Option<&FileEntry> {
-        self.visible.get(index).map(|entry| &self.entries[*entry])
+        self.visible.get(index).and_then(|entry| self.entries.get(*entry))
     }
 
     pub fn total_len(&self) -> usize {
@@ -252,7 +252,7 @@ impl FileBrowser {
     }
 
     fn selected_entry(&self) -> Option<FileEntry> {
-        self.visible.get(self.selected).map(|index| self.entries[*index].clone())
+        self.visible.get(self.selected).and_then(|index| self.entries.get(*index)).cloned()
     }
 
     fn descend_selected(&mut self) {
@@ -328,7 +328,9 @@ impl FileBrowser {
         self.visible = filtered_indices(&self.entries, self.query.as_str());
         self.selected = selected_path
             .and_then(|path| {
-                self.visible.iter().position(|index| self.entries[*index].path == path)
+                self.visible.iter().position(|index| {
+                    self.entries.get(*index).is_some_and(|entry| entry.path == path)
+                })
             })
             .unwrap_or_else(|| {
                 if self.visible.is_empty() { 0 } else { self.selected.min(self.visible.len() - 1) }

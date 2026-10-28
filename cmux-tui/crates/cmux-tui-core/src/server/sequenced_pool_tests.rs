@@ -656,3 +656,34 @@ fn a_delayed_post_no_worker_can_run_is_refused() {
     // The sender dropped with the refused task: nothing will run it.
     assert_eq!(rx.recv_timeout(WAIT), Err(mpsc::RecvTimeoutError::Disconnected));
 }
+
+/// A connection's shape: an outside thread (the mux-io
+/// loop) posts each line to one sequence, whose task posts the line's
+/// request to a second sequence. At most two tasks are ever runnable at
+/// once, so the pool starts at most two workers: a worker notified for a
+/// sequence that another worker took first still takes the next one
+/// posted (a wake goes to a ready sequence, not to a post; Chrome's
+/// `ThreadGroupImpl` wakes workers for the task sources that are ready).
+#[test]
+fn a_notified_worker_takes_the_next_post_and_none_starts_for_it() {
+    const LINES: usize = 4_000;
+    let pool = pool(PoolConfig::for_cores(16));
+    let lines = pool.sequence_with_cap(SequencePriority::Control, LINES);
+    let requests = Arc::new(pool.sequence_with_cap(SequencePriority::Control, LINES));
+    let (done_tx, done_rx) = mpsc::channel();
+    for line in 0..LINES {
+        let (requests, done) = (requests.clone(), done_tx.clone());
+        lines
+            .post(move || {
+                requests.post(move || done.send(()).unwrap()).unwrap();
+            })
+            .unwrap();
+        if line % 4 == 0 {
+            std::thread::yield_now();
+        }
+    }
+    for _ in 0..LINES {
+        done_rx.recv_timeout(WAIT).unwrap();
+    }
+    assert!(pool.workers_started() <= 2, "{} workers started", pool.workers_started());
+}

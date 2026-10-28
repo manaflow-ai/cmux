@@ -540,15 +540,23 @@ impl MessageWriter {
         self.render_service.serialize_for(value, stream.client_stream)
     }
 
-    /// [`Self::encode`] of an attach frame in `shape`.
+    /// [`Self::encode`] of an attach frame in `shape`; an output frame that
+    /// echoes a key press carries that press's `key_stages`.
     pub(super) fn encode_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
         stream: &OutboundStream,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        self.render_service.serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+        self.render_service.serialize_attach_frame_for(
+            surface,
+            frame,
+            shape,
+            key_stages,
+            stream.client_stream,
+        )
     }
 
     /// The second half of [`Self::send_stream_backpressured`]: hand the
@@ -606,19 +614,21 @@ impl MessageWriter {
     }
 
     /// An attach frame on `stream` for a producer that checked
-    /// [`MessageSink::stream_has_room`] first: it never waits.
+    /// [`MessageSink::stream_has_room`] first: it never waits. An output
+    /// frame that echoes a key press carries its `key_stages`.
     pub(super) fn send_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self
-            .encode_attach_frame(surface, frame, shape, stream)
+            .encode_attach_frame(surface, frame, shape, key_stages, stream)
             .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
