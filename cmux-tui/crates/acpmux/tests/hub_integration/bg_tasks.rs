@@ -139,3 +139,48 @@ async fn a_task_is_its_chats_only_and_a_stopped_chat_starts_none() {
         r.c.request(method::MUX_BG_START, json!({"sessionId": id, "command": "true"})).await;
     assert!(refused.unwrap_err().contains("stopped"), "a stopped chat started a task");
 }
+
+/// A local connection that is neither the person nor the chat's own agent reaches no task.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_connection_that_proved_nothing_reaches_no_task() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut r.c, "private").await;
+    let (tx, in_rx) = tokio::sync::mpsc::channel(64);
+    let (out_tx, rx) = tokio::sync::mpsc::channel(4096);
+    tokio::spawn(serve_connection(r.hub.clone(), in_rx, out_tx));
+    let mut anyone = TestClient { tx, rx, next: 0 };
+    for (m, params) in [
+        (method::MUX_BG_LIST, json!({"sessionId": id})),
+        (method::MUX_BG_START, json!({"sessionId": id, "command": "true"})),
+    ] {
+        let refused = anyone.request(m, params).await.unwrap_err();
+        assert!(refused.contains("only its own"), "{m}: {refused}");
+    }
+}
+
+/// Output a child writes after the leader exited is kept (the task runs until the pipe ends);
+/// a task that ignores SIGTERM is killed after the grace; a purge stops the chat's tasks and
+/// removes their folder.
+#[cfg(unix)]
+#[tokio::test]
+async fn late_output_is_kept_a_stubborn_task_is_killed_and_a_purge_clears_the_folder() {
+    let mut r = rig(PermissionPolicy::ApproveAll).await;
+    r.hub.set_bg_runner(RUNNER.into(), acpmux::bg_run::SEGMENT);
+    let id = new_session(&mut r.c, "late").await;
+    let late = start(&mut r, &id, "(sleep 0.5; echo late) & echo early").await;
+    let late = late["id"].as_str().unwrap().to_owned();
+    r.until("the task never ended", || state(&r, &id, &late) == "exited").await;
+    let read = output(&mut r, &id, &late, Some(0)).await;
+    assert_eq!(read["text"], "early\nlate\n", "{read}");
+    let stubborn = start(&mut r, &id, "trap '' TERM; while :; do sleep 0.1; done").await;
+    let (task, pid) =
+        (stubborn["id"].as_str().unwrap().to_owned(), stubborn["pid"].as_u64().unwrap());
+    let stopped = r.c.request(method::MUX_BG_STOP, json!({"sessionId": id, "id": task})).await;
+    assert_eq!(stopped.unwrap()["state"], "stopped");
+    assert!(!alive(pid as u32), "a task that ignored SIGTERM outlived its stop");
+    let running = start(&mut r, &id, "sleep 600").await["pid"].as_u64().unwrap();
+    r.c.request(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await.unwrap();
+    r.until("a purge left its task running", || !alive(running as u32)).await;
+    assert!(!acpmux::config::home().join("bg").join(&id).exists(), "a purge left the folder");
+}

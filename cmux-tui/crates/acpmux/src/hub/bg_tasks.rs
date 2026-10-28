@@ -169,12 +169,20 @@ impl Hub {
         Ok(bg_view(&dir, &record, LIST_TAIL))
     }
 
-    /// A purged chat's tasks are stopped; nothing waits for them.
-    pub(super) fn bg_stop_all(&self, session: &Session) {
+    /// A purged chat's tasks are stopped, each waited for (at most its two graces and 10 s, all
+    /// at once), and its folder goes: a chat that later takes its id (an import) finds none.
+    pub(super) async fn bg_purge(&self, session: &Session) {
         let dir = self.bg_dir(session);
+        let mut gone = Vec::new();
         for record in self.bg_records(&dir) {
-            bg_run::request_stop(&dir, &record.id);
+            if bg_run::request_stop(&dir, &record.id) {
+                let lock = bg_run::lock_path(&dir, &record.id);
+                gone.push(tokio::task::spawn_blocking(move || bg_wait_unlocked(&lock)));
+            }
         }
+        let all = futures::future::join_all(gone);
+        let _ = tokio::time::timeout(bg_run::GRACE * 2 + START_WAIT, all).await;
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

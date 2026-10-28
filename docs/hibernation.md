@@ -70,8 +70,11 @@ instead:
 - A woken agent finds its tasks by id. `_acpmux/bg/stop` writes one byte to the task's FIFO,
   which opens only while its runner holds it, so no pid is signalled. The runner then sends
   SIGTERM to the task's own group, then SIGKILL 5 s later if its leader still runs. Only the
-  runner signals that group, and only before it reaps the leader. Purging a chat stops its tasks.
-  Stopping a chat keeps them, and a stopped chat starts none.
+  runner signals that group, and only before it reaps the leader, which it reaps only once the
+  pipe ends, so output a child writes after the leader exited is kept. Purging a chat stops its
+  tasks and removes their folder. Stopping a chat keeps them, and a stopped chat starts none.
+- Only the chat's own agent (its proven caller token) and the person reach a chat's tasks.
+- The task runs under `bash -c` (`/bin/sh` where there is no bash).
 - A daemon-owned task never keeps a chat awake. A harness-owned background shell, a Codex
   background terminal and a background subagent still do, because hibernating would end them.
 

@@ -3,9 +3,9 @@
 //! `_acpmux/bg/output {sessionId, id, fromByte?, maxBytes?}` and `_acpmux/bg/stop {sessionId, id}`.
 //!
 //! Like the process methods (`processes.rs`) they are local: a task's command line, output and
-//! stop never leave the machine, so a remote WebSocket device and a peer are refused. A
-//! connection that proved it runs in a chat (the `acpmux` MCP server, `hub/person.rs` (a)) acts
-//! on that chat's tasks only.
+//! stop never leave the machine, so a remote WebSocket device and a peer are refused. Only the
+//! chat's own agent (a connection that proved it runs in that chat, `hub/person.rs` (a): the
+//! `acpmux` MCP server) and the person reach a chat's tasks.
 
 use super::{Conn, str_param};
 use crate::hub::Hub;
@@ -39,7 +39,8 @@ async fn handle(hub: &Arc<Hub>, conn: &Conn, m: &str, params: &Value) -> Result<
     let key = str_param(params, "sessionId")
         .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
     let session = hub.resolve(key)?;
-    if conn.caller().is_some_and(|caller| caller != session.id) {
+    // The chat's own agent (its proven caller token) or the person; nothing else.
+    if conn.caller() != Some(session.id.as_str()) && !conn.is_person() {
         return Err(RpcError::invalid_params("a chat reaches only its own background tasks"));
     }
     let byte = |k: &str| match params.get(k).filter(|v| !v.is_null()) {
