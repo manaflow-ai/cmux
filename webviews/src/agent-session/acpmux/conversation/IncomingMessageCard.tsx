@@ -49,7 +49,8 @@ import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { Bot, ChevronRight, TerminalSquare } from "./icons";
 import { Markdown } from "./Markdown";
 import { AgentMark } from "../../shared/AgentMark";
-import { useSenderChat, useSenderPlace } from "../subagents/subsessions";
+import { useSenderIdentity, useSenderPlace } from "../subagents/subsessions";
+import { SenderIdentityLabel } from "../SenderIdentityLabel";
 import { useAgentAvatar } from "../agentAvatar";
 import "../subagents/AgentCard.css";
 import { MessageScopeContext, type MessageScope } from "../chips/messageScope";
@@ -143,7 +144,7 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [inText, inRaw, reveal]);
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
-  const sender = useSenderChat(message.name, message.sessionId);
+  const sender = useSenderIdentity(message, session);
   const sessionId = sender.sessionId;
   const place = useSenderPlace(sessionId);
   const avatar = useAgentAvatar(sessionId);
@@ -224,10 +225,11 @@ export function IncomingMessageLine({
   }, [open]);
   // "Open chief-ui (huge-blue)": the chat the chip opens, and the other machine it runs on.
   const openLabel = sender.host
-    ? t("subagents.openOnHost", { name: message.name, host: sender.host })
-    : t("subagents.open", { name: message.name });
+    ? t("subagents.openOnHost", { name: sender.name, host: sender.host })
+    : t("subagents.open", { name: sender.name });
   // A sub-session family's sender says who it is to this chat.
-  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const from = sender.relation ? t(RELATION_LABEL[sender.relation], { name: sender.name }) : sender.name;
+  const senderLabel = <SenderIdentityLabel identity={{ ...sender, name: from }} mark={false} describe={false} />;
   const label = folded
     ? t("message.collapsedLabel", { from, preview: preview || t("message.noText") })
     : t("message.label", { from, to: t("message.self") });
@@ -382,11 +384,11 @@ export function IncomingMessageLine({
             title={openLabel}
             onClick={() => onOpen(sessionId)}
           >
-            {from}
+            {senderLabel}
           </button>
         ) : (
           <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
-            {from}
+            {senderLabel}
           </span>
         )}
         {/* The rest of the line opens the message; the label reads the line. Its chevron shows when
@@ -420,7 +422,7 @@ export function IncomingMessageLine({
           <PromptEditor
             initial={replyDrafts.get(key) ?? ""}
             canSend
-            label={t("message.replyTo", { name: message.name })}
+            label={t("message.replyTo", { name: sender.name })}
             // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
             // the DOM attribute the rule is about: the reader opened this reply editor with a
             // click and types into it next.

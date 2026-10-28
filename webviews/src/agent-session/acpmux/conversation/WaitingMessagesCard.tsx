@@ -11,24 +11,27 @@ import { useContext, useId, useLayoutEffect, useMemo, useState, type ReactNode }
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
+import { useSenderIdentities } from "../subagents/subsessions";
+import { SenderIdentityLabel } from "../SenderIdentityLabel";
+import type { SenderReference } from "../senderIdentity";
 import { FindReveal } from "./chatFind";
 import { ChevronRight } from "./icons";
 import { messageOpened, setMessageOpened } from "./incomingOpened";
 import "./WaitingMessagesCard.css";
 
 /// The senders of `rows`, each once, in the order they first wrote.
-export function waitingSenders(rows: readonly AcpmuxRow[]): string[] {
-  const names: string[] = [];
+export function waitingSenders(rows: readonly AcpmuxRow[]): SenderReference[] {
+  const senders: SenderReference[] = [];
   const seen = new Set<string>();
   for (const row of rows) {
     if (row.incoming?.kind !== "message") continue;
-    const { name, sessionId } = row.incoming.message;
+    const { name, sessionId, relation } = row.incoming.message;
     const key = sessionId ?? name;
     if (seen.has(key)) continue;
     seen.add(key);
-    names.push(name);
+    senders.push({ name, sessionId, relation });
   }
-  return names;
+  return senders;
 }
 
 export function WaitingMessagesCard({
@@ -48,6 +51,8 @@ export function WaitingMessagesCard({
   };
   const bodyId = useId();
   const waiting = row.waiting;
+  const references = useMemo(() => waitingSenders(waiting?.rows ?? []), [waiting?.rows]);
+  const senders = useSenderIdentities(references, session);
   const reveal = useContext(FindReveal);
   // Find names the card's row for a match in one of its messages (chatFind.ts `findRowIndex`), and
   // that message (`member`), which it opens in turn as that message's own row would.
@@ -63,7 +68,6 @@ export function WaitingMessagesCard({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [holdsMatch, reveal]);
   if (!waiting) return null;
-  const senders = waitingSenders(waiting.rows);
   const n = waiting.rows.length;
   const count =
     senders.length === 1
@@ -78,7 +82,7 @@ export function WaitingMessagesCard({
           className="cv-received__toggle cv-waiting__toggle"
           aria-expanded={open}
           aria-controls={bodyId}
-          title={senders.join(", ")}
+          title={senders.map((sender) => (sender.host ? `${sender.name} (${sender.host})` : sender.name)).join(", ")}
           onClick={() => show(!open)}
         >
           <span className="cv-waiting__icon">
@@ -86,9 +90,9 @@ export function WaitingMessagesCard({
           </span>
           <span className="cv-waiting__count">{count}</span>
           <span className="cv-waiting__senders">
-            {senders.map((name, index) => (
-              <span key={`${index}:${name}`} className="cv-waiting__sender">
-                {name}
+            {senders.map((sender, index) => (
+              <span key={`${index}:${sender.sessionId ?? references[index]!.name}`} className="cv-waiting__sender">
+                <SenderIdentityLabel identity={sender} mark={false} describe={false} />
               </span>
             ))}
           </span>

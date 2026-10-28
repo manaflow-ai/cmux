@@ -128,10 +128,9 @@ const remote = entry({
 });
 
 test("a qualified remote sender uses its session headline in the chip, relation label and tooltip", async () => {
-  const { chip, opened } = await line(
-    { name: remote.name!, sessionId: remote.sessionId, relation: "parent" },
-    [remote],
-  );
+  const { chip, opened } = await line({ name: remote.name!, sessionId: remote.sessionId, relation: "parent" }, [
+    remote,
+  ]);
   expect(chip?.querySelector(".acpmux-sender__name")?.textContent).toBe("Parent · pr-row");
   expect(chip?.querySelector(".acpmux-sender__host")?.textContent).toBe("gcp-codex-lane-10");
   expect(chip?.title).toBe("Open pr-row (gcp-codex-lane-10)");
@@ -154,9 +153,7 @@ test("a batched peer message card uses canonical sender headlines and secondary 
   const store = new SubsessionStore();
   store.set([remote]);
   const message = { name: remote.name!, sessionId: remote.sessionId, text: "Ready.", raw: "Ready." };
-  const rows = [1, 2].map(
-    (index) => ({ id: `queued-${index}`, incoming: { kind: "message", message } }) as AcpmuxRow,
-  );
+  const rows = [1, 2].map((index) => ({ id: `queued-${index}`, incoming: { kind: "message", message } }) as AcpmuxRow);
   const row = { id: "batch", waiting: { delivery: "turn", rows } } as AcpmuxRow;
   root = createRoot(host);
   await act(async () =>

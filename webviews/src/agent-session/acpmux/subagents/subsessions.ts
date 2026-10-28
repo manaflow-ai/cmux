@@ -157,6 +157,8 @@ export class SubsessionStore {
   private namedKey = "";
   private readonly nameListeners = new Set<() => void>();
 
+  senderRevision = () => this.namedKey;
+
   /// Replaces the views with those of the sub-sessions among `sessions`; one whose content did not
   /// change keeps its object. The pane sends the list with every snapshot, reusing the entry of a
   /// session that did not change, so an entry seen last time is not read again.
@@ -341,5 +343,19 @@ export function useSenderIdentity(sender: SenderReference, viewerSessionId?: str
         viewerSessionId,
       ),
     [sender.name, sender.sessionId, sender.relation, entry, viewerSessionId],
+  );
+}
+
+/** A batch follows the same live session metadata and resolver as each message it contains. */
+export function useSenderIdentities(senders: readonly SenderReference[], viewerSessionId?: string): SenderIdentity[] {
+  const store = useContext(SubsessionContext)?.store ?? EMPTY;
+  const revision = useSyncExternalStore(store.subscribeNames, store.senderRevision, store.senderRevision);
+  return useMemo(
+    () =>
+      senders.map((sender) => {
+        const id = sender.sessionId ?? store.find(sender.name);
+        return resolveSenderIdentity(sender, id ? store.sender(id) : undefined, viewerSessionId);
+      }),
+    [senders, viewerSessionId, store, revision],
   );
 }
