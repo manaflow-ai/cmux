@@ -8,7 +8,7 @@ import Foundation
 import Observation
 import Testing
 
-/// The CmuxNextApp/Windows sweep (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-310): one case
+/// The CmuxNextApp/Windows sweep (plans/cmux-next/chrome-parity/p06-scheduler.md): one case
 /// per migrated owner class. A window's view observation reads nothing while the window is hidden and applies once
 /// when it shows; a wait ends on its condition or its deadline, never by a poll; the window's deadlines run as
 /// classed `MainDeadline`s on the app's one scheduler (here a rig whose wakes the test fires).

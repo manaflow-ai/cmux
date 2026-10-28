@@ -8,10 +8,10 @@ import Foundation
 /// running inside `applicationDidFinishLaunching` (about 150 ms from
 /// process start on a loaded machine; the catalog alone took 50-70 ms on
 /// the main thread). Work no first frame reads waits for the launch order
-/// instead (p08-startup-034): the login shell's environment
+/// instead: the login shell's environment
 /// (`DaemonLauncher.captureLoginEnvironment(after:)`) and the palette's
 /// string tables (`LaunchFirstOpenWarmups`). The terminal's Metal device and fonts warm on their own thread once
-/// the launch's features resolve (`TerminalLaunchPrefetch`, p08-startup-091), not behind this one: the catalog
+/// the launch's features resolve (`TerminalLaunchPrefetch`), not behind this one: the catalog
 /// would hold them back 50-70 ms.
 ///
 /// The App passes its own pure warm-ups as `work`: the action catalog's
@@ -21,8 +21,8 @@ import Foundation
 /// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
 /// `action_catalog_built` launch mark is when this thread finished it (no
 /// mark when main claimed the build first). The icon pack and catalog decode
-/// on their own thread (the App passes `IconPack.decodeBundledInBackground`,
-/// p08-startup-039) and mark `icons_decoded`.
+/// on their own thread (the App passes `IconPack.decodeBundledInBackground`)
+/// and mark `icons_decoded`.
 /// The icon decode and launch-mark sink are injected (the App's, or
 /// `LaunchIconWarmupTests`'s recorders).
 public struct LaunchWarmup: Sendable {

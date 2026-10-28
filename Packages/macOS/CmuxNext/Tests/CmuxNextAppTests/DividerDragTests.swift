@@ -6,8 +6,8 @@ import CmuxNextWakeups
 import QuartzCore
 import Testing
 
-/// Divider drags at most twice per frame (feature `pointerFrameDrags`, p04-input-031): with the
-/// window's FrameInputCoalescer (p04-input-030) the first drag event of a frame interval moves the
+/// Divider drags at most twice per frame (feature `pointerFrameDrags`): with the
+/// window's FrameInputCoalescer the first drag event of a frame interval moves the
 /// divider in its own turn and the rest move it once more at the frame, to the latest point
 /// (Chromium's rAF-aligned input, `main_thread_event_queue.cc`); every event still feeds the release
 /// velocity at its own timestamp, and the release lands the pending move first.
@@ -50,7 +50,7 @@ import Testing
         var intents: [LayoutIntent] = []
 
         /// `coalesced`: the drags go through the window's coalescer (the feature on). `resampled`: the
-        /// divider is drawn at the pointer resampled at the frame (p04-input-040). `reduceMotion` pins the
+        /// divider is drawn at the pointer resampled at the frame. `reduceMotion` pins the
         /// layout's Reduce Motion (nil follows the app).
         /// `content`: each pane's view (a plain view by default).
         init(coalesced: Bool = true, resampled: Bool = false, reduceMotion: Bool? = nil,
@@ -239,7 +239,7 @@ import Testing
         #expect(harness.kinds.last == "ended", "nothing lands after the release")
     }
 
-    // MARK: Resampled visuals (p04-input-040)
+    // MARK: Resampled visuals
 
     /// 1/256 s between drag events: exact in binary and over Chromium's kResampleMinDelta (2 ms). The rig's
     /// frame n is at 1000 + n/120 s, so three events from 1000 s come before frame 1.
@@ -387,7 +387,7 @@ import Testing
         #expect(reduced.ratio == plain.ratio)
     }
 
-    // MARK: Cursor (p04-input-090)
+    // MARK: Cursor
 
     /// A 20-frame drag invalidates none of the window's cursor rects: the handle and the panes set their
     /// cursors when the pointer enters (`cursorUpdate`), so the handle's frame moving every frame (here

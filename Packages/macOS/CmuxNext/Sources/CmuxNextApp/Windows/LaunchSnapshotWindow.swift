@@ -14,10 +14,10 @@ import Foundation
 /// the same window, so the live tree replaces the snapshot in place.
 ///
 /// With `savedWindowPicture` the saved window's first frame is its picture
-/// from the last quit (p08-startup-059, `LaunchPicturePhase`): the window at
+/// from the last quit (`LaunchPicturePhase`): the window at
 /// its saved frame, its live material and the picture, nothing else; its
 /// controller and live views are built behind the picture after that frame,
-/// slice by slice (`build(_:in:phase:)`, p08-startup-060).
+/// slice by slice (`build(_:in:phase:)`).
 struct LaunchSnapshotWindow {
     let manager: WindowManager
 
@@ -66,7 +66,7 @@ struct LaunchSnapshotWindow {
         return true
     }
 
-    // MARK: The saved picture (p08-startup-059)
+    // MARK: The saved picture
 
     /// Opens saved window `window`: as its picture once the picture's read ends (at most 40 ms on a `MainDeadline`;
     /// the main thread never waits) when the picture is that window's and its meta matches the window opened, else
@@ -82,7 +82,7 @@ struct LaunchSnapshotWindow {
         manager.launchPicture = phase
         phase.start({ _ = await pictures.frontFinished() }, on: services.work, mainWork: services.mainWork) { _ in
             // `takeFront(matching:launch:)` hands out a picture whose read ended by now and that the launch rules
-            // allow (p08-startup-063), or marks it missed or refused.
+            // allow, or marks it missed or refused.
             LaunchSnapshotWindow(manager: manager).show(from: pictures, of: window, in: phase)
         }
     }
@@ -108,7 +108,8 @@ struct LaunchSnapshotWindow {
         let settings = services.settings
         let facts = WindowPictureStore.LaunchFacts(savedPicture: settings.map { $0.loadCount >= 1 && $0.snapshot.savedPicture } ?? false,
                                                    recovered: services.crashRecovery.recovery.isRestart,
-                                                   incognitoLeftovers: manager.incognitoLedger.mayHaveLeftovers)
+                                                   incognitoLeftovers: manager.incognitoLedger.mayHaveLeftovers,
+                                                   savedScreensStale: !services.crashRecovery.relaunchReattach(features: services.features).keepsSavedScreens)
         // A refusal records its own `launch_picture_refused.<reason>` mark.
         guard let shown = pictures.takeFront(matching: opening, launch: facts), shown.picture.windowID == window.id else {
             return skip(phase, window)
@@ -127,7 +128,7 @@ struct LaunchSnapshotWindow {
         // Before any view reaches the window, as the controller does: its visibility node, its key family.
         _ = services.appVisibility.windowNode(shell, name: "window:\(window.id)")
         WindowMaterialView.observeKeyFamily(of: shell, through: services.appEvents)
-        // Keys and clicks wait for the window behind the picture (p08-startup-061).
+        // Keys and clicks wait for the window behind the picture.
         let state = manager.state(for: window.id)
         let input = LaunchPictureInput(window: window.id, shell: shell, keys: services.keyRouter.launchPictureKeys, reveal: services.launchReveal,
                                        mainWork: services.mainWork) { [weak state] in
@@ -153,7 +154,7 @@ struct LaunchSnapshotWindow {
         phase.whenRemoved { input.finish() }
     }
 
-    /// Builds the launch window behind its picture (p08-startup-060): this slice makes its controller with its
+    /// Builds the launch window behind its picture: this slice makes its controller with its
     /// sidebar rows; its tab strips, focused pane and other visible panes follow, one afterFirstFrame post each
     /// (`LaunchWindowBuild`). The sidebar's part of the picture leaves at its first rows, each pane's at its own first
     /// content, the rest with the last of them. A key or a click on the picture raises the build (`input`).
@@ -233,13 +234,13 @@ extension ShellWindow {
         window.isMovableByWindowBackground = false
         window.minSize = NSSize(width: 520, height: 320)
         window.isReleasedWhenClosed = false
-        window.isRestorable = false  // cmux restores its windows from the daemon and the window registry, not AppKit (p08-startup-087)
+        window.isRestorable = false  // cmux restores its windows from the daemon and the window registry, not AppKit
         window.tabbingMode = .disallowed
         return window
     }
 }
 
-/// The launch window as its build behind the picture makes it (p08-startup-060).
+/// The launch window as its build behind the picture makes it.
 extension WindowController: LaunchBuiltWindow {
     /// The second slice: the shown workspace's layout and its panes' tab strips, laid out now so each pane has its
     /// area; each pane's content waits for its own slice. The focused pane first, then the others on screen.

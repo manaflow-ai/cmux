@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextWakeups
 import Testing
 
-/// Energy Saver's leaf in the sidebar footer (p14-energy-026): it follows only the app's one
+/// Energy Saver's leaf in the sidebar footer: it follows only the app's one
 /// ``EnergyPolicySource`` (`MainWorkScheduler.energy`), shows while the saver is on with the saver's
 /// reason in its card, and its card's "Turn Off for Now" reaches the App.
 @MainActor

@@ -181,7 +181,7 @@ fn loopback_forward_capability_is_advertised() {
     let identity = handle_command(
         &mux,
         mux.local_test_client(0),
-        Command::Identify { machine_metadata: false, revisions: false },
+        Command::Identify(Default::default()),
         &writer,
     )
     .unwrap();
@@ -601,7 +601,7 @@ fn loopback_status_reports_limits_and_audit() {
     assert!(outcomes.contains(&"loopback.denied-host".to_string()), "{outcomes:?}");
 }
 
-/// The SDK schema (spec/sdk-schema.json, p05-ipc-016) describes the
+/// The SDK schema (spec/sdk-schema.json) describes the
 /// loopback wire this module speaks: every command local-admin under the
 /// capability `identify` advertises, in the `loopback` family, and every
 /// event a control event in `loopback-events`. The command names come from

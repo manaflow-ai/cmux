@@ -34,8 +34,9 @@ pub(super) const BRIDGE_FRAMES_FEATURE: &str = "bridge-frames-v1";
 /// `identify`'s capabilities: [`always_identified`] plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
-/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
-/// `daemon-build-v1` when the binary installed its build identity.
+/// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs,
+/// `daemon-build-v1` when the binary installed its build identity, and
+/// `startup-marks-v1` when the serving daemon installed its startup timeline.
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = always_identified();
     if mux.cloud_conversations().is_some() {
@@ -98,6 +99,9 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     }
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
+    }
+    if mux.startup_marks().is_some() {
+        capabilities.push(crate::startup_marks::CAPABILITY);
     }
     if crate::chief_brains::taken().is_some() {
         capabilities.push(chief_control::CAPABILITY);
@@ -221,9 +225,9 @@ impl IpcCapability {
 /// Which framed IPC capabilities have a transport in this daemon. One that
 /// has none is never advertised or granted: Mojo exposes an interface only
 /// once its implementation is bound. The task that lands a transport adds its
-/// capability to [`Self::BOUND`]: the frame reader (p05-ipc-061) `Frames`,
-/// streams and `cancel-stream` (p05-ipc-074) `AttachStreams`, attach frames
-/// `AttachFrames`, the ring (p05-ipc-111) `OutputRing`.
+/// capability to [`Self::BOUND`]: the frame reader `Frames`,
+/// streams and `cancel-stream` `AttachStreams`, attach frames
+/// `AttachFrames`, the ring `OutputRing`.
 pub(super) struct IpcTransports(AtomicU8);
 
 impl IpcTransports {
@@ -396,6 +400,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     capabilities.push(energy_op::CAPABILITY);
     capabilities.push(energy_op::RULE_CAPABILITY);
+    capabilities.push(frontend_visibility::CAPABILITY);
     capabilities.push(memory_limit::CAPABILITY);
     capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     capabilities.push(page_credential::SCOPED_PAGE_CREDENTIAL_CAPABILITY);

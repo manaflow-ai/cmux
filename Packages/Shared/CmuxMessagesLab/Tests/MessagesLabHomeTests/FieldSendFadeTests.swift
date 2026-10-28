@@ -3,7 +3,7 @@ import QuartzCore
 import Testing
 @testable import MessagesLabHome
 
-/// The message box's send fade (p14-energy-053): a Core Animation opacity pulse on the field's
+/// The message box's send fade: a Core Animation opacity pulse on the field's
 /// glass container and its key-window rims, run by the render server (no display link wakes the
 /// main thread), and gated by the host's motion switch: off, nothing animates and the field keeps
 /// its model opacity in the same frame.

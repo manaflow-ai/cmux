@@ -38,7 +38,7 @@ import Testing
         #expect(strip.displayed.map(\.id) == model.orderedTabs.map(\.id), "the strip shown again is not at the model's order")
     }
 
-    /// Recipe R-hide (p06-scheduler-215): the strip follows its pane's node, not only AppKit's hidden flag.
+    /// Recipe R-hide: the strip follows its pane's node, not only AppKit's hidden flag.
     /// A suspended pane (its node hidden, its views still in the window and not hidden) lays out nothing for
     /// model changes, and its show applies the last one once.
     @Test func aStripUnderAHiddenNodeSyncsOnceWhenTheNodeShows() async {
@@ -67,7 +67,7 @@ import Testing
         #expect(strip.visibilityNode.deferredCount == 0)
     }
 
-    /// Recipe R-appear (p06-scheduler-215, done check 10): a theme flip with 50 workspace strips in a window,
+    /// Recipe R-appear: a theme flip with 50 workspace strips in a window,
     /// one workspace on screen, re-themes the visible strip only; each other strip re-themes once when its
     /// workspace shows, however many flips came while it was hidden.
     @Test func aThemeFlipAtFiftyWorkspacesRestylesOnlyTheVisibleStrip() {

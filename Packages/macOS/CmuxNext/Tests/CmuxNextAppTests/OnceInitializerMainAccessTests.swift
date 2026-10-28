@@ -11,7 +11,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p02-threads-122: the static, lazy and global initializers that read a file or asked the kernel or
+/// The static, lazy and global initializers that read a file or asked the kernel or
 /// securityd on whichever thread came first are gone. Each value is compiled in, read on a lane and handed
 /// over, or read by an async accessor, so the first main-thread access of each records no blocking site.
 @Suite("Once initializers: first main access blocks nothing", .serialized)

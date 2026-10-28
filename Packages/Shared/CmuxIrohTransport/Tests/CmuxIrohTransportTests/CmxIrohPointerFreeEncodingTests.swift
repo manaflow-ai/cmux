@@ -3,7 +3,7 @@ import Security
 import Testing
 @testable import CmuxIrohTransport
 
-/// The encoders and parsers that used to take pointer views (p10-stability-064):
+/// The encoders and parsers that used to take pointer views:
 /// network byte order without `withUnsafeBytes`, IP text through the one
 /// `inet_pton`/`inet_ntop` owner, randomness through one `SecRandomCopyBytes` call.
 @Suite

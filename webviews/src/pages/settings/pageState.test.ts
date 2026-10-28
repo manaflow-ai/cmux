@@ -1,5 +1,5 @@
 // Settings keeps its route (section, search, Changed filter, focus) and the scroll of its section
-// list and content across a discard (p13-webui-082). Every input is the route's; a form with typed
+// list and content across a discard. Every input is the route's; a form with typed
 // values keeps its tab from being discarded (useUnsavedForm), so no other input is saved.
 import { describe, expect, test } from "bun:test";
 import { restoredPageInputs } from "../shared/pageState";

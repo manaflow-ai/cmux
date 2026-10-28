@@ -1,4 +1,4 @@
-//! The journal writer's QoS (p02-threads-212): user-initiated while a
+//! The journal writer's QoS: user-initiated while a
 //! request waits for one of its receipts, utility otherwise.
 //!
 //! Chromium raises a sequence's priority when work someone waits on is

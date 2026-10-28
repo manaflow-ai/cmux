@@ -11,7 +11,7 @@ import Foundation
 import SwiftUI
 import Testing
 
-/// The page tabs that put their SwiftUI in a `VisibilityGatedHostingView` (p06-scheduler-214) keep
+/// The page tabs that put their SwiftUI in a `VisibilityGatedHostingView` keep
 /// working while the gate exists: a focused tab gives its SwiftUI the keyboard, a snapshot of a hidden
 /// page draws the page, and a hide and show (which runs SwiftUI's appear handlers again) keeps what the
 /// person typed, sends an app no `edit` it did not make, and reads nothing again.

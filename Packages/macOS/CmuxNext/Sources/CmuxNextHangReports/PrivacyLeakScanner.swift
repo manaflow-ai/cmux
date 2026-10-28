@@ -73,7 +73,7 @@ public nonisolated struct PrivacyLeakScanner: Sendable {
     ]
 
     /// The fields that hold only a catalog member, by schema path: schema 3's histogram names (this build's
-    /// ``HistogramID`` catalog, p09-observability-063) and black-box processes. Any other value there is refused.
+    /// ``HistogramID`` catalog) and black-box processes. Any other value there is refused.
     static let catalogValues: [String: Set<String>] = [
         "$.histograms[].name": HangReport.histogramCatalog,
         "$.launch_sections[].histograms[].name": HangReport.histogramCatalog,

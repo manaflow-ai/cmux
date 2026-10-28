@@ -1,6 +1,6 @@
 import CmuxNextDesign
 
-/// The tab-drop highlight on the render server (chrome-parity R2, p03-rendering-032; on with
+/// The tab-drop highlight on the render server (chrome-parity R2; on with
 /// `motion.renderServer`). A drag event that moves the target hands the move to Core Animation at the
 /// end of its change turn as one additive `RenderSpring` retarget of the outline ring
 /// (``DropHighlightView/commitOwnMove(onRenderServer:)``): the spring keeps its velocity across zones,

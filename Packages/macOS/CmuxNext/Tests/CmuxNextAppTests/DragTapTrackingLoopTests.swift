@@ -4,7 +4,7 @@ import CmuxNextInput
 import Foundation
 import Testing
 
-/// The drag sessions moved from AppKit local monitors to input tap intercepts (p04-input-015). A
+/// The drag sessions moved from AppKit local monitors to input tap intercepts. A
 /// local monitor hears only the events `-[NSApplication sendEvent:]` dispatches: a release that a
 /// nested tracking loop (a button's, a menu's) dequeues itself never reaches it (Apple's
 /// `addLocalMonitorForEvents(matching:handler:)` documentation). The tap runs inside the same

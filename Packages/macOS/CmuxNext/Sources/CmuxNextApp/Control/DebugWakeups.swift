@@ -122,7 +122,7 @@ nonisolated enum AppProcesses {
         return clients
     }
 
-    /// Every Chromium tab with what it reports about its renderers (p14-energy-124), read now: the pids
+    /// Every Chromium tab with what it reports about its renderers, read now: the pids
     /// are matched to processes off the main actor.
     @MainActor
     static func tabRenderers(_ services: AppServices) -> [ProcessUsage.TabRenderers] {
@@ -154,8 +154,8 @@ nonisolated enum AppProcesses {
 }
 
 extension EnergyReport {
-    /// `debug.energy` over the energy services AppServices builds once (p14-energy-024): the monitor's
-    /// inputs, ``EnergyServices``' driver (its resolver state) and idle histogram (p14-energy-008), the
+    /// `debug.energy` over the energy services AppServices builds once: the monitor's
+    /// inputs, ``EnergyServices``' driver (its resolver state) and idle histogram, the
     /// scheduler's policy and wake queue; the app's ledger (where the main wake queue counts its wakes);
     /// and one sample of the processes ``AppProcesses`` lists.
     init(services: AppServices) {
@@ -165,7 +165,7 @@ extension EnergyReport {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.energy.simulate` over the app's one ``EnergyMonitor`` (p14-energy-123).
+    /// `debug.energy.simulate` over the app's one ``EnergyMonitor``.
     static func simulateMethod(services: AppServices) -> ControlMethod {
         EnergyReport(services: services).simulateMethod { [weak services] in services?.energyMonitor.simulate($0) }
     }
@@ -191,7 +191,7 @@ extension EnergyReport {
             policy: services.mainWork.energy.policy,
             inputs: inputs(services),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
-            // No early-pass count yet (p14-energy-018).
+            // No early-pass count yet.
             cef: CEF(saver: CEF.Saver(applied: services.cache.chromium.built?.energySaverApplied), earlyPasses: nil),
             idle: services.energy.idle.stats,
             tabs: AppProcesses.tabRenderers(services)

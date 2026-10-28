@@ -4,7 +4,7 @@ import CmuxNextInput
 import Foundation
 import Testing
 
-/// A tab drag over a real layout drops where the per-event drag of the same moves drops (p04-input-032):
+/// A tab drag over a real layout drops where the per-event drag of the same moves drops:
 /// with feature `pointerFrameDrags` its moves hit-test on a frame interval's first move and at the frame,
 /// and the release hit-tests at its own point, so a pane's center and a pane's edge split resolve to the
 /// same winner and outcome as when every move hit-tests. `k0`'s first tab is dragged from its strip,

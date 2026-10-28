@@ -3,7 +3,7 @@ import Dispatch
 @testable import CmuxNextWakeups
 import Testing
 
-/// MainWakeUpQueue (p14-energy-013): one aligned timer for every main-thread deadline, Chromium's
+/// MainWakeUpQueue: one aligned timer for every main-thread deadline, Chromium's
 /// WakeUpQueue plus `AdjustDelayedRunTime` in `CLOCK_UPTIME_RAW` ns. A fake timer records each arm,
 /// a fake uptime stands in for the clock, and the test calls the timer's callout itself.
 @MainActor
@@ -268,7 +268,7 @@ struct MainWakeUpQueueTests {
         #expect(rig.fires == 1 && rig.queue.count == 0)
     }
 
-    // MARK: Per-fire budget (p14-energy-037)
+    // MARK: Per-fire budget
 
     @Test("Fifty due entries of 0.1 ms run in three fires: each stops once its 2 ms budget has passed")
     func fireBudgetSplitsALongFire() {
@@ -347,7 +347,7 @@ struct MainWakeUpQueueTests {
         }
     }
 
-    // MARK: Energy Saver (p14-energy-023)
+    // MARK: Energy Saver
 
     @Test("Energy Saver snaps pending flexible entries to the 32 ms grid inside the latest they were inserted with")
     func saverRealignsFlexibleEntries() {

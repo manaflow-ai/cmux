@@ -136,6 +136,13 @@ public final class TerminalLaunchFrames {
         dropRead()
     }
 
+    /// The saved frames are not this session's last screens (the run after the quit that saved them ended without a
+    /// quit: `kill -9`, a crash, power loss): no pane gets one, the panes that asked already included, and no read
+    /// starts later. Each terminal stays held clear until its live content draws, as with no saved frame.
+    public func discardLaunchRead() {
+        dropRead()
+    }
+
     /// Ends once the launch read's lane has its result, apart from the main-actor handoff to the waiting panes
     /// (tests); nil with no read.
     var launchReadLaneEnd: (@Sendable () async -> Void)? {
@@ -217,7 +224,8 @@ public final class TerminalLaunchFrames {
             let surface = session.surfaceView
             // visibility-walk-allow: the quit saves the frame each terminal shows on screen, the view state AppKit composites; read once per terminal at quit
             guard surface.window?.isVisible == true, !surface.isHiddenOrHasHiddenAncestor, surface.bounds.width > 0,
-                  let frame = await session.snapshotInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
+                  // What the pane shows: a terminal still held over its slow attach saves its held frame.
+                  let frame = await session.shownFrameInBackground(maxPixelSize: .greatestFiniteMagnitude) else { continue }
             frames[key] = NSImage(cgImage: frame, size: surface.bounds.size)
         }
         return frames

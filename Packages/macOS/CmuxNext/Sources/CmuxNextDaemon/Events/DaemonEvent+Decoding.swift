@@ -59,7 +59,7 @@ extension DaemonEvent {
     }
 
     /// ``decode(name:line:)`` with `decoder`: the connection's, which counts each decode of the line.
-    /// A line costs one JSON parse (p05-ipc-044): `name` picks its payload type from
+    /// A line costs one JSON parse: `name` picks its payload type from
     /// ``wireDecodings`` with one hash lookup, and that one parse also gives the `unknown` payload
     /// when the fields do not match. Mojo's generated stub does the same: dispatch on the message
     /// name, deserialize its params once

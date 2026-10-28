@@ -1,4 +1,4 @@
-//! A sequence moves between priorities (p05-ipc-142): its next task runs on
+//! A sequence moves between priorities: its next task runs on
 //! the new priority's workers, in post order, whether it was idle, queued,
 //! running or waiting on a delayed task when it moved.
 

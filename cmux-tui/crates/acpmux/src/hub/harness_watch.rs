@@ -146,8 +146,10 @@ impl Hub {
         let watch = Arc::downgrade(&watch);
         // It feeds the hub: a panic in it is fatal. It ends with its channel, when the hub
         // drops the watcher, so shutdown does not wait for it.
-        let thread = self.supervisor.supervise_thread(
+        let thread = crate::supervised::thread(
+            &self.supervisor,
             THREAD,
+            cmux_threads::ThreadQos::Utility,
             Fatal,
             ShutdownBehavior::Continue,
             move |_stop| run(&rx, &watch, &sources, &signal),
@@ -187,7 +189,7 @@ impl Hub {
                 let _ = self
                     .harness_watch
                     .changes
-                    .send(json!({"harnesses": reply["harnesses"], "diagnostics": diagnostics}));
+                    .send(json!({"harnesses": reply.get("harnesses"), "diagnostics": diagnostics}));
                 true
             }
             Err(e) => {

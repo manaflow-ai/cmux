@@ -55,7 +55,7 @@ final class PageClaimState {
     }
 }
 
-/// Claiming a preloaded page's document without a reload (cx-5vg7, p13-webui-045).
+/// Claiming a preloaded page's document without a reload (cx-5vg7).
 ///
 /// A page the preload slot (``PagePreloadSlot``) holds was opened parked (``PageOpenRequest/parked``):
 /// a document-start script sets `__cmuxPageParked`, and the shared page client

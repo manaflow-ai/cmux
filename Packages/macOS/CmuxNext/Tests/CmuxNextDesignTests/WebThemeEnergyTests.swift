@@ -3,7 +3,7 @@ import CmuxNextDesignTokens
 import Foundation
 import Testing
 
-/// Every web page hears Energy Saver through the one web theme (p14-energy-134): `energy: "saver"`
+/// Every web page hears Energy Saver through the one web theme: `energy: "saver"`
 /// in the payload only under the saver, and `data-cmux-energy` on `<html>` from the bootstrap,
 /// set with it and removed without it. Off, the payload is what it was before.
 @MainActor @Suite(.serialized) struct WebThemeEnergyTests {

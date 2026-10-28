@@ -28,11 +28,11 @@ impl Hub {
                 return Err(RpcError::invalid_params(format!("{query:?} is not a bead id")));
             }
             let found = by_bead(&summaries, query);
-            if found.is_empty() {
-                return Err(RpcError::not_found(self.unfound(query, None, &own)));
-            }
             let matches: Vec<Value> = found.iter().map(|s| card(s, &own)).collect();
-            return Ok(json!({"session": matches[0], "matches": matches, "link": null}));
+            let Some(session) = matches.first() else {
+                return Err(RpcError::not_found(self.unfound(query, None, &own)));
+            };
+            return Ok(json!({"session": session, "matches": matches, "link": null}));
         }
         let (link, found) = match crate::agent_link::find(query) {
             Some(Err(e)) => {
@@ -44,12 +44,12 @@ impl Hub {
             }
             None => (None, by_key(&summaries, query, &own)),
         };
-        if found.is_empty() {
-            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), &own)));
-        }
         let matches: Vec<Value> = found.iter().map(|s| card(s, &own)).collect();
+        let Some(session) = matches.first() else {
+            return Err(RpcError::not_found(self.unfound(query, link.as_ref(), &own)));
+        };
         Ok(json!({
-            "session": matches[0],
+            "session": session,
             "matches": matches,
             "link": link.map(|l| json!({
                 "harness": l.harness,

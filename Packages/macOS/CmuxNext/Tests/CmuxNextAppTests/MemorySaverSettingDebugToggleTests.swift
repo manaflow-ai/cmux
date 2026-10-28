@@ -3,7 +3,7 @@ import CmuxNextFeatures
 import CmuxNextSettings
 import Testing
 
-/// The Debug toggles `memory.discard.<kind>` (p07-memory-065) are the local overrides of the
+/// The Debug toggles `memory.discard.<kind>` are the local overrides of the
 /// default-off features they name: each key is one feature's `replaces`, so the launch reads it
 /// (`FeatureLaunchLocalOverrides`), and Debug Settings lists every one.
 @MainActor @Suite struct MemorySaverSettingDebugToggleTests {

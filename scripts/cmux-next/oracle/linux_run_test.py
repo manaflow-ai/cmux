@@ -31,6 +31,8 @@ import oracle  # noqa: E402
 STUB_CARGO = """#!/bin/sh
 # cargo build --locked --profile P [--features F] [--target T] -p cmux-tui -j N
 profile="" out="$CARGO_TARGET_DIR"
+# An oracle change that needs a product change head has and the base has not.
+if [ -e NEEDS ] && [ ! -e PROVIDES ]; then echo "stub cargo: NEEDS without PROVIDES" >&2; exit 101; fi
 while [ $# -gt 0 ]; do
   case "$1" in --profile) profile="$2"; shift 2 ;; --target) out="$CARGO_TARGET_DIR/$2"; shift 2 ;; *) shift ;; esac
 done
@@ -39,6 +41,7 @@ if [ -n "${RUSTFLAGS:-}" ]; then
 fi
 echo "cargo $(git -C .. rev-parse HEAD) $CARGO_TARGET_DIR changed=$(git -C .. diff --name-only | tr '\\n' ,)" >> "$ORACLE_TEST_LOG"
 sleep 0.5
+[ "$profile" = dev ] && profile=debug
 mkdir -p "$out/$profile"
 printf '#!/bin/sh\\necho stub\\n' > "$out/$profile/cmux-tui"
 chmod +x "$out/$profile/cmux-tui"
@@ -133,8 +136,12 @@ class LinuxRunCase(unittest.TestCase):
         oracle_dir = repo / "scripts" / "cmux-next" / "oracle"
         oracle_dir.mkdir(parents=True)
         git("init", "-q", cwd=repo)
-        for name in ("linux_run.sh", "runnerd.py", "patch_mutants.py", "baselines.py"):
+        for name in ("linux_run.sh", "runnerd.py", "patch_mutants.py", "baselines.py", "overlay.py", "facets_v0.py"):
             shutil.copy(HERE / name, oracle_dir / name)
+        # overlay.py's v0 list is facets_v0.py's cut of the snapshot schema.
+        schema = repo / "schemas" / "oracle" / "snapshot-v1.schema.json"
+        schema.parent.mkdir(parents=True)
+        shutil.copy(HERE.parents[2] / "schemas" / "oracle" / "snapshot-v1.schema.json", schema)
         (oracle_dir / "oracle.py").write_text(STUB_ORACLE)
         (oracle_dir / "walks_scale.py").write_text(STUB_WALKS)
         (repo / "cmux-tui").mkdir()
@@ -142,7 +149,7 @@ class LinuxRunCase(unittest.TestCase):
         lib = repo / "cmux-tui" / "crates" / "core" / "src" / "lib.rs"
         lib.parent.mkdir(parents=True)
         lib.write_text("pub fn index(i: usize) -> usize {\n    i\n}\n")
-        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule (p15-oracle-208).
+        # A cmux-tui tag from before ghostty-next builds its VT library from the ghostty submodule.
         git("submodule", "add", "-q", str(ghostty), "ghostty", cwd=repo)
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "tag", cwd=repo)
@@ -156,7 +163,7 @@ class LinuxRunCase(unittest.TestCase):
         git("add", "-A", cwd=repo)
         git("commit", "-q", "-m", "head", cwd=repo)
         cls.head_sha = git("rev-parse", "HEAD", cwd=repo)
-        # Seeded daemon mutants as tests/oracle/mutants/ holds them (p15-oracle-026), left untracked.
+        # Seeded daemon mutants as tests/oracle/mutants/ holds them, left untracked.
         mutants = repo / "tests" / "oracle" / "mutants"
         cls.mutant = cls.write_mutant(mutants / "daemon" / "index-off-by-one.patch", "    i\n", "    i + 1\n")
         cls.stale_mutant = cls.write_mutant(mutants / "daemon" / "stale-context.patch", "    i\n", "    i - 1\n",
@@ -414,6 +421,104 @@ class RunTests(LinuxRunCase):
         self.assertEqual(self.logged("cargo"), [])
 
 
+class OverlayTests(LinuxRunCase):
+    """A base from before head's oracle (overlay.py, p15-oracle-202): the base side builds the overlay commit,
+    or both sides run v0 facets when the oracle commit conflicts or the overlay does not build."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        super().setUpClass()
+        repo = cls.repo
+        cargo = repo / "cmux-tui" / "Cargo.toml"
+        text = cargo.read_text()
+
+        def commit(subject: str) -> str:
+            git("add", "-A", cwd=repo)
+            git("commit", "-q", "-m", subject, cwd=repo)
+            return git("rev-parse", "HEAD", cwd=repo)
+
+        cargo.write_text(text + "\n[features]\noracle = []\n")
+        cls.oracle_head = commit("p15-oracle-201: the oracle feature")
+        (repo / "cmux-tui" / "PROVIDES").write_text("x\n")
+        commit("perf: a product change")
+        (repo / "cmux-tui" / "NEEDS").write_text("x\n")
+        cls.broken_head = commit("p15-oracle-203: an oracle change that builds only on that product change")
+        git("checkout", "-q", "--detach", cls.base_sha, cwd=repo)
+        cargo.write_text(text + "\n[features]\nfast = []\n")
+        cls.conflict_base = commit("other: a feature in the same place")
+        git("checkout", "-q", "--detach", cls.base_sha, cwd=repo)
+        cargo.write_text("[workspace]\n")
+        cls.pre_oracle = commit("other: a base from before the oracle profile")
+        git("checkout", "-q", "--detach", cls.head_sha, cwd=repo)
+
+    def diff(self, base: str, head: str, *extra: str) -> tuple:
+        out = self.work / "cmp"
+        result = self.linux_run("diff", base, head, "--suite", "eps", "--out", str(out), *extra)
+        receipt = json.loads((out / "linux-run.json").read_text()) if (out / "linux-run.json").is_file() else None
+        return result, receipt
+
+    def test_the_base_side_builds_the_overlay_commit(self) -> None:
+        result, receipt = self.diff(self.base_sha, self.oracle_head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = receipt["overlay"]
+        self.assertEqual((plan["mode"], plan["facets"], plan["applied"]), ("overlay", "v1", [self.oracle_head]))
+        sha = plan["overlaySha"]
+        self.assertEqual((receipt["base"]["sha"], receipt["head"]["sha"]), (sha, self.oracle_head))
+        self.assertEqual(receipt["base"]["build"]["overlay"]["base"], self.base_sha)
+        self.assertIsNone(receipt["head"]["build"]["overlay"])
+        self.assertIn("oracle = []", git("show", f"{sha}:cmux-tui/Cargo.toml", cwd=self.repo))
+        self.assertNotIn("cmux-tui/main.txt", git("ls-tree", "-r", "--name-only", sha, cwd=self.repo),
+                         "the non-oracle commit between base and head stays out")
+        self.assertEqual(sorted(line.split()[0] for line in self.logged("cargo")), sorted([sha, self.oracle_head]),
+                         "the overlay builds once, for the plan's check and the run")
+        self.assertFalse(any("--facets" in run for run in self.logged("run")))
+        self.assertIn(f"--overlay {self.work / 'cmp' / 'overlay.json'}", result.stdout)
+
+    def test_a_conflicting_oracle_commit_runs_both_sides_on_v0(self) -> None:
+        result, receipt = self.diff(self.conflict_base, self.oracle_head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = receipt["overlay"]
+        self.assertEqual((plan["mode"], plan["facets"]), ("v0", "v0"))
+        self.assertIn("conflicts in cmux-tui/Cargo.toml", plan["reason"])
+        self.assertIn("daemon/journalHead", [e["facet"] for e in plan["notComparable"]])
+        self.assertEqual(receipt["base"]["sha"], self.conflict_base)
+        runs = self.logged("run")
+        self.assertEqual(len(runs), 2)
+        self.assertTrue(all("--facets v0" in run for run in runs))
+
+    def test_an_overlay_that_does_not_build_falls_back_to_v0(self) -> None:
+        result, receipt = self.diff(self.base_sha, self.broken_head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        plan = receipt["overlay"]
+        self.assertEqual(plan["mode"], "v0")
+        self.assertIn("does not build", plan["reason"])
+        self.assertEqual(receipt["base"]["sha"], self.base_sha)
+        self.assertTrue(all("--facets v0" in run for run in self.logged("run")))
+
+    def test_a_base_without_the_oracle_profile_builds_dev(self) -> None:
+        result, receipt = self.diff(self.pre_oracle, self.oracle_head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(receipt["overlay"]["mode"], "v0")
+        self.assertEqual(receipt["base"]["sha"], self.pre_oracle)
+        self.assertEqual((receipt["base"]["build"]["profile"], receipt["base"]["build"]["features"]), ("dev", []))
+        self.assertEqual((receipt["head"]["build"]["profile"], receipt["head"]["build"]["features"]),
+                         ("oracle", ["oracle"]))
+
+    def test_diff_sets_the_facets_itself(self) -> None:
+        result, _ = self.diff(self.base_sha, self.oracle_head, "--", "--facets", "v1")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("set by linux_run.sh diff", result.stderr)
+
+    def test_overlay_prints_the_plan_path(self) -> None:
+        plan_path = self.work / "plan.json"
+        result = self.linux_run("overlay", self.base_sha, self.oracle_head, "--out", str(plan_path))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], str(plan_path))
+        self.assertEqual(json.loads(plan_path.read_text())["mode"], "overlay")
+        refused = self.linux_run("overlay", self.base_sha, self.oracle_head, "--product", "app")
+        self.assertEqual(refused.returncode, 2)
+
+
 class MutantTests(LinuxRunCase):
     """Seeded patch mutants (p15-oracle-026): applied in the job worktree only, keyed and recorded."""
 
@@ -478,6 +583,15 @@ class MutantTests(LinuxRunCase):
 # STUB_GITLINKS stand in for a wrong build) and prints the run prepared for the SHA under STUB_RUNS.
 STUB_LINUX_RUN = r"""#!/usr/bin/env bash
 set -eu
+if [[ "$1" == overlay ]]; then
+  # The base build's plan (overlay.py, p15-oracle-202): these bases have head's oracle, so it builds the base.
+  base="$2" out=""
+  while (($#)); do case "$1" in --out) out="$2"; shift 2 ;; *) shift ;; esac; done
+  printf '{"schema": "cmux-oracle-overlay-v1", "mode": "native", "facets": "v1", "buildSha": "%s", "notComparable": []}\n' \
+    "$base" > "$out"
+  echo "$out"
+  exit 0
+fi
 sha="$2" receipt=""
 while (($#)); do
   case "$1" in --receipt) receipt="$2"; shift 2 ;; --) break ;; *) shift ;; esac

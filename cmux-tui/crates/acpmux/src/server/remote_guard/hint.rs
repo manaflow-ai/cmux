@@ -16,6 +16,7 @@
 //! on an older build names no `reason` (its message is read instead) and judged the mode
 //! before the folder: its way out is HOST's own CLI in the shell's own folder.
 
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
 
@@ -102,11 +103,11 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
         Some(Value::Object(o)) => Value::Object(o),
         _ => json!({}),
     };
-    data["reason"] = json!(reason);
-    data["host"] = json!(peer.name);
-    data["try"] = json!(command);
+    data.set("reason", json!(reason));
+    data.set("host", json!(peer.name));
+    data.set("try", json!(command));
     if let Some(host) = run_on {
-        data["runOn"] = json!(host);
+        data.set("runOn", json!(host));
     }
     RpcError::new(e.code, message).with_data(data)
 }

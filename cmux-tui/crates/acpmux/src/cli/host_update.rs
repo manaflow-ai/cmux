@@ -11,6 +11,7 @@ use super::{
 };
 use crate::cli::output::print_json;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use anyhow::{Result, anyhow};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -155,31 +156,31 @@ impl Probe {
                 part.push('\n');
             }
         }
-        if parts.len() < 4 {
+        let [system, daemon, sessions, refusal, ..] = parts.as_slice() else {
             return None;
-        }
-        let build = answering_build(&parts[1]);
-        let replied = serde_json::from_str::<Value>(parts[1].trim()).is_ok();
+        };
+        let build = answering_build(daemon);
+        let replied = serde_json::from_str::<Value>(daemon.trim()).is_ok();
         let busy = match (&build, replied) {
             (Some(_), _) => {
-                let instance = serde_json::from_str::<Value>(parts[1].trim())
+                let instance = serde_json::from_str::<Value>(daemon.trim())
                     .ok()
                     .and_then(|v| v.get("personInstance")?.as_str().map(str::to_owned));
                 let own = caller
                     .filter(|c| instance.as_deref() == Some(c.daemon.as_str()))
                     .map(|c| c.session.as_str());
-                busy_sessions(&parts[2], own)
+                busy_sessions(sessions, own)
             }
             // A daemon that is not running runs no turn.
             (None, true) => Some(Vec::new()),
             (None, false) => None,
         };
-        let refused = parts[3].lines().find_map(|l| l.strip_prefix(REFUSED)).map(|code| {
+        let refused = refusal.lines().find_map(|l| l.strip_prefix(REFUSED)).map(|code| {
             let why = out.stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or(code);
             (code.to_owned(), why.trim().to_owned())
         });
-        let cloud_vm = parts[0].lines().any(|l| l == CLOUD_VM);
-        let uname = parts[0].lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
+        let cloud_vm = system.lines().any(|l| l == CLOUD_VM);
+        let uname = system.lines().find_map(|l| l.strip_prefix(UNAME)).unwrap_or_default();
         let uname = uname.trim().to_owned();
         Some(Probe { uname, cloud_vm, build, busy, refused })
     }
@@ -270,15 +271,18 @@ fn version_build(version: &str) -> Option<&str> {
 /// `<version> (<hash>[+dirty.<fp>] <date>)` is one string in it.
 fn embedded_build(bytes: &[u8]) -> Option<String> {
     let mut from = 0;
-    while let Some(i) = bytes[from..].windows(2).position(|w| w == b" (") {
+    while let Some(tail) = bytes.get(from..)
+        && let Some(i) = tail.windows(2).position(|w| w == b" (")
+    {
         let at = from + i;
         from = at + 2;
-        if at == 0 || !bytes[at - 1].is_ascii_digit() {
+        if !at.checked_sub(1).and_then(|p| bytes.get(p)).is_some_and(u8::is_ascii_digit) {
             continue;
         }
-        let rest = &bytes[from..bytes.len().min(from + 80)];
+        let Some(rest) = bytes.get(from..) else { break };
+        let rest = rest.get(..80).unwrap_or(rest);
         let Some(end) = rest.iter().position(|&b| b == b')') else { continue };
-        let Ok(text) = std::str::from_utf8(&rest[..end]) else { continue };
+        let Some(Ok(text)) = rest.get(..end).map(std::str::from_utf8) else { continue };
         if is_build_id(text) {
             return Some(text.to_owned());
         }
@@ -395,7 +399,7 @@ impl PeerUpdate {
         ];
         for (key, value) in optional {
             if let Some(value) = value {
-                v[key] = json!(value);
+                v.set(key, json!(value));
             }
         }
         v

@@ -21,6 +21,7 @@ pub mod observability;
 mod owner_lock;
 mod per_lane;
 pub mod provider;
+pub(crate) mod read_buffer;
 pub mod secret_file;
 pub mod secure_directory;
 pub mod service;

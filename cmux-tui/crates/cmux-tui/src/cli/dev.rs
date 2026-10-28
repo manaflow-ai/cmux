@@ -22,12 +22,12 @@ pub(super) fn run_if_requested(args: &[String], surface: Surface) -> Option<i32>
     if surface != Surface::Cmux || !is_requested(args) {
         return None;
     }
-    Some(run_ui_layer(&args[UI_LAYER_WORDS.len()..]))
+    Some(run_ui_layer(args.get(UI_LAYER_WORDS.len()..).unwrap_or_default()))
 }
 
 fn is_requested(args: &[String]) -> bool {
-    args.len() >= UI_LAYER_WORDS.len()
-        && args[..UI_LAYER_WORDS.len()].iter().map(String::as_str).eq(UI_LAYER_WORDS)
+    args.get(..UI_LAYER_WORDS.len())
+        .is_some_and(|words| words.iter().map(String::as_str).eq(UI_LAYER_WORDS))
 }
 
 fn run_ui_layer(args: &[String]) -> i32 {

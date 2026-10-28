@@ -1,8 +1,8 @@
 @testable import CmuxNextSidebar
 import Testing
 
-/// `ProfileSwipeTracker`, the one-step space swipe that `SidebarSwipeFeed` feeds from the input tap
-/// (p04-input-100): one switch per gesture past the threshold, only for a mostly horizontal gesture, and a gesture
+/// `ProfileSwipeTracker`, the one-step space swipe that `SidebarSwipeFeed` feeds from the input tap:
+/// one switch per gesture past the threshold, only for a mostly horizontal gesture, and a gesture
 /// is horizontal only while it lasts (its end and its momentum go on to the scroll view).
 struct ProfileSwipeTrackerTests {
     @Test func aHorizontalGesturePastTheThresholdSwitchesOnce() {

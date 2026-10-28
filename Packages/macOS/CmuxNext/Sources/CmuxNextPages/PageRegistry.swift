@@ -28,7 +28,7 @@ public final class PageRegistry {
     }
 
     /// The registry of views made outside a ``WebUIHost`` and of the app's host, until
-    /// p13-webui-010. Each read is a new handle on the same process-wide stores.
+    /// Each read is a new handle on the same process-wide stores.
     public static var processWide: PageRegistry { PageRegistry(processWide: ()) }
 
     private var liveViews: NSHashTable<PageWebView> { ownViews ?? Self.views }

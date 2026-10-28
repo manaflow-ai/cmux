@@ -4,7 +4,7 @@ import AppKit
 import CmuxNextOracle
 import Testing
 
-/// The app's `ax` facet (p15-oracle-216): the app list provides it and its walk uses hint mode's page rule. The walk
+/// The app's `ax` facet: the app list provides it and its walk uses hint mode's page rule. The walk
 /// and the string tables are CmuxNextOracleTests' (OracleAccessibilityWalkTests, OracleAccessibilityFacetTests). Run: `swift test --filter OracleAccessibilityAppFacetTests`.
 @MainActor @Suite(.serialized) struct OracleAccessibilityAppFacetTests {
     @Test func theAppListProvidesTheFacet() async throws {

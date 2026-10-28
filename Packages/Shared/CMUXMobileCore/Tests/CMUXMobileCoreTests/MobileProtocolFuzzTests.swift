@@ -17,8 +17,7 @@ import Testing
         rng.bytes(limit)
     }
 
-    /// One input of a decoder property, its choices read from `data` (the libFuzzer entry,
-    /// p10-stability-182).
+    /// One input of a decoder property, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         switch rng.below(8) {

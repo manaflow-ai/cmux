@@ -1,6 +1,7 @@
 //! Printing helpers and the streaming/attach views for the CLI.
 
 use crate::client::Client;
+use crate::no_panic::JsonExt;
 use crate::rpc::{Message, method};
 use crate::transcript::{Item, Transcript};
 use anyhow::{Result, anyhow};
@@ -68,16 +69,16 @@ impl PromptId {
     ) -> Value {
         let mut mux = json!({"steer": steer, "promptId": self.id, "resend": self.resend});
         if let Some(p) = provenance {
-            mux["provenance"] = p.clone();
+            mux.set("provenance", p.clone());
         }
         if let Some(name) = &self.from_agent {
-            mux["fromAgent"] = json!(name);
+            mux.set("fromAgent", json!(name));
         }
         if let Some(key) = &self.supersede {
-            mux["supersede"] = json!(key);
+            mux.set("supersede", json!(key));
         }
         if let Some(host) = &self.cli_host {
-            mux["cliHost"] = json!(host);
+            mux.set("cliHost", json!(host));
         }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
@@ -373,8 +374,8 @@ pub(crate) async fn stream_prompt(
                         if quiet { continue; }
                         let mut out = stdout.lock();
                         if let Some(Item::Assistant { text }) = t.items.last() {
-                            if text.len() > printed_assistant {
-                                let _ = write!(out, "{}", &text[printed_assistant..]);
+                            if let Some(more) = text.get(printed_assistant..).filter(|m| !m.is_empty()) {
+                                let _ = write!(out, "{more}");
                                 let _ = out.flush();
                                 printed_assistant = text.len();
                             }
@@ -475,7 +476,8 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
         }
         // Print new whole items, and stream the trailing assistant item.
         while printed < t.items.len().saturating_sub(1) {
-            match &t.items[printed] {
+            let Some(item) = t.items.get(printed) else { break };
+            match item {
                 // The streamed assistant item: finish its open line.
                 Item::Assistant { text } if assistant_len > 0 => {
                     println!("{}", text.get(assistant_len..).unwrap_or(""));
@@ -493,8 +495,8 @@ pub(crate) async fn plain_attach(client: Arc<Client>, id: &str) -> Result<()> {
                     if assistant_len == 0 {
                         print!("\x1b[1massistant:\x1b[0m ");
                     }
-                    if text.len() > assistant_len {
-                        print!("{}", &text[assistant_len..]);
+                    if let Some(more) = text.get(assistant_len..).filter(|m| !m.is_empty()) {
+                        print!("{more}");
                         let _ = std::io::stdout().flush();
                         assistant_len = text.len();
                     }
@@ -772,8 +774,8 @@ pub(crate) async fn with_older(client: &Arc<Client>, query: Value) -> Result<Vec
             break;
         };
         let mut older = query.clone();
-        older["beforeSeq"] = json!(first);
-        older["limit"] = json!(limit - events.len());
+        older.set("beforeSeq", json!(first));
+        older.set("limit", json!(limit - events.len()));
         let (older, has_more) = page_events(&client.request(method::MUX_EVENTS, older).await?);
         if older.is_empty() {
             break;

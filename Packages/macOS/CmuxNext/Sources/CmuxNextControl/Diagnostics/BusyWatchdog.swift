@@ -94,7 +94,7 @@ public final class BusyWatchdog: Sendable {
     /// writing back the function, accumulating a thunk on every read.
     private struct HelperSource: Sendable {
         let list: @Sendable () -> [Helper]
-        /// The browser tabs and their renderers (p14-energy-124); nil until the App sets it.
+        /// The browser tabs and their renderers; nil until the App sets it.
         let tabs: (@Sendable () -> [ProcessUsage.TabRenderers])?
     }
 
@@ -155,7 +155,7 @@ public final class BusyWatchdog: Sendable {
     }
 
     /// Supplies the browser tabs with their renderers, so a busy renderer's record names every tab it
-    /// serves (p14-energy-124). Called when a window closes with a busy tab renderer, on the main thread in the
+    /// serves. Called when a window closes with a busy tab renderer, on the main thread in the
     /// wake queue's fire: it returns a published snapshot (``TabRendererDirectory/snapshot()``) and never waits.
     public func setTabSource(_ source: @escaping @Sendable () -> [ProcessUsage.TabRenderers]) {
         helpers.withLock { $0 = HelperSource(list: $0.list, tabs: source) }

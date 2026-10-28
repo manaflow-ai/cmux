@@ -31,6 +31,7 @@
 //!   "always" keeps it. The machine daemon answers it to the asking
 //!   agent's first status read only.
 
+use crate::json_fields::JsonFields;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -93,7 +94,7 @@ pub(super) fn request(
     };
     let made =
         sync_cli::machine_call(&socket, "access-request", params).map_err(machine_failure)?;
-    let request_id = made["request_id"].as_str().unwrap_or_default().to_string();
+    let request_id = made.field("request_id").as_str().unwrap_or_default().to_string();
     let deadline = Instant::now() + timeout;
     let mut withdraws = 0;
     loop {
@@ -103,14 +104,14 @@ pub(super) fn request(
             json!({"request_id": request_id}),
         )
         .map_err(machine_failure)?;
-        match status["state"].as_str() {
+        match status.field("state").as_str() {
             Some("delivered") => {
                 return match asked {
                     Asked::File(_) => Ok(json!({"request_id": request_id, "state": "delivered",
-                                                "path": status["path"]})),
+                                                "path": status.field("path")})),
                     // The value is this agent's to use; the daemon has
                     // forgotten it.
-                    Asked::Secret(name) => match status["value"].as_str() {
+                    Asked::Secret(name) => match status.field("value").as_str() {
                         Some(value) => Ok(json!({"request_id": request_id, "state": "delivered",
                                                  "name": name, "value": value})),
                         None => Err(Failure::new(
@@ -121,7 +122,7 @@ pub(super) fn request(
                 };
             }
             Some("denied") => {
-                let why = status["reason"].as_str().unwrap_or("the person did not share it");
+                let why = status.field("reason").as_str().unwrap_or("the person did not share it");
                 return Err(Failure::new("access_denied", why));
             }
             _ => {}
@@ -187,7 +188,8 @@ fn pending(socket: &Path) -> Result<Vec<Pending>, Failure> {
     let listed = sync_cli::machine_call(socket, "access-request-list", json!({}))
         .map_err(machine_failure)?;
     let text = |value: &Value| value.as_str().map(str::to_string);
-    Ok(listed["requests"]
+    Ok(listed
+        .field("requests")
         .as_array()
         .map(Vec::as_slice)
         .unwrap_or_default()
@@ -277,7 +279,7 @@ fn never_shared(path: &Path) -> bool {
         inside.components().map(|part| part.as_os_str().to_string_lossy().into_owned()).collect();
     names.is_empty()
         || names.iter().any(|name| name.starts_with('.'))
-        || names[0].eq_ignore_ascii_case("Library")
+        || names.first().is_some_and(|name| name.eq_ignore_ascii_case("Library"))
         || is_secret(&names.join("/"))
 }
 
@@ -391,7 +393,7 @@ fn deny(socket: &Path, request: &Pending) -> Result<Triaged, Failure> {
 }
 
 fn answer_machine(socket: &Path, request_id: &str, mut answer: Value) -> Result<(), Failure> {
-    answer["request_id"] = json!(request_id);
+    answer.insert("request_id", json!(request_id));
     sync_cli::machine_call(socket, "access-request-answer", answer).map_err(machine_failure)?;
     Ok(())
 }
@@ -557,7 +559,8 @@ fn always(
             // `grant` takes the lock itself.
             drop(store);
             let granted = grant(socket, machine, session, root, Mode::Read, &folder)?;
-            let remote = granted["grant"]["remote"].as_str().unwrap_or_default().to_string();
+            let remote =
+                granted.field("grant").field("remote").as_str().unwrap_or_default().to_string();
             // Locked again, and only while the grant is still there.
             let store = Store::open()?;
             if covering(&store.grants, machine, session, target).is_none() {

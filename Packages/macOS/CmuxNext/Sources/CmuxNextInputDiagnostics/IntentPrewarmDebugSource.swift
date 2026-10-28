@@ -1,7 +1,7 @@
 public import CmuxNextInput
 public import CmuxNextInputCore
 
-/// `debug.input` section `prewarm`: what intent prewarm did (p04-input-042, 043), so activation-perf.py and
+/// `debug.input` section `prewarm`: what intent prewarm did, so activation-perf.py and
 /// bench_hibernation.py report prewarm hits apart from plain clicks, and press hits apart from hover hits.
 public nonisolated struct DebugInputPrewarm: Sendable, Equatable, Codable {
     /// Prewarms started, by ``IntentPrewarmTrigger`` raw value (`pointerDown`, `hoverDwell`).

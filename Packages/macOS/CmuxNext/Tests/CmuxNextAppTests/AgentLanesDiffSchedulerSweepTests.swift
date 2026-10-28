@@ -13,7 +13,7 @@ import Foundation
 import Testing
 
 /// The CmuxNext{AgentLanes,AgentUpdates,AgentPermissions,AgentActivity,AgentQuestion,Diff} sweep
-/// (plans/cmux-next/chrome-parity/p06-scheduler.md, task p06-scheduler-341, rule 9): one case per migrated owner
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, rule 9): one case per migrated owner
 /// class, on a rig whose wakes and frames the test runs.
 /// - VisibleObservation: the Chief's pane tools draw nothing while hidden and draw its status in the show turn.
 /// - ServiceObservation (side effect while hidden): the tab row setting turned back on lays the dock out again while

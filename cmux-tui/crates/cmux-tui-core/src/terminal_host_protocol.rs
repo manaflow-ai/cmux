@@ -79,8 +79,8 @@ pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
 /// and only toward a host whose record advertises `supports_shell_activity`;
 /// older hosts reject the unknown bit.
 pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
-/// ClientHello opt-in and HostHello acknowledgement for key-press flows
-/// (p09-observability-018). On a connection that negotiated it, the flag
+/// ClientHello opt-in and HostHello acknowledgement for key-press flows.
+/// On a connection that negotiated it, the flag
 /// marks a payload whose last 8 bytes are not terminal bytes but the
 /// little-endian `flow u64` of a key press ([`flow_trailer_payload`]):
 /// - an interactive `Input` frame (request id 0): the key press the bytes
@@ -91,6 +91,18 @@ pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
 /// Sent only toward a host whose record advertises `supports_input_flow`;
 /// older hosts reject the unknown bit.
 pub const FLAG_INPUT_FLOW: u32 = 1 << 9;
+/// ClientHello opt-in and HostHello acknowledgement for key stages,
+/// only with [`FLAG_INPUT_FLOW`]. On a connection that
+/// negotiated it, a live `Output` frame with `FLAG_INPUT_FLOW |
+/// FLAG_INPUT_STAGES` ends in a 24-byte trailer ([`stages_trailer_payload`]):
+/// the host's PTY write of the key press, the PTY read that echoes it (trace
+/// clock ns, 0: unknown) and its flow, little-endian. The host's writer
+/// turns it into the 8-byte flow trailer toward a client that negotiated
+/// only [`FLAG_INPUT_FLOW`] (`client_wire_frame`).
+///
+/// Sent only toward a host whose record advertises `supports_input_stages`;
+/// older hosts reject the unknown bit.
+pub const FLAG_INPUT_STAGES: u32 = 1 << 10;
 
 /// The payload of an `Input` or `Output` frame with [`FLAG_INPUT_FLOW`]:
 /// `bytes`, then `flow`.
@@ -99,6 +111,29 @@ pub fn flow_trailer_payload(bytes: &[u8], flow: u64) -> Vec<u8> {
     payload.extend_from_slice(bytes);
     payload.extend_from_slice(&flow.to_le_bytes());
     payload
+}
+
+/// The payload of an `Output` frame with `FLAG_INPUT_FLOW |
+/// FLAG_INPUT_STAGES`: `bytes`, the host's PTY write and read times, then
+/// `flow` (the last 8 bytes, as in [`flow_trailer_payload`]).
+pub fn stages_trailer_payload(bytes: &[u8], flow: u64, written_ns: u64, read_ns: u64) -> Vec<u8> {
+    let mut payload = Vec::with_capacity(bytes.len() + 3 * size_of::<u64>());
+    payload.extend_from_slice(bytes);
+    payload.extend_from_slice(&written_ns.to_le_bytes());
+    payload.extend_from_slice(&read_ns.to_le_bytes());
+    payload.extend_from_slice(&flow.to_le_bytes());
+    payload
+}
+
+/// A stages payload ([`stages_trailer_payload`]) split into its bytes, flow,
+/// write time and read time; `None` when it is shorter than its trailer.
+pub fn split_stages_trailer(payload: &[u8]) -> Option<(&[u8], u64, u64, u64)> {
+    let (bytes_and_times, flow) = split_flow_trailer(FLAG_INPUT_FLOW, payload)?;
+    let at = bytes_and_times.len().checked_sub(2 * size_of::<u64>())?;
+    let (bytes, times) = bytes_and_times.split_at(at);
+    let written = u64::from_le_bytes(times.get(..8)?.try_into().ok()?);
+    let read = u64::from_le_bytes(times.get(8..)?.try_into().ok()?);
+    Some((bytes, flow, written, read))
 }
 
 /// A payload split into its bytes and its flow (flow 0 without

@@ -14,7 +14,7 @@ import Foundation
 import Testing
 
 #if DEBUG
-/// Remote view tabs under Memory Saver (p07-memory-085, feature `memoryDiscardRemoteTabs`). A
+/// Remote view tabs under Memory Saver (feature `memoryDiscardRemoteTabs`). A
 /// hidden remote browser tab went on decoding its stream (only the host was told it hid), its
 /// popups decoded theirs, and no remote tab could be discarded: none was a
 /// `BrowserHibernationSource`, so each kept its stream, decoder and presenter for as long as it

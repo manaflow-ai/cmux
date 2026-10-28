@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextActions
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextFiles
 import CmuxNextFilesUI
 import CmuxNextHibernation
@@ -168,7 +168,7 @@ final class FilesPaneService: InternalPageProvider {
         tabs.removeValue(forKey: key)?.view?.stop()
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden, as Chrome's proactive discards (proactive_discarding_policy.cc). The
     /// view, its icons and its folder watch go; the model stays (folder, selection, sort, filter,

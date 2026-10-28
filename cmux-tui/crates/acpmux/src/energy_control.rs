@@ -1,4 +1,4 @@
-//! `_acpmux/energy {saver?: bool}` (p14-energy-034): Energy Saver reaches
+//! `_acpmux/energy {saver?: bool}`: Energy Saver reaches
 //! acpmux through its control channel. The cmux daemon sends its mode (the
 //! app's `energy.set` override, or its own reading) on its agent chat watch's
 //! connection, as that watch connects and on each edge

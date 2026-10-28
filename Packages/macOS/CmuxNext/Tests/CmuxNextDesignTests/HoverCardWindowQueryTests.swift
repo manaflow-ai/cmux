@@ -75,7 +75,7 @@ import CmuxNextDesignTokens
 
     /// A Zoom or a floating chat fold animates a window's frame (`Motion.beginFrameAnimation`): its content really
     /// moves under the pointer, and no end notice hit-tests again when it lands, so each step still hit-tests and the
-    /// shown card follows its target (review of p03-rendering-105). Only a live resize or full screen drops them.
+    /// shown card follows its target. Only a live resize or full screen drops them.
     @Test func aWindowFrameAnimationStillHitTestsEachStep() {
         _ = NSApplication.shared
         let main = window(CGRect(x: 200, y: 200, width: 300, height: 100))

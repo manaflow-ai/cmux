@@ -14,7 +14,7 @@ import CmuxNextCompat
 /// request on a `DemandTimer`: it counts as no user activity, takes no power
 /// assertion and does not wake a sleeping Mac, so it never keeps a laptop awake.
 ///
-/// Silence decides, not a period (p14-energy-064): any frame from the daemon proves it alive, so a
+/// Silence decides, not a period: any frame from the daemon proves it alive, so a
 /// connection with traffic never asks, and the deadline is read lazily at its fire rather than moved
 /// per frame. QUIC sends its keepalive PING the same way, only after `ping_timeout` (15 s) with no
 /// packet (quiche/quic/core/quic_ping_manager.cc). What a person sees decides the silence
@@ -23,7 +23,7 @@ import CmuxNextCompat
 /// lost server over a closed lid must still be found) and no ask at all for the others. A window
 /// showing again or the app's activation asks once.
 ///
-/// With the app's Energy Saver policy (a ``KeepaliveGate`` it follows, p14-energy-120) it asks nothing
+/// With the app's Energy Saver policy (a ``KeepaliveGate`` it follows) it asks nothing
 /// while the Mac or its displays sleep, and a wake drops the ask in flight: its timeout ran through the
 /// sleep, so it would count a miss the daemon never had. Once a wake finds the network it asks once
 /// after ``KeepaliveGate/reconnectDelay()``, so a bridge that died in the sleep closes within its

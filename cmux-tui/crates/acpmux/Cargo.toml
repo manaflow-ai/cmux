@@ -34,6 +34,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 bench = []
 
 [dependencies]
+# Named threads at a declared QoS (plans/cmux-next/chrome-parity/p02-threads.md).
+cmux-threads.workspace = true
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
 # Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
@@ -51,7 +53,7 @@ anyhow = "1"
 cmux-agent-pane-policy.workspace = true
 cmux-unix-socket.workspace = true
 cmux-panic-log.workspace = true
-# The daemon's blocking-pool items and sync threads are hang-watched (p09-observability-074).
+# The daemon's blocking-pool items and sync threads are hang-watched.
 cmux-hang-watch.workspace = true
 # The launchd process-roles table (units::LaunchdJob) for the daemon's agent plist.
 cmux-server-core.workspace = true

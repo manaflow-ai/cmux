@@ -86,7 +86,7 @@ import CmuxNextWakeups
         #expect(await files.putBack == [shot.url])
     }
 
-    /// p02-threads-132: a pane in no window never spins a nested modal loop (`runModal`). Rename has
+    /// A pane in no window never spins a nested modal loop (`runModal`). Rename has
     /// no sheet to show, so it asks nothing and renames nothing.
     @Test(.timeLimit(.minutes(1))) func renameInNoWindowAsksNothing() async throws {
         let folder = try TemporaryFolder()
@@ -101,7 +101,7 @@ import CmuxNextWakeups
         #expect(FileManager.default.fileExists(atPath: file.path))
     }
 
-    /// p02-threads-132: a failed Move to Trash in no window says so in an app-scope cmux dialog
+    /// A failed Move to Trash in no window says so in an app-scope cmux dialog
     /// that nothing waits for, not in an app-modal alert loop.
     @Test(.timeLimit(.minutes(1))) func trashFailureInNoWindowShowsAnAppDialog() async {
         let dialogs = CmuxDialogCenter(host: SilentDialogHost())

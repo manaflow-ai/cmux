@@ -779,7 +779,7 @@ class Client : public CefClient,
 
   // In process: cmux's key router first (key_fn). The Chromium Host passes
   // no key_fn: cmux decided in CmuxApplication.sendEvent before it sent the
-  // key, so the host never asks cmux before the page (p01-process-030).
+  // key, so the host never asks cmux before the page.
   bool OnPreKeyEvent(CefRefPtr<CefBrowser> browser, const CefKeyEvent& event, CefEventHandle os_event,
                      bool*) override {
     if (event.type == KEYEVENT_RAWKEYDOWN && os_event) {

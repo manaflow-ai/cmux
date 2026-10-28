@@ -14,7 +14,7 @@ extension SidebarModel {
         }
     }
 
-    /// The row views the sidebar builds while the app starts (p08-startup-064). Chrome builds what a
+    /// The row views the sidebar builds while the app starts. Chrome builds what a
     /// restored window shows first and leaves the rest to after startup (session restore loads the visible
     /// tab at once and the others later, chrome/browser/sessions/tab_loader.cc;
     /// `AfterStartupTaskUtils::PostTask`, chrome/browser/after_startup_task_utils.cc). The list's overscan

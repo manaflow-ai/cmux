@@ -2,10 +2,11 @@
 //! pointer frame admission, guarded and captured pointer routes.
 
 use super::*;
+use crate::panic_free::RecoverPoison;
 
 impl BrowserSurface {
     pub(super) fn frames_stalled_at(&self, now: Instant) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         frames_stalled_locked(&state, now, self.is_dead())
     }
 
@@ -93,7 +94,7 @@ impl BrowserSurface {
         owner: BrowserPointerOwner,
         frame_seq: Option<u64>,
     ) -> Option<BrowserPointerAdmission> {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().recover_poison();
         let admitted = match frame_seq {
             Some(frame_seq) => self.acknowledge_pointer_frame_locked(&mut state, owner, frame_seq),
             None => {
@@ -129,7 +130,7 @@ impl BrowserSurface {
         x: f64,
         y: f64,
     ) -> Option<(f64, f64)> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if !self.pointer_guard_is_current_locked(&state, owner, frame_seq, pointer_admission) {
             return None;
         }
@@ -171,7 +172,7 @@ impl BrowserSurface {
         y: f64,
     ) -> Option<((f64, f64), u64, u64, u64)> {
         let ingress_motion_generation = self.frame_epoch.pointer_motion_generation();
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if !ingress_motion_generation.is_multiple_of(2)
             || !self.pointer_guard_is_current_locked(
                 &state,
@@ -244,7 +245,7 @@ impl BrowserSurface {
         dispatch_frame_seq: u64,
         point: (f64, f64),
     ) -> CapturedPointerRoute {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if state.pointer_capture_generation != capture_generation
             || state.accepted_navigation_epoch != self.frame_epoch.latest_navigation()
         {
@@ -260,7 +261,7 @@ impl BrowserSurface {
     }
 
     pub(super) fn pointer_capture_is_current(&self, capture_generation: u64) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         state.pointer_capture_generation == capture_generation
             && state.accepted_navigation_epoch == self.frame_epoch.latest_navigation()
     }
@@ -299,7 +300,7 @@ impl BrowserSurface {
             pointer_frame_seq: self.exported_pointer_frame_seq_locked(state),
         });
         for tap in &state.taps {
-            tap.slot.lock().unwrap().frame = update.clone();
+            tap.slot.lock().recover_poison().frame = update.clone();
         }
     }
 
@@ -387,7 +388,7 @@ impl BrowserSurface {
         dispatch: BrowserWheelDispatch,
         pointer_admission: Option<BrowserPointerAdmission>,
     ) -> Option<(f64, f64, f64, f64)> {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().recover_poison();
         if !self.pointer_guard_is_current_locked(
             &state,
             dispatch.input_owner,

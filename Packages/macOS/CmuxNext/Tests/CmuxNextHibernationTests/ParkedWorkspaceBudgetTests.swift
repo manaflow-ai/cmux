@@ -2,7 +2,7 @@ import CmuxNextCompat
 import CmuxNextHibernation
 import Testing
 
-/// ``ParkedWorkspaceBudget`` (p07-memory-032): every window's parked workspaces held to one budget,
+/// ``ParkedWorkspaceBudget``: every window's parked workspaces held to one budget,
 /// least recently parked first (Chrome's FrameEvictionManager), a 15 min idle timeout on one deadline,
 /// and none at critical pressure, one teardown per look or release slice. Fake clock and deadline:
 /// nothing waits, nothing polls, and a kept workspace arms no look.
@@ -228,7 +228,7 @@ import Testing
         #expect(window.parked == ["covered"], "a kept workspace went at critical")
     }
 
-    /// p07-memory-096: pressure takes the workspaces of windows off screen before those of the window
+    /// Pressure takes the workspaces of windows off screen before those of the window
     /// on screen, each least recently parked first.
     @Test func criticalPressureTearsDownOffScreenWindowsFirst() {
         let budget = makeBudget(capacity: nil)

@@ -181,10 +181,15 @@ pub(super) fn renew_size_lease(mux: &Arc<Mux>, client: u64, surface: SurfaceId) 
     // that is going away is not kept alive by a lease (as exit_settle's worker).
     let weak = Arc::downgrade(mux);
     let leases = Arc::clone(&mux.control_clients.size_leases);
-    let spawned =
-        supervised::spawn("terminal-size-lease", Fatal, ShutdownBehavior::Continue, move || {
+    let spawned = supervised::spawn_at(
+        "terminal-size-lease",
+        cmux_threads::ThreadQos::UserInitiated,
+        Fatal,
+        ShutdownBehavior::Continue,
+        move || {
             run_worker(&leases, &weak);
-        });
+        },
+    );
     if spawned.is_err() {
         // No timer can run: no leases (sizes stay until their views leave).
         mux.control_clients.size_leases.stop_worker();

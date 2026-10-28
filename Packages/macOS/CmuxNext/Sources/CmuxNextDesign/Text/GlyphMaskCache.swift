@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextCompat
 
 /// The glyph images (``GlyphMask``) chrome labels share, least recently used first out, capped by
-/// bytes (p03-rendering-075).
+/// bytes.
 ///
 /// Labels that show the same text in the same shape, size, scale and stem weight (a sidebar's
 /// "Terminal" or "main" rows, a tab strip's titles) draw their glyphs once and share the image.

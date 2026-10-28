@@ -105,15 +105,17 @@ fn one_line(text: &str) -> String {
 
 /// `text` with every `<` that opens the rules block's tag (`<cmux-rules-context`, `</...`, any
 /// case) written as `&lt;`, so the block ends only where cmux ends it.
-fn neutral_tags(text: &str) -> String {
+pub(super) fn neutral_tags(text: &str) -> String {
     let lower = text.to_ascii_lowercase();
     let mut out = String::with_capacity(text.len());
     for (i, c) in text.char_indices() {
-        let rest = &lower[i..];
-        if c == '<'
-            && (rest[1..].starts_with(CONTEXT_TAG)
-                || rest[1..].strip_prefix('/').is_some_and(|r| r.starts_with(CONTEXT_TAG)))
-        {
+        // `lower` keeps every byte offset of `text` (ASCII-only lowercasing).
+        let opens_tag =
+            lower.get(i..).and_then(|rest| rest.strip_prefix('<')).is_some_and(|after| {
+                after.starts_with(CONTEXT_TAG)
+                    || after.strip_prefix('/').is_some_and(|r| r.starts_with(CONTEXT_TAG))
+            });
+        if opens_tag {
             out.push_str("&lt;");
         } else {
             out.push(c);

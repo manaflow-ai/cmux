@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextTerminal
 import Testing
 
-/// The terminal's scroller stays off AppKit's responsive scrolling on purpose (p03-rendering-110): every
+/// The terminal's scroller stays off AppKit's responsive scrolling on purpose: every
 /// wheel event over it is the terminal's, which moves Ghostty's viewport per event, so AppKit must not
 /// take a gesture over and scroll the scroller's empty document instead.
 @MainActor

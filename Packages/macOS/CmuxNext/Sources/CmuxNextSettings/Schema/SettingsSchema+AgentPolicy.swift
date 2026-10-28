@@ -172,7 +172,7 @@ extension SettingsSchema {
         "status.inferCommandBusyAfter",
         "terminal.fontFamily",
         "terminal.fontSize",
-        // Draws typed characters early over the grid; it never writes to a terminal (p04-input-046).
+        // Draws typed characters early over the grid; it never writes to a terminal.
         "terminal.predictiveEcho",
         "sidebar.sectionLook",
         "sidebar.topBandMaxShare",

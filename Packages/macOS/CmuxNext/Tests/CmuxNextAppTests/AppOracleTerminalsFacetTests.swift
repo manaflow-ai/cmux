@@ -7,7 +7,7 @@ import CmuxNextInputModel
 import CmuxNextOracle
 import Testing
 
-/// The app's `terminals` facet (p15-oracle-044): AppServices lists the local daemon mirror's terminal tabs in the
+/// The app's `terminals` facet: AppServices lists the local daemon mirror's terminal tabs in the
 /// snapshot's main-actor turn and reads their screens off the main actor; a view's attach machine phase maps to the
 /// schema's attach states. Run: `swift test --filter AppOracleTerminalsFacetTests`.
 @MainActor @Suite(.serialized) struct AppOracleTerminalsFacetTests {

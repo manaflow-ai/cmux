@@ -6,7 +6,7 @@ import Testing
 /// CFRunLoop and kqueue pump's delayed timer the task's leeway; field trials turn it on in Chrome and cmux
 /// runs without them. The UI thread's MessagePumpExternal arms no base timer, so the flag changes only
 /// renderer, GPU and utility processes and the browser's non-UI threads: it is the default-off feature
-/// `cefTimerSlack`, never a side effect of the fork's absolute run times (p14-energy-046 review).
+/// `cefTimerSlack`, never a side effect of the fork's absolute run times.
 @Suite struct CEFTimerSlackSwitchTests {
     @Test func theFeatureTurnsOnTimerSlack() {
         let switches = CEFSwitches.current(forkAPIVersion: 27, chromiumFeatures: ["TimerSlackMac"],

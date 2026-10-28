@@ -51,7 +51,7 @@ final class LinkOpener {
     /// showing that tab, else the active window's focused pane.
     func source(tab key: String?) -> PaneController? {
         guard let services else { return nil }
-        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
+        // view-observation-allow: locateTab is one MachineTabIndex lookup, R-index's target; no walk, no observation
         if let key, let (_, pane) = services.locateTab(key), let controller = services.paneController(for: pane) { return controller }
         if let key, let controller = services.paneController(showingTab: key) { return controller }
         return services.windows.active?.focusedPane

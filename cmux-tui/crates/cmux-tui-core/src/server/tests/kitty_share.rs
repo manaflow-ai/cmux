@@ -1,4 +1,4 @@
-//! The process Kitty share (memoryKittyShare, p07-memory-073) through the
+//! The process Kitty share (memoryKittyShare) through the
 //! real `attach-surface` and `release-surface-size` commands: a sized attach
 //! shows the terminal with its limits applied before the attach answers,
 //! another show never moves the limits of a terminal already on screen, and

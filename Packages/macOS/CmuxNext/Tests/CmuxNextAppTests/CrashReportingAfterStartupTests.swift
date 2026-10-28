@@ -3,7 +3,7 @@ import CmuxNextCrashReporting
 import CmuxNextWakeups
 import Testing
 
-/// Feature `sentryHandlersFirst` (p08-startup-032): `AppCrashReporting` starts Sentry with the profile
+/// Feature `sentryHandlersFirst`: `AppCrashReporting` starts Sentry with the profile
 /// `AppCrashReporting.AfterStartup` names and hands it the resume of what that start paused (app-hang
 /// reports). On, the resume is one afterStartup post: never while the launch still loads, once after
 /// startup completes, never after a quit before it. Off, nothing is paused, so nothing is posted or run.

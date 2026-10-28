@@ -55,7 +55,7 @@ enum DebugTimings {
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
     /// ``processStart`` on the trace clock (`CLOCK_UPTIME_RAW` nanoseconds), the zero of `debug.startup`'s task times.
     nonisolated static var processStartUptimeNanos: UInt64 { processStart.uptimeNanos }
-    /// The page-ins and main-thread CPU read at the first frame (p08-startup-007), sent as values apart from the
+    /// The page-ins and main-thread CPU read at the first frame, sent as values apart from the
     /// time marks. The temperature is ``LaunchSlices``'s (``launchMarks``).
     private nonisolated static let launchCounters = LaunchCounterLog(sink: LaunchMarkSink.shared)
 
@@ -68,7 +68,7 @@ enum DebugTimings {
     /// sends the bench `launch.temperature.<name>` and `launch.pageins_run_loop_start`.
     /// A first live content frame (``LaunchMarks/liveContentFrameMarks``) also marks `first_live_content_frame`, once.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        // First, so the mark's own work never reaches the counters (p08-startup-007).
+        // First, so the mark's own work never reaches the counters.
         launchCounters.read(atMilestone: name)
         let reading = LaunchSlices.Reading(mark: name, clock: launchClock)
         let endNanos = reading.milestone == nil ? 0 : LaunchMarks.uptimeNanos(of: date, pairedWith: processStart)
@@ -196,7 +196,7 @@ enum DebugTimings {
         return report
     }
 
-    /// The `debug.timings` field `launch_counters` (p08-startup-007): each first-frame value by name, empty
+    /// The `debug.timings` field `launch_counters`: each first-frame value by name, empty
     /// until the first frame. The temperature is `launch_clock`'s.
     nonisolated static func counterReport(_ values: [StartupCounterReader.Value]) -> JSONValue {
         var report: [String: JSONValue] = [:]
@@ -225,13 +225,13 @@ enum DebugTimings {
         for mark in marks { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
-            // Numeric launch values kept in the process (p08-startup-064; `debug.startup` reads them as counters).
+            // Numeric launch values kept in the process (`debug.startup` reads them as counters).
             "launch_values": .object(launchValues.mapValues { JSONValue.number($0) }),
-            // The launch's clock (p09-observability-034): null until the main run loop's start reads the page-ins.
+            // The launch's clock: null until the main run loop's start reads the page-ins.
             "launch_clock": ["temperature": slices.temperature.map { JSONValue.string($0.name) } ?? .null,
                              "pageins": slices.pageins.map { JSONValue.number(Double($0)) } ?? .null,
                              "process_start_uptime_ns": .number(Double(slices.processStartNanos))],
-            // The first frame's page-ins and main-thread CPU (p08-startup-007): values, never time marks.
+            // The first frame's page-ins and main-thread CPU: values, never time marks.
             "launch_counters": counterReport(launchCounters.values),
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),

@@ -1,4 +1,4 @@
-// A reconnect backoff doubles to its cap and rests while the page is hidden (p13-webui-069, MQ4b):
+// A reconnect backoff doubles to its cap and rests while the page is hidden (MQ4b):
 // hidden for a minute it tries nothing; the show tries once, at once.
 import { describe, expect, test } from "bun:test";
 import { FakeLifecycleDocument, FakePollClock } from "../../../test/support/pagePollFakes";

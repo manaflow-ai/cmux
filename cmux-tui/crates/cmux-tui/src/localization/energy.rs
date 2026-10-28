@@ -1,5 +1,5 @@
 //! `energy` strings of the CLI catalog (English and Japanese): `cmux energy`
-//! (cli/energy.rs, p14-energy-033).
+//! (cli/energy.rs).
 
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct EnergyMessages {

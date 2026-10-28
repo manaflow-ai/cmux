@@ -7,6 +7,8 @@ use crate::cli::errors::{AppError, Code};
 use crate::cli::output::*;
 use crate::cli::run::resolve_id;
 use crate::client::Client;
+use crate::no_panic::JsonExt;
+use crate::no_panic::StrExt;
 use crate::rpc::{Message, method};
 use crate::transcript::Transcript;
 use anyhow::{Result, anyhow};
@@ -24,7 +26,7 @@ pub(crate) use presets::{defaults, preset};
 pub(crate) fn guide() -> &'static str {
     SKILL
         .strip_prefix("---\n")
-        .and_then(|rest| rest.find("\n---\n").map(|i| &rest[i + 5..]))
+        .and_then(|rest| rest.split_once("\n---\n").map(|(_, body)| body))
         .unwrap_or(SKILL)
         .trim_start()
 }
@@ -265,12 +267,12 @@ async fn wait_match(
         }
         json!({"name": name, "sessionId": id, "matched": ["text"], "line": line})
     };
-    for (i, (name, id, t)) in transcripts.iter().enumerate() {
+    for ((name, id, t), done) in transcripts.iter().zip(matched.iter_mut()) {
         if rows.len() >= need {
             break;
         }
         if let Some(line) = matcher.hit(&transcript_text(t)) {
-            matched[i] = true;
+            *done = true;
             rows.push(report(name, id, &line));
         }
     }
@@ -294,20 +296,21 @@ async fn wait_match(
         }
         let p = params.unwrap_or(Value::Null);
         let sid = p.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
-        let Some(i) = transcripts.iter().position(|(_, id, _)| *id == sid) else {
+        let Some(((name, id, t), done)) =
+            transcripts.iter_mut().zip(matched.iter_mut()).find(|((_, id, _), _)| *id == sid)
+        else {
             continue;
         };
-        if matched[i] {
+        if *done {
             continue;
         }
-        let (name, id, t) = &mut transcripts[i];
         match m.as_str() {
             method::SESSION_UPDATE => t.apply_update(&p),
             method::MUX_EVENT => t.apply_event(&p),
             _ => continue,
         }
         if let Some(line) = matcher.hit(&transcript_text(t)) {
-            matched[i] = true;
+            *done = true;
             rows.push(report(name, id, &line));
         }
     }
@@ -360,28 +363,32 @@ pub(crate) async fn ensure(
         None => {
             let mut meta = json!({"name": name});
             if let Some(a) = &agent {
-                meta["harness"] = json!(a);
+                meta.set("harness", json!(a));
             }
             if let Some(p) = &preset {
-                meta["preset"] = json!(p);
+                meta.set("preset", json!(p));
             }
             if let Some(p) = &policy {
-                meta["policy"] = json!(p);
+                meta.set("policy", json!(p));
             }
             if let Some(h) = &host {
-                meta["peer"] = json!(h);
+                meta.set("peer", json!(h));
             }
             if let Some(m) = &model {
-                meta["model"] = json!(m);
+                meta.set("model", json!(m));
             }
             if let Some(e) = &effort {
-                meta["effort"] = json!(e);
+                meta.set("effort", json!(e));
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             match (&host, cwd) {
-                (Some(_), Some(c)) => p["cwd"] = json!(c),
+                (Some(_), Some(c)) => {
+                    p.set("cwd", json!(c));
+                }
                 (Some(_), None) => {}
-                (None, c) => p["cwd"] = json!(c.unwrap_or(std::env::current_dir()?)),
+                (None, c) => {
+                    p.set("cwd", json!(c.unwrap_or(std::env::current_dir()?)));
+                }
             }
             let v = client.request(method::SESSION_NEW, p).await?;
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
@@ -391,14 +398,10 @@ pub(crate) async fn ensure(
     let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
     if json_out {
         let mut out = v.clone();
-        out["created"] = json!(created);
+        out.set("created", json!(created));
         print_json(&out);
     } else {
-        println!(
-            "{} {name} ({})",
-            if created { "created" } else { "found" },
-            &id[..8.min(id.len())]
-        );
+        println!("{} {name} ({})", if created { "created" } else { "found" }, id.head(8));
     }
     Ok(())
 }
@@ -557,14 +560,14 @@ pub(crate) async fn compare(
         let name = format!(
             "compare-{}-{}",
             agent.replace('/', "-"),
-            &uuid::Uuid::now_v7().to_string()[..8]
+            uuid::Uuid::now_v7().to_string().head(8)
         );
         let mut meta = json!({"name": name, "harness": agent});
         if let Some(m) = &model {
-            meta["model"] = json!(m);
+            meta.set("model", json!(m));
         }
         if let Some(p) = &policy {
-            meta["policy"] = json!(p);
+            meta.set("policy", json!(p));
         }
         let started = std::time::Instant::now();
         let created = client
@@ -763,7 +766,7 @@ pub(crate) fn parse_cursor(cursor: &str, id: &str) -> Result<u64> {
 
 fn with_cursor(id: &str, mut e: Value) -> Value {
     if let Some(seq) = e.get("seq").and_then(Value::as_u64) {
-        e["cursor"] = json!(format!("{id}:{seq}"));
+        e.set("cursor", json!(format!("{id}:{seq}")));
     }
     e
 }

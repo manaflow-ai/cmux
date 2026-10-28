@@ -1,0 +1,19 @@
+{
+  "$comment": "Generated oracle suites that git does not carry (code-size decision 3). scripts/cmux-next/oracle/corpus_store.py writes them: `generate` runs the generator at use time; `artifact` fetches the pinned content-addressed tarball (R2 key oracle-corpus/<sha256>/<asset>, the CEF/Computer Use pin mechanism) and falls back to the generator, whose output must have the pin's tree_sha256. `keep` files are hand-written and stay in git.",
+  "suites": {
+    "tla": {
+      "kind": "artifact",
+      "pin": "tests/oracle/corpus-store/tla.pin.json",
+      "generator": ["scripts/cmux-next/oracle/gen_tla.py", "--out", "{out}"],
+      "keep": ["README.md"]
+    },
+    "config": {
+      "kind": "generate",
+      "generator": ["scripts/cmux-next/oracle/gen_config.py", "--out", "{out}"]
+    },
+    "terminal": {
+      "kind": "generate",
+      "generator": ["schemas/terminal-corpus/generate.py", "--oracle-only", "--oracle-out", "{out}"]
+    }
+  }
+}

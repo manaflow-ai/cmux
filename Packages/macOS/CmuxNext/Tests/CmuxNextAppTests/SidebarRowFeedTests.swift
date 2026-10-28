@@ -3,7 +3,7 @@ import CmuxNextWakeups
 import Observation
 import Testing
 
-/// The row feed keeps current only the rows the list shows (p06-scheduler-040, feature
+/// The row feed keeps current only the rows the list shows (feature
 /// `sidebarRowsNearViewport`): 400 rows with 30 on screen arm 30 observations, a change of a row off
 /// screen maps nothing, a stale row is mapped once when it comes back (in the same turn when it comes
 /// on screen), and a row that did not change is never mapped on scroll-in.

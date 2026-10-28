@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
-import CmuxNextCompat
+import CmuxNextCompatAppKit
 import CmuxNextControl
 import CmuxNextDaemonService
 import CmuxNextDesign
@@ -372,7 +372,7 @@ final class DiffPageService: InternalPageProvider {
         }
     }
 
-    // MARK: Discard (`memoryDiscardInternalPages`, p07-memory-026)
+    // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// How long a page may take to say what it shows before its discard goes on without it.
     static let viewStateTimeout: Duration = .seconds(1)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# lipo-dsym.sh keeps the dSYM of a lipo-merged binary (p09-observability-085):
+# lipo-dsym.sh keeps the dSYM of a lipo-merged binary:
 # one slice dSYM is copied (also through cargo's symlink); two are merged by lipo -create of their DWARF
 # files; a missing slice is skipped; with no slice left, or when lipo fails,
 # the output (also a stale one) is removed and the exit status stays 0, so

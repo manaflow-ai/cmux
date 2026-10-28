@@ -3,7 +3,7 @@ import Foundation
 import Testing
 
 /// A Tasks owner snapshot with two rows under one id is corrupt input: the wire refuses it
-/// with a typed error instead of trapping in `Dictionary(uniqueKeysWithValues:)` (p10-stability-096).
+/// with a typed error instead of trapping in `Dictionary(uniqueKeysWithValues:)`.
 @MainActor
 struct TasksSnapshotDuplicateIDTests {
     private struct SnapshotLine: Encodable {

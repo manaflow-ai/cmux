@@ -7,7 +7,7 @@ import CmuxNextDesign
 import Testing
 import WebKit
 
-/// The cold-open stand-in in a page tab (p13-webui-048, feature `pageStandIn`): the tab's first build
+/// The cold-open stand-in in a page tab (feature `pageStandIn`): the tab's first build
 /// shows it in the open's turn when the feature gave it a title, never under a discarded tab's picture,
 /// and a pane swaps to it at once instead of holding the old content until the page's first frame
 /// (Chrome shows a new tab's base background before the renderer's first frame,

@@ -9,7 +9,7 @@ import CoreFoundation
 import Darwin
 import Testing
 
-/// InputLatencyTracker (p04-input-004): stage order through a fake commit boundary and presentation clock, one
+/// InputLatencyTracker: stage order through a fake commit boundary and presentation clock, one
 /// boundary per turn, a terminal key that closes at its own content frame, the no-echo deadline, the estimate's basis
 /// and variable-refresh label, missed commits, refused late marks, the half-ring batch, and no allocation per event
 /// with the real boundary and PresentationClock.
@@ -286,6 +286,72 @@ import Testing
         #expect(slot.nanos(from: .contentSubmitted, to: .presented) == FakePresentation.renderServerNanos)
         #expect(harness.presentation.asked == [slot.contentSubmitted], "presented is the submission's estimate")
         #expect(harness.tracker.waitingCount == 0 && !harness.boundary.isArmed)
+    }
+
+    @Test("A key press is the dispatching key from its begin to its dispatch end; a release never is")
+    func dispatchingKeyFollowsTheKeyPress() throws {
+        let harness = Harness()
+        #expect(harness.tracker.dispatchingKey == nil)
+        let press = try #require(begin(harness, target: .terminal))
+        #expect(harness.tracker.dispatchingKey == press)
+        harness.tracker.endDispatch(press)
+        #expect(harness.tracker.dispatchingKey == nil)
+        let release = try #require(begin(harness, kind: .keyRelease, target: .terminal))
+        #expect(harness.tracker.dispatchingKey == nil)
+        harness.tracker.endDispatch(release)
+        harness.settle()
+    }
+
+    @Test("A terminal key takes the daemon's stages its echo carries, by the key's flow (p04-input-094)")
+    func terminalKeyTakesTheDaemonsStages() throws {
+        let harness = Harness()
+        let token = try #require(begin(harness, target: .terminal))
+        let start = try #require(harness.tracker.table.time(token, .dispatchStart))
+        harness.tracker.endDispatch(token)
+        harness.commit()
+        let stamps = TerminalKeyStamps(received: start + 1_000_000, written: start + 1_100_000, read: start + 3_000_000,
+                                       sent: start + 3_100_000)
+        #expect(InputLatencyToken(keyFlow: token.keyFlow) == token)
+        #expect(harness.tracker.keyEchoStamped(flow: token.keyFlow, stamps, decodedAt: start + 3_300_000))
+        #expect(harness.tracker.mark(token, .echoParsed, at: start + 3_500_000))
+        #expect(harness.tracker.mark(token, .contentSubmitted, at: start + 4_000_000))
+        harness.advance(5_000_000)
+        harness.commit()
+
+        let slot = try #require(harness.emitted.first)
+        #expect(slot.daemonReceived == stamps.received && slot.ptyWritten == stamps.written)
+        #expect(slot.echoRead == stamps.read && slot.echoSent == stamps.sent)
+        #expect(slot.echoParsed == start + 3_500_000)
+        var ledger = InputLatencyLedger()
+        ledger.fold(InputLatencyBatch(slots: [slot], vsyncNanos: 16_666_667))
+        let row = try #require(ledger.rows.values.first)
+        #expect(row[.daemonReceived].maxNanos == stamps.received - slot.dispatchEnd, "the daemon's delta, after dispatch")
+        #expect(row[.echoParsed].maxNanos == 400_000, "the app's parse, after the daemon sent the echo")
+        #expect(row[.contentSubmitted].maxNanos == 500_000, "the frame, after the parse")
+    }
+
+    @Test("Daemon stamps on another clock, out of order, or for no slot are refused")
+    func foreignDaemonStampsAreRefused() throws {
+        let harness = Harness()
+        let token = try #require(begin(harness, target: .terminal))
+        let start = try #require(harness.tracker.table.time(token, .dispatchStart))
+        let decoded = start + 10_000_000
+        let tracker = harness.tracker!
+        // Another machine's uptime: before the key.
+        #expect(!tracker.keyEchoStamped(flow: token.keyFlow, TerminalKeyStamps(received: 5, written: 6, read: 7, sent: 8),
+                                        decodedAt: decoded))
+        // After the echo was decoded.
+        #expect(!tracker.keyEchoStamped(flow: token.keyFlow, TerminalKeyStamps(received: decoded + 1, written: 0, read: 0,
+                                                                               sent: 0), decodedAt: decoded))
+        // Out of order.
+        #expect(!tracker.keyEchoStamped(flow: token.keyFlow, TerminalKeyStamps(received: start + 3, written: start + 2,
+                                                                               read: start + 4, sent: start + 5),
+                                        decodedAt: decoded))
+        // A typing-probe flow (a pid in the high bits) names no slot.
+        #expect(!tracker.keyEchoStamped(flow: 0x1234 << 32 | UInt64(token.rawValue),
+                                        TerminalKeyStamps(received: start + 1, written: 0, read: 0, sent: 0), decodedAt: decoded))
+        #expect(tracker.table.time(token, .daemonReceived) == nil)
+        harness.settle()
     }
 
     @Test("A terminal key with no frame by the deadline closes with presented skipped (no echo)")

@@ -3,7 +3,7 @@ import CmuxNextCompat
 import Foundation
 import Testing
 
-/// The blocking detector's call sites in opt-in hang reports (p02-threads-008): one sample per site
+/// The blocking detector's call sites in opt-in hang reports: one sample per site
 /// with its kind, context and UUID + offset frames, nothing that names a path, the sites a launch
 /// records before the setting is read kept, only in wire schema 3 (the deployed server refuses
 /// them), and the crash-report budget of 5 per launch and 1 per site per 24 h.

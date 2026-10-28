@@ -44,15 +44,14 @@ impl Client {
         let server = listener.accept().unwrap();
         let server_mux = mux.clone();
         let handler = std::thread::spawn(move || {
-            let peer = origin_gate::AcceptedPeer::resolve(&server_mux, &*server);
-            serve_line_connection(
+            serve_connection(
                 server_mux,
                 server,
-                peer,
                 Arc::new(RenderService::new()),
                 None,
                 kind,
-                &admission::LocalAdmission,
+                Box::new(admission::LocalAdmission),
+                Box::<frame_dispatch::RequestFrames>::default(),
             );
         });
         let reader = client.try_clone_box().unwrap();
@@ -197,7 +196,7 @@ fn hello_as_first_line_returns_the_connection_id_and_fixes_the_role() {
     assert_eq!(role_for_test(&mux, only_client(&mux)), "main");
 }
 
-/// `bridge-hello` (p01-process-237): a bridge's first line, which keeps the
+/// `bridge-hello`: a bridge's first line, which keeps the
 /// far client's hello window open, and only there.
 #[test]
 fn bridge_hello_first_keeps_the_far_clients_window_open() {
@@ -469,7 +468,7 @@ fn no_hello_is_the_legacy_client_role_and_set_client_info_never_sets_a_role() {
     assert_eq!(refused["error"]["details"]["derived"], "agent", "{refused}");
 }
 
-/// The daemon features of the hello tests (p12-perf-process-150): a
+/// The daemon features of the hello tests: a
 /// `process=daemon` kill switch, a perfPath and a `process=both` kill switch.
 mod features {
     use super::*;

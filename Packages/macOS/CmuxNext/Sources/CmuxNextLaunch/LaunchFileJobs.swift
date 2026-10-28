@@ -1,11 +1,11 @@
 public import CmuxNextWakeups
 
 /// The file jobs the launch starts that nobody waits for, as posted ``BackgroundWork`` files-lane
-/// jobs (p08-startup-083, Q12), instead of root `Task.detached` jobs on the cooperative pool.
+/// jobs (Q12), instead of root `Task.detached` jobs on the cooperative pool.
 ///
 /// - The design-mode cleanup is ``WorkPriority/idle`` (QoS `.background`, as before), so it waits
 ///   behind the launch's best-effort fence (``LaunchOrder/BestEffortFence``, raised in `main()`) and
-///   runs at the launch's reveal (p06-scheduler-204); quit drops it if it has not started (the next launch
+///   runs at the launch's reveal; quit drops it if it has not started (the next launch
 ///   redoes it). It deletes only earlier launches' folders, so it is safe whenever it runs.
 /// - The CLI pointer is ``WorkPriority/userVisible`` and ``ShutdownBehavior/blockShutdown``: the
 ///   fence does not hold it, because a script that opens the app and runs `cmux` at once must get this

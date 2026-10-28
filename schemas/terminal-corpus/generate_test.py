@@ -43,6 +43,11 @@ class GenerateTest(unittest.TestCase):
         for file, data in STREAMS.items():
             self.assertEqual((HERE / file).read_bytes(), data, file)
         self.assertEqual((HERE / "manifest.json").read_text(), MANIFEST)
+        # The oracle cases are not committed: corpus_store.py writes them, and they must be what build() makes.
+        sys.path.insert(0, str(REPO / "scripts" / "cmux-next" / "oracle"))
+        import corpus_store  # noqa: PLC0415
+
+        corpus_store.ensure(gen.ORACLE_DIR.parent, ["terminal"])
         on_disk = {path.stem: path.read_text(encoding="utf-8") for path in gen.ORACLE_DIR.glob("*.json")}
         self.assertEqual(sorted(on_disk), sorted(CASES), "run schemas/terminal-corpus/generate.py")
         for case_id, case in CASES.items():

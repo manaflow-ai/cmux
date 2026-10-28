@@ -18,6 +18,7 @@
 //! Adopting a chat that is open elsewhere runs two harnesses on one
 //! conversation, which forks it.
 
+use crate::no_panic::JsonExt;
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -92,11 +93,12 @@ fn claude_holder(config: &Path, id: &str) -> Option<LiveUse> {
             return None;
         }
         let record: Value = serde_json::from_slice(&std::fs::read(&path).ok()?).ok()?;
-        if record["sessionId"].as_str() != Some(id) {
+        if record.field("sessionId").as_str() != Some(id) {
             return None;
         }
-        let pid = u32::try_from(record["pid"].as_u64()?).ok()?;
-        registered_runs(pid, record["startedAt"].as_u64()).then_some(LiveUse::Registered { pid })
+        let pid = u32::try_from(record.field("pid").as_u64()?).ok()?;
+        registered_runs(pid, record.field("startedAt").as_u64())
+            .then_some(LiveUse::Registered { pid })
     })
 }
 
@@ -160,7 +162,7 @@ fn codex_holder(home: &Path, id: &str) -> Option<LiveUse> {
         // Still held after that: a writer is taking the thread lock now, so the chat is busy.
         let taken = (0..50).any(|attempt| {
             if attempt > 0 {
-                std::thread::sleep(std::time::Duration::from_millis(10));
+                cmux_threads::checked::sync::sleep(std::time::Duration::from_millis(10));
             }
             // SAFETY: flock on an open descriptor this function owns.
             unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) == 0 }

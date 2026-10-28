@@ -1,3 +1,0 @@
-{"appearance":{"colorTransition":{"bezierX1":0E-1},// note
-"surfaces":{// "quoted"
-"agentPane":{"color":"#12345g"}}},"oracleUnknown":{/* // inside */ "nested":{/* // inside */ "key":[true], "oracle": "\ud800"}

@@ -5,7 +5,7 @@ import CmuxNextWakeupsTestSupport
 import CoreGraphics
 import Testing
 
-/// The restored windows behind the front one at launch (p08-startup-062): visibility is by occlusion
+/// The restored windows behind the front one at launch: visibility is by occlusion
 /// and display, not z-order; a window that shows is built in its own afterFirstFrame post, one per
 /// post; a covered, off-screen or full-screen one only after startup completes, or at once when taken.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct LaunchWindowQueueTests {

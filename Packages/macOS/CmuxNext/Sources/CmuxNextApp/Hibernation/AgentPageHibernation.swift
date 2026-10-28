@@ -35,7 +35,7 @@ import os
 /// Chrome's `FrameEvictionManager` counts every saved frame and culls the least recently used
 /// unlocked ones (`components/viz/client/frame_eviction_manager.cc`, `CullUnlockedFrames`).
 ///
-/// With `pageLifecycle` on (p13-webui-038) the page lifecycle drives agent chats and New Tab pages
+/// With `pageLifecycle` on the page lifecycle drives agent chats and New Tab pages
 /// instead (``follow(_:)``): its planner freezes and discards them with every exemption above as a keep
 /// reason (a running turn blocks both: acpmux cannot resync a frozen page's stream yet), this class
 /// performs the discard, and its own timeout and budget stay off. An untouched New Tab page has no reason
@@ -314,7 +314,7 @@ final class AgentPageHibernation {
     }
 }
 
-// The page lifecycle's side (`pageLifecycle`, p13-webui-038): keep reasons, the hide read and the discard.
+// The page lifecycle's side (`pageLifecycle`): keep reasons, the hide read and the discard.
 extension AgentPageHibernation: AgentPageLifecycleOwner {
     /// Why tab `key`'s hidden page `pane` stays, as the planner's keep reasons, with the ones `page` reports.
     /// Read once per planner pass, and handed to the lifecycle when a turn or the hide read changes them.
@@ -410,7 +410,7 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
     }
 
     /// A frozen page answers nothing: no read is asked of it until it thaws. One with nothing on its acpmux
-    /// connection waiting for it closes the connection until the thaw (p13-webui-080).
+    /// connection waiting for it closes the connection until the thaw.
     func pageDidFreeze(_ key: String) {
         hideReads[key]?.runs = false
         guard let pane = store()?.existingView(key) else { return }
@@ -454,7 +454,7 @@ extension AgentPageHibernation: AgentPageLifecycleOwner {
     /// this turn (a turn started), one that ended arms a pass (the turn ended, the hide read answered).
     /// Never the page view's own (its load): those it reports itself, and a copy here would go stale.
     /// A page that stays frozen whose connection no longer has anything waiting for it (the person's
-    /// question went away with no turn running) lets the connection go now (p13-webui-080).
+    /// question went away with no turn running) lets the connection go now.
     private func refreshKeepReasons(_ key: String) {
         guard let lifecycle, let pane = store()?.existingView(key) else { return }
         let reasons = tabReasons(key, pane: pane)

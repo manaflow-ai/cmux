@@ -53,8 +53,45 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     }
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     runtime.enable_all();
+    runtime_threads(&mut runtime);
     let poll_watch = DaemonPollWatch::instrument(&args, &mut runtime);
     runtime.build()?.block_on(async_main(args, invocation, poll_watch))
+}
+
+/// The runtime's threads are named `acpmux-runtime` and registered with
+/// cmux-threads: workers at Default, the blocking pool at Utility and at most
+/// 16 threads (plans/cmux-next/threading-model.md, "Daemon threads").
+///
+/// Tokio starts both kinds through one hook and only a worker parks, so every
+/// thread starts at the pool's class and a worker moves to Default at its
+/// first park; `block_in_place` can make a pool thread a worker. Where a
+/// thread could not come back from Utility (Linux without the right to lower
+/// nice), the pool stays at Default instead.
+fn runtime_threads(runtime: &mut tokio::runtime::Builder) {
+    use cmux_threads::ThreadQos;
+    const NAME: &str = "acpmux-runtime";
+    let pool = if cmux_threads::reversible(ThreadQos::Utility) {
+        ThreadQos::Utility
+    } else {
+        ThreadQos::Default
+    };
+    runtime
+        .thread_name(NAME)
+        .max_blocking_threads(16)
+        .on_thread_start(move || {
+            cmux_threads::register_current(NAME, pool);
+        })
+        .on_thread_park(|| {
+            thread_local! {
+                static WORKER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+            }
+            if !WORKER.with(|worker| worker.replace(true)) {
+                if let Some(slot) = cmux_threads::current_slot() {
+                    slot.request(ThreadQos::Default);
+                }
+                cmux_threads::set_current(ThreadQos::Default);
+            }
+        });
 }
 
 /// Lab builds only (cmux-tui/lab/stability.env): the daemon's poll watch
@@ -120,11 +157,11 @@ async fn async_main(
     // (`acpmux --json exec …`), so these rewrites see the same command.
     let at = command_index(&argv);
     // `acpmux daemon` with nothing after it means `daemon run`.
-    if at + 1 == argv.len() && argv[at] == "daemon" {
+    if at + 1 == argv.len() && argv.get(at).is_some_and(|a| a == "daemon") {
         argv.push("run".into());
     }
-    if argv.get(at).map(|a| a == "--skill" || a == "--guide").unwrap_or(false) {
-        argv[at] = "skill".into();
+    if let Some(word) = argv.get_mut(at).filter(|a| *a == "--skill" || *a == "--guide") {
+        *word = "skill".into();
     }
     let run_alias = argv.get(at).map(|a| a == "run" || a == "exec").unwrap_or(false);
     let exec_alias = argv.get(at).map(|a| a == "exec").unwrap_or(false);
@@ -163,6 +200,7 @@ async fn async_main(
         Some(Command::DaemonRun {
             listen,
             token,
+            insecure_network_listen,
             memory,
             log,
             ready_fd,
@@ -182,6 +220,7 @@ async fn async_main(
             crate::daemon::run(DaemonOptions {
                 ws_listen: listen,
                 ws_token: token,
+                insecure_network_listen,
                 memory,
                 ready_fd,
                 person_key_fd,

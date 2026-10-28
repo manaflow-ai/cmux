@@ -7,7 +7,7 @@ import ObjectiveC
 ///
 /// Its node's own state follows the window: miniaturized is ``Visibility/hidden``, an
 /// `occlusionState` without `.visible` is ``Visibility/occluded``, and so is a window its
-/// ``WindowOcclusionFamily`` calls occluded (p03-rendering-097: fully covered by an opaque cmux
+/// ``WindowOcclusionFamily`` calls occluded (fully covered by an opaque cmux
 /// window of the same size, which AppKit still reports visible, crbug.com/883031); otherwise
 /// ``Visibility/visible``.
 /// The app's node (``AppVisibilitySource``) is its parent, so a hidden app or sleeping displays

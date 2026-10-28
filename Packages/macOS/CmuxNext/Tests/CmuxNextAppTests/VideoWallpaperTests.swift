@@ -90,7 +90,7 @@ import CmuxNextWakeupsTestSupport
     }
 
     /// The video follows the energy monitor's inputs the App pushes into its players, not its own
-    /// power-state and thermal observers (p14-energy-021: one observer per input for the app).
+    /// power-state and thermal observers (one observer per input for the app).
     @Test func thePlayersEnergyInputsHoldTheVideo() async throws {
         let clip = try await Self.clip()
         let players = BackdropVideoPlayers()
@@ -106,7 +106,7 @@ import CmuxNextWakeupsTestSupport
         #expect(h.video.isPlaying, "the video does not resume when the energy inputs allow it again")
     }
 
-    /// The video follows its window's node (p06-scheduler-047), not its own occlusion observers: a
+    /// The video follows its window's node, not its own occlusion observers: a
     /// hidden or occluded node holds it, and a capture vote on a hidden window plays it.
     @Test func theVideoFollowsItsWindowsVisibilityNodeAndCaptureVotes() async throws {
         let clip = try await Self.clip()
@@ -206,7 +206,7 @@ import CmuxNextWakeupsTestSupport
         #expect(h.video.isPlaying)
     }
 
-    /// The release is a `background` MainDeadline on the app's deadline scheduler (p06-scheduler-324): its wake is
+    /// The release is a `background` MainDeadline on the app's deadline scheduler: its wake is
     /// one entry of the main thread's wake-up queue, and its action runs as a posted background task.
     @Test func theDecoderGoesOnlyAMinuteAfterTheLastWindowWentOutOfSight() async throws {
         let clip = try await Self.clip()
@@ -235,7 +235,7 @@ import CmuxNextWakeupsTestSupport
         #expect(!players.isReleased(url), "a video someone can see was released")
     }
 
-    /// A seen video's coverage samples are a `background` MainDeadline on the players' scheduler (p06-scheduler-324):
+    /// A seen video's coverage samples are a `background` MainDeadline on the players' scheduler:
     /// seeing it arms one, its fire takes a sample and arms the next, and a video no one sees samples nothing.
     @Test func aSeenVideoSamplesItsCoverageOnABackgroundDeadline() async throws {
         let clip = try await Self.clip()

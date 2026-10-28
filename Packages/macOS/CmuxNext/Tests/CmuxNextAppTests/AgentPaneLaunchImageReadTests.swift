@@ -70,7 +70,7 @@ struct AgentPaneLaunchImageReadTests {
         #expect(probe.reads == [false, false], "a saved page was read on the main thread")
     }
 
-    /// p07-memory-083: the decoded pages no pane took went 30 s after launch; they go once the launch settled
+    /// The decoded pages no pane took went 30 s after launch; they go once the launch settled
     /// (`LaunchSettle.dropLaunchReads`), and no read starts again.
     @Test func theLaunchReadHoldsNoPageOnceTheLaunchSettled() async throws {
         let directory = try await Self.saved(["tab_a", "tab_b"])

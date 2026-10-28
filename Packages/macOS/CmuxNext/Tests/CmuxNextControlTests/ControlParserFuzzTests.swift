@@ -11,7 +11,7 @@ import Testing
     static let pieces = ["{", "}", "[", "]", "\"", ":", ",", "method", "params", "id", "null", "true", "1e999", "-0",
                          "9223372036854775808", "\\u0000", "\\ud800", "--", "--x=", "=", "'", "\\", " ", "\u{0}", "é", "🙂", "\n"]
 
-    /// One input of either property, its choices read from `data` (the libFuzzer entry, p10-stability-182).
+    /// One input of either property, its choices read from `data` (the libFuzzer entry).
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         if rng.bool() { randomLine(&rng) } else { invalidUTF8Line(&rng) }

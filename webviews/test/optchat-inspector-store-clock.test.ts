@@ -1,4 +1,4 @@
-// The inspector's refresh (p14-energy-062a): it rides the page's one clock, so it wakes only while
+// The inspector's refresh: it rides the page's one clock, so it wakes only while
 // the page shows, reads once on show for what fell due while hidden, and runs no timer while the
 // page is hidden or nothing subscribes.
 import { expect, test } from "bun:test";

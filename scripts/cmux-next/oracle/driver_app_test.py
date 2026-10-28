@@ -919,7 +919,7 @@ class AppSessionTest(SessionTestBase):
         self.assertFalse(session.paths.root.exists())
         self.assertEqual((out / "app.log").read_text(), "launch failed\n")
 
-    # -- the trace of invariants I11-I15 (p15-oracle-217)
+    # -- the trace of invariants I11-I15
 
     TRACED = step("new", "action.run", target={"workspace": "current"}, args={"action": "workspace.new"},
                   expect={"outcome": "ok"}, checkpoint=["before", "settled"])

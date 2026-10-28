@@ -1,4 +1,4 @@
-//! Cold-scrollback codec (p07-memory-040): `Terminal::into_cold` and
+//! Cold-scrollback codec: `Terminal::into_cold` and
 //! `ColdTerminal::thaw` restore the terminal exactly, or refuse and hand it
 //! back unchanged. "Exactly" is checked two ways: the thawed terminal reads
 //! the same as before (snapshots, VT replay, text, markers, Kitty scene), and

@@ -945,7 +945,7 @@ class CrashPressurePriorityTests(unittest.TestCase):
         self.assertEqual(got["discards_in_importance_order"]["status"], "unscored")
         self.assertIn("browser", app.tabs)  # the ranked pass has a browser tab and a chat to rank
         self.assertIn("conversation", app.tabs)
-        # The pressure goes through the memory coordinator's override (p13-webui-047), cleared at the end.
+        # The pressure goes through the memory coordinator's override, cleared at the end.
         levels = [params["level"] for method, params in app.calls if method == "debug.hibernation.pressure"]
         self.assertEqual(levels, ["critical", "none"])
         self.assertIsNone(app.override)

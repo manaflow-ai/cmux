@@ -11,7 +11,7 @@ private final class TurnRecorder: ActionRunObserver {
     }
 }
 
-/// The perform-turn observer (p15-oracle-032, `ActionRunObserver`): the registry reports the end of
+/// The perform-turn observer (`ActionRunObserver`): the registry reports the end of
 /// each outermost perform turn once, after the handler ran, with the canonical id, the origin and
 /// whether it ran; a perform nested in a handler is part of its outer turn; a registry with no
 /// observer behaves as before. Run: `swift test --filter ActionTurnObserverTests`.

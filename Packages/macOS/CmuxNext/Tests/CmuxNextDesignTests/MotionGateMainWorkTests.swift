@@ -4,7 +4,7 @@ import CmuxNextDesignTokens
 import QuartzCore
 import Testing
 
-/// chrome-parity p03-rendering-104: the main-thread writes a gate's view motion makes per frame.
+/// The main-thread writes a gate's view motion makes per frame.
 ///
 /// A counting view (and its backing layer) records every frame and alpha write. Each case starts a
 /// change, waits for the first display frame after its turn (the turn's own writes and commit are

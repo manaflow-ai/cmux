@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxNextBrowser
 
-/// Q8 idle sources quieted by a Chromium feature (p14-energy-042). PartitionAlloc's memory reclaimer ran on
+/// Q8 idle sources quieted by a Chromium feature. PartitionAlloc's memory reclaimer ran on
 /// the main thread of every Chromium process every 4 s, the app's CrBrowserMain included;
 /// `PartitionAllocAdaptiveMemoryReclaimInterval` backs it off to 1 min while there is little to decommit.
 @Suite struct CEFIdleSourceSwitchTests {

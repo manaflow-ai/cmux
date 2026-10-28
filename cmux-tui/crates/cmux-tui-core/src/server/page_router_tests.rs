@@ -1,5 +1,5 @@
 //! The page router is reached through its v2 operation route
-//! (server/routes.rs, p05-ipc-070): the line's `operation` names the route
+//! (server/routes.rs): the line's `operation` names the route
 //! in spec/page-router.json, and each page's allow list still decides what
 //! the page may call.
 

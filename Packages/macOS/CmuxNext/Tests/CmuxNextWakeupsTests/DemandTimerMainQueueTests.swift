@@ -2,7 +2,7 @@
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// DemandTimer on the main thread's deadline queue (p14-energy-014): a main-actor action is a
+/// DemandTimer on the main thread's deadline queue: a main-actor action is a
 /// MainWakeUpQueue entry, so it wakes no pool thread and never sleeps on the clock (Chromium's delayed
 /// tasks share the pump's one `delayed_work_timer_`, base/message_loop/message_pump_apple.mm). The async
 /// action starts one Task from the fire, the sync one (`scheduleOnMain`) runs inline in it, a reset or

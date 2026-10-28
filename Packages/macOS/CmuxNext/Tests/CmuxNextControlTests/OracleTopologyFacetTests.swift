@@ -4,7 +4,7 @@ import CmuxNextOracle
 import CmuxNextSettings
 import Testing
 
-/// The oracle's topology facet (p15-oracle-033) is the `snapshot.get` result as is: on 20 published states the
+/// The oracle's topology facet is the `snapshot.get` result as is: on 20 published states the
 /// facet equals `snapshot.get`; the facet itself builds a stale snapshot first, as `snapshot.get` builds it; it
 /// reads in the snapshot's main-actor turn, so a change before the background facets finish is not in it; a
 /// server that registers the oracle with its snapshot store provides the facet.

@@ -36,7 +36,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         services?.inputDispatch.noteFrameExpected()
     }
 
-    /// Off makes no prediction engine (p04-input-046).
+    /// Off makes no prediction engine.
     func terminalSessionPredictiveEcho(_ session: TerminalSession) -> TerminalPredictiveEcho.Mode? { predictiveEcho }
 
     /// The tab's daemon is another machine's (a Cloud machine, another Mac).

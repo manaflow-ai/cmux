@@ -9,7 +9,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// The app-level startup hold of web updates (p08-startup-077, Chrome's AfterStartupTaskUtils):
+/// The app-level startup hold of web updates (Chrome's AfterStartupTaskUtils):
 /// ``WebUpdates`` reads no channel pointer from the network before ``WebUpdates/startChecks()``,
 /// whether startup completes after the launch read made the updater or before it.
 @Suite(.serialized, .timeLimit(.minutes(1))) @MainActor struct WebUpdatesStartupTests {
@@ -24,7 +24,7 @@ import Testing
 
     /// A ``WebUpdates`` on its own overlay, whose transport answers every pointer
     /// read 304 (unchanged) and counts the reads, following `updates.web: every-merge`. Its checks
-    /// are deadlines on a rig's scheduler whose wakes the test fires (p06-scheduler-338).
+    /// are deadlines on a rig's scheduler whose wakes the test fires.
     @MainActor private final class Rig {
         let deadlines = MainDeadlineRig(framed: false)
         let root: URL

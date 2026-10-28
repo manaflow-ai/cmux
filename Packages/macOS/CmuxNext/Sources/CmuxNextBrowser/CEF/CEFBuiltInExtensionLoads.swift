@@ -3,7 +3,7 @@ import Foundation
 import os
 
 /// The built-in extensions that load into each persistent profile before its first browser tab
-/// (p13-webui-055, feature `chromiumAdBlockerAtFirstTab`): which profile loads, waits or may open its tabs.
+/// (feature `chromiumAdBlockerAtFirstTab`): which profile loads, waits or may open its tabs.
 /// Through `--load-extension` they loaded into every profile Chromium started, the root profile no cmux
 /// tab uses too, so Home with no browser tab ran the built-in uBlock Origin's background page in a
 /// renderer of its own. ``CEFBuiltInExtensionLoader`` runs the loads.

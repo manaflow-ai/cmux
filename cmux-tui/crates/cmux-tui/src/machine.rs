@@ -7,11 +7,16 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::Receiver;
-use std::thread::JoinHandle;
 
 use crate::session::Session;
+
+#[path = "machine_update_stream.rs"]
+mod update_stream;
+pub use update_stream::MachineUpdateStream;
+
+#[cfg(test)]
+#[path = "machine_rail_tests.rs"]
+mod rail_tests;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MachineKey(pub u64);
@@ -660,53 +665,6 @@ pub enum MachineUpdate {
     },
 }
 
-/// A cancelable stream of provider-owned presentation snapshots.
-pub struct MachineUpdateStream {
-    receiver: Option<Receiver<MachineUpdate>>,
-    stop: Arc<AtomicBool>,
-    worker: Option<JoinHandle<()>>,
-    armed: bool,
-}
-
-impl MachineUpdateStream {
-    pub fn new(
-        receiver: Receiver<MachineUpdate>,
-        stop: Arc<AtomicBool>,
-        worker: JoinHandle<()>,
-    ) -> Self {
-        Self { receiver: Some(receiver), stop, worker: Some(worker), armed: true }
-    }
-
-    pub(crate) fn into_parts(
-        mut self,
-    ) -> (Receiver<MachineUpdate>, Arc<AtomicBool>, JoinHandle<()>) {
-        self.armed = false;
-        (
-            self.receiver.take().expect("machine update receiver is present"),
-            self.stop.clone(),
-            self.worker.take().expect("machine update worker is present"),
-        )
-    }
-
-    pub(crate) fn stop_handle(&self) -> Arc<AtomicBool> {
-        self.stop.clone()
-    }
-}
-
-impl Drop for MachineUpdateStream {
-    fn drop(&mut self) {
-        if self.armed {
-            self.stop.store(true, Ordering::Release);
-            // Drop the receiver before joining so a worker blocked on a full
-            // bounded channel observes cancellation instead of deadlocking.
-            self.receiver.take();
-            if let Some(worker) = self.worker.take() {
-                let _ = crate::blocking::thread::join(worker);
-            }
-        }
-    }
-}
-
 impl MachineUiState {
     pub fn new(snapshot: MachineSnapshot) -> Self {
         let selection = snapshot.active_index().unwrap_or_default();
@@ -927,11 +885,11 @@ impl MachineUiState {
             MachineRailTarget::Machine(machine.key)
         }
         let targets = self.rail_targets();
-        if targets.is_empty() {
+        let (Some(&first_target), Some(&last_target)) = (targets.first(), targets.last()) else {
             self.selection = 0;
             self.rail_selection = MachineRailSelection::Machine;
             return;
-        }
+        };
         let previous_targets = previous.rail_targets();
         let previous_target = previous.rail_target();
         // A machine whose managed status JUST became Recoverable was deleted
@@ -968,9 +926,9 @@ impl MachineUiState {
                     // Every machine is gone: land on the first action row
                     // ("+ new vm" when available), never on whatever footer
                     // happens to share the deleted machine's old index.
-                    targets[0]
+                    first_target
                 } else if let Some(MachineRailTarget::Machine(deleted)) = previous_target
-                    && !self.snapshot.machines.is_empty()
+                    && let Some(last_machine) = self.snapshot.machines.last()
                 {
                     let previous_index = previous
                         .snapshot
@@ -1001,16 +959,15 @@ impl MachineUiState {
                         .map(|(_, machine)| machine);
                     match next {
                         Some(machine) => return_target(machine),
-                        None => {
-                            let clamp = previous_index.min(self.snapshot.machines.len() - 1);
-                            return_target(&self.snapshot.machines[clamp])
-                        }
+                        None => return_target(
+                            self.snapshot.machines.get(previous_index).unwrap_or(last_machine),
+                        ),
                     }
                 } else {
                     let previous_index = previous_target
                         .and_then(|target| previous_targets.iter().position(|item| *item == target))
                         .unwrap_or_default();
-                    targets[previous_index.min(targets.len() - 1)]
+                    targets.get(previous_index).copied().unwrap_or(last_target)
                 }
             });
         self.select_rail_target(target);
@@ -1018,17 +975,17 @@ impl MachineUiState {
 
     fn ensure_rail_selection(&mut self) {
         let targets = self.rail_targets();
-        if targets.is_empty() {
+        let Some(&first_target) = targets.first() else {
             self.selection = 0;
             self.rail_selection = MachineRailSelection::Machine;
             return;
-        }
+        };
         if let Some(target) = self.rail_target()
             && targets.contains(&target)
         {
             return;
         }
-        self.select_rail_target(targets[0]);
+        self.select_rail_target(first_target);
     }
 }
 
@@ -1355,30 +1312,5 @@ mod tests {
             machine_scoped.request(None, &ProviderActionContext::default()),
             Err(ProviderActionInputError::MissingSelectedMachine)
         );
-    }
-
-    #[test]
-    fn dropping_update_stream_cancels_and_joins_a_blocked_worker() {
-        let update = MachineUiState::new(MachineSnapshot {
-            machines: Vec::new(),
-            active: None,
-            capabilities: MachineCapabilities::default(),
-        });
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        sender.send(MachineUpdate::Ui(Box::new(update.clone()))).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
-        let exited = Arc::new(AtomicBool::new(false));
-        let worker_exited = exited.clone();
-        let worker = std::thread::spawn(move || {
-            // This blocks until MachineUpdateStream drops its receiver.
-            let _ = sender.send(MachineUpdate::Ui(Box::new(update)));
-            worker_exited.store(true, Ordering::Release);
-        });
-        let stream = MachineUpdateStream::new(receiver, stop.clone(), worker);
-
-        drop(stream);
-
-        assert!(stop.load(Ordering::Acquire));
-        assert!(exited.load(Ordering::Acquire));
     }
 }

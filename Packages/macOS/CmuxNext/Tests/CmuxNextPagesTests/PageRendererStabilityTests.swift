@@ -82,7 +82,7 @@ struct PageRendererStabilityTests {
         #expect(histograms.first { $0.name == HistogramID.stabilityRenderer(.contentEnd, .webkit).name }?.count == 2, "two pages lost it")
     }
 
-    /// A preloaded page (``PagePreloadSlot``, p13-webui-045) runs a WebContent process before any claim: it opens
+    /// A preloaded page (``PagePreloadSlot``) runs a WebContent process before any claim: it opens
     /// through its host, so its end is a `page` event too.
     @Test func aPreloadedPagesContentEndBeforeAnyClaimIsOnePageEvent() throws {
         let trace = TraceRuntime(role: .app)

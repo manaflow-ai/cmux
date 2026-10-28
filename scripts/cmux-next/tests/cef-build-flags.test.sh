@@ -29,8 +29,8 @@ for kind in on old; do
 done
 if /usr/bin/python3 "$check" "$work/missing" --require 2>/dev/null; then fail "--require accepted a folder without archive.json"; fi
 
-# --require-official-pgo (manifest "require_official_pgo", chrome-parity
-# p08-startup-047). The profile names are the ones chrome/build/mac-arm.pgo.txt
+# --require-official-pgo (manifest "require_official_pgo").
+# The profile names are the ones chrome/build/mac-arm.pgo.txt
 # and mac.pgo.txt name at Chromium tag 154.0.8037.58.
 arm_hash=354a99ee3138b99ca5663d169539bc1a82b1eca7-01b870b743c773a6d66e8b1c5294a95ac51cd3b0
 arm_profile="chrome-mac-arm-8037-1789514271-$arm_hash.profdata"

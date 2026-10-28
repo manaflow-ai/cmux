@@ -4,7 +4,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p01-process-072: a renderer hang is that tab's own prompt, under Chrome's visibility rules
+/// A renderer hang is that tab's own prompt, under Chrome's visibility rules
 /// (feature `chromiumHangFollowsVisibility`, ``CEFRendererHang``). Chrome drops a hang reported for a
 /// hidden tab (`WebContentsImpl::RendererUnresponsive`), stops the hang timer on `WasHidden` and
 /// starts it again on `WasShown`. cmux keeps no timer: a hidden tab's hang is held, and the show

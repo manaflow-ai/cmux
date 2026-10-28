@@ -4,7 +4,7 @@
 //
 // The inspector's API has no push, so a refresh rides the page's one minute clock (ui/pageClock.ts)
 // at 60 s or longer: it wakes on the aligned minute only while the page shows, and reads once on show
-// when a refresh fell due while hidden. A hidden inspector runs no timer (p14-energy-062a), as
+// when a refresh fell due while hidden. A hidden inspector runs no timer, as
 // Chrome stops a hidden page's timers (third_party/blink/renderer/platform/scheduler/main_thread/page_scheduler_impl.cc).
 
 import { type PageClock, clockPeriodMs, pageClockFor } from "../ui/pageClock";
@@ -20,7 +20,7 @@ type Slot = {
   idleSince: number;
 };
 
-/** The shortest refresh: one aligned minute wake, the page's poll floor (p14-energy-062a). */
+/** The shortest refresh: one aligned minute wake, the page's poll floor. */
 export const MIN_REFRESH_MS = clockPeriodMs("minute");
 
 /** Idle answers kept for a quick return (a turn's prompt can be 100 KB or more). */

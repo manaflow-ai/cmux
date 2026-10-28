@@ -436,6 +436,7 @@ impl BoundedOutboundState {
             stream_items: 0,
             regular_bytes: 0,
             closed: false,
+            writer: Default::default(),
             client_streams: ClientStreams::default(),
             space_woken: SpaceWoken::default(),
             room_waiters: Vec::new(),

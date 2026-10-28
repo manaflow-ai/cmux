@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// Where an intercepted scroll comes from, and the scrolls that leave the layout's routing in O(1)
-/// (p04-input-052). The layout's tap intercept hears every scroll of its window and of its page
+/// Where an intercepted scroll comes from, and the scrolls that leave the layout's routing in O(1).
+/// The layout's tap intercept hears every scroll of its window and of its page
 /// windows; most of them are not the layout's, and those must cost no point conversion, pane hit
 /// test or claim query before they go on.
 extension LayoutRootView {

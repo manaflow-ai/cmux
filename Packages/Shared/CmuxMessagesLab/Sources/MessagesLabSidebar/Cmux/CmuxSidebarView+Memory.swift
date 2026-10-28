@@ -1,4 +1,4 @@
-/// The list's row and tile bitmaps for the host's memory policy (p07-memory-081), with no platform type
+/// The list's row and tile bitmaps for the host's memory policy, with no platform type
 /// in the API: cmux-next registers each list with its memory coordinator (CmuxNextHome's
 /// `MessagesLabMemoryConsumer`). Dropping is lossless: a row on screen keeps the bitmap its layer shows,
 /// and the next pass draws what is missing.

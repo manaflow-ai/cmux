@@ -22,6 +22,7 @@ DOC = """# Threading model
 | `cmux-next vsync <display>` | app | Frame ticks | yes |
 | `mux-conn` of the app's UI connection | daemon | Reads the person's keys | no |
 | `mux-line-out`, `mux-pty-input` | daemon | Key in, echo out | yes |
+| `mux-io` | daemon | Reads and writes every local connection | yes |
 | `surface-<id>-reader`, `surface-frames` | daemon | PTY output | yes |
 
 ## Lanes
@@ -286,6 +287,28 @@ class DaemonJudgeTests(unittest.TestCase):
         found = qos.daemon_findings(daemon_snapshot(rows), {}, "visible", self.closed)
         self.assertEqual([(f["kind"], f["evidence"][0]["tid"]) for f in found],
                          [("ui-connection", 12), ("automation-class", 14)])
+
+    def test_the_persons_local_connection_is_judged_by_the_class_its_lines_run_at(self):
+        # A local connection holds no thread; `connections` gives its lines' class.
+        app = dict(connection(1, "user", 900, "person"), lines_qos="user-interactive")
+        attach = dict(connection(2, "agent", 900, "person"), lines_qos="user-initiated")
+        cli = dict(connection(3, "agent", 4242, "automation"), lines_qos="utility")
+        relay = dict(connection(4, "page", 900, "automation"), lines_qos="user-initiated")
+        snapshot = daemon_snapshot([daemon_row("mux-io", "user-interactive", 11, nice=-10)])
+        snapshot["connections"] = [app, attach, cli, relay]
+        seen = set()
+        found = qos.daemon_findings(snapshot, {}, "visible", self.closed, seen=seen)
+        self.assertEqual([(f["kind"], f["name"], f["evidence"][0]["client"]) for f in found],
+                         [("ui-connection", "lines", 2), ("automation-class", "lines", 4)])
+        self.assertIn("its lines run at user-initiated, not user-interactive", found[0]["detail"])
+        self.assertEqual(seen, {"person", "automation"})
+
+    def test_an_app_daemon_whose_app_connection_holds_no_thread_sees_the_person(self):
+        snapshot = daemon_snapshot([daemon_row("mux-io", "user-interactive", 11, nice=-10)])
+        snapshot["connections"] = [dict(connection(1, "user", 900, "person"), lines_qos="user-interactive")]
+        findings, result = qos.judge(app_daemon=snapshot, doc_text=DOC)
+        self.assertEqual(findings, [])
+        self.assertIs(result["parts"]["run4_ui_connection"], True)
 
     def test_a_mac_daemon_without_a_task_role(self):
         snapshot = daemon_snapshot([], mac=True)

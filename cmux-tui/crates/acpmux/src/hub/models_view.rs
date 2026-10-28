@@ -19,6 +19,7 @@
 use super::*;
 use crate::catalog::{Catalog, CatalogHarness, CatalogService, HarnessModel};
 use crate::config::HarnessKind;
+use crate::no_panic::JsonExt;
 use std::sync::PoisonError;
 
 /// The curated catalog entry for a profile (by its name, else its family).
@@ -60,7 +61,7 @@ fn curated_json(model: &HarnessModel, catalog: &Catalog) -> Value {
             }
         }
     }
-    v["curated"] = json!(true);
+    v.set("curated", json!(true));
     v
 }
 
@@ -81,7 +82,7 @@ fn reported_json((id, name): &(String, String), catalog: &Catalog) -> Value {
 
 /// Adds `entry` unless its id is listed; a listed declared model gets the curated fields it lacks.
 fn push_or_fill(models: &mut Vec<Value>, entry: Value) {
-    let Some(existing) = models.iter_mut().find(|m| m["id"] == entry["id"]) else {
+    let Some(existing) = models.iter_mut().find(|m| m.field("id") == entry.field("id")) else {
         models.push(entry);
         return;
     };
@@ -150,7 +151,7 @@ fn harness_catalog_json(curated: &CatalogHarness) -> Value {
     let mut v = json!({"id": curated.id, "name": curated.name, "brand": curated.brand, "families": curated.families, "modelSource": curated.model_source});
     for (key, value) in [("docsUrl", &curated.docs_url), ("defaultModel", &curated.default_model)] {
         if let Some(value) = value {
-            v[key] = json!(value);
+            v.set(key, json!(value));
         }
     }
     v
@@ -195,10 +196,10 @@ impl Hub {
             super::model_availability::mark_unavailable(&mut models, name, &refused);
             let mut entry = json!({"harness": name, "kind": profile.kind, "isDefault": cfg.default_harness.as_deref() == Some(name), "models": models});
             if let Some(reason) = probe_errors.get(name) {
-                entry["probeError"] = json!(reason);
+                entry.set("probeError", json!(reason));
             }
             if let Some(curated) = &curated {
-                entry["catalog"] = harness_catalog_json(curated);
+                entry.set("catalog", harness_catalog_json(curated));
             }
             out.push(entry);
         }
@@ -221,12 +222,12 @@ impl Hub {
                     .map(|(name, _)| name)
                     .collect();
                 let mut v = harness_catalog_json(h);
-                v["profiles"] = json!(profiles);
+                v.set("profiles", json!(profiles));
                 v
             })
             .collect();
         let mut summary = self.catalog.summary();
-        summary["harnesses"] = json!(list);
+        summary.set("harnesses", json!(list));
         summary
     }
 }
