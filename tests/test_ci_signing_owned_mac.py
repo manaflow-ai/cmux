@@ -283,6 +283,10 @@ class SigningOwnedMacTests(unittest.TestCase):
         self.assertEqual(signing_runner.drained_runner(runners, [SIDE]), (
             "", f"no mini with an idle `{SIDE}` runner is drained now"))
         self.assertEqual(signing_runner.drained_runner(runners, ["blacksmith-6vcpu-macos-26"])[0], "")
+        slot = "glaeda-nightly-std-xcode-26.6"  # glaeda's nightly slot, which CI_NIGHTLY_NEXT_BUILD_RUNNER may name
+        labels, why = signing_runner.drained_runner(
+            [runner("cmux20-glaeda-nightly", [slot, "glaeda-runner-cmux20-glaeda-nightly"])], [slot])
+        self.assertEqual(json.loads(labels), [slot, "glaeda-runner-cmux20-glaeda-nightly"], why)
         self.assertEqual(signing_runner.member("cmux13-glaeda-nightly-next"), "cmux13")
         self.assertEqual(signing_runner.member("blacksmith-runner"), "")
 
