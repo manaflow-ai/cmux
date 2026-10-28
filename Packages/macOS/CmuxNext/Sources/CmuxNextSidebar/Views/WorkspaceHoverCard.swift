@@ -36,6 +36,13 @@ final class WorkspaceHoverCardController: HoverCardSource {
         }
     }
     private var body: WorkspaceHoverCardView?
+    /// The default compact card: one row per inner tab. It is reused across
+    /// workspace targets just like the richer body.
+    private var tabBody: WorkspaceTabHoverCardView?
+    private var usesRichDetails: Bool {
+        if case .pinned = coordinator.machine.phase { return true } // explicit Show Resource Usage
+        return DesignSettings.shared.workspaceHoverCard.showsRichDetails
+    }
     /// The group headers' summary card body, reused group to group.
     private var groupBody: GroupHoverCardView?
     private var bodyID: HoverTargetID?
@@ -98,6 +105,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
                                 anchor: anchor)
         }
         guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardBand(for: id),
+              usesRichDetails || list.hoverCardRow(id)?.tabs.isEmpty == false,
               !Self.onPullRequestBadge((list.rowViews[.workspace(id)] as? WorkspaceRowView)?.pullRequests, window: window, screenPoint: screenPoint)
         else { return nil }
         return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
@@ -136,10 +144,28 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
         if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.hoverCardRow(ws) else { return nil }
+        let options = DesignSettings.shared.workspaceHoverCard
+        if !usesRichDetails {
+            // A single tab still carries useful focus, cwd and status. Empty
+            // workspaces have no meaningful popover rows, so let the card go.
+            guard !workspace.tabs.isEmpty else { coordinator.dismiss(.action); return nil }
+            let body = tabBody ?? WorkspaceTabHoverCardView()
+            tabBody = body
+            body.configure(title: workspace.title, tabs: workspace.tabs)
+            body.onSelect = { [weak self, weak list] tabID in
+                guard let self, let list, list.hoverCardRow(ws)?.tabs.contains(where: { $0.id == tabID }) == true else { return }
+                list.model.send(.selectTab(workspace: ws, tab: tabID))
+                self.coordinator.dismiss(.action)
+            }
+            bodyID = id
+            return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list, interactive: true) { [weak body] in
+                body?.applyColors()
+            }
+        }
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
+        if !resources.isOpen { hoverCardActivated(id) }
         let machine = list.sections.values.lazy.compactMap(\.machine).first { $0.id == workspace.machineID }
-        let options = DesignSettings.shared.workspaceHoverCard
         let wantsTimeline = options.layout != .classic
         let timeline = wantsTimeline ? (timelineSource?(ws, Self.timelineReadLimit) ?? []) : []
         // The workspace on screen needs no digest: the person is looking at it.
@@ -186,6 +212,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     func hoverCardActivated(_ id: HoverTargetID) {
         guard let ws = workspaceID(id) else { return }
+        guard usesRichDetails else { return }
         resources.open(.workspace(ws.rawValue)) { [weak self] report in
             guard let self, self.bodyID == id else { return }
             self.body?.setResources(report)
@@ -196,6 +223,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func hoverCardDeactivated(_ id: HoverTargetID) {
         resources.close()
         body?.resetResourceHistory()
+        tabBody?.onSelect = nil
         bodyID = nil
         releaseCustom()
         updateTicker()
@@ -224,7 +252,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// Arms the next one-second tick while a card with a running time shows, stops it otherwise.
     private func updateTicker() {
         // A group's summary card has no running time: only a workspace card ticks.
-        guard let id = bodyID, workspaceID(id) != nil, let body, let delay = body.nextTickDelay else {
+        guard usesRichDetails, let id = bodyID, workspaceID(id) != nil, let body, let delay = body.nextTickDelay else {
             ticker.cancel()
             return
         }
@@ -242,6 +270,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func tokensChanged() {
         coordinator.dismiss(.action)
         body = nil
+        tabBody = nil
         groupBody = nil
         bodyID = nil
     }

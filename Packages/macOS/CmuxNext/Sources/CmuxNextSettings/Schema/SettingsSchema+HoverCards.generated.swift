@@ -12,6 +12,9 @@ extension HoverCardSettings {
     /// `sidebar.hoverCards.layout`: u3320 (Lawrence 2026-10-19): the workspace card's design (plans/cmux-next/hover-card-history/DESIGN.md). timeline (default): stats and a scrollable history of prompts, waits and finished turns; compact: the facts and the last three moments; log: the history alone; classic: the card before the history; minimal: title, status, last prompt.
     public nonisolated static let layoutPath = ["sidebar", "hoverCards", "layout"]
     public nonisolated static let layoutDefault: HoverCardLayoutSetting = .timeline
+    /// `sidebar.hoverCards.richDetails`: Off by default: the workspace hover card shows its inner tabs. On: preserve the richer card with prompts, needs-input state and workspace facts.
+    public nonisolated static let richDetailsPath = ["sidebar", "hoverCards", "richDetails"]
+    public nonisolated static let richDetailsDefault = false
     /// `sidebar.hoverCards.sections.timings`: u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.
     public nonisolated static let timingsPath = ["sidebar", "hoverCards", "sections", "timings"]
     public nonisolated static let timingsDefault = true
@@ -106,6 +109,16 @@ nonisolated enum HoverCardSettingsSchema {
                 ]),
                 default: .string(HoverCardSettings.layoutDefault.rawValue),
                 keywords: ["hover", "card", "workspace", "layout", "history", "timeline", "prompts"]
+            ),
+            SettingDescriptor(
+                HoverCardSettings.richDetailsPath,
+                section: .appearance,
+                group: group,
+                title: SettingsText.keyed("settings.sidebar.hoverCards.richDetails", "Show Rich Workspace Details"),
+                help: SettingsText.keyed("settings.sidebar.hoverCards.richDetails.help", "Show prompts, needs-input state and workspace facts instead of the inner tabs when hovering a workspace."),
+                kind: .toggle,
+                default: .bool(HoverCardSettings.richDetailsDefault),
+                keywords: ["hover", "card", "workspace", "details", "prompt", "needs input", "tabs"]
             ),
             SettingDescriptor(
                 HoverCardSettings.timingsPath,

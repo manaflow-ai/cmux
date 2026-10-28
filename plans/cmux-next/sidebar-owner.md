@@ -468,6 +468,8 @@ the gap, no row left out of place after drop or cancel).
 
 ## Codex follow-up
 
+- 2026-10-24: Leo requested "default just only show the inner tabs on hover and be able to go to and focus them when hovering ovre workspaces." Codex keeps the richer prompt and needs-input card behind the default-off `sidebar.hoverCards.richDetails` toggle. The popover keeps the shared glass, colors and fonts; the rail and Chief sidebar stay as they are.
+
 - 2026-10-23: Codex #24513 follow-up keeps the `inside` Chrome corner inset for a parent group whose rows are only nested groups; the regression test covers the previously unmeasured parent rail.
 
 - 2026-10-23: Leo's 441 follow-up keeps the group rail on the header's left edge and adds only the tapered top cut where the rail leaves the bar.
@@ -531,3 +533,4 @@ Workspace previews anchor on the drawn row fill, including pinned workspace pill
 ## Group chevron turns on a fold (2026-10-28)
 
 - Lawrence msg 15763 ("should animate rotation of the chevron when i open/close group", screenshot of a group header). Before: the header swapped a right and a down chevron image in one frame. Now one right-pointing glyph (a layer `DisclosureChevronView` owns, so it turns about its center) turns a quarter turn on `Motion.sidebar` with the fold's springs; Reduce Motion snaps it. Guard: `GroupChevronTurnTests`. Look, frame and trailing column unchanged.
+- 2026-10-24: The interactive inner-tab popover keeps its panel alive while the pointer crosses into the card; row focus still follows the shared tab-selection path.

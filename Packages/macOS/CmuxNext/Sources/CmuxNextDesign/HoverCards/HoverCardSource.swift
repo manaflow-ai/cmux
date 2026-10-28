@@ -18,12 +18,25 @@ public struct HoverCardBody {
     public var placement: HoverCardPlacement
     public weak var themeAnchor: NSView?
     public var applyTheme: () -> Void
-    public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, applyTheme: @escaping () -> Void) {
+    /// An interactive body receives mouse events inside the card and may consume
+    /// keyboard navigation before the coordinator dismisses the card.
+    public var interactive: Bool
+    public init(view: NSView, placement: HoverCardPlacement, themeAnchor: NSView?, interactive: Bool = false,
+                applyTheme: @escaping () -> Void) {
         self.view = view
         self.placement = placement
         self.themeAnchor = themeAnchor
+        self.interactive = interactive
         self.applyTheme = applyTheme
     }
+}
+
+/// A card body that handles keyboard navigation while the card window remains
+/// non-activating. The coordinator calls this from its local event monitor.
+@MainActor
+public protocol HoverCardInteractiveBody: AnyObject {
+    /// Returns true when the body consumed `event`.
+    func handleHoverCardKeyDown(_ event: NSEvent) -> Bool
 }
 
 /// A card body that can say what it shows, for `debug.hover_cards` (GUI proofs read it).

@@ -11,6 +11,8 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
     public var delayMilliseconds = HoverCardSettings.delayDefault
     /// The workspace card's design (`sidebar.hoverCards.layout`).
     public var layout = HoverCardSettings.layoutDefault
+    /// Whether to preserve the richer workspace card instead of listing inner tabs.
+    public var showsRichDetails = HoverCardSettings.richDetailsDefault
     /// `sidebar.hoverCards.sections.*`: which parts the workspace card shows.
     public var showsTimings = HoverCardSettings.timingsDefault
     public var showsPrompts = HoverCardSettings.promptsDefault
@@ -40,6 +42,7 @@ public nonisolated struct HoverCardSettings: Sendable, Equatable {
         if let value = reader.bool("enabled") { settings.enabled = value }
         if let value = reader.number("delay", range: delayRange) { settings.delayMilliseconds = value }
         if let value = reader.choice("layout", HoverCardLayoutSetting.self) { settings.layout = value }
+        if let value = reader.bool("richDetails") { settings.showsRichDetails = value }
         if let value = reader.number("maxRows", range: maxRowsRange) { settings.maxRows = value.rounded() }
         diagnostics += reader.diagnostics
         if var sections = ConfigFieldReader(root, at: ["sidebar", "hoverCards", "sections"], diagnostics: &diagnostics) {

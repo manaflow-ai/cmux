@@ -12,7 +12,8 @@ import CmuxNextWakeupsTestSupport
     private static func sidebar(clock: ManualClock) -> (SidebarListView, NSWindow, HoverCardCoordinator, [SidebarRow]) {
         _ = NSApplication.shared
         let workspaces = (1...3).map {
-            SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "workspace-\($0)", directory: "~/Projects/site-\($0)", branch: "main")
+            SidebarWorkspace(id: WorkspaceID("ws-\($0)"), title: "workspace-\($0)", directory: "~/Projects/site-\($0)", branch: "main",
+                            tabs: [SidebarTab(id: TabID("tab-\($0)"), title: "terminal")])
         }
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: workspaces.map { .workspace($0) })],
@@ -84,6 +85,9 @@ import CmuxNextWakeupsTestSupport
 
     /// The history is longer than the card: the wheel on it scrolls the history, and the card stays.
     @Test func aScrollOnALongHistoryScrollsTheHistory() async throws {
+        let richDetails = DesignSettings.shared.workspaceHoverCard.showsRichDetails
+        DesignSettings.shared.workspaceHoverCard.showsRichDetails = true
+        defer { DesignSettings.shared.workspaceHoverCard.showsRichDetails = richDetails }
         let clock = ManualClock()
         let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
         let now = Date()

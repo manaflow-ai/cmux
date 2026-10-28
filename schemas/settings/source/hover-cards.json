@@ -120,6 +120,29 @@
           ]
         },
         {
+          "key": "sidebar.hoverCards.richDetails",
+          "note": "Off by default: the workspace hover card shows its inner tabs. On: preserve the richer card with prompts, needs-input state and workspace facts.",
+          "title": {
+            "key": "settings.sidebar.hoverCards.richDetails",
+            "text": "Show Rich Workspace Details"
+          },
+          "help": {
+            "key": "settings.sidebar.hoverCards.richDetails.help",
+            "text": "Show prompts, needs-input state and workspace facts instead of the inner tabs when hovering a workspace."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "hover",
+            "card",
+            "workspace",
+            "details",
+            "prompt",
+            "needs input",
+            "tabs"
+          ]
+        },
+        {
           "key": "sidebar.hoverCards.sections.timings",
           "note": "u3320 (Lawrence 2026-10-19): which parts a workspace hover card shows. On by default.",
           "title": {

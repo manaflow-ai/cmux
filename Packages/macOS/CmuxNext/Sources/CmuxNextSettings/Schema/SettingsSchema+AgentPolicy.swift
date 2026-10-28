@@ -182,7 +182,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.noFade", "sidebar.showChats", "sidebar.sessionTree",
-        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.maxRows",
+        "sidebar.cards.tips", "sidebar.hoverCards.enabled", "sidebar.hoverCards.delay", "sidebar.hoverCards.layout", "sidebar.hoverCards.richDetails", "sidebar.hoverCards.maxRows",
         "sidebar.hoverCards.sections.timings", "sidebar.hoverCards.sections.prompts", "sidebar.hoverCards.sections.waiting",
         "sidebar.hoverCards.sections.git", "sidebar.hoverCards.sections.ports", "sidebar.hoverCards.groups.workspaceGroups", "sidebar.hoverCards.groups.tabGroups",
         "sidebar.hoverCards.groups.delay", "sidebar.hoverCards.groups.order", "sidebar.hoverCards.groups.maxMembers",

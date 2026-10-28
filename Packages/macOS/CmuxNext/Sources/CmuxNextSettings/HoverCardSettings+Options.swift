@@ -5,6 +5,7 @@ extension HoverCardSettings {
     public var workspaceCardOptions: WorkspaceHoverCardOptions {
         var options = WorkspaceHoverCardOptions()
         options.layout = WorkspaceHoverCardOptions.Layout(rawValue: layout.rawValue) ?? .timeline
+        options.showsRichDetails = showsRichDetails
         options.showsTimings = showsTimings
         options.showsPrompts = showsPrompts
         options.showsWaiting = showsWaiting
