@@ -111,6 +111,7 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
           const page = await open(name, above, below);
           const box = await geometry(page);
           expect(box.lower.top).toBeGreaterThan(box.upper.bottom);
+          const nearestRow = box.gapY - box.upper.bottom <= box.lower.top - box.gapY ? "upper" : "lower";
           for (const x of [box.center, box.left, box.right]) {
             await drag(page, { x, y: box.gapY }, box.after);
             expect((await selected(page)).length).toBeGreaterThan(0);
@@ -122,8 +123,8 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
                 length: s.anchorNode?.textContent?.length,
               };
             });
-            expect(anchor.row).toBe("upper");
-            expect(anchor.offset).toBe(anchor.length ?? -1);
+            expect(anchor.row).toBe(nearestRow);
+            expect(anchor.offset).toBe(nearestRow === "upper" ? (anchor.length ?? -1) : 0);
             // Restart from an existing selection, then a plain gap click must clear it.
             await drag(page, { x, y: box.gapY }, box.lower);
             expect((await selected(page)).length).toBeGreaterThan(0);
@@ -178,13 +179,25 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
       const toggle = page.locator('[data-row-id="upper"] .cv-tool.is-toggle');
       await toggle.click();
       expect(await toggle.getAttribute("aria-expanded")).toBe("false");
+      await paint(page);
       await page.evaluate(() => {
         document.querySelector('[data-row-id="lower"] .cv-user__text')!.addEventListener("pointerdown", (event) => {
           document.body.dataset.textPrevented = String(event.defaultPrevented);
         });
       });
-      const prompt = (await page.locator('[data-row-id="lower"] .cv-user__text').boundingBox())!;
-      await drag(page, { x: prompt.x + 30, y: prompt.y + 8 }, end);
+      const textPoints = await page.evaluate(() => {
+        const point = (selector: string) => {
+          const range = document.createRange();
+          range.selectNodeContents(document.querySelector(selector)!);
+          const rect = Array.from(range.getClientRects()).find((box) => box.width > 0 && box.height > 0)!;
+          return { x: rect.left + 30, y: rect.top + rect.height / 2 };
+        };
+        return {
+          prompt: point('[data-row-id="lower"] .cv-user__text'),
+          after: point('[data-row-id="after"] .cv-md'),
+        };
+      });
+      await drag(page, textPoints.prompt, textPoints.after);
       expect(await page.locator("body").getAttribute("data-text-prevented")).toBe("false");
       expect((await selected(page)).length).toBeGreaterThan(0);
       expect(await selected(page)).not.toContain("Invisible duplicate");
@@ -222,12 +235,11 @@ await requireBrowserLane("transcript-gap-select-browser.test.ts", async () => {
         `http://127.0.0.1:${port}${galleryFrame("agent-pane.gutter-select", { variant: "gaps-ready", width: 1280, height: 560, frame: "component", theme: "Apple System Colors", locale: "en" })}`,
       );
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
-      await page.locator('[data-row-id="upper"] .cv-tool.is-toggle').click();
       await paint(page);
       const box = await geometry(page);
       await drag(page, { x: box.center, y: box.gapY }, box.after);
       const hasSelection = (await selected(page)).length > 0;
-      if (label === "after") expect(hasSelection).toBe(true);
+      expect(hasSelection).toBe(label === "after");
       console.log(
         `GAP_GALLERY_CAPTURE_${label}=${(await page.locator(".acpmux-shell").screenshot()).toString("base64")}`,
       );

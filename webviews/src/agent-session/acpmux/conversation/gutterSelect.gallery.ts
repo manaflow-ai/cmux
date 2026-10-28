@@ -94,13 +94,14 @@ const gapVariants = Object.fromEntries(
             }
             throw new Error(`No visible ${id} text`);
           };
-          const upper = rects("upper").at(-1)!;
-          const lower = rects("lower")[0]!;
-          const column = ctx.document.querySelector('[data-row-id="upper"]')!.getBoundingClientRect();
+          const after = rects("after")[0]!;
+          const upper = ctx.document.querySelector<HTMLElement>('[data-row-id="upper"]')!;
+          const column = upper.getBoundingClientRect();
+          const padding = Number.parseFloat(ctx.document.defaultView!.getComputedStyle(upper).paddingBottom);
           await drag(
             ctx,
-            { x: (column.left + column.right) / 2, y: (upper.bottom + lower.top) / 2 },
-            { x: lower.left + 180, y: lower.top + lower.height / 2 },
+            { x: (column.left + column.right) / 2, y: column.bottom - Math.max(1, padding / 2) },
+            { x: after.left + 180, y: after.top + after.height / 2 },
           );
           if (ctx.document.getSelection()?.isCollapsed) throw new Error("Gap drag selected no text");
         },
@@ -120,8 +121,8 @@ export default agentPaneEntry({
   variants: {
     ...gapVariants,
     "gaps-ready": {
-      note: "Public tool, prompt, and agent message fixtures for the same before/after gap-selection capture.",
-      snapshot: chat(gapPair("tool", "prompt"), { title: "Select through transcript gaps" }),
+      note: "Public agent message fixtures for the same before/after gap-selection capture; the pair variants also cover tools and prompts.",
+      snapshot: chat(gapPair("agent", "agent"), { title: "Select through transcript gaps" }),
     },
     "from-left-margin": {
       note: "Pressed in the left margin beside the first answer and dragged down into the third: the selection runs from the start of the line beside the press through all three answers, as a document's margin selects.",
