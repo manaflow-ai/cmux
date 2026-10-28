@@ -61,6 +61,26 @@ final class InternalPageView: NSView {
     }
     /// The provider's view, made now when the tab has not shown yet.
     var content: NSView { build().content }
+
+    /// Told this view's page when it is freed on the main thread with content still in it (``detachContent()``
+    /// never ran): its owner let it go without the teardown the store does (a report only).
+    var onFreedAttached: (@MainActor (InternalPageID) -> Void)?
+
+    /// Takes every subview out (the content, its bar, a picture) while this view lives; the store calls it when the
+    /// tab's view goes (close, discard). A page must never leave its hierarchy inside this view's `-[NSView dealloc]`:
+    /// a hidden tab's page then loses its hidden ancestor there, and the CEF fork's parent tracker stores a weak
+    /// reference to the deallocating view and aborts the app (cmux21 cmux-2026-10-28-114922.ips, a closed Settings tab).
+    func detachContent() {
+        for subview in subviews { subview.removeFromSuperview() }
+    }
+
+    // cx-t7hu pattern: not an isolated deinit (a runtime hop traps when released inside an action's task-local scope).
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if !subviews.isEmpty { onFreedAttached?(page) }
+        }
+    }
     /// The native bar above the content (below it, ``toolbarPosition``); it sets its own height.
     /// Nil until the content is made.
     var topBar: NSView? {
