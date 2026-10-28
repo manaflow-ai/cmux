@@ -52,4 +52,20 @@ import Testing
         _ = cache.text(for: date)
         #expect(counting.calls == 2)
     }
+
+    /// The system posts the locale and time zone changes on any thread; the
+    /// shared cache still empties, on the main actor (strict-4).
+    @MainActor @Test func aLocaleChangePostedOffMainEmptiesTheSharedCache() async {
+        _ = ConversationShortTime.text(for: Date(timeIntervalSinceReferenceDate: 800_000_000))
+        #expect(ConversationShortTime.cache.count > 0)
+        await withCheckedContinuation { (posted: CheckedContinuation<Void, Never>) in
+            DispatchQueue(label: "ConversationShortTimeTests.poster", qos: .utility).async {
+                NotificationCenter.default.post(name: NSLocale.currentLocaleDidChangeNotification, object: nil)
+                posted.resume()
+            }
+        }
+        // The emptying task was queued on the main actor before this test resumed.
+        for _ in 0..<100 where ConversationShortTime.cache.count > 0 { await Task.yield() }
+        #expect(ConversationShortTime.cache.count == 0)
+    }
 }
