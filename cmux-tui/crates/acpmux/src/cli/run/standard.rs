@@ -295,7 +295,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     status_ok && (!pending || pend) && tag_ok && since_ok
                 });
                 if let Some(limit) = limit {
-                    sessions.truncate(limit);
+                    sessions.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
                 }
                 if let Some(fields) = fields.as_deref() {
                     sessions = sessions.into_iter().map(|s| project_fields(&s, fields)).collect();

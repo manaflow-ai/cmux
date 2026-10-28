@@ -254,8 +254,8 @@ pub enum Command {
         #[arg(long)]
         tag: Option<String>,
         /// Return at most N sessions, newest first.
-        #[arg(long, value_name = "N", value_parser = clap::value_parser!(usize).range(1..))]
-        limit: Option<usize>,
+        #[arg(long, value_name = "N", value_parser = clap::value_parser!(u64).range(1..))]
+        limit: Option<u64>,
         /// Select comma-separated fields from each session record.
         #[arg(long, value_name = "FIELD[,FIELD…]")]
         fields: Option<String>,
