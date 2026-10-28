@@ -61,9 +61,11 @@ function fakeStripe(input: {
   return client;
 }
 
-function recover(client: ReturnType<typeof fakeStripe>, applySubscriptionUpdate = mock(async (_: Stripe.Subscription) => undefined)) {
+function recover(
+  client: ReturnType<typeof fakeStripe>,
+  applySubscriptionUpdate: (subscription: Stripe.Subscription) => Promise<unknown> = async () => undefined,
+) {
   return {
-    applySubscriptionUpdate,
     outcome: recoverFailedSubscriptionPayments("cus_1", {
       stripe: () => client as unknown as Pick<Stripe, "customers" | "subscriptions" | "invoices">,
       applySubscriptionUpdate,
@@ -87,13 +89,14 @@ describe("recoverFailedSubscriptionPayments", () => {
   // subscription's own default (the declined card from Checkout) outranks it.
   test("moves a past-due subscription off its declined card and pays the open invoice with the new one", async () => {
     const client = fakeStripe({ defaultPaymentMethod: NEW_CARD, subscriptions: [cmuxSubscription()] });
-    const { outcome, applySubscriptionUpdate } = recover(client);
+    const recorded: Stripe.Subscription[] = [];
+    const { outcome } = recover(client, async (subscription) => recorded.push(subscription));
 
     expect(await outcome).toBe("recovered");
     expect(client.subscriptions.update).toHaveBeenCalledWith("sub_1", { default_payment_method: NEW_CARD });
     expect(client.invoices.pay).toHaveBeenCalledWith("in_1", { payment_method: NEW_CARD });
-    expect(applySubscriptionUpdate).toHaveBeenCalledTimes(1);
-    expect(applySubscriptionUpdate.mock.calls[0]?.[0]).toMatchObject({ id: "sub_1", status: "active", default_payment_method: NEW_CARD });
+    expect(recorded).toHaveLength(1);
+    expect(recorded[0]).toMatchObject({ id: "sub_1", status: "active", default_payment_method: NEW_CARD });
   });
 
   test.each(["unpaid", "incomplete"])("settles a %s subscription the same way", async (status) => {
@@ -169,11 +172,11 @@ describe("recoverFailedSubscriptionPayments", () => {
 
   test("keeps the paid result when recording the subscription fails", async () => {
     const client = fakeStripe({ defaultPaymentMethod: NEW_CARD, subscriptions: [cmuxSubscription()] });
-    const applySubscriptionUpdate = mock(async () => {
+    const failingRecord = async () => {
       throw new Error("database unavailable");
-    });
+    };
 
-    expect(await recover(client, applySubscriptionUpdate).outcome).toBe("recovered");
+    expect(await recover(client, failingRecord).outcome).toBe("recovered");
   });
 
   test("propagates Stripe errors that are not card declines", async () => {

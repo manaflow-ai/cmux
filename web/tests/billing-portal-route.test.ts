@@ -79,7 +79,11 @@ mock.module("../db/client", () => ({
 // The Stripe side of a past-due subscription for the payment method return.
 let customerDefaultPaymentMethod: string | null = null;
 let providerSubscriptions: Array<Record<string, unknown>> = [];
-const payInvoice = mock(async (id: string) => ({ id, status: "paid" }));
+let declineInvoicePayment = false;
+const payInvoice = mock(async (id: string, _params?: unknown) => {
+  if (declineInvoicePayment) throw Object.assign(new Error("Your card was declined."), { type: "StripeCardError" });
+  return { id, status: "paid" };
+});
 
 const resolvePersonalPlanSwitchPortalConfiguration = mock(async () => "bpc_switch");
 mock.module("../services/billing/stripe", () => ({
@@ -136,6 +140,7 @@ describe("billing portal route", () => {
     customerDefaultPaymentMethod = null;
     providerSubscriptions = [];
     payInvoice.mockClear();
+    declineInvoicePayment = false;
   });
 
   test("opens the portal's card form for flow=payment_method_update and returns through recovery", async () => {
@@ -178,9 +183,7 @@ describe("billing portal route", () => {
       id: "sub_pro", status: "past_due", metadata: { app: "cmux", plan: "pro" },
       default_payment_method: "pm_declined", latest_invoice: "in_failed",
     }];
-    payInvoice.mockImplementationOnce(async () => {
-      throw Object.assign(new Error("Your card was declined."), { type: "StripeCardError" });
-    });
+    declineInvoicePayment = true;
 
     const response = await GET(
       new NextRequest("https://cmux.test/api/billing/portal?flow=payment_method_return"),

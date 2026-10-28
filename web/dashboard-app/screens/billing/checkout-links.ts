@@ -33,3 +33,12 @@ export function teamCheckoutHref(teamId: string): string {
 export function teamPortalHref(teamId: string): string {
   return `/api/billing/portal?scope=team&teamId=${encodeURIComponent(teamId)}`;
 }
+
+/**
+ * The portal's card form for the personal account or a team. The route
+ * returns through a step that pays a failed renewal with the new card.
+ */
+export function paymentMethodHref(teamId?: string): string {
+  const flow = "flow=payment_method_update";
+  return teamId ? `${teamPortalHref(teamId)}&${flow}` : `/api/billing/portal?${flow}`;
+}

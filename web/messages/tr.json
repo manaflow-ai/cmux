@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Ödeme yönteminiz güncellendi ve bekleyen ödeme tamamlandı.",
+        "payment_failed": "Yeni ödeme yönteminiz kaydedildi ancak bekleyen ödeme reddedildi. Başka bir kart deneyin.",
         "team_admin_required": "Bu ekibin faturalandırmasını yalnızca ekip yöneticileri yönetebilir.",
         "team_not_found": "Bu ekip kullanılamıyor. Ekipten ayrılmış olabilirsiniz veya ekip silinmiş olabilir.",
         "authorization_unavailable": "Ekip izinleri kontrol edilemedi. Biraz sonra tekrar deneyin.",

@@ -33,6 +33,13 @@ import {
   teamBillingReturnURL,
   teamPortalSession,
 } from "../../../../services/billing/teamPortal";
+import {
+  PAYMENT_METHOD_RETURN_FLOW,
+  PAYMENT_METHOD_UPDATE_FLOW,
+  paymentMethodUpdatePortalSession,
+  recoverFailedSubscriptionPayments,
+  type PaymentRecoveryOutcome,
+} from "../../../../services/billing/paymentRecovery";
 
 
 const ANONYMOUS_IF_EXISTS = "anonymous-if-exists[deprecated]" as const;
@@ -72,11 +79,17 @@ export async function GET(request: NextRequest) {
     const requestedTeamId = requestedScope === "team"
       ? explicitTeamId(request.nextUrl.searchParams.get("teamId"))
       : null;
-    if (requestedTeamId) return await explicitTeamPortal(request, user, requestedTeamId);
+    const flow = paymentMethodFlow(request.nextUrl.searchParams.get("flow"));
+    if (requestedTeamId) return await explicitTeamPortal(request, user, requestedTeamId, flow);
     // Legacy `?scope=team` without a team id: the implicit billing team, which
     // still needs the caller to be its admin.
     const team = requestedScope === "team" ? await resolveBillingTeam(user) : null;
-    if (team?.id) return await explicitTeamPortal(request, user, team.id);
+    if (team?.id) return await explicitTeamPortal(request, user, team.id, flow);
+    if (flow) {
+      const personalCustomerId = await stripeCustomerIdForStackUser(user.id);
+      if (!personalCustomerId) return pricingRedirect(request, "unavailable");
+      return await paymentMethodFlowResponse(request, { customerId: personalCustomerId, teamId: null, flow });
+    }
     const target = request.nextUrl.searchParams.get("plan");
     const wantsSwitch = !team && request.nextUrl.searchParams.get("flow") === "switch_plan" && (target === "go" || target === "max" || target === "pro");
     if (wantsSwitch && target === "go" && !(await isGoPlanEnabled(user.id))) {
@@ -140,12 +153,60 @@ async function explicitTeamPortal(
   request: NextRequest,
   user: TeamBillingAccessUser,
   teamId: string,
+  flow: PaymentMethodFlow | null,
 ): Promise<NextResponse> {
   const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: true });
   if (!access.ok) return teamBillingRedirect(request, teamId, access.error);
+  if (flow) {
+    const customerId = await stripeCustomerIdForStackTeam(teamId);
+    if (!customerId) return teamBillingRedirect(request, teamId, "nosub");
+    return await paymentMethodFlowResponse(request, { customerId, teamId, flow });
+  }
   const session = await teamPortalSession({ teamId, origin: requestOrigin(request) });
   if (!session) return teamBillingRedirect(request, teamId, "nosub");
   return NextResponse.redirect(session.url, 302);
+}
+
+type PaymentMethodFlow = typeof PAYMENT_METHOD_UPDATE_FLOW | typeof PAYMENT_METHOD_RETURN_FLOW;
+
+function paymentMethodFlow(raw: string | null): PaymentMethodFlow | null {
+  return raw === PAYMENT_METHOD_UPDATE_FLOW || raw === PAYMENT_METHOD_RETURN_FLOW ? raw : null;
+}
+
+/** The dashboard banner for each recovery outcome; none when nothing changed. */
+const PAYMENT_RECOVERY_BANNER: Readonly<Record<PaymentRecoveryOutcome, string | null>> = {
+  recovered: "payment_updated",
+  payment_failed: "payment_failed",
+  no_payment_method: null,
+  nothing_due: null,
+};
+
+/**
+ * `flow=payment_method_update` opens the portal on its card form and returns
+ * to `flow=payment_method_return`, which settles any failed subscription with
+ * the saved card and shows the result on the billing dashboard.
+ */
+async function paymentMethodFlowResponse(
+  request: NextRequest,
+  input: { readonly customerId: string; readonly teamId: string | null; readonly flow: PaymentMethodFlow },
+): Promise<NextResponse> {
+  const origin = requestOrigin(request);
+  if (input.flow === PAYMENT_METHOD_UPDATE_FLOW) {
+    const returnURL = new URL("/api/billing/portal", origin);
+    returnURL.searchParams.set("flow", PAYMENT_METHOD_RETURN_FLOW);
+    if (input.teamId) {
+      returnURL.searchParams.set("scope", "team");
+      returnURL.searchParams.set("teamId", input.teamId);
+    }
+    const session = await paymentMethodUpdatePortalSession({ customerId: input.customerId, returnURL: returnURL.toString() });
+    return NextResponse.redirect(session.url, 302);
+  }
+  const outcome = await recoverFailedSubscriptionPayments(input.customerId);
+  const dashboard = new URL("/dashboard/billing", origin);
+  if (input.teamId) dashboard.searchParams.set("team", input.teamId);
+  const banner = PAYMENT_RECOVERY_BANNER[outcome];
+  if (banner) dashboard.searchParams.set("billing", banner);
+  return NextResponse.redirect(dashboard, 302);
 }
 
 function teamBillingRedirect(

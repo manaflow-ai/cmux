@@ -9,7 +9,7 @@ import type { SubscriptionPrice } from "@/services/billing/subscriptionPrice";
 import { formatBillingDate } from "./billing-format";
 import { CancelPlanDialog } from "./cancel-plan-dialog";
 import { ChangePlanDialog } from "./change-plan-dialog";
-import { personalCheckoutHref, teamCheckoutHref, teamPortalHref } from "./checkout-links";
+import { paymentMethodHref, personalCheckoutHref, teamCheckoutHref, teamPortalHref } from "./checkout-links";
 import { type PlanCard, planCardPrice, sharedUnavailableReason, type SwitchPlanId } from "./plan-model";
 
 /** Personal scope, or the team whose plan this is. */
@@ -141,7 +141,7 @@ export function PlanPicker({
       {canManagePayment ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {/* The portal route creates a Stripe session: a full document navigation. */}
-          <a href={portalHref} className={settingsButtonClass("secondary", "sm")}>{t("paymentMethod")}</a>
+          <a href={paymentMethodHref(teamId)} className={settingsButtonClass("secondary", "sm")}>{t("paymentMethod")}</a>
           <a href={portalHref} className={settingsButtonClass("ghost", "sm")}>{t("invoices")}</a>
         </div>
       ) : null}

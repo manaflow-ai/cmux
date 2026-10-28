@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Votre moyen de paiement a été mis à jour et le paiement en attente a été effectué.",
+        "payment_failed": "Votre nouveau moyen de paiement a été enregistré, mais le paiement en attente a été refusé. Essayez une autre carte.",
         "team_admin_required": "Seuls les admins de l’équipe peuvent gérer la facturation de cette équipe.",
         "team_not_found": "Cette équipe n’est pas disponible. Vous l’avez peut-être quittée, ou elle a été supprimée.",
         "authorization_unavailable": "Impossible de vérifier les autorisations de l’équipe. Réessayez dans un instant.",

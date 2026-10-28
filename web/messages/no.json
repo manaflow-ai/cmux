@@ -523,6 +523,8 @@
         }
       },
       "banners": {
+        "payment_updated": "Betalingsmåten er oppdatert, og den utestående betalingen er gjennomført.",
+        "payment_failed": "Den nye betalingsmåten er lagret, men den utestående betalingen ble avvist. Prøv et annet kort.",
         "team_admin_required": "Bare teamadministratorer kan administrere faktureringen for dette teamet.",
         "team_not_found": "Det teamet er ikke tilgjengelig. Du kan ha forlatt det, eller det er slettet.",
         "authorization_unavailable": "Kunne ikke kontrollere teamtillatelsene. Prøv igjen om litt.",
