@@ -1,0 +1,14 @@
+[package]
+name = "cmux-vt-stream"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+description = "The per-chunk rewrite every parser of a terminal's output runs before ghostty-vt: xterm title stack and OSC 1 into OSC 2, and the mode resets at shell prompt marks (std and ghostty-vt)"
+
+[lints]
+workspace = true
+
+[dependencies]
+ghostty-vt.workspace = true

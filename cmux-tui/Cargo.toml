@@ -52,6 +52,8 @@ members = [
     "crates/cmux-memory",
     "crates/cmux-pty",
     "crates/cmux-holder",
+    "crates/cmux-vt-worker",
+    "crates/cmux-vt-stream",
     "crates/cmux-ipc",
     "crates/cmux-flow-trace",
     "crates/cmux-threads",
@@ -245,6 +247,7 @@ cmux-tui-image-paste = { path = "crates/cmux-tui-image-paste" }
 cmux-tui-hooks = { path = "crates/cmux-tui-hooks" }
 cmux-tui-util = { path = "crates/cmux-tui-util" }
 cmux-kitty-media = { path = "crates/cmux-kitty-media" }
+cmux-vt-stream = { path = "crates/cmux-vt-stream" }
 cmux-api-compat = { path = "crates/cmux-api-compat" }
 cmux-tui-remote-access = { path = "crates/cmux-tui-remote-access" }
 cmux-link = { path = "crates/cmux-link" }

@@ -6,7 +6,7 @@ use std::path::Path;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD;
-use cmux_kitty_media::{CHUNK_BASE64_BYTES, KittyMediaRewriter, Limits, MediaRefusal};
+use cmux_kitty_media::{CHUNK_BASE64_BYTES, FileMedium, KittyMediaRewriter, Limits, MediaRefusal};
 
 fn rewrite_all(input: &[u8]) -> Vec<u8> {
     let mut rewriter = KittyMediaRewriter::new();
@@ -341,4 +341,60 @@ fn borrowed_rewrite_matches_and_copies_nothing_without_a_command() {
     let mut scratch = Vec::new();
     let out = rewriter.rewrite_borrowed(plain, &mut scratch);
     assert!(std::ptr::eq(out, &plain[..]), "plain output is not copied");
+}
+
+/// A deferring rewriter fed `input` in pieces of `piece` bytes, with each
+/// read it asks for done by `answer` (the broker's side).
+fn rewrite_deferred(
+    input: &[u8],
+    piece: usize,
+    mut answer: impl FnMut(&cmux_kitty_media::MediaRequest) -> Result<Vec<u8>, MediaRefusal>,
+) -> Vec<u8> {
+    let mut rewriter = KittyMediaRewriter::deferring(Limits::default());
+    let mut out = Vec::new();
+    for mut part in input.chunks(piece) {
+        loop {
+            let consumed = rewriter.rewrite_until_media(part, &mut out);
+            part = &part[consumed..];
+            match rewriter.media_request() {
+                Some(request) => {
+                    let read = answer(request);
+                    rewriter.resume_media(read, &mut out);
+                }
+                None => break,
+            }
+        }
+    }
+    rewriter.finish(&mut out);
+    out
+}
+
+/// The sandboxed parser's rewriter never opens a file: it stops at each
+/// file-medium command, and the broker's answer gives exactly the bytes the
+/// in-process rewriter writes, at every read boundary, refusals included.
+#[test]
+fn a_deferring_rewriter_asks_for_each_read_and_matches_the_in_process_rewrite() {
+    let dir = tempfile::tempdir().unwrap();
+    let data = pattern(5_000);
+    let path = temp_file(dir.path(), "img.png", &data);
+    let mut input = b"a\x1b_Ga=T,t=d,m=1;QUJD\x1b\\".to_vec();
+    input.extend(file_command("a=T,f=100,i=3,t=f", &path));
+    input.extend_from_slice(b"mid");
+    input.extend(file_command("a=T,f=100,t=f", &dir.path().join("missing.png")));
+    input.extend_from_slice(b"\x1b_Ga=T,t=f,S=x;QUJD\x1b\\end");
+    let whole = rewrite_all(&input);
+    for piece in [1, 7, 64, input.len()] {
+        let mut asked = Vec::new();
+        let out = rewrite_deferred(&input, piece, |request| {
+            asked.push((request.medium, request.offset, request.size));
+            request.read(cmux_kitty_media::DEFAULT_MAX_FILE_BYTES)
+        });
+        assert_eq!(out, whole, "pieces of {piece}");
+        // A bad S key is refused without a read; the other two ask.
+        assert_eq!(asked, [(FileMedium::File, 0, 0), (FileMedium::File, 0, 0)]);
+    }
+    // A refused read passes the command through, as a failed open does.
+    let refused = rewrite_deferred(&input, input.len(), |_| Err(MediaRefusal::Forbidden));
+    let passed = commands(&refused).into_iter().filter(|(control, _)| control.contains("t=f"));
+    assert_eq!(passed.count(), 3);
 }
