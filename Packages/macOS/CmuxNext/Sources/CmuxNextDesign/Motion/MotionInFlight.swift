@@ -50,7 +50,8 @@ enum MotionInFlight {
         _ = DisplaySleep.shared
         let now = ProcessInfo.processInfo.systemUptime
         entries.removeAll { $0.done || $0.deadline < now }
-        let entry = Entry(settle: settle, completion: completion, deadline: now + seconds + expirySlack)
+        // The Motion Inspector's slow motion plays it out over `startScale` times as long (1 when off).
+        let entry = Entry(settle: settle, completion: completion, deadline: now + seconds * MotionInspector.startScale + expirySlack)
         entries.append(entry)
         return {
             entries.removeAll { $0 === entry }

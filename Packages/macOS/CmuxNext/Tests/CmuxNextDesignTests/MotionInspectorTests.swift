@@ -165,11 +165,11 @@ import Testing
     }
 
     @Test func theSidebarRowsKindListsOnlySidebarRowSites() {
-        let row = MotionInspectorRecord(id: 1, site: "CmuxNextSidebar/Views/SidebarDragSpring.swift:112", ownerType: nil, category: .sidebar,
+        let row = MotionInspectorRecord(id: 1, site: "CmuxNextSidebar/SidebarDragSpring.swift:112", ownerType: nil, category: .sidebar,
                                         kind: "spring.position", property: "position", from: nil, to: nil, curve: .stepped,
                                         runs: .renderServer, gated: true, start: 0, expectedEnd: nil)
         var hover = row
-        hover.site = "CmuxNextSidebar/Views/SidebarResizeHandle.swift:134"
+        hover.site = "CmuxNextSidebar/SidebarResizeHandle.swift:134"
         var tab = row
         tab.site = "CmuxNextTabs/TabMotion.swift:116"
         tab.category = .tabs

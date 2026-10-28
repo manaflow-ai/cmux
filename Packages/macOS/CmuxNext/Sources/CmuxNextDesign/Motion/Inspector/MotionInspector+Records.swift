@@ -124,6 +124,7 @@ extension MotionInspector {
         records.append(MotionInspectorRecord(id: nextID, site: site?.text, ownerType: ownerType, category: site?.category, kind: kind,
                                              property: property, from: from, to: to, curve: curve, runs: runs, gated: true,
                                              start: start, expectedEnd: end))
+        if records.count > Self.endedKept + Self.loopsKept + 64 { records = Self.pruned(records) }
         runningChanged()
         return nextID
     }

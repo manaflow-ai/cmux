@@ -174,7 +174,7 @@ public final class MotionInspector {
         syncRates()
         retimeWindows()
         if wasPaused, scale != .paused { resumeClocks() }
-        if scale != .paused, records.contains(where: \.isRunning) { frames.activate() }
+        if scale != .paused, records.contains(where: Self.countsFrames) { frames.activate() }
     }
 
     /// Keeps only `kept` categories moving (nil: every category). The rest apply in one frame, as with
@@ -210,8 +210,9 @@ public final class MotionInspector {
         /// The call-site files whose records it lists (nil: every record of its categories).
         public var sites: [String]? {
             switch self {
-            case .sidebarRows: ["CmuxNextSidebar/Views/SidebarDragSpring.swift", "CmuxNextSidebar/Views/SidebarRowMotion.swift",
-                                "CmuxNextSidebar/Views/SidebarListView", "CmuxNextSidebar/Logic/SidebarLayout+Viewport.swift"]
+            // `#fileID` sites: module and file name.
+            case .sidebarRows: ["CmuxNextSidebar/SidebarDragSpring.swift", "CmuxNextSidebar/SidebarRowMotion.swift",
+                                "CmuxNextSidebar/SidebarListView", "CmuxNextSidebar/SidebarLayout+Viewport.swift"]
             case .tabStrip: ["CmuxNextTabs/"]
             default: nil
             }
@@ -335,8 +336,16 @@ public final class MotionInspector {
 
     /// Starts counting frames for the running records (a record started).
     func runningChanged() {
-        guard timeScale != .paused, records.contains(where: \.isRunning) else { return }
+        guard timeScale != .paused, records.contains(where: Self.countsFrames) else { return }
         frames.activate()
+    }
+
+    /// A running record whose frames the inspector counts: anything but a loop, which has no end (counting
+    /// it would keep the display link running for as long as a spinner shows).
+    static func countsFrames(_ record: MotionInspectorRecord) -> Bool {
+        guard record.isRunning else { return false }
+        if case .loop = record.curve { return false }
+        return true
     }
 
     /// One display frame: each running record counts it (and the refreshes the main thread missed before
@@ -352,7 +361,7 @@ public final class MotionInspector {
         let missed = max(0, Int((tick.rawElapsed / interval).rounded()) - 1)
         var updated = records
         var running = false
-        for index in updated.indices where updated[index].ended == nil {
+        for index in updated.indices where Self.countsFrames(updated[index]) {
             updated[index].frames += 1
             updated[index].droppedFrames += missed
             if let end = updated[index].expectedEnd, at >= end {
@@ -370,20 +379,25 @@ public final class MotionInspector {
         guard count > 0 else { return }
         let at = motionNow
         var updated = records
-        for index in updated.indices where updated[index].ended == nil {
+        for index in updated.indices where Self.countsFrames(updated[index]) {
             updated[index].frames += count
             if let end = updated[index].expectedEnd, at >= end { updated[index].ended = end }
         }
         records = Self.pruned(updated)
     }
 
-    /// Every running record, then the newest ``endedKept`` ended ones, in start order.
+    /// Every running record but the oldest loops past ``loopsKept``, then the newest ``endedKept`` ended ones, in
+    /// start order.
     static func pruned(_ records: [MotionInspectorRecord]) -> [MotionInspectorRecord] {
         let ended = records.filter { !$0.isRunning }
-        guard ended.count > endedKept else { return records }
-        let dropped = Set(ended.prefix(ended.count - endedKept).map(\.id))
+        let loops = records.filter { $0.isRunning && !countsFrames($0) }
+        guard ended.count > endedKept || loops.count > loopsKept else { return records }
+        let dropped = Set(ended.prefix(max(0, ended.count - endedKept)).map(\.id) + loops.prefix(max(0, loops.count - loopsKept)).map(\.id))
         return records.filter { !dropped.contains($0.id) }
     }
+
+    /// Running loops kept (a spinner per busy tab adds one each time it shows).
+    public static let loopsKept = 60
 }
 
 /// A root layer the inspector retimed, held weakly (a closed window frees it).
