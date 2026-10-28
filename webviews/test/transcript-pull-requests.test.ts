@@ -423,6 +423,17 @@ test("sources include fetched URLs, files read and MCP tools", () => {
   ]);
 });
 
+test("Sources keep transcript encounter order across fetched URLs and PR mentions", () => {
+  const rows = [
+    toolsRows(tool("Fetch docs", "fetch", "completed", { inputSummary: JSON.stringify({ url: "https://example.com/docs" }) }))[0]!,
+    activity([shell("gh pr view 41 -R acme/app")], 2),
+  ];
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([
+    { url: "https://example.com/docs", label: "example.com/docs", kind: "url" },
+    { url: "https://github.com/acme/app/pull/41", label: "acme/app #41", kind: "pullRequest" },
+  ]);
+});
+
 test("update-branch is a Change and JSON titles preserve apostrophes", () => {
   const rows = toolsRows(
     shell("gh pr update-branch 41 -R acme/uploader"),
@@ -516,7 +527,7 @@ test("brokered PR lifecycle writes settle the same record", () => {
 });
 
 test("PR evidence canonicalizes issue URLs in either order without stale Sources", () => {
-  const issue = assistant("See https://github.com/acme/app/issues/7", 1);
+  const issue = assistant("See https://github.com/acme/app/issues/7#issuecomment-123", 1);
   const pr = activity([shell("gh pr view 7 -R acme/app")], 2);
   for (const rows of [
     [issue, pr],
@@ -528,4 +539,20 @@ test("PR evidence canonicalizes issue URLs in either order without stale Sources
     rows.push(activity([shell("glaeda-gh post pr-merge acme/app#7")], 3));
     expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
   }
+});
+
+test("mutated PR URLs with fragments stay out of Sources", () => {
+  const rows = [
+    activity([shell("gh pr comment 41 -R acme/app", "https://github.com/acme/app/pull/41#issuecomment-123")], 1),
+  ];
+  expect(transcriptPullRequests(rows, { folder: "acme/app" })).toMatchObject([
+    { number: 41, changed: true, kind: "pullRequest" },
+  ]);
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
+});
+
+test("a PR mutation target with a comment fragment is marked changed", () => {
+  const rows = [activity([shell("gh pr comment https://github.com/acme/app/pull/41#issuecomment-123 --body x")], 1)];
+  expect(transcriptPullRequests(rows)).toMatchObject([{ number: 41, changed: true, kind: "pullRequest" }]);
+  expect(sessionSummary(rows, "acme/app").sources).toEqual([]);
 });

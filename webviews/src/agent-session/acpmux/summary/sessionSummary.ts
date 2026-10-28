@@ -89,7 +89,12 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
 }
 
 const GITHUB_REFERENCE_URL = /^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(pull|issues)\/(\d+)(?:\/[^\s]*)?$/;
-const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
+const sourceKey = (source: SummarySource) => {
+  const github = source.url?.match(/^https:\/\/github\.com\/([\w.-]+)\/([\w.-]+)\/(?:pull|issues)\/(\d+)/);
+  return github
+    ? `github:${github[1]}/${github[2]}#${github[3]}`
+    : `${source.kind ?? "url"}:${source.url ?? source.label}`;
+};
 // Revision ownership lets old summaries go when their producer and snapshots release them.
 const summaryCache = new WeakMap<object, { repository?: string | null; cwd?: string; summary: SessionSummary }[]>();
 const normalizedPath = (path: string) => {
@@ -124,16 +129,19 @@ export function filesInProject(files: readonly TurnFile[], cwd?: string): TurnFi
   return files.filter((file) => projectPathAllowed(file.canonical ?? file.path, cwd));
 }
 
-/// Read-only PR/issue references, then tool sources, then settled reply URLs; each appears once.
+/// Read-only PR/issue references, tool sources and settled reply URLs in transcript encounter
+/// order; each appears once.
 function sources(
   rows: readonly AcpmuxRow[],
-  all: readonly Tool[],
   pullRequests: readonly SummaryPullRequest[],
 ): SummarySource[] {
-  const seen = new Map<string, SummarySource>();
-  const add = (source: SummarySource) => {
+  const seen = new Map<string, { source: SummarySource; order: number; sequence: number }>();
+  let sequence = 0;
+  const add = (source: SummarySource, order: number) => {
     const key = sourceKey(source);
-    if (!seen.has(key)) seen.set(key, source);
+    const prior = seen.get(key);
+    if (!prior || (source.kind === "pullRequest" && prior.source.kind !== "pullRequest"))
+      seen.set(key, { source, order, sequence: sequence++ });
   };
   for (const pr of pullRequests)
     if (!pr.changed && !pr.opened) {
@@ -143,13 +151,14 @@ function sources(
         url: ambiguous ? `https://github.com/${pr.repo}/issues/${pr.number}` : pr.url,
         label: pr.title ?? (ambiguous ? `${pr.repo}#${pr.number}` : `${pr.repo} #${pr.number}`),
         kind: ambiguous ? "url" : (pr.kind ?? "pullRequest"),
-      });
+      }, pr.firstTouched ?? pr.touched ?? Number.MAX_SAFE_INTEGER);
     }
   const knownPullRequests = new Map(pullRequests.map((pr) => [pr.url, pr]));
-  const addUrls = (text: string) => {
+  const addUrls = (text: string, order: number) => {
     for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
       const url = match[0]!.replace(/[.,;:!?]+$/, "");
-      const reference = GITHUB_REFERENCE_URL.exec(url);
+      const normalizedUrl = url.split(/[?#]/, 1)[0]!;
+      const reference = GITHUB_REFERENCE_URL.exec(normalizedUrl);
       const label = url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
       if (reference) {
         const [, owner, repo, path, number] = reference;
@@ -160,25 +169,32 @@ function sources(
         if (known?.changed || known?.opened) continue;
         const pr = path === "pull" || known?.kind === "pullRequest";
         add({
-          url: pr ? (known?.url ?? canonical) : url,
+          url: pr ? (known?.url ?? canonical) : canonical,
           label: pr ? (known?.title ?? `${owner}/${repo} #${number}`) : label,
           kind: pr ? "pullRequest" : "issue",
-        });
-      } else add({ url, label, kind: "url" });
+        }, order);
+      } else add({ url, label, kind: "url" }, order);
     }
   };
-  for (const tool of all) {
-    if (tool.status !== "completed" || (tool.exitCode ?? 0) !== 0) continue;
-    const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
-    addUrls(text);
-    if (tool.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: tool.title });
-    if (tool.kind === "read") for (const path of editedPaths(tool)) add({ label: path, kind: "file" });
-    const call = mcpCall(tool);
-    if (call) add({ label: mcpPlainName(call), kind: "mcp" });
+  for (const [rowIndex, row] of rows.entries()) {
+    if (row.kind !== "activity") continue;
+    for (const tool of row.items ?? []) {
+      if (!tool.tool) continue;
+      const item = tool.tool;
+      if (item.status !== "completed" || (item.exitCode ?? 0) !== 0) continue;
+      const text = `${item.title} ${item.inputSummary ?? ""} ${item.output ?? ""}`;
+      addUrls(text, rowIndex);
+      if (item.kind === "fetch" && !/https?:\/\//.test(text)) add({ label: item.title }, rowIndex);
+      if (item.kind === "read") for (const path of editedPaths(item)) add({ label: path, kind: "file" }, rowIndex);
+      const call = mcpCall(item);
+      if (call) add({ label: mcpPlainName(call), kind: "mcp" }, rowIndex);
+    }
   }
   // Producer revisions keep streamed replies out of this settled scan.
-  for (const row of rows) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "");
-  return [...seen.values()];
+  for (const [rowIndex, row] of rows.entries()) if (row.kind === "assistant" && !row.streaming) addUrls(row.text ?? "", rowIndex);
+  return [...seen.values()]
+    .sort((a, b) => a.order - b.order || a.sequence - b.sequence)
+    .map(({ source }) => source);
 }
 
 /// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
@@ -247,7 +263,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
     outputs: cwd === undefined ? turnFiles(rows as AcpmuxRow[]) : filesInProject(turnFiles(rows as AcpmuxRow[]), cwd),
     subagents: subagents(rows, all),
-    sources: sources(rows, all, pullRequests),
+    sources: sources(rows, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),
   };
   if (producerRevision) {
