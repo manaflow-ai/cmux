@@ -20,6 +20,7 @@ import Testing
     @Test(.enabled(if: NSScreen.main != nil, "the scene draws only on a screen: run on a GUI host"))
     func aSecondOfTheSceneCostsTheMainThreadUnder30Milliseconds() throws {
         _ = NSApplication.shared
+        Motion.reduceMotionOverride = true // PROBE: a host with Reduce Motion on
         let screen = try #require(NSScreen.main)
         try #require(Motion.panes.animatesLoops, "loops are off on this host: only the still sky would show")
         let window = NSWindow(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
