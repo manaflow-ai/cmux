@@ -335,7 +335,7 @@ struct WorkstreamStoreStartTests {
             workstreamId: "session",
             source: .claude,
             kind: .permissionRequest,
-            status: .resolved(.permission(.once), at: Date()),
+            status: .resolved(.permission(.once), at: Date(timeIntervalSince1970: 1_700_000_000)),
             payload: pending.payload
         )
         let persistence = WorkstreamPersistence(fileURL: tmp)
@@ -352,7 +352,8 @@ struct WorkstreamStoreStartTests {
 
         #expect(store.items.count == 1)
         #expect(store.items.first?.id == id)
-        #expect(store.items.first?.status.isPending == false)
+        #expect(store.items.first?.status == resolved.status)
+        await store.flushPersistence()
     }
 
     @Test("The store reports queued journal writes until they land")
