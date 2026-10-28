@@ -253,22 +253,37 @@ final class CreationInputCoordinator {
             return true
         }
         // A pending creation's early view has the keyboard: held keys first, then this one.
-        if let controller, case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab), Self.responderTakesKeys(controller, window: shell) {
-            let held = buffer.take(), opened = buffer.openedCount
-            for (index, key) in held.enumerated() {
-                replaying = true
-                NSApp.sendEvent(key)
-                replaying = false
-                // A key run again started another creation: the rest, and this key, wait for it, in order.
-                if buffer.openedCount != opened {
-                    buffer.prepend(held.dropFirst(index + 1))
-                    buffer.capture(event)
-                    return true
-                }
+        if let controller, takesKeysEarly(buffer, controller: controller, window: shell) {
+            guard deliverEarly(buffer) else {
+                buffer.capture(event) // a key run again started another creation: this one waits for it, in order
+                return true
             }
             return false
         }
         buffer.capture(event)
+        return true
+    }
+
+    /// Whether a pending creation's early view (its terminal, which sends keys to the daemon by the terminal id the
+    /// create chose, cx-wb5.78) is the focused terminal and has the keyboard: keys go to it now, not after the reply.
+    private func takesKeysEarly(_ buffer: CreationInputBuffer, controller: WindowController, window: NSWindow) -> Bool {
+        guard case .terminal(_, let tab) = controller.focus.state.resolved, buffer.takesKeysEarly(tab: tab) else { return false }
+        return Self.responderTakesKeys(controller, window: window)
+    }
+
+    /// Runs the held keys into the early view that has the keyboard, in order, at once. False when a key run again
+    /// started another creation: the rest wait for it, in order.
+    private func deliverEarly(_ buffer: CreationInputBuffer) -> Bool {
+        let held = buffer.take(), opened = buffer.openedCount
+        for (index, key) in held.enumerated() {
+            replaying = true
+            NSApp.sendEvent(key)
+            replaying = false
+            if buffer.openedCount != opened {
+                buffer.prepend(held.dropFirst(index + 1))
+                return false
+            }
+        }
         return true
     }
 
@@ -315,8 +330,16 @@ final class CreationInputCoordinator {
     }
 
     /// `force`: the hold ends now (its limit, focus left the content), whatever it waited for.
+    /// A pending creation whose early view got the keyboard takes the held keys now: the hold stays (later keys go
+    /// straight to that view through ``capture(_:in:)``) until the creation resolves.
     private func flush(in window: NSWindow, force: Bool = false) {
-        guard let buffer = buffers[window.windowNumber], force || buffer.isResolved else { return }
+        guard let buffer = buffers[window.windowNumber] else { return }
+        if !force, !buffer.isResolved {
+            if !buffer.isEmpty, let controller = router?.focus(for: window).0, takesKeysEarly(buffer, controller: controller, window: window) {
+                _ = deliverEarly(buffer)
+            }
+            return
+        }
         guard let router, let controller = router.focus(for: window).0 else {
             // The window is gone: its keys go with it.
             buffers[window.windowNumber] = nil
