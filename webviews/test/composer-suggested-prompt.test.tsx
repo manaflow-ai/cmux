@@ -320,7 +320,7 @@ test("the + menu renders Add rows from the shared registry", async () => {
   expect(ids).toContain("add.files");
   expect(ids).toContain("add.project");
   expect(ids).toContain("add.mention");
-  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')?.textContent).toContain("Attach");
+  expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
 });
 
 test("the + menu runs the advertised plan mode and opens the existing project chooser", async () => {
@@ -382,14 +382,12 @@ test("the + menu uses the current pane language for existing actions", async () 
     await render(fresh([]));
     const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
     await act(async () => plus.click());
-    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe("Dateien anhängen …");
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-label')?.textContent).toBe(
+      "Dateien oder Bilder anhängen",
+    );
     expect(host.querySelector('[data-value="add.project"] .acpmux-menu-label')?.textContent).toBe("Projekt auswählen");
-    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')?.textContent).toBe(
-      "Dateien oder Ordner anhängen",
-    );
-    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')?.textContent).toBe(
-      "Projekt auswählen",
-    );
+    expect(host.querySelector('[data-value="add.files"] .acpmux-menu-description')).toBeNull();
+    expect(host.querySelector('[data-value="add.project"] .acpmux-menu-description')).toBeNull();
   } finally {
     await act(async () => setPaneLanguage("en"));
     globalThis.__cmuxPaneStrings = prior;

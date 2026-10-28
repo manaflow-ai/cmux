@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import {
   COMPOSER_PLUS_MOTION,
   COMPOSER_PLUS_SECTIONS,
@@ -16,16 +17,20 @@ test("the plus registry exposes the Add and Files sections in command order", ()
   expect(COMPOSER_PLUS_MOTION).toBe("none");
   expect(rows.map((row) => row.section)).toEqual(["add", "add", "add", "add", "add", "add", "add", "add", "files"]);
   expect(rows.slice(0, 6).map((row) => row.name)).toEqual([
-    "Files and folders",
-    "Attach a screenshot",
-    "Attach a window",
+    "Attach files or images",
+    "Attach Screenshot…",
+    "Attach Window…",
     "Choose a project",
     "Plan mode",
     "Set a goal",
   ]);
-  expect(rows.at(-1)?.name).toBe("Files and chats");
-  expect(rows.every((row) => row.icon && row.description && row.action)).toBe(true);
-  expect(rows.find((row) => row.id === "add.files")?.description).toBe("Attach files or folders as context");
+  expect(rows.at(-1)?.name).toBe("Search files");
+  expect(rows.every((row) => row.icon && row.action)).toBe(true);
+  expect(rows.filter((row) => row.description).map((row) => row.id)).toEqual(["add.mode.plan", "add.goal"]);
+  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8");
+  expect(css).toMatch(
+    /\.acpmux-composer-plus \.acpmux-menu-header\s*\{[^}]*background-image:linear-gradient\(var\(--surface-popup\),var\(--surface-popup\)\)/,
+  );
 });
 
 test("capture and optional goal rows are omitted when the host lacks those capabilities", () => {

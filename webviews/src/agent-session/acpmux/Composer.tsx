@@ -1925,7 +1925,10 @@ export function Composer({
                           choices: entries.map((entry): Choice => ({
                             id: entry.id,
                             name: entry.name,
-                            description: entry.description,
+                            description:
+                              entry.description.trim() && entry.description.trim() !== entry.name.trim()
+                                ? entry.description
+                                : undefined,
                             icon:
                               entry.id === "add.files" ? (
                                 <PaperclipIcon />

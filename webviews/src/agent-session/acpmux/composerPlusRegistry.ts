@@ -46,8 +46,8 @@ const staticRows: readonly ComposerPlusEntry[] = [
   {
     id: "add.files",
     section: "add",
-    name: "Files and folders",
-    description: "Attach files or folders as context",
+    name: "Attach files or images",
+    description: "",
     icon: "file",
     keywords: ["attach", "upload", "folder", "files"],
     action: { kind: "command", id: COMMANDS.attachFiles },
@@ -64,8 +64,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   const description = text;
   const rows: ComposerPlusEntry[] = staticRows.map((row) => ({
     ...row,
-    name: label("composer.menu.attachFiles", row.name),
-    description: description("summary.sources.attach", row.description),
+    name: label("composer.attach", row.name),
   }));
 
   if (options.canCapture !== false) {
@@ -73,8 +72,8 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       {
         id: "add.screenshot",
         section: "add",
-        name: label("composer.attachScreenshot", "Attach a screenshot"),
-        description: description("composer.attachScreenshot", "Capture the screen and attach it"),
+        name: label("composer.attachScreenshot", "Attach Screenshot…"),
+        description: "",
         icon: "site.permission.camera",
         keywords: ["capture", "screen", "image"],
         action: { kind: "command", id: COMMANDS.attachScreenshot },
@@ -82,8 +81,8 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       {
         id: "add.window",
         section: "add",
-        name: label("composer.attachWindow", "Attach a window"),
-        description: description("composer.attachWindow", "Capture a window and attach it"),
+        name: label("composer.attachWindow", "Attach Window…"),
+        description: "",
         icon: "site.permission.windowmanagement",
         keywords: ["capture", "window", "image"],
         action: { kind: "command", id: COMMANDS.attachWindow },
@@ -96,7 +95,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.project",
       section: "add",
       name: label("project.choose", "Choose a project"),
-      description: description("project.choose", "Pick the folder or cwd for this chat"),
+      description: "",
       icon: "folder",
       keywords: ["project", "folder", "cwd", "workspace"],
       action: { kind: "command", id: COMMANDS.chooseProject },
@@ -148,7 +147,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.mention",
       section: "add",
       name: label("composer.mention", "Mention"),
-      description: description("composer.mention", "Reference a file or chat in the prompt"),
+      description: "",
       icon: "composer.mention",
       keywords: ["@", "mention", "file", "chat"],
       action: { kind: "command", id: COMMANDS.mention },
@@ -157,7 +156,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
       id: "add.commands",
       section: "add",
       name: label("composer.commands", "Commands"),
-      description: description("composer.commands", "Choose a command advertised by this harness"),
+      description: "",
       icon: "terminal",
       keywords: ["/", "slash", "commands"],
       action: { kind: "command", id: COMMANDS.commands },
@@ -167,8 +166,8 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   rows.push({
     id: "files.search",
     section: "files",
-    name: label("files.search", "Files and chats"),
-    description: description("files.search", "Search files or chats to attach as context"),
+    name: label("files.search", "Search files"),
+    description: "",
     icon: "search",
     keywords: ["files", "chats", "search", "context"],
     action: { kind: "command", id: COMMANDS.searchFiles },
@@ -178,7 +177,7 @@ export function composerPlusRegistry(options: ComposerPlusRegistryOptions = {}):
   const extensions = [...(options.extensions ?? [])];
   const all = [...rows, ...extensions];
   return all.filter((entry) => {
-    if (!entry.id || !entry.name.trim() || !entry.description.trim()) return false;
+    if (!entry.id || !entry.name.trim()) return false;
     const key = extensionKey(entry);
     if (seen.has(key)) return false;
     seen.add(key);
