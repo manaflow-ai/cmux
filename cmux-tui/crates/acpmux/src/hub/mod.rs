@@ -12,6 +12,7 @@ mod agent_pairs;
 pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
+mod bg_tasks;
 mod btw;
 mod exit_reason;
 pub(crate) mod session_auth;
@@ -452,6 +453,10 @@ pub struct Hub {
     pub(super) clock: StdMutex<Arc<dyn crate::clock::Clock>>,
     /// A session harness unused for this long exits (`idle.rs`); None: never.
     pub(super) idle_child: StdMutex<Option<std::time::Duration>>,
+    /// The background-task runner's binary and spool segment a test set (`bg_tasks.rs`).
+    pub(super) bg_runner: StdMutex<Option<(crate::self_command::SelfCommand, u64)>>,
+    /// Background-task starts, one at a time (`bg_tasks.rs`).
+    pub(super) bg_starts: tokio::sync::Mutex<()>,
     /// The harnesses the model probes may start (`ACPMUX_PROBE_HARNESSES`);
     /// None: every harness.
     pub(super) probe_only: StdMutex<Option<std::collections::BTreeSet<String>>>,
@@ -626,6 +631,8 @@ impl Hub {
             probe_errors: StdMutex::new(HashMap::new()),
             clock: StdMutex::new(crate::clock::TokioClock::new()),
             idle_child: StdMutex::new(Some(IDLE_CHILD)),
+            bg_runner: StdMutex::new(None),
+            bg_starts: tokio::sync::Mutex::new(()),
             probe_only: StdMutex::new(None),
             idle_wake: Arc::new(Notify::new()),
             idle_reaper: AtomicBool::new(false),

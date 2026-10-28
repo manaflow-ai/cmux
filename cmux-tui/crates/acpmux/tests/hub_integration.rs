@@ -1574,6 +1574,8 @@ mod adopt;
 #[cfg(unix)]
 mod preset_args;
 
+#[path = "hub_integration/bg_tasks.rs"]
+mod bg_tasks;
 #[path = "hub_integration/claude_failover.rs"]
 mod claude_failover;
 #[path = "hub_integration/lifecycle_fixes.rs"]

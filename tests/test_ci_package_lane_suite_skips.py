@@ -244,10 +244,10 @@ class SuiteSkipTest(unittest.TestCase):
             (self.outputs / f"{name}.out").write_text(output, encoding="utf-8")
         (self.outputs / "FailedDaemonTests.status").write_text("1")
         (self.tmp / "sdk").mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY")},
+        self.env = {**{k: v for k, v in os.environ.items() if k not in ("CMUX_TEST_REQUIRE_GUI", "GITHUB_STEP_SUMMARY", "CMUX_CI_DISPLAY_ROUTED")},
                     "PATH": f"{bin_dir}:{os.environ['PATH']}", "FAKE_SWIFT_OUTPUTS": os.fspath(self.outputs),
                     "FAKE_SDK": os.fspath(self.tmp / "sdk"), "DEVELOPER_DIR": os.fspath(self.tmp),
-                    "RUNNER_TEMP": os.fspath(self.tmp)}
+                    "RUNNER_TEMP": os.fspath(self.tmp), "CMUX_PACKAGE_LANE_TEST_OS": "Darwin"}
 
     def suite(self, *filters, **env):
         return subprocess.run(["bash", "scripts/ci/package-test-lane.sh", "suite", "Packages/macOS/Pkg", ",".join(filters)],
@@ -287,6 +287,10 @@ class SuiteSkipTest(unittest.TestCase):
                 self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
                 line = next(l for l in done.stdout.splitlines() if l.startswith("::error title=Swift suite no result::"))
                 self.assertIn(hint, line)
+        done = self.suite("SidebarMultiViewHomeTests", CMUX_CI_DISPLAY_ROUTED="1")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn(hint, done.stdout)
+        self.assertIn("was sent to a display worker, whose console session was lost", done.stdout)
         (self.outputs / "NoReasonTests.out").write_text("↷ Test a() skipped.\n✔ Test run with 1 test passed after 0.1 seconds.\n")
         for name in ("XCSkippedTests", "NoReasonTests", "FirstLaunchTests"):
             with self.subTest(suite=name):
