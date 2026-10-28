@@ -1067,16 +1067,18 @@ fn root_help_lists_every_scope_and_help_word_reaches_own_help_scopes() {
         args
     };
     for &scope in super::OWN_HELP_SCOPES {
-        assert_eq!(rewritten(&["help", scope]), strings(&[scope, "--help"]), "{scope}");
+        let own_help = if scope == "device" { "help" } else { "--help" };
+        assert_eq!(rewritten(&["help", scope]), strings(&[scope, own_help]), "{scope}");
     }
-    assert_eq!(
-        rewritten(&["--session", "s", "help", "agents", "--json"]),
-        strings(&["--session", "s", "agents", "--help", "--json"])
-    );
-    assert_eq!(
-        rewritten(&["--session", "help", "help", "chats"]),
-        strings(&["--session", "help", "chats", "--help"])
-    );
+    for with_globals in [
+        vec!["--session", "s", "help", "agents", "--json"],
+        vec!["help", "--json", "agents"],
+        vec!["help", "--session", "s", "agents"],
+        vec!["--session", "help", "help", "agents"],
+    ] {
+        assert_eq!(rewritten(&with_globals), strings(&["agents", "--help"]), "{with_globals:?}");
+    }
+    assert_eq!(rewritten(&["--session", "s", "help", "chats"]), strings(&["chats", "--help"]));
     for unchanged in [
         vec!["help", "workspace"],
         vec!["help", "agents", "chat"],

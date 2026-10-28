@@ -325,17 +325,20 @@ pub(crate) fn rewrite_deprecated_server_lifecycle(args: &mut Vec<String>) {
 /// agents` answered "unknown resource scope".
 pub(crate) const OWN_HELP_SCOPES: &[&str] = &[
     "agents", "chats", "harness", "remote", "script", "host", "github", "avatar", "chief", "setup",
+    "device",
 ];
 
-/// Rewrites `cmux help <scope>` to `cmux <scope> --help` for a scope in
-/// [`OWN_HELP_SCOPES`] the parser's help does not take, keeping global
-/// options where they stand (`cmux --session s help agents --json`). No-op
-/// elsewhere.
-pub(crate) fn rewrite_help_word(args: &mut [String]) {
+/// Rewrites `cmux help <scope>` to the scope's own help (`cmux <scope>
+/// --help`; `cmux device help`, the one spelling `device` answers) for a
+/// scope in [`OWN_HELP_SCOPES`] the parser's help does not take. Global
+/// options change no help text and are dropped wherever they stood, so the
+/// scope is the first word every early dispatch reads (`raw_args.first()`
+/// for `chats` and `harness`). No-op elsewhere.
+pub(crate) fn rewrite_help_word(args: &mut Vec<String>) {
     rewrite_help_word_on(args, Surface::current());
 }
 
-fn rewrite_help_word_on(args: &mut [String], surface: Surface) {
+fn rewrite_help_word_on(args: &mut Vec<String>, surface: Surface) {
     let Ok((_, command_args)) = parse_globals(args) else {
         return;
     };
@@ -345,10 +348,8 @@ fn rewrite_help_word_on(args: &mut [String], surface: Surface) {
     if help != "help" || !OWN_HELP_SCOPES.contains(&scope.as_str()) || surface.accepts(scope) {
         return;
     }
-    if let Some(index) = args.windows(2).position(|pair| pair[0] == "help" && pair[1] == *scope) {
-        args[index] = scope.clone();
-        args[index + 1] = "--help".to_string();
-    }
+    let own_help = if scope == "device" { "help" } else { "--help" };
+    *args = vec![scope.clone(), own_help.to_string()];
 }
 
 /// The acpmux argv of `cmux acp …` (the words after `acp`) and of its
