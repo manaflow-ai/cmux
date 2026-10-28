@@ -47,6 +47,9 @@ one into a config file: run the tool through `cmux vault exec` each time.
   them in one line which name and why you need it; only they change the
   scope (Settings > Credential Vault, or `cmux vault scope NAME user,agents`).
 - `vault.user_only`: only the person adds, changes or removes secrets.
+- `vault.not_approved`: the person did not allow it on their cmux sheet.
+  Do not retry, and never try to get around a refusal (another env, another
+  terminal, another caller): tell them in one line what you needed.
 
 ## 5. A pasted secret
 

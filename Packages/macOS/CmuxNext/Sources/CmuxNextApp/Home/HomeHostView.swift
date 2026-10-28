@@ -166,12 +166,15 @@ final class HomeHostView: NSView {
         }
         // A key pasted in a message: held, and each one moves to the Credential Vault on its secure sheet (#26412).
         transcript.secretHost = { [weak services] findings in
+            // No window to ask on: nil, the send stays held.
+            guard let services, let window = services.windows.active?.window else { return nil }
             var moved: [(value: String, name: String)] = []
             for finding in findings {
-                guard let services, let window = services.windows.active?.window,
-                      let name = await services.credentialVault.movePasted(finding.value, suggestedName: finding.suggestedName, in: window)
-                else { continue }
-                moved.append((finding.value, name))
+                switch await services.credentialVault.movePasted(finding.value, suggestedName: finding.suggestedName, in: window) {
+                case .moved(let name): moved.append((finding.value, name))
+                case .cancelled: continue
+                case .failed: return moved.isEmpty ? nil : moved
+                }
             }
             return moved
         }

@@ -126,7 +126,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// Moves credentials found in a send to the Credential Vault (the host's sheet); nil sends them as typed.
     var secretHost: HomeSecretHost?
-    /// The draft text the person answered the vault offer for, moving nothing: a Return sends it as it is.
+    /// The draft text the person answered the vault offer for, moving nothing: a Return sends it as
+    /// it is (until it goes, or the text changes).
     var secretWarnedDraft: String?
     /// The vault offer's sheet is open: every send waits for its answer.
     var secretOfferOpen = false
@@ -385,7 +386,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
         guard Reducer.canSend(draft), !typed.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // A key or token in the text: held, and the host offers to move it to the Credential Vault (HomeProjection+Secrets).
-        if deferred == nil, holdsSecret(draft) { return noteSend("held: the draft holds a credential") }
+        // Every path, a send held for the owner too: the text may have changed since its Return.
+        if holdsSecret(draft) { return noteSend("held: the draft holds a credential") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
         let threadRoot: MessageID?, parent: MessageID?
         if let deferred {
@@ -411,6 +413,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
             return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
         }
         sendNotice = nil
+        secretWarnedDraft = nil
         let key = IdempotencyKey.make()
         // The text and the attachments in the field's order (Draft.pieces). Reply to Selection: the
         // quote goes out as a Markdown blockquote above the reply (ReplyQuote.quoted), in the first

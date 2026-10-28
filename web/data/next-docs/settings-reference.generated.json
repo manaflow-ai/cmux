@@ -1278,7 +1278,7 @@
           "title": "Install Updates When Quitting",
           "help": "A downloaded update installs as cmux quits. Terminals keep running.",
           "kind": "toggle",
-          "default": true,
+          "default": false,
           "group": "Updates"
         },
         {

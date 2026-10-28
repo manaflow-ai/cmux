@@ -63,14 +63,27 @@ nonisolated extension CredentialVault {
         }
     }
 
-    /// Moves a key the person pasted in a message to the vault on its sheet in `window`; the name
-    /// it went under, nil when they cancelled or the vault refused it. A name the vault holds is
-    /// never replaced from here: the sheet comes back saying so.
+    /// What became of a pasted key the person was offered to move.
+    public enum PasteMove: Equatable, Sendable {
+        case moved(String)
+        /// The person cancelled the sheet: they keep it in the message.
+        case cancelled
+        /// The vault could not store it (the Keychain or the index refused).
+        case failed
+    }
+
+    /// Moves a key the person pasted in a message to the vault on its sheet in `window`. A name
+    /// the vault holds is never replaced from here: the sheet comes back saying so.
     @MainActor
-    public func movePasted(_ value: String, suggestedName: String, in window: NSWindow) async -> String? {
+    public func movePasted(_ value: String, suggestedName: String, in window: NSWindow) async -> PasteMove {
         let person = Caller(consumer: .user, label: CredentialVaultStrings.homeChat)
-        return try? await enterNew(Self.pasteRequest(suggestedName: suggestedName, value: value), by: person, event: "paste") {
-            await Self.askForEntry($0, in: window)
+        do {
+            let name = try await enterNew(Self.pasteRequest(suggestedName: suggestedName, value: value), by: person, event: "paste") {
+                await Self.askForEntry($0, in: window)
+            }
+            return name.map(PasteMove.moved) ?? .cancelled
+        } catch {
+            return .failed
         }
     }
 
@@ -101,25 +114,25 @@ nonisolated extension CredentialVault {
     /// Shows the secure entry sheet and answers what the person saved (nil: cancelled or closed).
     public typealias Ask = @MainActor @Sendable (EntryRequest) async -> EntryAnswer?
 
-    /// The process behind a control connection, as the socket server read it.
-    public typealias Lineage = @Sendable (ControlConnectionID) -> ControlConnectionPeers.Lineage?
-
-    /// The `vault.*` methods over this vault, with `ask` as the person's sheet and `lineage` as
-    /// who really calls (the server's peer process, not the request's params).
-    public func controlMethods(ask: @escaping Ask, lineage: @escaping Lineage) -> [ControlMethod] {
-        VaultControl.methods(vault: self, ask: ask, lineage: lineage)
+    /// The `vault.*` methods over this vault, with `ask` as the person's entry sheet and `approve`
+    /// as their approval of what only they may do (``Approval``).
+    public func controlMethods(ask: @escaping Ask, approve: @escaping Approve) -> [ControlMethod] {
+        VaultControl.methods(vault: self, ask: ask, approve: approve)
     }
 }
 
-/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:lineage:)``).
+/// The method bodies and their params (internal: the public surface is ``CredentialVault/controlMethods(ask:approve:)``).
 nonisolated enum VaultControl {
     typealias EntryRequest = CredentialVault.EntryRequest
     typealias EntryAnswer = CredentialVault.EntryAnswer
     typealias Ask = CredentialVault.Ask
-    typealias Lineage = CredentialVault.Lineage
+    typealias Approve = CredentialVault.Approve
 
-    static func methods(vault: CredentialVault, ask: @escaping Ask, lineage: @escaping Lineage) -> [ControlMethod] {
-        let caller: @Sendable (ControlCall) throws -> CredentialVault.Caller = { call in try Self.caller(call, lineage: lineage) }
+    static func methods(vault: CredentialVault, ask: @escaping Ask, approve: @escaping Approve) -> [ControlMethod] {
+        /// Who calls, as its params claim; a claim to be the person counts only once the person
+        /// allowed the call on their sheet (``allowed(_:_:approve:)``).
+        let caller: @Sendable (ControlCall) throws -> CredentialVault.Caller = { call in try Self.caller(call.params) }
+        let deadline = ControlMethod.Deadline.fixed(CredentialVault.requestDeadline)
         return [
             .async("vault.list") { _ in
                 return ["secrets": .array(try run { try vault.list() }.sorted { $0.key < $1.key }.map { json(name: $0.key, $0.value) })]
@@ -133,20 +146,33 @@ nonisolated enum VaultControl {
                 guard let value = call.params["value"]?.stringValue else { throw missingParam("vault.set", "value") }
                 let scope = try scope(call.params)
                 let note = try optionalText(call.params, "note")
-                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: caller(call)) }
+                let by = try caller(call)
+                if by.consumer == .user, CredentialVault.isValidName(name) {
+                    let replaces = try run { try vault.list()[name] != nil }
+                    try await allowed(.store(name: name, replaces: replaces), call, approve: approve)
+                }
+                let replaced = try run { try vault.set(name, value: value, scope: scope, note: note, by: by) }
                 return ["stored": .string(name), "replaced": .bool(replaced)]
-            },
+            }.withDeadline(deadline),
             .async("vault.scope") { call in
                 let name = try text(call.params, "name")
                 guard let scope = try scope(call.params) else { throw missingParam("vault.scope", "scope") }
-                try run { try vault.setScope(name, scope: scope, by: caller(call)) }
+                let by = try caller(call)
+                if by.consumer == .user, try run({ try vault.list()[name] }) != nil {
+                    try await allowed(.scope(name: name, scope: scope), call, approve: approve)
+                }
+                try run { try vault.setScope(name, scope: scope, by: by) }
                 return ["name": .string(name), "scope": .array(scope.map { .string($0.rawValue) })]
-            },
+            }.withDeadline(deadline),
             .async("vault.remove") { call in
                 let name = try text(call.params, "name")
-                let existed = try run { try vault.remove(name, by: caller(call)) }
+                let by = try caller(call)
+                if by.consumer == .user, try run({ try vault.list()[name] }) != nil {
+                    try await allowed(.remove(name: name), call, approve: approve)
+                }
+                let existed = try run { try vault.remove(name, by: by) }
                 return ["removed": .string(name), "existed": .bool(existed)]
-            },
+            }.withDeadline(deadline),
             .async("vault.resolve") { call in
                 guard let items = call.params["names"]?.arrayValue, !items.isEmpty else { throw missingParam("vault.resolve", "names") }
                 let names = try items.map { item in
@@ -154,9 +180,19 @@ nonisolated enum VaultControl {
                     return name
                 }
                 let command = try optionalText(call.params, "command")
-                let values = try run { try vault.resolve(names, for: caller(call), command: command) }
+                let by = try caller(call)
+                // A secret kept for the person goes to a command the person allowed; an agent's
+                // claim gets agent-scoped values only (resolve refuses the rest, audited).
+                if by.consumer == .user {
+                    let index = try run { try vault.list() }
+                    let kept = names.filter { index[$0].map { !$0.scope.contains(.agents) } ?? false }
+                    if !kept.isEmpty {
+                        try await allowed(.use(names: kept, program: command.map(CredentialVault.commandSummary)), call, approve: approve)
+                    }
+                }
+                let values = try run { try vault.resolve(names, for: by, command: command) }
                 return ["values": .object(values.mapValues(JSONValue.string))]
-            },
+            }.withDeadline(deadline),
             .async("vault.request") { call in
                 let name = try text(call.params, "name")
                 guard CredentialVault.isValidName(name) else { throw error(.invalidName(name)) }
@@ -175,11 +211,29 @@ nonisolated enum VaultControl {
                 let person = CredentialVault.Caller(consumer: .user, label: CredentialVaultStrings.personAskedBy(asker.label))
                 try run {
                     try store.set(name, value: answer.value, scope: answer.scope, note: reason.flatMap { replaces ? nil : $0 },
-                                  by: person, event: "request")
+                                  by: person, event: "request", onlyNew: !replaces)
                 }
                 return ["stored": .string(name), "replaced": .bool(replaces), "scope": .array(answer.scope.map { .string($0.rawValue) })]
-            }.withDeadline(.fixed(CredentialVault.requestDeadline)),
+            }.withDeadline(deadline),
         ]
+    }
+
+    /// Returns when the person allowed `approval` on their sheet; throws `vault.not_approved` when
+    /// they did not, or the request ended first (its deadline, Ctrl-C). The app's own in-process
+    /// calls need no sheet.
+    private static func allowed(_ approval: CredentialVault.Approval, _ call: ControlCall, approve: @escaping Approve) async throws {
+        guard call.connection != .inProcess else { return }
+        let sheet = Task { @MainActor in await approve(approval) }
+        let token = ControlConnectionClosures.shared.add(call.connection) { sheet.cancel() }
+        defer { ControlConnectionClosures.shared.remove(token) }
+        let yes = await withTaskCancellationHandler { await sheet.value } onCancel: { sheet.cancel() }
+        guard yes, !Task.isCancelled, !sheet.isCancelled else {
+            let name: String = switch approval {
+            case .use(let names, _): names.joined(separator: ", ")
+            case .store(let name, _), .remove(let name), .scope(let name, _): name
+            }
+            throw ControlError(code: "vault.not_approved", message: CredentialVaultStrings.declinedApproval(name), data: ["name": .string(name)])
+        }
     }
 
     /// The sheet's answer, ended (nil, sheet dismissed) when the request ends first: its deadline
@@ -194,28 +248,9 @@ nonisolated enum VaultControl {
 
     // MARK: Params
 
-    /// Processes that run agents: acpmux hosts every agent session and the Chief's turns run
-    /// under `optchat-chief`. A caller below one is an agent, whatever its params say.
-    static let agentHosts: Set<String> = ["acpmux", "optchat-chief"]
-
-    /// Who calls. The params (`caller`, as the CLI adds it) can only narrow it: an agent session or
-    /// a Chief turn is an agent. The person is a socket peer the server saw start inside cmux with
-    /// no agent host above it; a peer below an agent host, outside cmux or unknown is an agent,
-    /// so an agent cannot become the person by dropping its `CMUX_AGENT_SESSION`. The in-process
-    /// connection is the app itself.
-    static func caller(_ call: ControlCall, lineage: Lineage) throws -> CredentialVault.Caller {
-        let claimed = try caller(call.params)
-        guard claimed.consumer == .user, call.connection != .inProcess else { return claimed }
-        guard let peer = lineage(call.connection), peer.insideCmux else {
-            return .init(consumer: .agents, label: CredentialVaultStrings.unknownProcess)
-        }
-        if peer.executables.contains(where: agentHosts.contains) {
-            return .init(consumer: .agents, label: CredentialVaultStrings.unnamedAgent)
-        }
-        return claimed
-    }
-
-    /// The caller the params claim (see ``caller(_:lineage:)``, which checks it).
+    /// The caller its params claim (`caller`, as the CLI adds it): an agent session or a Chief turn
+    /// is an agent; a terminal or no caller claims to be the person. A claim can only narrow:
+    /// anything the person alone may do over the socket waits for their approval sheet.
     static func caller(_ params: [String: JSONValue]) throws -> CredentialVault.Caller {
         guard let raw = params["caller"], !raw.isNull else { return .init(consumer: .user, label: CredentialVaultStrings.you) }
         guard let members = raw.objectValue else { throw ControlError.invalidParams(CredentialVaultStrings.callerMustBeObject) }

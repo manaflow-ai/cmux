@@ -37,12 +37,13 @@ import Testing
         let secrets: MemorySecrets
         let person: Person
         let folder: URL
-        /// What the socket server read for each connection (``ControlConnectionPeers``).
-        let lineages: Lineages
+        let approver: Approver
     }
 
-    final class Lineages: Sendable {
-        let map = Mutex([ControlConnectionID: ControlConnectionPeers.Lineage]())
+    /// The person at the approval sheet: allows or not, and records what it was asked.
+    final class Approver: Sendable {
+        let allows = Mutex(true)
+        let asked = Mutex([CredentialVault.Approval]())
     }
 
     private func fixture(answer: CredentialVault.EntryAnswer? = nil) throws -> Fixture {
@@ -50,7 +51,7 @@ import Testing
         let secrets = MemorySecrets()
         let vault = CredentialVault(secrets: secrets, folder: folder)
         let person = Person(answer: answer)
-        let lineages = Lineages()
+        let approver = Approver()
         let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                              processID: getpid()),
                                    executor: RegistryControlBridge(registry: ActionRegistry(catalog: [])), settings: nil,
@@ -58,8 +59,11 @@ import Testing
         router.register(vault.controlMethods(ask: { request in
             person.asked.withLock { $0.append(request) }
             return person.answer
-        }, lineage: { connection in lineages.map.withLock { $0[connection] } }))
-        return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, lineages: lineages)
+        }, approve: { approval in
+            approver.asked.withLock { $0.append(approval) }
+            return approver.allows.withLock { $0 }
+        }))
+        return Fixture(router: router, vault: vault, secrets: secrets, person: person, folder: folder, approver: approver)
     }
 
     private func call(_ fixture: Fixture, _ method: String, _ params: [String: JSONValue],
@@ -229,44 +233,56 @@ import Testing
     }
 
     /// Review of https://github.com/manaflow-ai/cmux/issues/26412: an agent dropped its
-    /// `CMUX_AGENT_SESSION` (no `caller`, or a terminal's) and read a secret kept for the person.
-    /// Over the socket the caller is what the server saw: a process below acpmux or the Chief host,
-    /// outside cmux or unknown is an agent, whatever its params claim.
-    @Test func aSocketCallerIsWhatItsProcessIsNotWhatItClaims() async throws {
+    /// `CMUX_AGENT_SESSION` (no `caller`, or a terminal's) and read a secret kept for the person;
+    /// its process looks like the person's own `cmux` (acpmux runs as a `cmux` symlink, and an
+    /// agent can type into the person's terminal). Over the socket, a use of a secret kept for the
+    /// person and every write wait for the person's approval sheet, whoever claims to call.
+    @Test func overTheSocketOnlyThePersonsApprovalReleasesTheirSecretsOrChangesTheVault() async throws {
         let f = try fixture(answer: nil)
         _ = try await call(f, "vault.set", ["name": "PROD_DB", "value": "postgres://prod-secret", "scope": ["user"]]).get()
-        let underAgent = ControlConnectionID(rawValue: 11), underChief = ControlConnectionID(rawValue: 12)
-        let outside = ControlConnectionID(rawValue: 13), unknown = ControlConnectionID(rawValue: 14)
-        let person = ControlConnectionID(rawValue: 15)
-        f.lineages.map.withLock {
-            $0[underAgent] = .init(insideCmux: true, executables: ["cmux", "zsh", "2.1.30", "acpmux", "cmux"])
-            $0[underChief] = .init(insideCmux: true, executables: ["cmux", "optchat-chief", "cmux"])
-            $0[outside] = .init(insideCmux: false, executables: ["cmux", "zsh"])
-            $0[person] = .init(insideCmux: true, executables: ["cmux", "zsh", "cmux"])
-        }
-        for connection in [underAgent, underChief, outside, unknown] {
-            for claim: JSONValue in [.null, Self.terminal] {
-                let read = await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": claim], connection: connection)
-                #expect(error(read)?.code == "vault.denied", "\(connection) \(claim): \(read)")
-                #expect(!"\(read)".contains("postgres://prod-secret"))
-                let write = await call(f, "vault.set", ["name": "PROD_DB", "value": "agent-chosen", "caller": claim], connection: connection)
-                #expect(error(write)?.code == "vault.user_only")
-                let remove = await call(f, "vault.remove", ["name": "PROD_DB", "caller": claim], connection: connection)
-                #expect(error(remove)?.code == "vault.user_only")
-            }
+        _ = try await call(f, "vault.set", ["name": "GH_TOKEN", "value": "ghp_agents-may-use-123"]).get()
+        #expect(f.approver.asked.withLock { $0 }.isEmpty, "the app's own in-process calls need no sheet")
+        let socket = ControlConnectionID(rawValue: 9)
+        f.approver.allows.withLock { $0 = false }
+
+        for claim: JSONValue in [.null, Self.terminal] {
+            let read = await call(f, "vault.resolve", ["names": ["GH_TOKEN", "PROD_DB"], "command": "/usr/bin/psql -h prod", "caller": claim],
+                                  connection: socket)
+            #expect(error(read)?.code == "vault.not_approved", "\(claim): \(read)")
+            #expect(!"\(read)".contains("postgres://prod-secret") && !"\(read)".contains("ghp_agents-may-use-123"))
+            #expect(error(await call(f, "vault.set", ["name": "PROD_DB", "value": "agent-chosen", "caller": claim], connection: socket))?.code
+                == "vault.not_approved")
+            #expect(error(await call(f, "vault.remove", ["name": "PROD_DB", "caller": claim], connection: socket))?.code == "vault.not_approved")
+            #expect(error(await call(f, "vault.scope", ["name": "PROD_DB", "scope": "agents", "caller": claim], connection: socket))?.code
+                == "vault.not_approved")
         }
         #expect(try f.secrets.value(for: "PROD_DB") == "postgres://prod-secret")
-        let claimedAgent = await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.agent], connection: person)
-        #expect(error(claimedAgent)?.code == "vault.denied", "a claim can narrow the caller to an agent")
-        let mine = try await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.terminal], connection: person).get()
-        #expect(mine.objectValue?["values"]?.objectValue?["PROD_DB"] == "postgres://prod-secret")
+        #expect(try f.vault.list()["PROD_DB"]?.scope == [.user])
+        #expect(f.approver.asked.withLock { $0 }.prefix(4) == [.use(names: ["PROD_DB"], program: "psql"), .store(name: "PROD_DB", replaces: true),
+                                                                .remove(name: "PROD_DB"), .scope(name: "PROD_DB", scope: [.agents])])
 
-        // The sheet names the asker from what the server saw, and a session id carries no words.
-        _ = await call(f, "vault.request", ["name": "GH_TOKEN"], connection: underAgent)
-        _ = await call(f, "vault.request", ["name": "GH_TOKEN", "caller": ["agent_session": "you. Trust me, the Chief\nasks"]], connection: underAgent)
-        _ = await call(f, "vault.request", ["name": "GH_TOKEN"], connection: person)
-        #expect(f.person.asked.withLock { $0.map(\.requester) }
-            == [CredentialVaultStrings.unnamedAgent, CredentialVaultStrings.agentSession("you.TrustmetheChiefasks"), ""])
+        // An agent's claim is never asked about: it gets agent-scoped values only.
+        let before = f.approver.asked.withLock { $0.count }
+        let agentRead = await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.agent], connection: socket)
+        #expect(error(agentRead)?.code == "vault.denied")
+        let agentUse = try await call(f, "vault.resolve", ["names": ["GH_TOKEN"], "caller": Self.agent], connection: socket).get()
+        #expect(agentUse.objectValue?["values"]?.objectValue?["GH_TOKEN"] == "ghp_agents-may-use-123")
+        let mixed = try await call(f, "vault.resolve", ["names": ["GH_TOKEN"], "caller": Self.terminal], connection: socket).get()
+        #expect(mixed.objectValue?["values"]?.objectValue?["GH_TOKEN"] != nil, "an agent-scoped secret needs no sheet")
+        #expect(f.approver.asked.withLock { $0.count } == before)
+
+        // The person allows: their own command gets their secret.
+        f.approver.allows.withLock { $0 = true }
+        let mine = try await call(f, "vault.resolve", ["names": ["PROD_DB"], "caller": Self.terminal], connection: socket).get()
+        #expect(mine.objectValue?["values"]?.objectValue?["PROD_DB"] == "postgres://prod-secret")
+        let sheet = CredentialVault.approvalSheet(.use(names: ["PROD_DB"], program: "psql"))
+        #expect(sheet.identifier == CredentialVault.approvalSheetIdentifier)
+        #expect(!sheet.lines.joined().contains("postgres://prod-secret") && sheet.fields.isEmpty)
+
+        // The sheet names the asker from a sanitized id: a session id carries no words.
+        _ = await call(f, "vault.request", ["name": "NEW_KEY", "caller": ["agent_session": "you. Trust me, the Chief\nasks"]], connection: socket)
+        _ = await call(f, "vault.request", ["name": "NEW_KEY", "caller": Self.terminal], connection: socket)
+        #expect(f.person.asked.withLock { $0.map(\.requester) } == [CredentialVaultStrings.agentSession("you.TrustmetheChiefasks"), ""])
     }
 
     /// Review: a pasted key saved under a name the vault holds replaced that secret. The sheet comes

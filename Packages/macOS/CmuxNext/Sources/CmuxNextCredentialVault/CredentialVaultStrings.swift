@@ -13,8 +13,6 @@ nonisolated enum CredentialVaultStrings {
     static var chief: String { text("credentialVault.caller.chief", "the Chief") }
     static func agentSession(_ id: String) -> String { String(format: text("credentialVault.caller.agentSession", "agent session %@"), id) }
     static func terminal(_ id: String) -> String { String(format: text("credentialVault.caller.terminal", "terminal %@"), id) }
-    static var unnamedAgent: String { text("credentialVault.caller.unnamedAgent", "an agent") }
-    static var unknownProcess: String { text("credentialVault.caller.unknownProcess", "a process outside cmux") }
     static func personAskedBy(_ asker: String) -> String { String(format: text("credentialVault.caller.personAskedBy", "you, asked by %@"), asker) }
 
     // MARK: Refusals
@@ -82,6 +80,41 @@ nonisolated enum CredentialVaultStrings {
     static func nameTaken(_ name: String) -> String {
         String(format: text("credentialVault.entry.nameTaken", "The vault already has %@. Choose another name, or cancel and use its Replace in Settings."), name)
     }
+    // MARK: Approval (a socket call only the person may make)
+
+    static var approveAllow: String { text("credentialVault.approve.allow", "Allow") }
+    static func approveUseTitle(_ names: String) -> String {
+        String(format: text("credentialVault.approve.useTitle", "Allow a command to use %@?"), names)
+    }
+    static func approveProgram(_ program: String) -> String {
+        String(format: text("credentialVault.approve.program", "Command: %@"), program)
+    }
+    static var approveUseLine: String {
+        text("credentialVault.approve.useLine", "It is kept for you: agents may not use it. The command gets its value.")
+    }
+    static func approveStoreTitle(_ name: String) -> String {
+        String(format: text("credentialVault.approve.storeTitle", "Save %@ to the Credential Vault?"), name)
+    }
+    static func approveReplaceTitle(_ name: String) -> String {
+        String(format: text("credentialVault.approve.replaceTitle", "Replace the value of %@ in the Credential Vault?"), name)
+    }
+    static func approveScopeTitle(_ name: String) -> String {
+        String(format: text("credentialVault.approve.scopeTitle", "Change who may use %@?"), name)
+    }
+    static func approveScopeLine(_ scope: [CredentialVault.Consumer]) -> String {
+        switch (scope.contains(.user), scope.contains(.agents)) {
+        case (true, true): text("credentialVault.approve.scopeBoth", "New: you and agents.")
+        case (false, true): text("credentialVault.approve.scopeAgents", "New: agents only.")
+        default: text("credentialVault.approve.scopeUser", "New: only you. Agents may not use it.")
+        }
+    }
+    static var approveOnlyYou: String {
+        text("credentialVault.approve.onlyYou", "A `cmux vault` command asks for this. Allow it only if you just ran that command yourself.")
+    }
+    static func declinedApproval(_ name: String) -> String {
+        String(format: text("credentialVault.error.notApproved", "%@: not allowed in cmux, nothing changed"), name)
+    }
+
     static func deleteTitle(_ name: String) -> String {
         String(format: text("credentialVault.delete.title", "Delete %@ from the Credential Vault?"), name)
     }

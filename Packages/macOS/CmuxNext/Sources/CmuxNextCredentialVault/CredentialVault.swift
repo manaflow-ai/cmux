@@ -9,9 +9,11 @@ public import Foundation
 /// Every call blocks on the Keychain or the disk: callers run them off the main actor
 /// (`CredentialVaultControl` runs them on the async lane).
 public nonisolated final class CredentialVault: Sendable {
-    /// Who may resolve a secret: the person's own terminals and CLI, and agents (agent sessions
-    /// and Chief turns). A caller names itself (`caller`, as for `action.run`); the vault's
-    /// boundary against other programs is the Keychain item, which only this app reads.
+    /// Who may resolve a secret: the person, and agents (agent sessions and Chief turns). A socket
+    /// caller names itself (`caller`, as for `action.run`), which only narrows: a socket cannot
+    /// tell the person's `cmux` from an agent's, so a use of a secret kept for the person and every
+    /// write wait for the person's approval sheet (``Approval``). The boundary against other
+    /// programs is the Keychain item, which only this app reads.
     public enum Consumer: String, CaseIterable, Codable, Sendable {
         case user
         case agents

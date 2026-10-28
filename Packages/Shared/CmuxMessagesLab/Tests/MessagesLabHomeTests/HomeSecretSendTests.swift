@@ -58,7 +58,7 @@ import Testing
         rig.view.secretHost = { _ in
             asks += 1
             await withCheckedContinuation { answer = $0 }
-            return nil
+            return []
         }
         let text = "\(HomeChatRig.tag) this one is a test key \(Self.key)"
         #expect(await rig.send(text)?.hasPrefix("held") == true)
@@ -73,6 +73,25 @@ import Testing
         #expect(await rig.send(text) == nil, "the person answered and chose to send it")
         #expect(rig.storeItems() == [text])
         #expect(asks == 1)
+    }
+
+    /// Review: no window to show the sheet on (or a vault failure) read as "moved nothing", and the
+    /// next Return sent the key though the person never saw the offer. It stays held.
+    @Test func aKeyStaysHeldWhenTheOfferCouldNotBeShown() async throws {
+        let rig = try await HomeChatRig(history: 0)
+        defer { rig.stop() }
+        var asks = 0
+        rig.view.secretHost = { _ in
+            asks += 1
+            return nil
+        }
+        let text = "\(HomeChatRig.tag) the key is \(Self.key)"
+        #expect(await rig.send(text)?.hasPrefix("held") == true)
+        await HomeChatRig.until { asks == 1 && !rig.view.projection.secretOfferOpen }
+        #expect(await rig.send(text)?.hasPrefix("held") == true, "never sent as typed without an answer")
+        await HomeChatRig.until { asks == 2 }
+        #expect(rig.storeItems().isEmpty)
+        #expect(asks == 2, "each Return offers again")
     }
 
     @Test func withoutAHostAMessageGoesAsTyped() async throws {

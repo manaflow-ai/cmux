@@ -7820,6 +7820,137 @@
           }
         }
       }
+    },
+    "home.send.secretNotOffered": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This message still holds what looks like an API key or token, and the Credential Vault could not take it now. Remove it from the message to send."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا تزال هذه الرسالة تحتوي على ما يبدو أنه مفتاح API أو رمز مميز، ولم تتمكن خزنة بيانات الاعتماد من أخذه الآن. أزله من الرسالة لإرسالها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova poruka još sadrži nešto što liči na API ključ ili token, a Trezor akreditiva ga sada ne može preuzeti. Uklonite ga iz poruke da biste je poslali."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne besked indeholder stadig noget, der ligner en API-nøgle eller et token, og Legitimationsboksen kunne ikke tage det nu. Fjern det fra beskeden for at sende den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Nachricht enthält noch etwas, das wie ein API-Schlüssel oder Token aussieht, und der Anmeldedaten-Tresor konnte ihn gerade nicht übernehmen. Entferne ihn aus der Nachricht, um sie zu senden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este mensaje aún contiene lo que parece una clave de API o un token, y la Bóveda de credenciales no pudo guardarlo ahora. Quítalo del mensaje para enviarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce message contient encore ce qui ressemble à une clé d’API ou à un jeton, et le Coffre d’identifiants n’a pas pu le prendre pour l’instant. Retirez-le du message pour l’envoyer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo messaggio contiene ancora quella che sembra una chiave API o un token, e la Cassaforte delle credenziali non ha potuto prenderla ora. Rimuovila dal messaggio per inviarlo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このメッセージには API キーまたはトークンのようなものがまだ含まれており、資格情報保管庫は今それを受け取れませんでした。送信するにはメッセージから削除してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សារនេះនៅតែមានអ្វីដែលមើលទៅដូចជាកូនសោ API ឬថូខឹន ហើយឃ្លាំងព័ត៌មានសម្ងាត់មិនអាចយកវាបានឥឡូវនេះទេ។ ដកវាចេញពីសារដើម្បីផ្ញើ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 메시지에 아직 API 키나 토큰으로 보이는 내용이 있으며, 자격 증명 보관함이 지금 이를 받을 수 없었습니다. 보내려면 메시지에서 제거하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne meldingen inneholder fortsatt noe som ser ut som en API-nøkkel eller et token, og Legitimasjonshvelvet kunne ikke ta det nå. Fjern det fra meldingen for å sende den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ta wiadomość nadal zawiera coś, co wygląda na klucz API lub token, a Sejf poświadczeń nie mógł go teraz przyjąć. Usuń go z wiadomości, aby ją wysłać."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta mensagem ainda contém o que parece ser uma chave de API ou um token, e o Cofre de credenciais não conseguiu recebê-lo agora. Remova-o da mensagem para enviá-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В этом сообщении всё ещё есть то, что похоже на ключ API или токен, а Хранилище учётных данных не смогло принять его сейчас. Удалите его из сообщения, чтобы отправить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ข้อความนี้ยังมีสิ่งที่ดูเหมือนคีย์ API หรือโทเค็น และห้องนิรภัยข้อมูลรับรองรับไว้ไม่ได้ในตอนนี้ ลบออกจากข้อความเพื่อส่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu mesaj hâlâ API anahtarı veya belirtece benzeyen bir şey içeriyor ve Kimlik Bilgisi Kasası şu anda onu alamadı. Göndermek için mesajdan kaldırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Це повідомлення досі містить те, що схоже на ключ API або токен, а Сховище облікових даних не змогло прийняти його зараз. Видаліть його з повідомлення, щоб надіслати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tin nhắn này vẫn chứa thứ trông giống khóa API hoặc mã thông báo, và Kho thông tin xác thực hiện không thể nhận nó. Hãy xóa nó khỏi tin nhắn để gửi."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此消息仍包含看起来像 API 密钥或令牌的内容，凭据保险库暂时无法接收它。请从消息中删除后再发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此訊息仍包含看起來像 API 金鑰或權杖的內容，憑證保險庫目前無法接收它。請從訊息中移除後再傳送。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

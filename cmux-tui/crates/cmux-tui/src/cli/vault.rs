@@ -15,10 +15,10 @@
 //!
 //! Masking guards against accidents (a tool that prints its own token into an agent's context);
 //! it is not a boundary: a command that has a value can write it elsewhere or transform it. The
-//! boundary is the scope: an agent gets no value of a secret kept for the person, and the app
-//! decides who is an agent from the calling process (`VaultControl.caller`: below acpmux or the
-//! Chief host, outside cmux or unknown), not from the `caller` this command sends, which can only
-//! narrow it.
+//! boundary is the scope: an agent gets no value of a secret kept for the person. The socket
+//! cannot tell the person's `cmux` from an agent's (the `caller` this command sends can only
+//! narrow it), so the app asks the person on a native sheet before a use of a secret kept for
+//! them and before every `set`, `rm` and `scope` (`CredentialVault+Approval.swift`).
 
 use std::io::{Read, Write};
 use std::os::unix::net::UnixStream;
@@ -32,7 +32,8 @@ use super::{GlobalArgs, OutputMode, UsageError};
 const USAGE: &str = "usage: cmux vault set NAME [--scope user|agents|user,agents] [--note TEXT] (value on stdin or a hidden prompt)\n       cmux vault ls | rm NAME | scope NAME user,agents | log [--limit N]\n       cmux vault request NAME [--reason TEXT]\n       cmux vault exec --env VAR[=NAME] [--env ...] [--no-mask] -- COMMAND [ARGS...]";
 
 const READ_TIMEOUT: Duration = Duration::from_secs(15);
-/// The person types the value on a sheet: the app ends a lost one after 600 s.
+/// The person answers a sheet (a value to type, or an approval of a write or of a use of a secret
+/// kept for them): the app ends a lost one after 600 s.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(610);
 
 /// `Some(exit code)` when `args` is `vault …`.
@@ -265,9 +266,9 @@ fn run(global: &GlobalArgs, command: Command) -> i32 {
             Ok(value) if output == OutputMode::Human => print_list(&value),
             other => done(other),
         },
-        Command::Rm { name } => done(call(global, "vault.remove", json!({ "name": name }), READ_TIMEOUT)),
+        Command::Rm { name } => done(call(global, "vault.remove", json!({ "name": name }), REQUEST_TIMEOUT)),
         Command::Scope { name, scope } => {
-            done(call(global, "vault.scope", json!({ "name": name, "scope": scope }), READ_TIMEOUT))
+            done(call(global, "vault.scope", json!({ "name": name, "scope": scope }), REQUEST_TIMEOUT))
         }
         Command::Log { limit } => done(call(global, "vault.audit", json!({ "limit": limit }), READ_TIMEOUT)),
         Command::Set { name, scope, note } => {
@@ -292,7 +293,7 @@ fn run(global: &GlobalArgs, command: Command) -> i32 {
             if let Some(note) = note {
                 params["note"] = json!(note);
             }
-            let result = call(global, "vault.set", params.take(), READ_TIMEOUT);
+            let result = call(global, "vault.set", params.take(), REQUEST_TIMEOUT);
             done(result)
         }
         Command::Request { name, reason } => {
@@ -345,7 +346,7 @@ fn exec(global: &GlobalArgs, env: Vec<(String, String)>, mask: bool, argv: Vec<S
     let mut names: Vec<&str> = env.iter().map(|(_, name)| name.as_str()).collect();
     names.dedup();
     let params = json!({ "names": names, "command": argv.join(" ") });
-    let values = match call(global, "vault.resolve", params, READ_TIMEOUT) {
+    let values = match call(global, "vault.resolve", params, REQUEST_TIMEOUT) {
         Ok(result) => result.get("values").and_then(Value::as_object).cloned().unwrap_or_default(),
         Err(code) => return code,
     };
