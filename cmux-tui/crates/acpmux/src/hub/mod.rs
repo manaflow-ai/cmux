@@ -37,6 +37,7 @@ mod harness_view;
 mod harness_watch;
 mod health_view;
 mod idle;
+mod idle_census;
 mod launch_roots;
 mod launchers;
 pub mod lineage;
@@ -859,6 +860,8 @@ impl Hub {
             meta: StdMutex::new(meta),
             child: Mutex::new(None),
             spawn_lock: Mutex::new(()),
+            harness_use: RwLock::new(()),
+            idle_refusal_logged: AtomicU64::new(0),
             append_lock: StdMutex::new(()),
             loading: AtomicBool::new(false),
             replaying: StdMutex::new(Vec::new()),
