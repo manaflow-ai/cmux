@@ -61,7 +61,18 @@ public final class CrashContextRecorder {
     }
 
     /// One action ran: a snapshot now, or one at the end of the interval.
-    public func actionRan() {}
+    public func actionRan() {
+        let now = ContinuousClock.now
+        guard let last = lastRecord, now - last < interval else { return record(at: now) }
+        guard pending == nil else { return }
+        let wait = interval - (now - last)
+        pending = Task { [weak self, clock] in  // task-owner: stored in pending, cancelled in stop()
+            // wakeup-allow: one bounded trailing snapshot after an action burst; cancelled with the recorder.
+            do { try await clock.sleep(for: wait) } catch { return }
+            self?.pending = nil
+            self?.record(at: .now)
+        }
+    }
 
     /// Takes and stores a snapshot now.
     ///
