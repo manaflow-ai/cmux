@@ -100,6 +100,43 @@ def files_written(roots, since):
     return dict(sorted(out.items(), key=lambda kv: -kv[1][1])[:40])
 
 
+def network_callers(path):
+    """The main thread's call paths through Chromium's network and update code in a `sample` report: for each line
+    naming SimpleURLLoader, update_client, component_updater, safe_browsing or a URL loader, the line and its eight
+    callers (the indented lines above it), deduplicated."""
+    try:
+        lines = open(path).read().splitlines()
+    except OSError:
+        return []
+    start = next((i for i, l in enumerate(lines) if "com.apple.main-thread" in l), None)
+    if start is None:
+        return []
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"\s+\d+ Thread_", lines[i]) or not lines[i].strip()), len(lines))
+    tree = lines[start:end]
+    hits, seen = [], set()
+    pattern = re.compile(r"SimpleURLLoader|update_client|component_updater|safe_browsing|URLLoader|NetworkFetcher|Downloader|extensions::|leveldb", re.I)
+    def depth(l):
+        return len(l) - len(l.lstrip(" +!:|"))
+    for i, l in enumerate(tree):
+        if not pattern.search(l):
+            continue
+        chain, d = [l.strip()[:200]], depth(l)
+        for j in range(i - 1, 0, -1):
+            if depth(tree[j]) < d:
+                chain.append(tree[j].strip()[:200])
+                d = depth(tree[j])
+                if len(chain) >= 9:
+                    break
+        key = tuple(re.sub(r"^\d+ ", "", c) for c in chain)
+        if key in seen:
+            continue
+        seen.add(key)
+        hits.append(chain)
+        if len(hits) >= 40:
+            break
+    return hits
+
+
 def run_round(name, app, opts, roots):
     """One launch: settle, then an idle window with the pump counters (debug.cef), every process's CPU, the files
     Chromium wrote, a sample of the busiest helper and, on a Debug build, Chromium's own trace (posting locations)."""
@@ -151,6 +188,11 @@ def run_round(name, app, opts, roots):
                 report["trace_error"] = str(error)[:300]
                 tracer = None
         stopped, cpu = threading.Event(), {}
+        # The app's main thread during the window's first 20 s (the component updater starts 60 s after Chromium):
+        # what the pump's passes run.
+        main_sample = os.path.join(out, "sample-app.txt")
+        sampler = subprocess.Popen(["/usr/bin/sample", str(bench.process.pid), "20", "1", "-mayDie", "-file", main_sample],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         watcher = threading.Thread(target=cpu_window, args=(app, stopped, cpu), daemon=True)
         since = time.time()
         before = bench.rpc("debug.cef", timeout=10).get("pump") or {}
@@ -191,15 +233,8 @@ def run_round(name, app, opts, roots):
                 report["sample_head"] = [l for l in text if re.match(r"\s*[+!:| ]*\d+ ", l)][:120]
             except OSError:
                 pass
-        # The app's main thread: what the pump runs (5 s).
-        path = os.path.join(out, "sample-app.txt")
-        subprocess.run(["/usr/bin/sample", str(bench.pid), "5", "1", "-mayDie", "-file", path],
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        try:
-            text = open(path).read().splitlines()
-            report["app_sample_head"] = [l for l in text if re.match(r"\s*[+!:| ]*\d+ ", l)][:160]
-        except OSError:
-            pass
+        sampler.wait(timeout=60)
+        report["app_main_hits"] = network_callers(main_sample)
     except BaseException as error:  # noqa: BLE001
         report["error"] = f"{type(error).__name__}: {error}"[:500]
         note(f"FIRSTRUN {name}: ERROR {report['error']}")
@@ -219,8 +254,8 @@ def run_round(name, app, opts, roots):
         note(f"   [{name}] SAMPLE of {report['sample_of']}")
         for l in (report.get("sample_head") or [])[:70]:
             note(f"   [{name}] S {l[:220]}")
-    for l in (report.get("app_sample_head") or [])[:90]:
-        note(f"   [{name}] A {l[:220]}")
+    for chain in (report.get("app_main_hits") or [])[:25]:
+        note(f"   [{name}] MAIN " + " <- ".join(chain[:6]))
     return report
 
 
