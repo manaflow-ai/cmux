@@ -252,7 +252,7 @@ public struct MobileSection: View {
                 localized: "settings.mobile.pairDevice.subtitle",
                 defaultValue: """
                 Sign in to cmux on your iPhone with the same account to connect automatically, \
-                or open pairing to scan this Mac’s Tailscale QR code.
+                or open pairing to scan this Mac’s Tailscale QR code when a Tailscale route is available.
                 """
             )
         ) {

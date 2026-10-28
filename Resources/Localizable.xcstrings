@@ -328542,55 +328542,55 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in to cmux on your iPhone with the same account to connect automatically, or open pairing to scan this Mac’s Tailscale QR code."
+            "value": "Sign in to cmux on your iPhone with the same account to connect automatically, or open pairing to scan this Mac’s Tailscale QR code when a Tailscale route is available."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhoneのcmuxに同じアカウントでサインインすると自動的に接続されます。または、ペアリングを開いてこのMacのTailscale QRコードをスキャンしてください。"
+            "value": "iPhoneのcmuxに同じアカウントでサインインすると自動的に接続されます。または、Tailscaleルートが利用可能な場合はペアリングを開いてこのMacのTailscale QRコードをスキャンしてください。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 iPhone 上使用同一账户登录 cmux 即可自动连接，或打开配对以扫描这台 Mac 的 Tailscale 二维码。"
+            "value": "在 iPhone 上使用同一账户登录 cmux 即可自动连接；如果 Tailscale 路由可用，也可以打开配对以扫描这台 Mac 的 Tailscale 二维码。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Melde dich auf deinem iPhone mit demselben Konto bei cmux an, um dich automatisch zu verbinden, oder öffne die Kopplung, um den Tailscale-QR-Code dieses Macs zu scannen."
+            "value": "Melde dich auf deinem iPhone mit demselben Konto bei cmux an, um dich automatisch zu verbinden, oder öffne die Kopplung, um den Tailscale-QR-Code dieses Macs zu scannen, wenn eine Tailscale-Route verfügbar ist."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Connectez-vous à cmux sur votre iPhone avec le même compte pour vous connecter automatiquement, ou ouvrez le jumelage pour scanner le code QR Tailscale de ce Mac."
+            "value": "Connectez-vous à cmux sur votre iPhone avec le même compte pour vous connecter automatiquement, ou ouvrez le jumelage pour scanner le code QR Tailscale de ce Mac lorsqu’une route Tailscale est disponible."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "سجّل الدخول إلى cmux على iPhone بالحساب نفسه للاتصال تلقائيًا، أو افتح الاقتران لمسح رمز QR الخاص بـ Tailscale على هذا الـ Mac."
+            "value": "سجّل الدخول إلى cmux على iPhone بالحساب نفسه للاتصال تلقائيًا، أو افتح الاقتران لمسح رمز QR الخاص بـ Tailscale على هذا الـ Mac عند توفر مسار Tailscale."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Inicia sesión en cmux en tu iPhone con la misma cuenta para conectarte automáticamente, o abre la vinculación para escanear el código QR de Tailscale de este Mac."
+            "value": "Inicia sesión en cmux en tu iPhone con la misma cuenta para conectarte automáticamente, o abre la vinculación para escanear el código QR de Tailscale de este Mac cuando haya una ruta de Tailscale disponible."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在 iPhone 上以相同帳戶登入 cmux 即可自動連線，或開啟配對以掃描這台 Mac 的 Tailscale QR 碼。"
+            "value": "在 iPhone 上以相同帳戶登入 cmux 即可自動連線；若 Tailscale 路由可用，也可以開啟配對以掃描這台 Mac 的 Tailscale QR 碼。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "iPhone의 cmux에 동일한 계정으로 로그인하여 자동으로 연결하거나, 페어링을 열어 이 Mac의 Tailscale QR 코드를 스캔하세요."
+            "value": "iPhone의 cmux에 동일한 계정으로 로그인하여 자동으로 연결하거나, Tailscale 경로를 사용할 수 있을 때 페어링을 열어 이 Mac의 Tailscale QR 코드를 스캔하세요."
           }
         }
       }
