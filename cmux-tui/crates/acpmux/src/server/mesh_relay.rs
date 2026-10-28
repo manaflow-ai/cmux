@@ -1,8 +1,9 @@
 //! The daemon's side of the mesh relay (`mesh.rs`): the inbox loop and the delivery of one
 //! message.
 //!
-//! The inbox long-polls the hub (`inbox_wait`), never more often than `min_poll_gap` (a hub that
-//! answers at once with nothing is no busy loop), and delivers each message on its own task, at
+//! The inbox long-polls the hub (`inbox_wait`), never more often than `min_poll_gap`, after an
+//! answer or a failure alike (a hub that answers at once, with nothing or an error, is no busy
+//! loop), and delivers each message on its own task, at
 //! most `max_in_flight` at a time; a message already being delivered is not started again. After
 //! a failed call it waits, doubling from `backoff_first` to `backoff_cap`, and logs only the
 //! first failure of a run of them and the recovery. It stops when [`MeshRelay`] is stopped or
@@ -104,19 +105,29 @@ fn hub_ended(hub: &Weak<Hub>) -> bool {
     hub.upgrade().is_none_or(|hub| hub.is_stopping())
 }
 
+/// How often a waiting loop reads the daemon's stopping flag, which some shutdown paths (a
+/// signal, `shutdown_all`) set without notifying `Hub::shutdown`.
+const STOPPING_RECHECK: Duration = Duration::from_secs(1);
+
 /// Resolves once the relay is stopped or its handle dropped, or the daemon stops: its hub's
-/// `shutdown` (registered before the stopping flag is read, so none is missed) or the hub gone.
+/// `shutdown` (registered before the stopping flag is read, so none is missed), its stopping flag
+/// (read again every [`STOPPING_RECHECK`]) or the hub gone.
 async fn ended(stop: &mut watch::Receiver<bool>, hub: &Weak<Hub>) {
     let Some(hub) = hub.upgrade() else { return };
     let shutdown = hub.shutdown.notified();
     tokio::pin!(shutdown);
     shutdown.as_mut().enable();
-    if hub.is_stopping() {
-        return;
-    }
-    tokio::select! {
-        () = stopped(stop) => {}
-        () = shutdown => {}
+    let mut recheck = tokio::time::interval(STOPPING_RECHECK);
+    recheck.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        if hub.is_stopping() {
+            return;
+        }
+        tokio::select! {
+            () = stopped(stop) => return,
+            () = &mut shutdown => return,
+            _ = recheck.tick() => {}
+        }
     }
 }
 
@@ -184,7 +195,8 @@ async fn inbox(
                 if !std::mem::replace(&mut failing, true) {
                     tracing::warn!("mesh relay: inbox failed ({e}); retrying with backoff");
                 }
-                backoff.next_wait()
+                // Never sooner than the poll floor: the backoff's jitter only shortens a wait.
+                backoff.next_wait().max(options.min_poll_gap.saturating_sub(started.elapsed()))
             }
         };
         if !wait.is_zero() {

@@ -324,8 +324,8 @@ async fn the_relay_ends_when_the_daemon_stops_or_the_mesh_hub_refuses_it() {
     let fake = Arc::new(FakeHub { long: true, ..FakeHub::default() });
     let relay = MeshRelay::start(&stopping, fake.clone(), Arc::new(RefuseControl), quick());
     fake.until("the first inbox call", |s| s.inbox_calls > 0).await;
+    // The stopping flag alone (a signal's path, which notifies nothing) is enough.
     stopping.stop_idle_reaper();
-    stopping.shutdown.notify_waiters();
     ends(&relay, "the daemon stops").await;
     let calls = fake.with(|s| s.inbox_calls);
     tokio::time::sleep(Duration::from_millis(300)).await;
@@ -384,15 +384,17 @@ async fn control_messages_go_to_the_hook_and_without_one_are_refused() {
 #[tokio::test]
 async fn a_failing_or_impatient_hub_is_never_called_in_a_busy_loop() {
     let down = FakeHub { down: true, ..FakeHub::default() };
+    // A backoff that starts at nothing still waits the poll floor between calls.
+    let zero = || RelayOptions { backoff_first: Duration::ZERO, ..quick() };
     let impatient = FakeHub { impatient: true, ..FakeHub::default() };
     for fake in [down, impatient] {
         let hub = hub();
         let fake = Arc::new(fake);
-        let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), quick());
+        let relay = MeshRelay::start(&hub, fake.clone(), Arc::new(RefuseControl), zero());
         tokio::time::sleep(Duration::from_secs(1)).await;
         relay.stop().await;
         let calls = fake.with(|s| s.inbox_calls);
-        // 100 ms apart at the least, backing off to 400 ms when it fails: about 10 at most.
+        // 100 ms apart at the least, even with no backoff: about 10 at most.
         assert!((1..=15).contains(&calls), "{calls} inbox calls in a second");
     }
 }
