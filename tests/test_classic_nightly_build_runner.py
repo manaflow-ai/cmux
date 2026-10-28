@@ -187,6 +187,36 @@ class Main(unittest.TestCase):
             self.assertIn(f"cloud={picker.LARGE}", out.read_text())
 
 
+class Prepare(unittest.TestCase):
+    """`prepare`: prepare-nightly-variant takes the pinned mini only while it is idle now."""
+
+    def run_prepare(self, runners, **env):
+        clock = Clock()
+        with tempfile.TemporaryDirectory() as directory:
+            out = Path(directory) / "out"
+            read = runners if callable(runners) else (lambda token, repo: runners)
+            picker.main({"GITHUB_REPOSITORY": "o/r", "ROUTE_TOKEN": "t", "TRUSTED_POOL": POOL, "TRUSTED_RUNNER": RUNNER,
+                         "ENABLED": "1", "GITHUB_RUN_ATTEMPT": "1", "GITHUB_OUTPUT": str(out), **env},
+                        argv=["prepare"], read_runners=read, read_snapshot=lambda token, repo: None,
+                        now=NOW, sleep=clock.sleep, clock=clock)
+            return out.read_text(), clock.at
+
+    def test_an_idle_mini_takes_the_prepare_legs(self) -> None:
+        self.assertEqual(self.run_prepare([runner(POOL, RUNNER)]), ("trusted=true\n", 0))
+
+    def test_busy_offline_unread_off_or_a_rerun_keep_blacksmith_with_no_wait(self) -> None:
+        def boom(token, repo):
+            raise RuntimeError("403")
+        cases = {"busy": ([runner(POOL, RUNNER, busy=True)], {}),
+                 "offline": ([runner(POOL, RUNNER, status="offline")], {}),
+                 "unread": (boom, {}),
+                 "off": ([runner(POOL, RUNNER)], {"ENABLED": "0"}),
+                 "rerun": ([runner(POOL, RUNNER)], {"GITHUB_RUN_ATTEMPT": "2"})}
+        for name, (runners, env) in cases.items():
+            with self.subTest(name):
+                self.assertEqual(self.run_prepare(runners, **env), ("trusted=false\n", 0))
+
+
 class WallClock(unittest.TestCase):
     def test_the_wait_is_counted_once_without_an_injected_now(self) -> None:
         # Busy for the whole wait; a snapshot made at the start shows 12 vCPU moving (oldest 4 min).
@@ -223,8 +253,29 @@ class Workflow(unittest.TestCase):
         # A failed or skipped picker never skips the build.
         self.assertRegex(re.search(r"^    if: (.+)$", job, re.MULTILINE).group(1), r"^\"!cancelled\(\) && needs\.decide\.result == 'success'")
 
+    def test_prepare_takes_the_pinned_mini_only_on_the_prepare_pick(self) -> None:
+        job = self.job("prepare-nightly-variant")
+        runs_on = re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1)
+        self.assertIn("pick-classic-prepare-runner", re.search(r"^    needs: (.+)$", job, re.MULTILINE).group(1))
+        self.assertIn("github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' "
+                      "&& needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(", runs_on)
+        self.assertTrue(runs_on.endswith("|| needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}"))
+        self.assertNotIn("secrets.", job)
+        self.assertNotIn("environment:", job)
+        pick = self.job("pick-classic-prepare-runner")
+        self.assertIn("run: python3 scripts/ci/classic_nightly_build_runner.py prepare", pick)
+        self.assertIn("github.ref == 'refs/heads/main'", pick)
+        # Signing and verify keep the Blacksmith-only pick.
+        for name in ("build-sign-notarize-nightly", "verify-signed-nightly"):
+            self.assertNotIn("pick-classic-prepare-runner", self.job(name))
+
     def test_the_picker_runs_on_linux_and_never_fails(self) -> None:
-        job = self.job("pick-nightly-app-runner")
+        for name in ("pick-nightly-app-runner", "pick-classic-prepare-runner"):
+            with self.subTest(name):
+                self.check_picker(name)
+
+    def check_picker(self, name: str) -> None:
+        job = self.job(name)
         self.assertIn("'blacksmith-2vcpu-ubuntu-2404'", job)
         self.assertNotIn("macos", re.search(r"^    runs-on: (.+)$", job, re.MULTILINE).group(1).split("||")[-1])
         # Every step continues on error and their budgets fit inside the job's, so the job ends green.

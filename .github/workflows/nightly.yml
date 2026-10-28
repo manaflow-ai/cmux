@@ -1752,12 +1752,72 @@ jobs:
           ENABLED: '0'
         run: python3 scripts/ci/classic_nightly_build_runner.py
 
+  # prepare-nightly-variant's three legs ran about 1 min each but queued 27-42 min on
+  # blacksmith-6vcpu-macos-26 (runs 40557789720, 40567539918), and run 40604652316's sat queued with
+  # every Blacksmith macOS 26 label stalled, while the pinned trusted mini that had just built the app
+  # sat idle. This reads that mini once, with no wait, after the build: idle now, and attempt 1 of
+  # main's push or schedule, puts the prepare legs on the same pinned tuple build-nightly-app takes
+  # (the one mini that already builds the shipped app); anything else, an unreadable runner list
+  # included, keeps Blacksmith. Signing and verify stay on Blacksmith (pick-classic-sign-runner).
+  pick-classic-prepare-runner:
+    needs: [decide, build-nightly-app]
+    if: needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    outputs:
+      trusted: ${{ steps.pick.outputs.trusted }}
+    steps:
+      - name: Checkout the picker at the workflow commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        continue-on-error: true
+        timeout-minutes: 2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/ci
+
+      - name: Mint the owned-pool routing token
+        id: route-token
+        if: github.repository == 'manaflow-ai/cmux' && github.run_attempt == 1 && vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+          permission-organization-self-hosted-runners: read
+
+      - name: Mint the routing token without the org permission
+        id: route-token-repo
+        if: steps.route-token.outcome == 'failure'
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          permission-administration: read
+
+      - name: Pick the trusted mini if it is idle now
+        id: pick
+        continue-on-error: true
+        timeout-minutes: 1
+        env:
+          ROUTE_TOKEN: ${{ steps.route-token.outputs.token || steps.route-token-repo.outputs.token }}
+          TRUSTED_POOL: ${{ vars.CI_SEED_TRUSTED_POOL }}
+          TRUSTED_RUNNER: ${{ vars.CI_NIGHTLY_TRUSTED_RUNNER }}
+          ENABLED: ${{ needs.decide.outputs.fast_build != 'true' && (github.event_name == 'push' || github.event_name == 'schedule') && github.ref == 'refs/heads/main' && vars.CI_PR_POOL_OWNED == '1' && '1' || '0' }}
+        run: python3 scripts/ci/classic_nightly_build_runner.py prepare
+
   prepare-nightly-variant:
     # No environment and no secrets: this job runs code from the bundle (the
     # cmux-tui probe, the CLI and helper regressions, the sidecar handshake)
     # before signing. build-sign-notarize-nightly signs exactly the app it uploads
     # and runs no bundle code itself.
-    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner]
+    needs: [decide, build-nightly-ghostty-cli-helper, build-nightly-app, resolve-nightly-cmux-tui-client, pick-classic-sign-runner, pick-classic-prepare-runner]
     # !cancelled() and each original need's success, not the implicit success(): a failed or timed-out
     # pick-classic-sign-runner then leaves its outputs empty and the runs-on literal takes the job.
     if: "!cancelled() && needs.decide.result == 'success' && needs.build-nightly-ghostty-cli-helper.result == 'success' && needs.build-nightly-app.result == 'success' && needs.resolve-nightly-cmux-tui-client.result == 'success' && needs.decide.outputs.should_build == 'true' && (github.event_name != 'schedule' || github.event.schedule == '47 8 * * *') && needs.decide.outputs.build_only != 'true'"
@@ -1765,7 +1825,9 @@ jobs:
     permissions:
       contents: read
       actions: read
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+    # The pinned trusted mini while pick-classic-prepare-runner saw it idle (attempt 1 of main's push or
+    # schedule only); a re-run takes the Blacksmith pick below.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && vars.CI_SEED_TRUSTED_POOL != '' && vars.CI_NIGHTLY_TRUSTED_RUNNER != '' && needs.pick-classic-prepare-runner.outputs.trusted == 'true' && fromJSON(format('["{0}", "{1}"]', vars.CI_SEED_TRUSTED_POOL, vars.CI_NIGHTLY_TRUSTED_RUNNER)) || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
