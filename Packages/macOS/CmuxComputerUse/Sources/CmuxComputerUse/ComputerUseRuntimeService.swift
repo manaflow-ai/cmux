@@ -63,9 +63,22 @@ public final class ComputerUseRuntimeService {
     /// LaunchServices in the app; tests substitute a recorder so a synthetic
     /// helper bundle is never handed to the system.
     var helperLauncher: HelperLauncher = ComputerUseRuntimeService.openHelperApplication(at:configuration:)
+    /// Registers an installed helper with LaunchServices; tests substitute a
+    /// no-op so a temporary fixture bundle never enters the system database.
+    var helperRegistrar: @MainActor (URL) -> Void = { url in
+        ComputerUseRuntimeService.registerHelperBundle(at: url)
+        NSWorkspace.shared.noteFileSystemChanged(url.path)
+    }
     private let uptime: @MainActor () -> TimeInterval
     private var recoveryTask: Task<Void, Never>?
     private var toolInvocationRecoveryTask: Task<Void, Never>?
+    private var toolInvocationRecoveryGeneration = 0
+    /// Uptime of the last start a tool call made past the backoff.
+    private var lastToolInvocationStartUptime: TimeInterval?
+    /// A tool call may skip the backoff at most this often, the backoff's own
+    /// first step, so an agent retrying against a broken helper cannot turn
+    /// every call into a stop, reinstall and relaunch.
+    static let toolInvocationStartInterval: TimeInterval = 5
     private var cachedStatus = ComputerUsePermissionStatus.unknown
     private var permissionRefreshGeneration = 0
     /// Durable setup evidence shared by Settings, onboarding, and daemon admission.
@@ -328,7 +341,8 @@ public final class ComputerUseRuntimeService {
     /// reaches minutes after a few failed starts (for example while a freshly
     /// updated helper launches slowly), so a tool call has to start the helper
     /// itself, as toggling the setting does. A failed attempt still feeds the
-    /// backoff that paces background recovery. Concurrent calls share one
+    /// backoff that paces background recovery, and tool calls skip it at most
+    /// once per `toolInvocationStartInterval`. Concurrent calls share one
     /// attempt; a call while both daemons answer costs two local probes.
     @discardableResult
     public func requestHelperForToolInvocation() -> Task<Void, Never>? {
@@ -336,15 +350,25 @@ public final class ComputerUseRuntimeService {
         if let toolInvocationRecoveryTask {
             return toolInvocationRecoveryTask
         }
+        toolInvocationRecoveryGeneration += 1
+        let generation = toolInvocationRecoveryGeneration
         let task = Task { @MainActor [weak self] in
             guard let self else { return }
             if await !self.bothDaemonsListening(), !Task.isCancelled {
                 await self.serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
                     guard let self, self.desiredEnabled else { return }
-                    await self.startIfNeededWithinLifecycle(bypassingBackoff: true)
+                    let now = self.uptime()
+                    let bypassesBackoff = self.lastToolInvocationStartUptime.map {
+                        now - $0 >= Self.toolInvocationStartInterval
+                    } ?? true
+                    if bypassesBackoff { self.lastToolInvocationStartUptime = now }
+                    await self.startIfNeededWithinLifecycle(bypassingBackoff: bypassesBackoff)
                 }
             }
-            self.toolInvocationRecoveryTask = nil
+            // A disable in the meantime may have handed the slot to a newer call.
+            if self.toolInvocationRecoveryGeneration == generation {
+                self.toolInvocationRecoveryTask = nil
+            }
         }
         toolInvocationRecoveryTask = task
         return task
@@ -966,7 +990,7 @@ public final class ComputerUseRuntimeService {
                 helperUnavailableInThisBuild = false
                 installed = true
                 installedHelperURL = destination
-                Self.registerHelperBundle(at: destination)
+                helperRegistrar(destination)
                 return destination
             }
             helperUnavailableInThisBuild = true
@@ -995,8 +1019,7 @@ public final class ComputerUseRuntimeService {
         if isCurrent {
             installed = true
             installedHelperURL = destination
-            Self.registerHelperBundle(at: destination)
-            NSWorkspace.shared.noteFileSystemChanged(destination.path)
+            helperRegistrar(destination)
             return destination
         }
 
@@ -1022,8 +1045,7 @@ public final class ComputerUseRuntimeService {
         installedHelperURL = result
         installed = result != nil
         if let result {
-            Self.registerHelperBundle(at: result)
-            NSWorkspace.shared.noteFileSystemChanged(result.path)
+            helperRegistrar(result)
         }
         if result != nil, replacesExistingHelper {
             onboarding.invalidateHelper()
