@@ -27,8 +27,9 @@ extension KeyRouter {
         var arguments: [String: ActionValue] = [:]
     }
 
-    /// The winning binding for a key-down in `context`: its characters, then
-    /// its unshifted key ("}" or "]" for Shift-]).
+    /// The winning binding for a key-down in `context`: the first of its
+    /// readings (`ActionRegistry.shortcuts(for:)`, Ghostty's order, the same
+    /// on every keyboard layout) that has one.
     /// `ghostty: false` leaves the Ghostty entries out (a browser chord in
     /// a browser context, which never runs a Ghostty keybind).
     func resolve(_ event: NSEvent, context: KeyContext, ghostty: Bool = true) -> KeyBinding? { // perf-hot: 0.5ms key-dispatch (every chord key-down)

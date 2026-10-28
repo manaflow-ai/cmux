@@ -10,8 +10,10 @@
 /// its overlay can say what it offers. A bare first key (no Command,
 /// Control or Option: `g g`) arms only where the context owns bare keys
 /// (``KeyContext/ownsBareKeys``, K1). A key has several readings
-/// (`ActionRegistry.shortcuts(for:)`: its characters, then the unshifted
-/// key); the first reading that extends wins, then the first that completes.
+/// (`ActionRegistry.shortcuts(for:)`, Ghostty's order: the digit row's
+/// digit, the text, the key-equivalent reading, the unshifted key, the
+/// ASCII-capable layout's key); the first reading that extends wins, then
+/// the first that completes.
 extension KeyBindingTable {
     public enum SequenceStep: Hashable, Sendable {
         /// The key completes this entry.

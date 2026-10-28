@@ -93,12 +93,41 @@ extension ActionRegistry {
         return Self.shortcuts(for: KeyInput(event, layout: keyboardLayout))
     }
 
-    /// The shortcuts a key may mean: its characters, then the unshifted
-    /// key ("}" or "]" for Shift-]), with its modifiers (today's readings; the fix
-    /// commit reads them in Ghostty's order).
+    /// The shortcuts a key may mean, in Ghostty's match order (ghostty-next src/input/Binding.zig
+    /// `Set.getEvent`), each with the key's modifiers:
+    /// 1. the physical key, where bindings are physical: a Command or Control chord on the digit
+    ///    row reads its digit on every layout (Ghostty binds `goto_tab` to `digit_N` and to `N`,
+    ///    because AZERTY types `&` `é` `"` on those keys);
+    /// 2. the text the key types, when it is one character (with Command held, the layout's
+    ///    Command map: QWERTY on Russian, Greek or Dvorak - QWERTY ⌘), unless Option is held: an
+    ///    Option character (ƒ for Option-F, @ for Option-L on German) names no binding, so an
+    ///    Option chord reads its key as before (and the shortcut recorder records Cmd-Opt-F, not ƒ);
+    /// 3. with Command held, the Command map's unshifted key (`]` for Cmd-Shift-] on Dvorak - QWERTY ⌘);
+    /// 4. AppKit's key-equivalent reading (`charactersIgnoringModifiers`: function keys and the
+    ///    layout's own letters), and 5. the unshifted key ("]" for Shift-]), each when one character;
+    /// 6. for a Command or Control chord whose key types no ASCII character, the ASCII-capable
+    ///    layout's key (Ctrl-B on Russian is the key with the Latin B).
+    /// Letters are never read by position (Cmd-Z on German is the key that types z), and a plain,
+    /// Shift or Option key reads only what it types: cmux decides those only after the input
+    /// methods, never as a shortcut found by position or by another layout.
     public static func shortcuts(for input: KeyInput) -> ShortcutReadings {
+        let flags = input.modifiers
         var readings = ShortcutReadings()
-        if let key = input.ignoringModifiers { readings.append(Shortcut(key, modifiers: input.modifiers)) }
-        if let base = input.unshifted { readings.append(Shortcut(base, modifiers: input.modifiers)) }
+        if input.isChord, let digit = Self.digitRow[input.keyCode] { readings.append(Shortcut(digit, modifiers: flags)) }
+        // Three calls, not a loop over an array: reading a key allocates no array (p04-input-055).
+        func appendTyped(_ typed: String?) {
+            if let typed, typed.unicodeScalars.count == 1 { readings.append(Shortcut(typed, modifiers: flags)) }
+        }
+        if !flags.contains(.option) { appendTyped(input.text) }
+        appendTyped(input.commandUnshifted)
+        appendTyped(input.ignoringModifiers)
+        appendTyped(input.unshifted)
+        if input.isChord, let ascii = input.asciiFallback { readings.append(Shortcut(ascii, modifiers: flags)) }
         return readings
     }
+
+    /// The digit each digit-row key names (Ghostty's `digit_1` ... `digit_0`, kVK_ANSI_1 ... kVK_ANSI_0).
+    nonisolated static let digitRow: [UInt16: String] = [
+        18: "1", 19: "2", 20: "3", 21: "4", 23: "5", 22: "6", 26: "7", 28: "8", 25: "9", 29: "0",
+    ]
+}
