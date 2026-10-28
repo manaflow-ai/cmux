@@ -713,6 +713,17 @@ linux_suite_setup() {
   echo "Linux: $(swift --version 2>/dev/null | head -n 1) (${envs:--})"
 }
 
+# swift_filter FILTER: the --filter regex for FILTER. swift test matches it unanchored, so on Linux,
+# where only the listed targets may run, it is anchored with its dots escaped and must end at a
+# target, suite or test boundary: ListedTests never reaches ListedTestsExtra. macOS passes FILTER as is.
+swift_filter() {
+  if [ "$lane_os" = Linux ]; then
+    printf '^%s($|[./(])' "${1//./\\.}"
+  else
+    printf '%s' "$1"
+  fi
+}
+
 run_suite() {
   if [ "$lane_os" = Linux ]; then
     linux_suite_setup
@@ -792,7 +803,7 @@ run_suite() {
       --stall-seconds "${CMUX_SWIFT_TEST_STALL_SECONDS:-180}" \
       --timeout-seconds "${CMUX_SWIFT_PACKAGE_TEST_TIMEOUT_SECONDS:-900}" \
       --sample-seconds 5 --label "$filter" --log "$log" \
-      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$filter" < /dev/null || status=$?
+      -- swift test "${configuration[@]}" --package-path "$suite_package" --skip-build --filter "$(swift_filter "$filter")" < /dev/null || status=$?
     if toolchain_mismatch "$log" "$filter in $suite_package"; then
       [ "$status" -ne 0 ] || status=1
     elif [ "$status" -eq 0 ]; then

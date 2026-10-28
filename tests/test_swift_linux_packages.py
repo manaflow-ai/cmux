@@ -31,7 +31,12 @@ case "$1 ${2:-}" in "package resolve"|"--version "*) echo "Swift version 6.2"; e
 echo "swift $* env=${CMUX_TERMINAL_CLIENT_MODEL_ONLY:-}" >> "$FAKE_SWIFT_LOG"
 case "$1" in
   build) echo "Build complete!" ;;
-  test) echo "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds." ;;
+  test)
+    filter="${@: -1}"
+    for id in 'ListedTests.Suite/test()' 'ListedTests.Other/test()' 'ListedTestsExtra.Suite/test()' 'ListedTestsXSuite/test()' 'ModelTests.Suite/test()'; do
+      if printf '%s\n' "$id" | grep -Eq -- "$filter"; then echo "ran $id" >> "$FAKE_SWIFT_LOG"; fi
+    done
+    echo "✔ Test run with 2 tests in 1 suite passed after 0.001 seconds." ;;
 esac
 """
 
@@ -71,7 +76,7 @@ def check_rows(failures: list[str]) -> None:
 
 def check_workflow(failures: list[str]) -> None:
     wf = WORKFLOW.read_text()
-    for needed in ("scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
+    for needed in ("shell: bash", "scripts/ci/swift-linux-packages.txt", "bash scripts/ci/package-test-lane.sh suite \"$dir\" \"$targets\"",
                    "container: swift:", "ubuntu-2404"):
         if needed not in wf:
             failures.append(f"{WORKFLOW.name} lacks {needed!r}: it must run every listed package through the lane on Linux")
@@ -113,8 +118,10 @@ def check_script(failures: list[str]) -> None:
         calls = log.read_text() if log.exists() else ""
         if r.returncode != 0 or "xcrun ran" in r.stderr:
             failures.append(f"a listed package did not run on Linux without xcrun ({r.returncode}): {r.stdout[-800:]}{r.stderr[-800:]}")
-        if "swift test" not in calls or "--filter ListedTests.Suite/test" not in calls:
+        if "swift test" not in calls or "ran ListedTests.Suite/test()" not in calls or "ran ListedTests.Other/test()" not in calls:
             failures.append(f"a listed package's suites did not run: {calls}")
+        if "ran ListedTestsExtra" in calls or "ran ListedTestsX" in calls:
+            failures.append(f"a filter reached a target off the list (an unanchored or unescaped --filter): {calls}")
         log.unlink(missing_ok=True)
         r = lane("Packages/Shared/Model", "ModelTests")
         if r.returncode != 0 or "env=1" not in (log.read_text() if log.exists() else ""):
