@@ -109,6 +109,13 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_no_shallow_dev_fetch.py
 
+      # Fleet rules as a shrink-only ratchet: no fleet sudo keychain reads, no
+      # new kill by process name or pattern, nothing depends on the personal
+      # Linux workstation (tests/fleet-rule-allowlist.json).
+      - name: Validate fleet rule lints
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_fleet_rule_lints.py
+
       - name: Validate the local and fast guard runner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_run_guards.py
