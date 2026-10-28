@@ -1,0 +1,10 @@
+{
+  "title": "Every Chromium tab that opens in WebKit says so (behavior audit 4, P6)",
+  "steps": [
+    {"title": "Launch", "wait": 2},
+    {"title": "A first browser tab: Chromium is not in this build or not ready, so it opens in WebKit and says so",
+     "rpc": {"method": "action.run", "params": {"action": "openBrowser", "args": {"url": "https://example.com/"}, "focus": true}}, "wait": 3},
+    {"title": "A second browser tab says so too (before, only the first tab of the run did)",
+     "rpc": {"method": "action.run", "params": {"action": "openBrowser", "args": {"url": "https://example.org/"}, "focus": true}}, "wait": 3}
+  ]
+}
