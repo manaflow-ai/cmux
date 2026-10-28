@@ -5911,6 +5911,8 @@ function AcpmuxPane() {
   /// A Cloud start is out (the host answers once the chat opens, minutes for a new machine): the
   /// folder default changes nothing meanwhile, so the prompt it holds never turns into a local send.
   const cloudStartPending = useRef(false);
+  /// Counts the Cloud starts that ended, so the folder default looks again once one has.
+  const [cloudStartsEnded, setCloudStartsEnded] = useState(0);
   const sandboxModeRows = {
     mode: sandbox.mode,
     onMode: (mode: RunMode) => {
@@ -5938,6 +5940,7 @@ function AcpmuxPane() {
     if (started) cloudStartPending.current = true;
     void started?.then((answer) => {
       cloudStartPending.current = false;
+      setCloudStartsEnded((count) => count + 1);
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
@@ -6743,7 +6746,7 @@ function AcpmuxPane() {
       cloudByDefault.current = false;
       sandbox.setMode("persistent");
     }
-  }, [folderRunDefault, snapshot.sessionId, newTabGeneration, sandbox, sandbox.mode]);
+  }, [folderRunDefault, snapshot.sessionId, newTabGeneration, sandbox, sandbox.mode, cloudStartsEnded]);
   /// A fresh chat's first prompt went: the commands it ran join the session it gets.
   const claimShellRuns = useRef(false);
   useEffect(() => {
