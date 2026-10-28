@@ -50,6 +50,26 @@ public struct KeyRepeatGate {
     /// ``admits(_:frame:)`` on the event's fields.
     @MainActor
     public mutating func admits(keyCode: UInt16, isRepeat: Bool, made: TimeInterval, frame: TimeInterval) -> Bool {
-        true
+        // A physical press always acts; it starts the key's repeat stream afresh.
+        guard isRepeat else {
+            lastRepeatActed[keyCode] = nil
+            return true
+        }
+        guard keyIsDown(keyCode) else {
+            dropped.released += 1
+            return false
+        }
+        let time = now()
+        // The system makes one repeat per interval: one that waited longer is behind a newer one (or the key-up).
+        guard time - made <= max(repeatInterval(), frame) else {
+            dropped.stale += 1
+            return false
+        }
+        if let last = lastRepeatActed[keyCode], time - last < frame {
+            dropped.sameFrame += 1
+            return false
+        }
+        lastRepeatActed[keyCode] = time
+        return true
     }
 }
