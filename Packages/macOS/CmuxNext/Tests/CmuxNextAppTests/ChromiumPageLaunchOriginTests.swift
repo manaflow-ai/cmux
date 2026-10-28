@@ -181,7 +181,7 @@ import Testing
             startHidden: { host.startHidden(when: $0, $1) },
             // CEFEngine.makeTab's wait, over the tab origin ChromiumPageHost.makePage sets.
             waitForStart: { await slot.launchOrder.waitForStart(of: BrowserTabOrigin($0)) })
-        webUI = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry())
+        webUI = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), deadlines: .testing())
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-launch-origin-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))

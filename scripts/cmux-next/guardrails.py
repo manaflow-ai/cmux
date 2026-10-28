@@ -2707,6 +2707,45 @@ RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
 
 
+# ---------------------------------------------------------------- main-wakeup-owner (sequence-manager S1)
+# The main thread has one wake-up timer: the `MainWakeUpQueue` `main()` makes (CmuxNextApp.swift), which the
+# scheduler (`MainWorkScheduler.wakeUps`, LaunchOrder.swift) and the app's one `MainDeadlineScheduler`
+# (AppServices.swift) share. A new `MainWakeUpQueue(`, `MainDeadlineScheduler(` or `MainWorkScheduler(` (its fixture
+# init makes a queue of its own) anywhere else in Sources is a second timer, or a deadline placer whose wakes and
+# next fire the idle periods cannot see (plans/cmux-next/sequence-manager-DESIGN.md F1, F2, S1;
+# Chrome's one `WakeUpQueue` per thread, base/task/sequence_manager/wake_up_queue.h). Allowed, a closed list: the
+# composition root, the Wakeups module that defines both, and the *TestSupport targets (tests are not read). No
+# escape comment. Added lines only, base debt per file as the other line rules (today's sites in owners' test
+# inits are debt that S3 and S4 remove). Local only, never CI.
+# The block owns its lines from here to `RULES += MAIN_WAKEUP_OWNER_RULES`.
+MAIN_WAKEUP_OWNER = re.compile(r"\b(?:MainWakeUpQueue|MainDeadlineScheduler|MainWorkScheduler)\(|\bMainWorkScheduler\.testing\b")
+MAIN_WAKEUP_OWNER_FILES = (SOURCES + "CmuxNextApp/CmuxNextApp.swift", SOURCES + "CmuxNextApp/AppServices.swift",
+                           SOURCES + "CmuxNextLaunch/LaunchOrder.swift")
+
+
+def main_wakeup_owner_judged(path: str) -> bool:
+    """PATH may not make a wake-up queue or a deadline placer: Sources outside the closed list."""
+    module = path[len(SOURCES):].split("/", 1)[0] if path.startswith(SOURCES) else ""
+    return not (path in MAIN_WAKEUP_OWNER_FILES or path.startswith(WAKEUPS) or module.endswith("TestSupport"))
+
+
+MAIN_WAKEUP_OWNER_RULES = (
+    Rule("main-wakeup-owner", "A `MainWakeUpQueue(`, `MainDeadlineScheduler(` or `MainWorkScheduler(` outside the "
+         "composition root (CmuxNextApp.swift, AppServices.swift, LaunchOrder.swift), CmuxNextWakeups and the "
+         "TestSupport targets",
+         "the main thread has one wake-up timer and one deadline placer on it; another one is a second timer whose "
+         "wakes do not coalesce with the app's and whose next fire no idle period ends before "
+         "(sequence-manager-DESIGN.md F1, F2)",
+         "take the app's in the owner's init: `AppServices.mainWork`, its `wakeUps`, or `AppServices.mainDeadlines` (a "
+         "`MainDeadlineScheduler` you are handed has `wakeUpQueue` and `work`); a test passes "
+         "`MainDeadlineScheduler.testing()` (CmuxNextWakeupsTestSupport) or a rig's queue",
+         None,
+         scoped_to(Matcher(MAIN_WAKEUP_OWNER, None), main_wakeup_owner_judged)),
+)
+RULES += MAIN_WAKEUP_OWNER_RULES
+# ---------------------------------------------------------------- end of main-wakeup-owner (sequence-manager S1)
+
+
 # ---------------------------------------------------------------- raw-continuation
 # A raw `with(Checked|Unsafe)(Throwing)?Continuation` traps on a second resume and leaks its task when the producer
 # drops it; CmuxSafeConcurrency's OnceContinuation resumes exactly once (a second resume is a no-op and a fault, a

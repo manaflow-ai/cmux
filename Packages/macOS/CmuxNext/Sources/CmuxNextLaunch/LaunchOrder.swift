@@ -20,7 +20,7 @@ public import CmuxNextWakeups
 /// let work = BackgroundWork(hangs: hangWatch)
 /// let fence = LaunchOrder.BestEffortFence(raisingOn: work)   // main(): before any launch read is posted
 /// let inputTap = InputEventTap()
-/// let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+/// let order = LaunchOrder(fence: fence, input: inputTap, wakeUps: mainWakeUps) { DebugTimings.markLaunch($0) }
 /// ```
 @MainActor
 public struct LaunchOrder {
@@ -93,12 +93,11 @@ public struct LaunchOrder {
     ///   - startupTag: The launch's tag `main()` made first and gave the main-thread watchdog: the startup
     ///     scheduler keeps its running task and phase there, so a launch stall names them.
     ///   - wakeUps: The main thread's one deadline queue `main()` made first and gave the main-thread watchdog,
-    ///     whose busy windows end on it; the scheduler's deadlines share it. Nil: the scheduler
-    ///     makes its own.
+    ///     whose busy windows end on it; the scheduler's deadlines share it (no default: no second timer).
     ///   - budgetPlacement: Where each frame's budgeted batch runs (feature `mainBudgetTurn`: after the commit).
     ///   - mark: Records a launch mark (`launch.revealed`, `launch.settled`, `startup_complete`).
     public init(fence: BestEffortFence, board: MainTaskBoard = MainTaskBoard(), input: any InputObserving,
-                startupTag: StartupTaskTag = StartupTaskTag(), wakeUps: MainWakeUpQueue? = nil,
+                startupTag: StartupTaskTag = StartupTaskTag(), wakeUps: MainWakeUpQueue,
                 budgetPlacement: BudgetedBatchPlacement = .inTick, mark: @escaping @MainActor (String) -> Void) {
         // One display link per display, shared by the app, window and budgeted frame schedulers.
         let displays = DisplayClock()

@@ -9,6 +9,7 @@ import CmuxNextMemory
 @testable import CmuxNextPages
 @testable import CmuxNextSidebar
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -146,7 +147,7 @@ struct OverlayPageReleaseTests {
     @Test func theIconPickerMakesNoPageAtLaunchAndLetsItGoFiveMinutesAfterItsClose() async throws {
         let rig = MainDeadlineRig()
         let retirer = PageRetirer(deadlines: rig.deadlines)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), retirer: retirer)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: ManualMemoryLevelRegistry(), deadlines: .testing(), retirer: retirer)
         let planner = OverlayPagePlannerRig()
         let picker = IconPickerService(services: nil, webUI: host, mainWork: MainWorkScheduler(budget: MainFrameBudget()), release: planner.terms())
 

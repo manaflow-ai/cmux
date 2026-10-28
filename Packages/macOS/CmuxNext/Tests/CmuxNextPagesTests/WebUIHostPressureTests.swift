@@ -2,6 +2,8 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextMemory
 @testable import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// Every web object follows memory pressure on one path, the app's memory coordinator:
@@ -85,7 +87,7 @@ struct WebUIHostPressureTests {
 
         init() {
             let memory = PageTestMemory(), log = DropLog(), deadlines = LifecycleDeadlineRig()
-            let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator)
+            let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator, deadlines: .testing())
             let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: deadlines.scheduler) { move, _ in
                 if move == .drop { log.entries.append("preload slot") }
             }
@@ -157,7 +159,7 @@ struct WebUIHostPressureTests {
     @Test func anInstalledSlotStartsAtTheCurrentLevel() {
         let memory = PageTestMemory()
         memory.send(.warning)
-        let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator)
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: memory.coordinator, deadlines: .testing())
         let deadlines = LifecycleDeadlineRig()
         let slot = PagePreloadSlot(parkState: .frozenHidden, deadlines: deadlines.scheduler) { _, _ in }
         host.preload = slot

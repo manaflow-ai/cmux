@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextPagesTestSupport
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
@@ -373,7 +374,7 @@ struct PageScriptPipelineBatchTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let hosting = FakeChromiumHosting()
         let descriptor = PageDescriptor(id: "test.frames", resource: "frames", processGroup: .solo, namespaces: [])
-        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting))
+        let view = try #require(PageWebView(descriptor: descriptor, root: root, routes: [], route: "#/start", chromium: hosting, deadlines: .testing()))
         defer { view.close() }
         view.chromiumDeadlines = LifecycleDeadlineRig.never
         await view.chromiumStart?.value

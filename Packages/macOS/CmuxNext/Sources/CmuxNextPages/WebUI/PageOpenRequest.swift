@@ -70,11 +70,11 @@ extension PageWebView {
     ///   - processGroups: The host's shared WebKit processes; a page joins its group there when it
     ///     shows in WebKit (``WebProcessGroups/membership(of:options:)``). Nil: a process of its own.
     ///   - startsAtFirstShow: The document (and its renderer) starts at the view's first show, not now.
-    ///   - deadlines: The app's deadline scheduler (``PageWebView/deadlines``); a test leaves the default, its own.
+    ///   - deadlines: The app's deadline scheduler (``PageWebView/deadlines``).
     convenience init?(request: PageOpenRequest, chromium: (any PageChromiumHosting)?,
                       openPanel: MadeAheadOpenPanel?, registry: PageRegistry, processGroups: WebProcessGroups? = nil,
                       startsAtFirstShow: Bool = false,
-                      deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
+                      deadlines: MainDeadlineScheduler) {
         let requested = ProcessInfo.processInfo.systemUptime
         let root: URL
         if let explicit = request.root {

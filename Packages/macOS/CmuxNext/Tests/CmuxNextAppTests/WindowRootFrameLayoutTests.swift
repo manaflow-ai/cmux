@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import Testing
 
 /// The window root, its titlebar, a workspace's content and empty
@@ -88,7 +89,7 @@ import Testing
 
     @Test func theRootFramesItsChildrenFromTheLayoutFunction() {
         _ = NSApplication.shared
-        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())))
+        let root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing())
         let window = NSWindow(contentRect: Self.bounds, styleMask: [.titled, .closable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false

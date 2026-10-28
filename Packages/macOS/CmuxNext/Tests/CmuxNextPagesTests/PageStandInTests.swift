@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextPages
+import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 import WebKit
@@ -18,7 +20,7 @@ struct PageStandInTests {
         let view = PageWebView(descriptor: descriptor, configuration: configuration,
                                inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: nil,
                                options: .standard, surface: nil, dynamicResources: nil, pooled: false, load: false,
-                               chromium: nil)
+                               chromium: nil, deadlines: .testing())
         view.frame = NSRect(x: 0, y: 0, width: 480, height: 320)
         view.layoutSubtreeIfNeeded()
         return view

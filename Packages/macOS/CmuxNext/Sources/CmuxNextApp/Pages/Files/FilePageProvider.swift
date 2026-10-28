@@ -123,7 +123,7 @@ final class FilePageProvider: PageProvider, PageDynamicResourceSource {
          host: any FilePageHosting, libraries: URL?,
          images: any RemoteImageFetching, tableWidths: (any MarkdownTableWidthStoring)? = nil,
          comments: (any MarkdownCommentStoring)? = nil,
-         deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget())),
+         deadlines: MainDeadlineScheduler,
          work: BackgroundWork = BackgroundWork(label: "files.page")) {
         self.deadlines = deadlines
         self.work = work

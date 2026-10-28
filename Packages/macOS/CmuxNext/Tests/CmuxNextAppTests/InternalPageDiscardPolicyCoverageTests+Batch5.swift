@@ -160,7 +160,7 @@ import CmuxNextWakeups
         let services = MachineIconTests.services()
         var opened: PageWebView?
         let pairing = MobilePairingPageService(services: services) { request in
-            opened = PageWebView(descriptor: Self.pairingDescriptor, root: web.folder, routes: request.routes, chromium: nil)
+            opened = PageWebView(descriptor: Self.pairingDescriptor, root: web.folder, routes: request.routes, chromium: nil, deadlines: .testing())
             return opened
         }
         let key = "mobile-pairing-batch5"
@@ -301,7 +301,7 @@ import CmuxNextWakeups
     /// A page in `web`'s fake Chromium host, opened on `route`.
     static func testPage(_ web: WebRig, route: String?, deadlines: MainDeadlineScheduler) -> PageWebView? {
         let page = PageWebView(descriptor: PageDescriptor(id: "test.discard", resource: "discard", processGroup: .solo, namespaces: []),
-                               root: web.folder, routes: [], route: route, chromium: web.hosting)
+                               root: web.folder, routes: [], route: route, chromium: web.hosting, deadlines: .testing())
         // The engine's no-message deadline never runs out here.
         page?.chromiumDeadlines = deadlines
         return page

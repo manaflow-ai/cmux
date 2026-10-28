@@ -35,7 +35,7 @@ public import QuartzCore
 /// // The composition root, with the app's one display clock:
 /// let displays = DisplayClock()
 /// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true),
-///                                  displays: displays)
+///                                  displays: displays, wakeUps: mainWakeUps)
 /// FrameScheduler.install(displays: displays, energy: mainWork.energy)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
@@ -74,6 +74,8 @@ public final class MainWorkScheduler {
     public nonisolated let wakeUps: MainWakeUpQueue
     /// The idle class's periods and queue (``postIdle(owner:maxDelay:node:file:line:_:)``).
     public let idle: IdleScheduler
+    /// The next fire of ``wakeUps``, which ends ``idle``'s long periods (it holds the source; ``idle`` holds it weakly).
+    private let nextFire: WakeUpQueueNextFire
     /// The priority-ordered main executor this scheduler installed (task 202, default off), nil while none.
     public private(set) var mainExecutorHook: MainExecutorHook?
     /// What ``installMainExecutorHook(requested:)`` found (``MainExecutorHook/State/off`` until it is asked).
@@ -127,34 +129,34 @@ public final class MainWorkScheduler {
     ///   - startup: The launch's phases. The app's composition root passes a launching phase
     ///     (``StartupPhase/init(clock:ledger:timing:onHeldAwait:)``) with its reveal and references
     ///     wired; the default is settled, so a scheduler made after launch holds nothing.
-    ///   - wakeUps: The main thread's one deadline queue, when the composition root made it first (the app's
+    ///   - wakeUps: The main thread's one deadline queue, which the composition root makes first (the app's
     ///     `main()` makes it before the main-thread watchdog, whose busy windows end on it); its energy source is
-    ///     this scheduler's ``energy``. Nil makes one on a new source.
+    ///     this scheduler's ``energy``. There is no default: a scheduler never makes a second timer.
     public convenience init(budget: MainFrameBudget, displays: DisplayClock, startup: StartupPhase = .settled(),
-                            wakeUps: MainWakeUpQueue? = nil) {
+                            wakeUps: MainWakeUpQueue) {
         self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
                   startup: startup, idleTimer: MainRunLoopPreciseTimer(), ledger: .shared, otherLinks: displays.unbudgetedLinks,
-                  measuresRenderPasses: true, sharedWakeUps: wakeUps)
+                  measuresRenderPasses: true, wakeUps: wakeUps)
     }
 
-    /// A scheduler on a display clock of its own (tests and fixtures; the app passes its one clock),
-    /// so two of them never tick each other.
+    /// A scheduler on a display clock and a deadline queue of its own (tests and fixtures; the app passes its one
+    /// clock and queue), so two of them never tick each other. S3's runners delete it.
     public convenience init(budget: MainFrameBudget, startup: StartupPhase = .settled()) {
-        self.init(budget: budget, displays: DisplayClock(), startup: startup)
+        self.init(budget: budget, displays: DisplayClock(), startup: startup, wakeUps: MainWakeUpQueue(energy: EnergyPolicySource()))
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, startup: StartupPhase, idleTimer: any IdlePeriodTimer,
-                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool, sharedWakeUps: MainWakeUpQueue? = nil) {
+                 ledger: WakeupLedger, otherLinks: any OtherFrameLinks, measuresRenderPasses: Bool, wakeUps: MainWakeUpQueue) {
         self.budget = budget
         board = budget.board
         self.frames = frames
         self.startup = startup
         causes = ObservationCauses(budget: budget)
         planApplies = PlanApplyTurn(turns: budget.turns)
-        let wakeUps = sharedWakeUps ?? MainWakeUpQueue(energy: EnergyPolicySource())
         let energy = wakeUps.energy
         self.energy = energy
         self.wakeUps = wakeUps
+        nextFire = WakeUpQueueNextFire(queue: wakeUps)
         otherLinksRunning = otherLinks.anyRunning
         idle = IdleScheduler(budget: budget, timer: idleTimer, ledger: ledger, otherLinksRunning: otherLinks.anyRunning)
         hiddenBudget = CPUTimeBudgetPool(uptimeNanos: budget.uptimeNanos)
@@ -195,6 +197,8 @@ public final class MainWorkScheduler {
         }
         // Idle work waits for the launch to settle; the settle reschedules it.
         idle.admitted = { [startup] in startup.admits(.idle) }
+        // A long idle period ends before the queue's next fire: the next MainDeadline, pump or watchdog wake (F1).
+        idle.deadlines = nextFire
         startup.whenReached(.settled) { [weak idle = self.idle] in idle?.reschedule() }
         updateRenderPassMeter()
         // The gate's test runs (`CMUX_MAIN_EXECUTOR_HOOK=1 swift test`): the process's first scheduler installs it.
@@ -222,19 +226,20 @@ public final class MainWorkScheduler {
     ///   - idleTimer: The idle period timer (tests: a fake fired by hand).
     ///   - otherLinks: The other schedulers' display links (hold long idle periods; their frames
     ///     open short ones). The default has none.
+    ///   - wakeUps: The deadline queue (a test's on a hand-fired timer and its idle clock); nil: one of its own.
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                performTurn: TurnPerformer? = nil, budgetTurns: TurnPerformer? = nil,
                                idleTimer: any IdlePeriodTimer = MainRunLoopPreciseTimer(),
-                               otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(),
+                               otherLinks: any OtherFrameLinks = UnbudgetedFrameLinks(), wakeUps: MainWakeUpQueue? = nil,
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         let work = MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
                                                                                     mediaTime: mediaTime, budget: budget,
                                                                                     makeLink: makeLink),
                                      startup: startup, idleTimer: idleTimer, ledger: ledger, otherLinks: otherLinks,
-                                     measuresRenderPasses: false)
+                                     measuresRenderPasses: false, wakeUps: wakeUps ?? MainWakeUpQueue(energy: EnergyPolicySource()))
         if let performTurn { work.posting.performTurn = performTurn }
         work.budgetTurns = budgetTurns
         return work

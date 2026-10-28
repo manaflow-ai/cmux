@@ -84,6 +84,10 @@ public final class MainDeadlineScheduler {
         return date > now ? .nanoseconds(Int64(clamping: date - now)) : .zero
     }
 
+    /// The queue its deadlines wake on (the app's: ``MainWorkScheduler/wakeUps``): an owner handed this scheduler puts
+    /// its waits' timeouts there too, so it never needs a queue of its own.
+    public var wakeUpQueue: MainWakeUpQueue { wakeups.mainQueue }
+
     /// The queue's next fire in `CLOCK_UPTIME_RAW` nanoseconds; nil when nothing is pending.
     public var nextFireNanos: UInt64? { wakeups.nextFireDate }
 

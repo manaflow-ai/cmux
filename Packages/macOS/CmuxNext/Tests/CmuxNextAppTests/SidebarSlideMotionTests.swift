@@ -4,6 +4,7 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 @testable import CmuxNextTabs
 import CmuxNextWakeups
+import CmuxNextWakeupsTestSupport
 import QuartzCore
 import Testing
 
@@ -59,7 +60,7 @@ struct SidebarSlideMotionTests {
 
         init(renderServer: Bool) {
             _ = NSApplication.shared
-            root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())),
+            root = WindowRootView(sidebar: SidebarContainerView(model: SidebarModel(), mainWork: MainWorkScheduler(budget: MainFrameBudget())), revealDeadlines: .testing(),
                                   slideHoldsContent: { true }, rendersMotionOnServer: { renderServer })
             window.isReleasedWhenClosed = false
             window.titlebarAppearsTransparent = true
