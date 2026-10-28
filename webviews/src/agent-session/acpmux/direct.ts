@@ -1470,6 +1470,10 @@ export class AcpmuxDirectClient {
   /// answer may be from before a push, so each is applied again on top of it.
   private peerReads = 0;
   private pushedDuringReads = new Map<string, unknown>();
+  /// Each peer list read's number, and the newest one applied: an older read that answers after a
+  /// newer one is dropped (its list may lack a peer the newer one has).
+  private peerReadsStarted = 0;
+  private peerReadApplied = 0;
   /// The peer list was read on this connection: until it is (a failed read), opening the list reads it.
   private peersRead = false;
   /// Each peer's last push taken (its `at`): a lagging watcher's repeat of an older note is not news.
@@ -6692,9 +6696,11 @@ export class AcpmuxDirectClient {
   /// push that came while it was in flight applied again on top (the answer may be older than them).
   private async snapshotPeers(read: () => Promise<any>): Promise<any> {
     this.peerReads += 1;
+    const number = ++this.peerReadsStarted;
     try {
       const status = await read();
-      if (status !== undefined) {
+      if (status !== undefined && number > this.peerReadApplied) {
+        this.peerReadApplied = number;
         this.readPeers(status);
         this.peersRead = true;
         for (const params of this.pushedDuringReads.values()) this.applyPeerState(params, true);

@@ -93,10 +93,14 @@ function daemon(
   const session = { sessionId: "on-gpu", peer: "gpu-box", host: "gpu-box", cwd: "/home/dev/project", updatedAt: 1 };
   let socket: any;
   let listed = true;
+  const added: string[] = [];
   let holding = false;
   const held: (() => void)[] = [];
   const peers = () => ({
-    peers: listed ? [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] : [],
+    peers: [
+      ...(listed ? [{ name: "gpu-box", transport: "ssh", connected: peerState === "connected", state: peerState }] : []),
+      ...added.map((name) => ({ name, transport: "ssh", connected: true, state: "connected" })),
+    ],
   });
   const answer = (method: string) => {
     switch (method) {
@@ -169,11 +173,15 @@ function daemon(
   const hold = () => {
     holding = true;
   };
-  const release = () => {
+  /// `newestFirst`: the held answers arrive in the reverse of the order they were asked.
+  const release = (newestFirst = false) => {
     holding = false;
-    for (const deliver of held.splice(0)) deliver();
+    const answers = held.splice(0);
+    for (const deliver of newestFirst ? answers.reverse() : answers) deliver();
   };
-  return { asked, open, notify, hold, release };
+  /// acpmux lists one more peer from now on.
+  const add = (name: string) => added.push(name);
+  return { asked, open, notify, hold, release, add };
 }
 
 async function client(state: string, options: Parameters<typeof daemon>[1] = {}) {
@@ -186,7 +194,15 @@ async function client(state: string, options: Parameters<typeof daemon>[1] = {})
     fake.open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client: connected, asked: fake.asked, states, notify: fake.notify, hold: fake.hold, release: fake.release };
+  return {
+    client: connected,
+    asked: fake.asked,
+    states,
+    notify: fake.notify,
+    hold: fake.hold,
+    release: fake.release,
+    add: fake.add,
+  };
 }
 
 test("a new chat's first send to a down peer reconnects it and waits for its handshake, then starts", async () => {
@@ -304,6 +320,18 @@ test("with acpmux's pushes the strip follows each peer change, repeats change no
   notify("_acpmux/peer_state_changed", { peer: "new-box", state: "connecting", lastSeen: null, error: null, at: 3 });
   await new Promise((resolve) => setTimeout(resolve, 0));
   expect(reads()).toBe(read + 1);
+});
+
+test("an older peer list read that answers after a newer one is dropped, so an added peer stays", async () => {
+  const { client: pane, states, hold, release, add } = await client("connected", { events: true });
+  hold();
+  const older = pane.refreshPeers();
+  add("new-box");
+  const newer = pane.refreshPeers();
+  release(true);
+  await Promise.all([older, newer]);
+  expect(states.at(-1)?.["new-box"]).toBe("connected");
+  expect(states.at(-1)?.["gpu-box"]).toBe("connected");
 });
 
 test("a lagging watcher's older note never replaces a newer one", async () => {
