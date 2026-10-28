@@ -9,9 +9,9 @@ enum PaletteLayout {
     static let visibleRows: CGFloat = 10
 
     static var width: CGFloat { Metrics.paletteWidth }
-    static var searchHeight: CGFloat { fitText(Metrics.paletteSearchHeight) }
-    static var rowHeight: CGFloat { fitText(Metrics.paletteRowHeight) }
-    static var headerRowHeight: CGFloat { fitText(Metrics.sidebarHeaderHeight) }
+    static var searchHeight: CGFloat { Metrics.paletteSearchHeight + textGrowth(Typography.search) }
+    static var rowHeight: CGFloat { Metrics.paletteRowHeight + textGrowth(Typography.body) }
+    static var headerRowHeight: CGFloat { Metrics.sidebarHeaderHeight + textGrowth(Typography.header) }
     static var footerHeight: CGFloat { rowHeight }
     static var listInset: CGFloat { Metrics.space2 }
     static var listHeight: CGFloat { rowHeight * visibleRows + listInset * 2 }
@@ -30,7 +30,7 @@ enum PaletteLayout {
 
     static var actionsMenuWidth: CGFloat { width / 2 - Metrics.space6 }
     static var actionsMenuRowHeight: CGFloat { rowHeight - Metrics.space2 }
-    static var keycapSize: CGFloat { fitText(Metrics.iconSize + Metrics.space2) }
+    static var keycapSize: CGFloat { Metrics.iconSize + Metrics.space2 + textGrowth(Typography.shortcut) }
     static var keycapCornerRadius: CGFloat { Metrics.itemCornerRadius - Metrics.space1 }
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 
@@ -42,12 +42,25 @@ enum PaletteLayout {
         max(1, Typography.body.pointSize / Metrics.scale(Metrics.tokens.levelBodySize))
     }
 
-    /// `height` grown by `textScale`, on whole points.
-    private static func fitText(_ height: CGFloat) -> CGFloat {
+    /// The extra line height of `font` over the same style at the density's own text size, on
+    /// whole points: a row keeps its density's padding and grows only by the taller line, so a
+    /// roomy row (or a height the person set) is not inflated in proportion.
+    static func textGrowth(_ font: NSFont) -> CGFloat {
         let scale = textScale
-        return scale == 1 ? height : (height * scale).rounded()
+        guard scale > 1 else { return 0 }
+        let base = Typography.system(.default, size: font.pointSize / scale, weight: .regular)
+        return max(0, ceil(lineHeight(font) - lineHeight(base)))
     }
-}
+
+    private static func lineHeight(_ font: NSFont) -> CGFloat {
+        font.ascender - font.descender + font.leading
+    }
+
+    /// Every text size the palette draws in; a change in any of them restyles its labels.
+    static var textSizes: [CGFloat] {
+        [Typography.body, Typography.bodyEmphasized, Typography.caption, Typography.header, Typography.search, Typography.shortcut]
+            .map(\.pointSize)
+    }
 
 extension NSView {
     /// `rect` on whole backing pixels, for a text field's frame set from `layout()` (cx-wcej; see

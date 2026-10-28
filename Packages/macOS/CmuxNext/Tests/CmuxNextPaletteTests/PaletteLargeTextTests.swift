@@ -48,8 +48,31 @@ struct PaletteLargeTextTests {
         try Self.writeSheet(images)
     }
 
-    private static func check(_ model: PaletteModel, _ label: String, windows: inout [NSWindow]) throws -> NSImage {
-        let view = PaletteContentView(model: model)
+    /// The palette is built once and kept: a text size or density change made while it exists
+    /// must restyle the labels and placeholder it already has, not only new ones.
+    @Test func anOpenPaletteFollowsALiveTextSizeChange() async throws {
+        _ = NSApplication.shared
+        let palette = PaletteController(registry: ActionRegistry.standard(), sources: PaletteSources(), frecencyPersistence: nil)
+        #expect(palette.show(scope: PaletteScopeID.search))
+        await palette.model.settle()
+        defer { palette.hide() }
+        var windows: [NSWindow] = []
+        defer { windows.forEach { $0.close() } }
+        let view = DensityTokens.$scoped.withValue(DensityPreset.compact.tokens) {
+            let view = PaletteContentView(model: palette.model)
+            Self.host(view, windows: &windows)
+            return view
+        }
+        var large = DensityPreset.comfortable.tokens
+        large.fontSize = 18
+        try DensityTokens.$scoped.withValue(large) {
+            view.render()
+            view.window?.setContentSize(PaletteLayout.windowSize)
+            _ = try Self.check(view, "live Compact → Comfortable, 18 pt")
+        }
+    }
+
+    private static func host(_ view: PaletteContentView, windows: inout [NSWindow]) {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: PaletteLayout.windowSize), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -57,6 +80,15 @@ struct PaletteLargeTextTests {
         window.backgroundColor = NSColor(white: 0.12, alpha: 1)
         window.contentView = view
         windows.append(window)
+    }
+
+    private static func check(_ model: PaletteModel, _ label: String, windows: inout [NSWindow]) throws -> NSImage {
+        let view = PaletteContentView(model: model)
+        host(view, windows: &windows)
+        return try check(view, label)
+    }
+
+    private static func check(_ view: PaletteContentView, _ label: String) throws -> NSImage {
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
 
@@ -69,11 +101,15 @@ struct PaletteLargeTextTests {
         let placeholderHeight = ceil(placeholder.boundingRect(with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude),
                                                               options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
         #expect(field.frame.height >= placeholderHeight, "\(label): field \(field.frame.height) pt, placeholder \(placeholderHeight) pt")
+        #expect(field.font?.pointSize == Typography.search.pointSize, "\(label): the field draws in the current search size")
 
         var labels = 0
         for text in textFields(in: view) where !text.isHiddenOrHasHiddenAncestor && !text.stringValue.isEmpty {
             guard let parent = text.superview, let font = text.font else { continue }
             labels += 1
+            if let style = (text as? PaletteLabel)?.fontSource?() {
+                #expect(font.pointSize == style.pointSize, "\(label): \"\(text.stringValue)\" draws at \(font.pointSize) pt, its style is \(style.pointSize) pt")
+            }
             let natural = ceil(font.ascender - font.descender)
             #expect(text.frame.height >= natural, "\(label): \"\(text.stringValue)\" is \(text.frame.height) pt for \(natural) pt text")
             #expect(text.frame.minY >= -0.5 && text.frame.maxY <= parent.bounds.height + 0.5,

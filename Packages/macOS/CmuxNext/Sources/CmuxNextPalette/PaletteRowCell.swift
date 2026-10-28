@@ -172,6 +172,7 @@ final class PaletteRowCell: NSTableCellView {
         accessory.stringValue = item.accessory ?? ""
         accessory.isHidden = item.accessory == nil
         keycaps.keycaps = item.keycaps ?? []
+        keycaps.needsDisplay = true
         keycaps.isHidden = item.keycaps == nil
         alphaValue = item.isEnabled ? 1 : 0.45
         setAccessibilityLabel(item.title)
