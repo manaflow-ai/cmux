@@ -249,9 +249,10 @@ export type LastTurn = {
   endedAt: number;
   /**
    * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
-   * `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
-   * treats a kind it does not know as a plain error. The same key is on a request's error
-   * `data` and on the `turn_error` and `turn_result` records.
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed`, `agent.exited`,
+   * `auth.signed_out` or `auth.expired`. A client treats a kind it does not know as a plain
+   * error. The same key is on a request's error `data` and on the `turn_error` and
+   * `turn_result` records.
    */
   errorKind?: (string | null);
   errorSource?: (string | null);
@@ -366,6 +367,27 @@ export type Participant = {
   name: string;
   typing: boolean;
   viewing: boolean;
+} & Record<string, unknown>;
+
+/** A peer link's state (`peer_link.rs` `PeerState`; `state` in `_acpmux/peers`). */
+export type PeerLinkState = ("connecting" | "connected" | "degraded" | "reconnecting" | "offline");
+
+/**
+ * `_acpmux/peer_state_changed`, to every watching connection (`_acpmux/watch`) when a peer's
+ * state changes, never twice for the same state: a peer that is added sends its first state,
+ * and one that is removed a last `offline` with `error: "removed"`. Listed as the
+ * `peerStateEvents` feature.
+ */
+export type PeerStateChanged = {
+  /** When the state changed, ms since the epoch. */
+  at: number;
+  /** Why the link is down, when it is. */
+  error: (string | null);
+  /** The last frame from the peer, ms since the epoch. */
+  lastSeen: (number | null);
+  /** The peer's name, as in `_acpmux/peers`. */
+  peer: string;
+  state: PeerLinkState;
 } & Record<string, unknown>;
 
 export type PermissionBatching = {
@@ -636,6 +658,70 @@ export type RetrySummary = {
   promptId: string;
   reason: RetryReason;
   turnId: string;
+} & Record<string, unknown>;
+
+/**
+ * `terminal`: run `command` in a terminal on `host` (null: this machine). `route`: edit or
+ * sign in again to the route `routeId`.
+ */
+export type SessionAuthLogin = {
+  command?: (string | null);
+  host?: (string | null);
+  kind: SessionAuthLoginKind;
+  routeId?: (string | null);
+} & Record<string, unknown>;
+
+export type SessionAuthLoginKind = "terminal" | "route";
+
+/**
+ * A chat by `sessionId`, or by `target` before it has a session (a new tab before its first
+ * send). Exactly one of the two. `refresh`: probe the route and run the harness's own sign-in
+ * check that reads no keychain, when no newer evidence answers.
+ */
+export type SessionAuthParams = {
+  refresh?: boolean;
+  sessionId?: (string | null);
+  target?: (SessionAuthTarget | null);
+} & Record<string, unknown>;
+
+/**
+ * What `_acpmux/session/auth` answers. A client blocks a send only on `signedOut`, `expired`
+ * or `routeAuthNeeded`; `unknown` never blocks.
+ */
+export type SessionAuthResult = {
+  /** One sentence: the probe's status, the turn's error, or the check that ran. */
+  detail: string;
+  /** When the evidence was observed (ms since the epoch); null when `source` is `none`. */
+  evidenceAt?: (number | null);
+  /**
+   * The chat whose turn is the evidence (`source` `turn`): for a `target`, a chat on this
+   * daemon with the same harness, account home and route.
+   */
+  fromSessionId?: (string | null);
+  harness: string;
+  /** The peer the chat runs on; null on this daemon. */
+  host?: (string | null);
+  /** How to sign in: only for `signedOut`, `expired` and `routeAuthNeeded`. */
+  login?: (SessionAuthLogin | null);
+  /** The route the chat is bound to; null when it is not routed. */
+  routeId?: (string | null);
+  source: SessionAuthSource;
+  state: SessionAuthState;
+} & Record<string, unknown>;
+
+export type SessionAuthSource = "peerLink" | "routeProbe" | "turn" | "authCheck" | "none";
+
+export type SessionAuthState = "ready" | "signedOut" | "expired" | "routeAuthNeeded" | "routeUnreachable" | "peerUnreachable" | "unknown";
+
+/**
+ * The chat a send would start: its harness, the peer it runs on (`host`, a peer name; absent:
+ * this daemon) and the route the picker selected (absent: the harness's default route, as at
+ * spawn).
+ */
+export type SessionAuthTarget = {
+  harness: string;
+  host?: (string | null);
+  routeId?: (string | null);
 } & Record<string, unknown>;
 
 /**
