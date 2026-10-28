@@ -48,19 +48,34 @@ extension DaemonConnection {
     @discardableResult
     public func createTerminalWaitingForStart(in key: WorkspaceKey, cwd: String?) async throws -> CreateTerminalResult {
         let request = await createTerminalRequest(in: key, cwd: cwd)
-        return try await Self.retryingLateStarts("create-terminal in \(key.rawValue)") { try await self.request(request) }
+        return try await Self.retryingLateStarts("create-terminal in \(key.rawValue)", until: ContinuousClock.now + Self.lateTerminalStartBudget) {
+            try await self.request(request)
+        }
+    }
+
+    /// A keyed pane creation the person already sees (Cmd-D's provisional pane, New Column's, New
+    /// Row's): a late reply is not a refusal, and taking the shown pane back made it vanish while
+    /// the daemon still made it (#26689). `options` (with the pane's client-minted ids and its
+    /// terminal id) are placed once, so every send is the same creation: the environment can change
+    /// between two placements (the login-shell capture lands, a config reload), and the daemon
+    /// answers a changed fingerprint with a conflict. `send` gets the placed options; a placed
+    /// request placed again is unchanged. The daemon serializes creations and replays the one that
+    /// committed. Without `terminal-placement-env-v1` the two-step fallback mints a terminal on
+    /// each send, so the creation is sent once.
+    public func creatingShown<T>(_ what: String, _ options: SpawnOptions, _ send: (SpawnOptions) async throws -> T) async throws -> T {
+        guard supportsPlacementEnv else { return try await send(options) }
+        let options = await placed(options)
+        return try await Self.retryingLateStarts(what) { try await send(options) }
     }
 
     /// Runs `send` again while it misses its reply or terminal start deadline
-    /// (`DaemonError.timedOut`, `DaemonError.terminalStartTimedOut`), until ``lateTerminalStartBudget``
-    /// passes, and returns its first answer. For a creation the person already sees (Cmd-D's
-    /// provisional pane, New Column's, New Row's): a late reply is not a refusal, and taking the
-    /// shown pane back made it vanish while the daemon still made it (#26689). `send` must repeat
-    /// one keyed creation (its client-minted pane id or terminal id): the daemon serializes
-    /// creations and replays the one that committed. A refusal, and a start still late past the
-    /// budget, is thrown.
-    public static func retryingLateStarts<T>(_ what: String, _ send: () async throws -> T) async throws -> T {
-        let giveUp = ContinuousClock.now + lateTerminalStartBudget
+    /// (`DaemonError.timedOut`, `DaemonError.terminalStartTimedOut`), until `giveUp` (default:
+    /// ``lateReplyDeadline()`` from now, which bounds how long the window's keys wait for a shown
+    /// creation), and returns its first answer. `send` must repeat one keyed creation. A refusal,
+    /// and a start still late past the budget, is thrown. Each pass waits out a whole deadline.
+    public static func retryingLateStarts<T>(_ what: String, until giveUp: ContinuousClock.Instant? = nil,
+                                             _ send: () async throws -> T) async throws -> T {
+        let giveUp = giveUp ?? lateReplyDeadline()
         // wakeup-allow: each pass waits for one reply or its start deadline; the retry ends at the budget, on a reply, or on another error
         while true {
             do {
@@ -69,15 +84,6 @@ extension DaemonConnection {
                 lateReplyLogger.info("\(what, privacy: .public): \(String(describing: error), privacy: .public); waiting with its mutation id")
             }
         }
-    }
-
-    /// `create-workspace` for workspace `key`, sent again on a late reply under one mutation
-    /// identity (the daemon replays a create that committed after the deadline).
-    @discardableResult
-    public func createWorkspaceRetryingLateReplies(name: String? = nil, key: WorkspaceKey,
-                                                   until giveUp: ContinuousClock.Instant? = nil) async throws -> WorkspaceMutationResult {
-        let request = CreateWorkspaceRequest(name: name, key: key, mutation: mutation())
-        return try await Self.retryingLateReplies(CreateWorkspaceRequest.command, until: giveUp) { try await self.request(request) }
     }
 }
 

@@ -38,8 +38,8 @@ public struct NewRowCommand: Sendable {
         // target is read once, so every send is the same creation (its fingerprint names it).
         let send = daemon.intendNow("new-row", intent, transaction: transaction) { connection in
             let target = await target()
-            return try await DaemonConnection.retryingLateStarts("new-row") {
-                try await RowCommands(connection).newRow(below: target, height: height, options: sent)
+            return try await connection.creatingShown("new-row", sent) {
+                try await RowCommands(connection).newRow(below: target, height: height, options: $0)
             }
         }
         return {
