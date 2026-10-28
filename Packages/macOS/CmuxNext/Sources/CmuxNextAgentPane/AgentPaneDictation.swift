@@ -57,6 +57,10 @@ final class AgentPaneDictation {
     private var recordsAudio = false
     /// A fresh folder for a long recording (``AgentPaneModel/onDictationFolder``); nil: temporary.
     var recordingFolder: () -> URL? = { nil }
+    /// The chat the pane shows (``AgentPaneModel/sessionId``), kept with each long recording.
+    var chatSession: () -> String? = { nil }
+    /// How many recordings the pane keeps for the page to take back.
+    static let issuedRecordingLimit = 8
     /// Opens a URL (System Settings).
     var open: (URL) -> Void = { NSWorkspace.shared.openInBackground($0) }
 
@@ -225,7 +229,13 @@ final class AgentPaneDictation {
         return made
     }
 
-    private func deliver(_ update: DictationUpdate) {
+    /// Long recording `path`, when this pane's dictation wrote it in chat `session` and handed it to
+    /// the page. Red stub: nothing is ever taken.
+    func takeRecording(_ path: String, session: String) -> URL? {
+        nil
+    }
+
+    func deliver(_ update: DictationUpdate) {
         if update.phase.isStartable {
             endHold()
             endSleepWatch()

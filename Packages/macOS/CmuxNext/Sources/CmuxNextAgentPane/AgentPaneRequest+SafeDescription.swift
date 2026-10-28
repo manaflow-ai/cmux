@@ -110,6 +110,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .toolCard: "toolCard"
         case .upload: "upload"
         case .uploadStage: "uploadStage"
+        case .dictationRecordingUpload: "dictationRecordingUpload"
         case .unsupported: "unsupported"
         }
     }

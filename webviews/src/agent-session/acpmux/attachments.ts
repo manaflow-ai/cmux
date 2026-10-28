@@ -628,6 +628,17 @@ export function recordingAttachment(
   return audio.data ? audioAttachment({ mimeType: audio.mimeType, data: audio.data }, name) : undefined;
 }
 
+/// A long recording for a chat on another computer: the host sends the WAV it wrote to that chat's
+/// machine (`dictation.recording.upload`) and the chip links the copy there. Red stub: nothing is
+/// sent, so the prompt gets the transcript.
+export async function remoteRecordingAttachment(
+  _audio: DictationRecording,
+  _name: string,
+  _call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): Promise<ComposerAttachment | undefined> {
+  return undefined;
+}
+
 /// The notice for a recording that goes no further than its transcript: the host left it out
 /// (`DictationUpdate.audioOmitted`), `audioAttachment` refused it past `MAX_AUDIO_BYTES` (an old
 /// host's inline clip), its file stays on this Mac for a chat that runs elsewhere, or the host could
