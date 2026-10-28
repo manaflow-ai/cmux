@@ -213,7 +213,7 @@ def slot_main(opts, rest):
         # This script and what it imports, from this checkout's working tree.
         bundle = os.path.join(tempfile.mkdtemp(prefix="ss-slot-"), "repo.tgz")
         with tarfile.open(bundle, "w:gz") as tar:
-            for rel in ("scripts/cmux-next", "scripts/perf-lab"):
+            for rel in ("scripts/cmux-next", "scripts/perf-lab", "scripts/perf-bench"):
                 base = os.path.join(ROOT, rel)
                 for folder, dirs, files in os.walk(base):
                     dirs[:] = [d for d in dirs if d not in ("__pycache__", "node_modules", "tests", ".git")]
@@ -287,6 +287,7 @@ class Bench:
         self.fixture = load("switch_scale_fixture", FIXTURE)
         self.pages = None
         self.lock = threading.Lock()
+        self.term_tab = {}
 
     # ---------------------------------------------------------------- plumbing
     def say(self, text):
@@ -334,6 +335,8 @@ class Bench:
 
     def key(self, key, modifiers=(), window=None, target=None):
         params = {"key": key, "modifiers": list(modifiers)}
+        if window is None and target is None:
+            window = getattr(self, "w0", None)  # typed keys go to the measured window, not the first one
         if window:
             params["window"] = window
         if target:
@@ -345,17 +348,29 @@ class Bench:
         routed through the app's socket. Returns the JSON value or {"error": ...}."""
         env = {"HOME": self.env_home, "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_QUIET": "1"}
         route = ["--socket", self.daemon_socket] if self.daemon_socket else ["--app-socket", self.socket]
-        try:
-            done = subprocess.run([self.cli_path, *route, "--json", *args], capture_output=True, text=True,
-                                  timeout=timeout, env=env, stdin=subprocess.DEVNULL)
-        except subprocess.TimeoutExpired:
-            return {"error": f"timeout: {' '.join(args)[:120]}"}
-        try:
-            answer = json.loads(done.stdout)
-        except ValueError:
-            return {"error": (done.stdout + done.stderr).strip()[:300] or f"exit {done.returncode}"}
-        if done.returncode != 0 and isinstance(answer, dict) and "error" not in answer:
-            answer = {"error": answer}
+        for attempt in range(6):
+            try:
+                done = subprocess.run([self.cli_path, *route, "--json", *args], capture_output=True, text=True,
+                                      timeout=timeout, env=env, stdin=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                return {"error": f"timeout: {' '.join(args)[:120]}"}
+            try:
+                answer = json.loads(done.stdout)
+            except ValueError:
+                answer = {"error": (done.stdout + done.stderr).strip()[:300] or f"exit {done.returncode}"}
+            if done.returncode != 0 and isinstance(answer, dict) and "error" not in answer:
+                answer = {"error": answer}
+            text = json.dumps(answer)[:2000] if isinstance(answer, dict) and "error" in answer else ""
+            # Two creates at once race on the workspace order (the daemon refuses the second): run it again.
+            if text and any(k in text for k in ("live sibling", "revision", "conflict")) and attempt < 5:
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            break
+        verb = " ".join(a for a in args[:3] if not re.match(r"(ws|pane|tab|term|scr|room|wsg|grp)_|^[0-9a-f-]{20,}", a))
+        with self.lock:
+            replies = self.results.setdefault("first_replies", {})
+            if verb not in replies:
+                replies[verb] = json.dumps(answer)[:1500]
         return answer.get("value", answer) if isinstance(answer, dict) else {"value": answer}
 
     def topology(self):
@@ -393,6 +408,9 @@ class Bench:
         env = self.process_env(self.pid)
         self.env_home = env.get("HOME", os.environ.get("HOME", "/tmp"))
         self.daemon_socket = self.find_daemon_socket()
+        self.launch_workspaces = set()
+        for w in self.topology().get("workspaces") or []:
+            self.launch_workspaces |= {x for x in (w.get("id"), w.get("key")) if x}
         caps = self.rpc("debug.capabilities")
         self.methods = set(caps.get("methods") or []) if isinstance(caps, dict) else set()
         self.results["app"] = {"identify": info, "daemon_socket": self.daemon_socket, "methods": sorted(self.methods)[:400]}
@@ -481,9 +499,10 @@ class Bench:
             if i in hot:
                 info[i] = {"pane": pick(reply, "pane_id", "pane"), "terminal": pick(reply, "terminal_id", "terminal"),
                            "screen": pick(reply, "screen_id", "screen")}
+                self.note_tab(reply)
             if not ws_ids[i]:
                 err(f"workspace create {i}", reply)
-        self.parallel([lambda i=i: create(i) for i in range(size)])
+        self.parallel([lambda i=i: create(i) for i in range(size)], workers=2)
         made["workspaces"] = sum(1 for w in ws_ids if w)
         self.say(f"created {made['workspaces']} workspaces in {time.monotonic() - t0:.1f} s")
         # Pins: every workspace to its space.
@@ -497,7 +516,7 @@ class Bench:
             else:
                 with self.lock:
                     made["pins"] += 1
-        self.parallel([lambda i=i: pin(i) for i in range(size)])
+        self.parallel([lambda i=i: pin(i) for i in range(size)], workers=4)
         # Groups, in their space; the hot workspaces stay loose.
         group_ids = []
         for g, group in enumerate(fx["groups"]):
@@ -518,7 +537,7 @@ class Bench:
             else:
                 with self.lock:
                     made["group_members"] += 1
-        self.parallel([lambda i=i: member(i) for i in range(size)])
+        self.parallel([lambda i=i: member(i) for i in range(size)], workers=4)
         self.say(f"pinned {made['pins']}, {made['groups']} groups with {made['group_members']} members "
                  f"({time.monotonic() - t0:.1f} s)")
         # The hot set's shape.
@@ -539,6 +558,7 @@ class Bench:
             new = pick(reply, "pane_id", "pane")
             if not new:
                 err("split", reply)
+            self.note_tab(reply)
             return new, pick(reply, "terminal_id", "terminal")
 
         def build_node(pane, first_terminal, node, out):
@@ -566,6 +586,7 @@ class Bench:
                     reply = self.cli("workspace", ws_ids[i], "screen", "create", "--name", f"s{s}")
                     first, term, sid = (pick(reply, "pane_id", "pane"), pick(reply, "terminal_id", "terminal"),
                                         pick(reply, "screen_id", "screen"))
+                    self.note_tab(reply)
                     if not first:
                         err(f"screen create {i}/{s}", reply)
                         continue
@@ -574,12 +595,13 @@ class Bench:
                 leaves_made = []
                 build_node(first, term, screen["tree"], leaves_made)
                 spec_leaves = self.fixture.leaves(screen["tree"])
-                panes = []
-                for (pane, term), leaf in zip(leaves_made, spec_leaves):
-                    with self.lock:
-                        made["panes"] += 1
-                    tabs = self.fill(i, s, pane, term, leaf, ws["busy"], len(panes), budget, made, chats, terminals, err)
-                    panes.append({"id": pane, "tabs": tabs})
+                with self.lock:
+                    made["panes"] += len(leaves_made)
+                # The panes of a screen fill at once (each pane's tabs in order).
+                filled = self.parallel([lambda k=k, pane=pane, term=term, leaf=leaf: {
+                    "id": pane, "tabs": self.fill(i, s, pane, term, leaf, ws["busy"], k, budget, made, chats, terminals, err)}
+                    for k, ((pane, term), leaf) in enumerate(zip(leaves_made, spec_leaves))], workers=6)
+                panes = list(filled)
                 if 0 <= screen["focused_pane"] < len(panes):
                     self.cli("pane", panes[screen["focused_pane"]]["id"], "focus")
                 record["screens"].append({"id": sid, "panes": panes})
@@ -597,8 +619,11 @@ class Bench:
                 err("terminal write", reply)
         self.parallel([lambda t=t, b=b: feed(t, b) for t, b in terminals])
         made["busy"] = sum(1 for _, b in terminals if b)
-        # Agent chats (an app action: no daemon op makes one), one per chat tab of the fixture.
-        for pane in chats:
+        # Agent chats (an app action: no daemon op makes one), one per chat tab of the fixture. --no-chats leaves them
+        # out: on build 5aad318 an agent pane's view freed during a switch aborts the app in the CEF fork's
+        # CmuxParentViewTracker (objc_storeWeak on a deallocating view).
+        made["chats_left_out"] = len(chats) if self.opts.no_chats else 0
+        for pane in ([] if self.opts.no_chats else chats):
             reply = self.action("palette.newAgentChat", target=f"pane:{pane}", focus=False, timeout=20)
             if self.failed(reply):
                 made["chats_refused"] += 1
@@ -657,13 +682,21 @@ class Bench:
                     chats.append(pane)
                 tabs.append({"kind": "chat"})
         if first_terminal is None and term:
-            reply = self.cli("tab", self.terminal_tab(pane, term) or term, "close")
+            tab = self.term_tab.get(term) or self.terminal_tab(pane, term)
+            reply = self.cli("tab", tab, "close") if tab else {"error": f"no tab id for terminal {term}"}
             if self.failed(reply):
                 err("close first terminal", reply)
         chosen = tabs[leaf["selected"]] if leaf["selected"] < len(tabs) else None
         if chosen and chosen.get("tab"):
             self.cli("tab", chosen["tab"], "focus")
         return tabs
+
+    def note_tab(self, reply):
+        """The tab id of the terminal a create, split or screen reply made (closing it needs the tab_ id)."""
+        term, tab = pick(reply, "terminal_id", "terminal"), pick(reply, "tab_id", "tab", "surface_id")
+        if term and tab and str(tab).startswith("tab_"):
+            with self.lock:
+                self.term_tab[term] = tab
 
     def terminal_tab(self, pane, term):
         reply = self.cli("pane", pane, "show")
@@ -699,7 +732,9 @@ class Bench:
         self.show_in(first, fx["windows"][0]["space"], self.app_ws[fx["windows"][0]["workspace"]])
         for w in fx["windows"][1:]:
             before = {x.get("id") for x in self.windows_report()}
-            reply = self.action("newWindow")
+            # Opened in its space (space.newWindow): moving a new window's first workspace out of view freed an agent
+            # view and aborted build 5aad318 (CEF CmuxParentViewTracker), so the window never changes space.
+            reply = self.action("space.newWindow", {"space": rooms[w["space"]]})
             new = None
             for _ in range(60):
                 new = next((x.get("id") for x in self.windows_report() if x.get("id") not in before and x.get("open", True)), None)
@@ -709,17 +744,54 @@ class Bench:
             if not new:
                 self.say(f"newWindow made no window: {reply}")
                 break
-            self.show_in(new, w["space"], self.app_ws[w["workspace"]])
+            time.sleep(1.0)
+            self.rpc("debug.window.focus", {"window": new})
+            self.action("goToWorkspace", {"workspace": self.app_ws[w["workspace"]]})
+            for _ in range(20):
+                if self.window_workspace(new) == self.name_of(self.app_ws[w["workspace"]]):
+                    break
+                time.sleep(0.25)
+            else:
+                self.say(f"window {new} shows {self.window_workspace(new)}, not ss-{w['workspace']:04d}")
             win_ids.append(new)
-        # Workspaces a new window or the launch made (not ss-*): closed, so the session is the fixture.
+        # Workspaces the new windows made (not ss-*, not there at launch, which keeps Home): closed.
         for w in self.topology().get("workspaces") or []:
-            if not str(w.get("name") or "").startswith("ss-") and w.get("id"):
+            if (not str(w.get("name") or "").startswith("ss-") and w.get("id")
+                    and w.get("id") not in self.launch_workspaces and w.get("key") not in self.launch_workspaces):
                 self.action("closeWorkspace", target=f"workspace:{w['id']}", focus=False)
         # The hot workspaces go to the top of their space's sidebar, the second first.
         for i in reversed(hot):
             self.action("palette.moveWorkspaceToTop", target={"kind": "workspace", "id": self.app_ws[i]}, focus=False)
         time.sleep(2)
         made["windows"] = len(win_ids)
+        # Each hot workspace in window 0: a terminal pane gets the keyboard (a click on it), so keys can be timed;
+        # the panes blank at rest (after a settle) are kept apart from the blank frames of a switch.
+        self.rest_blank, rest = set(), {}
+        w0 = win_ids[0]
+        number = self.window_number(w0)
+        for i in hot:
+            self.rpc("debug.window.focus", {"window": w0})
+            self.action("goToWorkspace", {"workspace": self.app_ws[i]})
+            time.sleep(1.5)
+            panes = self.visible_panes(self.surfaces(), number)
+            term = next((p for p in panes if p.get("kind") == "terminal" and not self.pane_blank(p)), None) \
+                or next((p for p in panes if p.get("kind") == "terminal"), None)
+            if term:
+                self.rpc("debug.mouse", {"action": "click", "pane": term.get("pane"), "window": w0})
+            time.sleep(1.5)
+            panes = self.visible_panes(self.surfaces(), number)
+            blank = [p for p in panes if self.pane_blank(p)]
+            self.rest_blank |= {p.get("pane") for p in blank}
+            rest[f"ss-{i:04d}"] = {"visible": len(panes), "terminal_focused": bool(term),
+                                   "focused_kind": next((p.get("kind") for p in panes if p.get("focused")), None),
+                                   "blank_at_rest": [{k: p.get(k) for k in ("kind", "content_reason", "presence", "phase",
+                                                                            "content_installed", "content_in_window",
+                                                                            "frame_held", "foreign_pages")}
+                                                     | {"surface": {k: (p.get("surface") or {}).get(k) for k in
+                                                                    ("exists", "replay_applied", "drawing", "paused")}}
+                                                     for p in blank]}
+        made["rest"] = rest
+        self.say(f"rest: {json.dumps({k: (v['visible'], v['focused_kind'], len(v['blank_at_rest'])) for k, v in rest.items()})}")
         return win_ids
 
     def show_in(self, window, space, workspace):
@@ -798,18 +870,18 @@ class Bench:
                 "frames": stats.get("frames")}
 
     # ---------------------------------------------------------------- one switch
-    def one_switch(self, send, expect, sampled, baseline, window_number=None, marker=None, quiet_s=0.3, max_s=0.8):
-        """Sends one switch (`send()`), then either waits quietly (clean) or samples the window's panes (sampled).
-        `expect(report)` says whether a debug.surfaces report shows the new target."""
+    def one_switch(self, send, expect, sampled, baseline, window_number=None, marker=None, quiet_s=0.3, settle_s=0.6):
+        """Sends one switch (`send()`, the input itself), then either waits quietly (clean: frames only) or samples
+        the window's panes while the send runs and after (sampled). The marker is typed right after the input, as a
+        person types after a switch. `expect(report)` says whether a debug.surfaces report shows the new target."""
         row = {"sampled": sampled}
         if not sampled:
             self.frames("start")
-        t0 = time.monotonic()
-        reply = send()
-        row["send_ms"] = round((time.monotonic() - t0) * 1000, 2)
-        if self.failed(reply):
-            row["send_error"] = str(reply)[:200]
-        if not sampled:
+            t0 = time.monotonic()
+            reply = send()
+            row["send_ms"] = round((time.monotonic() - t0) * 1000, 2)
+            if self.failed(reply):
+                row["send_error"] = str(reply)[:200]
             time.sleep(quiet_s)
             stats = self.frames("stop", raw=True)
             busy = stats.get("main_ms") or []
@@ -821,42 +893,65 @@ class Bench:
             row["view_layouts"] = stats.get("view_layouts")
             row["seen"] = bool(expect(self.surfaces()))
             return row
-        if marker:
-            for ch in marker:
-                self.key(ch)
-        typed = time.monotonic()
+        sent = {}
+
+        def sender():
+            reply = send()
+            sent["at"] = time.monotonic()
+            if self.failed(reply):
+                sent["error"] = str(reply)[:200]
+            if marker:
+                for ch in marker:
+                    self.key(ch)
+                sent["typed"] = time.monotonic()
+        t0 = time.monotonic()
+        thread = threading.Thread(target=sender, daemon=True)
+        thread.start()
         blank_ms, blank_samples, samples, last = 0.0, 0, 0, None
         seen_at = echo_at = None
         focused_kind = None
-        while time.monotonic() - t0 < max_s:
+        blank_kinds = {}
+        while True:
+            now = time.monotonic()
+            if now - t0 > 4.0 or ("at" in sent and now - sent["at"] > settle_s and not thread.is_alive()):
+                break
+            report = self.surfaces(text=bool(marker) and "typed" in sent)
             t = time.monotonic()
-            report = self.surfaces(text=bool(marker))
             samples += 1
             panes = self.visible_panes(report, window_number)
-            blank = any(self.pane_blank(p) for p in panes)
-            if blank:
+            new_blank = [p for p in panes if self.pane_blank(p) and p.get("pane") not in self.rest_blank]
+            if new_blank:
                 blank_samples += 1
+                for p in new_blank:
+                    blank_kinds[p.get("kind")] = blank_kinds.get(p.get("kind"), 0) + 1
                 if last is not None:
                     blank_ms += (t - last) * 1000
             last = t
-            if seen_at is None and expect(report):
+            if seen_at is None and "at" in sent and expect(report):
                 seen_at = t
             focused = next((p for p in panes if p.get("focused")), None)
             if focused:
                 focused_kind = focused.get("kind")
             if marker and echo_at is None and focused and marker in (focused.get("text") or ""):
                 echo_at = t
-            if seen_at and not blank and (not marker or echo_at or (focused_kind and focused_kind != "terminal")):
+            if (seen_at and not new_blank and not thread.is_alive()
+                    and (not marker or echo_at or (focused_kind and focused_kind != "terminal"))):
                 break
             time.sleep(0.012)
+        thread.join(timeout=10)
+        span = (last - t0) * 1000 if last else 0
         row.update({"samples": samples, "blank_samples": blank_samples, "blank_ms": round(blank_ms, 1),
+                    "sample_period_ms": round(span / samples, 1) if samples else None,
+                    "blank_kinds": blank_kinds,
+                    "send_ms": round((sent["at"] - t0) * 1000, 1) if "at" in sent else None,
                     "content_seen_ms": round((seen_at - t0) * 1000, 1) if seen_at else None,
-                    "focused_kind": focused_kind, "typed_after_ms": round((typed - t0) * 1000, 1)})
+                    "focused_kind": focused_kind})
+        if "error" in sent:
+            row["send_error"] = sent["error"]
         if marker:
             row["keys_live_ms"] = round((echo_at - t0) * 1000, 1) if echo_at else None
             self.key("u", ["control"])
         return row
-
     # ---------------------------------------------------------------- kinds
     def run_kind(self, size, kind, plan, baseline, n, window_number=None, typing=True):
         """`plan` is (prepare(), [ (send, expect) forward, (send, expect) back ]) ; n switches alternate them."""
@@ -866,14 +961,27 @@ class Bench:
             if problem:
                 self.missing(size, kind, problem)
                 return None
+        # Panes blank before the first switch (any window) are the rest state, not a switch's blank frames.
+        time.sleep(0.5)
+        before = {p.get("pane") for p in self.visible_panes(self.surfaces()) if self.pane_blank(p)}
+        self.rest_blank |= before
         self.timers("start")
+        sampler = None
+        if self.opts.sample:
+            path = os.path.join(self.out, f"sample-{kind}-{size}.txt")
+            sampler = subprocess.Popen(["/usr/bin/sample", str(self.pid), "6", "1", "-mayDie", "-file", path],
+                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            time.sleep(0.5)
         rows = []
         deadline_ok = True
         for i in range(n):
             if self.time_left() < 25:
                 deadline_ok = False
                 break
-            send, expect = steps[i % len(steps)]
+            step = steps[i % len(steps)]
+            send, expect = step[0], step[1]
+            if len(step) > 2 and step[2]:
+                step[2]()  # before the input: state reads, the palette opened and its query typed
             sampled = i % 2 == 1
             marker = None
             if sampled and typing:
@@ -883,6 +991,8 @@ class Bench:
             rows.append(row)
             time.sleep(0.05)
         timer_rows = self.timers("stop")
+        if sampler:
+            sampler.wait(timeout=60)
         if not deadline_ok:
             self.say(f"{kind} {size}: time is short, {len(rows)} of {n} switches")
         return self.summarize(size, kind, rows, timer_rows, baseline, timer_names)
@@ -918,6 +1028,8 @@ class Bench:
             "blank_frames_total": round(sum((r.get("blank_ms") or 0) for r in sampled) / refresh, 1),
             "switches_with_blank": sum(1 for r in sampled if r.get("blank_samples")),
             "keys_live_ms": block([r.get("keys_live_ms") for r in sampled if r.get("focused_kind") == "terminal"]),
+            "sample_period_ms": block([r.get("sample_period_ms") for r in sampled]),
+            "rest_blank_panes": len(self.rest_blank),
             "keys_lost": sum(1 for r in sampled if r.get("focused_kind") == "terminal" and r.get("keys_live_ms") is None),
             "not_seen": sum(1 for r in rows if r.get("sampled") and r.get("content_seen_ms") is None)
             + sum(1 for r in clean if r.get("seen") is False),
@@ -995,13 +1107,10 @@ class Bench:
             keys = {p.get("pane") for p in self.visible_panes(report, self.window_number(w0))}
             return bool(keys) and keys != getattr(self, "screen_before", set())
 
-        def screen_step(name):
-            def send():
-                self.screen_before = self.pane_keys(w0)
-                return self.action(name, target=None)
-            return send
-        plans["screen"] = (screen_prepare, [(screen_step("screen.next"), screen_changed),
-                                            (screen_step("screen.previous"), screen_changed)],
+        def screen_pre():
+            self.screen_before = self.pane_keys(w0)
+        plans["screen"] = (screen_prepare, [(lambda: self.action("screen.next"), screen_changed, screen_pre),
+                                            (lambda: self.action("screen.previous"), screen_changed, screen_pre)],
                            ("debug.workspace_switch", "debug.tab_switch"))
 
         def click(ws):
@@ -1022,18 +1131,16 @@ class Bench:
              lambda r: self.window_workspace(w0) not in (self.name_of(a), None)),
             (lambda: self.key("[", ["control", "command"], window=w0), shows(a))], WS)
 
-        def palette(ws):
-            name = self.name_of(ws)
-
-            def send():
+        def palette_query(ws):
+            def pre():
                 self.key("p", ["command"], window=w0)
                 time.sleep(0.25)
-                for ch in name:
+                for ch in self.name_of(ws):
                     self.key(ch, target="palette")
                 time.sleep(0.3)
-                return self.key("return", target="palette")
-            return send
-        plans["workspace_palette"] = (go(a), [(palette(b), shows(b)), (palette(a), shows(a))], WS)
+            return pre
+        enter = lambda: self.key("return", target="palette")  # noqa: E731
+        plans["workspace_palette"] = (go(a), [(enter, shows(b), palette_query(b)), (enter, shows(a), palette_query(a))], WS)
 
         def focused_tab():
             pane = next((p for p in self.visible_panes(self.surfaces(), self.window_number(w0)) if p.get("focused")), {})
@@ -1043,37 +1150,31 @@ class Bench:
             pane = next((p for p in self.visible_panes(report, self.window_number(w0)) if p.get("focused")), {})
             return pane.get("selected_tab") not in (None, getattr(self, "tab_before", None))
 
-        def tab_step(key):
-            def send():
-                self.tab_before = focused_tab()[1]
-                return self.key(key, ["command", "shift"], window=w0)
-            return send
-        plans["tab"] = (go(a), [(tab_step("]"), tab_changed), (tab_step("["), tab_changed)], ("debug.tab_switch",))
+        def tab_pre():
+            self.tab_before = focused_tab()[1]
+        plans["tab"] = (go(a), [(lambda: self.key("]", ["command", "shift"], window=w0), tab_changed, tab_pre),
+                                (lambda: self.key("[", ["command", "shift"], window=w0), tab_changed, tab_pre)],
+                        ("debug.tab_switch",))
 
         def pane_changed(report):
             pane = next((p for p in self.visible_panes(report, self.window_number(w0)) if p.get("focused")), {})
             return pane.get("pane") not in (None, getattr(self, "pane_before", None))
 
-        def pane_step(key):
-            def send():
-                self.pane_before = focused_tab()[0]
-                return self.key(key, ["command", "option"], window=w0)
-            return send
-        plans["pane"] = (go(a), [(pane_step("right"), pane_changed), (pane_step("left"), pane_changed)],
+        def pane_pre():
+            self.pane_before = focused_tab()[0]
+        plans["pane"] = (go(a), [(lambda: self.key("right", ["command", "option"], window=w0), pane_changed, pane_pre),
+                                 (lambda: self.key("left", ["command", "option"], window=w0), pane_changed, pane_pre)],
                          ("debug.pane_focus",))
 
         def front_changed(_report):
             order = (self.rpc("debug.windows") or {}).get("z_order") or []
             return bool(order) and order[0] != getattr(self, "front_before", None)
 
-        def window_step(name):
-            def send():
-                self.front_before = ((self.rpc("debug.windows") or {}).get("z_order") or [None])[0]
-                return self.action(name)
-            return send
+        def window_pre():
+            self.front_before = ((self.rpc("debug.windows") or {}).get("z_order") or [None])[0]
         plans["window"] = ((lambda: None if len(win_ids) > 1 else "fewer than 2 windows"),
-                           [(window_step("selectNextWindow"), front_changed),
-                            (window_step("selectPreviousWindow"), front_changed)], WS)
+                           [(lambda: self.action("selectNextWindow"), front_changed, window_pre),
+                            (lambda: self.action("selectPreviousWindow"), front_changed, window_pre)], WS)
 
         def home_back():
             reply = self.key("`", ["control", "command"], window=w0)
@@ -1081,24 +1182,29 @@ class Bench:
                 reply = self.action("goToWorkspace", {"workspace": a})
             return reply
 
+        def at_home():
+            shown = self.window_workspace(w0)
+            return self.window_page(w0) == "home" or (shown is not None and not str(shown).startswith("ss-"))
+
         def home_prepare():
             problem = go(a)()
             if problem:
                 return problem
-            self.action("home.show")
+            reply = self.action("home.show")
             time.sleep(0.8)
-            if self.window_page(w0) != "home":
-                return f"home.show does not show Home in window 0 (page {self.window_page(w0)})"
+            if not at_home():
+                return f"home.show does not show Home in window 0 ({str(reply)[:160]}, shows {self.window_workspace(w0)})"
+            self.home_name = self.window_workspace(w0)
             self.key("`", ["control", "command"], window=w0)
             time.sleep(0.8)
-            if self.window_page(w0) == "home" or self.window_workspace(w0) != self.name_of(a):
+            if at_home() or self.window_workspace(w0) != self.name_of(a):
                 self.home_back_action = True
                 self.say("home: Ctrl-Cmd-` does not leave Home; back is goToWorkspace (action.run)")
                 self.action("goToWorkspace", {"workspace": a})
                 time.sleep(0.6)
             return None
-        plans["home"] = (home_prepare, [(lambda: self.action("home.show"), lambda r: self.window_page(w0) == "home"),
-                                        (home_back, lambda r: self.window_page(w0) != "home" and self.window_workspace(w0) == self.name_of(a))],
+        plans["home"] = (home_prepare, [(lambda: self.action("home.show"), lambda r: at_home()),
+                                        (home_back, lambda r: not at_home() and self.window_workspace(w0) == self.name_of(a))],
                          WS)
         return plans
 
@@ -1177,6 +1283,7 @@ class Bench:
                                        "tabs": sum(len(p["tabs"]) for s in r["screens"] for p in s["panes"])}
                               for i, r in hot_made.items()}
         win_ids = self.place(fx, rooms, ws_ids, hot, made)
+        self.w0 = win_ids[0]
         entry["windows"] = win_ids
         surf = self.surfaces()
         entry["after_place"] = {"live_terminals": surf.get("live_terminals"), "blank_panes": surf.get("blank_panes"),
@@ -1331,6 +1438,12 @@ def main(argv=None):
     parser.add_argument("--memory-steps", type=int, default=1000)
     parser.add_argument("--max-seconds", type=float, default=3600.0)
     parser.add_argument("--stop", action="store_true", help="quit the launched app at the end")
+    parser.add_argument("--no-chats", action="store_true",
+                        help="leave the hot set's agent chat tabs out (build 5aad318 aborts when one is freed in a switch)")
+    parser.add_argument("--build-sha", help="the build's commit, for result-v1 when the bundle names none (CMUX_CI_SHA)")
+    parser.add_argument("--sample", action="store_true",
+                        help="`sample` the app for the first seconds of each kind (OUT/sample-<kind>-<size>.txt); "
+                             "the sampler slows the app, so a sampled run is a profile, not a number")
     parser.add_argument("--slot-job", help="from the fleet VM: lease a capture slot and run there on build JOB")
     parser.add_argument("--slot-hosts", help="capture hosts to lease from (spaces), never cmux16")
     parser.add_argument("--lease-seconds", type=int, default=600)
@@ -1339,6 +1452,8 @@ def main(argv=None):
         return slot_main(opts, rest)
     if not opts.app:
         parser.error("--app is required")
+    if opts.build_sha:
+        os.environ["CMUX_CI_SHA"] = opts.build_sha
     return Bench(opts).main()
 
 
