@@ -31,6 +31,17 @@ import Testing
         #expect(SubsystemBudget.forThisMac(gpuResidentAvailable: false).warmTerminalSurfaces == WarmSetBudget.standard.terminalCapacity)
     }
 
+    /// Ghostty owns the release of a hidden surface's GPU memory: its renderer frees the swap chain when the
+    /// surface is occluded (ghostty-org/ghostty c4e16970a, in Ghostty 1.4 and every ghostty-next pin), and
+    /// every paused cached terminal is occluded (`TerminalSurfaceView.updateOcclusion`). So the warm set is
+    /// sized for released surfaces with or without cmux's own residency seam; sizing it for surfaces that
+    /// keep their drawables (48 MiB each) kept half the terminals warm that the memory allows.
+    @Test func theWarmSetIsSizedForSurfacesGhosttyReleasesWhenOccluded() {
+        let cache = Self.cache(gpuResidency: nil)
+        #expect(cache.normalWarmCapacity == SubsystemBudget.forThisMac(gpuResidentAvailable: true).warmTerminalSurfaces)
+        #expect(cache.ledger.capacity == cache.normalWarmCapacity)
+    }
+
     /// The cache's normal capacity is the budget's, for its ledger, its last frames and the sliced release,
     /// which scales it under pressure and closes one surface per slice.
     @Test func theSlicedReleaseScalesTheCachesNormalCapacity() {
