@@ -340,6 +340,72 @@ ${css}
         }
       });
 
+      test("reduced transparency clips rail edge hit targets at every narrow width", async () => {
+        for (const width of [200, 320, 360]) {
+          const page = await open(width);
+          await page.$eval(".acpmux-mp-rail-list", (list) => {
+            const node = list as HTMLElement;
+            node.innerHTML = Array.from(
+              { length: 15 },
+              (_, index) =>
+                '<button class="acpmux-mp-rail-tab grid size-8 flex-none" data-tab-index="' +
+                index +
+                '" style="height:32px;flex:none">Harness ' +
+                (index + 1) +
+                "</button>",
+            ).join("");
+            node.style.cssText += ";display:flex;flex-direction:row;gap:4px;width:max-content;min-width:max-content;padding:6px";
+          });
+          await page.$eval(".acpmux-mp-rail-scroll", (rail) => {
+            const node = rail as HTMLElement;
+            const container = node.parentElement!;
+            const available = container.clientWidth;
+            const cells = Math.max(1, Math.floor((available - 12 + 4) / 36));
+            node.style.setProperty("width", `${cells * 36 - 4 + 12}px`, "important");
+          });
+          try {
+            const cdp = await page.context().newCDPSession(page);
+            await cdp.send("Emulation.setEmulatedMedia", {
+              features: [{ name: "prefers-reduced-transparency", value: "reduce" }],
+            });
+          } catch {
+            // WebKit has no CDP media override; the app attribute below still exercises the same rule.
+          }
+          await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", "true"));
+          const edgeHits = async (side: "start" | "end") => {
+            await page.$eval(
+              ".acpmux-mp-rail-viewport",
+              (node, position) => {
+                const viewport = node as HTMLElement;
+                viewport.scrollLeft = position === "start" ? 0 : viewport.scrollWidth;
+              },
+              side,
+            );
+            await page.waitForTimeout(20);
+            return page.$eval(".acpmux-mp-rail-viewport", (node) => {
+              const viewport = node as HTMLElement;
+              const box = viewport.getBoundingClientRect();
+              const points = [box.left + 1, box.right - 1];
+              return {
+                mask: getComputedStyle(viewport).maskImage,
+                clip: getComputedStyle(viewport).clipPath,
+                hits: points.map(
+                  (x) =>
+                    document.elementFromPoint(x, box.top + box.height / 2)?.closest(".acpmux-mp-rail-tab")?.getAttribute("data-tab-index") ?? null,
+                ),
+              };
+            });
+          };
+          for (const side of ["start", "end"] as const) {
+            const result = await edgeHits(side);
+            expect(result.mask).toBe("none");
+            expect(result.clip).toContain("inset");
+            expect(result.hits).toEqual([null, null]);
+          }
+          await page.close();
+        }
+      });
+
       test("the portaled location menu gets the pane's menu surface, not a clear background", async () => {
         const page = await open(1000);
         const background = await page.$eval(

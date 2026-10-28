@@ -72,6 +72,9 @@
     scroll-snap-type: inline mandatory;
     scroll-snap-stop: always;
     scroll-padding-inline: 6px;
+    /* Keep the padding peek visual-only: edge hits must not activate a partly visible tab. */
+    -webkit-clip-path: inset(0 6px);
+    clip-path: inset(0 6px);
     /* A partial edge item is a deliberate, bounded peek rather than a clipped-looking icon. */
     mask-image: linear-gradient(to right, transparent 0, #000 10px, #000 calc(100% - 10px), transparent 100%);
   }
