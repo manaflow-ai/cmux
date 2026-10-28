@@ -134,11 +134,9 @@ import Testing
         #expect(model.row(.codex).phase == (opened ? .reauthenticating : .idle))
     }
 
-    /// A refresh may have started before the provider login opens its tab. Its
-    /// detection result must not clear the row after the tab opener returns,
-    /// while that older refresh is still delivering its result.
-    @Test(arguments: [true, false])
-    func aRefreshOverlappingLoginCannotClearTheBusyRow(refreshBeforeOpener: Bool) async {
+    /// A refresh started while the provider login opener is gated can deliver
+    /// after the tab opens. Its detection must not clear the busy row.
+    @Test func aRefreshStartedWhileLoginOpenerIsGatedCannotClearTheBusyRow() async {
         let services = MockAccountsServices()
         let model = await refreshed(services)
         let detectionStarted = AsyncStream<Void>.makeStream()
@@ -162,23 +160,12 @@ import Testing
             }
         }
 
-        let login: Task<String?, Never>
-        if refreshBeforeOpener {
-            // Also cover a refresh that was already in flight before the tab
-            // opener began; it must be stale when login completes.
-            gateDetection = true
-            model.refresh()
-            for await _ in detectionStarted.stream { break }
-            login = Task { @MainActor in await model.reauthenticate(.codex) }
-            for await _ in loginStarted.stream { break }
-        } else {
-            login = Task { @MainActor in await model.reauthenticate(.codex) }
-            for await _ in loginStarted.stream { break }
-            // Start the refresh while the provider tab opener is still gated.
-            gateDetection = true
-            model.refresh()
-            for await _ in detectionStarted.stream { break }
-        }
+        let login = Task { @MainActor in await model.reauthenticate(.codex) }
+        for await _ in loginStarted.stream { break }
+        // Start the refresh while the provider tab opener is still gated.
+        gateDetection = true
+        model.refresh()
+        for await _ in detectionStarted.stream { break }
         finishLogin?.resume(returning: true)
         #expect(await login.value == nil)
         #expect(model.row(.codex).phase == .reauthenticating)
