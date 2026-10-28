@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+#[cfg(test)]
+#[path = "auth_tests.rs"]
+mod tests;
+
 /// Env keys that carry credentials or point a harness at another login.
 const AUTH_ENV: &[&str] = &[
     "ANTHROPIC_API_KEY",
