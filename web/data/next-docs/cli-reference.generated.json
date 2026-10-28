@@ -1,8 +1,8 @@
 {
   "version": 1,
   "counts": {
-    "verbs": 718,
-    "mcp": 636
+    "verbs": 720,
+    "mcp": 638
   },
   "nouns": [
     {
@@ -3497,6 +3497,13 @@
           "mcpTool": "app_sidebar_hide_app"
         },
         {
+          "command": "cmux sidebar hide-controls-until-hover",
+          "title": "Show Sidebar Controls Only on Hover",
+          "id": "sidebar.controlsOnHover.on",
+          "mcp": true,
+          "mcpTool": "app_sidebar_hide_controls_until_hover"
+        },
+        {
           "command": "cmux sidebar mark-checklist-item-in-progress",
           "title": "Mark Checklist Item In Progress",
           "id": "checklistMarkInProgress",
@@ -3642,6 +3649,13 @@
           "id": "sidebar.section.setMaxRows",
           "mcp": true,
           "mcpTool": "app_sidebar_set_section_height"
+        },
+        {
+          "command": "cmux sidebar show-controls-always",
+          "title": "Always Show Sidebar Controls",
+          "id": "sidebar.controlsOnHover.off",
+          "mcp": true,
+          "mcpTool": "app_sidebar_show_controls_always"
         },
         {
           "command": "cmux sidebar toggle-item-archive",
