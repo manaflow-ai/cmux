@@ -851,7 +851,7 @@ test.each([
 });
 
 test("Cmd-Ctrl-M closes the expanded picker through the same button path", async () => {
-  await mount({ routes: [] });
+  await mount({ routes: [] }, { turnCount: 2 });
   await open();
   await openSub("More models");
   expect(doc().querySelector(".acpmux-mp")).not.toBeNull();
