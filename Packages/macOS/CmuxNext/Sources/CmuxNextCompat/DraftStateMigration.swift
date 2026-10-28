@@ -140,6 +140,53 @@ public enum DraftStateMigration {
         try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: marker.path)
     }
 
+    /// Recovers only composer_draft fields from old daemon session metadata. It does
+    /// not move, rewrite or adopt any daemon state.
+    public static func adoptComposerDrafts(from homes: [URL], to destination: URL,
+                                           fileManager: CheckedFileManager = FileManager.checked) {
+        let file = destination.appending(path: "agent-composer-drafts.json")
+        var drafts: [String: String] = [:]
+        if fileManager.fileExists(atPath: file.path) {
+            guard let data = try? Data(blockingContentsOf: file),
+                  let existing = try? JSONDecoder().decode([String: String].self, from: data) else { return }
+            drafts = existing
+        }
+        var changed = false
+        // The former Quick store was one JSON string. Its fixed key now shares this store.
+        if drafts["quick-composer-v1"] == nil,
+           let data = try? Data(blockingContentsOf: destination.appending(path: "quick-composer-draft.json")),
+           let text = try? JSONDecoder().decode(String.self, from: data) {
+            drafts["quick-composer-v1"] = text
+            changed = true
+        }
+        var latest: [String: (date: Date, text: String?)] = [:]
+        for home in homes {
+            guard let sessions = try? fileManager.contentsOfDirectory(
+                at: home.appending(path: "sessions"), includingPropertiesForKeys: [.isDirectoryKey]) else { continue }
+            for session in sessions {
+                let metadata = session.appending(path: "session.json")
+                guard let data = try? Data(blockingContentsOf: metadata),
+                      let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                      let id = object["id"] as? String else { continue }
+                let date = (try? fileManager.attributesOfItem(atPath: metadata.path)[.modificationDate] as? Date) ?? .distantPast
+                if let previous = latest[id], previous.date >= date { continue }
+                latest[id] = (date, object["composerDraft"] as? String)
+            }
+        }
+        for (id, (_, text)) in latest where drafts[id] == nil {
+            guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
+            drafts[id] = text
+            changed = true
+        }
+        guard changed else { return }
+        do {
+            try fileManager.createDirectory(at: destination, withIntermediateDirectories: true,
+                                            attributes: [.posixPermissions: 0o700])
+            try JSONEncoder().encode(drafts).blockingWrite(to: file, options: [.atomic])
+            try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        } catch { }
+    }
+
     private enum MigrationError: Error { case invalidDraftDictionary, invalidOwnedName }
 
     /// Unsent drafts were strings before attachment records. Keep pure legacy files in that

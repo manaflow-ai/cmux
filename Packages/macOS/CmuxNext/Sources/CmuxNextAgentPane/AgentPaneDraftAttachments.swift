@@ -18,6 +18,8 @@ public final class AgentPaneDraftAttachments {
     nonisolated static let listName = "draft.json"
     /// The app's store; nil keeps no chips (a test host, the gallery).
     public static var shared: AgentPaneDraftAttachments?
+    /// Text uses the same app-owned draft root and injected blocking-work lanes.
+    public let draftTexts: AgentPaneDraftTexts
     /// The most recently written chats are kept.
     nonisolated static let limit = 100
     /// One chat's files: a composer full of images (10 of at most 5 MB, `attachments.ts`) fits.
@@ -28,6 +30,7 @@ public final class AgentPaneDraftAttachments {
     private var queue: [String: Task<Void, Never>] = [:]
 
     public init(directory: URL?, work: BackgroundWork = BackgroundWork()) {
+        draftTexts = AgentPaneDraftTexts(directory: directory, work: work)
         self.directory = directory?.appending(path: Self.directoryName, directoryHint: .isDirectory)
     }
 

@@ -97,6 +97,7 @@ import { PromptMarksSession } from "./threadMinimap/promptMarks";
 import { preserveScrollAnchorTop, scrollAnchorBase } from "./conversation/scrollAnchor";
 import { setBookmarkTransport } from "./threadMinimap/bookmarks";
 import { composerDraft, DRAFT_SETTLE_MS, notifyDraftActionsChanged, settleDraftWithin } from "./composerDraft";
+import { draftTextActions } from "./draftTextActions";
 import { paneContext } from "./paneContext";
 import {
   createPaneQueryClient,
@@ -7585,9 +7586,7 @@ function AcpmuxPane() {
           "chat.findNext": async () => findRef.current?.next(),
           "chat.findPrevious": async () => findRef.current?.previous(),
           "chat.hideFind": async () => findRef.current?.hide(),
-          // Composer drafts belong to the daemon session so every host can restore them.
-          "chat.readDraft": ({ sessionId }) => client.readDraft(String(sessionId)),
-          "chat.writeDraft": ({ sessionId, text }) => client.writeDraft(String(sessionId), String(text ?? "")),
+          ...draftTextActions(client, callNative),
           "acp.trust.get": ({ cwd }) => client.trustGet(String(cwd)),
           "acp.trust.set": ({ cwd, level }) => client.trustSet(String(cwd), String(level)),
           "file.search": ({ path, query, limit }) =>
@@ -9758,6 +9757,9 @@ function AcpmuxPane() {
               environments={preview}
               // The tab's run, found by a read, takes the chat view: the page's draft goes to its composer.
               onLeaveDraft={(text, attachments) => {
+                // Persist the New Tab's pre-session text through the tab-owned unsent store
+                // before the page is replaced. Attachments are handed to the wake store below.
+                void callNative("chat.unsentDraft", { text }).catch(() => undefined);
                 // A Sandboxed send from the page already took its prompt (or held it back).
                 const handed = newTabSandboxSent.current;
                 newTabSandboxSent.current = false;

@@ -12,16 +12,19 @@ nonisolated struct DraftStateMigrationTests {
         try fixture.write("old/agent-unsent-drafts.json", #"{"tab":"older"}"#, date: 10)
         try fixture.write("new/agent-unsent-drafts.json", #"{"tab":"newest"}"#, date: 20)
         try fixture.write("new/agent-composer-drafts.json", #"{"session":"text from A"}"#)
+        try fixture.write("new/sessions/chat/session.json", #"{"id":"chat","composerDraft":"text from daemon"}"#)
         try fixture.write("new/agent-draft-attachments/chat/file", "attachment")
         try fixture.write("new/agent-queued-edits.json", #"{"chat":{"prompt":{"text":"pending queue edit"}}}"#)
         try fixture.write("destination/agent-unsent-drafts.json", #"{"tab":"typed-after-update"}"#)
 
         DraftStateMigration.adopt(from: [fixture.url("old"), fixture.url("new")], to: fixture.url("destination"))
+        DraftStateMigration.adoptComposerDrafts(from: [fixture.url("new")], to: fixture.url("destination"))
 
         let unsent = try fixture.object("destination/agent-unsent-drafts.json")
         let composer = try fixture.object("destination/agent-composer-drafts.json")
         #expect(unsent["tab"] as? String == "typed-after-update")
         #expect(composer["session"] as? String == "text from A")
+        #expect(composer["chat"] as? String == "text from daemon")
         #expect(try fixture.text("destination/agent-draft-attachments/chat/file") == "attachment")
         #expect(try fixture.text("new/agent-draft-attachments/chat/file") == "attachment")
         #expect(try fixture.text("destination/agent-queued-edits.json") == fixture.text("new/agent-queued-edits.json"))
@@ -94,18 +97,44 @@ nonisolated struct DraftStateMigrationTests {
         #expect(drafts["cleared"] as? String == "")
     }
 
+    @Test func daemonRecoveryUsesNewestMetadataPerSessionAndPreservesDestination() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("old/sessions/chat/session.json", #"{"id":"chat","composerDraft":"old"}"#, date: 10)
+        try fixture.write("new/sessions/chat/session.json", #"{"id":"chat","composerDraft":"new"}"#, date: 20)
+        try fixture.write("old/sessions/cleared/session.json", #"{"id":"cleared","composerDraft":"do not resurrect"}"#, date: 10)
+        try fixture.write("new/sessions/cleared/session.json", #"{"id":"cleared"}"#, date: 20)
+        try fixture.write("new/sessions/current/session.json", #"{"id":"current","composerDraft":"old daemon text"}"#)
+        try fixture.write("destination/agent-composer-drafts.json", #"{"current":"","distinct":"B only"}"#)
+
+        DraftStateMigration.adoptComposerDrafts(from: [fixture.url("new"), fixture.url("absent"), fixture.url("old")], to: fixture.url("destination"))
+
+        let drafts = try fixture.object("destination/agent-composer-drafts.json")
+        #expect(drafts["chat"] as? String == "new")
+        #expect(drafts["cleared"] == nil)
+        #expect(drafts["current"] as? String == "")
+        #expect(drafts["distinct"] as? String == "B only")
+    }
+
     @Test func quickDraftFileIsAdoptedOnlyWhenDestinationIsAbsent() throws {
         let fixture = try Fixture()
         defer { fixture.remove() }
         try fixture.write("source/quick-composer-draft.json", #""quick A""#)
         try fixture.write("existing/quick-composer-draft.json", #""""#)
+        try fixture.write("current/quick-composer-draft.json", #""older Quick""#)
+        try fixture.write("current/agent-composer-drafts.json", #"{"quick-composer-v1":""}"#)
 
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("missing"))
         DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("existing"))
 
         #expect(try fixture.text("missing/quick-composer-draft.json") == #""quick A""#)
         #expect(try fixture.text("existing/quick-composer-draft.json") == #""""#)
-
+        for target in ["missing", "existing", "current"] {
+            DraftStateMigration.adoptComposerDrafts(from: [], to: fixture.url(target))
+        }
+        #expect((try fixture.object("missing/agent-composer-drafts.json"))["quick-composer-v1"] as? String == "quick A")
+        #expect((try fixture.object("existing/agent-composer-drafts.json"))["quick-composer-v1"] as? String == "")
+        #expect((try fixture.object("current/agent-composer-drafts.json"))["quick-composer-v1"] as? String == "")
     }
 
     @Test func settledArtifactsStayClearedAfterASeparateArtifactFails() throws {

@@ -498,6 +498,12 @@ export function Composer({
   const refocusField = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
+  /// The first session can arrive one render after the host's relaunch handshake. Keep that seed
+  /// for this assignment only; later chat switches must use the selected session's own draft.
+  const initialSessionResolved = useRef(sessionId !== undefined);
+  const initialHandshakeDraft = useRef<string | undefined>(undefined);
+  if (!initialSessionResolved.current && sessionId === undefined && draft !== undefined)
+    initialHandshakeDraft.current = draft;
   const hydratedSession = useRef<string | undefined>(undefined);
   const restoringSession = useRef(false);
   /// Set while a switch runs and kept until the session change it brings (Lucas 2026-10-19).
@@ -727,7 +733,12 @@ export function Composer({
     // draft before the editor has initialized.
     // A chat's own saved draft wins: carried text only fills a session that has none, which a
     // switch's new session always is, so moving to another chat mid-switch keeps that chat's draft.
-    const initial = restored || carried || draft || "";
+    // The first assignment can race the handshake draft effect; use that seed once, then never
+    // carry it into a newly selected session.
+    const firstSession = previous === undefined && !initialSessionResolved.current;
+    if (firstSession) initialSessionResolved.current = true;
+    const handshake = draft ?? initialHandshakeDraft.current;
+    const initial = firstSession ? (handshake ?? restored) || carried || "" : restored || carried || "";
     setText(initial);
     setCaret(initial.length);
     pendingCaret.current = initial.length;
