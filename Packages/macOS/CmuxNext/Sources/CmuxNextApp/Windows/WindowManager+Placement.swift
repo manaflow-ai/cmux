@@ -57,10 +57,10 @@ extension WindowManager {
 extension SidebarBridge {
     /// A create can reach the store before the rows observation runs. Resolve
     /// its slot from the current store, retaining the pending edits through
-    /// the same rows writer as a resync. Reading the last drawn rows can put
+    /// the normal rows observation pass. Reading the last drawn rows can put
     /// bottom before a workspace created earlier in the same burst.
     func sectionsForPlacement() -> [SidebarRowSection] {
-        resync()
+        sameTurn.syncRows()
         return SidebarRowSection.withoutPlaceholders(model.sections)
     }
 }

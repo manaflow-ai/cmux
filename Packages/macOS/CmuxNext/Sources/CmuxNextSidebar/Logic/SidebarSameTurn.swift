@@ -37,6 +37,12 @@ public final class SidebarSameTurn {
         view.renderNow()
     }
 
+    /// Refreshes the rows through their normal projection before an action
+    /// resolves a slot. The action can then place its row before rendering.
+    public func syncRows() {
+        for pass in passes where pass.listsRows { pass.run() }
+    }
+
     public func cancel() {
         for task in tasks { task.cancel() }
     }
