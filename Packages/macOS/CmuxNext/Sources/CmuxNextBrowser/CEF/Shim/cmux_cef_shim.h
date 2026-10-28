@@ -688,6 +688,24 @@ typedef struct {
 } cmux_shim_restore_entry;
 CMUX_SHIM_EXPORT int cmux_shim_tab_restore_entries(int browser_id, const cmux_shim_restore_entry* entries, int count,
                                                    int current);
+// Fork API 31 (task p01-process-170): a detached page's IME. The four ops
+// the page view's NSTextInputClient makes (Chrome's RenderWidgetHostViewCocoa
+// calls on its RenderWidgetHostNSViewHost) are the shim's optional exports
+// cmux_shim_browser_ime_set_composition, _commit_text, _finish_composing and
+// _cancel_composition (plans/cmux-next/chromium-host-ops.json
+// optional_exports, task p04-input-064's kIme layout: UTF-16LE text, 16-byte
+// clauses); shim_helper_host.mm runs them on the fork's cmux_browser_ime_*.
+//
+// Watches the page's composition bounds for firstRectForCharacterRange:.
+// `bounds` points at the fork's cmux_composition_bounds_t (include/cef_cmux.h:
+// size, kind 1 range changed or 2 cancelled (discard the marked text), the
+// composition range, one rect x, y, width, height per character in the page
+// view's points, top left origin), valid only during the call. fn NULL stops
+// the watch. Returns 0 when the fork is older than API 31.
+CMUX_SHIM_EXPORT int cmux_shim_browser_composition_bounds_watch(int browser_id,
+                                                                void (*fn)(void* context, int browser_id,
+                                                                           const void* bounds),
+                                                                void* context);
 // The page chrome://newtab shows when no extension overrides the New Tab
 // page (fork API 12); NULL or "" keeps Chromium's. Any time, also before
 // cmux_shim_initialize. The ADDRESS event reports "chrome://newtab/" for a
