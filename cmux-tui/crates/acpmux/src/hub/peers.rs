@@ -581,7 +581,8 @@ impl Hub {
                         self.with_tombstones(&peer, generation, |t| t.link_ended());
                         map.mark_peer_stale(&peer, link.last_seen)
                     };
-                    if !changed.is_empty() {
+                    // Persist outage age even for a peer that never listed any sessions.
+                    if !changed.is_empty() || link.attempts == 1 {
                         self.save_peer_cache(&peer, generation, true);
                     }
                     // What its chats streamed in the last seconds is kept now (`peer_snapshot.rs`).

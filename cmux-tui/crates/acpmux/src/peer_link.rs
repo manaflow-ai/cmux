@@ -258,7 +258,14 @@ impl Link {
     pub fn seed(&mut self, last_seen: Option<u64>) {
         if self.last_seen.is_none() {
             self.last_seen = last_seen;
-            self.down_since = last_seen;
+        }
+    }
+
+    /// Only an explicit saved outage seeds retry age: an old lastSeen in a quiet peer's
+    /// session cache does not prove the link has been down since then.
+    pub fn seed_outage(&mut self, down_since: Option<u64>) {
+        if !self.open && self.attempts == 0 && self.down_since.is_none() {
+            self.down_since = down_since;
         }
     }
 
@@ -500,6 +507,8 @@ mod tests {
         let mut backoff = Backoff::default();
         let day = 86_400_000;
         link.seed(Some(1_000));
+        assert!(link.retry_delay(&mut backoff, 1_000 + day, 0.0) <= Backoff::CAP);
+        link.seed_outage(Some(1_000));
         assert!(link.retry_delay(&mut backoff, 1_000 + day - 1, 0.0) <= Backoff::CAP);
         assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 0.0), Duration::from_secs(3_600));
         assert_eq!(link.retry_delay(&mut backoff, 1_000 + day, 1.0), Duration::from_secs(3_660));

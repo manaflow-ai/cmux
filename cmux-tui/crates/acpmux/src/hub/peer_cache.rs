@@ -13,6 +13,8 @@ const SAVE_EVERY_MS: u64 = 30_000;
 #[serde(rename_all = "camelCase")]
 struct Saved {
     last_seen: Option<u64>,
+    #[serde(default)]
+    down_since: Option<u64>,
     sessions: Vec<Value>,
 }
 
@@ -72,7 +74,8 @@ impl Hub {
             .filter(|r| r.peer == peer)
             .map(|r| r.summary.clone())
             .collect();
-        let saved = Saved { last_seen: p.link().last_seen, sessions };
+        let link = p.link();
+        let saved = Saved { last_seen: link.last_seen, down_since: link.down_since, sessions };
         let write = || -> anyhow::Result<()> {
             crate::config::private_state_dir(&dir)?;
             crate::config::write_atomic(&path, &serde_json::to_vec(&saved)?)
@@ -91,6 +94,7 @@ impl Hub {
         let Ok(bytes) = std::fs::read(&path) else { return };
         let Ok(saved) = serde_json::from_slice::<Saved>(&bytes) else { return };
         peer.seed_last_seen(saved.last_seen);
+        peer.seed_outage(saved.down_since);
         let mut map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         if map.values().any(|r| r.peer == peer.name) {
             return;
@@ -150,6 +154,47 @@ mod tests {
     fn test_hub() -> (Arc<Hub>, cmux_unix_socket::TestDir) {
         let dir = cmux_unix_socket::short_test_dir("acpmux-pc");
         (hub_at(dir.path()), dir)
+    }
+
+    #[tokio::test]
+    async fn an_empty_peer_outage_survives_a_daemon_restart() {
+        let (hub, dir) = test_hub();
+        let peer = crate::peer::Peer::new(
+            "absent",
+            "invalid://peer",
+            None,
+            None,
+            hub.peer_notices.clone(),
+        );
+        let down_since = now_ms() - 86_400_001;
+        peer.seed_outage(Some(down_since));
+        hub.peers.lock().unwrap().insert("absent".into(), peer.clone());
+        let mut settled = peer.settled();
+        let running = tokio::spawn(peer.clone().run());
+        tokio::time::timeout(std::time::Duration::from_secs(5), settled.changed())
+            .await
+            .unwrap()
+            .unwrap();
+        peer.stop();
+        running.await.unwrap();
+
+        let again = hub_at(dir.path());
+        let restored = add_idle_peer(&again, "absent");
+        again.load_peer_cache(&restored);
+        assert_eq!(restored.link().down_since, Some(down_since));
+        assert_eq!(restored.link().last_seen, None, "never reached is preserved");
+        assert!(again.remote_sessions().is_empty());
+        let mut backoff = crate::peer_link::Backoff::default();
+        assert_eq!(
+            restored.link().retry_delay(&mut backoff, now_ms(), 0.0),
+            std::time::Duration::from_secs(3_600)
+        );
+    }
+
+    #[test]
+    fn older_peer_caches_have_no_proven_outage_age() {
+        let saved: Saved = serde_json::from_value(json!({"lastSeen": 1, "sessions": []})).unwrap();
+        assert_eq!(saved.down_since, None);
     }
 
     /// A peer that is registered but never runs: its link stays down.

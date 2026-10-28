@@ -331,6 +331,11 @@ impl Peer {
         self.with_link(|l| l.seed(last_seen));
     }
 
+    /// Restore explicit outage age independently of a possibly old session-cache lastSeen.
+    pub(crate) fn seed_outage(&self, down_since: Option<u64>) {
+        self.with_link(|l| l.seed_outage(down_since));
+    }
+
     /// The refusal for a request while the link is down (`peer_link.rs`).
     pub fn unreachable_error(&self) -> RpcError {
         let error = self.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
