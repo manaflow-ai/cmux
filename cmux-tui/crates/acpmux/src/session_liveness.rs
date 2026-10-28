@@ -8,7 +8,7 @@ use serde_json::Value;
 
 const FAILED_ATTEMPTS: u32 = 3;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct HarnessFailures {
     pub through_seq: u64,
