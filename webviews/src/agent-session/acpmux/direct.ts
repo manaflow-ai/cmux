@@ -4388,6 +4388,11 @@ export class AcpmuxDirectClient {
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
         itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
+      const priorTool = itemIndex >= 0 ? items[itemIndex].tool : undefined;
+      // Streaming output alone leaves the summary unchanged; metadata is visible immediately.
+      const summaryChanged = (
+        ["title", "description", "command", "inputSummary", "kind", "status", "exitCode", "startedAt"] as const
+      ).some((key) => priorTool?.[key] !== item.tool?.[key]);
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
       const row: AcpmuxRow = {
@@ -4399,7 +4404,7 @@ export class AcpmuxDirectClient {
         items,
         streaming: item.tool?.status !== "completed" && item.tool?.status !== "failed",
       };
-      this.rows.set(id, row, itemIndex < 0 || !row.streaming);
+      this.rows.set(id, row, itemIndex < 0 || !row.streaming || summaryChanged);
       this.toolRows.set(callId, id);
       if (!knownRow) this.streamingActivity = id;
     } else if (event.kind === "background_task_update") {
