@@ -7,6 +7,7 @@ import { chromium, type Browser } from "playwright";
 import { createServer, type ViteDevServer } from "vite";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
+import { playFailures } from "./support/galleryPlay";
 
 await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
   setDefaultTimeout(120_000);
@@ -22,13 +23,51 @@ await requireBrowserLane("pr-dock-inline-layout.test.ts", () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmGalleryFrame(vite, "agent-pane.pr-dock", { browser });
+    await warmGalleryFrame(vite, ["agent-pane.pr-dock", "agent-pane.bottom-stack"], { browser });
   });
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
     execFileSync("tar", ["-czf", `${captures}.tgz`, "-C", captures, "."]);
   });
+
+  for (const theme of ["Apple System Colors", "Apple System Colors Light"])
+    for (const width of [760, 320])
+      test(`pr-queue fallback at ${width}px in ${theme} keeps PR links before any assistant reply`, async () => {
+        const page = await browser.newPage({ viewport: { width, height: 660 } });
+        try {
+          await page.exposeFunction("cmuxGalleryInput", async (action: { kind: string; x: number; y: number }) => {
+            if (action.kind !== "click") throw new Error(`Unexpected PR-queue input: ${action.kind}`);
+            await page.mouse.click(action.x, action.y);
+          });
+          const { port } = vite.httpServer!.address() as { port: number };
+          await page.goto(
+            `http://127.0.0.1:${port}${galleryFrame("agent-pane.bottom-stack", {
+              variant: "pr-queue",
+              width,
+              theme,
+            })}`,
+          );
+          await page.locator(".acpmux-pr-fallback .acpmux-pr-dock").waitFor({ timeout: 10_000 });
+          await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+          const report = await page.evaluate(() =>
+            JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? {}),
+          );
+          expect(playFailures(report)).toEqual([]);
+          expect(await page.locator(".acpmux-assistant").count()).toBe(0);
+          expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
+          const link = page.locator(".acpmux-pr-dock__bar");
+          expect(await link.getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/128");
+          const rect = (await link.boundingBox())!;
+          expect(rect.x).toBeGreaterThanOrEqual(0);
+          expect(rect.x + rect.width).toBeLessThanOrEqual(width);
+          await page.screenshot({
+            path: `${captures}/pr-queue-${width}-${theme.endsWith("Light") ? "light" : "dark"}.png`,
+          });
+        } finally {
+          await page.close();
+        }
+      });
 
   for (const width of [760, 320])
     test(`${width}px: PR pills share the action row and overflow never moves the transcript`, async () => {

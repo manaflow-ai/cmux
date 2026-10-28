@@ -26,6 +26,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
 
   const CHAT = "0190a000-0000-7000-8000-0000000000b1";
+  const BEFORE_REPLY = "0190a000-0000-7000-8000-0000000000b2";
   const START = Date.UTC(2026, 9, 11, 9, 0, 0);
   const update = (update: Record<string, unknown>) => ({
     method: "session/update",
@@ -91,13 +92,24 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
     updatedAt: START,
   };
 
-  function answer(method: string): unknown {
+  const beforeReplyEvents = events
+    .filter((event) => event.kind !== "agent_message_chunk")
+    .map((event) => ({
+      ...event,
+      sessionId: BEFORE_REPLY,
+      msg: event.kind === "turn_result" ? { status: "cancelled" } : event.msg,
+    }));
+  const beforeReplySession = { ...session, sessionId: BEFORE_REPLY, title: "PR opened before a reply" };
+
+  function answer(method: string, params?: Record<string, unknown>): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [session] };
+        return { sessions: [session, beforeReplySession] };
       case "_acpmux/attach":
+        if (params?.sessionId === BEFORE_REPLY)
+          return { session: beforeReplySession, lastSeq: events.length, events: beforeReplyEvents };
         return { session, lastSeq: events.length, events };
       case "_acpmux/events":
         return { events: [], hasMore: false, lastSeq: events.length };
@@ -125,7 +137,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params) }));
         },
       },
     });
@@ -180,6 +192,23 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       await page.reload();
       await dock.waitFor();
       expect(await links.count()).toBe(2);
+    } finally {
+      await page.close();
+    }
+  });
+
+  test("PR links remain available in a stopped prompt and tool-only session before any reply", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    try {
+      await page.goto(url(BEFORE_REPLY));
+      const dock = page.locator(".acpmux-pr-fallback .acpmux-pr-dock");
+      await dock.waitFor({ timeout: 10_000 });
+      expect(await page.locator(".acpmux-assistant").count()).toBe(0);
+      expect(await page.locator(".acpmux-pr-dock").count()).toBe(1);
+      expect(await dock.locator("a").first().getAttribute("href")).toBe("https://github.com/acme/uploader/pull/44");
+      await page.reload();
+      await dock.waitFor({ timeout: 10_000 });
+      expect(await dock.locator("a").first().getAttribute("href")).toBe("https://github.com/acme/uploader/pull/44");
     } finally {
       await page.close();
     }
