@@ -2,6 +2,7 @@
 import { createRootRoute, HeadContent, Link, Outlet, Scripts, useNavigate } from "@tanstack/react-router"
 import type { ReactNode } from "react"
 import { useLocale } from "../lib/approval-strings"
+import { billingText } from "../lib/billing-strings"
 import { useLoad } from "../lib/hooks"
 import { read, signOut } from "../lib/server"
 import { setSignedIn, useSignedIn } from "../lib/session"
@@ -98,6 +99,9 @@ function Layout() {
         </Link>
         <Link to="/policy" search={keepTeam} activeProps={{ className: "active" }}>
           Policy
+        </Link>
+        <Link to="/billing" search={keepTeam} activeProps={{ className: "active" }}>
+          {billingText(locale, "nav.billing")}
         </Link>
         <span style={{ flex: 1 }} />
         {signedIn && list ? <TeamPicker teams={list.teams} selected={team} locale={locale} onSelect={pick} /> : null}

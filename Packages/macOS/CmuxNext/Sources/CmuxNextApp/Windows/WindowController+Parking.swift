@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextLayout
 
 // Parked workspaces (plans/cmux-next/tab-lifecycle.md): the workspaces this window showed most recently stay
 // mounted and paused (`ParkedWorkspaceBudget`), so a switch back swaps its view in within the frame.
@@ -24,8 +25,14 @@ extension WindowController {
     /// leaves (views, panes, observations) and mounts again, cold, when shown. Never the shown
     /// workspace, the one under a top page or one on screen beside it.
     func releaseParked(_ id: String) {
-        guard id != state.workspaceID, state.viewSet?.contains(id) != true, let controller = parked.removeValue(forKey: id) else { return }
+        guard id != state.workspaceID, !isOnScreenBeside(id), let controller = parked.removeValue(forKey: id) else { return }
         controller.teardown()
+    }
+
+    /// On screen beside the shown workspace: in the `sidebar.multiView` set, a shown docked workspace or the stage's
+    /// workspace while a dock has the focus (`window.dockedWorkspaces`).
+    func isOnScreenBeside(_ id: String) -> Bool {
+        state.isOnScreenBeside(id)
     }
 
     /// Parks `controller`; past the budget the oldest leave, never `controller` itself (a page may cover it).
@@ -49,8 +56,8 @@ extension WindowController {
         }
     }
 
-    /// The one under a top page (this window's workspace) and the ones on screen beside the shown one.
+    /// The one under a top page (this window's workspace) and the ones on screen beside the shown one (multi-view, docks).
     private func keepsParked(_ id: String) -> Bool {
-        (content == nil && id == state.workspaceID) || state.viewSet?.contains(id) == true
+        (content == nil && id == state.workspaceID) || isOnScreenBeside(id)
     }
 }

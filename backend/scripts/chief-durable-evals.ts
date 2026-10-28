@@ -39,6 +39,8 @@ const REPORT = arg("--report", "")
 const JUDGE_URL = arg("--judge-url", "http://100.89.225.106:31415")
 const JUDGE_MODEL = arg("--judge-model", "claude-sonnet-5")
 const TURN_MS = 240_000
+/** --second: after the case's turn, one short follow-up ("thanks, anything else?") whose reply time is the warm (second-turn) latency. */
+const SECOND = process.argv.includes("--second")
 const CASES = resolve(import.meta.dir, "../../Native/OptChat/optchat-chief/evals/cases")
 
 const envFile = (f: string) => Object.fromEntries(readFileSync(join(homedir(), ".secrets", f), "utf8").split("\n").filter((l) => l.includes("=") && !l.startsWith("#")).map((l) => [l.slice(0, l.indexOf("=")).replace(/^export /, ""), l.slice(l.indexOf("=") + 1).replace(/^"|"$/g, "")])) as Record<string, string>
@@ -145,7 +147,10 @@ const grade = async (c: Case, posted: Array<string>): Promise<Array<{ type: stri
   const out = []
   for (const k of c.turns[0]!.checks ?? []) {
     if (k.type === "reply_matches" || k.type === "reply_not_matches") {
-      const m = new RegExp(k.re ?? "", "u").exec(all)
+      // Rust regex inline flags ((?i), (?s), (?m) at the start) become JS flags.
+      const src = k.re ?? ""
+      const inline = /^\(\?([ism]+)\)/.exec(src)
+      const m = new RegExp(inline ? src.slice(inline[0].length) : src, `u${inline ? inline[1] : ""}`).exec(all)
       out.push(k.type === "reply_matches" ? { type: k.type, pass: !!m, why: m ? "" : `no match for ${k.re}`, graded: true } : { type: k.type, pass: !m, why: m ? `matched ${JSON.stringify(m[0])}` : "", graded: true })
     } else if (k.type === "max_words") {
       const n = all.split(/\s+/).filter(Boolean).length
@@ -168,7 +173,7 @@ const grade = async (c: Case, posted: Array<string>): Promise<Array<{ type: stri
 // ---------------------------------------------------------------- one case on one brain
 
 const messageKey = (kind: string, date: string, text: string) => createHash("sha256").update(`${kind}\0${Date.parse(date)}\0${text}`).digest("hex")
-type Result = { case: string; brain: string; rep: number; pass: boolean; checks: Array<{ type: string; pass: boolean; why: string; graded: boolean }>; posted: Array<string>; reply_ms?: number; run?: { id: string; status: string; harness?: string; model?: string; cost_usd?: number; first_token_ms?: number }; error?: string }
+type Result = { case: string; brain: string; rep: number; pass: boolean; second_ms?: number; checks: Array<{ type: string; pass: boolean; why: string; graded: boolean }>; posted: Array<string>; reply_ms?: number; run?: { id: string; status: string; harness?: string; model?: string; cost_usd?: number; first_token_ms?: number }; error?: string }
 
 const runCase = async (c: Case, brain: "pi" | "durable", rep: number): Promise<Result> => {
   const base: Result = { case: c.id, brain, rep, pass: false, checks: [], posted: [] }
@@ -212,11 +217,21 @@ const runCase = async (c: Case, brain: "pi" | "durable", rep: number): Promise<R
       await sleep(1000)
     }
     await sleep(1500)
+    // Graded: the replies to the case's own turn, read before any follow-up.
     const posted = (await mine()).map((m) => (m.parts ?? []).filter((p: any) => p.type === "text").map((p: any) => p.text).join(""))
+    let second_ms: number | undefined
+    if (SECOND) {
+      const before = (await mine()).length
+      const k2 = `${msgKey}-2`.slice(0, 120)
+      await op("message.send", { conversation: conv, client_msg_id: k2, parts: [{ type: "text", text: "thanks. one line: what is the next step?" }] }, k2)
+      const t2 = Date.now()
+      while (Date.now() - t2 < TURN_MS && (await mine()).length <= before) await sleep(500)
+      if ((await mine()).length > before) second_ms = Date.now() - t2
+    }
     const checks = await grade(c, posted)
     const runInfo = ended ? { id: ended.id, status: ended.status, harness: ended.harness, model: ended.model, cost_usd: ended.cost_usd, first_token_ms: ended.timing?.first_token_at && ended.started_at ? ended.timing.first_token_at - ended.started_at : undefined } : undefined
     const error = ended ? (ended.status === "failed" ? `run failed: ${JSON.stringify(ended.error ?? ended.reason ?? "")}` : undefined) : "no run ended in time"
-    return { ...base, pass: !error && checks.every((k) => k.pass), checks, posted, ...(firstReply === undefined ? {} : { reply_ms: firstReply }), ...(runInfo ? { run: runInfo } : {}), ...(error ? { error } : {}) }
+    return { ...base, pass: !error && checks.every((k) => k.pass), checks, posted, ...(firstReply === undefined ? {} : { reply_ms: firstReply }), ...(second_ms === undefined ? {} : { second_ms }), ...(runInfo ? { run: runInfo } : {}), ...(error ? { error } : {}) }
   } finally {
     await op("chief.delete", { chief: chief.id, expected_rev: chief.rev ?? 1 }).catch(() => undefined)
   }
@@ -246,7 +261,7 @@ const summary = BRAINS.map((b) => {
   const rs = results.filter((r) => r.brain === b)
   const checks = rs.flatMap((r) => r.checks.filter((k) => k.graded))
   const cost = rs.reduce((s, r) => s + (r.run?.cost_usd ?? 0), 0)
-  return { brain: b, cases: rs.length, passed: rs.filter((r) => r.pass).length, errors: rs.filter((r) => r.error).length, checks: checks.length, checks_passed: checks.filter((k) => k.pass).length, reply_p50_s: median(rs.flatMap((r) => (r.reply_ms === undefined ? [] : [r.reply_ms / 1000]))), cost_usd: Number(cost.toFixed(4)) }
+  return { brain: b, cases: rs.length, passed: rs.filter((r) => r.pass).length, errors: rs.filter((r) => r.error).length, checks: checks.length, checks_passed: checks.filter((k) => k.pass).length, reply_p50_s: median(rs.flatMap((r) => (r.reply_ms === undefined ? [] : [r.reply_ms / 1000]))), second_p50_s: median(rs.flatMap((r) => (r.second_ms === undefined ? [] : [r.second_ms / 1000]))), cost_usd: Number(cost.toFixed(4)) }
 })
-for (const s of summary) console.log(`${s.brain}: ${s.passed}/${s.cases} cases (${pct(s.passed, s.cases)}), ${s.checks_passed}/${s.checks} checks (${pct(s.checks_passed, s.checks)}), ${s.errors} errors, reply p50 ${s.reply_p50_s.toFixed(1)} s, model cost $${s.cost_usd}`)
+for (const s of summary) console.log(`${s.brain}: ${s.passed}/${s.cases} cases (${pct(s.passed, s.cases)}), ${s.checks_passed}/${s.checks} checks (${pct(s.checks_passed, s.checks)}), ${s.errors} errors, reply p50 ${s.reply_p50_s.toFixed(1)} s${Number.isNaN(s.second_p50_s) ? "" : `, second reply p50 ${s.second_p50_s.toFixed(1)} s`}, model cost $${s.cost_usd}`)
 if (REPORT) writeFileSync(REPORT, `${JSON.stringify({ run: runTag, api: API, model: MODEL, judge: `${JUDGE_ROUTE}:${JUDGE_MODEL}`, at: new Date().toISOString(), summary, results }, null, 2)}\n`)

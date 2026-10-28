@@ -268,6 +268,12 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
     if attachment.author.is_some() && (mux.is_none() || !attachment.tab_current()) {
         return attachment.end(Some("detached"));
     }
+    // A link guest's stream stops once its share or the guest ended, however that was noticed.
+    if let (Some(mux), Some(author)) = (&mux, &attachment.author)
+        && !mux.control_clients.agent_sessions.link_shares().guest_live(author)
+    {
+        return attachment.end(Some("share_ended"));
+    }
     // A closed tab, or one that now shows another session, stops streaming.
     if same_session && !attachment.tab_current() {
         return attachment.end(Some("detached"));
