@@ -17,18 +17,24 @@ import CmuxNextSettings
 /// it follows the person's unfinished hand-offs from `GET /v1/handoffs`; ``watch(handoff:session:host:)``
 /// adds one this app just made. Stop conditions: a hand-off's poll ends when it is closed (a turn's
 /// end is not its end), at sign-out, when the store no longer shows it (403, 404) or after three days
-/// without a change; ``stop()`` ends them all and the account observer.
+/// without a change while no turn runs; ``stop()`` ends them all and the account observer. The list
+/// call ends at sign-out, at another account's sign-in and when Cloud is turned off.
 @MainActor
 final class HandoffNotices {
     static let bannerPrefix = "handoff."
     let follower: SandboxRunFollower
     private weak var services: AppServices?
     private let list: @Sendable () async throws -> [CloudHandoff]
+    /// The user whose hand-offs are followed now (``user(in:)``; tests pass their own).
+    private let currentUser: @MainActor @Sendable () -> String?
     private var account: Task<Void, Never>?
-    private var listing: Task<Void, Never>?
+    /// The list call of the user signed in, if one is out.
+    private(set) var listing: Task<Void, Never>?
 
-    init(services: AppServices, follower: SandboxRunFollower? = nil, list: (@Sendable () async throws -> [CloudHandoff])? = nil) {
+    init(services: AppServices, follower: SandboxRunFollower? = nil, list: (@Sendable () async throws -> [CloudHandoff])? = nil,
+         user: (@MainActor @Sendable () -> String?)? = nil) {
         self.services = services
+        self.currentUser = user ?? { [weak services] in services.flatMap(HandoffNotices.user(in:)) }
         let cloud = services.cloud, auth = cloud.auth, identity = cloud.installIdentity
         let owner = CloudOwnerAPIClient(
             baseURL: FeedService.apiBaseURL(auth: auth),
@@ -45,14 +51,20 @@ final class HandoffNotices {
     /// stops them. Not gated on Labs: only a hand-off made (behind Labs) has anything to follow, and
     /// turning Labs off must not forget which stops were already told.
     func start() {
-        guard account == nil, let services else { return }
-        let follower = follower
-        account = Task { [weak self, weak services] in // task-owner: in `account`, cancelled in stop()
-            for await user in ObservationStream({ services.flatMap(Self.user(in:)) }) {
-                follower.account(user)
-                if let user { self?.resume(for: user) }
-            }
+        guard account == nil else { return }
+        let currentUser = currentUser
+        account = Task { [weak self] in // task-owner: in `account`, cancelled in stop()
+            for await user in ObservationStream({ currentUser() }) { self?.followAccount(user) }
         }
+    }
+
+    /// The followed user is now `user` (nil: signed out, or Cloud off): the list call of the one
+    /// before ends, then `user`'s hand-offs resume.
+    func followAccount(_ user: String?) {
+        listing?.cancel()
+        listing = nil
+        follower.account(user)
+        if let user { resume(for: user) }
     }
 
     func stop() {
@@ -70,14 +82,15 @@ final class HandoffNotices {
     }
 
     /// Follows `user`'s unfinished hand-offs this app doesn't follow yet (one list call per sign-in;
-    /// where the store isn't deployed it answers 404 and nothing is followed).
+    /// where the store isn't deployed it answers 404 and nothing is followed). An answer that comes
+    /// after `user` signed out, another signed in or Cloud was turned off follows nothing.
     private func resume(for user: String) {
-        listing?.cancel()
         let list = list
-        listing = Task { [weak self] in // task-owner: in `listing`, replaced at the next sign-in, cancelled in stop()
-            guard let handoffs = try? await list(), !Task.isCancelled, let self else { return }
+        listing = Task { [weak self] in // task-owner: in `listing`, cancelled at sign-out, the next sign-in, Cloud off and stop()
+            guard let handoffs = try? await list(), !Task.isCancelled, let self, self.currentUser() == user else { return }
+            let seen = Date()
             for handoff in handoffs where handoff.isOpen && !self.follower.knows(handoff.id) {
-                self.follower.watch(Self.listed(handoff, user: user))
+                self.follower.watch(Self.listed(handoff, user: user, seen: seen))
             }
         }
     }
@@ -85,25 +98,30 @@ final class HandoffNotices {
     /// Follows hand-off `id` of chat `session`, which this app just made; `host` is the session's
     /// acpmux host, where a click opens it when no tab shows it.
     func watch(handoff id: String, session: String, host: String?) {
-        guard let services, let user = Self.user(in: services) else { return }
+        guard let user = currentUser() else { return }
         let handoff = CloudHandoff(id: id, sessionId: session, status: "starting", summary: nil, createdAt: Date().timeIntervalSince1970 * 1_000, version: nil)
         follower.watch(Self.record(handoff, user: user, host: host))
     }
 
-    /// The record of a hand-off found in the person's list: followed from where the list shows it,
-    /// so its current state is no news (only what changes after is told).
-    static func listed(_ handoff: CloudHandoff, user: String) -> SandboxRunRecord {
+    /// The record of a hand-off found in the person's list at `seen`: followed from where the list
+    /// shows it, so its current state is no news (only what changes after is told). Its three days
+    /// count from its last change (else from `seen`), never from its creation: a session made long
+    /// ago may be in a turn now.
+    static func listed(_ handoff: CloudHandoff, user: String, seen: Date = Date()) -> SandboxRunRecord {
         var record = record(handoff, user: user, host: nil)
         record.cursor = handoff.version
         record.told = CloudHandoff.notice(status: handoff.status, turn: handoff.turn).map { [$0.key] }
+        record.changed = handoff.updatedAt.map { Date(timeIntervalSince1970: $0 / 1_000) } ?? seen
         return record
     }
 
-    /// The follower's record of `handoff`: its chat is the record's key.
+    /// The follower's record of `handoff`: its chat is the record's key. A turn that runs is never
+    /// given up for age.
     static func record(_ handoff: CloudHandoff, user: String, host: String?) -> SandboxRunRecord {
         var record = SandboxRunRecord(id: handoff.id, task: handoff.summary ?? "", key: handoff.sessionId, user: user, team: nil,
                                       started: Date(timeIntervalSince1970: handoff.createdAt / 1_000))
         record.host = host
+        record.running = handoff.isRunning ? true : nil
         return record
     }
 

@@ -172,12 +172,12 @@ struct HandoffNoticeTests {
             }
         }
         let starting = SandboxRunFollower.Source.readHandoff(Data(#"{"handoff":{"status":"starting","version":7,"turn":1,"state":"open"}}"#.utf8))
-        guard case .going(let cursor, let notice, _) = starting, cursor == 7, notice == nil else {
-            Issue.record("starting is progress")
+        guard case .going(let cursor, let notice, _, let running) = starting, cursor == 7, notice == nil, running else {
+            Issue.record("starting is progress of a turn that runs")
             return
         }
         let done = SandboxRunFollower.Source.readHandoff(Data(#"{"handoff":{"status":"done","version":8,"turn":2,"state":"open"}}"#.utf8))
-        guard case .going(let doneCursor, let doneNotice, _) = done, doneCursor == 8,
+        guard case .going(let doneCursor, let doneNotice, _, let doneRunning) = done, doneCursor == 8, !doneRunning,
               doneNotice == CloudTaskNotice(key: "2:done", outcome: .succeeded) else {
             Issue.record("a turn's done goes on")
             return
@@ -196,6 +196,203 @@ struct HandoffNoticeTests {
         let waiting = try SandboxRunEnd(record: record(), outcome: .needsYou, snapshot: Data(Self.handoff("needs-you", version: 3).get().utf8))
         #expect(HandoffNotices.text(waiting, chat: nil) == (title: "Cloud task", body: "Needs you"))
         #expect(HandoffNotices.text(waiting, chat: "  ").title == "Cloud task")
+    }
+
+    /// Milliseconds since 1970, `days` ago.
+    private static func millis(daysAgo days: Double) -> Double { (Date().timeIntervalSince1970 - days * 86_400) * 1_000 }
+
+    @Test func aSessionMadeLongAgoIsFollowedFromItsLastChangeNotItsCreation() async throws {
+        // Made four days ago, last changed an hour ago: its next turn is told.
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("done", version: 5, turn: 2), Self.handoff("running", version: 6, turn: 3),
+                                     Self.handoff("done", version: 7, turn: 3), Self.handoff("done", version: 8, turn: 3, state: "closed")])
+        let (follower, ends) = follower(store, defaults: try defaults())
+        let recent = CloudHandoff(id: Self.id, sessionId: "s1", status: "done", summary: nil, createdAt: Self.millis(daysAgo: 4), version: nil,
+                                  turn: 2, state: "open", updatedAt: Self.millis(daysAgo: 1.0 / 24))
+        follower.watch(HandoffNotices.listed(recent, user: "u1"))
+        await settle(follower)
+        #expect(ends.all.map(\.outcome) == [.succeeded])
+        // A list without its last change: counted from when the app first saw it.
+        let store2 = Store()
+        await store2.script(Self.id, [Self.handoff("done", version: 7, turn: 3), Self.handoff("done", version: 8, turn: 3, state: "closed")])
+        let (unknown, unknownEnds) = self.follower(store2, defaults: try defaults())
+        let undated = CloudHandoff(id: Self.id, sessionId: "s1", status: "running", summary: nil, createdAt: Self.millis(daysAgo: 4), version: nil,
+                                   turn: 3, state: "open")
+        let record = HandoffNotices.listed(undated, user: "u1")
+        #expect(record.changed.map { abs($0.timeIntervalSinceNow) < 60 } == true)
+        unknown.watch(record)
+        await settle(unknown)
+        #expect(unknownEnds.all.map(\.outcome) == [.succeeded])
+        // One idle for more than three days, its turn not running, is still given up before a wait.
+        let store3 = Store()
+        await store3.script(Self.id, [Self.handoff("running", version: 9, turn: 4)])
+        let (idle, idleEnds) = self.follower(store3, defaults: try defaults())
+        let old = CloudHandoff(id: Self.id, sessionId: "s1", status: "done", summary: nil, createdAt: Self.millis(daysAgo: 5), version: nil,
+                               turn: 3, state: "open", updatedAt: Self.millis(daysAgo: 4))
+        idle.watch(HandoffNotices.listed(old, user: "u1"))
+        await settle(idle)
+        #expect(await store3.afters.isEmpty)
+        #expect(idleEnds.all.isEmpty)
+        #expect(!idle.knows(Self.id))
+    }
+
+    @MainActor final class Now { var date = Date() }
+
+    @Test func aTurnThatRunsIsNeverGivenUpForAge() async throws {
+        // Each wait takes two days: the turn runs for six days without a change, then ends.
+        let store = Store(), clock = Now()
+        await store.script(Self.id, [Self.handoff("running", version: 2), Self.handoff("running", version: 2), Self.handoff("running", version: 2),
+                                     Self.handoff("running", version: 2), Self.handoff("done", version: 3, summary: "Fixed"),
+                                     Self.handoff("done", version: 4, state: "closed", summary: "Fixed")])
+        let follower = SandboxRunFollower(source: .handoffs(wait: { id, after in
+            await MainActor.run { clock.date = clock.date.addingTimeInterval(2 * 86_400) }
+            return try await store.wait(id, after: after)
+        }), defaults: try defaults(), now: { clock.date }, clock: ImmediateRunClock())
+        let ends = SandboxRunNoticeTests.Ends()
+        follower.onEnd = { ends.add($0) }
+        follower.account("u1")
+        // Listed while its turn runs, its last change four days old.
+        let running = CloudHandoff(id: Self.id, sessionId: "s1", status: "running", summary: nil, createdAt: Self.millis(daysAgo: 4), version: nil,
+                                   turn: 1, state: "open", updatedAt: Self.millis(daysAgo: 4))
+        follower.watch(HandoffNotices.listed(running, user: "u1"))
+        await settle(follower)
+        #expect(ends.all.map(\.outcome) == [.succeeded])
+        #expect(await store.afters == [nil, 2, 2, 2, 2, 3])
+    }
+
+    @Test func aTurnThatRunsIsGivenUpAfterThreeDaysWithoutAnAnswer() async throws {
+        // The store answers nothing readable, each try two days apart: given up at the third.
+        let store = Store(), clock = Now()
+        await store.script(Self.id, [.failure(.http(status: 500, code: nil, message: nil))])
+        let follower = SandboxRunFollower(source: .handoffs(wait: { id, after in
+            await MainActor.run { clock.date = clock.date.addingTimeInterval(2 * 86_400) }
+            return try await store.wait(id, after: after)
+        }), defaults: try defaults(), now: { clock.date }, clock: ImmediateRunClock())
+        follower.account("u1")
+        follower.watch(record())
+        await settle(follower)
+        #expect(!follower.knows(Self.id))
+        #expect(await store.afters.count == 2)
+    }
+
+    @Test func theListsTimesAreReadAsTheStoreSendsThem() throws {
+        struct Page: Decodable { var handoffs: [CloudHandoff] }
+        let body = #"{"handoffs":[{"id":"ho_0123456789abcdef0123","sessionId":"s1","turn":2,"state":"open","status":"running","summary":null,"#
+            + #""createdAt":"2026-10-20T10:00:00.000Z","updatedAt":"2026-10-28T09:30:00.250Z"},"#
+            + #"{"id":"ho_0123456789abcdef0124","sessionId":"s2","status":"done","summary":"x","createdAt":1792490400000}],"nextCursor":null}"#
+        let page = try JSONDecoder().decode(Page.self, from: Data(body.utf8))
+        let listed = try #require(page.handoffs.first)
+        #expect(abs(listed.createdAt - 1_792_490_400_000) < 1)
+        #expect(abs((listed.updatedAt ?? 0) - 1_793_179_800_250) < 1)
+        #expect(listed.isRunning && listed.isOpen && listed.version == nil)
+        let record = HandoffNotices.listed(listed, user: "u1")
+        #expect(abs((record.changed?.timeIntervalSince1970 ?? 0) - 1_793_179_800.25) < 0.001)
+        #expect(record.running == true)
+        #expect(page.handoffs.last?.createdAt == 1_792_490_400_000)
+        #expect(page.handoffs.last?.updatedAt == nil)
+        #expect(throws: DecodingError.self) {
+            try JSONDecoder().decode(Page.self, from: Data(#"{"handoffs":[{"id":"a","sessionId":"s","status":"done","createdAt":"yesterday"}]}"#.utf8))
+        }
+    }
+
+    /// A list call held until the test answers it.
+    actor HeldList {
+        private var answer: CheckedContinuation<[CloudHandoff], Never>?
+        private var callers: [CheckedContinuation<Void, Never>] = []
+        private var calls = 0
+
+        func list() async -> [CloudHandoff] {
+            calls += 1
+            for caller in callers { caller.resume() }
+            callers = []
+            return await withCheckedContinuation { answer = $0 }
+        }
+
+        /// Returns once the list was called.
+        func called() async {
+            if calls > 0 { return }
+            await withCheckedContinuation { callers.append($0) }
+        }
+
+        func respond(_ handoffs: [CloudHandoff]) {
+            answer?.resume(returning: handoffs)
+            answer = nil
+        }
+    }
+
+    @MainActor final class Account { var user: String? = "u1" }
+
+    private func notices(_ held: HeldList, _ account: Account, store: Store) throws -> (HandoffNotices, SandboxRunFollower) {
+        let (follower, _) = follower(store, defaults: try defaults())
+        let notices = HandoffNotices(services: AppServices(environment: AppEnvironment.current([:])), follower: follower,
+                                     list: { await held.list() }, user: { account.user })
+        return (notices, follower)
+    }
+
+    @Test func aSignOutEndsTheListCallAndItsLateAnswerFollowsNothing() async throws {
+        let store = Store(), held = HeldList(), account = Account()
+        await store.script(Self.id, [Self.handoff("running", version: 2)])
+        let (notices, follower) = try notices(held, account, store: store)
+        notices.followAccount("u1")
+        await held.called()
+        let call = try #require(notices.listing)
+        account.user = nil
+        notices.followAccount(nil)
+        #expect(call.isCancelled)
+        #expect(notices.listing == nil)
+        await held.respond([Self.listEntry(status: "running")])
+        await call.value
+        #expect(!follower.knows(Self.id))
+        #expect(!follower.isPolling(Self.id))
+        #expect(await store.afters.isEmpty)
+    }
+
+    @Test func aListAnsweredAfterCloudWentOffOrAnotherUserSignedInFollowsNothing() async throws {
+        for later in [nil, "u2"] as [String?] {
+            let store = Store(), held = HeldList(), account = Account()
+            await store.script(Self.id, [Self.handoff("running", version: 2)])
+            let (notices, follower) = try notices(held, account, store: store)
+            notices.followAccount("u1")
+            await held.called()
+            let call = try #require(notices.listing)
+            // The account changed, and its observer has not run yet.
+            account.user = later
+            await held.respond([Self.listEntry(status: "running")])
+            await call.value
+            #expect(!follower.knows(Self.id), "user \(later ?? "none")")
+            #expect(await store.afters.isEmpty)
+            notices.stop()
+        }
+    }
+
+    @Test func aListAnsweredForTheSameUserIsFollowed() async throws {
+        let store = Store(), held = HeldList(), account = Account()
+        await store.script(Self.id, [Self.handoff("running", version: 2), .failure(.http(status: 404, code: nil, message: nil))])
+        let (notices, follower) = try notices(held, account, store: store)
+        notices.followAccount("u1")
+        await held.called()
+        let call = try #require(notices.listing)
+        await held.respond([Self.listEntry(status: "running")])
+        await call.value
+        await settle(follower)
+        #expect(await store.afters == [nil, 2])
+        notices.stop()
+    }
+
+    @Test func aFollowerWithNoUserWatchesNothing() async throws {
+        let store = Store()
+        await store.script(Self.id, [Self.handoff("running", version: 2)])
+        let follower = SandboxRunFollower(source: .handoffs(wait: { id, after in try await store.wait(id, after: after) }),
+                                          defaults: try defaults(), clock: ImmediateRunClock())
+        // Not signed in yet (the session still loading).
+        follower.watch(record())
+        #expect(!follower.knows(Self.id) && !follower.isPolling(Self.id))
+        // Signed out.
+        follower.account("u1")
+        follower.account(nil)
+        follower.watch(record())
+        #expect(!follower.knows(Self.id) && !follower.isPolling(Self.id))
+        #expect(await store.afters.isEmpty)
     }
 
     @Test func onlyStoreIDsReachThePath() {

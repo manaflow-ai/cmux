@@ -44,8 +44,11 @@ public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
     /// `starting`, `running`, `needs-you`, `done`, `failed` or `cancelled`.
     public var status: String
     public var summary: String?
-    /// Milliseconds since 1970.
+    /// Milliseconds since 1970 (the store sends an ISO 8601 time).
     public var createdAt: Double
+    /// When it last changed (a turn begun, a status, a close), milliseconds since 1970; nil: not sent.
+    public var updatedAt: Double?
+    /// Not in the list (a wait's `{handoff}` has it).
     public var version: Int?
     /// The turn (from 1, only goes up): a follow-up in the same chat opens the next on the same id.
     public var turn: Int?
@@ -53,13 +56,40 @@ public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
     public var state: String?
 
     public init(id: String, sessionId: String, status: String, summary: String?, createdAt: Double, version: Int?,
-                turn: Int? = nil, state: String? = nil) {
+                turn: Int? = nil, state: String? = nil, updatedAt: Double? = nil) {
         (self.id, self.sessionId, self.status, self.summary, self.createdAt) = (id, sessionId, status, summary, createdAt)
-        (self.version, self.turn, self.state) = (version, turn, state)
+        (self.version, self.turn, self.state, self.updatedAt) = (version, turn, state, updatedAt)
+    }
+
+    private enum CodingKeys: String, CodingKey { case id, sessionId, status, summary, createdAt, updatedAt, version, turn, state }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        (id, sessionId, status) = try (c.decode(String.self, forKey: .id), c.decode(String.self, forKey: .sessionId), c.decode(String.self, forKey: .status))
+        summary = try c.decodeIfPresent(String.self, forKey: .summary)
+        createdAt = try Self.millis(c, .createdAt)
+        let sentUpdate = try c.contains(.updatedAt) && !(c.decodeNil(forKey: .updatedAt))
+        updatedAt = try sentUpdate ? Self.millis(c, .updatedAt) : nil
+        version = try c.decodeIfPresent(Int.self, forKey: .version)
+        turn = try c.decodeIfPresent(Int.self, forKey: .turn)
+        state = try c.decodeIfPresent(String.self, forKey: .state)
+    }
+
+    /// A time as milliseconds since 1970: the store's ISO 8601 (`toISOString()`), or a number of milliseconds.
+    private static func millis(_ c: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) throws -> Double {
+        if let ms = try? c.decode(Double.self, forKey: key) { return ms }
+        let text = try c.decode(String.self, forKey: key)
+        guard let date = (try? Date.ISO8601FormatStyle(includingFractionalSeconds: true).parse(text)) ?? (try? Date.ISO8601FormatStyle().parse(text)) else {
+            throw DecodingError.dataCorruptedError(forKey: key, in: c, debugDescription: "not an ISO 8601 time: \(text)")
+        }
+        return date.timeIntervalSince1970 * 1_000
     }
 
     /// It can still change: not closed (a store from before turns: not done, failed or cancelled).
     public var isOpen: Bool { state.map { $0 != "closed" } ?? !Self.turnEnds.contains(status) }
+
+    /// Its current turn runs: `starting` or `running`.
+    public var isRunning: Bool { Self.turnRuns.contains(status) }
 
     /// What the person is told about this turn's status, if anything: done, failed and needs-you,
     /// once per turn and status. Never cancelled, starting or running.
@@ -76,6 +106,8 @@ public nonisolated struct CloudHandoff: Decodable, Hashable, Sendable {
     static let statuses: Set<String> = ["starting", "running", "needs-you", "done", "failed", "cancelled"]
     /// The statuses that end a turn (and, before turns, the hand-off).
     static let turnEnds: Set<String> = ["done", "failed", "cancelled"]
+    /// The statuses of a turn that runs: a hand-off in one is never given up for age.
+    static let turnRuns: Set<String> = ["starting", "running"]
 }
 
 extension SandboxRunFollower.Source {
@@ -85,7 +117,7 @@ extension SandboxRunFollower.Source {
     /// Hand-offs: a hand-off lasts the whole session and counts turns (hq#4706). Each wait passes
     /// the last version seen; each turn's done, failed and needs-you is told once (``CloudHandoff/notice(status:turn:)``),
     /// never a cancel. The follow goes on after a turn ends and stops when the hand-off is closed,
-    /// or when it has not changed for three days.
+    /// or when it has not changed for three days while no turn runs.
     public static func handoffs(wait: @escaping @Sendable (_ id: String, _ after: Int?) async throws -> Data) -> Self {
         Self(wait: { id, _, cursor in try await wait(id, cursor) }, read: readHandoff, defaultsKey: handoffsKey,
              maximumAge: 3 * 86_400, tells: [], path: "/v1/handoffs")
@@ -102,6 +134,6 @@ extension SandboxRunFollower.Source {
         guard state == nil || state == "open" || state == "closed" else { return .unreadable }
         let notice = CloudHandoff.notice(status: status, turn: turn)
         let closed = state.map { $0 == "closed" } ?? CloudHandoff.turnEnds.contains(status)
-        return closed ? .closed(notice: notice, data) : .going(cursor: version, notice: notice, data)
+        return closed ? .closed(notice: notice, data) : .going(cursor: version, notice: notice, data, running: CloudHandoff.turnRuns.contains(status))
     }
 }

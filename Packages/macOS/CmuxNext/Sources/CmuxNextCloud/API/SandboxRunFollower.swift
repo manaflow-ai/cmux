@@ -119,7 +119,7 @@ public final class SandboxRunFollower {
     public func follow(_ record: SandboxRunRecord) async throws -> Data {
         // Another account signed in since the create: its session can't read this Run, and must not hear of it.
         if let user, record.user != user { throw CloudAPIError.timedOut("\(source.path)/\(record.id)") }
-        watch(record)
+        add(record)
         let token = UUID()
         let id = record.id
         return try await withTaskCancellationHandler {
@@ -136,9 +136,15 @@ public final class SandboxRunFollower {
     }
 
     /// Follows task `record` without awaiting it (a hand-off found in the owner's list, or one this
-    /// app just made): told when it needs the person or ends. A task already followed or ended is left.
+    /// app just made): told when it needs the person or ends. A task already followed or ended is left,
+    /// and so is one of no signed-in user or of another (a late answer after a sign-out follows nothing).
     public func watch(_ record: SandboxRunRecord) {
-        if let user, record.user != user { return }
+        guard let user, record.user == user else { return }
+        add(record)
+    }
+
+    /// Keeps `record` (unless followed or ended already) and starts its poll.
+    private func add(_ record: SandboxRunRecord) {
         if records[record.id] == nil, endedRun(record.id) == nil {
             records[record.id] = record
             save()
@@ -169,11 +175,15 @@ public final class SandboxRunFollower {
         let (wait, read, clock, path, maximumAge) = (source.wait, source.read, clock, source.path, source.maximumAge)
         polls[id] = Task { [weak self] in // task-owner: in polls; cancelled when the Run ends, on sign-out and in stop()
             var backoff = Backoff(initial: .seconds(2), maximum: .seconds(60))
+            // When the server last answered this poll (a readable answer): a turn that runs is kept
+            // while the server answers, and given up after ``Source/maximumAge`` of silence.
+            var heard = self?.now() ?? Date()
             // wakeup-allow: a long-poll, each pass one /wait call the server holds (10 s for a Run, 25 s for a hand-off); a failure waits a Backoff delay
             while !Task.isCancelled {
-                guard let self, self.records[id] != nil else { return }
-                let changed = self.records[id]?.changed ?? record.started
-                guard self.now().timeIntervalSince(changed) < maximumAge else {
+                guard let self, let current = self.records[id] else { return }
+                // A turn that runs is never given up for how long since it changed, only when the server is silent.
+                let since = current.running == true ? heard : current.changed ?? current.started
+                guard self.now().timeIntervalSince(since) < maximumAge else {
                     return self.drop(id, error: CloudAPIError.timedOut("\(path)/\(id)"))
                 }
                 let began = ContinuousClock.now
@@ -190,14 +200,15 @@ public final class SandboxRunFollower {
                 }
                 // Stopped while the call was out (stop(), a sign-out): its answer is the next launch's.
                 if Task.isCancelled { return }
+                if case .unreadable = answer {} else { heard = self.now() }
                 switch answer {
                 case .ended(let outcome, let data):
                     return self.end(id, outcome: outcome, snapshot: data)
                 case .closed(let notice, let data):
                     if let notice { self.notice(id, notice, cursor: nil, snapshot: data) }
                     return self.end(id, outcome: notice?.outcome ?? .cancelled, snapshot: data, silent: true)
-                case .going(let cursor, let notice, let data):
-                    self.notice(id, notice, cursor: cursor, snapshot: data)
+                case .going(let cursor, let notice, let data, let running):
+                    self.notice(id, notice, cursor: cursor, running: running, snapshot: data)
                 case .unreadable:
                     self.answerAll(id, .failure(CloudAPIError.timedOut("\(path)/\(id)")))
                     // concurrency-allow: Backoff.wait is an async sleep after a failure, not a blocking wait.
@@ -226,15 +237,18 @@ public final class SandboxRunFollower {
         if !silent { tell(id, SandboxRunEnd(record: record, outcome: outcome, snapshot: snapshot)) }
     }
 
-    /// Task `id` goes on at `cursor` (nil: where it was); `notice` is told unless its key was. Saved
-    /// after ``onEnd`` ran: a crash in between tells it again at the next launch (its banner, of the
-    /// same id, replaces the first), never loses it.
-    private func notice(_ id: String, _ notice: CloudTaskNotice?, cursor: Int?, snapshot: Data) {
+    /// Task `id` goes on at `cursor` (nil: where it was), its turn `running` or not (nil: as it was);
+    /// `notice` is told unless its key was. Saved after ``onEnd`` ran: a crash in between tells it
+    /// again at the next launch (its banner, of the same id, replaces the first), never loses it.
+    private func notice(_ id: String, _ notice: CloudTaskNotice?, cursor: Int?, running: Bool? = nil, snapshot: Data) {
         guard var record = records[id] else { return }
         let moved = cursor != nil && cursor != record.cursor
         let fresh = notice.map { !(record.told ?? []).contains($0.key) } ?? false
-        guard moved || fresh else { return }
-        if moved { (record.cursor, record.changed) = (cursor, now()) }
+        let ran = running.map { $0 != (record.running ?? false) } ?? false
+        guard moved || fresh || ran else { return }
+        if moved || ran { record.changed = now() }
+        if moved { record.cursor = cursor }
+        if ran { record.running = running == true ? true : nil }
         if let notice, fresh { record.told = Array(((record.told ?? []) + [notice.key]).suffix(Self.toldLimit)) }
         records[id] = record
         if let notice, fresh { onEnd?(SandboxRunEnd(record: record, outcome: notice.outcome, snapshot: snapshot)) }
