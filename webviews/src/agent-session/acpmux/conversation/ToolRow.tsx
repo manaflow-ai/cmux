@@ -1,7 +1,7 @@
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
 import { useFindReveal } from "./chatFind";
-import { useContext, useId, useMemo, useState, type ReactNode } from "react";
+import { memo, useContext, useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
@@ -56,7 +56,9 @@ export function toolIcon(kind?: string): ReactNode {
 /// One tool call. A call with output opens it below; a
 /// shell call opens to its Shell block, with the command line even before any output, and an
 /// edit opens to its diff.
-export function ToolRow({ item }: { item: AcpmuxActivity }) {
+// Unchanged item snapshots keep their rendered row as another call streams; local state and
+// context changes (Find, language, cwd) still reach this component through React's subscriptions.
+export const ToolRow = memo(function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
   // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
@@ -192,7 +194,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       )}
     </>
   );
-}
+});
 
 /// A call's output when it is not a shell's: copyable whole from its right-click menu (Copy Output;
 /// the `hover-actions` experiment's "all" arm adds a Copy in its corner on hover), the end of a long

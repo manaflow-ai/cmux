@@ -5,7 +5,7 @@
 // opening to its Shell block. A command that went on in the background shows how it stands there
 // instead (BackgroundMark.tsx), and its time once it ends.
 import { useFindReveal } from "./chatFind";
-import { useId, useMemo, useState } from "react";
+import { memo, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { commandFolder } from "./commandFolder";
@@ -20,7 +20,9 @@ import { useAnchoredCollapse } from "./useAnchoredCollapse";
 import { rowFailed, toolFailure } from "./toolFailure";
 import { failureWord, InlineFailureCause, ToolFailureCause } from "./ToolFailureCause";
 
-export function CommandRow({ item }: { item: AcpmuxActivity }) {
+// direct.ts replaces only the changed item. Keep every expanded sibling out of that stream's
+// render/output work; the row's own disclosure, Find and language subscriptions still update it.
+export const CommandRow = memo(function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const tool = item.tool!;
   const [open, setOpen] = useTranscriptDisclosure(`command:${tool.id}`);
@@ -125,4 +127,4 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
       )}
     </>
   );
-}
+});
