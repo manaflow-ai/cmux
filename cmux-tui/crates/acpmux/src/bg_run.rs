@@ -27,6 +27,11 @@
 //! ignores SIGTERM and holds no pipe (its output sent elsewhere) is killed too, never left once
 //! the pipe ends. A stop whose SIGKILL leaves the pipe open (a process that left the group holds
 //! it) ends the wait after one more grace. Then the runner writes the exit and exits.
+//!
+//! So a task runs while anything it started still holds its output, a daemon that left its group
+//! (`setsid cmd &`) included: that output is still the task's, and the task shows as running
+//! until it ends or a stop ends the wait. This is on purpose, never a timer: a task has no
+//! deadline (a dev server runs for days).
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -99,16 +104,22 @@ pub fn read_record(dir: &Path, id: &str) -> Option<Record> {
 }
 
 /// The task's segments, oldest first, by the start in their names.
-fn segments(dir: &Path, id: &str) -> Vec<u64> {
+/// The task's segment starts, oldest first; none when the folder is gone.
+fn segments(dir: &Path, id: &str) -> std::io::Result<Vec<u64>> {
     let prefix = format!("{id}.out.");
-    let mut starts: Vec<u64> = std::fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter_map(|e| e.file_name().to_str()?.strip_prefix(&prefix)?.parse().ok())
-        .collect();
+    let entries = match std::fs::read_dir(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        r => r?,
+    };
+    let mut starts = Vec::new();
+    for e in entries {
+        if let Some(s) = e?.file_name().to_str().and_then(|n| n.strip_prefix(&prefix)?.parse().ok())
+        {
+            starts.push(s);
+        }
+    }
     starts.sort_unstable();
-    starts
+    Ok(starts)
 }
 
 /// The bounded output; [`Spool::write`] starts a new segment at `segment` bytes.
@@ -170,7 +181,7 @@ pub fn read_output(dir: &Path, id: &str, from: Option<u64>, max: u64) -> std::io
     // a name but not an open file, and every segment but the newest no longer grows.
     let mut open = None;
     for _ in 0..3 {
-        let starts = segments(dir, id);
+        let starts = segments(dir, id)?;
         let opened: std::io::Result<Vec<_>> = starts[starts.len().saturating_sub(2)..]
             .iter()
             .map(|&s| std::fs::File::open(segment_path(dir, id, s)).map(|f| (s, f)))
@@ -268,7 +279,9 @@ pub fn main() -> anyhow::Result<()> {
         record: Record::default(),
     }));
     // What a stop that SIGKILLed the group sends when the pipe still has not ended.
-    let give_up: Arc<Mutex<Option<std::sync::mpsc::Sender<()>>>> = Arc::new(Mutex::new(None));
+    // Made before any stop can run, so a stop never finds it missing.
+    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
+    let give_up = Arc::new(Mutex::new(Some(done_tx.clone())));
     // Set once a stop sent its SIGKILL: the reap waits for it, so the group id stays the task's
     // until then.
     let killed = Arc::new((Mutex::new(false), std::sync::Condvar::new()));
@@ -394,21 +407,27 @@ pub fn main() -> anyhow::Result<()> {
     }
     std::thread::spawn(move || {
         let mut byte = [0u8; 1];
-        while control.read(&mut byte).is_ok_and(|n| n > 0) {
-            stop();
+        loop {
+            match control.read(&mut byte) {
+                Ok(0) => break,
+                Ok(_) => stop(),
+                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(_) => break,
+            }
         }
     });
-    let (done_tx, done_rx) = std::sync::mpsc::channel::<()>();
-    *give_up.lock().unwrap_or_else(|e| e.into_inner()) = Some(done_tx.clone());
     {
         let (task, dir) = (task.clone(), dir.clone());
         std::thread::spawn(move || {
             let mut buf = vec![0u8; 64 << 10];
             let mut failed = false;
-            while let Ok(n) = reader.read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
+            loop {
+                let n = match reader.read(&mut buf) {
+                    Ok(0) => break,
+                    Ok(n) => n,
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                    Err(_) => break,
+                };
                 // A spool that fails is said in the record; the pipe is still read, so the
                 // task never blocks on it.
                 if !failed && let Err(e) = spool.write(&buf[..n]) {
@@ -475,7 +494,7 @@ mod tests {
         for chunk in data.chunks(4) {
             spool.write(chunk).unwrap();
         }
-        assert_eq!(segments(dir.path(), "t"), [20, 30]);
+        assert_eq!(segments(dir.path(), "t").unwrap(), [20, 30]);
         let tail = read_output(dir.path(), "t", None, 8).unwrap();
         assert_eq!((tail.start, tail.total, tail.kept_from), (27, 35, 20));
         assert_eq!(tail.data, data[27..]);
