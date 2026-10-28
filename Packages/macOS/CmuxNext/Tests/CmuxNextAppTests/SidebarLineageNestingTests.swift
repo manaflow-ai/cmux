@@ -168,6 +168,38 @@ import Testing
         #expect(tree.opened == [Self.lane, Self.sub])
     }
 
+    /// A drag can move the current selection into a new list without changing its identity or lineage.
+    @Test func movingTheSelectionIntoADeepListRevealsItButManualFoldsStay() {
+        let defaults = UserDefaults(suiteName: "SidebarLineageNestingTests.\(UUID().uuidString)") ?? .standard
+        let tree = SidebarSessionTree(defaults: defaults)
+        tree.state = SidebarSessionTreeState(parents: Self.parents)
+        var separate = Self.sections([Self.coordinator, Self.lane, Self.sub])
+        separate[0].nodes.append(.group(SidebarGroup(id: GroupID("reviewers"), name: "Reviewers", workspaces: [
+            SidebarWorkspace(id: Self.reviewer, title: "reviewer"),
+        ])))
+        let model = SidebarModel(sections: separate)
+        var reveal = SidebarSelectionTreeReveal()
+        reveal.update(selection: [Self.reviewer], model: model, tree: tree, force: true)
+        #expect(tree.opened.isEmpty)
+        #expect(Self.rows(model.sections, tree: tree.drawn).contains { $0.id == Self.reviewer })
+
+        // Model storage receives the move; neither the selected ID nor the daemon parent map changed.
+        model.setSections(Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer]))
+        #expect(!Self.rows(model.sections, tree: tree.drawn).contains { $0.id == Self.reviewer })
+        reveal.update(selection: [Self.reviewer], model: model, tree: tree, force: false)
+        #expect(tree.opened == [Self.lane, Self.sub])
+        #expect(Self.rows(model.sections, tree: tree.drawn).contains { $0.id == Self.reviewer })
+
+        tree.toggle(Self.lane, folded: false)
+        reveal.update(selection: [Self.reviewer], model: model, tree: tree, force: false)
+        #expect(tree.collapsed.contains(Self.lane))
+        #expect(!Self.rows(model.sections, tree: tree.drawn).contains { $0.id == Self.reviewer })
+        // An unrelated structural update also preserves that explicit fold.
+        model.setSections(Self.sections([Self.coordinator, Self.lane, Self.sub, Self.reviewer, Self.mine]))
+        reveal.update(selection: [Self.reviewer], model: model, tree: tree, force: false)
+        #expect(tree.collapsed.contains(Self.lane))
+    }
+
     @Test func runsCutAtEachTopLevelEntry() {
         let runs = SidebarLayout.runs([(0, 0), (1, 1), (2, 2), (3, 0), (4, 1), (5, 0)])
         #expect(runs.map { $0.map(\.index) } == [[0, 1, 2], [3, 4], [5]])

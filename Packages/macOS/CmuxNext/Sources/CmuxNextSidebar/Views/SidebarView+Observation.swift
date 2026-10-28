@@ -123,15 +123,13 @@ extension SidebarViewComponents {
             || lastState?.rowLimit != state.rowLimit || lastState?.groupLineLayout != state.groupLineLayout
             || lastState?.groupLineJoinsBar != state.groupLineJoinsBar
         let listChanged = rowsChanged || selectionChanged
-        // A selected session never hides in a fold (a notification, the palette or Cmd-number chose it), also when
-        // the tree's lineage arrives after the selection (the feed starts after restored windows): only a change of
-        // parents re-reveals, so the person's own fold of the selection's parent stays.
-        if Self.revealsSelection(selectionChanged: selectionChanged, from: lastState?.tree, to: state.tree) {
-            state.selection.forEach { SidebarSessionTree.shared.reveal($0, lists: model.listsHolding($0)) }
-        }
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
         model.groupByStatus(state.groupsByStatus)
+        // Resolve the selected row's ancestors in its newly drawn lists. A drag or regrouping can
+        // change those ancestors without changing either the selection or the daemon's parent map.
+        selectionTreeReveal.update(selection: state.selection, model: model, tree: .shared,
+                                   force: Self.revealsSelection(selectionChanged: selectionChanged, from: lastState?.tree, to: state.tree))
         // Minimal mode or an item's control changed: show or hide the chosen bands now.
         // Controls on hover too (`sidebar.controlsOnHover`): its controls fade to the new rule.
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo
@@ -181,5 +179,23 @@ extension SidebarViewComponents {
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
         !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
+    }
+}
+
+/// Remembers only the selected rows' drawn ancestry. Fold changes do not change it, so an explicit
+/// fold stays closed; moving a selected row under another list's ancestors reveals it there.
+@MainActor
+struct SidebarSelectionTreeReveal {
+    private var ancestors: [WorkspaceID: Set<[WorkspaceID]>] = [:]
+
+    mutating func update(selection: Set<WorkspaceID>, model: SidebarModel, tree: SidebarSessionTree, force: Bool) {
+        var next: [WorkspaceID: Set<[WorkspaceID]>] = [:]
+        for id in selection {
+            let lists = model.listsHolding(id)
+            let paths = Set(lists.map { tree.state?.drawnAncestors(of: id, inList: $0) ?? [] })
+            next[id] = paths
+            if force || ancestors[id] != paths { tree.reveal(id, lists: lists) }
+        }
+        ancestors = next
     }
 }
