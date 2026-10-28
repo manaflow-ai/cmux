@@ -14,11 +14,12 @@
  * it moves), then the turn as a message from the owner, then every Chief message until its run ends. The Chief
  * is deleted afterwards.
  *
- *   bun backend/scripts/chief-durable-evals.ts [--brains pi,durable] [--model claude-opus-5-5] [--only PREFIX]
+ *   bun backend/scripts/chief-durable-evals.ts [--env staging|development] [--brains pi,durable] [--model claude-opus-5-5] [--only PREFIX]
  *       [--repeat 1] [--jobs 4] [--report PATH] [--judge-url http://100.89.225.106:31415]
  *
  * Reads ~/.secrets/cmuxterm-dev.env (Stack project) and ~/.secrets/cmux-next-e2e-cloudchief-staging.env (the
- * throwaway e2e account). Never prints a token. Staging only.
+ * throwaway e2e account). Never prints a token. Staging (default) or development only; development runs the free
+ * Workers AI model (--model @cf/...), a check of the runner itself.
  */
 import { createHash } from "node:crypto"
 import { readdirSync, readFileSync, writeFileSync } from "node:fs"
@@ -26,7 +27,9 @@ import { homedir } from "node:os"
 import { join, resolve } from "node:path"
 
 const arg = (n: string, d: string) => (process.argv.includes(n) ? process.argv[process.argv.indexOf(n) + 1]! : d)
-const API = "https://cloud-api-staging.cmux.dev"
+const TARGET = arg("--env", "staging")
+if (TARGET !== "staging" && TARGET !== "development") throw new Error(`env ${TARGET} is not allowed: this runner only touches staging or development`)
+const API = TARGET === "staging" ? "https://cloud-api-staging.cmux.dev" : "https://cmux-api-development.debussy.workers.dev"
 const BRAINS = arg("--brains", "pi,durable").split(",") as Array<"pi" | "durable">
 const MODEL = arg("--model", "claude-opus-5-5")
 const ONLY = arg("--only", "")
