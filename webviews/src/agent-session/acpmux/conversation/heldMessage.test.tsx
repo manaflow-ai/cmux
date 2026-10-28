@@ -200,7 +200,7 @@ test("a declined line reads Declined: and its first line, and opens on a click",
   };
   const { host } = await heldCard(row);
   const line = host.querySelector<HTMLButtonElement>(".cv-declined__line")!;
-  expect(line.textContent).toBe("Declined: Could it also retry on 429?");
+  expect(line.querySelector(".cv-declined__text")?.textContent).toBe("Declined: Could it also retry on 429?");
   expect(host.querySelector(".cv-declined__body")).toBeNull();
   await act(async () => line.click());
   expect(line.getAttribute("aria-expanded")).toBe("true");
