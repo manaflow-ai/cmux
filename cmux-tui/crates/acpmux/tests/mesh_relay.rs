@@ -15,7 +15,7 @@ use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::mesh::{
     Ack, AckState, ControlHook, Heartbeat, HeartbeatReply, HubError, InMessage, Kind, MeshHub,
-    Mode, OutMessage, Receipt, RefuseControl, Sender, Target,
+    Mode, OutMessage, Receipt, RefuseControl, Sender, SessionRow, Target,
 };
 use acpmux::rpc::Message;
 use acpmux::server::mesh_relay::{MeshRelay, RelayOptions, relay_connection};
@@ -81,6 +81,8 @@ struct State {
     /// Idempotency key to message id.
     keys: HashMap<String, String>,
     receipts: HashMap<String, Receipt>,
+    /// Every message posted, as the hub got it.
+    sent: Vec<OutMessage>,
 }
 
 impl State {
@@ -191,6 +193,7 @@ impl MeshHub for FakeHub {
     fn send<'a>(&'a self, m: &'a OutMessage) -> BoxFuture<'a, Result<Receipt, HubError>> {
         Box::pin(async move {
             self.with(|s| {
+                s.sent.push(m.clone());
                 if let Some(id) = s.keys.get(&m.idempotency_key) {
                     return Ok(s.receipts[id].clone());
                 }
@@ -587,4 +590,33 @@ async fn the_heartbeat_lists_the_sessions_here_and_a_stop_empties_them() {
     relay.stop().await;
     let last = fake.with(|s| s.heartbeats.last().cloned().unwrap());
     assert!(last.sessions.is_empty(), "the stop sends an empty heartbeat: {last:?}");
+}
+
+/// A session's send through the hub names that session as its sender, whatever `fromAgent` the
+/// request claims.
+#[tokio::test]
+async fn a_send_through_the_hub_names_its_proven_session_not_a_claimed_one() {
+    let a = hub();
+    let lane = Client::local(&a).new_session("lane-a").await;
+    let fake = Arc::new(FakeHub::default());
+    let row = SessionRow {
+        name: "dep-land".into(),
+        session_id: "s-b".into(),
+        harness: "fake".into(),
+        state: "ready".into(),
+        stuck_reason: None,
+    };
+    fake.with(|s| s.heartbeats.push(Heartbeat { host: "b".into(), sessions: vec![row] }));
+    let _ = a.mesh.set(fake.clone());
+    let mut as_lane = Client::local(&a);
+    let token = acpmux::hub::person::caller_token(&lane);
+    let caller = json!({"callerSession": {"sessionId": lane, "token": token}});
+    as_lane.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    let mut request = send_queue("dep-land", "prompt-claim-1");
+    request["request"]["_meta"]["acpmux"]["fromAgent"] = json!("coordinator");
+    let queued = as_lane.call("_acpmux/send_queue", request).await;
+    assert!(queued.pointer("/result/deliveryId").is_some(), "{queued}");
+    let from = fake.with(|s| s.sent.last().unwrap().from.clone());
+    assert_eq!(from.name.as_deref(), Some("lane-a"), "{from:?}");
+    assert_eq!(from.session_id.as_deref(), Some(lane.as_str()), "{from:?}");
 }
