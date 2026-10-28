@@ -33,10 +33,10 @@ fn clone_dir(
     out: &mut Cloned,
 ) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
-    let mode = std::fs::metadata(source)?.permissions().mode() & 0o7777;
-    std::fs::create_dir(target)?;
-    std::fs::set_permissions(target, std::fs::Permissions::from_mode(0o700))?;
-    let mut names: Vec<String> = std::fs::read_dir(source)?
+    let mode = cmux_blocking::fs::metadata(source)?.permissions().mode() & 0o7777;
+    crate::blocking::fs::create_dir(target)?;
+    crate::blocking::fs::set_permissions(target, std::fs::Permissions::from_mode(0o700))?;
+    let mut names: Vec<String> = cmux_blocking::fs::read_dir(source)?
         .flatten()
         .map(|e| e.file_name().to_string_lossy().into_owned())
         .collect();
@@ -52,7 +52,7 @@ fn clone_dir(
         rel.pop();
         result?;
     }
-    std::fs::set_permissions(target, std::fs::Permissions::from_mode(mode))
+    crate::blocking::fs::set_permissions(target, std::fs::Permissions::from_mode(mode))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -71,15 +71,15 @@ fn clone_entry(
         out.skipped.push(rel.join("/"));
         return Ok(());
     }
-    let Ok(meta) = std::fs::symlink_metadata(&from) else { return Ok(()) };
+    let Ok(meta) = cmux_blocking::fs::symlink_metadata(&from) else { return Ok(()) };
     let kind = meta.file_type();
     if kind.is_dir() {
         clone_dir(&from, &to, rel, skip, out)
     } else if kind.is_symlink() {
-        std::os::unix::fs::symlink(std::fs::read_link(&from)?, &to)
+        std::os::unix::fs::symlink(crate::blocking::fs::read_link(&from)?, &to)
     } else if kind.is_file() && databases.iter().any(|d| d == name) {
         if backup_database(&from, &to).is_err() {
-            let _ = std::fs::remove_file(&to);
+            let _ = cmux_blocking::fs::remove_file(&to);
             for suffix in ["", "-wal", "-shm", "-journal"] {
                 let file = format!("{name}{suffix}");
                 if names.contains(&file) {
@@ -100,12 +100,12 @@ fn clone_entry(
 /// A regular file that starts with the SQLite header.
 pub(super) fn is_sqlite(path: &Path) -> bool {
     use std::io::Read;
-    let Ok(meta) = std::fs::symlink_metadata(path) else { return false };
+    let Ok(meta) = cmux_blocking::fs::symlink_metadata(path) else { return false };
     if !meta.file_type().is_file() {
         return false;
     }
     let mut header = [0u8; 16];
-    std::fs::File::open(path).and_then(|mut f| f.read_exact(&mut header)).is_ok()
+    cmux_blocking::fs::open(path).and_then(|mut f| f.read_exact(&mut header)).is_ok()
         && &header == b"SQLite format 3\0"
 }
 
@@ -131,7 +131,7 @@ pub(super) fn clone_file(from: &Path, to: &Path) -> std::io::Result<()> {
             }
         }
     }
-    std::fs::copy(from, to).map(|_| ())
+    cmux_blocking::fs::copy(from, to).map(|_| ())
 }
 
 /// `VACUUM INTO` the new file `to` from a read-only connection to `from`.
@@ -150,7 +150,7 @@ fn backup_database(from: &Path, to: &Path) -> rusqlite::Result<()> {
 /// where a whole path component ends (`…/default` and `…/default/x`, never
 /// `…/default2`). Returns whether the file changed.
 pub(super) fn rewrite_root(path: &Path, from: &str, to: &str) -> std::io::Result<bool> {
-    let Ok(text) = std::fs::read_to_string(path) else { return Ok(false) };
+    let Ok(text) = cmux_blocking::fs::read_to_string(path) else { return Ok(false) };
     let mut out = String::with_capacity(text.len());
     let mut rest = text.as_str();
     let mut changed = false;
@@ -168,11 +168,11 @@ pub(super) fn rewrite_root(path: &Path, from: &str, to: &str) -> std::io::Result
     out.push_str(rest);
     if changed {
         let tmp = path.with_extension(format!("adopt-{}", super::random_hex(4)));
-        std::fs::write(&tmp, out)?;
-        if let Ok(meta) = std::fs::metadata(path) {
-            std::fs::set_permissions(&tmp, meta.permissions())?;
+        cmux_blocking::fs::write(&tmp, out)?;
+        if let Ok(meta) = cmux_blocking::fs::metadata(path) {
+            crate::blocking::fs::set_permissions(&tmp, meta.permissions())?;
         }
-        std::fs::rename(&tmp, path)?;
+        cmux_blocking::fs::rename(&tmp, path)?;
     }
     Ok(changed)
 }

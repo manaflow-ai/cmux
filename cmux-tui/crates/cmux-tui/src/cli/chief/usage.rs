@@ -29,7 +29,8 @@ pub(super) fn find_tool(
 ) -> Option<PathBuf> {
     let executable = |p: &Path| {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+        cmux_blocking::fs::metadata(p)
+            .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
     };
     if let Some(path) = env("CMUX_OPTCHAT_CHIEF").filter(|v| !v.is_empty()) {
         return Some(PathBuf::from(path));

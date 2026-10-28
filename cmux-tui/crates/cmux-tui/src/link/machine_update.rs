@@ -231,23 +231,24 @@ fn stage(
     let local = std::env::temp_dir().join(format!("cmux-machine-update-{nonce}"));
     let copy = local.join("cmux-tui");
     // A fresh private folder: never one somebody planted.
-    let staged_locally = std::fs::DirBuilder::new()
-        .mode(0o700)
-        .create(&local)
-        .and_then(|()| std::fs::copy(payload, &copy))
-        .and_then(|_| std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)));
+    let staged_locally =
+        crate::blocking::fs::create_dir_with(std::fs::DirBuilder::new().mode(0o700), &local)
+            .and_then(|()| cmux_blocking::fs::copy(payload, &copy))
+            .and_then(|_| {
+                crate::blocking::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755))
+            });
     let checked = staged_locally.and_then(|()| apply::file_sha256(&copy));
     match checked {
         Ok(actual) if actual == sha256 => {}
         Ok(_) => {
-            let _ = std::fs::remove_dir_all(&local);
+            let _ = cmux_blocking::fs::remove_dir_all(&local);
             return Err(Failed::new(
                 "machine_update_payload_rejected",
                 "the build's copy does not match its pin",
             ));
         }
         Err(error) => {
-            let _ = std::fs::remove_dir_all(&local);
+            let _ = cmux_blocking::fs::remove_dir_all(&local);
             return Err(Failed::new(
                 "machine_update_failed",
                 format!("cannot stage the build here: {error}"),
@@ -255,7 +256,7 @@ fn stage(
         }
     }
     let written = super::sync_cli::copy_file(socket, &copy, staged);
-    let _ = std::fs::remove_dir_all(&local);
+    let _ = cmux_blocking::fs::remove_dir_all(&local);
     written.map_err(|e| {
         Failed::new("machine_update_failed", format!("cannot copy the build to the machine: {e:#}"))
     })
@@ -267,7 +268,7 @@ fn wait_for_outcome(socket: &Path, result: &str, daemon_pid: u64) -> Result<Stri
     let deadline = Instant::now() + OUTCOME_TIMEOUT;
     let mut new_seen: Option<Instant> = None;
     while Instant::now() < deadline {
-        std::thread::sleep(Duration::from_secs(1));
+        cmux_blocking::thread::sleep(Duration::from_secs(1));
         if let Some(outcome) = read_outcome(socket, result) {
             return match outcome["state"].as_str() {
                 Some("updated") => Ok(own.to_owned()),

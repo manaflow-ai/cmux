@@ -105,7 +105,7 @@ impl App {
         self.retiring_status_workers.retain(|handle| !handle.is_finished());
         while self.retiring_status_workers.len() > MAX_RETIRING_STATUS_WORKERS {
             let handle = self.retiring_status_workers.remove(0);
-            let _ = handle.join();
+            let _ = crate::blocking::thread::join(handle);
         }
         // A fresh map per generation: a stopped worker mid-command can only
         // write into its own orphaned map, never under an index that now

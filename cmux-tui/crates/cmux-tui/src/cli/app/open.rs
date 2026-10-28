@@ -244,7 +244,10 @@ pub(super) fn parse_open_with(
                 .push(OpenRequest { method: "browser.open_split", params: url_params(&target) });
         } else if workspace.is_some() {
             return Err(UsageError::new("--workspace applies only to http and https URLs"));
-        } else if std::fs::metadata(&target).map(|metadata| metadata.is_dir()).unwrap_or(false) {
+        } else if cmux_blocking::fs::metadata(&target)
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false)
+        {
             flush_files(&mut requests, &mut pending_files);
             // A folder is a new workspace there (`newTab`, as `cmux
             // workspace new --cwd`); the app names it after the folder.

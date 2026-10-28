@@ -100,9 +100,12 @@ impl Steps {
 /// holds it.
 pub(crate) fn try_lock(path: &Path) -> std::io::Result<Option<File>> {
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
+        cmux_blocking::fs::create_dir_all(parent)?;
     }
-    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(path)?;
+    let file = crate::blocking::fs::open_with(
+        std::fs::OpenOptions::new().create(true).truncate(false).write(true),
+        path,
+    )?;
     match file.try_lock() {
         Ok(()) => Ok(Some(file)),
         Err(std::fs::TryLockError::WouldBlock) => Ok(None),
@@ -120,14 +123,17 @@ pub(crate) fn wait_lock(path: &Path) -> std::io::Result<Option<File>> {
         if Instant::now() >= deadline {
             return Ok(None);
         }
-        std::thread::sleep(Duration::from_millis(50));
+        cmux_blocking::thread::sleep(Duration::from_millis(50));
     }
 }
 
 /// Whether a process holds the lock file `path` (an existing file only;
 /// never created).
 pub(crate) fn held(path: &Path) -> bool {
-    let Ok(file) = std::fs::OpenOptions::new().read(true).open(path) else { return false };
+    let Ok(file) = crate::blocking::fs::open_with(std::fs::OpenOptions::new().read(true), path)
+    else {
+        return false;
+    };
     matches!(file.try_lock(), Err(std::fs::TryLockError::WouldBlock))
 }
 
@@ -138,7 +144,7 @@ pub(crate) fn wait_free(path: &Path, limit: Duration) -> bool {
         if Instant::now() >= deadline {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        cmux_blocking::thread::sleep(Duration::from_millis(100));
     }
     true
 }
@@ -169,7 +175,8 @@ pub(crate) fn now_stamps() -> (String, String) {
 pub(crate) fn random_hex(bytes: usize) -> String {
     use std::io::Read;
     let mut buf = vec![0u8; bytes];
-    let filled = File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).is_ok();
+    let filled =
+        cmux_blocking::fs::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf)).is_ok();
     if !filled {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_nanos());
         for (i, byte) in buf.iter_mut().enumerate() {
@@ -182,17 +189,17 @@ pub(crate) fn random_hex(bytes: usize) -> String {
 /// Writes `value` to `path` whole (a temp file renamed over it).
 pub(crate) fn write_record(path: &Path, value: &serde_json::Value) -> std::io::Result<()> {
     let tmp = path.with_extension(format!("json.tmp-{}", random_hex(4)));
-    std::fs::write(&tmp, serde_json::to_vec_pretty(value).unwrap_or_default())?;
+    cmux_blocking::fs::write(&tmp, serde_json::to_vec_pretty(value).unwrap_or_default())?;
     // A file it replaces keeps its mode (an acpmux config.json is 0600); a new one is 0600.
-    let mode = std::fs::metadata(path).map_or(0o600, |m| {
+    let mode = cmux_blocking::fs::metadata(path).map_or(0o600, |m| {
         use std::os::unix::fs::PermissionsExt;
         m.permissions().mode()
     });
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode & 0o7777))?;
+        crate::blocking::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(mode & 0o7777))?;
     }
-    std::fs::rename(&tmp, path)
+    cmux_blocking::fs::rename(&tmp, path)
 }
 
 /// This binary, for the stops an adoption runs.

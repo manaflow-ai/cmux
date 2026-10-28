@@ -902,7 +902,7 @@ pub(super) fn app_owns_daemon(identity: &AppIdentity, daemon: &Path) -> bool {
     #[cfg(target_os = "macos")]
     if let Some(own) = crate::app_identity::app_daemon_socket(identity) {
         let canonical =
-            |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+            |path: &Path| cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
         // Two spellings of one socket (`/var` is `/private/var` on macOS).
         return own == daemon || canonical(&own) == canonical(daemon);
     }

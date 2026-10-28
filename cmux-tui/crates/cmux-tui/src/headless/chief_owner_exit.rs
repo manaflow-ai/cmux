@@ -109,7 +109,7 @@ pub(crate) fn next_owner(
     file: Option<&Path>,
     alive: &dyn Fn(OwnerApp) -> bool,
 ) -> Option<OwnerApp> {
-    let text = std::fs::read_to_string(file?).ok()?;
+    let text = cmux_blocking::fs::read_to_string(file?).ok()?;
     let next = OwnerApp::parse(Some(&text));
     (next.is_named() && next != gone && alive(next)).then_some(next)
 }

@@ -20,7 +20,8 @@ pub(crate) fn install() {
         .ok()
         .filter(|id| !id.is_empty())
         .unwrap_or(build_id);
-    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
+    let cli_path =
+        std::env::current_exe().and_then(cmux_blocking::fs::canonicalize).unwrap_or_default();
     cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
         build_id, cli_path,
     ));

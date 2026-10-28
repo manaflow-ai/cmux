@@ -234,7 +234,7 @@ fn wait_for<B: Backend>(
         if left.is_zero() {
             return Ok(None);
         }
-        std::thread::sleep(left.min(RECHECK));
+        cmux_blocking::thread::sleep(left.min(RECHECK));
         if let Some(found) = check(false)? {
             return Ok(Some(found));
         }

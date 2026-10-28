@@ -18,7 +18,7 @@ use cmux_server_core::units::LaunchdJob;
 /// differs, by an atomic rename that keeps the file's mode. Returns whether
 /// it rewrote the file; a missing file is no agent and is left missing.
 pub(crate) fn upgrade_process_type(path: &Path, job: LaunchdJob) -> io::Result<bool> {
-    let bytes = match std::fs::read(path) {
+    let bytes = match cmux_blocking::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => return Err(error),
@@ -41,22 +41,24 @@ pub(crate) fn upgrade_process_type(path: &Path, job: LaunchdJob) -> io::Result<b
 
 /// Writes `bytes` beside `path` and renames it over `path`, with `path`'s mode.
 fn replace(path: &Path, bytes: &[u8]) -> io::Result<()> {
-    let permissions = std::fs::metadata(path)?.permissions();
+    let permissions = cmux_blocking::fs::metadata(path)?.permissions();
     let name = path.file_name().ok_or_else(|| io::Error::other("the plist path has no name"))?;
     let mut temporary_name = std::ffi::OsString::from(".");
     temporary_name.push(name);
     temporary_name.push(format!(".{}.tmp", std::process::id()));
     let temporary = path.with_file_name(temporary_name);
     let result = (|| {
-        let mut file =
-            std::fs::OpenOptions::new().write(true).create(true).truncate(true).open(&temporary)?;
+        let mut file = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new().write(true).create(true).truncate(true),
+            &temporary,
+        )?;
         file.write_all(bytes)?;
-        file.sync_all()?;
-        std::fs::set_permissions(&temporary, permissions)?;
-        std::fs::rename(&temporary, path)
+        crate::blocking::fs::sync_all(&file)?;
+        crate::blocking::fs::set_permissions(&temporary, permissions)?;
+        cmux_blocking::fs::rename(&temporary, path)
     })();
     if result.is_err() {
-        let _ = std::fs::remove_file(&temporary);
+        let _ = cmux_blocking::fs::remove_file(&temporary);
     }
     result
 }

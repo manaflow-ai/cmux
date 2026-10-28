@@ -53,15 +53,13 @@ impl Saved {
 
         let path = Self::path()?.with_extension("lock");
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(failed)?;
+            cmux_blocking::fs::create_dir_all(parent).map_err(failed)?;
         }
-        let file = OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .mode(0o600)
-            .open(&path)
-            .map_err(failed)?;
+        let file = crate::blocking::fs::open_with(
+            OpenOptions::new().create(true).truncate(false).write(true).mode(0o600),
+            &path,
+        )
+        .map_err(failed)?;
         loop {
             // SAFETY: `file` owns an open descriptor for the whole call, and
             // flock touches nothing but that descriptor's lock.
@@ -76,7 +74,7 @@ impl Saved {
     }
 
     pub(super) fn load() -> Self {
-        let text = Self::path().ok().and_then(|path| std::fs::read_to_string(path).ok());
+        let text = Self::path().ok().and_then(|path| cmux_blocking::fs::read_to_string(path).ok());
         let value = text.and_then(|text| serde_json::from_str::<Value>(&text).ok());
         let Some(value) = value else { return Self::default() };
         let text =
@@ -111,19 +109,19 @@ impl Saved {
     pub(super) fn save(&self) -> Result<(), Refusal> {
         let path = Self::path()?;
         if self.is_empty() {
-            return match std::fs::remove_file(&path) {
+            return match cmux_blocking::fs::remove_file(&path) {
                 Err(error) if error.kind() != std::io::ErrorKind::NotFound => Err(failed(error)),
                 _ => Ok(()),
             };
         }
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(failed)?;
+            cmux_blocking::fs::create_dir_all(parent).map_err(failed)?;
         }
         let temporary = path.with_extension(format!("json.{}.tmp", std::process::id()));
-        std::fs::write(&temporary, format!("{}\n", self.to_json()))
-            .and_then(|()| std::fs::rename(&temporary, &path))
+        cmux_blocking::fs::write(&temporary, format!("{}\n", self.to_json()))
+            .and_then(|()| cmux_blocking::fs::rename(&temporary, &path))
             .map_err(|error| {
-                let _ = std::fs::remove_file(&temporary);
+                let _ = cmux_blocking::fs::remove_file(&temporary);
                 failed(error)
             })
     }

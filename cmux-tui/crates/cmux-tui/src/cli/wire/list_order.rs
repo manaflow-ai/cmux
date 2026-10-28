@@ -51,6 +51,7 @@ fn app_context(daemon_socket: &Path) -> bool {
 
 /// Two spellings of one socket (a link, `/var` and `/private/var`).
 fn same_socket(left: &Path, right: &Path) -> bool {
-    let canonical = |path: &Path| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
+    let canonical =
+        |path: &Path| cmux_blocking::fs::canonicalize(path).unwrap_or_else(|_| path.to_owned());
     left == right || canonical(left) == canonical(right)
 }

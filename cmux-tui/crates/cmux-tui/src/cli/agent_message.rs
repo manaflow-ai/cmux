@@ -391,7 +391,7 @@ fn await_pump(connection: &mut Connection, recipients: &[String], sent: &mut Sen
         if !waiting || std::time::Instant::now() >= deadline {
             break;
         }
-        std::thread::sleep(PUMP_POLL);
+        cmux_blocking::thread::sleep(PUMP_POLL);
     }
     for recipient in acp {
         match delivery_state(&sent.message, recipient) {

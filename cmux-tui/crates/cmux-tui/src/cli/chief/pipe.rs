@@ -71,7 +71,7 @@ pub(super) fn run(mut session: Session, text: &str, args: &Args, output: OutputM
             }
             wait = wait.min((since + REPLY_GRACE).saturating_duration_since(now));
         }
-        let input = match session.rx.recv_timeout(wait) {
+        let input = match crate::blocking::sync::recv_timeout(&session.rx, wait) {
             Ok(input) => input,
             Err(RecvTimeoutError::Timeout) => {
                 if deadline.is_some_and(|d| Instant::now() >= d) {

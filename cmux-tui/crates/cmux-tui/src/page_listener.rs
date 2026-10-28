@@ -89,7 +89,10 @@ impl PageListener {
             }
             let addr = server.local_addr();
             // The startup write failed, or someone removed the file: the app reads only the file.
-            if file.is_none() || !websocket_credential::path_for(&self.socket).exists() {
+            if file.is_none()
+                || cmux_blocking::fs::metadata(websocket_credential::path_for(&self.socket))
+                    .is_err()
+            {
                 *file = Some(websocket_credential::write(&self.socket, addr, token)?);
             }
             let mut reply = endpoint(addr, false);

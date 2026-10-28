@@ -2,7 +2,6 @@
 //! deadline that kills the whole group.
 
 use std::path::Path;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use cmux_process::{Child, Command, Stdio};
@@ -84,7 +83,7 @@ pub(super) fn run_plugin_build_command(
             let _ = child.wait();
             anyhow::bail!("build command timed out after {:.1} seconds", timeout.as_secs_f64());
         }
-        thread::sleep(Duration::from_millis(100));
+        cmux_blocking::thread::sleep(Duration::from_millis(100));
     }
 }
 

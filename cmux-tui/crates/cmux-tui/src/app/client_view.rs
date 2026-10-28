@@ -10,7 +10,7 @@ use crate::session::TreeView;
 /// created on first use.
 pub(super) fn client_focus_identity() -> Option<String> {
     let path = crate::config::config_path().ok()?.parent()?.join("client-id");
-    if let Ok(existing) = std::fs::read_to_string(&path) {
+    if let Ok(existing) = cmux_blocking::fs::read_to_string(&path) {
         let existing = existing.trim();
         if !existing.is_empty()
             && existing.len() <= 128
@@ -28,9 +28,9 @@ pub(super) fn client_focus_identity() -> Option<String> {
         write!(&mut id, "{byte:02x}").ok()?;
     }
     if let Some(parent) = path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+        let _ = cmux_blocking::fs::create_dir_all(parent);
     }
-    std::fs::write(&path, format!("{id}\n")).ok()?;
+    cmux_blocking::fs::write(&path, format!("{id}\n")).ok()?;
     Some(id)
 }
 
