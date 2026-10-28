@@ -113,7 +113,7 @@ export function resolvedType(file: File, bytes: Uint8Array): string {
   const listed = attachmentType(file);
   if (listed) return listed;
   const prefix = bytes.subarray(0, SNIFF_BYTES);
-  return looksLikeText(prefix, prefix.length === bytes.length) ? "text/plain" : GENERIC_FILE_TYPE;
+  return looksLikeText(prefix, file.size <= prefix.length) ? "text/plain" : GENERIC_FILE_TYPE;
 }
 
 export type Refusal = "size";
@@ -291,9 +291,14 @@ async function jpeg(source: CanvasImageSource, width: number, height: number, ed
  * browser cannot decode). */
 async function imageFacts(file: File): Promise<Facts> {
   const size = await imageSize(file).catch(() => undefined);
-  if (!size || size.width === undefined || size.height === undefined ||
-      size.height > 0 && size.width > MAX_DECODE_PIXELS / size.height) return {};
-  const bitmap = await createImageBitmap(file).catch(() => undefined);
+  if (size && (size.width === undefined || size.height === undefined ||
+      size.height > 0 && size.width > MAX_DECODE_PIXELS / size.height)) return {};
+  if (!size && file.type.toLowerCase() !== "image/heic") return {};
+  const bitmap = await createImageBitmap(file, size ? undefined : {
+    resizeWidth: PREVIEW_EDGE,
+    resizeHeight: PREVIEW_EDGE,
+    resizeQuality: "low",
+  }).catch(() => undefined);
   if (!bitmap) return {};
   const facts = { width: bitmap.width, height: bitmap.height };
   const small = file.size <= PREVIEW_BYTES_LIMIT && Math.max(bitmap.width, bitmap.height) <= PREVIEW_EDGE;

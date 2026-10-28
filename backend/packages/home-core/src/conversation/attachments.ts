@@ -104,7 +104,7 @@ export const validAttachmentName = (name: unknown): name is string =>
   name !== ".."
 
 const positiveInt = (v: unknown, max: number) => Number.isInteger(v) && (v as number) > 0 && (v as number) <= max
-const positiveByteCount = (v: unknown): v is number => Number.isSafeInteger(v) && v > 0
+const positiveByteCount = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0
 const optional = (v: unknown, check: (v: unknown) => boolean) => v === undefined || v === null || check(v)
 
 export interface AttachmentMeta {

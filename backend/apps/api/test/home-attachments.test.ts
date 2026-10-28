@@ -31,13 +31,13 @@ describe("Home attachments: upload intent", { timeout: 60_000 }, () => {
     expect(big.status).toBe(200)
   })
 
-  it("takes the daily byte quota per user (2 GB); every slot is charged, also a repeated intent for the same hash", async () => {
+  it("takes the daily intent quota per user; every slot is charged, also a repeated intent for the same hash", async () => {
     const alice = await signIn("att-quota-alice")
     const { id } = await group(alice)
     const video = (i: number) => ({ sha256: sha(bytesOf(`v${i}`)), byte_count: 100_000_000, mime_type: "video/mp4", name: `v${i}.mp4`, duration_ms: 1000 })
-    for (let i = 0; i < 19; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
+    for (let i = 0; i < 299; i++) expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(i) })).status).toBe(200)
     // Same (conversation, hash) again: a new slot, charged too.
-    expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })).status).toBe(200)
+    expect((await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })).status).toBe(429)
     const over = await post("/v1/home/attachments/intent", alice.token, { conversation: id, ...video(0) })
     expect(over.status).toBe(429)
     expect(over.json.error.code).toBe("attachment.quota")

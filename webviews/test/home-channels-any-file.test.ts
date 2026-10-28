@@ -48,6 +48,12 @@ describe("Channels attachments: any file", () => {
     expect(looksLikeText(text.subarray(0, text.length - 1), true)).toBe(false);
   });
 
+  test("a UTF-8 character just beyond the sniff prefix remains text", () => {
+    const body = new Uint8Array([...bytes("a".repeat(65_535)), ...bytes("é")]);
+    const file = new File([body], "boundary.txt", { type: "" });
+    expect(resolvedType(file, body.subarray(0, 64 * 1024))).toBe("text/plain");
+  });
+
   test("an empty file is refused but a file beyond the former cap is accepted", () => {
     expect(refusal(new File([], "empty.txt"))).toBe("size");
     expect(refusal({ size: 100 * 1024 * 1024 + 1 } as File)).toBeUndefined();
@@ -86,7 +92,7 @@ describe("Channels attachments: any file", () => {
         throw new Error("whole-file read");
       },
       slice: (start: number, end: number) =>
-        new Blob([new Uint8Array(Math.max(0, end - start)).fill(97)], { type: "text/plain" }),
+        new Blob([new Uint8Array(Math.max(0, Math.min(end, size) - start)).fill(97)], { type: "text/plain" }),
     } as unknown as File;
     const chunks: { offset: number; data: string }[] = [];
     const client = {
@@ -133,5 +139,25 @@ describe("Channels attachments: any file", () => {
     };
     await new AttachmentService(client as never).upload("conversation", file, () => {});
     expect(decodes).toBe(0);
+  });
+
+  test("keeps a bounded HEIC preview fallback", async () => {
+    let options: unknown;
+    (globalThis as { createImageBitmap?: unknown }).createImageBitmap = async (_file: Blob, next?: unknown) => {
+      options = next;
+      return { width: 720, height: 720, close() {} };
+    };
+    const file = new File([new Uint8Array([1, 2, 3])], "photo.heic", { type: "image/heic" });
+    const client = {
+      call: async (method: string, params: Record<string, unknown>) => {
+        if (method !== "cmux.home.attachmentUpload") throw new Error(`unexpected ${method}`);
+        if (params.op === "begin") return { upload: "u1", needs: ["original"] };
+        if (params.op === "chunk") return null;
+        if (params.op === "commit") return { stored: undefined };
+        throw new Error(`unexpected op ${String(params.op)}`);
+      },
+    };
+    await new AttachmentService(client as never).upload("conversation", file, () => {});
+    expect(options).toMatchObject({ resizeWidth: 720, resizeHeight: 720, resizeQuality: "low" });
   });
 });
