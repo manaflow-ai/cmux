@@ -1013,7 +1013,8 @@
   padding-right: 0;
 }
 
-/* Fenced code card. */
+/* Fenced code card. Headers keep their 14px proportions, grow with the reading size, and let
+   their icon controls set a floor at the smallest size. Long labels yield to those controls. */
 .cv-codeblock {
   position: relative;
   margin: 0 0 19px;
@@ -2666,6 +2667,13 @@ a.cv-sha:focus-visible {
   display: inline-flex;
   align-items: center;
   gap: 0;
+}
+/* Sign-in and credential labels are reading text. Let those footer actions take another line
+   when a large font or narrow pane needs it. The icon-only footer keeps its compact rhythm. */
+.cv-turn-actions:has(.cv-turn-auth-action),
+.cv-turn-action-group:has(.cv-turn-auth-action) {
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .cv-turn-action-group:empty {
   display: none;

@@ -117,7 +117,7 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
               }
               const headers = await contained(
                 page,
-                ".cv-codeblock__header, .cv-edit-diff__header, .acpmux-shell-block-head, .cv-turn-auth-action, .cv-diagram__bar",
+                ".cv-codeblock__header, .cv-edit-diff__header, .acpmux-shell-block-head, .cv-turn-actions, .cv-turn-auth-action, .cv-diagram__bar, .cv-command",
               );
               expect(
                 headers.flatMap((row) => row.overflow),
@@ -139,7 +139,7 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
                   .evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
               ).toBe(true);
               if (capture)
-                await page.locator("main").evaluate((node) => {
+                await page.locator("main.acpmux-scroll").evaluate((node) => {
                   node.scrollTop = 0;
                 });
               if (capture)
@@ -150,8 +150,37 @@ await requireBrowserLane("transcript-content-font.test.ts", async () => {
           }
           await page.getByRole("button", { name: "Open image", exact: true }).click();
           await page.locator(".acpmux-image-viewer-title").waitFor();
-          expect(await font(page, ".acpmux-image-viewer-title")).toBeCloseTo(26, 2);
-          expect((await contained(page, ".acpmux-image-viewer-bar")).flatMap((row) => row.overflow)).toEqual([]);
+          for (const size of [10, 14, 28]) {
+            await page.evaluate(async (size) => {
+              const modulePath = "/gallery/src/agent-session/acpmux/chatDisplay.ts";
+              const { setChatDisplay } = await import(modulePath);
+              setChatDisplay({ "agentPane.display.font.size": size });
+            }, size);
+            for (const [width, zoom] of [
+              [760, 1],
+              [390, 1.25],
+            ] as const) {
+              await page.setViewportSize({ width, height: 1100 });
+              await page.evaluate((zoom) => {
+                document.documentElement.style.zoom = String(zoom);
+              }, zoom);
+              expect(await font(page, ".acpmux-image-viewer-title")).toBeCloseTo((13 * size) / 14, 2);
+              expect((await contained(page, ".acpmux-image-viewer-bar")).flatMap((row) => row.overflow)).toEqual([]);
+              expect(
+                await page
+                  .locator(".acpmux-image-viewer-bar")
+                  .evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+              ).toBe(true);
+              if (size === 14 && width === 760)
+                expect(
+                  await page
+                    .locator(".acpmux-image-viewer-bar")
+                    .evaluate((node) => node.getBoundingClientRect().height),
+                ).toBe(44);
+              if (capture)
+                await page.screenshot({ path: path.join(capture, `${engine}-${theme}-image-${size}-${width}.png`) });
+            }
+          }
         } finally {
           await page.close();
         }

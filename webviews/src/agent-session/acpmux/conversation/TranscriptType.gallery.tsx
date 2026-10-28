@@ -63,7 +63,14 @@ function TranscriptType() {
           "The retry report has a note.[^report]\n\n[^report]: The timeout is retried three times, then returned to the caller."
         }
       </Markdown>
-      <TurnActionsContext.Provider value={{ switchModel: () => {}, reauthenticate: () => {} }}>
+      <TurnActionsContext.Provider
+        value={{
+          switchModel: () => {},
+          reauthenticate: () => {},
+          transferCloudCredentials: async () => {},
+          route: { name: "Claude Code", hostKind: "cloud" },
+        }}
+      >
         <TurnFooter
           row={{
             id: "type-auth",
@@ -72,6 +79,8 @@ function TranscriptType() {
             at: 1000,
             status: "failed",
             error: "401 unauthorized",
+            prompt: "Run retry tests",
+            retryRowId: "type-auth-prompt",
           }}
         />
       </TurnActionsContext.Provider>
