@@ -65,14 +65,14 @@ export function attemptId(
   return made;
 }
 
-/** Whether this tab already joined the share (its cookie is set): a reload goes straight to the chat. */
-export const joinedBefore = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "joined")) === "1";
+/** The guest id this tab joined the share as (its cookie is set), so a reload goes straight to the chat. */
+export const joinedAs = (shareId: string, storage: Storage) => storage.getItem(key(shareId, "joined")) ?? undefined;
 
 /** The redeem worked: the secret and the attempt are spent, and the tab remembers it joined. */
-export function rememberJoined(shareId: string, storage: Storage): void {
+export function rememberJoined(shareId: string, guestId: string, storage: Storage): void {
   storage.removeItem(key(shareId, "secret"));
   storage.removeItem(key(shareId, "attempt"));
-  storage.setItem(key(shareId, "joined"), "1");
+  storage.setItem(key(shareId, "joined"), guestId);
 }
 
 /** A typed name as the guest may join with it: one line, 1 to 64 visible characters; else undefined. */

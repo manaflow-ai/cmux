@@ -8,7 +8,7 @@ import type { GuestPageProps } from "./GuestPage";
 
 const live = (frames: object[]): GuestPageProps => ({
   shareId: "c2hhcmUtZ2FsbGVyeQ",
-  joined: true,
+  guestId: "g1",
   redeem: () => new Promise(() => undefined),
   attempt: () => "0".repeat(32),
   socketUrl: "wss://room.invalid/v1/chat-shares/c2hhcmUtZ2FsbGVyeQ/guest",
@@ -29,7 +29,14 @@ export default componentEntry<GuestPageProps>({
   variants: {
     working: {
       props: live(joinFrames(workingRecords())),
-      note: "The agent mid-turn: its reasoning, a failed test run with output, a second run going.",
+      note: "The agent mid-turn: its reasoning and a failed test run's output, opened; a second run going.",
+      // Opened as the owner would: "including command output and the agent's reasoning".
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("Thought"));
+        await ctx.click({ text: "Thought" });
+        await ctx.click({ text: /^Ran bun test/ });
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("Test timed out after 5000ms"));
+      },
     },
     asking: {
       props: live(joinFrames(askingRecords())),

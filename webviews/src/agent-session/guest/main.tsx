@@ -8,7 +8,7 @@ import { createRoot } from "react-dom/client";
 import { UiProvider } from "../../ui/UiProvider";
 import { AcpmuxDirectClient, nextFrame } from "../acpmux/direct";
 import { GuestPage } from "./GuestPage";
-import { attemptId, joinedBefore, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
+import { attemptId, joinedAs, redeemOverFetch, rememberJoined, takeGuestLink } from "./redeem";
 import { followBrowserTheme } from "./theme";
 
 // The built page loads its strings from locales/ before this module (the build script's loader);
@@ -31,10 +31,10 @@ createRoot(root).render(
     <GuestPage
       shareId={shareId}
       secret={link?.secret}
-      joined={!!link && joinedBefore(shareId, storage)}
+      guestId={link ? joinedAs(shareId, storage) : undefined}
       redeem={redeemOverFetch()}
       attempt={() => attemptId(shareId, storage)}
-      onJoined={() => rememberJoined(shareId, storage)}
+      onJoined={(guestId) => rememberJoined(shareId, guestId, storage)}
       socketUrl={socketUrl}
     />
   </UiProvider>,

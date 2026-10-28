@@ -166,12 +166,16 @@ for (const [error, shown] of [
   });
 
 test("joined, the owner's transcript draws read only; an ask shows who it waits on, with no answers", async () => {
-  const page = await mount({ joined: true, openSocket: fakeRoom(joinFrames(askingRecords())) });
+  const page = await mount({ guestId: "g1", openSocket: fakeRoom(joinFrames(askingRecords())) });
   await roomFrames();
   expect(page.host.textContent).toContain("Fix the flaky upload retry test");
   expect(page.host.textContent).toContain(translate("guest.live.sharedBy", { owner: "Sam Rivera" }));
   expect(page.host.textContent).toContain("bun test src/upload.test.ts --rerun-each 5");
   expect(page.host.textContent).toContain(translate("guest.live.waitingAnswer", { owner: "Sam Rivera" }));
+  // Who else is here: the owner, never this guest.
+  expect(page.host.querySelector(".cv-presence__label")?.textContent).toBe(
+    translate("multiplayer.viewing", { names: "Sam Rivera" }),
+  );
   const labels = [...page.host.querySelectorAll("button")].map((button) => button.textContent ?? "");
   expect(labels.some((label) => /^(Allow|Reject)$/.test(label))).toBe(false);
   expect(page.host.querySelector("textarea, [contenteditable='true']")).toBeNull();
@@ -180,7 +184,7 @@ test("joined, the owner's transcript draws read only; an ask shows who it waits 
 
 test("the room ends the share: the ended page replaces the chat", async () => {
   const frames = [...joinFrames(askingRecords()), { v: 1, t: "end", reason: "revoked" }];
-  const page = await mount({ joined: true, openSocket: fakeRoom(frames) });
+  const page = await mount({ guestId: "g1", openSocket: fakeRoom(frames) });
   await roomFrames();
   expect(text()).toContain(translate("guest.ended.revoked"));
   expect(page.host.textContent).toBe(translate("guest.ended.revoked"));

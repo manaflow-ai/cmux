@@ -111,6 +111,9 @@ export function JoinPage({
   );
 }
 
+/** Whether a participant is this guest: its own id, or the author id the daemon stamps (`guest:<share>.<guest>`). */
+const isMe = (id: string, guestId: string) => id === guestId || id.endsWith(`.${guestId}`);
+
 /** The chat's owner, as the room's presence names them. */
 const ownerOf = (participants: GuestParticipant[]): Participant | undefined => {
   const owner = participants.find((person) => person.kind === "owner");
@@ -118,10 +121,13 @@ const ownerOf = (participants: GuestParticipant[]): Participant | undefined => {
 };
 
 export function LiveChat({
+  guestId,
   socketUrl,
   openSocket,
   onEnded,
 }: {
+  /** This guest: never in its own face stack, as the pane leaves the reader out. */
+  guestId: string;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
   onEnded: (reason: GuestEnd) => void;
@@ -147,6 +153,9 @@ export function LiveChat({
           setChat(next.chat);
           setHasMore(next.hasMore);
           client.feed(next.records, "snapshot");
+          // A page asked for on the old connection never comes; the new history is in place.
+          pageArrived.current?.();
+          pageArrived.current = undefined;
         },
         records: (records) => client.feed(records, "live"),
         page: (records, more) => {
@@ -190,7 +199,7 @@ export function LiveChat({
   const owner = ownerOf(people);
   const ownerName = owner?.name ?? t("guest.live.owner");
   const viewing = people
-    .filter((person) => person.viewing !== false)
+    .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
   return (
     <div className="guest-live">
@@ -234,13 +243,13 @@ export type GuestPageProps = {
   shareId: string;
   /** The link's secret; undefined when the link lost it. */
   secret?: string;
-  /** The tab joined before (the room's cookie is set): open the chat without the join page. */
-  joined?: boolean;
+  /** The guest id this tab joined as before (the room's cookie is set): open the chat at once. */
+  guestId?: string;
   redeem: Redeem;
   /** This tab's redeem attempt id (redeem.ts attemptId). */
   attempt: () => string;
   /** Called once the redeem worked (redeem.ts rememberJoined). */
-  onJoined?: () => void;
+  onJoined?: (guestId: string) => void;
   socketUrl: string;
   openSocket?: (url: string) => ShareSocketLike;
   /** Starts on the ended page (the gallery's ended states). */
@@ -250,7 +259,7 @@ export type GuestPageProps = {
 export function GuestPage({
   shareId,
   secret,
-  joined = false,
+  guestId: joinedAs,
   redeem,
   attempt,
   onJoined,
@@ -258,14 +267,14 @@ export function GuestPage({
   openSocket,
   ended: endedAtStart,
 }: GuestPageProps) {
-  const [inChat, setInChat] = useState(joined);
+  const [guestId, setGuestId] = useState(joinedAs);
   const [ended, setEnded] = useState<GuestEnded | undefined>(endedAtStart);
   const join = async (name: string): Promise<RedeemError | undefined> => {
     if (!secret) return "failed";
     const result = await redeem(shareId, { attempt_id: attempt(), secret, name });
     if (result.ok) {
-      onJoined?.();
-      setInChat(true);
+      onJoined?.(result.guestId);
+      setGuestId(result.guestId);
       return undefined;
     }
     const final = endedBy(result.error);
@@ -273,6 +282,6 @@ export function GuestPage({
     return result.error;
   };
   if (ended) return <EndedPage reason={ended} />;
-  if (!inChat) return <JoinPage hasSecret={!!secret} onJoin={join} />;
-  return <LiveChat socketUrl={socketUrl} openSocket={openSocket} onEnded={setEnded} />;
+  if (!guestId) return <JoinPage hasSecret={!!secret} onJoin={join} />;
+  return <LiveChat guestId={guestId} socketUrl={socketUrl} openSocket={openSocket} onEnded={setEnded} />;
 }
