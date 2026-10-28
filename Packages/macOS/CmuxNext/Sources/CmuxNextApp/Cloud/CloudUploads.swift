@@ -142,13 +142,10 @@ final class CloudUploads {
                 guard let found = Self.target(tab: tab, services: services), found.chat.session == session else { return AgentPaneReply.failure(code: "upload_failed", message: CloudUploadStrings.failed) }
                 target = found
             }
-            guard target.chat.session == session,
-                  size <= Self.maximumFileBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
+            guard target.chat.session == session else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
+            if let refusal = Self.beginRefusal(name: name, size: size, manifest: batchToken == nil ? manifest : nil) { return refusal }
             let batchID: String?
             if let manifest, batchToken == nil {
-                guard manifest.first?.name == name, manifest.first?.size == size,
-                      manifest.allSatisfy({ $0.size >= 0 && $0.size <= Self.maximumFileBytes }),
-                      manifest.reduce(0) { $0 + $1.size } <= Self.maximumTotalBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
                 let newBatchID = UUID().uuidString.lowercased()
                 batchID = newBatchID
                 batches[newBatchID] = Batch(target: target, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(Self.stageLifetime))
@@ -193,6 +190,18 @@ final class CloudUploads {
         }
     }
 
+    /// The reply refusing a staged upload's begin of `name`, `size` bytes, that starts the batch
+    /// `manifest` (nil for a lone file or a later file of a batch), or nil when the begin is well formed.
+    static func beginRefusal(name: String, size: Int, manifest: [AgentPaneUploadBatchEntry]?) -> [String: Any]? {
+        guard size <= maximumFileBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
+        if let manifest {
+            guard manifest.first?.name == name, manifest.first?.size == size,
+                  manifest.allSatisfy({ $0.size >= 0 && $0.size <= maximumFileBytes }),
+                  manifest.reduce(0) { $0 + $1.size } <= maximumTotalBytes else { return AgentPaneReply.failure(code: "upload_refused", message: CloudUploadStrings.refused) }
+        }
+        return nil
+    }
+
     private func purgeStages() {
         let expired = stages.filter { $0.value.expires < Date() }.map(\.key)
         for token in expired {
@@ -231,6 +240,8 @@ final class CloudUploads {
 
 /// A Cloud chat upload's failure text, shown in the composer. Keys live in Resources/Cloud.xcstrings.
 enum CloudUploadStrings {
+    /// The bundle that holds `Resources/Cloud.xcstrings` (this module's), for tests.
+    static var bundle: Bundle { .module }
     static var failed: String {
         String(localized: "cloud.upload.failed", defaultValue: "Couldn't send the file to the Cloud machine.", table: "Cloud", bundle: .module)
     }

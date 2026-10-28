@@ -73,6 +73,21 @@ struct AgentPaneFilePutTests {
         #expect(methods == ["_acpmux/file_put_begin", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_chunk", "_acpmux/file_put_finish"])
     }
 
+    /// A file past the former 1 GiB peer limit starts its chunked put: the begin declares its whole
+    /// size. The bytes are declared (`Data(count:)`, zero pages never touched); the begin's answer
+    /// names no upload, so the put stops there, before any chunk is read.
+    @Test func aChunkedPutOfAnySizeBegins() async throws {
+        let size = (1 << 30) + 1
+        let calls = CallLog()
+        await #expect(throws: AgentPaneFilePutFailure.failed) {
+            try await AcpmuxStatusClient.putFileChunked(sessionId: "s", name: "recording.mov", data: Data(count: size)) { method, params in
+                await calls.add("\(method) \(params["size"] as? Int ?? -1)")
+                return [:]
+            }
+        }
+        #expect(await calls.methods() == ["_acpmux/file_put_begin \(size)"])
+    }
+
     @Test func aHostWithoutAnAcpmuxTakesNoFiles() async {
         await #expect(throws: AgentPaneFilePutFailure.unsupported) {
             try await MockAgentPaneHost().putFile(sessionId: "s", name: "a.txt", data: Data("x".utf8))

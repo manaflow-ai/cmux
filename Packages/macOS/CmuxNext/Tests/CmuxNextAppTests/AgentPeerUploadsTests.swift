@@ -62,8 +62,62 @@ import Testing
         #expect(Self.code(failed) == "upload_failed")
     }
 
-    @Test func peerTransportAllowsFilesLargerThanTheFormerFrameCap() {
-        #expect(AgentPaneUpload.maximumPeerFileBytes > 64 * 1024 * 1024)
+    /// A file past the former 1 GiB peer limit is sent; its bytes are declared (`Data(count:)`, zero
+    /// pages never touched), not written.
+    @Test func anInlinePeerUploadOfAnySizeIsSent() async throws {
+        let size = (1 << 30) + 1
+        var sent: [Int] = []
+        let reply = await AgentPeerUploads.upload([AgentPaneUpload(name: "recording.mov", data: Data(count: size))], machine: "huge-blue") { _, data in
+            sent.append(data.count)
+            return "/home/me/.acpmux/uploads/s/1/recording.mov"
+        }
+        #expect(reply["ok"] as? Bool == true, "\(reply)")
+        #expect(sent == [size])
+    }
+
+    /// A staged begin past the former 1 GiB peer limit is taken, on its own and as a batch's first
+    /// file; the stage is an empty file until chunks come, and is cancelled here.
+    @Test(arguments: [(1 << 30) + 1, 8 << 30])
+    func aStagedPeerBeginOfAnySizeIsTaken(size: Int) async throws {
+        try await Self.withPeerStager { stager, session in
+            let batches: [[AgentPaneUploadBatchEntry]?] = [nil, [AgentPaneUploadBatchEntry(name: "big.bin", size: size),
+                                                                 AgentPaneUploadBatchEntry(name: "next.bin", size: size)]]
+            for batch in batches {
+                let reply = await stager(.begin(name: "big.bin", size: size, batchToken: nil, batch: batch), session)
+                #expect(reply["ok"] as? Bool == true, "\(reply)")
+                let token = try #require((reply["value"] as? [String: Any])?["token"] as? String)
+                _ = await stager(.cancel(token: token), session)
+            }
+        }
+    }
+
+    /// A batch past the former 1 GiB total, of files each under it, is taken.
+    @Test func aStagedPeerBatchPastTheFormerTotalIsTaken() async throws {
+        let part = 600 * 1024 * 1024
+        try await Self.withPeerStager { stager, session in
+            let batch = [AgentPaneUploadBatchEntry(name: "a.mov", size: part), AgentPaneUploadBatchEntry(name: "b.mov", size: part)]
+            let reply = await stager(.begin(name: "a.mov", size: part, batchToken: nil, batch: batch), session)
+            #expect(reply["ok"] as? Bool == true, "\(reply)")
+            let value = try #require(reply["value"] as? [String: Any])
+            #expect(value["batchToken"] is String)
+            let token = try #require(value["token"] as? String)
+            _ = await stager(.cancel(token: token), session)
+        }
+    }
+
+    /// The peer stager of a tab whose chat runs on `huge-blue`, and that chat's session.
+    private static func withPeerStager(_ body: (AgentPaneUploadStager, String) async throws -> Void) async throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let tab = "tab-\(UUID().uuidString)", session = "peer-\(UUID().uuidString)"
+        services.agentTabs.gitLink = { _ in services.agentGit.local }
+        services.agentTabs.sessions[tab] = session
+        AgentLaneStore.shared.lanes[session] = AgentActivityLane(id: session, name: "huge-blue/fix", title: "fix", peer: "huge-blue",
+                                                                 parent: nil, state: .idle, since: nil, error: nil)
+        defer { AgentLaneStore.shared.lanes[session] = nil }
+        let stager = try #require(AgentPeerUploads.stager(tab: tab, services: services))
+        try await body(stager, session)
     }
 
     private static func code(_ reply: [String: Any]) -> String? {
