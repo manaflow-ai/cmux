@@ -105,12 +105,12 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
     });
   }
 
-  for (const [variant, triggerName, popupSelector] of [
-    ["folder-menu", "Folder", ".acpmux-folder-popover"],
-    ["environment-picker", /^Environment/, ".acpmux-env-popover"],
+  for (const [variant, triggerName, popupSelector, height, top] of [
+    ["folder-menu", "Folder", ".acpmux-folder-popover", 560, "500px"],
+    ["environment-picker", /^Environment/, ".acpmux-env-popover", 760, "700px"],
   ] as const) {
     test(`${variant} flips above when the trigger is at the bottom edge`, async () => {
-      const page = await open("agent-pane.composer-context", variant, 560);
+      const page = await open("agent-pane.composer-context", variant, height);
       try {
         await page.keyboard.press("Escape");
         const context = page.locator(".acpmux-composer-context");
@@ -118,7 +118,7 @@ await requireBrowserLane("composer-dropdown-containment.test.ts", async () => {
           const element = node as HTMLElement;
           element.style.position = "fixed";
           element.style.left = "8px";
-          element.style.top = "500px";
+          element.style.top = top;
           element.style.bottom = "auto";
         });
         const trigger = typeof triggerName === "string"
