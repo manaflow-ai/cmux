@@ -1329,8 +1329,8 @@ async fn dispatch_request(
                     method::MUX_TAILNET_START => controller.start().await,
                     method::MUX_TAILNET_LOGIN => controller.login().await,
                     method::MUX_TAILNET_LOGOUT => controller.logout().await,
-                    method::MUX_TAILNET_STATE => Ok(controller.snapshot()),
-                    _ => unreachable!("tailnet method matched above"),
+                    // MUX_TAILNET_STATE, the one method left from the arm above.
+                    _ => Ok(controller.snapshot()),
                 }
                 .map_err(RpcError::internal)?;
                 Ok(snapshot.to_json(true))

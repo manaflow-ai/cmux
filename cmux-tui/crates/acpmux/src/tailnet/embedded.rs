@@ -206,7 +206,8 @@ impl Controller {
             Ok::<_, String>(Arc::new(node))
         })
         .await
-        .map_err(|error| error.to_string())?
+        .map_err(|error| error.to_string())
+        .and_then(|started| started)
         {
             Ok(node) => node,
             Err(error) => {
