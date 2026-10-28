@@ -153,7 +153,7 @@ final class HomeService {
     @ObservationIgnored private(set) lazy var pinMigration = HomePinMigration(account: { [weak self] in self?.pinAccount ?? "local" })
     /// Each docked Home view's shown view, by its provider key (the home workspace's dock and each window's own
     /// Home, multiwindow.md): a window's sidebar marks its Home or Channels entry by the view that window shows
-    /// (`HomeDockTab.showsChannels(_:windowID:page:)`, cx-frn2y). A key with no entry shows Messages.
+    /// (`HomeDockTab.showsChannels(_:windowID:page:workspace:)`, cx-frn2y). A key with no entry shows Messages.
     var dockModes: [String: HomeDockMode] = [:]
     /// Its durable copy is keyed by the Chief owner (one per Chief home), so
     /// a relaunch or another build shows the same history before the owner

@@ -35,8 +35,11 @@ extension AppActions {
         }
         if !classic, let active = services.windows.active {
             showHome(home.id, in: active, services)
+            // The window that shows Home now: the run's (its own page, or the home workspace it lists or took);
+            // for the CLI or a script, the window that lists the home workspace.
             let owner = services.windows.registry.value.owner(of: home.id)
-            return owner.flatMap { services.windows.controller(for: $0) }.flatMap { $0.state.workspaceID == home.id ? $0 : nil } ?? active
+            if active.state.page == .home || owner == nil || owner == active.state.id { return active }
+            return owner.flatMap { services.windows.controller(for: $0) } ?? active
         }
         return services.windows.reveal(workspaceID: home.id)
     }
