@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
+public import CmuxNextAppearance
 
 /// Which views and windows root a scope. Weak on both sides: a scope lives
 /// as long as its owner (window, workspace or terminal controller) keeps it.

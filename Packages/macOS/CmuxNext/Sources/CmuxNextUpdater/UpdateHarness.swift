@@ -2,6 +2,7 @@
 import CmuxUpdater
 public import Foundation
 import Darwin
+import CmuxNextCompat
 
 /// The update harness (DEV builds only; scripts/cmux-next/update-harness):
 /// a tagged DEV build runs the real Sparkle flow against a loopback test
@@ -58,7 +59,7 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
     /// never a reason to change the update).
     public func mark(_ name: String, at date: Date = Date()) {
         let line = "{\"pid\":\(getpid()),\"name\":\"\(name)\",\"unix_ms\":\(Int64((date.timeIntervalSince1970 * 1_000).rounded()))}\n"
-        let fd = open(marksPath, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
+        let fd = blockingOpen(marksPath, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0o600)
         guard fd >= 0 else { return }
         defer { close(fd) }
         _ = line.utf8CString.withUnsafeBufferPointer { buffer in
@@ -94,7 +95,7 @@ nonisolated public struct UpdateHarness: Sendable, Equatable {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
+        guard blockingSysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return Date() }
         let start = info.kp_proc.p_un.__p_starttime
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }

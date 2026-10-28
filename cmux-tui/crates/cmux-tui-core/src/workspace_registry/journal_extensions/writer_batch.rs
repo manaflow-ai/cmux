@@ -476,11 +476,15 @@ impl RegistryConnection {
                         }),
                         None,
                     ),
+                    #[allow(
+                        clippy::unreachable,
+                        reason = "INVARIANT: the loop above took every non-terminal event and continued"
+                    )]
                     crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                     | crate::journal_ingress::JournalIngressEvent::Producer { .. }
                     | crate::journal_ingress::JournalIngressEvent::Effect(_)
                     | crate::journal_ingress::JournalIngressEvent::TerminalBarrier => {
-                        unreachable!()
+                        unreachable!("non-terminal journal events are handled above")
                     }
                 };
             let subjects = subjects_by_terminal

@@ -11,6 +11,7 @@
 //! per-connection queue and reports `_acpmux/lagged`.
 
 use crate::server::request_hang_watch::ipc_reply;
+use crate::supervised::{self, Fatal, ShutdownBehavior};
 use cmux_threads::checked::sync as waits;
 use cmux_threads::sync::Mutex;
 use std::collections::HashMap;
@@ -34,7 +35,6 @@ pub(super) const MAX_LINE_BYTES: usize = 32 << 20;
 /// Calls waiting for a reply on one link.
 pub(super) const MAX_IN_FLIGHT: usize = 16;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(3);
-const THREAD_STACK_BYTES: usize = 256 * 1024;
 
 /// Why a call failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,10 +91,11 @@ impl AcpmuxLink {
         let pending = link.pending.clone();
         let closed = link.closed.clone();
         // Requests wait in `call` for the replies it reads: their class.
-        cmux_threads::spawn_with_stack(
+        supervised::spawn_at(
             "mux-acpmux-link",
             crate::thread_qos::ThreadType::Interactive.qos(),
-            THREAD_STACK_BYTES,
+            Fatal,
+            ShutdownBehavior::Continue,
             move || read_loop(reader, pending, closed, on_inbound),
         )?;
         Ok(link)

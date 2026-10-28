@@ -6,7 +6,7 @@ use ghostty_vt_sys as sys;
 
 use crate::key::Mods;
 use crate::terminal::Terminal;
-use crate::{Result, check};
+use crate::{Error, Result, check};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MouseAction {
@@ -120,8 +120,8 @@ impl Extend<u8> for MouseModeSignature {
     fn extend<T: IntoIterator<Item = u8>>(&mut self, iter: T) {
         for byte in iter {
             let index = usize::from(self.stored_len);
-            if index < self.bytes.len() {
-                self.bytes[index] = byte;
+            if let Some(slot) = self.bytes.get_mut(index) {
+                *slot = byte;
                 self.stored_len += 1;
             } else {
                 self.overflow_hash ^= u64::from(byte);
@@ -442,11 +442,12 @@ impl MouseEncoder {
                     &mut big_written,
                 )
             })?;
-            out.extend(big[..big_written].iter().copied());
+            // A written length past the buffer breaks the encoder's contract.
+            out.extend(big.get(..big_written).ok_or(Error::OutOfSpace)?.iter().copied());
             return Ok(());
         }
         check(result)?;
-        out.extend(buf[..written].iter().copied());
+        out.extend(buf.get(..written).ok_or(Error::OutOfSpace)?.iter().copied());
         Ok(())
     }
 }

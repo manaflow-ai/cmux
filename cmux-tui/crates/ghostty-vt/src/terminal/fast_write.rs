@@ -15,7 +15,7 @@ impl Terminal {
     pub(super) fn feed_trackers(&mut self, data: &[u8]) -> bool {
         let mut mouse_modes_may_have_changed = false;
         let mut at = 0;
-        while at < data.len() {
+        while let Some(&byte) = data.get(at) {
             if self.trackers_idle() {
                 let line_ends_neutral = !self.prompt_semantic.waits_for_line_end();
                 let end = byte_scan::neutral_run_end(data, at, line_ends_neutral);
@@ -25,7 +25,6 @@ impl Terminal {
                     continue;
                 }
             }
-            let byte = data[at];
             self.kitty_inflight.step(byte);
             self.vt_boundary.step(byte);
             self.prompt_semantic.step(byte);

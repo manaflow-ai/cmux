@@ -176,7 +176,7 @@ public final class HangEpisodeRecorder: Sendable {
         // SAFETY: lstat reads the NUL-terminated copy of the path made for the call and writes one struct stat into
         // `info`, a local.
         return unsafe url.deletingLastPathComponent().standardizedFileURL == directory.standardizedFileURL
-            && lstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG
+            && blockingLstat(url.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG
     }
 
     // MARK: Watchdog thread
@@ -344,7 +344,7 @@ public final class HangEpisodeRecorder: Sendable {
     /// Reads a regular file of at most `limit` bytes without following a symlink (`O_NOFOLLOW`).
     static func readRegularFile(_ url: URL, limit: Int) -> String? {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let fd = unsafe open(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
+        let fd = unsafe blockingOpen(url.path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC)
         guard fd >= 0 else { return nil }
         defer { close(fd) }
         var info = stat()

@@ -12,11 +12,17 @@ public import Foundation
 /// try await repository.save(ledger)
 /// ```
 public actor ClassicMigrationRepository {
+    /// The actor's own serial queue: its file calls block this queue, never a cooperative pool thread
+    /// (Chrome runs file work on a MayBlock sequence, base/task/task_traits.h).
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.next.onboarding.classic-migration", qos: .userInitiated)
+
+    /// Runs the actor on ``queue``.
+    public nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     /// How many backup folders are kept, newest first.
     public static let keptBackups = 5
 
     public let directory: URL
-    private let fileManager = FileManager()
 
     /// - Parameter directory: the migration's folder, made on the first save
     ///   (the app passes `Application Support/cmux-next/<bundle id>/classic-migration`).
@@ -29,7 +35,7 @@ public actor ClassicMigrationRepository {
 
     /// The ledger, if any. One that does not decode is moved aside as `ledger.unreadable-<ms>.json`.
     public func load() -> ClassicMigrationLedgerLoad {
-        guard let data = fileManager.contents(atPath: ledgerURL.path) else { return .none }
+        guard let data = FileManager.checked.contents(atPath: ledgerURL.path) else { return .none }
         if let schema = (try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any])?["schema"] as? Int,
            schema > ClassicMigrationLedger.currentSchema {
             return .newer(schema: schema)
@@ -37,13 +43,13 @@ public actor ClassicMigrationRepository {
         if let ledger = try? JSONDecoder().blockingDecode(ClassicMigrationLedger.self, from: data) { return .ledger(ledger) }
         // wall-clock: a file name stamp, not a time.
         let aside = directory.appendingPathComponent("ledger.unreadable-\(Int(Date().timeIntervalSince1970 * 1000)).json")
-        try? fileManager.moveItem(at: ledgerURL, to: aside)
+        try? FileManager.checked.moveItem(at: ledgerURL, to: aside)
         return .unreadable
     }
 
     /// Writes `ledger` atomically.
     public func save(_ ledger: ClassicMigrationLedger) throws {
-        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: directory, withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys, .prettyPrinted]
         try encoder.encode(ledger).write(to: ledgerURL, options: .atomic)
@@ -54,18 +60,18 @@ public actor ClassicMigrationRepository {
     /// ``keptBackups`` are removed (only the migration's own copies).
     @discardableResult
     public func backup(_ files: [URL], stamp: String) throws -> URL? {
-        let existing = files.filter { fileManager.fileExists(atPath: $0.path) }
+        let existing = files.filter { FileManager.checked.fileExists(atPath: $0.path) }
         guard !existing.isEmpty else { return nil }
         let folder = backupsURL.appendingPathComponent(stamp, isDirectory: true)
-        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true)
         for file in existing {
             let copy = folder.appendingPathComponent(file.lastPathComponent)
-            if fileManager.fileExists(atPath: copy.path) { continue }
-            try fileManager.copyItem(at: file, to: copy)
+            if FileManager.checked.fileExists(atPath: copy.path) { continue }
+            try FileManager.checked.copyItem(at: file, to: copy)
         }
-        let all = ((try? fileManager.contentsOfDirectory(atPath: backupsURL.path)) ?? []).sorted(by: >)
+        let all = ((try? FileManager.checked.contentsOfDirectory(atPath: backupsURL.path)) ?? []).sorted(by: >)
         for old in all.dropFirst(Self.keptBackups) {
-            try? fileManager.removeItem(at: backupsURL.appendingPathComponent(old, isDirectory: true))
+            try? FileManager.checked.removeItem(at: backupsURL.appendingPathComponent(old, isDirectory: true))
         }
         return folder
     }

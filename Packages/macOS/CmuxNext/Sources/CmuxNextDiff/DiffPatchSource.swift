@@ -61,7 +61,7 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard Self.isValidToken(token) else { return nil }
         let url = root.appending(path: ".manifest-\(token).json")
         var info = stat()
-        guard lstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumManifestBytes,
+        guard blockingLstat(url.path, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumManifestBytes,
               // concurrency-allow: nonisolated resolver; DiffPatchSource calls it from a @concurrent read
               let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
@@ -83,12 +83,12 @@ nonisolated struct DiffPatchResolver: Sendable {
         guard fileComponents.count > rootComponents.count, Array(fileComponents.prefix(rootComponents.count)) == rootComponents
         else { return nil }
         var info = stat()
-        guard stat(filePath, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumPatchBytes else { return nil }
+        guard blockingStat(filePath, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_size <= Self.maximumPatchBytes else { return nil }
         return URL(fileURLWithPath: filePath)
     }
 
     static func realPath(_ path: String) -> String? {
-        guard let resolved = Darwin.realpath(path, nil) else { return nil }
+        guard let resolved = blockingRealpath(path, nil) else { return nil }
         defer { free(resolved) }
         return String(cString: resolved)
     }

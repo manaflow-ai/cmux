@@ -243,7 +243,7 @@ public struct TraceRingCleanup: Sendable {
     public static func processStartUnixMicros(pid: Int32) -> UInt64 {
         var info = proc_bsdinfo()
         let size = Int32(MemoryLayout<proc_bsdinfo>.size)
-        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return 0 }
+        guard blockingProcPidInfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return 0 }
         return info.pbi_start_tvsec &* 1_000_000 &+ info.pbi_start_tvusec
     }
 

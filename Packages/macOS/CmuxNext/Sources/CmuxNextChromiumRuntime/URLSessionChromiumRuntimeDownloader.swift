@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import class CmuxSafeConcurrency.OnceContinuation
 import enum CmuxSafeConcurrency.OnceContinuationError
 import func CmuxSafeConcurrency.withOnceContinuation
@@ -22,8 +23,7 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
 
     public func download(_ url: URL, to file: URL, expectedSize: Int64,
                          progress: @escaping @Sendable (Int64) -> Void) async throws(ChromiumRuntimeInstallError) {
-        let fileManager = FileManager.default
-        if !fileManager.fileExists(atPath: file.path), !fileManager.createFile(atPath: file.path, contents: nil) {
+        if !FileManager.checked.fileExists(atPath: file.path), !FileManager.checked.createFile(atPath: file.path, contents: nil) {
             throw .filesystem("cannot create \(file.lastPathComponent)")
         }
         let existing = ChromiumRuntimeInstaller.size(of: file)
@@ -33,7 +33,7 @@ public struct URLSessionChromiumRuntimeDownloader: ChromiumRuntimeDownloading {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.timeoutIntervalForRequest = idleTimeout
         let handle: FileHandle
-        do { handle = try FileHandle(forWritingTo: file) } catch { throw .filesystem(error.localizedDescription) }
+        do { handle = try FileHandle.blockingForWriting(to: file) } catch { throw .filesystem(error.localizedDescription) }
         defer { try? handle.close() }
         // One delegate callback at a time: the delegate's file writes need no lock. A download with a
         // progress bar is utility work.
@@ -95,7 +95,7 @@ private final class DownloadFileDelegate: NSObject, URLSessionDataDelegate, @unc
         do {
             switch status {
             case 206 where existing > 0:
-                try handle.seekToEnd()
+                try handle.blockingSeekToEnd()
             case 200:
                 try handle.truncate(atOffset: 0)
                 written = 0
@@ -116,7 +116,7 @@ private final class DownloadFileDelegate: NSObject, URLSessionDataDelegate, @unc
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         guard failure == nil else { return }
         do {
-            try handle.write(contentsOf: data)
+            try handle.blockingWrite(contentsOf: data)
             written += Int64(data.count)
             progress(written)
         } catch {
