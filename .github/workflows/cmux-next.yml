@@ -3273,7 +3273,9 @@ jobs:
           set -euo pipefail
           heavy="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests)"
           echo "CMUX_NEXT_MAIN_THREAD_HEAVY=$heavy" >> "$GITHUB_ENV"
-          python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests --list | sed 's/^/main-thread heavy: /'
+          suites="$(python3 scripts/cmux-next/main-thread-heavy-suites.py Packages/macOS/CmuxNext/Tests --list)"
+          echo "CMUX_NEXT_MAIN_THREAD_HEAVY_SUITES=$(echo $suites)" >> "$GITHUB_ENV"
+          printf 'main-thread heavy: %s\n' $suites
 
       # Samples and fails a run still going after 15 minutes, so a hang shows
       # its stacks; each test step timeout stops it holding the runner regardless.
@@ -3388,15 +3390,29 @@ jobs:
       # (SandboxExtension::createHandle -> __mac_syscall) for 300+ s. Every
       # main-actor test beside them stalled or failed on timing, and the stuck
       # watchdog killed the run with hundreds of tests unfinished (#26809's
-      # runs 40660100939, 40677563234 and 40683540650). A hang or a red here
-      # is this step's red.
+      # runs 40660100939, 40677563234 and 40683540650). Each suite gets a fresh
+      # process: in one shared serial process the windows earlier gallery
+      # suites left open made SidebarScrollCostTests' 500-row scroll take 300+
+      # s and the stuck watchdog ended the step (run 40693598261). A hang or a
+      # red here is this step's red, and every suite still runs.
       - name: Run main-thread-heavy suites in their own process
         if: ${{ (!cancelled() && steps.build-tests.outcome == 'success' && env.CMUX_NEXT_MAIN_THREAD_HEAVY != '') && steps.reuse.outputs.hit != 'true' }}
         timeout-minutes: 45
         working-directory: Packages/macOS/CmuxNext
         env:
-          CMUX_NEXT_TEST_HANG_SECONDS: "2400"
-        run: ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "$CMUX_NEXT_MAIN_THREAD_HEAVY"
+          CMUX_NEXT_TEST_HANG_SECONDS: "600"
+        run: |
+          set -uo pipefail
+          status=0
+          for suite in $CMUX_NEXT_MAIN_THREAD_HEAVY_SUITES; do
+            echo "::group::$suite"
+            if ! ../../../scripts/cmux-next/swift-test-with-hang-sampler.sh --skip-build --no-parallel --filter "${suite//./\\.}\\b"; then
+              status=1
+              echo "::error title=main-thread-heavy suite red::$suite"
+            fi
+            echo "::endgroup::"
+          done
+          exit "$status"
 
       # Each isolated step below runs when its suites' target is selected and
       # the build succeeded, even after a failed test step, so one red step

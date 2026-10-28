@@ -16,6 +16,9 @@
 
 #include <CoreFoundation/CoreFoundation.h>
 #include <crt_externs.h>
+#include <dlfcn.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,6 +40,49 @@ static int is_swift_testing_helper(void) {
     return 1;
 }
 
+// Every Core Animation commit in this process lays out each window that needs it, so windows the
+// tests leave open slow every later main-actor test (a 500-row sidebar scroll bench took over
+// 300 s in a process that had run other window suites first). Every 30 s, when the count moved,
+// the guard pass says how many windows the process holds, how many are on screen or need layout,
+// and the classes that hold the most, so a run that slows down names what piled up.
+static long census_last = -1;
+
+static void window_census(void) {
+    id *app_slot = (id *)dlsym(RTLD_DEFAULT, "NSApp");
+    if (app_slot == NULL || *app_slot == nil) return;
+    id (*send)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
+    unsigned long (*count_of)(id, SEL) = (unsigned long (*)(id, SEL))objc_msgSend;
+    id (*at)(id, SEL, unsigned long) = (id (*)(id, SEL, unsigned long))objc_msgSend;
+    signed char (*flag)(id, SEL) = (signed char (*)(id, SEL))objc_msgSend;
+    id windows = send(*app_slot, sel_registerName("windows"));
+    long total = (long)count_of(windows, sel_registerName("count"));
+    if (total == census_last) return;
+    census_last = total;
+    enum { kinds = 4 };
+    const char *names[kinds] = {0};
+    long counts[kinds] = {0};
+    long visible = 0, need_layout = 0;
+    for (long index = 0; index < total; index++) {
+        id window = at(windows, sel_registerName("objectAtIndex:"), (unsigned long)index);
+        if (flag(window, sel_registerName("isVisible"))) visible++;
+        if (flag(window, sel_registerName("viewsNeedLayout"))) need_layout++;
+        const char *name = object_getClassName(window);
+        int slot = 0;
+        while (slot < kinds && names[slot] != NULL && strcmp(names[slot], name) != 0) slot++;
+        if (slot == kinds) continue;
+        names[slot] = name;
+        counts[slot]++;
+    }
+    char line[512];
+    int length = snprintf(line, sizeof line, "cmux-next test process: %ld windows open (%ld on screen, %ld need layout)", total,
+                          visible, need_layout);
+    for (int slot = 0; slot < kinds && names[slot] != NULL && length > 0 && (size_t)length < sizeof line; slot++)
+        length += snprintf(line + length, sizeof line - (size_t)length, "%s %s %ld", slot == 0 ? ";" : ",", names[slot],
+                           counts[slot]);
+    if (length > 0 && (size_t)length < sizeof line - 1) line[length++] = '\n';
+    if (length > 0) write(STDERR_FILENO, line, (size_t)length < sizeof line ? (size_t)length : sizeof line - 1);
+}
+
 static void run_guard_pass(void) {
     atomic_store(&guard_running, 1);
     // A far-off timer keeps the default mode from reading as empty, so a pass waits for work
@@ -44,6 +90,10 @@ static void run_guard_pass(void) {
     CFRunLoopTimerRef keep = CFRunLoopTimerCreateWithHandler(NULL, CFAbsoluteTimeGetCurrent() + 1e9, 1e9, 0, 0,
                                                              ^(CFRunLoopTimerRef timer) { (void)timer; });
     CFRunLoopAddTimer(CFRunLoopGetMain(), keep, kCFRunLoopDefaultMode);
+    // Stop condition: none of its own; it ends with the test process, as the pass does.
+    CFRunLoopTimerRef census = CFRunLoopTimerCreateWithHandler(NULL, CFAbsoluteTimeGetCurrent() + 30, 30, 0, 0,
+                                                               ^(CFRunLoopTimerRef timer) { (void)timer; window_census(); });
+    CFRunLoopAddTimer(CFRunLoopGetMain(), census, kCFRunLoopDefaultMode);
     for (;;) {
         // Not CFRunLoopRun(): it returns on "finished" too, which would spin here.
         CFRunLoopRunResult result = CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1e9, false);

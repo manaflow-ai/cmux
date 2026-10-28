@@ -74,7 +74,12 @@ class Workflow(unittest.TestCase):
 
     def test_a_serial_step_of_their_own_runs_them(self) -> None:
         own = self.step("Run main-thread-heavy suites in their own process")
-        self.assertIn(f'--filter "${VAR}"', own["run"])
+        # One fresh process per suite: windows one suite leaves open slow every later one.
+        self.assertIn(f"for suite in ${VAR}_SUITES", own["run"])
+        self.assertIn('--filter "${suite//./\\\\.}\\\\b"', own["run"])
+        self.assertIn('exit "$status"', own["run"])
+        derive = self.step("Find the main-thread-heavy suites")
+        self.assertIn(f"{VAR}_SUITES=", derive["run"])
         self.assertIn("swift-test-with-hang-sampler.sh", own["run"])
         self.assertIn("--no-parallel", own["run"])
         self.assertIn("timeout-minutes", own)
