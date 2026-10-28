@@ -1,0 +1,268 @@
+// The composer's side of attachments placed in the prompt's text (composer/inlineNode.ts): a
+// pasted or dropped image or file goes in at the caret and in the strip above the prompt (Leo, 2026-10-25:
+// "ALSO show the top displayed attachments alongside the inline attachments... just so you can see
+// it all and close aka delete"), and the two stay one list. Everything is by id: a node taken out of
+// the text (Backspace, a cut, a selection typed over) takes its attachment out of the strip, a × in
+// the strip takes its node out of the text, undo or a paste of the node brings the attachment back,
+// and the strip's drag (stripReorder.ts) moves the nodes. The strip lists the placed attachments in
+// the text's order.
+import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { type ComposerAttachment, type DroppedKind, inlineTokenIds, orderedByMarks } from "../attachments";
+import { Spinner } from "../conversation/icons";
+import { useT } from "../i18n";
+import { imageLabel } from "../imageLabel";
+import type { MarkdownFieldHandle } from "../MarkdownField";
+import type { PendingAttachment } from "./attachmentIntake";
+import { keptThumb } from "./imagePool";
+import { reordered } from "./stripReorder";
+
+type Options = {
+  field: RefObject<MarkdownFieldHandle | null>;
+  scope?: string;
+  /// The prompt's markdown as the composer holds it.
+  text: string;
+  attachments: readonly ComposerAttachment[];
+  attachmentsRef: RefObject<ComposerAttachment[]>;
+  setAttachments(update: (current: ComposerAttachment[]) => ComposerAttachment[]): void;
+  pending: readonly PendingAttachment[];
+  /// A pending chip's cancel (attachmentIntake.tsx).
+  cancel(id: string): void;
+  retry(id: string): void;
+  /// Whether a paste or drop now places what it brings in the text (not in shell mode).
+  placing(): boolean;
+};
+
+export function useInlineAttachments(options: Options) {
+  const live = useRef(options);
+  live.current = options;
+  /// The markdown last seen, from an edit or from outside: what the next edit changed.
+  const seen = useRef(options.text);
+  /// Attachments taken out of the text or the strip, by id, for an undo or a paste of their node.
+  const removed = useRef(new Map<string, ComposerAttachment>());
+  /// Placeholders this composer placed in the text, until each is a chip or gone.
+  const placed = useRef(new Set<string>());
+  useLayoutEffect(() => {
+    removed.current.clear();
+    placed.current.clear();
+  }, [options.scope]);
+  const [views, setViews] = useState<ReadonlyMap<string, HTMLElement>>(() => new Map());
+
+  // A value from outside (a chat's own draft, a send's clear) is not an edit: nothing is removed
+  // for it, its attachments come with it (keptAttachments.ts).
+  useLayoutEffect(() => {
+    seen.current = options.text;
+  }, [options.text]);
+
+  const keep = (attachment: ComposerAttachment) => {
+    removed.current.delete(attachment.id);
+    removed.current.set(attachment.id, attachment);
+  };
+
+  // A placeholder that ended as no chip of its id (an image that went as a link to its file) leaves
+  // the text; one that became its chip is the chip's.
+  useEffect(() => {
+    const { attachments, pending, field } = live.current;
+    for (const id of placed.current) {
+      if (pending.some((chip) => chip.id === id)) continue;
+      placed.current.delete(id);
+      if (!attachments.some((attachment) => attachment.id === id)) field.current?.removeInline(id);
+    }
+  }, [options.pending, options.attachments]);
+
+  const [api] = useState(() => ({
+    /// The person's paste or drop made `chips`: each goes in at the caret, images and files alike, so
+    /// the prompt reads text, image, text, file as written (attachmentIntake.tsx `place`).
+    place(chips: readonly PendingAttachment[], _kind: DroppedKind) {
+      const { placing, field } = live.current;
+      const ids = chips.map((chip) => chip.id);
+      if (!ids.length || !placing()) return;
+      for (const id of ids) placed.current.add(id);
+      if (!field.current?.insertInline(ids)) for (const id of ids) placed.current.delete(id);
+    },
+    ready() {
+      const { attachments, field, placing } = live.current;
+      if (!placing()) return;
+      const marks = new Set(inlineTokenIds(field.current?.value() ?? seen.current));
+      const fresh = attachments.filter((chip) => !marks.has(chip.id) && !removed.current.has(chip.id));
+      if (fresh.length) field.current?.insertInline(fresh.map((chip) => chip.id));
+    },
+    /// The prompt changed by an edit (MarkdownField `onChange`), to `markdown`.
+    edited(markdown: string) {
+      const before = seen.current;
+      seen.current = markdown;
+      const was = inlineTokenIds(before);
+      const now = inlineTokenIds(markdown);
+      if (!was.length && !now.length) return;
+      const kept = new Set(now);
+      const had = new Set(was);
+      const gone = new Set(was.filter((id) => !kept.has(id)));
+      const came = now.filter((id) => !had.has(id));
+      const { setAttachments, attachmentsRef, pending, cancel } = live.current;
+      for (const id of gone) if (placed.current.delete(id) || pending.some((chip) => chip.id === id)) cancel(id);
+      for (const attachment of attachmentsRef.current) if (gone.has(attachment.id)) keep(attachment);
+      const update = (current: ComposerAttachment[]) => {
+        let next = gone.size ? current.filter((attachment) => !gone.has(attachment.id)) : current;
+        for (const id of came) {
+          if (next.some((attachment) => attachment.id === id)) continue;
+          // Undo, or a cut pasted back: the same attachment. A copy pasted beside its original: a
+          // copy of it under the node's own id.
+          const root = id.split("~")[0]!;
+          const source =
+            removed.current.get(id) ??
+            next.find((attachment) => attachment.id === root) ??
+            removed.current.get(root) ??
+            next.find((attachment) => attachment.id.split("~")[0] === root);
+          if (source) next = [...next, { ...source, id }];
+        }
+        return orderedByMarks(next, now);
+      };
+      attachmentsRef.current = update(attachmentsRef.current);
+      setAttachments(update);
+    },
+    /// A strip chip's ×: its node leaves the text too.
+    remove(id: string) {
+      const { attachmentsRef, setAttachments, field } = live.current;
+      const attachment = attachmentsRef.current.find((each) => each.id === id);
+      if (attachment) keep(attachment);
+      attachmentsRef.current = attachmentsRef.current.filter((each) => each.id !== id);
+      setAttachments((current) => current.filter((each) => each.id !== id));
+      field.current?.removeInline(id);
+    },
+    /// A loading chip's × in the strip: its place in the text goes with it.
+    cancel(id: string) {
+      placed.current.delete(id);
+      live.current.cancel(id);
+      live.current.field.current?.removeInline(id);
+    },
+    /// The strip's drag: the attachments placed in the text trade places there too.
+    reorder(id: string, index: number) {
+      const { attachmentsRef, setAttachments, field } = live.current;
+      const next = reordered(attachmentsRef.current, id, index);
+      attachmentsRef.current = next;
+      setAttachments(() => next);
+      const inText = new Set(inlineTokenIds(seen.current));
+      if (inText.size > 1)
+        field.current?.orderInline(next.filter((each) => inText.has(each.id)).map((each) => each.id));
+    },
+    /// The attachments sent with a prompt are gone for good: no undo brings them back.
+    sent(ids: Iterable<string>) {
+      for (const id of ids) removed.current.delete(id);
+    },
+    known(id: string) {
+      return (
+        placed.current.has(id) ||
+        removed.current.has(id) ||
+        live.current.attachmentsRef.current.some((item) => item.id === id)
+      );
+    },
+    onInlineViews: setViews,
+  }));
+
+  useLayoutEffect(() => {
+    api.ready();
+  }, [options.attachments, api]);
+
+  const chips = [...views].map(([id, dom]) =>
+    createPortal(
+      <InlineChip
+        id={id}
+        attachment={options.attachments.find((attachment) => attachment.id === id)}
+        pending={options.pending.find((chip) => chip.id === id)}
+        onRemove={api.remove}
+        onCancel={api.cancel}
+        onRetry={options.retry}
+      />,
+      dom,
+      id,
+    ),
+  );
+  return { ...api, chips: chips as ReactNode };
+}
+
+/// An attachment as the text shows it: its thumbnail, with a × that takes it out of the prompt; a
+/// file still being read spins (its × cancels it); one that could not be read says why, with Retry.
+function InlineChip({
+  id,
+  attachment,
+  pending,
+  onRemove,
+  onCancel,
+  onRetry,
+}: {
+  id: string;
+  attachment: ComposerAttachment | undefined;
+  pending: PendingAttachment | undefined;
+  onRemove(id: string): void;
+  onCancel(id: string): void;
+  onRetry(id: string): void;
+}) {
+  const t = useT();
+
+  const [thumb, setThumb] = useState(() => keptThumb(id));
+  useEffect(() => {
+    if (!thumb && attachment) setThumb(keptThumb(attachment.id.split("~")[0]!) ?? keptThumb(attachment.id));
+  }, [attachment, thumb]);
+  // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
+  if (!attachment && !pending) return null;
+  const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...thumb });
+  const remove = (
+    <button
+      type="button"
+      className="acpmux-md-inline-remove"
+      aria-label={t(pending && !pending.failed ? "composer.cancelAttachment" : "composer.removeAttachment", { name })}
+      onClick={() => (attachment ? onRemove(id) : onCancel(id))}
+    >
+      <svg viewBox="0 0 16 16" width="8" height="8" aria-hidden="true">
+        <path d="M3 3l10 10M13 3L3 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    </button>
+  );
+  if (!attachment)
+    return (
+      <span
+        className="acpmux-md-inline-chip"
+        data-state={pending!.failed ? "failed" : "loading"}
+        aria-busy={pending!.failed ? undefined : "true"}
+        aria-label={name}
+        /* tooltip-allow: the failed tile is cut to its size; the tooltip has the reason */ title={pending!.failed}
+      >
+        {pending!.failed ? (
+          <button type="button" className="acpmux-md-inline-retry" onClick={() => onRetry(id)}>
+            {t("composer.retryAttachment")}
+          </button>
+        ) : (
+          <Spinner loading size={14} className="acpmux-md-inline-spinner" />
+        )}
+        {remove}
+      </span>
+    );
+  // A file (a link to it on the session's machine): its name, as the strip's link chip shows it.
+  if (attachment.kind !== "image")
+    return (
+      <span
+        className="acpmux-md-inline-chip"
+        data-state="ready"
+        data-kind="file"
+        /* tooltip-allow: a long name is cut to the chip */ title={attachment.path ?? attachment.name}
+      >
+        <span className="acpmux-md-inline-file-name">{attachment.name}</span>
+        {remove}
+      </span>
+    );
+  const source =
+    attachment.kind === "image" && attachment.data
+      ? `data:${attachment.mimeType};base64,${attachment.data}`
+      : undefined;
+  const image = <img alt={name} draggable={false} src={thumb?.url ?? source} />;
+  return (
+    <span
+      className="acpmux-md-inline-chip"
+      data-state="ready"
+      /* tooltip-allow: a thumbnail shows no name */ title={name}
+    >
+      {image}
+      {remove}
+    </span>
+  );
+}

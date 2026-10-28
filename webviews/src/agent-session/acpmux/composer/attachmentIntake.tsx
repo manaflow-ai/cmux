@@ -59,6 +59,7 @@ function intakeErrorText(error: IntakeError, t: Translate): string {
 }
 
 export type AttachmentIntakeOptions = {
+  place?(chips: readonly PendingAttachment[]): void;
   /// The agent takes images (`promptCapabilities.image`); false refuses an image with a note.
   allowImages: boolean;
   /// Whether a paste on `target` is this composer's: undefined is not; `uploads` false keeps its
@@ -233,6 +234,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const gesture = (gestures.current += 1);
     batches.current.add(batch);
     setPending((chips) => [...chips, ...shown]);
+    current.place?.(shown);
     const paths = current.localPaths;
     /// The chip each file became, by index, for its original's path arriving later.
     const made: (string | undefined)[] = [];
@@ -248,6 +250,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
     const ready = (index: number, attachment: ComposerAttachment) => {
       if (!settle(index)) return;
+      attachment = { ...attachment, id: shown[index]!.id };
       made[index] = attachment.id;
       // The composer moved to another chat meanwhile: the chip is the chat's it was pasted in.
       const now = live.current.options;
@@ -460,7 +463,14 @@ function pasteTextInto(event: ClipboardEvent, text: string) {
 /// image goes without reaching for its ×. A held key's repeat does not: holding Backspace to
 /// clear the prompt stops at its start.
 export function backspacedAttachment(
-  event: { key: string; repeat: boolean; shiftKey: boolean; altKey: boolean; metaKey: boolean; ctrlKey: boolean },
+  event: {
+    key: string;
+    repeat: boolean;
+    shiftKey: boolean;
+    altKey: boolean;
+    metaKey: boolean;
+    ctrlKey: boolean;
+  },
   atStart: boolean,
   attachments: readonly ComposerAttachment[],
 ): ComposerAttachment | undefined {
@@ -511,7 +521,13 @@ export function AttachmentStrip({
     const chip = chips.find((attachment) => attachment.id === id);
     reorderTo.current?.(id, index);
     if (chip)
-      setAnnounced(translate(ATTACHMENT_LABELS.moved, { name: chip.name, position: index + 1, count: chips.length }));
+      setAnnounced(
+        translate(ATTACHMENT_LABELS.moved, {
+          name: chip.name,
+          position: index + 1,
+          count: chips.length,
+        }),
+      );
   });
   const reorderTo = useRef(onReorder);
   reorderTo.current = onReorder;

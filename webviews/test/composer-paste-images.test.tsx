@@ -37,7 +37,10 @@ let root: Root | undefined;
 let host: HTMLElement;
 
 beforeAll(() => {
-  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
+  dom = new JSDOM("<!doctype html><div id=root></div>", {
+    pretendToBeVisual: true,
+    url: "https://cmux.test/",
+  });
   const { window } = dom;
   Object.assign(scope, {
     ResizeObserver: class {
@@ -211,25 +214,21 @@ async function paste(clipboard: { files?: File[]; html?: string; plain?: string 
 
 const screenshot = (index: number) => new File([PNG], "image.png", { type: "image/png", lastModified: index });
 
-test("pasting two copied images makes two chips and puts nothing in the prompt", async () => {
+test("pasting two copied images puts two attachment atoms in the prompt", async () => {
   const composer = await openComposer();
   await paste({ files: [screenshot(1), screenshot(2)], html: imageHtml(2) });
   const chips = composer.current!.wakeState().attachments ?? [];
   expect(chips.map((chip) => chip.kind)).toEqual(["image", "image"]);
   expect(chips.every((chip) => chip.data === pngBase64)).toBe(true);
-  // Nothing inline: no image drawn in the field and no markup or base64 in its text.
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("");
-  expect(field().innerHTML).not.toContain("data:");
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
 });
 
 test("an image copied as HTML alone (no file on the clipboard) still comes in as a chip, its text as text", async () => {
   const composer = await openComposer();
   await paste({ html: `<p>look at these</p>${imageHtml(2)}`, plain: "look at these" });
   expect((composer.current!.wakeState().attachments ?? []).map((chip) => chip.kind)).toEqual(["image", "image"]);
-  expect(field().querySelector("img")).toBeNull();
-  expect(field().textContent).toBe("look at these");
-  expect(field().innerHTML).not.toContain("data:");
+  await until(() => field().querySelectorAll("[data-inline-attachment] img").length === 2, "inline thumbnails");
+  expect(field().textContent).toContain("look at these");
 });
 
 test("a pasted image goes to the agent as an image block; the prompt's text has no data: URI", async () => {
@@ -294,7 +293,12 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
 test("re-attaching design selection chips replaces both stable ids", async () => {
   const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
-  const selection = { id: "card-1", name: "Card", text: "hello", image: { mimeType: "image/png", data: "AA==" } };
+  const selection = {
+    id: "card-1",
+    name: "Card",
+    text: "hello",
+    image: { mimeType: "image/png", data: "AA==" },
+  };
   const chips = designSelectionChips(selection);
   expect(appendAttachments(appendAttachments([], chips), chips)).toEqual(chips);
 });
@@ -316,7 +320,9 @@ test("attachment intake wires local link deduplication through its hook state", 
   await act(async () => root!.render(<Field />));
   const files = [new File([], "assets", { type: "" }), new File([], "assets-copy", { type: "" })];
   for (const file of files)
-    Object.defineProperty(file, "arrayBuffer", { value: () => Promise.reject(new Error("folder")) });
+    Object.defineProperty(file, "arrayBuffer", {
+      value: () => Promise.reject(new Error("folder")),
+    });
   const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
   await act(async () => {
@@ -353,7 +359,10 @@ test("an image copied as HTML into a plain text field comes in as a chip and the
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   let held: ComposerAttachment[] = [];
   function Field() {
-    const { attachments } = useAttachmentIntake({ allowImages: true, pasteTarget: () => ({ uploads: false }) });
+    const { attachments } = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => ({ uploads: false }),
+    });
     held = attachments;
     return <textarea aria-label="Prompt" />;
   }
@@ -393,7 +402,10 @@ test("the same text pasted into a plain text field leaves its text there without
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
   let held: ComposerAttachment[] = [];
   function Field() {
-    const { attachments } = useAttachmentIntake({ allowImages: true, pasteTarget: () => ({ uploads: false }) });
+    const { attachments } = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => ({ uploads: false }),
+    });
     held = attachments;
     return <textarea aria-label="Prompt" defaultValue="see: " />;
   }
@@ -444,4 +456,25 @@ test("a bubble never draws a data: URI: each image reads as its name", async () 
   expect(bubble.textContent).not.toContain(pngBase64);
   expect(bubble.textContent).toContain("[Screenshot · 778×696]what the heck, and [Image]");
   expect(withoutDataUris("no images here", "Image")).toBe("no images here");
+});
+
+test("inline images keep the text on both sides in the sent prompt", async () => {
+  const { inlineToken } = await import("../src/agent-session/acpmux/attachments");
+  const sent: { text: string; attachments: ComposerAttachment[] }[] = [];
+  const composer = await openComposer(sent);
+  const image: ComposerAttachment = {
+    id: "between",
+    kind: "image",
+    name: "image.png",
+    mimeType: "image/png",
+    size: PNG.length,
+    data: pngBase64,
+  };
+  await act(async () => composer.current!.restore(`before ${inlineToken(image.id)} after`, [image]));
+  await until(() => Boolean(field().querySelector("[data-inline-attachment] img")), "restored inline image");
+  await act(async () => composer.current!.send());
+  const blocks = promptBlocks(sent[0]!.text, sent[0]!.attachments);
+  expect(blocks.map((block) => block.type)).toEqual(["text", "image", "text"]);
+  expect(blocks[0]).toEqual({ type: "text", text: "before " });
+  expect(blocks[2]).toEqual({ type: "text", text: " after" });
 });
