@@ -82,6 +82,7 @@ impl HostedReader {
             let replacement_protocol_version = replacement.protocol_version();
             let replacement_smart_renderer = replacement.is_smart_renderer();
             let replacement_input_flow = replacement.input_flow;
+            let replacement_input_stages = replacement.input_stages;
             let replacement_snapshot = replacement.snapshot.clone();
             let replacement_control_responses = replacement.control_responses();
             let installed = {
@@ -307,6 +308,7 @@ impl HostedReader {
             self.protocol_version = replacement_protocol_version;
             self.smart_renderer = replacement_smart_renderer;
             self.input_flow = replacement_input_flow;
+            self.input_stages = replacement_input_stages;
             let was = pty
                 .host_connection_state
                 .swap(TerminalHostConnectionState::Connected as u8, Ordering::AcqRel);

@@ -646,10 +646,12 @@ fn attach_view(
         rollback_failed_attach(mux, client, surface_id, outbound_stream.id, size_rollback);
         return Err(error.into());
     }
+    // The terminal's key presses: each echo goes out with its stages (p04-input-094).
+    let key_stages = surface.input_stages();
     if outbound_stream.client_stream.is_some() {
         let commit = AttachCommit { lifecycle, changed: client_changed, size_rollback };
         StreamView { mux, client, surface: surface_id, writer, stream: &outbound_stream, commit }
-            .start_bytes(attach, shape)?;
+            .start_bytes(attach, shape, key_stages)?;
         return Ok(attach_response(mux, surface_id, client, lease));
     }
     if let Err(error) = spawn_attach_notification_stream(
@@ -700,7 +702,9 @@ fn attach_view(
             // Each frame's encode is a 100 ms hang scope; the wait for it
             // and the hand-off that waits for room are not.
             let item = hangs.item(WatchKind::AttachOut);
-            let encoded = writer.encode_attach_frame(surface_id, &frame, shape, &outbound_stream);
+            let stages = key_stages.as_ref().and_then(|ring| ring.stages(frame.flow()));
+            let encoded =
+                writer.encode_attach_frame(surface_id, &frame, shape, stages, &outbound_stream);
             drop(item);
             if let Err(error) = writer.send_encoded_backpressured(encoded, &outbound_stream) {
                 handle_attach_send_error(&attach.lifecycle, &error);

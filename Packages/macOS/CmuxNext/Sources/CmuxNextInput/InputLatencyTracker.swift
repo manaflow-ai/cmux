@@ -106,6 +106,10 @@ public final class InputLatencyTracker {
 
     /// Slots closed since launch.
     public private(set) var closedCount: UInt64 = 0
+    /// The slot of the key press being dispatched now, from its ``begin(kind:target:entrypoint:eventTimestamp:window:arrivedMain:frameInterval:)``
+    /// to its ``endDispatch(_:)``: a terminal arms its echo stages on it and sends it to the daemon as the key's flow
+    /// (``CmuxNextInputCore/InputLatencyToken/keyFlow``, p04-input-094).
+    public private(set) var dispatchingKey: InputLatencyToken?
     /// Host presentation reports since launch that matched no open Chromium page slot (``hostPresented(eventNanos:at:)``):
     /// an input the tracker did not track, a slot that closed at its deadline first, or a report with no usable time.
     public internal(set) var unmatchedHostPresentations: UInt64 = 0
@@ -218,6 +222,7 @@ public final class InputLatencyTracker {
             hasFrameInterval = true
         }
         pending.append(Pending(token: token, window: window, target: target, kind: kind, hasFrameInterval: hasFrameInterval))
+        if kind == .keyPress { dispatchingKey = token }
         boundary.arm()
         return token
     }
@@ -261,6 +266,7 @@ public final class InputLatencyTracker {
     // perf-hot: 0.05us input-latency-mark
     public func endDispatch(_ token: InputLatencyToken) {
         table.mark(token, .dispatchEnd, at: now())
+        if dispatchingKey == token { dispatchingKey = nil }
     }
 
     // MARK: Closing

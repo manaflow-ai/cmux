@@ -13,6 +13,7 @@ use crate::Mux;
 use crate::RenderAttachFrame;
 use crate::RenderAttachStream;
 use crate::SurfaceId;
+use crate::input_stages::InputStageRing;
 use crate::panic_free::RecoverPoison;
 use crate::server::AttachWireShape;
 use crate::server::MessageWriter;
@@ -73,10 +74,12 @@ impl StreamView<'_> {
 
     /// A replay byte view: the terminal's output is the echo path, so it
     /// runs at input priority.
+    /// Each echo goes out with its press's stages from `key_stages` (p04-input-094).
     pub(crate) fn start_bytes(
         self,
         attach: AttachStream,
         shape: AttachWireShape,
+        key_stages: Option<Arc<InputStageRing>>,
     ) -> anyhow::Result<()> {
         self.start(
             SequencePriority::Input,
@@ -84,7 +87,7 @@ impl StreamView<'_> {
             |source: &BytesSource, hook| {
                 source.attach.stream.on_ready(hook);
             },
-            BytesSource { attach, shape },
+            BytesSource { attach, shape, key_stages },
         )
     }
 
@@ -119,6 +122,8 @@ impl StreamView<'_> {
 struct BytesSource {
     attach: AttachStream,
     shape: AttachWireShape,
+    /// The terminal's key presses' stages, read as each echo goes out.
+    key_stages: Option<Arc<InputStageRing>>,
 }
 
 impl ViewSource for BytesSource {
@@ -127,8 +132,14 @@ impl ViewSource for BytesSource {
     fn next(&mut self, out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
         match self.attach.stream.try_recv() {
             Ok(frame) => {
-                let sent =
-                    out.writer.send_attach_frame(out.surface, &frame, self.shape, &out.stream);
+                let stages = self.key_stages.as_ref().and_then(|ring| ring.stages(frame.flow()));
+                let sent = out.writer.send_attach_frame(
+                    out.surface,
+                    &frame,
+                    self.shape,
+                    stages,
+                    &out.stream,
+                );
                 if out.sent(sent) { Step::Sent } else { Step::End }
             }
             Err(TryRecvError::Empty) => Step::Empty,

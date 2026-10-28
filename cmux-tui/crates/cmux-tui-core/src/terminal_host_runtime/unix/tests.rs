@@ -159,6 +159,7 @@ fn exited_host_fixture_with_parser_at(
         parser_progress: (Mutex::new(0), Condvar::new()),
         next_client: AtomicU64::new(1),
         last_input_flow: Default::default(),
+        input_stages: Default::default(),
         dead: AtomicBool::new(false),
         launch_owner_claimed: AtomicBool::new(true),
         launch_owner_stream_ready: AtomicBool::new(true),
@@ -253,6 +254,7 @@ fn record_fixture(name: &str) -> (PathBuf, TerminalHostRecord, HostLivenessLease
         supports_trace_control: false,
         supports_input_flow: false,
         supports_thread_qos: false,
+        supports_input_stages: false,
         orphan_grace_secs: None,
     };
     let record_path = record.record_path(&root);
@@ -289,6 +291,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         supports_trace_control: false,
         supports_input_flow: false,
         supports_thread_qos: false,
+        supports_input_stages: false,
         orphan_grace_secs: None,
     };
     let record_path = std::env::temp_dir().join(format!(
@@ -326,6 +329,7 @@ pub(crate) fn input_ack_surface_fixture() -> (HostAttachment, UnixStream) {
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
         input_flow: false,
+        input_stages: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

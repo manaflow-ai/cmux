@@ -129,6 +129,7 @@ fn serve_host(
         supports_trace_control: true,
         supports_input_flow: true,
         supports_thread_qos: true,
+        supports_input_stages: true,
         orphan_grace_secs: host_orphan_grace().map(|grace| grace.as_secs()),
     };
     let record_root = Path::new(&launch.record_path)
