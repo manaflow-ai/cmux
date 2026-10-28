@@ -170,10 +170,6 @@ final class AccountsService: AccountsServices {
 /// Settings > Accounts drives the same Cloud sign-in as every other entry point.
 extension CloudAuth: CmuxAccountSource {}
 
-extension CloudAuth: CodeRouterAccountSource {
-    public var codeRouterAccountID: String? { isSignedIn ? user?.id : nil }
-}
-
 /// Fixture mode: no Keychain item exists.
 private struct NoKeychain: KeychainProbing {
     func hasGenericPassword(service: String) -> Bool { false }

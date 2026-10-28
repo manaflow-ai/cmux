@@ -6,6 +6,7 @@ public import Foundation
 /// failure; a request body is never included.
 public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible {
     case notSignedIn
+    case scopeChanged
     case timedOut(String)
     case http(status: Int, code: String?, message: String?)
     case transport(String)
@@ -14,6 +15,7 @@ public enum CodeRouterError: Error, Sendable, Equatable, CustomStringConvertible
     public var description: String {
         switch self {
         case .notSignedIn: "not signed in to cmux"
+        case .scopeChanged: "cmux account scope changed"
         case .timedOut(let path): "\(path) timed out"
         case .http(let status, let code, let message): message ?? code.map { "\($0) (\(status))" } ?? "HTTP \(status)"
         case .transport(let detail): detail
@@ -98,7 +100,9 @@ public struct CodeRouterClient: Sendable {
     func send(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                      team override: String? = nil) async throws -> Data {
         let (access, refresh): (String, String)
-        do { (access, refresh) = try await tokens() } catch { throw CodeRouterError.notSignedIn }
+        do { (access, refresh) = try await tokens() }
+        catch let error as CodeRouterError { throw error }
+        catch { throw CodeRouterError.notSignedIn }
         guard let url = URL(string: baseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/")) + path) else {
             throw CodeRouterError.transport("bad path")
         }
