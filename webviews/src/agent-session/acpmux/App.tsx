@@ -136,7 +136,7 @@ import { acpmuxPerf, type MountedSpan } from "./perf";
 import { followTrace } from "./followTrace";
 import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
-import { createScrollPacer, type ScrollFrame } from "./scrollPacer";
+import { authoritativeScrollIntent, createScrollPacer, type ScrollFrame } from "./scrollPacer";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
 import {
@@ -2226,13 +2226,20 @@ export function VirtualTranscript({
     if (ref.current && Math.abs(ref.current.scrollTop - frame.top) > 0.5) {
       const node = ref.current;
       const top = node.scrollTop;
-      const atLatest = jumpTarget.current !== undefined
-        ? true
-        : followingRef.current && top >= node.scrollHeight - node.clientHeight - FOLLOW_BOTTOM_DEADBAND_PX;
+      const atLatest = authoritativeScrollIntent({
+        top,
+        scrollHeight: node.scrollHeight,
+        clientHeight: node.clientHeight,
+        following: followingRef.current,
+        jumping: jumpTarget.current !== undefined,
+        deadband: FOLLOW_BOTTOM_DEADBAND_PX,
+      });
       scrollRef.current = { top, delta: top - scrollRef.current.top };
+      // Route recovery through the authoritative setter so the parent callback and synchronous
+      // intent ref agree; a stale queued `atLatest` must not retake a parked reader.
       flushSync(() => {
+        followRef.current(atLatest);
         setScroll(scrollRef.current);
-        setFollowing(atLatest);
       });
       return;
     }
