@@ -5902,3 +5902,6 @@ mod actor_migration_tests;
 
 #[cfg(test)]
 mod workspace_name_tests;
+
+#[cfg(all(test, unix))]
+mod identity_file_tests;
