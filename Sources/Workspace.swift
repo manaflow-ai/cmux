@@ -11405,7 +11405,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         // intentionally pinned (which hides Bonsplit's close affordance), but
         // keep this guard for force/API paths that bypass the tab chrome.
         if let panelId = panelIdFromSurfaceId(tabId),
-           (panels[panelId] as? ChiefPanel)?.isHome == true {
+           (panels[panelId] as? ChiefPanel)?.isProtectedHome == true {
             return false
         }
         if force { forceCloseTabIds.insert(tabId) }
@@ -14584,7 +14584,7 @@ extension Workspace: BonsplitDelegate {
         // Pinned protects normal Bonsplit UI; this delegate guard covers
         // callers that ask the controller to close directly.
         if let panelId = panelIdFromSurfaceId(tab.id),
-           (panels[panelId] as? ChiefPanel)?.isHome == true {
+           (panels[panelId] as? ChiefPanel)?.isProtectedHome == true {
             return false
         }
         func recordPostCloseState() {
@@ -15216,7 +15216,7 @@ extension Workspace: BonsplitDelegate {
         let tabs = controller.tabs(inPane: pane)
         if tabs.contains(where: { tab in
             guard let panelId = panelIdFromSurfaceId(tab.id) else { return false }
-            return (panels[panelId] as? ChiefPanel)?.isHome == true
+            return (panels[panelId] as? ChiefPanel)?.isProtectedHome == true
         }) {
             return false
         }

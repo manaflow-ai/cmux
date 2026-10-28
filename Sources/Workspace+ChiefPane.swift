@@ -6,7 +6,14 @@ import Foundation
 /// Workspace surface creation for Chief panes: a Chief conversation as a tab or a split.
 extension Workspace {
     /// True when this workspace owns its protected canonical Chief Home pane.
+    /// Home is protected only while `chief.enabled` is on; with Chief off it is
+    /// an ordinary workspace the user can unpin and close.
     var isChiefHome: Bool {
+        ChiefSettings.isEnabled && holdsChiefHomePane
+    }
+
+    /// True when this workspace holds the canonical Home pane, whether or not Chief is enabled.
+    var holdsChiefHomePane: Bool {
         panels.values.contains { ($0 as? ChiefPanel)?.isHome == true }
     }
 

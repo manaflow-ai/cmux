@@ -64,4 +64,69 @@ struct ChiefDisabledHomeTests {
         let home = try #require(workspace.newChiefSurface(inPane: paneId, isHome: true, focus: false))
         #expect(workspace.closePanel(home.id, force: true))
     }
+
+    @Test func removeHomeClosesHomeAndUnpinsItsGroupWhenChiefIsOff() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let groupId = try #require(home.groupId)
+        let member = try #require(manager.tabs.first { !$0.holdsChiefHomePane })
+        manager.addWorkspaceToGroup(workspaceId: member.id, groupId: groupId)
+
+        // Enabled: removal is a no-op.
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(manager.tabs.contains { $0.id == home.id })
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(!manager.tabs.contains { $0.holdsChiefHomePane })
+        #expect(manager.tabs.contains { $0.id == member.id })
+        #expect(manager.workspaceGroups.allSatisfy {
+            $0.externalID != ChiefHomeNavigation.homeGroupExternalID || !$0.isPinned
+        })
+        #expect(ChiefHomeNavigation.ensureHome(in: manager) == nil)
+    }
+
+    @Test func removeHomeLeavesAWorkspaceWhenHomeWasTheOnlyOne() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        for workspace in manager.tabs where workspace.id != home.id {
+            manager.closeWorkspace(workspace, recordHistory: false)
+        }
+        #expect(manager.tabs.map(\.id) == [home.id])
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(manager.tabs.count == 1)
+        #expect(!manager.tabs.contains { $0.holdsChiefHomePane })
+        #expect(manager.selectedWorkspace != nil)
+    }
+
+    @Test func disabledChiefServiceDoesNotStart() {
+        let setting = ChiefEnabledOverride(false)
+        defer { setting.restore() }
+        ChiefService.shared.start()
+        #expect(ChiefService.shared.storeIfStarted == nil)
+        #expect(ChiefService.shared.store == nil)
+    }
+
+    @Test func removeHomeKeepsPanesTheUserAddedToHome() throws {
+        let setting = ChiefEnabledOverride(true)
+        defer { setting.restore() }
+        let manager = TabManager()
+        let home = try #require(ChiefHomeNavigation.ensureHome(in: manager))
+        let homePane = try #require(home.panels.values.compactMap { $0 as? ChiefPanel }.first(where: \.isHome))
+        let paneId = try #require(home.bonsplitController.focusedPaneId)
+        let terminal = try #require(home.newTerminalSurface(inPane: paneId, focus: false))
+
+        ChiefSettings.setEnabled(false)
+        ChiefHomeNavigation.removeHome(in: manager)
+        #expect(manager.tabs.contains { $0.id == home.id })
+        #expect(home.panels[homePane.id] == nil)
+        #expect(home.panels[terminal.id] != nil)
+        #expect(!home.holdsChiefHomePane)
+    }
 }

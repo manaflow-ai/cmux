@@ -2441,7 +2441,8 @@ class TabManager: ObservableObject {
     }
 
     func isChiefHomeGroup(_ groupId: UUID) -> Bool {
-        workspaceGroups.contains { $0.id == groupId && $0.externalID == ChiefHomeNavigation.homeGroupExternalID }
+        guard ChiefSettings.isEnabled else { return false }
+        return workspaceGroups.contains { $0.id == groupId && $0.externalID == ChiefHomeNavigation.homeGroupExternalID }
             || tabs.contains { $0.groupId == groupId && $0.isChiefHome }
     }
 

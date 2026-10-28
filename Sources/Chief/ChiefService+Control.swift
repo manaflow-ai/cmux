@@ -131,7 +131,7 @@ extension ChiefService {
         start()
         let failure = startFailure ?? ChiefStrings.unavailable
         if let ownerLoad { return (ownerLoad, failure) }
-        // Not reached: start() always sets the load.
+        // start() sets the load unless `chief.enabled` is off.
         return (Task<ChiefConversationOwner, any Error> { throw ChiefControlFailure.unavailable(failure) }, failure)
     }
 

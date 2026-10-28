@@ -98,6 +98,31 @@ struct ChiefHomeNavigation {
         return home
     }
 
+    /// With `chief.enabled` off, removes Chief Home and unpins the Home group,
+    /// so a disabled Chief leaves nothing pinned in the sidebar. A Home
+    /// workspace holding only Chief panes closes (a window whose only
+    /// workspace it is gets a fresh workspace first); one the user added other
+    /// panes to keeps them and loses only its Home pane.
+    static func removeHome(in manager: TabManager) {
+        guard !ChiefSettings.isEnabled, !manager.isFinalizedForWindowClose else { return }
+        for home in manager.tabs where home.holdsChiefHomePane {
+            if home.panels.values.allSatisfy({ $0 is ChiefPanel }) {
+                if manager.tabs.count == 1 {
+                    guard manager.addWorkspaceIfActive(select: true) != nil else { return }
+                }
+                manager.closeWorkspace(home, recordHistory: false)
+            } else {
+                let homePanes = home.panels.values.compactMap { $0 as? ChiefPanel }.filter(\.isHome)
+                home.withClosedPanelHistorySuppressed {
+                    for pane in homePanes { _ = home.closePanel(pane.id, force: true) }
+                }
+            }
+        }
+        for group in manager.workspaceGroups where group.externalID == homeGroupExternalID && group.isPinned {
+            manager.setWorkspaceGroupPinned(groupId: group.id, isPinned: false)
+        }
+    }
+
     /// Opens a conversation as an ordinary workspace under Home; existing views are reused.
     @discardableResult
     static func openConversation(_ id: ConversationID, in manager: TabManager, select: Bool = true) -> Workspace? {

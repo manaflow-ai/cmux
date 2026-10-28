@@ -671652,6 +671652,65 @@
           }
         }
       }
+    },
+    "workspaceGroup.error.chiefHomeCannotUnpin": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Home group stays pinned while Chief is enabled"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تبقى مجموعة Home مثبّتة ما دام Chief مفعّلًا"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Gruppe „Home“ bleibt angeheftet, solange Chief aktiviert ist"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El grupo Home permanece fijado mientras Chief esté activado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le groupe Home reste épinglé tant que Chief est activé"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief が有効な間、Home グループは固定されたままです"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief가 활성화된 동안 Home 그룹은 고정된 상태로 유지됩니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 启用时，Home 分组会保持固定"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chief 啟用時，Home 群組會保持釘選"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
