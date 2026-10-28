@@ -135,6 +135,10 @@ test("full-page screenshots may exceed viewport height", async () => {
     expect(await validateScreenshot("fixture.geometry.json", value)).toEqual([]);
     const narrow = new PNG({ width: 99, height: 180 });
     writeFileSync(screenshot, PNG.sync.write(narrow));
+    value.capture.screenshotSha256 = createHash("sha256").update(readFileSync(screenshot)).digest("hex");
+    expect((await validateScreenshot("fixture.geometry.json", value))[0]).toContain("do not cover viewport");
+    writeFileSync(screenshot, PNG.sync.write(new PNG({ width: 100, height: 99 })));
+    value.capture.screenshotSha256 = createHash("sha256").update(readFileSync(screenshot)).digest("hex");
     expect((await validateScreenshot("fixture.geometry.json", value))[0]).toContain("do not cover viewport");
   } finally {
     rmSync(dir, { recursive: true, force: true });
