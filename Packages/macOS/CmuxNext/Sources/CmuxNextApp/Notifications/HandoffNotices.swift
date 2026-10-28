@@ -39,8 +39,9 @@ final class HandoffNotices {
         self.follower.onForget = { [weak services] ids in services?.notifications.desktop.withdraw(ids.map { Self.bannerPrefix + $0 }) }
     }
 
-    /// Follows the signed-in account while Cloud may be called and Labs > Show Preview Features is
-    /// on (hand-off is a preview feature): its hand-offs resume, a sign-out stops them.
+    /// Follows the signed-in account while Cloud may be called: its hand-offs resume, a sign-out
+    /// stops them. Not gated on Labs: only a hand-off made (behind Labs) has anything to follow, and
+    /// turning Labs off must not forget which stops were already told.
     func start() {
         guard account == nil, let services else { return }
         let follower = follower
@@ -60,10 +61,9 @@ final class HandoffNotices {
         follower.stop()
     }
 
-    /// The signed-in user whose hand-offs are followed; nil while Cloud is off or Labs is.
+    /// The signed-in user whose hand-offs are followed; nil while Cloud is off.
     private static func user(in services: AppServices) -> String? {
-        guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud, services.cloud.isSignedIn,
-              services.settings?.snapshot.previewFeatures == true else { return nil }
+        guard !services.registry.disabledFeatures.contains(.cloud), services.cloud.mayCallCloud, services.cloud.isSignedIn else { return nil }
         return services.cloud.auth.user?.id
     }
 
