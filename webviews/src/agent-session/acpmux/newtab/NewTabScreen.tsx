@@ -1347,17 +1347,12 @@ export function NewTabScreen(props: Props) {
           {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
           <div className="nt-input" onMouseDown={focusFromRow}>
             {split && attachmentPicker}
-            {shell ? (
-              <span className="nt-shell-glyph" aria-hidden="true">
-                !
-              </span>
-            ) : (
-              sections.prompt && (
-                <span className="nt-prompt-glyph" aria-hidden="true">
-                  &gt;
-                </span>
-              )
-            )}
+            <span
+              className={`nt-input-glyph ${shell ? "nt-shell-glyph" : sections.prompt ? "nt-prompt-glyph" : "nt-shell-glyph nt-shell-glyph-placeholder"}`}
+              aria-hidden="true"
+            >
+              {shell ? "!" : sections.prompt ? ">" : "!"}
+            </span>
             {/* A textarea, not a one-line input (Austin: a typed draft was cut to its first line): a long
               draft wraps and the field grows with it up to its cap (screen.css), then scrolls. Return
               still sends; every line break is one the draft brought in (a paste). */}
