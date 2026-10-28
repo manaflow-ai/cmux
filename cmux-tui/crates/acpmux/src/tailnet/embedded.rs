@@ -1058,6 +1058,7 @@ fn logout_and_close(
     logged_out.and(closed)
 }
 
+#[cfg(test)]
 fn late_logout_error() -> String {
     "Remote logout did not complete before the node closed; sign out from the admin console."
         .to_owned()
