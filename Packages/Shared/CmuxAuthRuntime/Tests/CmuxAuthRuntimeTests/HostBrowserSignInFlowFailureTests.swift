@@ -77,6 +77,28 @@ import Testing
         #expect(await harness.tokenStore.getStoredAccessToken() == "access-1")
     }
 
+    @Test func rejectedCallbackDoesNotReportFailureOverRestoredSession() async {
+        let harness = HostBrowserSignInFlowHarness(user: CMUXAuthUser(id: "u1", primaryEmail: nil, displayName: nil))
+        await harness.tokenStore.setTokens(accessToken: "stored-access", refreshToken: "stored-refresh")
+        await harness.client.closeUserGate()
+        harness.coordinator.start()
+        await harness.waitForPendingUserRequest()
+        var callbackStarted = false
+        let callback = Task {
+            callbackStarted = true
+            return await harness.flow.handleCallbackURL(harness.callbackURL(state: "previous-launch"))
+        }
+        await harness.waitForCondition { callbackStarted }
+        await harness.client.openUserGate()
+        await harness.coordinator.awaitBootstrapped()
+
+        #expect(await callback.value == false)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.flow.lastFailure == nil)
+        #expect(await harness.tokenStore.getStoredRefreshToken() == "stored-refresh")
+        #expect(await harness.tokenStore.getStoredAccessToken() == "stored-access")
+    }
+
     @Test func callbackTokensThatDoNotValidateRecordUnauthorizedFailure() async {
         let harness = HostBrowserSignInFlowHarness(user: nil)
 
