@@ -125,6 +125,7 @@ public final class AgentPaneMachineLink {
             } catch {
                 // A send the person cancelled reconnects nothing and is not retried.
                 guard !Task.isCancelled, await reconnect(machine) else { throw error }
+                try Task.checkCancellation()
                 return try await endpoint()
             }
         }
