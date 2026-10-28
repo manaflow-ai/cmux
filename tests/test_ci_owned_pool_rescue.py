@@ -2578,6 +2578,20 @@ class SideLanes(unittest.TestCase):
         self.assertNotIn("cancel", api.calls)
         self.assertIn("attempt 3 takes the side lane's Blacksmith overflow", summary)
 
+    def test_a_failed_cmux_next_pull_request_or_tip_suite_run_is_watched_when_it_completes(self):
+        # A pull request's swift test the runner hook refused (run 40671913126) and the tip Swift suite's
+        # dispatch had no `completed` wake: they stayed red until the two-hourly sweeper reached them.
+        pull = self.dev_daily_completed(event="pull_request", run_attempt=1, display_title="cmux-next · " + HEAD,
+                                        pull_requests=[{"number": 26809}])
+        target = rescue.completed_target(pull, "manaflow-ai/cmux")
+        self.assertIsInstance(target, rescue.Target, target)
+        self.assertEqual(target.pr_number, 26809)
+        tip = self.dev_daily_completed(run_attempt=1, display_title=f"cmux-next tip Swift suite · {HEAD}")
+        self.assertIsInstance(rescue.completed_target(tip, "manaflow-ai/cmux"), rescue.Target)
+        fork = self.dev_daily_completed(event="pull_request", run_attempt=1, pull_requests=[{"number": 1}],
+                                        head_repository={"full_name": "someone/cmux"})
+        self.assertIsInstance(rescue.completed_target(fork, "manaflow-ai/cmux"), str)
+
     def test_a_completed_event_watches_only_cmux_next_and_never_past_the_bots_attempt_three(self):
         clock = Clock()
         api = FakeAPI(clock, lambda seconds: [])
@@ -3236,8 +3250,10 @@ class Nightly(unittest.TestCase):
         self.assertEqual(seen, [("GET", "/actions/workflows/nightly.yml/runs?branch=main&per_page=20")])
 
     def test_a_run_with_no_trusted_job_stops_when_it_finishes(self):
+        # Its jobs listed so far finishing is not enough: its sign and verify jobs appear later (signs_late).
         clock = Clock()
-        api = NightlyAPI(clock, lambda s: [job("decide", status="completed", labels=[BLACKSMITH])])
+        api = NightlyAPI(clock, lambda s: [job("decide", status="completed", labels=[BLACKSMITH])],
+                         finished=lambda s: s >= 300)
         code, summary = run_main(api, clock, payload=nightly_event())
         self.assertEqual(code, 0)
         self.assertIn("no job of the run asked for a persistent pool", summary)
@@ -3342,12 +3358,52 @@ class Nightly(unittest.TestCase):
         self.assertIn("stopped: the run finished with no job", summary)
         self.assertLess(clock.seconds, 300)
 
+    def test_a_job_pinned_after_the_build_moves_after_a_short_wait(self):
+        # #26494: main's prepare-nightly-variant legs take the trusted mini right after the build, and a newer
+        # push's build can take it first. The build's own wait stays untimed; the legs move after
+        # RESERVED_FOLLOWER_SECONDS, unless another job of the run is running.
+        pinned = [TRUSTED, "glaeda-runner-cmux15-glaeda"]
+        legs = [dict(job(f"prepare-nightly-variant ({variant})", labels=pinned, created=0), id=index)
+                for index, variant in enumerate(("primary", "fallback", "legacy"), start=10)]
+        built = dict(job("build-nightly-app", status="completed", labels=pinned), id=1, conclusion="success")
+        early = START + dt.timedelta(seconds=rescue.RESERVED_FOLLOWER_SECONDS - 1)
+        late = START + dt.timedelta(seconds=rescue.RESERVED_FOLLOWER_SECONDS)
+        self.assertEqual(rescue.assess([built, *legs], now=early, budget_seconds=30, reserved=True).action, "watch")
+        look = rescue.assess([built, *legs], now=late, budget_seconds=30, reserved=True)
+        self.assertEqual(look.action, "rescue", look.reason)
+        self.assertIn("prepare-nightly-variant (primary)", look.reason)
+        # One leg running on the mini: the others wait for it (a started nightly is never cancelled).
+        running = dict(legs[0], status="in_progress", runner_name="cmux15")
+        self.assertEqual(rescue.assess([built, running, *legs[1:]], now=late, budget_seconds=30,
+                                       reserved=True).action, "watch")
+        # The build's wait is never timed, however long.
+        build = dict(job("build-nightly-app", labels=pinned, created=0), id=1)
+        self.assertEqual(rescue.assess([build], now=late + dt.timedelta(hours=2), budget_seconds=30,
+                                       reserved=True).action, "watch")
+
+    def test_main_s_pinned_legs_are_re_run_when_main_moved_on(self):
+        # The app is built, so a newer main push does not make the run moot: its failed jobs are re-run.
+        pinned = [TRUSTED, "glaeda-runner-cmux15-glaeda"]
+
+        def jobs(seconds):
+            return [dict(job("decide", status="completed", labels=[BLACKSMITH]), id=1, conclusion="success"),
+                    dict(job("build-nightly-app", status="completed", labels=pinned), id=2, conclusion="success"),
+                    dict(job("prepare-nightly-variant (primary)", labels=pinned, created=60), id=3)]
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, pushes=[RUN_ID + 1])
+        api.branch_head = lambda branch: "b" * 40
+        _, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"], summary)
+        # Before the build has succeeded, main moving on still cancels without a re-run, as before.
+        self.assertEqual(rescue.app_built([jobs(0)[0], dict(jobs(0)[1], conclusion="failure")]), False)
+
     def test_only_a_nightly_honours_a_runner_label(self):
         # A pull request's compile admission names a warm runner as a preference: still rescued.
         stuck = job("macos / macOS compile admission", labels=[MINI, "glaeda-runner-cmux1-glaeda"], created=0)
         now = START + dt.timedelta(seconds=600)
         self.assertEqual(rescue.assess([stuck], now=now, budget_seconds=90).action, "rescue")
-        self.assertEqual(rescue.assess([stuck], now=now, budget_seconds=90, reserved=True).action, "watch")
+        build = dict(stuck, name="build-nightly-app")
+        self.assertEqual(rescue.assess([build], now=now, budget_seconds=90, reserved=True).action, "watch")
         # With no runner label the nightly's job is judged on the configured budget.
         plain = job("build-nightly-app", labels=[TRUSTED], created=0)
         self.assertEqual(rescue.assess([plain], now=now, budget_seconds=90, reserved=True).action, "rescue")
@@ -4601,6 +4657,20 @@ SIGN_VERIFY_WORKFLOW = """  verify-signed-nightly:
   verify-final-dmg-nightly:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
 """
+# main's nightly.yml (classic): the alternate is taken only by an attempt after the one that picked it.
+CLASSIC_SIGN_WORKFLOW = """
+jobs:
+  build-sign-notarize-nightly:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.pick-classic-sign-runner.outputs.attempt != github.run_attempt && needs.pick-classic-sign-runner.outputs.alternate || needs.pick-classic-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}
+  sign-nightly-identity-legacy:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.run_attempt > 1 && needs.legacy-identity-target.outputs.sign_alternate || needs.legacy-identity-target.outputs.sign_runner || 'blacksmith-6vcpu-macos-26' }}
+"""
+# nightly-next's Linux signer path (#26171's successors): its Mac jobs image, verify and check the final DMG.
+SIGNER_WORKFLOW = "jobs:\n" + "".join(
+    f"  {name}:\n    runs-on: ${{{{ github.run_attempt == 1 && needs.pick-nightly-sign-runner.outputs.owned || "
+    "github.run_attempt > 1 && needs.pick-nightly-sign-runner.outputs.alternate || "
+    "needs.pick-nightly-sign-runner.outputs.runner || 'blacksmith-6vcpu-macos-26' }}\n"
+    for name in ("signer-dmg-image", "signer-verify", "verify-final-dmg-nightly"))
 # The same jobs before the alternate label (nightly.yml before #26171): a re-run takes the stalled label again.
 SIGN_WORKFLOW_BEFORE = """
 jobs:
@@ -4617,7 +4687,8 @@ def signing_run(*, queued_at=60, sibling_done_at=0, started_at=None):
     `sibling_done_at` keeps one other job running until then; `started_at` gives the arm64 signing job a runner."""
     def jobs(seconds):
         found = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1),
-                 dict(job("build-nightly-app", status="completed", labels=[BLACKSMITH], runner="bs-1"), id=2),
+                 dict(job("build-nightly-app", status="completed", labels=[BLACKSMITH], runner="bs-1"), id=2,
+                      conclusion="success"),
                  dict(job("build-nightly-ghostty-cli-helper", labels=["blacksmith-4vcpu-ubuntu-2404"], runner="bs-2",
                           status="completed" if seconds >= sibling_done_at else "in_progress"), id=3)]
         if seconds >= queued_at:
@@ -4699,12 +4770,46 @@ class NightlySigningStall(unittest.TestCase):
             # The file is read once per watch, not every look.
             self.assertEqual(sum(call.startswith("workflow:") for call in api.calls), 1)
 
-    def test_only_nightly_next_s_first_attempt(self):
-        # Main's nightly takes no alternate signing label: this rule leaves it alone.
+    def test_main_s_first_attempt_with_the_classic_alternate_is_rescued(self):
+        # Main's nightly (classic) takes pick-classic-sign-runner's alternate on a re-run: its stall is moved too.
         clock = Clock()
-        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW)
+        api = NightlyAPI(clock, signing_run(), workflow=CLASSIC_SIGN_WORKFLOW)
+        _, summary = run_main(api, clock, payload=nightly_event())
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"], summary)
+        # main having moved on does not make a run whose app is built moot; a newer run pending behind it does.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=CLASSIC_SIGN_WORKFLOW, pushes=[RUN_ID + 1])
+        api.branch_head = lambda branch: "b" * 40
         run_main(api, clock, payload=nightly_event())
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"])
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=CLASSIC_SIGN_WORKFLOW, newer=[RUN_ID + 1])
+        run_main(api, clock, payload=nightly_event())
+        self.assertNotIn("rerun-failed", mutations(api))
+        # Without the alternate in its runs-on a re-run would queue on the same label: left alone.
+        clock = Clock()
+        api = NightlyAPI(clock, signing_run(), workflow=SIGN_WORKFLOW_BEFORE)
+        _, summary = run_main(api, clock, payload=nightly_event())
         self.assertEqual(mutations(api), [])
+        self.assertIn("takes no alternate label on a re-run", summary)
+
+    def test_signer_verify_and_dmg_image_are_rescued(self):
+        # Run 40585960129 (2026-10-28): signer-verify and the final-DMG verify sat on blacksmith-6vcpu-macos-26 for
+        # hours after every other job had finished; signer-verify was in no table, so it held the run as unfinished.
+        def jobs(seconds):
+            found = [dict(job("decide", status="completed", labels=["blacksmith-4vcpu-ubuntu-2404"]), id=1),
+                     dict(job("signer-dmg-image", status="completed", labels=[BLACKSMITH]), id=2,
+                          conclusion="success")]
+            if seconds >= 60:
+                found += [dict(job("signer-verify", labels=[BLACKSMITH], created=60), id=3),
+                          dict(job("Verify final nightly DMG (arm64)", labels=[BLACKSMITH], created=70), id=4)]
+            return found
+        clock = Clock()
+        api = NightlyAPI(clock, jobs, workflow=SIGNER_WORKFLOW)
+        _, summary = run_main(api, clock, payload=nightly_event(head_branch="nightly-next"))
+        self.assertEqual(mutations(api), ["cancel", "rerun-failed"], summary)
+        self.assertIn("signer-verify", summary)
+        self.assertEqual(rescue.sign_job_key({"name": "signer-dmg-image"}), "signer-dmg-image")
         # Attempt 2 is already on the alternate label: it is never cancelled again for a stall.
         target = rescue.target_from_event(nightly_event(head_branch="nightly-next"), "manaflow-ai/cmux")
         target = dataclasses.replace(target, attempt=2)
@@ -5306,15 +5411,18 @@ class Workflow(unittest.TestCase):
         self.assertEqual(step["env"]["WATCH_RUN_ID"], "${{ inputs.run_id }}")
         self.assertIn("inputs.run_id || github.event.workflow_run.id", self.doc["concurrency"]["group"])
 
-    # A failed cmux-next DEV daily dispatch or feat-cmux-next push, at any attempt (completed_target()).
+    # A failed cmux-next DEV daily or tip Swift suite dispatch, base-branch push or same-repository pull
+    # request run, at any attempt (completed_target()).
     COMPLETED_DEV_RUN = (
         "github.event.action == 'completed' && "
         "github.event.workflow_run.path == '.github/workflows/cmux-next.yml' && "
         "github.event.workflow_run.conclusion == 'failure' && "
         "github.event.workflow_run.head_repository.full_name == github.repository && "
         "(github.event.workflow_run.event == 'workflow_dispatch' && "
-        "startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || "
-        "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next')")
+        "(startsWith(github.event.workflow_run.display_title, 'cmux NEXT DEV daily') || "
+        "startsWith(github.event.workflow_run.display_title, 'cmux-next tip Swift suite')) || "
+        "github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'feat-cmux-next' || "
+        "github.event.workflow_run.event == 'pull_request')")
 
     def test_a_failed_cmux_next_dev_run_wakes_a_rescue_when_it_completes(self):
         condition = self.doc["jobs"]["rescue"]["if"]

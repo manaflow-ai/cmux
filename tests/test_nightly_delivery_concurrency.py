@@ -2,6 +2,7 @@
 
 from pathlib import Path
 import re
+import subprocess
 import sys
 
 import yaml
@@ -262,6 +263,62 @@ def test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups() ->
     assert "cancel-in-progress: false" in dev
 
 
+def test_the_tick_is_the_only_cadence_and_the_only_promoter() -> None:
+    """nightly-next moves at most once per 30-minute tick, so a burst of landings starts one build.
+
+    On 2026-10-28 every finished cmux-next or cmux-tui artifacts run on feat-cmux-next promoted, through
+    this tick's workflow_run trigger and their own request jobs, and six Release builds ran at once."""
+    tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
+    triggers = tick.get("on", tick.get(True))
+    assert set(triggers) == {"schedule", "workflow_dispatch"}, "a workflow_run trigger promotes on every landing"
+    assert triggers["schedule"] == [{"cron": "7,37 * * * *"}]
+    steps = {step.get("name"): step for step in tick["jobs"]["request"]["steps"]}
+    request = steps["Request nightly-next promotion on main"]
+    assert request["env"]["NIGHTLY_NEXT_PROMOTE"] == "1", "request-nightly-next.sh promotes only when the tick asks"
+    for name, step in steps.items():
+        if step is not request:
+            assert "NIGHTLY_NEXT_PROMOTE" not in (step.get("env") or {}), name
+
+
+def test_the_tick_marks_every_revisions_promotion_request(tmp_path: Path) -> None:
+    """Main's promote job admits only "tick:" requests from github-actions[bot] (promote-nightly-next.mjs
+    decideRequest); the tick's gh shim adds the prefix to whatever form each revision's script dispatches."""
+    tick = yaml.safe_load((WORKFLOWS / "nightly-next-tick.yml").read_text(encoding="utf-8"))
+    run = next(s for s in tick["jobs"]["request"]["steps"] if s.get("name") == "Request nightly-next promotion on main")["run"]
+    shim = re.search(r"cat > \"\$GH_TICK_CACHE/bin/gh\" <<'SH'\n(.*?)\nSH\n", run, re.S).group(1)
+    (tmp_path / "gh").write_text(shim, encoding="utf-8")
+    real = tmp_path / "real-gh"
+    real.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$LOG"\n', encoding="utf-8")
+    real.chmod(0o755)
+    env = {"PATH": "/usr/bin:/bin", "GH_REAL": str(real), "GH_TICK_CACHE": str(tmp_path), "LOG": str(tmp_path / "log")}
+    sha = "a" * 40
+    head = ["workflow", "run", "nightly.yml", "--repo", "o/r", "--ref", "main"]
+    forms = [  # (as a revision passes it, as main must receive it)
+        (["-f", f"promote_nightly_next_sha={sha}"], ["-f", f"promote_nightly_next_sha=tick:{sha}"]),
+        (["-f", f"promote_nightly_next_sha=tick:{sha}"], ["-f", f"promote_nightly_next_sha=tick:{sha}"]),
+        (["--raw-field", f"promote_nightly_next_sha={sha}"], ["--raw-field", f"promote_nightly_next_sha=tick:{sha}"]),
+        ([f"-fpromote_nightly_next_sha={sha}"], [f"-fpromote_nightly_next_sha=tick:{sha}"]),
+        ([f"-Fpromote_nightly_next_sha={sha}"], [f"-Fpromote_nightly_next_sha=tick:{sha}"]),
+        ([f"--field=promote_nightly_next_sha={sha}"], [f"--field=promote_nightly_next_sha=tick:{sha}"]),
+    ]
+    for sent, _ in forms:
+        subprocess.run(["bash", str(tmp_path / "gh"), *head, *sent], env=env, check=True)
+    other = ["workflow", "run", "cmux-tui-artifacts.yml", "--repo", "o/r", "--ref", "feat-cmux-next"]
+    subprocess.run(["bash", str(tmp_path / "gh"), *other], env=env, check=True)
+    assert (tmp_path / "log").read_text(encoding="utf-8").splitlines() == [
+        *(" ".join([*head, *got]) for _, got in forms), " ".join(other)]
+
+
+def test_a_landing_request_never_enters_the_promote_queue() -> None:
+    """GitHub keeps one waiting job in nightly-next-promote and cancels it when another request arrives, so a
+    landing's request must be skipped at the job, not after it queued: there it would evict the tick's request."""
+    job = load(WORKFLOWS / "nightly.yml")["jobs"]["promote-nightly-next"]
+    assert job["concurrency"]["group"] == "nightly-next-promote"
+    assert job["if"].endswith(
+        "&& (contains(inputs.promote_nightly_next_sha, 'tick:') || github.triggering_actor != 'github-actions[bot]')"
+    ), job["if"]
+
+
 def test_nightly_push_runs_never_share_a_build_group() -> None:
     # A shared workflow-level group held a newer tip pending behind a running
     # build and let the next push replace it (2026-10-27). Each push run of
@@ -323,4 +380,9 @@ if __name__ == "__main__":
     test_delivery_coalescers_have_fixed_backstops_and_non_cancelling_groups()
     test_nightly_push_runs_never_share_a_build_group()
     test_classic_publishers_write_only_while_they_hold_the_lease()
+    test_the_tick_is_the_only_cadence_and_the_only_promoter()
+    test_a_landing_request_never_enters_the_promote_queue()
+    import tempfile
+    with tempfile.TemporaryDirectory() as scratch:
+        test_the_tick_marks_every_revisions_promotion_request(Path(scratch))
     print("PASS: nightly and DEV delivery never cancel or replace waiting builds")
