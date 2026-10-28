@@ -1,6 +1,8 @@
 import Darwin
 import Foundation
 import Testing
+import CmuxNextWakeups
+@testable import CmuxNextAgentPane
 @testable import CmuxNextCompat
 
 nonisolated struct DraftStateMigrationTests {
@@ -204,6 +206,77 @@ nonisolated struct DraftStateMigrationTests {
         let permissions = try FileManager.default.attributesOfItem(atPath: fixture.url("destination").path)[.posixPermissions] as? NSNumber
         #expect(permissions?.intValue == (state == "missing" ? 0o700 : 0o750))
         #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.root.path).allSatisfy { !$0.hasPrefix(".draft-adoption-") })
+    }
+
+    @Test(arguments: [false, true])
+    func failedPublicationThenWriterClearNeverRestoresAnExistingOrNewChat(createdAfterFailure: Bool) async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let store = await AgentPaneDraftAttachments(directory: fixture.url("destination"))
+        let folder = try #require(await store.folder(for: "current"))
+        let chip = AgentPaneWakeState.Attachment(id: "B", kind: "link", name: "current", mimeType: "inode/directory", size: 0, path: "/tmp/current")
+        let list = AgentPaneDraftAttachments.json([chip])
+        try fixture.write("source/agent-draft-attachments/\(folder.lastPathComponent)/legacy", "older A")
+        if !createdAfterFailure { _ = await store.keep(list, for: "current") }
+        failPublication(fixture)
+        if createdAfterFailure { _ = await store.keep(list, for: "current") }
+        #expect(FileManager.default.fileExists(atPath: folder.path))
+        _ = await store.keep(.array([]), for: "current")
+        #expect(!FileManager.default.fileExists(atPath: folder.path))
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        #expect(!FileManager.default.fileExists(atPath: folder.path), "a writer-cleared chat was imported again")
+    }
+
+    @Test func failedPublicationThenUnsentClearAndMoveKeepTheirOwnership() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("source/agent-unsent-drafts.json", #"{"cleared":"A","provisional":"A","real":"A"}"#)
+        failPublication(fixture)
+        await MainActor.run {
+            let drafts = AgentUnsentDrafts(directory: fixture.url("destination"))
+            drafts.set("B", for: "cleared")
+            drafts.set("", for: "cleared")
+            drafts.set("B moved", for: "provisional")
+            drafts.move("provisional", to: "real")
+            drafts.move("provisional", to: "real")
+            #expect(!drafts.hasDraft("cleared") && !drafts.hasDraft("provisional"))
+            #expect(drafts.seed(for: "cleared", session: nil) == nil)
+        }
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        let drafts = try fixture.object("destination/agent-unsent-drafts.json")
+        #expect(drafts["cleared"] as? String == "")
+        #expect(drafts["provisional"] as? String == "")
+        #expect(drafts["real"] as? String == "B moved")
+    }
+
+    @Test(arguments: ["consume", "emptySave", "emptyConsume"])
+    func failedPublicationThenWakeConsumptionOrSaveKeepsItsOwnership(operation: String) async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write("source/agent-pane-wake-states.json", #"{"chat":{"shell":true,"shellText":"A"}}"#)
+        try fixture.write("source/agent-pane-wake-attachments/legacy", "older A")
+        if operation == "consume" {
+            try fixture.write("destination/agent-pane-wake-states.json", #"{"chat":{"shell":true,"shellText":"B"}}"#)
+            try fixture.write("destination/agent-pane-wake-attachments/current", "current B")
+        }
+        failPublication(fixture)
+        let wake = await AgentPaneRelaunchWake(directory: fixture.url("destination"))
+        if operation == "emptySave" {
+            await wake.save([:])
+        } else {
+            let states = await wake.take(on: BackgroundWork())
+            if operation == "consume" { #expect(states["chat"]?.shellText == "B") }
+        }
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"))
+        let shouldRestore = operation == "emptyConsume"
+        #expect(FileManager.default.fileExists(atPath: fixture.url("destination/agent-pane-wake-states.json").path) == shouldRestore)
+        #expect(FileManager.default.fileExists(atPath: fixture.url("destination/agent-pane-wake-attachments/legacy").path) == shouldRestore)
+    }
+
+    private func failPublication(_ fixture: Fixture) {
+        DraftStateMigration.adopt(from: [fixture.url("source")], to: fixture.url("destination"), renameItem: { _, _, _ in -1 }) {
+            try FileManager.default.copyItem(at: $0, to: $1)
+        }
     }
 
     private enum CopyFailure: Error { case injected }
