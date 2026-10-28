@@ -67,7 +67,7 @@ pub struct SessionCompletion {
     pub(super) action: SessionCompletionAction,
 }
 
-/// A created or moved surface whose completion arrived before the cached tree
+/// A created surface whose completion arrived before the cached tree
 /// that holds it. `replace_tree` selects it once that tree lands, unless the
 /// user has moved focus in the meantime.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

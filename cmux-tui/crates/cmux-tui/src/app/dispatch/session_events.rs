@@ -320,7 +320,6 @@ impl App {
                 self.deferred_input.clear();
                 self.prefix_armed = false;
                 self.pending_session_completions.clear();
-                self.pending_completed_selection = None;
                 self.status_message =
                     Some(localization::catalog().session.operation_failed.to_string());
                 return Ok(RenderAction::Draw);

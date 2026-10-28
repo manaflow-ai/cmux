@@ -101,8 +101,9 @@ impl App {
     /// Selects the surface a completed mutation created or moved. The
     /// completion can arrive before the cached tree that holds the surface
     /// (remote mode applies completions against whatever tree is cached), so
-    /// a surface that is not there yet is remembered and selected by
-    /// `replace_tree` when it lands.
+    /// a created surface that is not there yet is remembered and selected by
+    /// `replace_tree` when it lands. The pending selection survives unrelated
+    /// mutation failures: a surface whose creation failed never lands.
     fn select_or_defer_completed_surface(&mut self, surface: SurfaceId, browser: bool) {
         if !self.tab_locations.contains_key(&surface) {
             self.pending_completed_selection = Some(PendingCompletedSelection {
