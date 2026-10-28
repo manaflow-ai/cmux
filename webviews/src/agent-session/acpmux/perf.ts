@@ -1,3 +1,5 @@
+import { transcriptWork } from "./rowWork";
+
 // Debug-only performance measurement for the agent pane, driven by the
 // DEBUG `debug.agent_pane` socket method through `window.cmuxAcpmuxDebug`.
 // Everything here is inert until the first debug call sets `acpmuxPerf.enabled`:
@@ -180,6 +182,7 @@ export class AcpmuxPerf {
     target: Pick<Document, "addEventListener"> | undefined = typeof document === "undefined" ? undefined : document,
   ): void {
     this.enabled = true;
+    transcriptWork.enabled = true;
     if (this.keyListener || !target) return;
     this.keyListener = (event) => {
       const element = event.target as Element | null;
@@ -277,6 +280,7 @@ export class AcpmuxPerf {
     this.reactSinceMark = 0;
     this.spansSinceMark = new Map();
     this.spanFrames = [];
+    transcriptWork.reset();
   }
 
   /** One display frame at `now`; `blank` is whether the viewport shows past the mounted rows. */

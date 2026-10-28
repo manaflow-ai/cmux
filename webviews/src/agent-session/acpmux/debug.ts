@@ -14,6 +14,7 @@ import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
 import { queuedRowsState } from "./queuedRowsState";
+import { transcriptWork } from "./rowWork";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -221,10 +222,15 @@ export function createAcpmuxDebug(
 
     perfStats(options = {}) {
       acpmuxPerf.enable();
+      transcriptWork.enabled = true;
       return {
         running,
         ...acpmuxPerf.stats(options.raw === true),
         agent: acpmuxPerf.agentLatency(),
+        transcript_work: {
+          turn_prefix_comparisons: transcriptWork.turnPrefixComparisons,
+          layout_prefix_comparisons: transcriptWork.layoutPrefixComparisons,
+        },
       };
     },
 
