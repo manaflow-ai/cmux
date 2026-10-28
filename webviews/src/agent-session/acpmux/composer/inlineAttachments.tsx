@@ -2,7 +2,7 @@
 // at the caret; resolution fills the same node. Deletion takes the payload out, undo restores it,
 // and moving a node preserves its place among text. Settings can draw these same payloads in the
 // strip instead, without rewriting the draft or its sent order.
-import { type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, type ReactNode, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal, flushSync } from "react-dom";
 import {
   type ComposerAttachment,
@@ -15,7 +15,7 @@ import { Spinner } from "../conversation/icons";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import type { MarkdownFieldHandle } from "../MarkdownField";
-import type { PendingAttachment } from "./attachmentIntake";
+import { AttachmentChip, type PendingAttachment } from "./attachmentIntake";
 import { keptThumb } from "./imagePool";
 import { reordered } from "./stripReorder";
 
@@ -34,6 +34,8 @@ type Options = {
   expand(id: string): void;
   /// Whether a paste or drop now places what it brings in the text (not in shell mode).
   placing(): boolean;
+  /// A Codex chat: a PDF's chip says it goes as a file (attachmentIntake.tsx PdfAttachmentChip).
+  codex?: boolean;
 };
 
 export function useInlineAttachments(options: Options) {
@@ -176,6 +178,10 @@ export function useInlineAttachments(options: Options) {
         sentIds.current.add(id);
       }
     },
+    /// A failed chip's Retry and a pasted chip's open, stable across renders so the chips keep still
+    /// while the person types (InlineChip is memoized).
+    retry: (id: string) => live.current.retry(id),
+    expand: (id: string) => live.current.expand(id),
     known,
     /// The field tells its nodes' elements in a microtask after the change that made them (MarkdownField
     /// `tellInlineViews`): their chips draw before that task's frame paints, so a paste's placeholder
@@ -206,8 +212,9 @@ export function useInlineAttachments(options: Options) {
         pending={options.pending.find((chip) => chip.id === id)}
         onRemove={api.remove}
         onCancel={api.cancel}
-        onRetry={options.retry}
-        onExpand={options.expand}
+        onRetry={api.retry}
+        onExpand={api.expand}
+        codex={options.codex ?? false}
       />,
       dom,
       id,
@@ -216,9 +223,11 @@ export function useInlineAttachments(options: Options) {
   return { ...api, chips: chips as ReactNode };
 }
 
-/// An attachment as the text shows it: its thumbnail, with a × that takes it out of the prompt; a
-/// file still being read spins (its × cancels it); one that could not be read says why, with Retry.
-function InlineChip({
+/// An attachment as the text shows it: the strip's own chip (attachmentIntake.tsx AttachmentChip), with
+/// its preview, open, play and × (which takes it out of the prompt); a file still being read spins
+/// (its × cancels it); one that could not be read says why, with Retry. Memoized: a keystroke
+/// re-renders the composer, never a chip whose attachment did not change.
+const InlineChip = memo(function InlineChip({
   id,
   attachment,
   pending,
@@ -226,6 +235,7 @@ function InlineChip({
   onCancel,
   onRetry,
   onExpand,
+  codex,
 }: {
   id: string;
   attachment: ComposerAttachment | undefined;
@@ -234,17 +244,13 @@ function InlineChip({
   onCancel(id: string): void;
   onRetry(id: string): void;
   onExpand(id: string): void;
+  codex: boolean;
 }) {
   const t = useT();
 
-  const [thumb, setThumb] = useState(() => keptThumb(id));
-  useEffect(() => {
-    if (!thumb && attachment)
-      setThumb(keptThumb(inlineCopyParent(attachment.id) ?? attachment.id) ?? keptThumb(attachment.id));
-  }, [attachment, thumb]);
   // A node whose attachment is not here (yet: a chat's kept chips still on their way) draws nothing.
   if (!attachment && !pending) return null;
-  const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...thumb });
+  const name = imageLabel(t, { name: attachment?.name ?? pending?.name, ...keptThumb(id) });
   const remove = (
     <button
       type="button"
@@ -276,38 +282,26 @@ function InlineChip({
         {remove}
       </span>
     );
-  // A file (a link to it on the session's machine): its name, as the strip's link chip shows it.
-  if (attachment.kind !== "image")
+  // A huge paste: its name; a click puts its text back in the prompt at its place.
+  if (attachment.kind === "pasted")
     return (
       <span
         className="acpmux-md-inline-chip"
         data-state="ready"
         data-kind="file"
-        /* tooltip-allow: a long name is cut to the chip */ title={attachment.path ?? attachment.name}
+        /* tooltip-allow: a long name is cut to the chip */ title={attachment.name}
       >
-        {attachment.kind === "pasted" ? (
-          <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
-            {attachment.name}
-          </button>
-        ) : (
-          <span className="acpmux-md-inline-file-name">{attachment.name}</span>
-        )}
+        <button type="button" className="acpmux-md-inline-retry" onClick={() => onExpand(id)}>
+          {attachment.name}
+        </button>
         {remove}
       </span>
     );
-  const source =
-    attachment.kind === "image" && attachment.data
-      ? `data:${attachment.mimeType};base64,${attachment.data}`
-      : undefined;
-  const image = <img alt={name} draggable={false} src={thumb?.url ?? source} />;
+  // An image, a PDF, a video or a file: the strip's chip, so it previews, opens, plays and falls back
+  // (an image that cannot be drawn) as it does there.
   return (
-    <span
-      className="acpmux-md-inline-chip"
-      data-state="ready"
-      /* tooltip-allow: a thumbnail shows no name */ title={name}
-    >
-      {image}
-      {remove}
+    <span className="acpmux-md-inline-chip" data-state="ready" data-chip="strip">
+      <AttachmentChip attachment={attachment} codex={codex} onRemove={onRemove} />
     </span>
   );
-}
+});

@@ -162,6 +162,7 @@ export function ComposerBox({
       prompt.current?.removeInline(id);
     },
     placing: () => !fieldOverlay,
+    codex,
   });
   useImperativeHandle(
     handle,

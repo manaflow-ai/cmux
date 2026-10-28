@@ -322,11 +322,6 @@
   color: var(--agent-text);
   font-size: inherit;
 }
-.acpmux-md-inline-file-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .acpmux-md-inline-chip[data-kind="file"] .acpmux-md-inline-remove {
   top: 6px;
 }
@@ -334,22 +329,19 @@
 .acpmux-md-inline-chip[data-state="failed"] {
   width: 64px;
 }
-.acpmux-md-inline-chip img {
-  display: block;
-  height: calc(var(--cmux-control-height, 24px) * 2);
-  width: auto;
-  max-width: 120px;
-  min-width: 32px;
-  object-fit: cover;
-  border-radius: inherit;
+/* An image, a PDF, a video or a file: the strip's own chip (composerAttachments.css). A thumbnail or
+   a video's poster is as tall as two control rows so it sits in a line of text; an image that could
+   not be drawn keeps the strip's tile, which has room for its note, Retry and ×. */
+.acpmux-md-inline-chip[data-chip="strip"] .acpmux-attachment-image:not(.acpmux-attachment-image-failed) {
+  --acpmux-attach-height: calc(var(--cmux-control-height, 24px) * 2);
 }
-.acpmux-md-inline-open {
-  display: block;
-  padding: 0;
-  border: 0;
-  border-radius: inherit;
+.acpmux-md-inline-chip[data-chip="strip"] {
+  min-width: 0;
+  height: auto;
   background: none;
-  cursor: zoom-in;
+  box-shadow: none;
+  overflow: visible;
+  color: var(--agent-text);
 }
 .acpmux-md-inline-retry {
   padding: 0 8px;
@@ -385,8 +377,7 @@
 .acpmux-md-inline-remove:hover {
   background: color-mix(in srgb, var(--agent-text) 22%, var(--acpmux-composer-bg));
 }
-.acpmux-md-inline-remove:focus-visible,
-.acpmux-md-inline-open:focus-visible {
+.acpmux-md-inline-remove:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }

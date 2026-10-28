@@ -7,6 +7,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
   filesFrom,
+  inlineCopyParent,
   isImageFile,
   pastedImageFiles,
   installFileDropLifecycle,
@@ -661,7 +662,13 @@ function PendingChip({
   );
 }
 
-function AttachmentChip({
+/// A chip's kept thumbnail; a copy pasted beside its original in the prompt (attachments.ts
+/// inlineCopyId) draws the original's.
+const keptThumbOf = (id: string) => keptThumb(id) ?? keptThumb(inlineCopyParent(id) ?? id);
+
+/// A staged attachment's chip: the strip draws it, and so does the prompt for one placed in its text
+/// (composer/inlineAttachments.tsx), with the same preview, open, play and remove.
+export function AttachmentChip({
   attachment,
   codex = false,
   onRemove,
@@ -677,7 +684,7 @@ function AttachmentChip({
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
   const [thumb, setThumb] = useState<{ url: string; width: number; height: number } | undefined>(() =>
-    keptThumb(attachment.id),
+    keptThumbOf(attachment.id),
   );
   /// The image's natural size, from its thumbnail or from the image itself once it loads.
   const [size, setSize] = useState<{ width: number; height: number }>();
@@ -693,7 +700,7 @@ function AttachmentChip({
       ? t(ATTACHMENT_LABELS.pastedText)
       : attachment.name;
   useEffect(() => {
-    if (!image || !attachment.data || keptThumb(attachment.id)) return;
+    if (!image || !attachment.data || keptThumbOf(attachment.id)) return;
     let live = true;
     void thumbnail({ mimeType: attachment.mimeType, data: attachment.data }).then((made) => {
       if (live) setThumb(made);
@@ -771,15 +778,7 @@ function AttachmentChip({
   }
   // An image the engine could not draw says so in its slot, instead of an empty tile or a bare
   // file name; its × still removes it.
-  if (isImage)
-    return menu(
-      undefined,
-      <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed">
-        <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
-        <span className="acpmux-attachment-failed-text">{t("image.failed")}</span>
-        {remove}
-      </div>,
-    );
+  if (isImage) return menu(undefined, <BrokenImageChip remove={remove} onRetry={() => setBroken(false)} />);
   // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
   if (pasted) {
     const text = attachment.text ?? "";
@@ -851,6 +850,23 @@ function AttachmentChip({
         remove={remove}
       />
     </div>,
+  );
+}
+
+/// An image the engine could not draw: it says so in its slot, instead of an empty tile or a bare file
+/// name. Retry draws it again; its × still removes it. The strip's chip and the prompt's
+/// (composer/inlineAttachments.tsx) both draw this one.
+export function BrokenImageChip({ remove, onRetry }: { remove: React.ReactNode; onRetry(): void }) {
+  const t = useT();
+  return (
+    <div className="acpmux-attachment acpmux-attachment-image acpmux-attachment-image-failed">
+      <ImageIcon size={16} className="acpmux-attachment-failed-icon" />
+      <span className="acpmux-attachment-failed-text">{t("image.failed")}</span>
+      <button type="button" className="acpmux-attachment-retry" onClick={onRetry}>
+        {t(ATTACHMENT_LABELS.retryAttachment)}
+      </button>
+      {remove}
+    </div>
   );
 }
 
