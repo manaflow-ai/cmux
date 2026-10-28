@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-/// A WebKit page in a pane that springs (a split, a close, a zoom) with the `pageSpringResizeOnce` feature
-/// (p03-rendering-036), as a Chromium page does (`CEFTabContentView+SpringResize`): with `once`, the web view
+/// A WebKit page in a pane that springs (a split, a close, a zoom) with the `pageSpringResizeOnce` feature,
+/// as a Chromium page does (`CEFTabContentView+SpringResize`): with `once`, the web view
 /// takes the size its pane rests at when the spring starts, held at its top-left, so WebKit lays the page out
 /// once, not on every frame; the gap beside it while the pane is larger shows the document's own background
 /// (``pageBackdrop``, Chrome's gutter, `content/browser/renderer_host/delegated_frame_host.h`), and nothing over a

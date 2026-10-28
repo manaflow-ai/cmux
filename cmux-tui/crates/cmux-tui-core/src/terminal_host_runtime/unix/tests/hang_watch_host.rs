@@ -1,4 +1,4 @@
-//! A running host's loops are hang-watched (p09-observability-074): its PTY, parser and
+//! A running host's loops are hang-watched: its PTY, parser and
 //! client-input threads register with the process's hang watch, an idle host is never blamed, and
 //! a PTY write that waits for a program that does not read its input is the program's wait, not a
 //! hang: a paste larger than the PTY input queue into `sleep`, and the parser's answer to a

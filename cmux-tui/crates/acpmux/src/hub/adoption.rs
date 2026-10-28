@@ -8,6 +8,7 @@
 
 use super::*;
 use crate::adopt::{AdoptRequest, IfLive};
+use crate::no_panic::{JsonExt, LockExt};
 use std::collections::BTreeMap;
 
 /// What adopting resolved to before a session is created.
@@ -34,7 +35,7 @@ impl Hub {
         if family.is_empty() {
             return Ok(None);
         }
-        let homes = self.harness_homes.lock().unwrap().clone();
+        let homes = self.harness_homes.lock_or_recover().clone();
         let family = family.to_owned();
         let id = agent_session_id.to_owned();
         let index = self.chats.get().filter(|_| !remote).cloned();
@@ -84,7 +85,7 @@ impl Hub {
         // The store the resuming harness reads: its spawn env's home, else
         // the daemon's, else a store the chat index holds the chat in. The
         // store walk, the record read and the holder check are blocking I/O.
-        let homes = self.harness_homes.lock().unwrap().with_env(env);
+        let homes = self.harness_homes.lock_or_recover().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
         if a.watch && !matches!(family, "claude" | "codex") {
             return Err(RpcError::invalid_params(format!(
@@ -142,7 +143,7 @@ impl Hub {
     /// adopting twice opens the same session instead of two resuming one.
     /// Any profile of the family counts: they share one store.
     fn adopted_session(&self, family: &str, agent_session_id: &str) -> Option<Arc<Session>> {
-        adopted_in(&self.sessions.lock().unwrap(), family, agent_session_id)
+        adopted_in(&self.sessions.lock_or_recover(), family, agent_session_id)
     }
 
     /// An agent that could not load the adopted session started a fresh one
@@ -444,9 +445,10 @@ impl Hub {
         }
         // The chat's title and counts come from its past, as live turns set them (turns.rs).
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             if m.title.is_none()
-                && let Some(first) = turns[0].prompt.lines().find(|l| !l.trim().is_empty())
+                && let Some(first) =
+                    turns.first().and_then(|t| t.prompt.lines().find(|l| !l.trim().is_empty()))
             {
                 m.title = Some(short_text(first.trim(), 80));
             }
@@ -492,13 +494,13 @@ impl Hub {
             for tool in &turn.tools {
                 let start = tool.started_at.or(tool.ended_at).or(started);
                 let mut call = tool.call.clone();
-                call["sessionUpdate"] = json!("tool_call");
-                call["toolCallId"] = json!(tool.id);
-                call["status"] = json!("in_progress");
+                call.set("sessionUpdate", json!("tool_call"));
+                call.set("toolCallId", json!(tool.id));
+                call.set("status", json!("in_progress"));
                 self.append_at(session, "in", "tool_call", update(call), None, start);
                 let mut done = tool.done.clone();
-                done["sessionUpdate"] = json!("tool_call_update");
-                done["toolCallId"] = json!(tool.id);
+                done.set("sessionUpdate", json!("tool_call_update"));
+                done.set("toolCallId", json!(tool.id));
                 self.append_at(
                     session,
                     "in",

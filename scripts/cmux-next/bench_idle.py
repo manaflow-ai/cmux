@@ -130,7 +130,7 @@ import tempfile
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from bench_launch import PERF_LAB, SHIPPING_DRAW_KEY, BenchApp, load_by_path  # noqa: E402
+from bench_launch import PERF_LAB, SHIPPING_DRAW_KEY, BenchApp, load_by_path, main_binary  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
 from tab_pages import TabPages, chromium_children, chromium_kind, process_table  # noqa: E402  (re-exported: other benches import them here)
 
@@ -333,7 +333,7 @@ def main_window_shown(control):
 
 
 # ---------------------------------------------------------------------------
-# tabs-10 (p12-perf-process-034): the session of the idle-wakeups target
+# tabs-10: the session of the idle-wakeups target
 
 
 TABS10 = "tabs-10"
@@ -1052,6 +1052,7 @@ def main():
                         help="the engine of the tabs-10 pages (default chromium)")
     parser.add_argument("--out")
     parser.add_argument("--label", default="run")
+    parser.add_argument("--json", help="also write the report here (split-spring.sh --suite=bench-idle's report.json)")
     parser.add_argument("--max-cpu", type=float, default=0.5)
     parser.add_argument("--max-wakeups", type=float, default=5)
     parser.add_argument("--max-host-cpu", type=float, default=0.2)
@@ -1081,7 +1082,8 @@ def main():
 
     tag = args.tag
     bundle = args.app or os.path.expanduser(f"~/Library/Developer/Xcode/DerivedData/cmux-{tag}/Build/Products/Debug/cmux DEV {tag}.app")
-    binary = os.path.join(bundle, "Contents/MacOS/cmux DEV")
+    # A Debug build's `cmux DEV`, else a bench build's own executable (an optimized build has only `cmux`).
+    binary = main_binary(bundle) if os.path.isdir(os.path.join(bundle, "Contents/MacOS")) else ""
     if not os.path.exists(binary):
         raise SystemExit(f"bench-idle: no app at {bundle}")
     if args.fresh:
@@ -1150,8 +1152,9 @@ def main():
     out_dir = args.out or os.path.join(args.repo_root, "artifacts/cmux-next-bench")
     os.makedirs(out_dir, exist_ok=True)
     out = os.path.join(out_dir, f"{args.sha}-idle-{args.label}.json")
-    with open(out, "w") as handle:
-        json.dump(report, handle, indent=2)
+    for path in [out] + ([args.json] if args.json else []):
+        with open(path, "w") as handle:
+            json.dump(report, handle, indent=2)
     print(f"bench-idle: wrote {out}")
     for failure in failures:
         print(f"FAIL {failure}")

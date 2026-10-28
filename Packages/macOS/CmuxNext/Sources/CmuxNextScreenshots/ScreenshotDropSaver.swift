@@ -10,19 +10,15 @@ public import CmuxNextFiles
 @MainActor
 public struct ScreenshotDropSaver {
     private let files: any FileOperating
-    private let namer: FileNamer
     private let now: @Sendable () -> Date
 
     /// Makes a saver.
     ///
     /// - Parameters:
-    ///   - files: the file operations (default: CmuxNextFiles' ``FileOperator``).
-    ///   - namer: the free-name rule for saved pictures.
+    ///   - files: the file operations (CmuxNextFiles' ``FileOperator`` on the app's files lane).
     ///   - now: the clock that names saved pictures.
-    public init(files: any FileOperating = FileOperator(), namer: FileNamer = FileNamer(),
-                now: @escaping @Sendable () -> Date = { Date() }) {
+    public init(files: any FileOperating, now: @escaping @Sendable () -> Date = { Date() }) {
         self.files = files
-        self.namer = namer
         self.now = now
     }
 
@@ -45,7 +41,7 @@ public struct ScreenshotDropSaver {
         let urls = drop.droppedFileURLs
         if !urls.isEmpty { return try await copy(urls, into: folder) }
         guard let image = drop.droppedImage, let png = Self.pngData(image) else { return [] }
-        return [try await Self.write(png, named: Self.droppedName(at: now()), in: folder, namer: namer)]
+        return [try await files.newFile(in: folder, named: Self.droppedName(at: now()), contents: png)]
     }
 
     /// `Dropped Image 2026-10-19 at 16.35.24.png`: the drop's local time, in the shape macOS names screenshots.
@@ -72,14 +68,5 @@ public struct ScreenshotDropSaver {
     private static func pngData(_ image: NSImage) -> Data? {
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
         return NSBitmapImageRep(cgImage: cgImage).representation(using: .png, properties: [:])
-    }
-
-    /// Writes `data` under the first free name from `name`: file system work, off the main actor.
-    @concurrent
-    private nonisolated static func write(_ data: Data, named name: String, in folder: URL, namer: FileNamer) async throws -> URL {
-        let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
-        let target = folder.appendingPathComponent(namer.freeName(for: name, style: .number, taken: taken))
-        try data.write(to: target, options: .withoutOverwriting)
-        return target
     }
 }

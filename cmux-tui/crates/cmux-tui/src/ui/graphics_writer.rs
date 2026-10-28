@@ -8,10 +8,11 @@ use std::os::fd::{AsRawFd, OwnedFd};
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, TryLockError};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::{Rect, SurfaceId};
 use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use parking_lot::{ReentrantMutex, ReentrantMutexGuard};
@@ -149,7 +150,7 @@ impl GraphicsFenceWaiter {
     fn prepare(&self, expected: u32) {
         while self.responses.try_recv().is_ok() {}
         let now = Instant::now();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.expected != 0 && state.expected != expected {
             let previous = state.expected;
             state.retire(previous, now);
@@ -159,7 +160,7 @@ impl GraphicsFenceWaiter {
 
     fn cancel(&self, expected: u32) {
         let now = Instant::now();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.expected == expected {
             state.expected = 0;
             state.retire(expected, now);
@@ -189,7 +190,10 @@ impl GraphicsFenceWaiter {
                     "graphics processing fence timed out",
                 ));
             }
-            match self.responses.recv_timeout(remaining.min(PROCESSING_FENCE_SHUTDOWN_POLL)) {
+            match crate::blocking::sync::recv_timeout(
+                &self.responses,
+                remaining.min(PROCESSING_FENCE_SHUTDOWN_POLL),
+            ) {
                 Ok(response) => break response,
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
@@ -222,17 +226,17 @@ impl GraphicsFenceWaiter {
 
 impl GraphicsFenceNotifier {
     fn candidate_ids(&self) -> Vec<u32> {
-        self.state.lock().unwrap().candidates(Instant::now())
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).candidates(Instant::now())
     }
 
     fn has_active_candidate(&self, candidates: &[u32]) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.expected != 0 && candidates.contains(&state.expected)
     }
 
     fn notify(&self, response: GraphicsFenceResponse) {
         let now = Instant::now();
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.prune(now);
         let active = state.expected == response.id;
         if active {
@@ -251,6 +255,14 @@ struct BufferedGraphicsResponse {
     events: Vec<Event>,
     payload: String,
     inactive_since: Option<Instant>,
+}
+
+impl BufferedGraphicsResponse {
+    fn expired_at(&self, now: Instant) -> bool {
+        self.inactive_since.is_some_and(|inactive_since| {
+            now.saturating_duration_since(inactive_since) >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
+        })
+    }
 }
 
 /// Crossterm exposes an APC reply as Alt+_ followed by ordinary key events and
@@ -293,30 +305,21 @@ impl GraphicsResponseFilter {
     pub fn take_expired(&mut self) -> Vec<Event> {
         let now = Instant::now();
         self.refresh_inactive_since(now);
-        let expired = self.buffered.as_ref().is_some_and(|buffered| {
-            buffered.inactive_since.is_some_and(|inactive_since| {
-                now.saturating_duration_since(inactive_since) >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
-            })
-        });
-        if expired {
-            return self.buffered.take().unwrap().events;
-        }
-        Vec::new()
+        self.buffered
+            .take_if(|buffered| buffered.expired_at(now))
+            .map(|buffered| buffered.events)
+            .unwrap_or_default()
     }
 
     pub fn filter(&mut self, event: Event) -> Vec<Event> {
         let now = Instant::now();
         self.refresh_inactive_since(now);
-        if self.buffered.as_ref().is_some_and(|buffered| {
-            buffered.inactive_since.is_some_and(|inactive_since| {
-                now.saturating_duration_since(inactive_since) >= INCOMPLETE_GRAPHICS_RESPONSE_GRACE
-            })
-        }) {
-            let mut replay = self.buffered.take().unwrap().events;
+        if let Some(expired) = self.buffered.take_if(|buffered| buffered.expired_at(now)) {
+            let mut replay = expired.events;
             replay.extend(self.filter(event));
             return replay;
         }
-        if self.buffered.is_none() {
+        let Some(mut buffered) = self.buffered.take() else {
             let candidates = self.notifier.candidate_ids();
             if !candidates.is_empty() && is_apc_boundary(&event, '_') {
                 self.buffered = Some(BufferedGraphicsResponse {
@@ -328,10 +331,10 @@ impl GraphicsResponseFilter {
                 return Vec::new();
             }
             return vec![event];
-        }
+        };
 
         if is_apc_boundary(&event, '_') {
-            let mut replay = self.buffered.take().unwrap().events;
+            let mut replay = buffered.events;
             let candidates = self.notifier.candidate_ids();
             if candidates.is_empty() {
                 replay.push(event);
@@ -347,7 +350,6 @@ impl GraphicsResponseFilter {
         }
 
         if is_apc_boundary(&event, '\\') {
-            let mut buffered = self.buffered.take().unwrap();
             buffered.events.push(event);
             if let Some(response) = parse_graphics_response(&buffered.payload)
                 && response.id >= PROCESSING_FENCE_ID_BASE
@@ -360,19 +362,19 @@ impl GraphicsResponseFilter {
         }
 
         let Some(ch) = graphics_response_char(&event) else {
-            let mut replay = self.buffered.take().unwrap().events;
+            let mut replay = buffered.events;
             replay.push(event);
             return replay;
         };
-        let buffered = self.buffered.as_mut().unwrap();
         buffered.events.push(event);
         if buffered.events.len() > MAX_GRAPHICS_RESPONSE_EVENTS {
-            return self.buffered.take().unwrap().events;
+            return buffered.events;
         }
         buffered.payload.push(ch);
         if !buffered.payload.starts_with('G') {
-            return self.buffered.take().unwrap().events;
+            return buffered.events;
         }
+        self.buffered = Some(buffered);
         Vec::new()
     }
 }
@@ -492,10 +494,10 @@ impl InterruptibleStdout {
         // independent open-file description for the same terminal. std opens
         // it close-on-exec.
         use std::os::unix::fs::OpenOptionsExt as _;
-        let terminal = std::fs::OpenOptions::new()
-            .write(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open("/dev/tty")?;
+        let terminal = crate::blocking::fs::open_with(
+            std::fs::OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK),
+            "/dev/tty",
+        )?;
         Ok(Self { fd: OwnedFd::from(terminal) })
     }
 
@@ -583,7 +585,8 @@ impl GraphicsOutput for InterruptibleStdout {
                     "terminal stayed blocked while writing a graphics segment",
                 ));
             }
-            let written = self.write_once(&bytes[offset..]);
+            let Some(remaining) = bytes.get(offset..) else { break };
+            let written = self.write_once(remaining);
             if written > 0 {
                 offset += written as usize;
                 *emitted = offset;
@@ -630,7 +633,8 @@ impl GraphicsOutput for InterruptibleStdout {
                     "terminal stayed blocked while recovering a graphics command",
                 ));
             }
-            let written = self.write_once(&bytes[offset..]);
+            let Some(remaining) = bytes.get(offset..) else { break };
+            let written = self.write_once(remaining);
             if written > 0 {
                 offset += written as usize;
                 continue;
@@ -811,12 +815,12 @@ impl WriterControl {
     }
 
     fn mark_done(&self) {
-        self.state.lock().unwrap().done = true;
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).done = true;
         self.changed.notify_all();
     }
 
     fn record_failure(&self, parser_reset_required: bool) {
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         state.failure = Some(GraphicsWriterFailure {
             parser_reset_required: state
                 .failure
@@ -827,21 +831,27 @@ impl WriterControl {
     }
 
     fn failure(&self) -> Option<GraphicsWriterFailure> {
-        self.state.lock().unwrap().failure
+        self.state.lock().unwrap_or_else(PoisonError::into_inner).failure
     }
 
     fn wait_done(&self) {
-        let state = self.state.lock().unwrap();
-        drop(self.changed.wait_while(state, |state| !state.done).unwrap());
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
+        drop(
+            self.changed
+                .wait_while(state, |state| !state.done)
+                .unwrap_or_else(PoisonError::into_inner),
+        );
     }
 
     fn wait_done_timeout(&self, timeout: Duration) -> bool {
-        let state = self.state.lock().unwrap();
+        let state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         if state.done {
             return true;
         }
-        let (state, _) =
-            self.changed.wait_timeout_while(state, timeout, |state| !state.done).unwrap();
+        let (state, _) = self
+            .changed
+            .wait_timeout_while(state, timeout, |state| !state.done)
+            .unwrap_or_else(PoisonError::into_inner);
         state.done
     }
 
@@ -1025,11 +1035,10 @@ impl GraphicsWriter {
         Ok(Self { slot, completion, notify: Some(tx), control, handle: Some(handle) })
     }
 
-    pub(crate) fn shutdown_control(&self) -> GraphicsWriterShutdown {
-        GraphicsWriterShutdown {
-            control: self.control.clone(),
-            notify: self.notify.as_ref().expect("active graphics writer").clone(),
-        }
+    /// The shutdown handle of a running writer; `None` once it has stopped.
+    pub(crate) fn shutdown_control(&self) -> Option<GraphicsWriterShutdown> {
+        let notify = self.notify.as_ref()?;
+        Some(GraphicsWriterShutdown { control: self.control.clone(), notify: notify.clone() })
     }
 
     pub(crate) fn failure(&self) -> Option<GraphicsWriterFailure> {
@@ -1066,7 +1075,7 @@ impl GraphicsWriter {
     }
 
     pub fn take_completion(&self) -> Option<GraphicsCompletion> {
-        self.completion.lock().unwrap().take()
+        self.completion.lock().unwrap_or_else(PoisonError::into_inner).take()
     }
 
     /// Mark the host terminal's Kitty scene as cleared.
@@ -1091,7 +1100,7 @@ impl GraphicsWriter {
     pub fn shutdown(&mut self, timeout: Duration) {
         let Some(handle) = self.handle.take() else { return };
         let Some(notify) = self.notify.as_ref() else {
-            let _ = handle.join();
+            let _ = crate::blocking::thread::join(handle);
             return;
         };
         self.control.request_stop(notify);
@@ -1101,7 +1110,7 @@ impl GraphicsWriter {
             // cancellation at most every OUTPUT_POLL_INTERVAL_MS.
             self.control.wait_done();
         }
-        let _ = handle.join();
+        let _ = crate::blocking::thread::join(handle);
         self.notify.take();
     }
 }
@@ -1338,7 +1347,7 @@ fn writer_loop<O, P, F>(
         if control.stop_requested.load(Ordering::Acquire) {
             break;
         }
-        if notifications.recv().is_err() {
+        if cmux_blocking::sync::recv(&notifications).is_err() {
             break;
         }
     }
@@ -1396,7 +1405,9 @@ fn write_batch<O: GraphicsOutput>(
                 BatchWriteOutcome::Superseded,
             );
         }
-        let Some(end) = next_graphics_write_end(batch, offset) else {
+        let Some((end, segment)) = next_graphics_write_end(batch, offset)
+            .and_then(|end| Some((end, batch.get(offset..end)?)))
+        else {
             return finish_interrupted_batch(
                 output,
                 stdout_lock,
@@ -1434,16 +1445,12 @@ fn write_batch<O: GraphicsOutput>(
                 );
             }
             let mut emitted = 0;
-            let result = output.write_segment(&batch[offset..end], &permit, &mut emitted);
-            let emitted_end = offset.saturating_add(emitted).min(end);
-            multipart_active = multipart_state_after_complete_commands(
-                &batch[offset..emitted_end],
-                multipart_active,
-            );
-            let parser_reset_required =
-                emitted != 0 && !batch[offset..emitted_end].ends_with(b"\x1b\\");
+            let result = output.write_segment(segment, &permit, &mut emitted);
+            let written = segment.get(..emitted).unwrap_or(segment);
+            multipart_active = multipart_state_after_complete_commands(written, multipart_active);
+            let parser_reset_required = emitted != 0 && !written.ends_with(b"\x1b\\");
             match result {
-                Ok(true) if emitted == end - offset => {}
+                Ok(true) if emitted == segment.len() => {}
                 Ok(true) => {
                     return finish_interrupted_batch(
                         output,
@@ -1569,22 +1576,16 @@ fn assert_writer_failed(control: &WriterControl, expected_parser_reset_required:
 }
 
 fn multipart_state_after_complete_commands(bytes: &[u8], mut active: bool) -> bool {
-    let mut offset = 0;
-    while let Some(start) =
-        bytes[offset..].windows(3).position(|window| window == b"\x1b_G").map(|at| offset + at)
+    let mut rest = bytes;
+    while let Some(start) = rest.windows(3).position(|window| window == b"\x1b_G")
+        && let Some(command) = rest.get(start.saturating_add(3)..)
+        && let Some(end) = command.windows(2).position(|window| window == b"\x1b\\")
+        && let Some((body, terminated)) = command.split_at_checked(end)
     {
-        let header_start = start + 3;
-        let Some(end) = bytes[header_start..]
-            .windows(2)
-            .position(|window| window == b"\x1b\\")
-            .map(|at| header_start + at)
-        else {
-            break;
-        };
-        if let Some(header_end) = bytes[header_start..end].iter().position(|byte| *byte == b';') {
-            for parameter in
-                bytes[header_start..header_start + header_end].split(|byte| *byte == b',')
-            {
+        if let Some(header_end) = body.iter().position(|byte| *byte == b';')
+            && let Some(header) = body.get(..header_end)
+        {
+            for parameter in header.split(|byte| *byte == b',') {
                 match parameter {
                     b"m=1" => active = true,
                     b"m=0" => active = false,
@@ -1592,20 +1593,18 @@ fn multipart_state_after_complete_commands(bytes: &[u8], mut active: bool) -> bo
                 }
             }
         }
-        offset = end + 2;
+        rest = terminated.get(2..).unwrap_or_default();
     }
     active
 }
 
 fn next_graphics_write_end(batch: &[u8], start: usize) -> Option<usize> {
     let mut end = start;
-    while end < batch.len() {
-        let Some(terminator) = batch[end..]
-            .windows(2)
-            .position(|bytes| bytes == b"\x1b\\")
-            .map(|offset| end + offset + 2)
+    while let Some(tail) = batch.get(end..).filter(|tail| !tail.is_empty()) {
+        let Some(terminator) =
+            tail.windows(2).position(|bytes| bytes == b"\x1b\\").map(|offset| end + offset + 2)
         else {
-            if end > start && !batch[end..].windows(3).any(|bytes| bytes == b"\x1b_G") {
+            if end > start && !tail.windows(3).any(|bytes| bytes == b"\x1b_G") {
                 return Some(batch.len());
             }
             return (end > start).then_some(end);
@@ -2620,7 +2619,7 @@ mod tests {
         let mut writer =
             GraphicsWriter::spawn_with_test_graphics_output(Arc::new(StdoutLock::new(())), output)
                 .unwrap();
-        let shutdown = writer.shutdown_control();
+        let shutdown = writer.shutdown_control().expect("active graphics writer");
         writer.submit_test(vec![GraphicPlacement::browser(
             0,
             7,
@@ -2766,7 +2765,7 @@ mod tests {
         };
         let mut writer =
             GraphicsWriter::spawn_with_output(Arc::new(StdoutLock::new(())), output).unwrap();
-        let shutdown = writer.shutdown_control();
+        let shutdown = writer.shutdown_control().expect("active graphics writer");
         writer.submit_test(vec![GraphicPlacement::browser(
             0,
             1,
@@ -2811,7 +2810,7 @@ mod tests {
         };
         let writer =
             GraphicsWriter::spawn_with_output(Arc::new(StdoutLock::new(())), output).unwrap();
-        let shutdown = writer.shutdown_control();
+        let shutdown = writer.shutdown_control().expect("active graphics writer");
         writer.submit_test(vec![GraphicPlacement::browser(
             0,
             1,
@@ -2850,7 +2849,7 @@ mod tests {
             let stdout_lock = Arc::new(StdoutLock::new(()));
             let writer = GraphicsWriter::spawn_with_output(stdout_lock.clone(), io::sink())
                 .expect("spawn graphics writer");
-            let shutdown = writer.shutdown_control();
+            let shutdown = writer.shutdown_control().expect("active graphics writer");
             let (attempt_tx, attempt_rx) = sync_channel(1);
             writer.control.observe_write_attempts(attempt_tx);
             let guard = stdout_lock.lock();

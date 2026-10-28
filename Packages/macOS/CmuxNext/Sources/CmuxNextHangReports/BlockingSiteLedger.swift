@@ -1,6 +1,6 @@
 public import CmuxNextCompat
 
-/// The `blocking_sites` part of the next report (p12-perf-process-226): what the blocking detector's main-thread
+/// The `blocking_sites` part of the next report: what the blocking detector's main-thread
 /// sites counted since the last queued report. The detector's counters run from launch (a known site's repeat is
 /// one relaxed atomic increment, no stack), so a report sends the difference from the read the last queued report
 /// ended at, as ``MainThreadReportLedger`` does for the turn histograms and Chrome's `HistogramSnapshotManager`

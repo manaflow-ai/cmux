@@ -6,7 +6,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// A watched thread's hang goes out (p09-observability-068, Chrome's `HangWatcher::RecordHang` in
+/// A watched thread's hang goes out (Chrome's `HangWatcher::RecordHang` in
 /// base/threading/hang_watcher.cc): the monitor samples the hung thread by its Mach port, writes a
 /// `hang.thread_hung` instant into the ring and hands one ``ThreadHang`` with the registration's name and the
 /// thread's frames to ``MainThreadWatchdog/onThreadHang`` and the last-hang trigger

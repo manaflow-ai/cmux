@@ -70,7 +70,7 @@ extension WindowRootView {
                                                                ridesTrailingEdge: sidebarSide == .right)
     }
 
-    /// A render-server slide (`SidebarContainerView.slideFollowers`, chrome-parity p03-rendering-100): notes
+    /// A render-server slide (`SidebarContainerView.slideFollowers`): notes
     /// where the window's views beside the sidebar show before the slide's one layout; the closure, called
     /// after it, springs each one the layout moved from there to rest on the sidebar's spring. The card,
     /// the title and the shade's cut-out ride the card's shift (the shade's path reaches past the window's

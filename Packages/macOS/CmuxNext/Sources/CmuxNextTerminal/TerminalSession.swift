@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextTerminalFind
 public import CmuxNextTrace
 public import CmuxNextWakeups
+import CmuxNextCompat
 import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
@@ -135,6 +136,8 @@ public final class TerminalSession {
     private let gpuResidency: (any TerminalGPUResidency)?
     /// Passed to each surface view this session makes: the cursor on the render server (``TerminalCursorLayer``).
     private let externalCursor: Bool
+    /// Passed to each surface view this session makes: a hidden view's output parses at utility.
+    private let lowersHiddenOutput: Bool
     private let input: TerminalInputSink
     /// The lane the IO's reader feeds live output to (``TerminalIO/setOutputLane(_:)``): the events loop
     /// names it, close names none.
@@ -182,13 +185,16 @@ public final class TerminalSession {
     ///     nil keeps them resident (a GhosttyNextKit pin without the switch, or `terminalGPURelease` off).
     ///   - externalCursor: Its surfaces show the cursor on a layer of their own and blink it in the render server
     ///     (feature `terminalCursorLayer`, ``TerminalCursorLayer``); false: Ghostty draws and blinks it.
+    ///   - lowersHiddenOutput: A hidden surface's output parses at utility (feature `terminalStreamPriority`);
+    ///     false, the default, parses every surface's at user-interactive.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
                 modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
                 mainWork: MainWorkScheduler, node: VisibilityNode? = nil, deadlines: MainDeadlineScheduler? = nil,
-                gpuResidency: (any TerminalGPUResidency)? = nil, externalCursor: Bool = false) {
+                gpuResidency: (any TerminalGPUResidency)? = nil, externalCursor: Bool = false,
+                lowersHiddenOutput: Bool = false) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -198,6 +204,7 @@ public final class TerminalSession {
         self.pointerFrames = pointerFrames
         self.gpuResidency = gpuResidency
         self.externalCursor = externalCursor
+        self.lowersHiddenOutput = lowersHiddenOutput
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // One hop from the main thread to the IO's own queue (``TerminalInputLane``), no pool task.
@@ -217,7 +224,7 @@ public final class TerminalSession {
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
                                           mainWork: mainWork, node: node, gpuResidency: gpuResidency,
-                                          externalCursor: externalCursor)
+                                          externalCursor: externalCursor, lowersHiddenOutput: lowersHiddenOutput)
         surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -295,13 +302,61 @@ public final class TerminalSession {
         guard !surfaceHasContent else { return "has_content" }
         guard let surface = frame.take() else { return "purged" }
         lastFrameHolds += 1
-        frameHold.begin(lastFrame: surface, over: surfaceView, in: view)
+        frameHold.begin(lastFrame: .surface(surface), over: surfaceView, in: view)
         return nil
+    }
+
+    /// What this session's pane shows now, for a session that replaces it on the same tab (a daemon restart
+    /// gives the terminal a new generation, so the App makes a new view of it): the held frame while a hold
+    /// is on screen, else the surface's last presented frame once it drew content; nil when it shows nothing.
+    /// A surface frame is made non-volatile here and given away: this session, closed next, never marks it
+    /// volatile again (``TerminalHeldFrame/giveAway(_:)``); nil when the system purged its pages meanwhile.
+    public func carriedFrame() -> TerminalCarriedFrame? {
+        let frame: TerminalFrameHold.HeldFrame
+        if let held = frameHold.heldFrame {
+            frame = held
+        } else if surfaceHasContent, let surface = surfaceView.presentedFrame {
+            frame = .surface(surface)
+        } else {
+            return nil
+        }
+        if case .surface(let surface) = frame {
+            surfaceView.heldFrame.giveAway(surface)
+            guard surface.reclaim() else { return nil }
+        }
+        return TerminalCarriedFrame(frame: frame)
+    }
+
+    /// Shows `frame` (``carriedFrame()`` of the session this one replaces) until this session's first content
+    /// is drawn, as a launch or evicted terminal's last frame is: no empty pane between the two views.
+    /// Returns false when this session has content or holds a frame already.
+    @discardableResult
+    public func holdCarriedFrame(_ frame: TerminalCarriedFrame) -> Bool {
+        applyEvents()
+        guard !surfaceHasContent, !frameHold.isHolding else { return false }
+        lastFrameHolds += 1
+        frameHold.begin(lastFrame: frame.frame, over: surfaceView, in: view)
+        return true
     }
 
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
+    }
+
+    /// What the pane shows now, rendered off the main thread: while the frame hold is on screen (a restored or
+    /// evicted terminal whose attach has not drawn its content yet), the held frame, never the empty surface under
+    /// it; else ``snapshotInBackground(maxPixelSize:)``. The quit saves this for the next launch, and the hover card
+    /// pictures it: a quit during a slow attach must not save an empty pane as the terminal's last frame.
+    public func shownFrameInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
+        switch frameHold.heldFrame {
+        case nil:
+            return await snapshotInBackground(maxPixelSize: maxPixelSize)
+        case .image(let image)?:
+            return image
+        case .surface(let surface)?:
+            return await TerminalSnapshotRenderer.renderOffMain(SendableSurface(surface: surface), maxPixelSize: maxPixelSize)
+        }
     }
 
     /// Stops consuming events and detaches the surface. The IO owner decides
@@ -387,7 +442,7 @@ public final class TerminalSession {
         #endif
         surfaceHasContent = true
         frameHold.contentQueued()
-        TerminalTimings.contentApplied()
+        TerminalTimings.contentApplied(self)
     }
 
     /// Take over ("Sized for" chip): this view sets the grid, always with a new claim; under a
@@ -413,7 +468,7 @@ public final class TerminalSession {
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
                                         secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
                                         mainWork: view.mainWork, node: view.node, gpuResidency: gpuResidency,
-                                        externalCursor: externalCursor)
+                                        externalCursor: externalCursor, lowersHiddenOutput: lowersHiddenOutput)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }
@@ -462,6 +517,7 @@ public final class TerminalSession {
     // MARK: From the surface view
 
     func surfaceDidGainFocus() {
+        io.streamFocusGained()
         input.focusGained()
     }
 

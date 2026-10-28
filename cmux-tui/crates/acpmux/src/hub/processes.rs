@@ -160,7 +160,7 @@ impl ProcessTable {
         };
         // The output file may be named late (Claude's notification): it is
         // kept once, and logged with the record.
-        let p = &mut self.processes[i];
+        let p = self.processes.get_mut(i)?;
         let named = match output.filter(|f| !f.is_empty()) {
             Some(file) if p.output_file.is_none() => {
                 p.output_file = Some(file.to_owned());
@@ -219,10 +219,10 @@ impl ProcessTable {
     }
 
     /// The process `i`, marked as logged: its `process_update` is written.
-    fn log(&mut self, i: usize) -> Process {
-        let p = &mut self.processes[i];
+    fn log(&mut self, i: usize) -> Option<Process> {
+        let p = self.processes.get_mut(i)?;
         p.logged = true;
-        p.clone()
+        Some(p.clone())
     }
 
     /// The processes as the wire carries them, each with its output's
@@ -370,16 +370,16 @@ impl Hub {
                 // so it is kept here.
                 let tool = params.pointer("/update/toolCallId").and_then(Value::as_str);
                 let i = table.processes.iter().position(|p| Some(p.tool_call_id.as_str()) == tool);
-                let p = i.map(|i| &mut table.processes[i]);
+                let p = i.and_then(|i| table.processes.get_mut(i));
                 if let (Some(p), Some(file)) = (p, output.filter(|f| !f.is_empty()))
                     && p.output_file.is_none()
                 {
                     p.output_file = Some(file.to_owned());
                     p.logged = false;
                 }
-                i.filter(|&i| !table.processes[i].logged)
+                i.filter(|&i| table.processes.get(i).is_some_and(|p| !p.logged))
             };
-            i.map(|i| table.log(i))
+            i.and_then(|i| table.log(i))
         };
         if let Some(process) = changed {
             self.append(session, "mux", "process_update", json!({"process": process}));

@@ -6,9 +6,9 @@ import Foundation
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
 /// CEF, helper processes from the child monitor), the Chromium Host's ends
 /// in host mode (`chromium_host`: signal or exit code, CEF version, fork API
-/// and its log's last lines, p01-process-085), the Chromium Host's and its
-/// helpers' Crashpad dumps with their symbolicated stacks (`chromium_dumps`,
-/// p01-process-226), how this launch follows the previous run (restart, safe
+/// and its log's last lines), the Chromium Host's and its
+/// helpers' Crashpad dumps with their symbolicated stacks (`chromium_dumps`),
+/// how this launch follows the previous run (restart, safe
 /// restart), the previous run's crash report paths, the restart notice on
 /// screen, and the crash report folder. No page content.
 @MainActor
@@ -37,7 +37,7 @@ enum DebugCrashes {
                 "last_startup_task": previous.lastStartupTask.map { .string($0) } ?? .null,
             ])
         }
-        // The crash-streak safe launch (p08-startup-089): a reason means this launch read no launch cache.
+        // The crash-streak safe launch: a reason means this launch read no launch cache.
         if let safeMode = crash.marker?.safeMode {
             launch["safe_mode"] = .object([
                 "incomplete_launches": .number(Double(safeMode.incompleteLaunches)),

@@ -460,7 +460,7 @@ def render(value: Any) -> str:
 
 
 def open_sessions(args: argparse.Namespace, run_id: str) -> List[Session]:
-    import driver_daemon  # sibling: the daemon product's driver (p15-oracle-023)
+    import driver_daemon  # sibling: the daemon product's driver
 
     if args.binary:
         pairs = [(args.binary, args.ref_head)]

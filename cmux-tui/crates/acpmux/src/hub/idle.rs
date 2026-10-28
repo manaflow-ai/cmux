@@ -17,11 +17,12 @@
 //! per idle period per live child.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 impl Hub {
     /// The hub clock's time, as stored in `Session::last_active`.
     pub(super) fn clock_now(&self) -> u64 {
-        self.clock.lock().unwrap().now().as_nanos() as u64
+        self.clock.lock_or_recover().now().as_nanos() as u64
     }
 
     /// Something happened in `session`: its idle period starts again.
@@ -69,7 +70,7 @@ impl Hub {
         loop {
             let (next, clock) = {
                 let Some(hub) = weak.upgrade() else { return };
-                let clock = hub.clock.lock().unwrap().clone();
+                let clock = hub.clock.lock_or_recover().clone();
                 // The same task ends stalled turns (`stalled_turn.rs`).
                 let stalled = hub.config.read().await.stalled_turn_end();
                 let stalled = stalled.and_then(|s| hub.next_stalled_deadline(s));
@@ -98,7 +99,7 @@ impl Hub {
 
     /// When the first live child's idle period ends, on the hub clock.
     fn next_idle_deadline(&self) -> Option<std::time::Duration> {
-        let idle = (*self.idle_child.lock().unwrap())?;
+        let idle = (*self.idle_child.lock_or_recover())?;
         self.sessions()
             .iter()
             .filter(|s| s.child.try_lock().map(|c| c.is_some()).unwrap_or(true))
@@ -113,7 +114,7 @@ impl Hub {
         if self.stopping.load(Ordering::SeqCst) {
             return;
         }
-        let Some(idle) = *self.idle_child.lock().unwrap() else { return };
+        let Some(idle) = *self.idle_child.lock_or_recover() else { return };
         let now = self.clock_now();
         let idle = idle.as_nanos() as u64;
         for session in self.sessions() {
@@ -174,7 +175,24 @@ impl Hub {
 
     /// The clock lifecycle timers run on (`set_clock`).
     pub fn lifecycle_clock(&self) -> Arc<dyn crate::clock::Clock> {
-        self.clock.lock().unwrap().clone()
+        self.clock.lock_or_recover().clone()
+    }
+
+    /// Nothing the daemon's priority serves: no live agent or background
+    /// process, and no pooled host starting (its fork inherits the daemon's
+    /// priority). The `idleHelperBackgroundPriority` idle task's question
+    /// (`ClientPresence::run_idle_priority`).
+    pub fn idle_quiet(&self) -> bool {
+        self.pool_starts_in_flight() == 0
+            && self.live_agent_count() == 0
+            && self.live_process_count() == 0
+    }
+
+    /// A session's status changed (`set_status`): the worktree care worker
+    /// and the daemon's idle priority (it asks `idle_quiet` again) hear it.
+    pub(super) fn status_changed(&self, status: SessionStatus) {
+        self.care_status(status);
+        self.clients.work_changed();
     }
 }
 

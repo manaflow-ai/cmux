@@ -17,17 +17,18 @@ pub(super) fn command(
     args: &[String],
     global: GlobalArgs,
 ) -> Result<Option<super::command::ParsedCommand>, UsageError> {
-    if args.first().map(String::as_str) != Some("run") {
+    let Some(("run", words)) = args.split_first().map(|(first, rest)| (first.as_str(), rest))
+    else {
         return Ok(None);
-    }
-    if args[1..].iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
+    };
+    if words.iter().any(|arg| matches!(arg.as_str(), "-h" | "--help")) {
         return Ok(Some(super::command::ParsedCommand::Help(Some("run".to_owned()))));
     }
-    Ok(Some(super::command::ParsedCommand::CodeMode(parse(&args[1..], global)?)))
+    Ok(Some(super::command::ParsedCommand::CodeMode(parse(words, global)?)))
 }
 
 pub(super) fn parse(args: &[String], global: GlobalArgs) -> Result<Plan, UsageError> {
-    let Some(script) = args.first() else {
+    let Some((script, rest)) = args.split_first() else {
         return Err(UsageError::new("cmux run needs a TypeScript script path"));
     };
     if global.machine.is_some() {
@@ -35,7 +36,7 @@ pub(super) fn parse(args: &[String], global: GlobalArgs) -> Result<Plan, UsageEr
             "cmux run does not support --machine; use a machine-scoped socket",
         ));
     }
-    let args = args[1..].strip_prefix(&["--".to_owned()]).unwrap_or(&args[1..]).to_vec();
+    let args = rest.strip_prefix(&["--".to_owned()]).unwrap_or(rest).to_vec();
     Ok(Plan { script: script.clone(), args, global })
 }
 
@@ -71,7 +72,7 @@ pub(super) fn run(plan: Plan) -> i32 {
 fn resolve_runner(current_exe: Option<PathBuf>) -> PathBuf {
     current_exe
         .and_then(|path| path.parent().map(|dir| dir.join("cmux-code-mode-runner")))
-        .filter(|path| path.is_file())
+        .filter(|path| cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()))
         .unwrap_or_else(|| PathBuf::from("cmux-code-mode-runner"))
 }
 

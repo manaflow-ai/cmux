@@ -1,7 +1,7 @@
 import CmuxNextActions
 import Testing
 
-/// A compiled `when` clause (p04-input-055) answers what the interpreter answers: on every clause
+/// A compiled `when` clause answers what the interpreter answers: on every clause
 /// of the shipped binding table and on 1000 fuzzed clauses, each against many contexts.
 @MainActor @Suite struct CompiledWhenTests {
     static func catalogTable() -> KeyBindingTable {

@@ -71,7 +71,7 @@ struct AgentPaneHarnessEnableRelayTests {
         #expect(data["reason"] as? String == "harness.prompt_unavailable")
     }
 
-    /// p10-stability-085: a sheet dropped without an answer (the pane closed while it was up) is a
+    /// A sheet dropped without an answer (the pane closed while it was up) is a
     /// refusal, not a send line that waits for ever. A raw continuation leaked the wait here.
     @Test(.timeLimit(.minutes(1)))
     func anEnableWhoseSheetIsDroppedUnansweredIsNotConfirmed() async throws {

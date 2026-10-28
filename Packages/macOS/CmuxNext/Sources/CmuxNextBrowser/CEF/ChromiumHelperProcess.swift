@@ -3,10 +3,11 @@ import Foundation
 import CmuxNextCompat
 public import CmuxNextWakeups
 
-/// One Chromium helper process of this app and what it does, read from its
-/// argv (`--type`, `--utility-sub-type`, `--extension-process`,
-/// `--renderer-client-id`). Listing reads the app's children once; argv is
-/// cached per PID (it never changes for a process).
+/// One Chromium helper process and what it does, read from its argv (`--type`,
+/// `--utility-sub-type`, `--extension-process`, `--renderer-client-id`).
+/// Listing reads the children of the helpers' parent once (the app in process,
+/// the Chromium Host in host mode: ``ChromiumHelperParent``); argv is cached
+/// per PID (it never changes for a process).
 public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
         /// A tab renderer; `clientID` matches the tab's frames.
@@ -49,8 +50,9 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         self.kind = kind
     }
 
-    /// The app's live Chromium helpers.
-    public static func list(parent: pid_t = getpid()) -> [ChromiumHelperProcess] {
+    /// The live Chromium helpers of `parent` (``ChromiumHelperParent/pid``); none for nil, host mode with no host.
+    public static func list(parent: pid_t?) -> [ChromiumHelperProcess] {
+        guard let parent else { return [] }
         let children = childPIDs(of: parent)
         let live = Set(children)
         let cached = cache.withLock { cache -> [Int32: Kind] in
@@ -72,9 +74,9 @@ public nonisolated struct ChromiumHelperProcess: Sendable, Equatable {
         return out
     }
 
-    /// Each live tab renderer with its counters now (the Energy Saver's busy hidden pages, p14-energy-039). Blocking
-    /// syscalls (``ProcessUsage/sample(_:)`` per renderer): call it off the main actor.
-    public static func tabRendererUsage(parent: pid_t = getpid()) -> [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)] {
+    /// Each live tab renderer of `parent` with its counters now (the Energy Saver's busy hidden pages).
+    /// Blocking syscalls (``ProcessUsage/sample(_:)`` per renderer): call it off the main actor.
+    public static func tabRendererUsage(parent: pid_t?) -> [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)] {
         list(parent: parent).compactMap { helper -> (renderer: ProcessUsage.Renderer, usage: ProcessUsage)? in
             guard case .renderer(let client) = helper.kind, let usage = ProcessUsage.sample(helper.pid) else { return nil }
             return (renderer: ProcessUsage.Renderer(pid: helper.pid, clientID: client), usage: usage)

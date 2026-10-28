@@ -17,10 +17,10 @@ import Foundation
 /// main writes `source()` for `--event-output`. CmuxNextWireGenPlugin runs it for CmuxNextIPCTestSupport
 /// over the fixture schema, so every test build compiles the emitted text and WireEventSetTests counts
 /// decodes on it. CmuxNextIPC's own command does not pass `--event-output` yet: the real schema's
-/// payload types come from TypeEmitter (p05-ipc-020), and follow-up p05-ipc-195 adds the output
+/// payload types come from TypeEmitter, and follow-up p05-ipc-195 adds the output
 /// there once they build.
 struct EventEmitter {
-    /// The file the plugin is to have main write `source()` to for CmuxNextIPC (p05-ipc-195).
+    /// The file the plugin is to have main write `source()` to for CmuxNextIPC.
     static let outputFileName = "DaemonWireEvent+Schema.swift"
 
     /// The members the emitted enum declares, with what owns each; no case may take one.

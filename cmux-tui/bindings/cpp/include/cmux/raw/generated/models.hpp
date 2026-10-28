@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd";
+inline constexpr std::string_view kProtocolIrSha256 = "d60b4d9a4e2b29ec10b92b01dff8f04e076911755afc8c218f2d85410be831e3";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -71,6 +71,7 @@ struct Base64;
 struct Bookmark;
 struct BookmarkChangeResult;
 struct BookmarkImportNode;
+struct BridgeHelloResult;
 struct BrowserFrame;
 struct BrowserHostProviderResult;
 enum class BrowserProviderAuthentication;
@@ -118,6 +119,7 @@ enum class ConversationThreadStatus;
 struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
+struct DaemonStartupMarks;
 struct DeadPane;
 struct DeclarativeLayout;
 struct DetachClientTarget;
@@ -260,6 +262,7 @@ struct SetCellPixelsResult;
 struct SetHostSizePolicyResult;
 struct SetSizeCountsResult;
 struct SetSizePolicyResult;
+struct SetStreamPriorityResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
 struct ShownProgramStatus;
@@ -404,6 +407,7 @@ struct AppsUnmountRequest;
 struct AttachSurfaceRequest;
 struct BindConversationTabSessionRequest;
 struct BindConversationTabSessionResult;
+struct BridgeHelloRequest;
 struct BrowserActivateRequest;
 struct BrowserBackRequest;
 struct BrowserForwardRequest;
@@ -716,6 +720,7 @@ struct SetSessionIconRequest;
 struct SetSizeCountsRequest;
 struct SetSizePolicyRequest;
 struct SetSplitRatioRequest;
+struct SetStreamPriorityRequest;
 struct SetTabPinnedRequest;
 struct SetTerminalCommandHistoryRequest;
 struct SetTerminalIdlePolicyRequest;
@@ -888,6 +893,7 @@ enum class IdMappingKind;
 struct LayoutLeaf;
 struct LayoutSplit;
 struct LayoutStack;
+enum class SetStreamPriorityResultOutcome;
 enum class SnapshotRequestResultStatus;
 enum class TabBrowserSource;
 enum class TabBrowserStatus;
@@ -904,6 +910,7 @@ struct CloudAttachmentUploadResultStored;
 struct ConversationAttachmentUploadResultStored;
 enum class CopyRequestMode;
 enum class IdsRequestKind;
+enum class SetStreamPriorityRequestPriority;
 enum class SubscribeRequestTreeEvents;
 enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
@@ -2058,6 +2065,16 @@ struct BookmarksChangedEvent {
     std::string browser_profile_id{};
     std::optional<EventCause> cause{};
     friend bool operator==(const BookmarksChangedEvent&, const BookmarksChangedEvent&) = default;
+};
+
+struct BridgeHelloRequest {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloRequest&, const BridgeHelloRequest&) = default;
+};
+
+struct BridgeHelloResult {
+    std::vector<std::string> features{};
+    friend bool operator==(const BridgeHelloResult&, const BridgeHelloResult&) = default;
 };
 
 struct BrowserActivateRequest {
@@ -3823,6 +3840,20 @@ struct DaemonShutdownEvent {
     friend bool operator==(const DaemonShutdownEvent&, const DaemonShutdownEvent&) = default;
 };
 
+struct DaemonStartupMarks {
+    std::optional<std::uint64_t> config_loaded{};
+    std::optional<std::uint64_t> first_identify_served{};
+    std::optional<std::uint64_t> launch_snapshot_writer_started{};
+    std::optional<std::uint64_t> lifecycle_ready{};
+    std::uint64_t main_start_unix_us{};
+    std::optional<std::uint64_t> mux_restored{};
+    std::optional<std::uint64_t> owner_event_loop{};
+    std::optional<std::uint64_t> owner_prepared{};
+    std::optional<std::uint64_t> socket_bound{};
+    std::optional<std::uint64_t> websocket_ready{};
+    friend bool operator==(const DaemonStartupMarks&, const DaemonStartupMarks&) = default;
+};
+
 struct DeadPane {
     Id id{};
     friend bool operator==(const DeadPane&, const DeadPane&) = default;
@@ -4548,6 +4579,7 @@ struct IdMapping {
 struct IdentifyRequest {
     std::optional<bool> machine_metadata{};
     std::optional<bool> revisions{};
+    std::optional<bool> startup_marks{};
     friend bool operator==(const IdentifyRequest&, const IdentifyRequest&) = default;
 };
 
@@ -4582,6 +4614,7 @@ struct IdentifyResult {
     Field<std::string> sdk_schema_digest{};
     std::string session{};
     std::optional<std::string> session_id{};
+    Field<DaemonStartupMarks> startup_marks{};
     std::uint64_t terminal_revision{};
     Field<std::string> update_command{};
     std::string version{};
@@ -6903,6 +6936,29 @@ struct SetSplitRatioRequest {
     friend bool operator==(const SetSplitRatioRequest&, const SetSplitRatioRequest&) = default;
 };
 
+enum class SetStreamPriorityRequestPriority {
+    focused,
+    visible,
+    hidden,
+};
+
+struct SetStreamPriorityRequest {
+    SetStreamPriorityRequestPriority priority{};
+    std::uint16_t stream{};
+    friend bool operator==(const SetStreamPriorityRequest&, const SetStreamPriorityRequest&) = default;
+};
+
+enum class SetStreamPriorityResultOutcome {
+    applied,
+    ended,
+};
+
+struct SetStreamPriorityResult {
+    SetStreamPriorityResultOutcome outcome{};
+    std::uint16_t stream{};
+    friend bool operator==(const SetStreamPriorityResult&, const SetStreamPriorityResult&) = default;
+};
+
 struct SetTabPinnedRequest {
     bool pinned{};
     Id surface{};
@@ -8183,6 +8239,12 @@ struct Codec<BookmarkImportNode> {
 };
 
 template <>
+struct Codec<BridgeHelloResult> {
+    static Result<Json> encode(const BridgeHelloResult& value);
+    static Result<BridgeHelloResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserFrame> {
     static Result<Json> encode(const BrowserFrame& value);
     static Result<BrowserFrame> decode(const Json& value);
@@ -8462,6 +8524,12 @@ template <>
 struct Codec<CursorStyle> {
     static Result<Json> encode(const CursorStyle& value);
     static Result<CursorStyle> decode(const Json& value);
+};
+
+template <>
+struct Codec<DaemonStartupMarks> {
+    static Result<Json> encode(const DaemonStartupMarks& value);
+    static Result<DaemonStartupMarks> decode(const Json& value);
 };
 
 template <>
@@ -9314,6 +9382,12 @@ template <>
 struct Codec<SetSizePolicyResult> {
     static Result<Json> encode(const SetSizePolicyResult& value);
     static Result<SetSizePolicyResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetStreamPriorityResult> {
+    static Result<Json> encode(const SetStreamPriorityResult& value);
+    static Result<SetStreamPriorityResult> decode(const Json& value);
 };
 
 template <>
@@ -10178,6 +10252,12 @@ template <>
 struct Codec<BindConversationTabSessionResult> {
     static Result<Json> encode(const BindConversationTabSessionResult& value);
     static Result<BindConversationTabSessionResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<BridgeHelloRequest> {
+    static Result<Json> encode(const BridgeHelloRequest& value);
+    static Result<BridgeHelloRequest> decode(const Json& value);
 };
 
 template <>
@@ -12053,6 +12133,12 @@ struct Codec<SetSplitRatioRequest> {
 };
 
 template <>
+struct Codec<SetStreamPriorityRequest> {
+    static Result<Json> encode(const SetStreamPriorityRequest& value);
+    static Result<SetStreamPriorityRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<SetTabPinnedRequest> {
     static Result<Json> encode(const SetTabPinnedRequest& value);
     static Result<SetTabPinnedRequest> decode(const Json& value);
@@ -13085,6 +13171,12 @@ struct Codec<LayoutStack> {
 };
 
 template <>
+struct Codec<SetStreamPriorityResultOutcome> {
+    static Result<Json> encode(const SetStreamPriorityResultOutcome& value);
+    static Result<SetStreamPriorityResultOutcome> decode(const Json& value);
+};
+
+template <>
 struct Codec<SnapshotRequestResultStatus> {
     static Result<Json> encode(const SnapshotRequestResultStatus& value);
     static Result<SnapshotRequestResultStatus> decode(const Json& value);
@@ -13178,6 +13270,12 @@ template <>
 struct Codec<IdsRequestKind> {
     static Result<Json> encode(const IdsRequestKind& value);
     static Result<IdsRequestKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<SetStreamPriorityRequestPriority> {
+    static Result<Json> encode(const SetStreamPriorityRequestPriority& value);
+    static Result<SetStreamPriorityRequestPriority> decode(const Json& value);
 };
 
 template <>

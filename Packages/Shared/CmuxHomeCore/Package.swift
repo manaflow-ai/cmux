@@ -19,7 +19,7 @@ let package = Package(
     dependencies: [
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
-        // The portable Mutex (p10-stability-172). The CmuxHomeCore library itself depends on it, for
+        // The portable Mutex. The CmuxHomeCore library itself depends on it, for
         // GatedHomeSource's state (Mock/, shipped in the library like MockHomeSource), so every
         // consumer links CmuxSafeConcurrency.
         .package(path: "../CmuxSafeConcurrency"),

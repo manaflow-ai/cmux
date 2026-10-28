@@ -134,7 +134,7 @@ pub(super) fn collect(folder: &Path) -> anyhow::Result<LocalSet> {
         return Ok(set);
     };
     set.git = true;
-    if git.common.join("objects/info/alternates").exists() {
+    if cmux_blocking::fs::metadata(git.common.join("objects/info/alternates")).is_ok() {
         bail!(
             "{} borrows objects from another repository (objects/info/alternates); clone it without --shared or --reference first",
             folder.display()
@@ -177,7 +177,8 @@ impl GitDirs {
     /// repository is above it, so pushing it alone would lose the git state.
     pub(super) fn of(folder: &Path) -> anyhow::Result<Option<Self>> {
         let Ok(top) = git(folder, &["rev-parse", "--show-toplevel"]) else { return Ok(None) };
-        let top = std::fs::canonicalize(top.trim()).unwrap_or_else(|_| PathBuf::from(top.trim()));
+        let top = cmux_blocking::fs::canonicalize(top.trim())
+            .unwrap_or_else(|_| PathBuf::from(top.trim()));
         if top != folder {
             bail!(
                 "{} is inside the git working copy {}; push its top folder",
@@ -241,27 +242,27 @@ fn is_per_worktree(relative: &str) -> bool {
 /// rules in the module doc.
 fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()> {
     let parts: Vec<&str> = relative.split('/').collect();
-    if !GIT_TOP.contains(&parts[0]) || relative.ends_with(".lock") {
+    if !parts.first().is_some_and(|top| GIT_TOP.contains(top)) || relative.ends_with(".lock") {
         return Ok(());
     }
     // Below refs/, logs/ and objects/ names are refs and hashes, never
     // hooks or config files, so a branch called `hooks` still goes.
     let data_at = parts.iter().position(|part| matches!(*part, "refs" | "logs" | "objects"));
-    let before_data = &parts[..data_at.unwrap_or(parts.len())];
-    if before_data.iter().any(|part| matches!(*part, "hooks" | "worktrees" | "lfs" | "FETCH_HEAD"))
-    {
+    let mut before_data = parts.iter().take(data_at.unwrap_or(parts.len()));
+    if before_data.any(|part| matches!(*part, "hooks" | "worktrees" | "lfs" | "FETCH_HEAD")) {
         return Ok(());
     }
     let target = format!(".git/{relative}");
     let name = parts.last().copied().unwrap_or_default();
     if data_at.is_none() && matches!(name, "config" | "config.worktree") {
-        let text = std::fs::read_to_string(path).unwrap_or_default();
+        let text = cmux_blocking::fs::read_to_string(path).unwrap_or_default();
         let source = Source::Bytes(clean_config(&text).into_bytes());
         set.files.insert(target, LocalFile { source, permissions: 0o644 });
         return Ok(());
     }
-    if data_at.is_some_and(|index| parts[index] == "logs") {
-        let text = String::from_utf8_lossy(&std::fs::read(path).unwrap_or_default()).into_owned();
+    if data_at.and_then(|index| parts.get(index)) == Some(&"logs") {
+        let text = String::from_utf8_lossy(&cmux_blocking::fs::read(path).unwrap_or_default())
+            .into_owned();
         let cleaned: String = text.split_inclusive('\n').map(without_user_info).collect();
         set.files.insert(
             target,
@@ -276,7 +277,7 @@ fn add_git(set: &mut LocalSet, relative: &str, path: &Path) -> anyhow::Result<()
 /// as skipped (a symlink, a socket, a name the machine cannot hold). A file
 /// deleted from the working tree is left out.
 fn add(set: &mut LocalSet, relative: String, path: &Path) -> anyhow::Result<()> {
-    match std::fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(meta) if meta.file_type().is_file() && holdable(&relative) => {
             let permissions = permissions_of(meta.permissions().mode());
             set.files.insert(
@@ -318,8 +319,8 @@ fn walk(
     dir: &Path,
     visit: &mut dyn FnMut(&str, &Path) -> anyhow::Result<()>,
 ) -> anyhow::Result<()> {
-    let entries =
-        std::fs::read_dir(dir).with_context(|| format!("cannot list {}", dir.display()))?;
+    let entries = cmux_blocking::fs::read_dir(dir)
+        .with_context(|| format!("cannot list {}", dir.display()))?;
     for entry in entries {
         let entry = entry?;
         let path = entry.path();
@@ -396,11 +397,10 @@ pub(super) fn clean_config(config: &str) -> String {
         }
         let mut rest = line.trim();
         if let Some(header) = rest.strip_prefix('[') {
-            let Some(end) = header.find(']') else {
+            let Some((section, after_section)) = header.split_once(']') else {
                 keys = None;
                 continue;
             };
-            let section = &header[..end];
             let plain = section.split('"').next().unwrap_or_default();
             let name = plain.split([' ', '.']).next().unwrap_or_default().to_ascii_lowercase();
             // The old `[section.sub]` form is not allow-listed; a quoted
@@ -416,7 +416,7 @@ pub(super) fn clean_config(config: &str) -> String {
                 out.push_str("]\n");
             }
             // `[core] key = value` on one line: the setting follows the header.
-            rest = header[end + 1..].trim();
+            rest = after_section.trim();
             if rest.is_empty() {
                 continue;
             }
@@ -439,12 +439,16 @@ pub(super) fn clean_config(config: &str) -> String {
 fn without_user_info(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
-    while let Some(scheme_end) = rest.find("://") {
-        out.push_str(&rest[..scheme_end + 3]);
-        rest = &rest[scheme_end + 3..];
-        let authority_end = rest.find(['/', ' ', '\t', '"', '\n']).unwrap_or(rest.len());
-        if let Some(at) = rest[..authority_end].rfind('@') {
-            rest = &rest[at + 1..];
+    while let Some((before, after_scheme)) = rest.split_once("://") {
+        out.push_str(before);
+        out.push_str("://");
+        rest = after_scheme;
+        let authority = rest.split(['/', ' ', '\t', '"', '\n']).next().unwrap_or_default();
+        if let Some((user_info, _)) = authority.rsplit_once('@')
+            && let Some(from_host) =
+                rest.strip_prefix(user_info).and_then(|after| after.strip_prefix('@'))
+        {
+            rest = from_host;
         }
     }
     out.push_str(rest);

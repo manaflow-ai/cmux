@@ -7,6 +7,14 @@ import Foundation
 /// network each time. A failure (offline, no such owner, not an image) is kept for this run only:
 /// the next launch asks again.
 actor AgentPaneOwnerAvatars {
+    /// The queue this actor runs on (threading-model.md, `com.cmuxterm.app.next.agent-pane.owner-avatars`): its avatar cache reads and writes block a thread of
+    /// its own, never a cooperative pool thread (the HomeCache pattern).
+    // executor: com.cmuxterm.app.next.agent-pane.owner-avatars
+    private nonisolated let queue = DispatchSerialQueue(label: "com.cmuxterm.app.next.agent-pane.owner-avatars", qos: .default)
+
+    /// Runs the actor on ``queue``.
+    nonisolated var unownedExecutor: UnownedSerialExecutor { queue.asUnownedSerialExecutor() }
+
     static let shared = AgentPaneOwnerAvatars()
     static let lifetime: TimeInterval = 7 * 24 * 60 * 60
     static let timeout: TimeInterval = 5

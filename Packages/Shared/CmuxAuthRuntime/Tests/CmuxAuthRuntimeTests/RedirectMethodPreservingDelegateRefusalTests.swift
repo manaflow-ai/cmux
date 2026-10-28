@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import CmuxAuthRuntime
 
-/// The refusal bit lives in a `Mutex<Bool>` (p10-stability-060), so the delegate is plainly
+/// The refusal bit lives in a `Mutex<Bool>`, so the delegate is plainly
 /// `Sendable`: URLSession's delegate queue writes it while the request's owner reads it.
 struct RedirectMethodPreservingDelegateRefusalTests {
     /// Calls the redirect callback for one unresumed POST and returns the request it hands back.

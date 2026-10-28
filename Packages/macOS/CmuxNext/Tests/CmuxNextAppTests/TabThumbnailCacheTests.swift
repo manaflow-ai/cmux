@@ -3,7 +3,7 @@ import CmuxNextCompat
 import CoreGraphics
 import Testing
 
-/// Hover card thumbnails in purgeable pages (p07-memory-107): volatile except while a card shows one, a
+/// Hover card thumbnails in purgeable pages: volatile except while a card shows one, a
 /// thumbnail the kernel purged is a miss that leaves the cache (the card pictures the tab again), and the
 /// hover cards' consumer reports locked bytes apart from volatile ones. The copy is drawn off the main actor,
 /// and with feature `purgeableImageCaches` off the cache keeps the image itself.

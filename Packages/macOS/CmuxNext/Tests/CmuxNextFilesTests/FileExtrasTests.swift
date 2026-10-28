@@ -9,7 +9,7 @@ struct FileExtrasTests {
     @Test func aliasesAndSymlinksPointAtTheOriginal() async throws {
         let temp = try TempFolder()
         let report = try temp.file("report.txt", bytes: 3)
-        let files = FileOperator()
+        let files = FileOperator(work: BackgroundWork())
         let links = try await files.makeLinks([report], kind: .symlink)
         #expect(links.map(\.lastPathComponent) == ["report.txt alias"])
         #expect(try FileManager.default.destinationOfSymbolicLink(atPath: links[0].path) == report.path)
@@ -22,7 +22,7 @@ struct FileExtrasTests {
         let temp = try TempFolder()
         let doomed = try temp.file("doomed", bytes: 1)
         try temp.file("kept")
-        try await FileOperator().deleteImmediately([doomed])
+        try await FileOperator(work: BackgroundWork()).deleteImmediately([doomed])
         #expect(temp.names() == ["kept"])
     }
 
@@ -30,7 +30,7 @@ struct FileExtrasTests {
         let temp = try TempFolder()
         let a = try temp.file("a.txt", bytes: 10)
         let b = try temp.file("b.txt", bytes: 20)
-        let files = FileOperator()
+        let files = FileOperator(work: BackgroundWork())
         let one = try await files.compress([a], archiveName: "Archive")
         #expect(one.lastPathComponent == "a.txt.zip")
         let both = try await files.compress([a, b], archiveName: "Archive")
@@ -49,7 +49,7 @@ struct FileExtrasTests {
     @Test func getInfoReadsKindSizeAndFlags() async throws {
         let temp = try TempFolder()
         let file = try temp.file("data.bin", bytes: 4096)
-        let reader = FileInfoReader()
+        let reader = FileInfoReader(work: BackgroundWork())
         var info = try await reader.info(for: file)
         #expect(info.name == "data.bin")
         #expect(info.size == 4096)
@@ -68,7 +68,7 @@ struct FileExtrasTests {
         try temp.folder("sub")
         try temp.file("a", bytes: 100)
         try temp.file("b", bytes: 50, in: "sub")
-        let total = await FileInfoReader().folderSize(of: temp.url)
+        let total = await FileInfoReader(work: BackgroundWork()).folderSize(of: temp.url)
         #expect(total.bytes == 150)
         #expect(total.items == 3)
     }
@@ -112,7 +112,7 @@ struct FileExtrasTests {
         try temp.file("b", bytes: 1)
         try temp.file("a", bytes: 3)
         try temp.file("c", bytes: 2)
-        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), sortOrder: FileSortOrder(field: .size), watcher: NeverWatcher())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), sortOrder: FileSortOrder(field: .size), watcher: NeverWatcher(), lanes: BackgroundWork())
         await model.reload()
         #expect(model.entries.map(\.name) == ["b", "c", "a"])
         model.selectAlphabetically(forward: true)
@@ -129,7 +129,7 @@ struct FileExtrasTests {
     @Test func makeAliasAndCompressFromTheModelSelectTheResult() async throws {
         let temp = try TempFolder()
         try temp.file("x.txt", bytes: 5)
-        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: NeverWatcher())
+        let model = FileBrowserModel(folder: temp.url, work: MainWorkScheduler(budget: MainFrameBudget()), watcher: NeverWatcher(), lanes: BackgroundWork())
         await model.reload()
         model.selection = ["x.txt"]
         await model.makeAliasesOfSelection(kind: .alias)

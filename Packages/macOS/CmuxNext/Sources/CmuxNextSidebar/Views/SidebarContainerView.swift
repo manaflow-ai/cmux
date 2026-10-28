@@ -151,12 +151,14 @@ public final class SidebarContainerView: NSView {
     ///   - appEvents: The app's one fan-out of app-wide notices (`AppServices.appEvents`): the list ends a pointer
     ///     gesture when the app resigns active.
     ///   - newRows: Told which rows the list draws, so a new workspace's `create.workspace` interval ends there.
-    public init(model: SidebarModel, deadlines: MainDeadlineScheduler, appEvents: AppEvents, newRows: SidebarNewRowTimer? = nil) {
+    ///   - responsiveScrolling: The list scrolls on AppKit's scrolling thread (feature `responsiveScrolling`).
+    public init(model: SidebarModel, deadlines: MainDeadlineScheduler, appEvents: AppEvents, newRows: SidebarNewRowTimer? = nil,
+                responsiveScrolling: Bool = false) {
         let mainWork = deadlines.work
         self.model = model
         hoverRefresh = MainDeadline(owner: "Sidebar.hoverRefresh", workClass: .visible, scheduler: deadlines)
         widthMotionWatchdog = MainDeadline(owner: "Sidebar.widthMotionWatchdog", workClass: .visible, scheduler: deadlines)
-        sidebarView = SidebarView(model: model, mainWork: mainWork, newRows: newRows)
+        sidebarView = SidebarView(model: model, mainWork: mainWork, newRows: newRows, responsiveScrolling: responsiveScrolling)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value

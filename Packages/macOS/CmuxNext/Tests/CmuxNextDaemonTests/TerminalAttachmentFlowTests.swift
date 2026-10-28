@@ -1,8 +1,9 @@
 import Foundation
 import Testing
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 
-/// The attach decoder reads the key press an `output` event echoes (`flow`, p09-observability-018), so the
+/// The attach decoder reads the key press an `output` event echoes (`flow`), so the
 /// typing probe's decode mark names that press exactly.
 struct TerminalAttachmentFlowTests {
     private let surface = SurfaceID(rawValue: 3)
@@ -25,6 +26,23 @@ struct TerminalAttachmentFlowTests {
         #expect(decoded.flow == nil)
         #expect(decoded.generation == 2)
         #expect(decoded.event == .output(Data("a".utf8), colors: nil))
+    }
+
+    /// A daemon with key stages sends them with the echo; one from before them sends none, and the
+    /// echo still decodes with its flow (an older daemon with a newer app).
+    @Test func anEchoCarriesTheDaemonsKeyStages() throws {
+        let staged = try decode(
+            #"{"event":"output","surface":3,"data":"YQ==","flow":9,"key_stages":{"received":10,"written":20,"read":30,"sent":40,"lost":1}}"#)
+        #expect(staged.flow == 9)
+        #expect(staged.keyStamps == TerminalKeyStamps(received: 10, written: 20, read: 30, sent: 40, lost: 1))
+        #expect(staged.event == .output(Data("a".utf8), colors: nil))
+
+        let older = try decode(#"{"event":"output","surface":3,"data":"YQ==","flow":9}"#)
+        #expect(older.flow == 9 && older.keyStamps == nil)
+
+        let noLost = try decode(
+            #"{"event":"output","surface":3,"data":"YQ==","flow":9,"key_stages":{"received":10,"written":0,"read":30,"sent":40}}"#)
+        #expect(noLost.keyStamps == TerminalKeyStamps(received: 10, written: 0, read: 30, sent: 40))
     }
 
     @Test func otherEventsCarryNoFlow() throws {

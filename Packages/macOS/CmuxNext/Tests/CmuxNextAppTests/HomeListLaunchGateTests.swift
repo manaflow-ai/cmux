@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// The Home page while the last launch's list is still being read (p08-startup-076): the read is held, so the page
+/// The Home page while the last launch's list is still being read: the read is held, so the page
 /// draws only the theme background (no list, no rows from an unprimed store); once it lands, the cached list shows
 /// whole. Before, the list drew its first frames empty and each piece popped in when the read landed.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct HomeListLaunchGateTests {
@@ -26,7 +26,7 @@ import Testing
         let cached = snapshot
         let gate = DispatchSemaphore(value: 0)
         environment.homeListRead = HomeListLaunchRead(owner: owner, caches: caches, conversations: HomeCache.standard(owner: owner, caches: caches),
-                                                      sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches),
+                                                      sidebar: HomeSidebarLaunchCache.standard(owner: owner, caches: caches, files: BackgroundWork()),
                                                       on: BackgroundWork()) {
             gate.wait()
             return HomeListLaunchRead.Value(conversations: cached)

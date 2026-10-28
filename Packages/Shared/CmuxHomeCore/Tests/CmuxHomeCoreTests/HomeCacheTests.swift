@@ -94,8 +94,8 @@ import CmuxHomeCoreTestSupport
         #expect(try #require(cache.load()).drafts[Self.austin] == nil, "a sent or cleared draft leaves the cache")
     }
 
-    /// The Mac reads the cache on a launch lane and primes the store with that snapshot
-    /// (p08-startup-076): the store shows it, and its `start()` reads no file of its own. The disk
+    /// The Mac reads the cache on a launch lane and primes the store with that snapshot:
+    /// the store shows it, and its `start()` reads no file of its own. The disk
     /// holds another draft than the snapshot, so a read in `start()` would show the disk's.
     @Test func aStorePrimedWithASnapshotShowsItAndReadsNoCacheAtStart() async throws {
         let cache = Self.cache()
@@ -128,7 +128,7 @@ import CmuxHomeCoreTestSupport
         #expect(store.rows.isEmpty, "start read the cache the launch read found empty")
     }
 
-    /// A draft and a scroll anchor set while the Mac's launch read runs (p08-startup-076): the snapshot that lands
+    /// A draft and a scroll anchor set while the Mac's launch read runs: the snapshot that lands
     /// after keeps them, and the store wrote nothing before it, so the file never lost its conversations to a store
     /// that had not shown them yet.
     @Test func editsBeforeThePrimeAreKeptAndNothingIsWrittenBeforeIt() async throws {

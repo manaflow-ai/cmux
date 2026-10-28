@@ -341,8 +341,9 @@ the size is raised with that number as its reason.
 
 - Old app, new daemon: no capability, today's per-view connections and JSON.
 - New app, old daemon: the daemon does not advertise the capabilities; the app uses per-view connections.
-- Terminal streams are the default: the app feature `terminalStreams` (schemas/features/features.d) is on in
-  Dev, Nightly and Release (p05-ipc-094), on local connections and, once p05-ipc-151 lands, bridged ones. For
+- Terminal streams are the default in Dev and Nightly: the app feature `terminalStreams` (schemas/features/features.d)
+  is on there (p05-ipc-094, feature-switch-policy.md); Release stays off until the B1 benches below pass on an
+  optimized build and Nightly has run it for 7 days (feature-switch-policy.md rule 5). It applies on local connections and, once p05-ipc-151 lands, bridged ones. For
   one release `CMUX_DISABLE_FEATURES=terminalStreams` (or managed policy `DisabledFeatures`) keeps the per-view
   path, then slice 4 deletes it.
 - The default stays on only while B1 holds on a fleet Mac, with host, sha, macOS and display Hz recorded with

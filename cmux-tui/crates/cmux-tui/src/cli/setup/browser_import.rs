@@ -38,6 +38,7 @@ use serde_json::{Map, Value, json};
 use super::super::GlobalArgs;
 use super::super::app::{ActionName, READ_TIMEOUT, action_origin, action_run_params};
 use super::{Outcome, Refusal};
+use crate::cli::json_fields::JsonFields;
 
 const TASK: &str = "browser_import";
 
@@ -87,7 +88,7 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
         "person": PERSON,
     });
     if !applies(global) {
-        report["state"] = json!("not_applicable");
+        report.insert("state", json!("not_applicable"));
         return Ok(Outcome { report, failed: false });
     }
     let Some(browser) = args.browser.clone() else {
@@ -104,9 +105,11 @@ pub(super) fn run(global: &GlobalArgs, args: &[String]) -> Result<Outcome, Refus
                 Some(PICKER),
             )
         };
-        report["state"] = json!("needs_user");
-        report["user_action"] =
-            json!({"kind": "choose", "text": text, "command": command, "url": Value::Null});
+        report.insert("state", json!("needs_user"));
+        report.insert(
+            "user_action",
+            json!({"kind": "choose", "text": text, "command": command, "url": Value::Null}),
+        );
         return Ok(Outcome { report, failed: false });
     };
     if args.cookies {
@@ -211,7 +214,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     };
     // The profile the app chose for this run; every later call names it, so
     // a tab focused in between cannot move the import elsewhere.
-    let profile = listed["profile"].as_str().unwrap_or("default").to_owned();
+    let profile = listed.field("profile").as_str().unwrap_or("default").to_owned();
     // The source keys of the profiles the app's import would read: a named
     // profile is the folders of those keys (the app matches the name, and
     // folder titles are localized), and only folders of those keys can be
@@ -227,10 +230,10 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         _ => keys.clone(),
     };
     let before = imported(&listed, Some(&id), source.map(|_| stored.as_slice()));
-    report["before"] = json!({"profile": profile, "folders": before});
+    report.insert("before", json!({"profile": profile, "folders": before}));
     if !before.is_empty() {
-        report["after"] = report["before"].clone();
-        report["state"] = json!("ok");
+        report.insert("after", report.field("before").clone());
+        report.insert("state", json!("ok"));
         return report;
     }
     // Not imported yet, and the browser (or the profile) is gone.
@@ -238,17 +241,19 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         return needs_user(report, no_bookmarks(browser, "no browser profile matches."));
     }
     if args.dry_run {
-        report["state"] = json!("planned");
-        report["undo"] = json!(remove("FOLDER_ID"));
+        report.insert("state", json!("planned"));
+        report.insert("undo", json!(remove("FOLDER_ID")));
         return report;
     }
     // Every folder of this browser already there: the undo names only the
     // ones this run adds, never the person's own or another import's.
-    let known =
-        imported(&listed, Some(&id), None).into_iter().map(|f| f["id"].clone()).collect::<Vec<_>>();
+    let known = imported(&listed, Some(&id), None)
+        .into_iter()
+        .map(|f| f.field("id").clone())
+        .collect::<Vec<_>>();
     let mut arguments = json!({"browser": id, "profile": profile});
     if let Some(source) = source {
-        arguments["source"] = json!(source);
+        arguments.insert("source", json!(source));
     }
     let mut params =
         action_run_params("bookmark.importFromBrowser", ActionName::Any, action_origin());
@@ -256,9 +261,9 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     let timeout = super::super::app::waiting_run_timeout("bookmark.importFromBrowser");
     let (failure, running) = match app_call(global, "action.run", Value::Object(params), timeout) {
         Ok(_) => (None, false),
-        Err(error) if error["code"] == "daemon_error" => (Some(why(&error)), false),
+        Err(error) if error.field("code") == "daemon_error" => (Some(why(&error)), false),
         // The app stopped waiting, or its answer was lost: the import may still run.
-        Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+        Err(error) if matches!(error.field("code").as_str(), Some("timeout" | "app.transport")) => {
             (None, true)
         }
         Err(error) => return needs_user(report, app_problem(&error)),
@@ -278,9 +283,11 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
     // import running at the same time: the undo leaves it.
     let mine = |folder: &Value| keys.iter().any(|key| folder["source_key"] == key.as_str());
     let (added, other): (Vec<_>, Vec<_>) = new.into_iter().partition(mine);
-    report["after"] = json!({"profile": profile, "folders": added, "refreshed": refreshed});
-    if !other.is_empty() {
-        report["after"]["other"] = json!(other);
+    report.insert("after", json!({"profile": profile, "folders": added, "refreshed": refreshed}));
+    if !other.is_empty()
+        && let Some(after) = report.field_mut("after")
+    {
+        after.insert("other", json!(other));
     }
     // The app answered that the import ran: with no new folder it refreshed
     // one already there (the app replaces a folder of the same source in place).
@@ -309,7 +316,7 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
             .map(remove)
             .collect::<Vec<_>>()
             .join(" && ");
-        report["undo"] = json!(undo);
+        report.insert("undo", json!(undo));
     }
     let mut notes = Vec::new();
     if added.is_empty() || !refreshed.is_empty() {
@@ -333,13 +340,13 @@ fn bookmarks(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value)
         ));
     }
     if !notes.is_empty() {
-        report["note"] = json!(notes.join(". "));
+        report.insert("note", json!(notes.join(". ")));
     }
     if let Some(why) = failure {
         // Some profiles came in and some could not be read.
-        report["unread"] = json!(why);
+        report.insert("unread", json!(why));
     }
-    report["state"] = json!("changed");
+    report.insert("state", json!("changed"));
     report
 }
 
@@ -376,9 +383,9 @@ fn contents(listed: &Value, folder: &Value) -> (Option<Value>, Vec<Value>) {
 }
 
 fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -> Value {
-    report["undo_note"] = json!(COOKIES_UNDO_NOTE);
+    report.insert("undo_note", json!(COOKIES_UNDO_NOTE));
     if args.dry_run {
-        report["state"] = json!("planned");
+        report.insert("state", json!("planned"));
         return report;
     }
     eprintln!(
@@ -404,11 +411,11 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
     let timeout = super::super::app::waiting_run_timeout("browser.importCookies");
     match app_call(global, "action.run", Value::Object(params), timeout) {
         Ok(_) => {
-            report["state"] = json!("changed");
+            report.insert("state", json!("changed"));
             report
         }
         // Denied, timed out, or another request already waiting: nothing was read.
-        Err(error) if error["code"] == "unavailable" => needs_user(
+        Err(error) if error.field("code") == "unavailable" => needs_user(
             report,
             json!({
                 "kind": "declined",
@@ -421,7 +428,7 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
             }),
         ),
         // The panel was up and the answer is lost: the person may have allowed it.
-        Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+        Err(error) if matches!(error.field("code").as_str(), Some("timeout" | "app.transport")) => {
             needs_user(
                 report,
                 json!({
@@ -434,7 +441,7 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
                 }),
             )
         }
-        Err(error) if error["code"] == "daemon_error" => needs_user(
+        Err(error) if error.field("code") == "daemon_error" => needs_user(
             report,
             json!({
                 "kind": "browser",
@@ -448,8 +455,8 @@ fn cookies(global: &GlobalArgs, args: &Args, browser: &str, mut report: Value) -
 }
 
 fn needs_user(mut report: Value, action: Value) -> Value {
-    report["state"] = json!("needs_user");
-    report["user_action"] = action;
+    report.insert("state", json!("needs_user"));
+    report.insert("user_action", action);
     report
 }
 
@@ -463,7 +470,8 @@ fn registry_id(browser: &str) -> String {
     };
     let wanted = key(browser);
     let registry: Value = serde_json::from_str(REGISTRY).unwrap_or(Value::Null);
-    registry["browsers"]
+    registry
+        .field("browsers")
         .as_array()
         .into_iter()
         .flatten()
@@ -498,16 +506,18 @@ fn list(global: &GlobalArgs, profile: Option<&str>) -> Result<Value, Value> {
     let mut listed = app_call(global, "bookmark.list", params.clone(), READ_TIMEOUT)
         .map_err(|error| app_problem(&error))?;
     let deadline = std::time::Instant::now() + LOAD_WAIT;
-    while listed["loaded"] == false {
+    while listed.field("loaded") == false {
         let left = deadline.saturating_duration_since(std::time::Instant::now());
         if left <= LOAD_PAUSE {
             return Err(still_loading());
         }
-        std::thread::sleep(LOAD_PAUSE);
+        cmux_blocking::thread::sleep(LOAD_PAUSE);
         listed = match app_call(global, "bookmark.list", params.clone(), left - LOAD_PAUSE) {
             Ok(listed) => listed,
             // The reread's time ran out: the app is still slow to answer.
-            Err(error) if matches!(error["code"].as_str(), Some("timeout" | "app.transport")) => {
+            Err(error)
+                if matches!(error.field("code").as_str(), Some("timeout" | "app.transport")) =>
+            {
                 return Err(still_loading());
             }
             Err(error) => return Err(app_problem(&error)),
@@ -526,11 +536,12 @@ fn import_sources(
 ) -> Result<Vec<String>, Value> {
     let mut params = json!({"browser": browser});
     if let Some(source) = source {
-        params["source"] = json!(source);
+        params.insert("source", json!(source));
     }
     let found = app_call(global, "bookmark.importSources", params, READ_TIMEOUT)
         .map_err(|error| app_problem(&error))?;
-    Ok(found["sources"]
+    Ok(found
+        .field("sources")
         .as_array()
         .into_iter()
         .flatten()

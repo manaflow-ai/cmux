@@ -6,7 +6,7 @@ import CmuxNextMemory
 import Foundation
 import Testing
 
-/// The app's feeds of the local memory histograms (p07-memory-016): the hibernation hooks count
+/// The app's feeds of the local memory histograms: the hibernation hooks count
 /// discards by kind and wakes, and only the instrumented kinds have a discard histogram.
 @MainActor @Suite(.serialized) struct MemoryHistogramsAppTests {
     /// A clock the histograms' hours run on.

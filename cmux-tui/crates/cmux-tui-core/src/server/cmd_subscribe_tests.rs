@@ -1,5 +1,5 @@
-//! Page-relay subscriptions filter by event kind on the bus (chrome-parity
-//! p13-webui-067): a page relay that hears `history-changed` is never sent,
+//! Page-relay subscriptions filter by event kind on the bus:
+//! a page relay that hears `history-changed` is never sent,
 //! queued or rendered a terminal's `surface-output`, it still hears its own
 //! event, and a normal subscriber's stream is unchanged.
 
@@ -192,4 +192,64 @@ fn a_rendered_event_name_maps_back_to_its_kind() {
         let kinds = wire_event_kinds(name).unwrap_or_else(|| panic!("{name} has no kinds"));
         assert!(kinds.accepts(&event), "{name}: {event:?}");
     }
+}
+
+/// A subscribed connection whose writer the test holds, and its probe. The
+/// subscription's drain holds one more reference to the probe while its
+/// pump runs (a pump on the pool, not a thread).
+fn subscribed_with_writer(
+    mux: &Arc<Mux>,
+) -> (Arc<BoundedOutbound>, MessageWriter, Arc<SubscribeProbe>) {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
+    let command = tests::json_command(json!({"cmd": "subscribe"}));
+    assert_eq!(handle_command(mux, client, command, &writer).unwrap(), json!({}));
+    (outbound, writer, mux.control_clients.subscribe_probe(client))
+}
+
+/// Waits until the subscription's drain dropped its probe: its pump stopped.
+fn wait_for_pump_stop(probe: &Arc<SubscribeProbe>, running: usize) {
+    let deadline = Instant::now() + WAIT;
+    while Arc::strong_count(probe) >= running {
+        assert!(Instant::now() < deadline, "the subscription's pump never stopped");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+}
+
+/// The writer's close ends the subscription: its pump stops, and an event
+/// emitted after it is never taken from the bus.
+#[test]
+fn a_subscription_ends_when_its_writer_closes() {
+    let mux = Mux::new_for_test("subscribe-writer-close", crate::SurfaceOptions::default());
+    let (_outbound, writer, probe) = subscribed_with_writer(&mux);
+    let running = Arc::strong_count(&probe);
+    writer.close();
+    wait_for_pump_stop(&probe, running);
+    mux.emit(history_changed());
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(probe.received.of(MuxEventKind::HistoryChanged), 0, "the pump took an event");
+}
+
+/// A subscriber that falls more than the bus's 4096 events behind is cut
+/// off: once its queue has room, it gets what the bus kept, then the
+/// overflow notice as its stream's last item, and its pump stops.
+#[test]
+fn a_subscription_whose_bus_overflows_ends_with_the_overflow_notice() {
+    const EVENTS: u64 = 5_000;
+    let mux = Mux::new_for_test("subscribe-overflow", crate::SurfaceOptions::default());
+    let (outbound, _writer, probe) = subscribed_with_writer(&mux);
+    let running = Arc::strong_count(&probe);
+    // Nobody reads the queue: the stream fills at its backpressure cap and
+    // the rest stays on the bus, past its bound.
+    for revision in 0..EVENTS {
+        mux.emit(MuxEvent::HistoryChanged { revision, kinds: Vec::new() });
+    }
+    let names = written_until(&outbound, "overflow");
+    assert_eq!(names.last().map(String::as_str), Some("overflow"), "{} items", names.len());
+    assert!(names.len() < EVENTS as usize, "every event came: {}", names.len());
+    wait_for_pump_stop(&probe, running);
+    mux.emit(history_changed());
+    std::thread::sleep(Duration::from_millis(50));
+    assert_eq!(outbound.try_pop(), None, "nothing follows the overflow notice");
 }

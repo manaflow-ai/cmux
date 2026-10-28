@@ -2,7 +2,7 @@ import CmuxNextCompat
 import CmuxNextMemory
 import Testing
 
-/// p07-memory-047: a pool of spares follows the coordinator's level by Chrome's spare rule
+/// A pool of spares follows the coordinator's level by Chrome's spare rule
 /// (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`): no spare at warning
 /// or critical, no refill until normal, and at normal one spare in every Memory Saver mode (the
 /// reviewed design dropped it at the conservative 75 % share).
@@ -93,7 +93,7 @@ import Testing
         #expect(test.pool.refills == 1, "a repeated level asks nothing")
     }
 
-    /// p13-webui-047: a pool that closes only at critical (Chromium's spare windows) keeps its
+    /// A pool that closes only at critical (Chromium's spare windows) keeps its
     /// untaken spare at warning, as Chrome keeps its spare renderer, and only holds new ones; critical
     /// closes it, and a later warning holds again without a second close.
     @Test func closingAtCriticalHoldsAtWarningAndClosesAtCritical() {

@@ -10,7 +10,7 @@ import CmuxNextDaemon
 /// connection: its menu leaves the rows out, and the palette and CLI are refused.
 enum SSHTargetHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        // SSH is made on first use (a run, a menu's check), never at binding.
         let available: @MainActor () -> String? = { context.services.ssh.unavailableReason }
         CloudHandlers.bind("reconnectWorkspace", registry, reason: available) { context.services.ssh.reconnect(try workspaceMachine($0, context)) }
         CloudHandlers.bind("disconnectWorkspace", registry, reason: available) { context.services.ssh.disconnect(try workspaceMachine($0, context)) }
@@ -32,7 +32,7 @@ enum SSHTargetHandlers {
         }
         ActionTargetVisibility.hide("disconnectRemoteTab", in: registry) { invocation in
             guard let target = invocation.target, target.kind == .tab else { return false }
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per menu check, no observation
+            // view-observation-allow: one MachineTabIndex lookup per menu check, no observation
             return context.services.locateTab(target.id).flatMap { tabMachine($0.0, context.services) } == nil
         }
     }

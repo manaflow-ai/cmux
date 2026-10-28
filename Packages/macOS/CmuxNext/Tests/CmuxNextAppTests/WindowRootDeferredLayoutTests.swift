@@ -6,7 +6,7 @@ import CmuxNextSidebar
 import CmuxNextWakeups
 import Testing
 
-/// p03-rendering-067: a right-panel width or a sidebar side change marks the root and lays out in
+/// A right-panel width or a sidebar side change marks the root and lays out in
 /// the window's next pass (Chrome lays out once per frame; a forced layout needs a reason the turn
 /// reads). Before, both forced a layout of the whole window subtree in the change's turn, once per
 /// move of a right-panel resize drag.

@@ -99,13 +99,10 @@ impl ManagerError {
     pub(crate) fn details(&self) -> Value {
         match self {
             Self::Usage(reason) => json!({"reason": reason}),
-            Self::Validation { field, reason } => {
-                let mut details = json!({"reason": reason});
-                if let Some(field) = field {
-                    details["field"] = Value::String((*field).to_string());
-                }
-                details
-            }
+            Self::Validation { field, reason } => match field {
+                Some(field) => json!({"reason": reason, "field": field}),
+                None => json!({"reason": reason}),
+            },
             Self::Failure(error) => json!({"reason": error.to_string()}),
         }
     }
@@ -210,27 +207,27 @@ fn install_command(
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, true, true, false)?;
-    if positionals.len() != 2 {
+    let [_, source] = positionals else {
         return Err(ManagerError::Usage(format!(
             "usage: {} install <git-url> [--name <name>] [--force]",
             kind.command_prefix()
         )));
-    }
-    if positionals[1].is_empty() {
+    };
+    if source.is_empty() {
         return Err(ManagerError::validation(Some("git_url"), "plugin git URL must not be empty"));
     }
-    validate_git_source(&positionals[1])
+    validate_git_source(source)
         .map_err(|error| ManagerError::validation(Some("git_url"), error.to_string()))?;
     let root = install_root(kind)?;
-    fs::create_dir_all(&root)?;
+    cmux_blocking::fs::create_dir_all(&root)?;
     let temp_dir = root.join(format!(".install-{}-{}", std::process::id(), now_nanos()));
     // Keep the user-supplied source after `--` so a value beginning with `-`
     // cannot become a git option. The destination remains a separate final
     // argument handled by `run_git`.
     let clone_result =
-        run_git(["clone", "--depth", "1", "--", positionals[1].as_str()], Some(&temp_dir), None);
+        run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
     if let Err(error) = clone_result {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
 
@@ -253,7 +250,7 @@ fn install_command(
         }
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
-        verify_executable(&command[0])?;
+        verify_run_command(&command)?;
         let metadata = PluginRegistryMetadata { id: random_plugin_id_for(kind)? };
         let id = metadata.id.clone();
         let selection = selected_plugin_config(kind)?;
@@ -296,8 +293,8 @@ fn install_command(
             selected,
         })}))
     })();
-    if result.is_err() && temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+    if result.is_err() && cmux_blocking::fs::metadata(&temp_dir).is_ok() {
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
     }
     result
 }
@@ -321,9 +318,9 @@ fn use_command(
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, true)?;
-    match (positionals.len(), options.builtin) {
-        (1, true) => return write_builtin_config(options, kind),
-        (2, false) => {}
+    let name = match (positionals, options.builtin) {
+        ([_], true) => return write_builtin_config(options, kind),
+        ([_, name], false) => name,
         _ => {
             return Err(ManagerError::Usage(format!(
                 "usage: {} use <name-or-id> | {} use --builtin",
@@ -331,12 +328,12 @@ fn use_command(
                 kind.command_prefix()
             )));
         }
-    }
-    let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
+    };
+    let mut plugin = resolve_installed_plugin(name, kind)?;
     ensure_manifest_platform_supported(&plugin.manifest)
         .map_err(|error| ManagerError::validation(Some("platforms"), error.to_string()))?;
     let command = resolved_run_command(&plugin.manifest, &plugin.dir)?;
-    verify_executable(&command[0])?;
+    verify_run_command(&command)?;
     let cwd = canonical_path(&plugin.dir)?;
     let plugin_id = plugin.id.clone();
     let revision = artifact_revision(&plugin.manifest, &plugin.dir, &command);
@@ -351,13 +348,13 @@ fn update_command(
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
-    if positionals.len() != 2 {
+    let [_, name] = positionals else {
         return Err(ManagerError::Usage(format!(
             "usage: {} update <name-or-id>",
             kind.command_prefix()
         )));
-    }
-    let mut plugin = resolve_installed_plugin(&positionals[1], kind)?;
+    };
+    let mut plugin = resolve_installed_plugin(name, kind)?;
     let source = git_text(&plugin.dir, ["remote", "get-url", "origin"]).ok_or_else(|| {
         ManagerError::validation(
             Some("plugin"),
@@ -375,7 +372,7 @@ fn update_command(
     let clone_result =
         run_git(["clone", "--depth", "1", "--", source.as_str()], Some(&temp_dir), None);
     if let Err(error) = clone_result {
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
         return Err(error.into());
     }
 
@@ -391,7 +388,7 @@ fn update_command(
         // differs from `[plugin].name` in the manifest.
         run_build_if_needed(&manifest, &temp_dir)?;
         let command = resolved_run_command(&manifest, &temp_dir)?;
-        verify_executable(&command[0])?;
+        verify_run_command(&command)?;
         let metadata = PluginRegistryMetadata { id: plugin.id.clone() };
         let transaction =
             replace_plugin_install(&root, &plugin.name, &temp_dir, &plugin.dir, &metadata, kind)?;
@@ -422,8 +419,8 @@ fn update_command(
         transaction.commit();
         Ok(json!({"plugin": plugin_json(&plugin)}))
     })();
-    if result.is_err() && temp_dir.exists() {
-        let _ = fs::remove_dir_all(&temp_dir);
+    if result.is_err() && cmux_blocking::fs::metadata(&temp_dir).is_ok() {
+        let _ = cmux_blocking::fs::remove_dir_all(&temp_dir);
     }
     result
 }
@@ -434,21 +431,21 @@ fn remove_command(
     kind: PluginKind,
 ) -> Result<Value, ManagerError> {
     reject_plugin_flags(options, false, false, false)?;
-    if positionals.len() != 2 {
+    let [_, name] = positionals else {
         return Err(ManagerError::Usage(format!(
             "usage: {} remove <name-or-id>",
             kind.command_prefix()
         )));
-    }
-    let installed = resolve_installed_plugin(&positionals[1], kind)?;
-    let mut plugin = plugin_json(&installed);
+    };
+    let installed = resolve_installed_plugin(name, kind)?;
+    let mut plugin = plugin_snapshot(&installed);
     if installed.selected {
         persist_plugin_none(kind)?;
     }
-    fs::remove_dir_all(&installed.dir)?;
+    cmux_blocking::fs::remove_dir_all(&installed.dir)?;
     remove_registry_metadata(&install_root(kind)?, &installed.name, kind)?;
-    plugin["active"] = Value::Bool(false);
-    plugin["enabled"] = Value::Bool(false);
+    plugin.insert("active".into(), Value::Bool(false));
+    plugin.insert("enabled".into(), Value::Bool(false));
     Ok(json!({"plugin": plugin}))
 }
 
@@ -507,12 +504,15 @@ fn artifact_revision(manifest: &PluginManifest, dir: &Path, command: &[String]) 
     }
     let mut binary_digest = digest.clone();
     binary_digest.update(b"binary\0");
-    let binary_hashed = fs::File::open(&command[0])
+    let program = command.first().map(Path::new);
+    let binary_hashed = program
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
+        .and_then(cmux_blocking::fs::open)
         .and_then(|file| update_file_digest(file, &mut binary_digest))
         .is_ok();
     if binary_hashed {
         digest = binary_digest;
-    } else if let Ok(metadata) = fs::metadata(&command[0]) {
+    } else if let Some(Ok(metadata)) = program.map(cmux_blocking::fs::metadata) {
         digest.update(b"metadata\0");
         digest.update(metadata.len().to_le_bytes());
         if let Ok(modified) = metadata.modified()
@@ -531,10 +531,15 @@ fn update_file_digest(mut file: fs::File, digest: &mut Sha256) -> std::io::Resul
     let mut buffer = [0_u8; ARTIFACT_HASH_BUFFER_BYTES];
     loop {
         let count = file.read(&mut buffer)?;
-        if count == 0 {
-            return Ok(());
+        match buffer.get(..count) {
+            Some([]) => return Ok(()),
+            Some(read) => digest.update(read),
+            None => {
+                return Err(std::io::Error::other(
+                    "read reported more bytes than the buffer holds",
+                ));
+            }
         }
-        digest.update(&buffer[..count]);
     }
 }
 
@@ -604,7 +609,7 @@ fn installed_plugins(kind: PluginKind) -> anyhow::Result<Vec<InstalledPlugin>> {
 /// the registry metadata directory, so an attacker cannot bypass the bound by
 /// creating entries the normal list path later ignores.
 fn bounded_plugin_registry_entries(root: &Path) -> anyhow::Result<Vec<fs::DirEntry>> {
-    let entries = match fs::read_dir(root) {
+    let entries = match cmux_blocking::fs::read_dir(root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
@@ -656,7 +661,7 @@ fn resolve_installed_plugin(
 
 fn read_manifest(dir: &Path, kind: PluginKind) -> anyhow::Result<PluginManifest> {
     let path = dir.join("cmux-plugin.toml");
-    let mut file = fs::File::open(&path)
+    let mut file = cmux_blocking::fs::open(&path)
         .map_err(|err| anyhow::anyhow!("failed to read {}: {err}", path.display()))?;
     let mut text = String::new();
     Read::by_ref(&mut file)
@@ -708,7 +713,7 @@ fn validate_manifest(manifest: &PluginManifest, kind: PluginKind) -> anyhow::Res
 }
 
 fn validate_manifest_command(command: &[String], field: &str) -> anyhow::Result<()> {
-    if command.is_empty() || command[0].trim().is_empty() {
+    if command.first().is_none_or(|program| program.trim().is_empty()) {
         anyhow::bail!("{field} must not be empty");
     }
     if command.len() > MAX_PLUGIN_COMMAND_ARGS {
@@ -806,11 +811,10 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     if source.starts_with('-') {
         anyhow::bail!("plugin git URL must not start with '-'");
     }
-    if let Some(separator) = source.find("::") {
+    if let Some((protocol, _)) = source.split_once("::") {
         // Git's custom transport syntax is `<protocol>::<address>`. Require
         // a protocol-shaped prefix, and ignore separators inside a URL's
         // authority or path (for example, an IPv6 literal).
-        let protocol = &source[..separator];
         if !protocol.is_empty()
             && !protocol.contains("://")
             && protocol.bytes().enumerate().all(|(index, byte)| {
@@ -826,20 +830,14 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
     // can carry a password or token so credentials do not enter the process
     // table, shell history, or Git's diagnostic output. SSH user names remain
     // valid because `ssh://git@host/repo` is a normal key-based source.
-    if let Some(scheme_end) = source.find("://") {
-        let scheme = &source[..scheme_end];
+    if let Some((scheme, after_scheme)) = source.split_once("://") {
         if !matches!(
             scheme.to_ascii_lowercase().as_str(),
             "file" | "git" | "http" | "https" | "ssh"
         ) {
             anyhow::bail!("unsupported plugin git URL scheme {scheme:?}");
         }
-        let authority_start = scheme_end + 3;
-        let authority_end = source[authority_start..]
-            .find(['/', '?', '#'])
-            .map_or(source.len(), |offset| authority_start + offset);
-        let authority = &source[authority_start..authority_end];
-        let suffix = &source[authority_end..];
+        let (authority, suffix) = split_authority(after_scheme);
         if suffix.contains(['?', '#']) {
             anyhow::bail!("plugin git URL must not contain a query or fragment");
         }
@@ -859,16 +857,26 @@ fn validate_git_source(source: &str) -> anyhow::Result<()> {
             }
         }
     } else if !is_local_git_path(source)
-        && let Some(at) = source.find('@')
+        && let Some((before_at, _)) = source.split_once('@')
     {
         // Also cover scp-like sources such as `user:password@host:path`.
         // A plain `git@host:path` remains valid.
-        let component_start = source[..at].rfind(['/', '\\']).map_or(0, |index| index + 1);
-        if source[component_start..at].contains(':') {
+        let component =
+            before_at.rsplit_once(['/', '\\']).map_or(before_at, |(_, component)| component);
+        if component.contains(':') {
             anyhow::bail!("plugin git URL must not contain embedded credentials");
         }
     }
     Ok(())
+}
+
+/// `authority` and the rest (path, query, fragment) of what follows a URL's
+/// `scheme://`.
+fn split_authority(after_scheme: &str) -> (&str, &str) {
+    after_scheme
+        .find(['/', '?', '#'])
+        .and_then(|end| after_scheme.split_at_checked(end))
+        .unwrap_or((after_scheme, ""))
 }
 
 fn is_local_git_path(source: &str) -> bool {
@@ -876,10 +884,10 @@ fn is_local_git_path(source: &str) -> bool {
         || source.starts_with("./")
         || source.starts_with("../")
         || source.starts_with("~/")
-        || (source.len() >= 3
-            && source.as_bytes()[0].is_ascii_alphabetic()
-            && source.as_bytes()[1] == b':'
-            && matches!(source.as_bytes()[2], b'/' | b'\\'))
+        || matches!(
+            source.as_bytes(),
+            [drive, b':', b'/' | b'\\', ..] if drive.is_ascii_alphabetic()
+        )
 }
 
 fn installed_name(
@@ -916,10 +924,13 @@ fn validate_update_manifest_name(
 
 fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result<Vec<String>> {
     let mut command = manifest.run.command.clone();
-    let first = Path::new(&command[0]);
+    let Some(program) = command.first_mut() else {
+        anyhow::bail!("run.command must not be empty");
+    };
+    let first = PathBuf::from(program.as_str());
     if first.is_relative() {
         let canonical_dir = canonical_path(dir)?;
-        let resolved = canonical_path(&canonical_dir.join(first))?;
+        let resolved = canonical_path(&canonical_dir.join(&first))?;
         if resolved.strip_prefix(&canonical_dir).is_err() {
             anyhow::bail!(
                 "run.command[0] {} escapes plugin directory {}",
@@ -927,14 +938,22 @@ fn resolved_run_command(manifest: &PluginManifest, dir: &Path) -> anyhow::Result
                 canonical_dir.display()
             );
         }
-        command[0] = resolved.display().to_string();
+        *program = resolved.display().to_string();
     }
     Ok(command)
 }
 
+/// The run command's program is a readable executable file.
+fn verify_run_command(command: &[String]) -> anyhow::Result<()> {
+    let Some(program) = command.first() else {
+        anyhow::bail!("run.command must not be empty");
+    };
+    verify_executable(program)
+}
+
 fn verify_executable(path: &str) -> anyhow::Result<()> {
     let path = Path::new(path);
-    let metadata = fs::metadata(path).map_err(|err| {
+    let metadata = cmux_blocking::fs::metadata(path).map_err(|err| {
         anyhow::anyhow!("run.command[0] {} is not readable: {err}", path.display())
     })?;
     if !metadata.is_file() {
@@ -1073,10 +1092,11 @@ fn plugin_is_selected(
 
 fn configured_command(selection: &SelectedPluginConfig, command: &[String]) -> Option<Vec<String>> {
     let mut command = command.to_vec();
-    let first = PathBuf::from(command.first()?);
+    let program = command.first_mut()?;
+    let first = PathBuf::from(program.as_str());
     if first.is_relative() {
         let cwd = selection.cwd.as_deref()?;
-        command[0] = canonical_path(&cwd.join(first)).ok()?.display().to_string();
+        *program = canonical_path(&cwd.join(first)).ok()?.display().to_string();
     }
     Some(command)
 }
@@ -1090,6 +1110,11 @@ fn commands_match(left: &[String], right: &[String]) -> bool {
 }
 
 fn plugin_json(plugin: &InstalledPlugin) -> Value {
+    Value::Object(plugin_snapshot(plugin))
+}
+
+/// The plugin's JSON object: identity, source, state and manifest extras.
+fn plugin_snapshot(plugin: &InstalledPlugin) -> serde_json::Map<String, Value> {
     let source = git_text(&plugin.dir, ["remote", "get-url", "origin"])
         .map(|source| sanitized_git_source(&source))
         .or_else(|| canonical_path(&plugin.dir).ok().map(|path| path.display().to_string()))
@@ -1114,35 +1139,29 @@ fn plugin_json(plugin: &InstalledPlugin) -> Value {
         );
     }
     let enabled = resolved_run_command(&plugin.manifest, &plugin.dir)
-        .and_then(|command| verify_executable(&command[0]))
+        .and_then(|command| verify_run_command(&command))
         .is_ok();
-    let mut snapshot = json!({
-        "id": &plugin.id,
-        "name": &plugin.name,
-        "source": source,
-        "active": plugin.selected,
-        "enabled": enabled,
-        "extra": extra,
-    });
+    let mut snapshot = serde_json::Map::new();
+    snapshot.insert("id".into(), Value::String(plugin.id.clone()));
+    snapshot.insert("name".into(), Value::String(plugin.name.clone()));
+    snapshot.insert("source".into(), Value::String(source));
+    snapshot.insert("active".into(), Value::Bool(plugin.selected));
+    snapshot.insert("enabled".into(), Value::Bool(enabled));
+    snapshot.insert("extra".into(), Value::Object(extra));
     if let Some(revision) = revision {
-        snapshot["revision"] = Value::String(revision);
+        snapshot.insert("revision".into(), Value::String(revision));
     }
     snapshot
 }
 
 fn sanitized_git_source(source: &str) -> String {
-    let Some(scheme_end) = source.find("://") else {
+    let Some((scheme, after_scheme)) = source.split_once("://") else {
         return source.to_string();
     };
-    let authority_start = scheme_end + 3;
-    let suffix_start = source[authority_start..]
-        .find(['/', '?', '#'])
-        .map_or(source.len(), |offset| authority_start + offset);
-    let authority = &source[authority_start..suffix_start];
+    let (authority, suffix) = split_authority(after_scheme);
     let authority = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
-    let suffix = &source[suffix_start..];
-    let suffix_end = suffix.find(['?', '#']).unwrap_or(suffix.len());
-    format!("{}://{}{}", &source[..scheme_end], authority, &suffix[..suffix_end])
+    let path = suffix.split(['?', '#']).next().unwrap_or(suffix);
+    format!("{scheme}://{authority}{path}")
 }
 
 fn read_registry_metadata(
@@ -1173,24 +1192,27 @@ fn replace_registry_metadata(
     validate_plugin_name(name)?;
     validate_plugin_id_for(&metadata.id, kind)?;
     let registry = install_root.join(".registry");
-    fs::create_dir_all(&registry)?;
+    cmux_blocking::fs::create_dir_all(&registry)?;
     let path = registry_metadata_path(install_root, name);
     let temp = registry.join(format!(".{name}.{}-{}.tmp", std::process::id(), now_nanos()));
     let result = (|| -> anyhow::Result<()> {
         let encoded = serde_json::to_vec(metadata)?;
-        let mut file = fs::OpenOptions::new().create_new(true).write(true).open(&temp)?;
+        let mut file = crate::blocking::fs::open_with(
+            fs::OpenOptions::new().create_new(true).write(true),
+            &temp,
+        )?;
         file.write_all(&encoded)?;
         file.write_all(b"\n")?;
-        file.sync_all()?;
+        crate::blocking::fs::sync_all(&file)?;
         drop(file);
-        fs::rename(&temp, &path)
+        cmux_blocking::fs::rename(&temp, &path)
             .map_err(|error| anyhow::anyhow!("failed to persist {}: {error}", path.display()))
     })();
     if result.is_err() {
         // A failed write or sync can leave a partial temporary file. Remove
         // it before returning so a later install cannot inherit stale
         // metadata and the registry does not accumulate unbounded debris.
-        let _ = fs::remove_file(&temp);
+        let _ = cmux_blocking::fs::remove_file(&temp);
     }
     result
 }
@@ -1246,7 +1268,7 @@ impl PluginInstallTransaction {
                 errors
                     .push(format!("remove new metadata {}: {error}", self.metadata_path.display()));
             }
-            if let Err(error) = fs::rename(&backup, &self.metadata_path) {
+            if let Err(error) = cmux_blocking::fs::rename(&backup, &self.metadata_path) {
                 errors.push(format!(
                     "restore metadata {} from {}: {error}",
                     self.metadata_path.display(),
@@ -1258,7 +1280,7 @@ impl PluginInstallTransaction {
         }
 
         if let Some(backup) = self.target_backup.take()
-            && let Err(error) = fs::rename(&backup, &self.target)
+            && let Err(error) = cmux_blocking::fs::rename(&backup, &self.target)
         {
             errors.push(format!(
                 "restore plugin {} from {}: {error}",
@@ -1296,7 +1318,7 @@ fn replace_plugin_install(
     let target_backup =
         install_root.join(format!(".{name}.backup-{}-{}", std::process::id(), now_nanos()));
     let registry = install_root.join(".registry");
-    fs::create_dir_all(&registry)?;
+    cmux_blocking::fs::create_dir_all(&registry)?;
     let metadata_path = registry_metadata_path(install_root, name);
     let metadata_backup =
         registry.join(format!(".{name}.backup-{}-{}.json", std::process::id(), now_nanos()));
@@ -1309,18 +1331,18 @@ fn replace_plugin_install(
 
     let install_result = (|| -> anyhow::Result<()> {
         if target_exists {
-            fs::rename(target, &target_backup).map_err(|error| {
+            cmux_blocking::fs::rename(target, &target_backup).map_err(|error| {
                 anyhow::anyhow!("failed to stage {}: {error}", target.display())
             })?;
             target_moved = true;
         }
         if metadata_exists {
-            fs::rename(&metadata_path, &metadata_backup).map_err(|error| {
+            cmux_blocking::fs::rename(&metadata_path, &metadata_backup).map_err(|error| {
                 anyhow::anyhow!("failed to stage {}: {error}", metadata_path.display())
             })?;
             metadata_moved = true;
         }
-        fs::rename(temp_dir, target)
+        cmux_blocking::fs::rename(temp_dir, target)
             .map_err(|error| anyhow::anyhow!("failed to install {}: {error}", target.display()))?;
         target_installed = true;
         replace_registry_metadata(install_root, name, metadata, kind)?;
@@ -1340,12 +1362,12 @@ fn replace_plugin_install(
             if metadata_installed {
                 let _ = remove_path_if_present(&metadata_path);
             }
-            let _ = fs::rename(&metadata_backup, &metadata_path);
+            let _ = cmux_blocking::fs::rename(&metadata_backup, &metadata_path);
         } else if metadata_installed {
             let _ = remove_path_if_present(&metadata_path);
         }
         if target_moved {
-            let _ = fs::rename(&target_backup, target);
+            let _ = cmux_blocking::fs::rename(&target_backup, target);
         }
         return Err(error);
     }
@@ -1361,7 +1383,7 @@ fn replace_plugin_install(
 }
 
 fn path_exists(path: &Path) -> anyhow::Result<bool> {
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(_) => Ok(true),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
         Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
@@ -1369,10 +1391,10 @@ fn path_exists(path: &Path) -> anyhow::Result<bool> {
 }
 
 fn remove_path_if_present(path: &Path) -> anyhow::Result<()> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => fs::remove_dir_all(path)
+    match cmux_blocking::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_dir() => cmux_blocking::fs::remove_dir_all(path)
             .map_err(|error| anyhow::anyhow!("failed to remove {}: {error}", path.display())),
-        Ok(_) => fs::remove_file(path)
+        Ok(_) => cmux_blocking::fs::remove_file(path)
             .map_err(|error| anyhow::anyhow!("failed to remove {}: {error}", path.display())),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::anyhow!("failed to inspect {}: {error}", path.display())),
@@ -1386,7 +1408,7 @@ fn remove_registry_metadata(
 ) -> anyhow::Result<()> {
     validate_plugin_name(name)?;
     let path = registry_metadata_path(install_root, name);
-    match fs::remove_file(&path) {
+    match cmux_blocking::fs::remove_file(&path) {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(anyhow::anyhow!("failed to remove {}: {error}", path.display())),
@@ -1400,10 +1422,9 @@ fn random_plugin_id_for(kind: PluginKind) -> anyhow::Result<String> {
     let prefix = kind.id_prefix();
     let mut id = String::with_capacity(prefix.len() + 32);
     id.push_str(prefix);
-    const HEX: &[u8; 16] = b"0123456789abcdef";
+    use std::fmt::Write as _;
     for byte in bytes {
-        id.push(char::from(HEX[usize::from(byte >> 4)]));
-        id.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        write!(&mut id, "{byte:02x}")?;
     }
     Ok(id)
 }
@@ -1458,16 +1479,13 @@ fn read_bounded_child_stdout(child: &mut Child, max_bytes: usize) -> Option<Vec<
         let _ = child.wait();
         return None;
     };
-    if child.stdout.is_none() {
+    let Some(stdout) = child.stdout.as_mut() else {
         let _ = child.kill();
         let _ = child.wait();
         return None;
-    }
-    let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
-    let read_result = {
-        let stdout = child.stdout.as_mut().expect("stdout was checked above");
-        stdout.take(read_limit).read_to_end(&mut bytes)
     };
+    let mut bytes = Vec::with_capacity(max_bytes.min(8 * 1024));
+    let read_result = stdout.take(read_limit).read_to_end(&mut bytes);
     if read_result.is_err() || bytes.len() > max_bytes {
         let _ = child.kill();
         let _ = child.wait();
@@ -1477,13 +1495,13 @@ fn read_bounded_child_stdout(child: &mut Child, max_bytes: usize) -> Option<Vec<
 }
 
 fn canonical_path(path: &Path) -> anyhow::Result<PathBuf> {
-    fs::canonicalize(path)
+    cmux_blocking::fs::canonicalize(path)
         .map_err(|err| anyhow::anyhow!("failed to resolve {}: {err}", path.display()))
 }
 
 fn same_path(left: &Path, right: &Path) -> bool {
-    let left = fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
-    let right = fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
+    let left = cmux_blocking::fs::canonicalize(left).unwrap_or_else(|_| left.to_path_buf());
+    let right = cmux_blocking::fs::canonicalize(right).unwrap_or_else(|_| right.to_path_buf());
     left == right
 }
 

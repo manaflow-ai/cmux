@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Dispatch
 import Testing
 
-/// `debug.work` (p02-threads-123, RUN-13): per lane and priority the wait and run histograms, the worst lane's
+/// `debug.work` (RUN-13): per lane and priority the wait and run histograms, the worst lane's
 /// user-blocking wait p99 from the same read, and `{"reset": true}` reporting the counts it zeroes.
 @Suite(.timeLimit(.minutes(1))) struct WorkControlTests {
     /// A clock that moves only when a lane body moves it.

@@ -193,7 +193,7 @@ final class HistoryFileWatch: Sendable {
             var info = stat()
             // SAFETY: the path is a NUL-terminated copy Swift keeps alive for the call; stat writes one
             // `stat` into the local `info`, which outlives it.
-            guard unsafe stat(path, &info) == 0 else { return [-1, -1, -1] }
+            guard unsafe blockingStat(path, &info) == 0 else { return [-1, -1, -1] }
             return [info.st_size, Int64(truncatingIfNeeded: info.st_mtimespec.tv_sec), Int64(truncatingIfNeeded: info.st_mtimespec.tv_nsec)]
         }
     }

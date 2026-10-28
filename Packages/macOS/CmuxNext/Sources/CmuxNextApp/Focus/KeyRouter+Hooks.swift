@@ -2,8 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextFocus
-import CmuxNextRemoteBrowser
-import CmuxNextTerminal
+import CmuxNextInput
 
 // The places a key can reach after the dispatcher: the window hook, the
 // Chromium hooks and main-menu key equivalents. Each runs nothing for a key
@@ -64,9 +63,11 @@ extension KeyRouter {
     }
 
     /// A surface whose key equivalents are its own while it is first responder: the terminal (its
-    /// Ghostty keybinds), a Chromium host page and a remote browser page (their page's keys).
+    /// Ghostty keybinds), a Chromium host page and, in Debug and bench builds, the remote browser page
+    /// (their page's keys). Each adopts ``KeyEquivalentOwningSurface`` in its own module, so a Release
+    /// build compiles this with no Debug-only type.
     static func takesOwnKeyEquivalents(_ view: NSView) -> Bool {
-        view is TerminalSurfaceView || view is ChromiumHostPageView || view is RemoteBrowserContentView
+        view is any KeyEquivalentOwningSurface
     }
 
     /// An overlay (palette, sheet, rename, group editor) has the keyboard. AppKit also offers

@@ -79,7 +79,7 @@ pub(crate) fn shim_directory() -> Option<PathBuf> {
 
 fn current_executable() -> anyhow::Result<PathBuf> {
     let executable = std::env::current_exe().context("resolve the cmux-tui executable")?;
-    Ok(executable.canonicalize().unwrap_or(executable))
+    Ok(cmux_blocking::fs::canonicalize(&executable).unwrap_or(executable))
 }
 
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
@@ -91,7 +91,8 @@ fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
     let Some((socket, Some(terminal))) = crate::hook_helper::session_route("codex") else {
         return Ok(None);
     };
-    if !fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
+    if !cmux_blocking::fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket())
+    {
         return Ok(None);
     }
     let executable = current_executable()?;
@@ -122,7 +123,7 @@ fn find_real_codex(path: &OsStr, shim_dir: Option<&Path>) -> Option<PathBuf> {
         .filter(|dir| !dir.as_os_str().is_empty() && !is_shim_directory(dir, shim_dir))
         .map(|dir| dir.join("codex"))
         .find(|candidate| {
-            candidate.metadata().is_ok_and(|metadata| metadata.is_file())
+            cmux_blocking::fs::metadata(candidate).is_ok_and(|metadata| metadata.is_file())
                 && current_process_can_execute(candidate)
                 && !is_codex_shim(candidate)
         })
@@ -153,11 +154,11 @@ fn path_with_shim_first(path: &OsStr, shim_dir: &Path) -> Option<OsString> {
 fn is_shim_directory(dir: &Path, shim_dir: Option<&Path>) -> bool {
     let Some(shim_dir) = shim_dir else { return false };
     dir == shim_dir
-        || matches!((dir.canonicalize(), shim_dir.canonicalize()), (Ok(dir), Ok(shim_dir)) if dir == shim_dir)
+        || matches!((cmux_blocking::fs::canonicalize(dir), cmux_blocking::fs::canonicalize(shim_dir)), (Ok(dir), Ok(shim_dir)) if dir == shim_dir)
 }
 
 fn is_codex_shim(path: &Path) -> bool {
-    fs::File::open(path)
+    cmux_blocking::fs::open(path)
         .ok()
         .and_then(|file| {
             let mut bytes = Vec::new();
@@ -169,14 +170,15 @@ fn is_codex_shim(path: &Path) -> bool {
 }
 
 fn install_shim(dir: &Path, executable: &Path) -> anyhow::Result<PathBuf> {
-    fs::create_dir_all(dir).context("create the shim directory")?;
-    fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    cmux_blocking::fs::create_dir_all(dir).context("create the shim directory")?;
+    crate::blocking::fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     let path = dir.join("codex");
     let script = shim_script(executable, dir)?;
-    let current = fs::symlink_metadata(&path).is_ok_and(|metadata| metadata.is_file())
-        && fs::read(&path).is_ok_and(|existing| existing == script.as_bytes());
+    let current = cmux_blocking::fs::symlink_metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file())
+        && cmux_blocking::fs::read(&path).is_ok_and(|existing| existing == script.as_bytes());
     if current {
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
+        crate::blocking::fs::set_permissions(&path, fs::Permissions::from_mode(0o700))?;
     } else {
         agent_hook_install::atomic_write(&path, script.as_bytes(), Some(0o700))?;
     }
@@ -197,8 +199,8 @@ fn shim_script(executable: &Path, dir: &Path) -> anyhow::Result<String> {
 /// so the wrapper's hooks survive `codex exec -c ...` and resume/fork.
 fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
     let mut index = 0;
-    while index < args.len() {
-        let arg = args[index].to_string_lossy();
+    while let Some(arg) = args.get(index) {
+        let arg = arg.to_string_lossy();
         if arg == "--" {
             return args.to_vec();
         }
@@ -210,36 +212,40 @@ fn hoist_session_global_args(args: &[OsString]) -> Vec<OsString> {
             return args.to_vec();
         }
     }
-    if index >= args.len() {
+    let Some((leading, from_subcommand)) = args.split_at_checked(index) else {
         return args.to_vec();
-    }
-    let mut head = args[..index].to_vec();
-    let mut tail = vec![args[index].clone()];
-    index += 1;
-    while index < args.len() {
-        let arg = args[index].to_string_lossy();
+    };
+    let Some((subcommand, mut rest)) = from_subcommand.split_first() else {
+        return args.to_vec();
+    };
+    let mut head = leading.to_vec();
+    let mut tail = vec![subcommand.clone()];
+    while let Some((raw, after)) = rest.split_first() {
+        let arg = raw.to_string_lossy();
         if arg == "--" {
-            tail.extend_from_slice(&args[index..]);
+            tail.extend_from_slice(rest);
             break;
         }
         let separate = matches!(arg.as_ref(), "-c" | "--config" | "--enable" | "--disable");
         let inline =
             ["--config=", "--enable=", "--disable="].iter().any(|prefix| arg.starts_with(prefix))
                 || (arg.starts_with("-c") && arg.len() > 2);
-        if separate && index + 1 < args.len() {
-            head.extend_from_slice(&args[index..index + 2]);
-            index += 2;
+        if separate && let Some((value, after_value)) = after.split_first() {
+            head.push(raw.clone());
+            head.push(value.clone());
+            rest = after_value;
         } else if inline {
-            head.push(args[index].clone());
-            index += 1;
+            head.push(raw.clone());
+            rest = after;
+        } else if launch_classification::consumes_value(&arg)
+            && let Some((value, after_value)) = after.split_first()
+        {
+            tail.push(raw.clone());
+            tail.push(value.clone());
+            rest = after_value;
         } else {
-            let count = if launch_classification::consumes_value(&arg) && index + 1 < args.len() {
-                2
-            } else {
-                1
-            };
-            tail.extend_from_slice(&args[index..index + count]);
-            index += count;
+            tail.push(raw.clone());
+            rest = after;
         }
     }
     head.extend(tail);

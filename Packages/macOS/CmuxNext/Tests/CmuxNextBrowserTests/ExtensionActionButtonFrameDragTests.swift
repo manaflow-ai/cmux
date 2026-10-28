@@ -6,8 +6,8 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// An extension action's reorder drag on its window's drag frames (``PointerFrameDrag``, feature `pointerFrameDrags`,
-/// p04-input-089): the drag's start past 3 pt offsets on its own event; after it, a frame interval's first event
+/// An extension action's reorder drag on its window's drag frames (``PointerFrameDrag``, feature `pointerFrameDrags`):
+/// the drag's start past 3 pt offsets on its own event; after it, a frame interval's first event
 /// offsets the pinned buttons at once and the rest once at the frame, at the latest point, as Chromium delivers
 /// rAF-aligned moves (main_thread_event_queue.cc); the release lands the pending offset before the drop.
 @MainActor @Suite(.serialized) struct ExtensionActionButtonFrameDragTests {

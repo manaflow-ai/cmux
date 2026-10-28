@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// `<select>` popups drawn by cmux (p01-process-060): POPUP_MENU's data becomes a cmux menu over the
+/// `<select>` popups drawn by cmux: POPUP_MENU's data becomes a cmux menu over the
 /// page view, the choice or the dismissal is the one answer, and POPUP_MENU_HIDE, the page's close and
 /// the host's end close it with none.
 @MainActor

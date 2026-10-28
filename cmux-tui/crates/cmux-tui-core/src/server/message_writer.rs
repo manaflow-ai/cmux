@@ -9,6 +9,11 @@
 //! request's reply is a frame in that same FIFO (`send_reply`). Every other
 //! stream rides a lane (`StreamLane`): input streams before the control FIFO,
 //! bulk and background streams after it (server/outbound_lanes.rs).
+//!
+//! On an idle local connection a send writes its message on the calling
+//! thread with a send that never waits, and the connection's writer thread
+//! sees only what the socket did not take
+//! (server/inline_write.rs).
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -21,6 +26,7 @@ use super::attach_streams::ClientStreamId;
 use super::conversation_tabs_wire;
 use super::frame_dispatch::FrameCall;
 use super::pending_streams::stream_ended_reply;
+use super::stream_priority::StreamVisibility;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
@@ -34,6 +40,7 @@ use serde_json::Value;
 use std::sync::Arc;
 use std::sync::Weak;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -45,8 +52,11 @@ pub(super) struct OutboundStream {
     /// The stream rides the connection's control sequence (stream 0): its
     /// items share the reply FIFO. False for every other stream.
     pub(super) control_sequence: bool,
-    /// The outbound lane of a stream outside the control sequence.
-    pub(super) lane: StreamLane,
+    /// The outbound lane of a stream outside the control sequence; read and
+    /// changed only under the connection's outbound lock (`set-stream-priority`).
+    lane: Arc<LaneCell>,
+    /// The client's `set-stream-priority` for this stream.
+    pub(super) visibility: Arc<StreamVisibility>,
     pub(super) terminal_enqueued: Arc<AtomicBool>,
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
     /// Fired by `close`, so stream loops block instead of polling `is_open`.
@@ -55,7 +65,7 @@ pub(super) struct OutboundStream {
     /// item carries it as `"stream"` and the terminal is `stream-end`.
     pub(super) client_stream: Option<ClientStreamId>,
     /// Run when the writer takes an item of this stream while it held its
-    /// backpressure cap: the producer's drain task (p05-ipc-079), which
+    /// backpressure cap: the producer's drain task, which
     /// stopped at the cap instead of waiting for room.
     pub(super) space_hook: Arc<crate::stream_interrupt::ReadyHook>,
 }
@@ -76,13 +86,26 @@ impl OutboundStream {
             id,
             open: Arc::new(AtomicBool::new(true)),
             control_sequence,
-            lane,
+            lane: Arc::new(LaneCell::new(lane)),
+            visibility: Arc::default(),
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
             client_stream: None,
             space_hook: Arc::default(),
         }
+    }
+
+    /// The lane its items ride now. Read under the connection's outbound
+    /// lock, which every lane change holds.
+    pub(super) fn lane(&self) -> StreamLane {
+        self.lane.get()
+    }
+
+    /// Moves the stream to `lane`; only under the connection's outbound lock
+    /// ([`super::bounded_outbound::BoundedOutbound::set_stream_lane`]).
+    pub(super) fn set_lane_locked(&self, lane: StreamLane) {
+        self.lane.set(lane);
     }
 
     /// Runs `hook` each time the writer takes an item of this stream while
@@ -106,6 +129,35 @@ impl OutboundStream {
 
     pub(super) fn update_overflow(&self, text: Arc<BudgetedText>) {
         *self.overflow_text.lock().recover_poison() = text;
+    }
+}
+
+/// A stream's [`StreamLane`] in an atomic, so clones of one stream share it.
+struct LaneCell(AtomicU8);
+
+impl LaneCell {
+    fn new(lane: StreamLane) -> Self {
+        Self(AtomicU8::new(Self::encode(lane)))
+    }
+
+    const fn encode(lane: StreamLane) -> u8 {
+        match lane {
+            StreamLane::Input => 0,
+            StreamLane::Bulk => 1,
+            StreamLane::Background => 2,
+        }
+    }
+
+    fn get(&self) -> StreamLane {
+        match self.0.load(Ordering::Acquire) {
+            0 => StreamLane::Input,
+            1 => StreamLane::Bulk,
+            _ => StreamLane::Background,
+        }
+    }
+
+    fn set(&self, lane: StreamLane) {
+        self.0.store(Self::encode(lane), Ordering::Release);
     }
 }
 
@@ -146,6 +198,8 @@ pub(super) trait MessageSink: Send + Sync {
     fn client_stream(&self, _id: ClientStreamId) -> Option<OutboundStream> {
         None
     }
+    /// Moves `stream`'s queued and later items to `lane` (`set-stream-priority`).
+    fn set_stream_lane(&self, _stream: &OutboundStream, _lane: StreamLane) {}
     /// `text` as the payload of a frame with `header`, in the control FIFO
     /// with replies and control events. Only a local Unix connection that
     /// granted frames carries them.
@@ -419,6 +473,24 @@ impl MessageWriter {
         result
     }
 
+    /// [`Self::send_stream`] of a value already encoded with
+    /// [`Self::encode`], off the thread that hands it over (a snapshot
+    /// viewer's bulk work encodes its READY and chunks on a utility worker).
+    pub(super) fn send_encoded_stream(
+        &self,
+        encoded: std::io::Result<Arc<BudgetedText>>,
+        stream: &OutboundStream,
+    ) -> std::io::Result<()> {
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let result = encoded.and_then(|text| self.sink.send_stream(text, stream));
+        if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
+            stream.close();
+        }
+        result
+    }
+
     /// A frame on `stream` whose payload is `text`: one longer than the
     /// connection's BULK_FRAME_MAX leaves in chunks, so replies and
     /// input-lane items pass it between chunks.
@@ -468,15 +540,23 @@ impl MessageWriter {
         self.render_service.serialize_for(value, stream.client_stream)
     }
 
-    /// [`Self::encode`] of an attach frame in `shape`.
+    /// [`Self::encode`] of an attach frame in `shape`; an output frame that
+    /// echoes a key press carries that press's `key_stages`.
     pub(super) fn encode_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
         stream: &OutboundStream,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        self.render_service.serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
+        self.render_service.serialize_attach_frame_for(
+            surface,
+            frame,
+            shape,
+            key_stages,
+            stream.client_stream,
+        )
     }
 
     /// The second half of [`Self::send_stream_backpressured`]: hand the
@@ -534,19 +614,21 @@ impl MessageWriter {
     }
 
     /// An attach frame on `stream` for a producer that checked
-    /// [`MessageSink::stream_has_room`] first: it never waits.
+    /// [`MessageSink::stream_has_room`] first: it never waits. An output
+    /// frame that echoes a key press carries its `key_stages`.
     pub(super) fn send_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
+        key_stages: Option<crate::input_stages::KeyStages>,
         stream: &OutboundStream,
     ) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
         let result = self
-            .encode_attach_frame(surface, frame, shape, stream)
+            .encode_attach_frame(surface, frame, shape, key_stages, stream)
             .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();

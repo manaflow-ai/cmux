@@ -49,7 +49,7 @@ import Testing
         subscription.cancel()
     }
 
-    /// The page imports the shared React from the pages' `_shared` (p13-webui-072), so the launch
+    /// The page imports the shared React from the pages' `_shared`, so the launch
     /// registration also maps it into a web update: page and React come from the same tree. Vacuous in a
     /// test bundle built without the Activity page.
     @Test func theLaunchRegistrationServesThePageFromTheActiveUpdate() async {

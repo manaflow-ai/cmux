@@ -3,7 +3,7 @@ import Foundation
 import CmuxNextDaemon
 
 /// Restored pages that load nothing until they are started: after two quick unexpected ends in a row
-/// (`defersRestoredPages`), and, while the app launches, those that do not show (p08-startup-040: Chrome's
+/// (`defersRestoredPages`), and, while the app launches, those that do not show (Chrome's
 /// session restore loads the visible tab first, chrome/browser/sessions/tab_loader.cc; the order is the
 /// Chromium slot's ``CEFLaunchDeferral``, one deferral path, this one).
 extension TabContentCache {

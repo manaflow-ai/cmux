@@ -7,7 +7,7 @@ import Testing
 @testable import CmuxNextInput
 import CmuxNextWakeups
 
-/// The agent panes' gesture grant through the app's one input tap (p04-input-017): one subscription
+/// The agent panes' gesture grant through the app's one input tap: one subscription
 /// per window that holds a pane, not one app-wide monitor per pane. A key-down goes to the pane that
 /// holds the first responder, a click to the pane under the pointer, an event in a Chromium page's
 /// child window to the shown pane whose page window it is, and to no other pane: with 50 panes in a
@@ -194,7 +194,7 @@ struct AgentPaneGestureGrantTests {
         #expect(hidden.judged.isEmpty && shown.judged.count == 2, "a hidden tab's page window granted a press")
     }
 
-    /// p06-scheduler-220: 40 hidden tabs and the shown one share one pane's place, each with its page
+    /// 40 hidden tabs and the shown one share one pane's place, each with its page
     /// window there. A press in the shown page asks one pane, not 41: a hidden tab node is skipped in O(1).
     @Test func fortyHiddenTabsAndOneShownAskOnePanePerPress() throws {
         let harness = Harness(count: 0)
@@ -310,7 +310,7 @@ struct AgentPaneGestureGrantTests {
     }
 
     /// A screen that is not active is a hidden view, but its panes' tab nodes stay visible (pane nodes
-    /// do not follow screen hiding yet, p06-scheduler-023), and a Chromium page window is matched by
+    /// do not follow screen hiding yet), and a Chromium page window is matched by
     /// parent and place (`CEFTab.isPageWindow`). A pane on a hidden screen at the shown pane's rect,
     /// with a visible node, must not own the shown pane's page window: the router would grant it the
     /// press first.

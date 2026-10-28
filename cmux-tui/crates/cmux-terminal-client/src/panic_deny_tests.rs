@@ -1,4 +1,4 @@
-//! p10-stability-141: peer frames no longer panic; a poisoned one-value slot
+//! Peer frames no longer panic; a poisoned one-value slot
 //! keeps serving and a poisoned shared-state lock escalates to Fatal.
 
 use std::sync::{Arc, Mutex};

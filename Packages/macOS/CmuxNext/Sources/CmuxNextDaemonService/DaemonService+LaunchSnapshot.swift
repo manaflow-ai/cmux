@@ -102,8 +102,8 @@ extension DaemonService {
 
     /// The local daemon's connection configuration, for the first connect
     /// begun in `main` (`prestart`) and for the connections after it. `featureHello`: the app's daemon features,
-    /// sent in every hello (the daemon outlives the app, p12-perf-process-150). `terminalStreams`: its views stream
-    /// on it, sized as that device; nil: a connection each (p05-ipc-095).
+    /// sent in every hello (the daemon outlives the app). `terminalStreams`: its views stream
+    /// on it, sized as that device; nil: a connection each.
     nonisolated static func localConfiguration(terminalEnvironment: (@Sendable () async -> [String: String])?,
                                                resolvesShellIntegration: Bool, installKey: FrontendInstallKey?,
                                                echoesPlacementShift: Bool, retryWake: RetryWake? = nil,
@@ -159,7 +159,7 @@ extension DaemonService {
 
 /// What the app's launch makes on its system lane for the local daemon (`DaemonService.launchStart`):
 /// this process's Team ID, read there and never on the main thread, the first connect attempt begun with it,
-/// and the read of the daemon's launch snapshot begun from there (p08-startup-074).
+/// and the read of the daemon's launch snapshot begun from there.
 public nonisolated struct DaemonLaunchStart: Sendable {
     /// This process's Team ID (`CodeSigningTeam`); nil for an ad-hoc or unsigned build.
     public let team: String?

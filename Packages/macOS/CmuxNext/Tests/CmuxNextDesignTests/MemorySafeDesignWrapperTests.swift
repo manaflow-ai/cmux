@@ -2,7 +2,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Testing
 
-/// The safe wrappers that replaced raw pointer reads in CmuxNextDesign (p10-stability-074): a bitmap Swift owns and
+/// The safe wrappers that replaced raw pointer reads in CmuxNextDesign: a bitmap Swift owns and
 /// reads by checked index, a typed associated-object slot, and the path, bitmap-context and TextKit calls without pointers.
 struct MemorySafeDesignWrapperTests {
     @Test func drawnPixelsReadsTheDrawingTopRowFirst() throws {

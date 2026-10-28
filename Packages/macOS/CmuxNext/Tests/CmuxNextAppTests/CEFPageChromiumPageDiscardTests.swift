@@ -6,7 +6,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// p13-webui-031: a cmux page in Chromium discards through its tab's in-place discard. Chromium
+/// A cmux page in Chromium discards through its tab's in-place discard. Chromium
 /// reloads the discarded entry when the page shows, so the page host's show and load of the same URL
 /// send no reload or navigation of cmux's own; once the entry commits again a load navigates. A fork
 /// without the export answers false so the page host closes the page. Against a spy shim.
@@ -70,7 +70,7 @@ import Testing
         #expect(PageDiscardSpy.discarded.isEmpty)
     }
 
-    /// p06-scheduler-309: the crash watch is a service observation (the page host reloads a crashed page,
+    /// The crash watch is a service observation (the page host reloads a crashed page,
     /// shown or not). A renderer already gone when the host listens is one `.crashed`, sent by the posted
     /// check after the listen, never inside it; a later exit after a reload is one more.
     @Test func aCrashPresentAtTheListenIsOneEventAfterAFrame() throws {

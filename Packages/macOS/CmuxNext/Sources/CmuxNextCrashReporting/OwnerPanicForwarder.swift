@@ -4,10 +4,10 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import os
 
-/// The forwarder of every cmux Rust process's diagnostics logs (p09-observability-075).
+/// The forwarder of every cmux Rust process's diagnostics logs.
 public typealias RustDiagnosticsForwarder = OwnerPanicForwarder
 
-/// Sends cmux Rust processes' panic and hang logs to Sentry (cx-urd.59, p09-observability-075).
+/// Sends cmux Rust processes' panic and hang logs to Sentry (cx-urd.59).
 ///
 /// Each ``RustDiagnosticsLog`` is a family of JSONL files: a panic log (`cmux-panic-log`: message, location,
 /// thread, backtrace) or a hang log (`cmux-hang-watch`'s `hangs-<pid>.jsonl`, ``RustHangRecord``). This reads
@@ -97,7 +97,7 @@ public final class OwnerPanicForwarder: Sendable {
     // storage of that queue-confined value and is never contended.
     private let hangSink: Mutex<HangSink>
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
-    /// The watches' record in the launch's arm census (Debug and bench builds, p08-startup-085): the first watch
+    /// The watches' record in the launch's arm census (Debug and bench builds): the first watch
     /// armed and the first event of any of them.
     private let census: ArmCensusWatch
 
@@ -222,10 +222,10 @@ public final class OwnerPanicForwarder: Sendable {
 
     /// Reads the whole lines of `file` past `offset` and sends them; returns the bytes read.
     private func readLines(_ file: URL, from offset: UInt64, size: UInt64, log: RustDiagnosticsLog, into sent: inout [Event]) -> UInt64 {
-        guard size > offset, let handle = try? FileHandle(forReadingFrom: file) else { return 0 }
+        guard size > offset, let handle = try? FileHandle.blockingForReading(from: file) else { return 0 }
         defer { try? handle.close() }
         guard (try? handle.seek(toOffset: offset)) != nil,
-              let data = try? handle.read(upToCount: Int(size - offset)),
+              let data = try? handle.blockingRead(upToCount: Int(size - offset)),
               let lastNewline = data.lastIndex(of: UInt8(ascii: "\n")) else { return 0 }
         // Only whole lines; a line still being written stays for the next read.
         let complete = data[data.startIndex...lastNewline]
@@ -408,7 +408,7 @@ public final class OwnerPanicForwarder: Sendable {
 
     private func watchSource(_ url: URL, kind: WatchKind, key: String) -> (any DispatchSourceFileSystemObject)? {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let descriptor = unsafe open(url.path, O_EVTONLY | O_CLOEXEC)
+        let descriptor = unsafe blockingOpen(url.path, O_EVTONLY | O_CLOEXEC)
         guard descriptor >= 0 else { return nil }
         let mask: DispatchSource.FileSystemEvent = switch kind {
         case .file: [.extend, .write, .delete, .rename]

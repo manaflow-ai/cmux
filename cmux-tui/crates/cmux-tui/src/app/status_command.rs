@@ -18,10 +18,10 @@ pub(super) fn capture_status_output(
 ) -> (Vec<u8>, Option<cmux_process::Child>) {
     use std::io::Read;
 
-    let Some(program) = argv.first() else { return (Vec::new(), None) };
+    let Some((program, args)) = argv.split_first() else { return (Vec::new(), None) };
     let mut command = cmux_process::Command::new(program);
     command
-        .args(&argv[1..])
+        .args(args)
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::piped())
         .stderr(cmux_process::Stdio::null())
@@ -83,8 +83,14 @@ pub(super) fn capture_status_output(
                         break;
                     }
                     Ok(read) => {
+                        // Read guarantees `read <= chunk.len()`; a reader that
+                        // breaks it is treated like a failed read.
+                        let Some(bytes) = chunk.get(..read) else {
+                            stdout = None;
+                            break;
+                        };
                         drained += read;
-                        captured.extend_from_slice(&chunk[..read]);
+                        captured.extend_from_slice(bytes);
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
                     Err(_) => {
@@ -114,7 +120,7 @@ pub(super) fn capture_status_output(
             exited = true;
             continue;
         }
-        std::thread::sleep(STATUS_POLL_TICK);
+        cmux_blocking::thread::sleep(STATUS_POLL_TICK);
     }
     // A status command must not outlive its collection: descendants that
     // detached from the exited command (for example `cmd &`) would
@@ -137,7 +143,7 @@ pub(super) fn capture_status_output(
     use std::sync::atomic::AtomicU64;
 
     static CAPTURE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
-    let Some(program) = argv.first() else { return (Vec::new(), None) };
+    let Some((program, args)) = argv.split_first() else { return (Vec::new(), None) };
     let path = std::env::temp_dir().join(format!(
         "cmux-status-{}-{}.out",
         std::process::id(),
@@ -146,7 +152,7 @@ pub(super) fn capture_status_output(
     let Ok(file) = std::fs::File::create(&path) else { return (Vec::new(), None) };
     let mut command = cmux_process::Command::new(program);
     command
-        .args(&argv[1..])
+        .args(args)
         .stdin(cmux_process::Stdio::null())
         .stdout(cmux_process::Stdio::from(file))
         .stderr(cmux_process::Stdio::null());
@@ -202,7 +208,7 @@ pub(super) fn capture_status_output(
             child_reaped = kill_status_command_group(&mut child);
             break;
         }
-        std::thread::sleep(STATUS_POLL_TICK);
+        cmux_threads::checked::sync::sleep(STATUS_POLL_TICK);
     }
     drop(job);
     // A file read never blocks on writers, so lingering descendants cannot
@@ -254,7 +260,7 @@ impl StatusCommandJob {
         information.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let information_size =
             u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-                .expect("Windows job information fits in u32");
+                .map_err(std::io::Error::other)?;
         // SAFETY: `job.handle` is the job created above; the pointer and size describe
         // `information`, a live JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
         if unsafe {
@@ -317,17 +323,15 @@ pub(super) fn resume_suspended_status_child(child: &cmux_process::Child) -> std:
     };
     use windows_sys::Win32::System::Threading::{OpenThread, ResumeThread, THREAD_SUSPEND_RESUME};
 
+    let entry_size =
+        u32::try_from(std::mem::size_of::<THREADENTRY32>()).map_err(std::io::Error::other)?;
     // SAFETY: takes no pointer; failure returns INVALID_HANDLE_VALUE, checked below.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0) };
     if snapshot == INVALID_HANDLE_VALUE {
         return Err(std::io::Error::last_os_error());
     }
     let result = (|| {
-        let mut thread_entry = THREADENTRY32 {
-            dwSize: u32::try_from(std::mem::size_of::<THREADENTRY32>())
-                .expect("Windows thread entry size fits in u32"),
-            ..THREADENTRY32::default()
-        };
+        let mut thread_entry = THREADENTRY32 { dwSize: entry_size, ..THREADENTRY32::default() };
         // SAFETY: `snapshot` is open and `thread_entry` is a live THREADENTRY32 with `dwSize` set.
         if unsafe { Thread32First(snapshot, &mut thread_entry) } == 0 {
             return Err(std::io::Error::last_os_error());
@@ -383,7 +387,7 @@ pub(super) fn kill_status_command_group(child: &mut cmux_process::Child) -> bool
     loop {
         match child.try_wait() {
             Ok(None) if Instant::now() < deadline => {
-                std::thread::sleep(Duration::from_millis(10));
+                cmux_blocking::thread::sleep(Duration::from_millis(10));
             }
             Ok(None) => return false,
             _ => return true,

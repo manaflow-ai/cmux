@@ -1,4 +1,4 @@
-// The agent page's own keep reasons (p13-webui-089): an unsent prompt holds `draft` and dictation
+// The agent page's own keep reasons: an unsent prompt holds `draft` and dictation
 // holds `capture`, each sent once when it starts and once when it ends, never per keystroke; the
 // prompt's send or clear also ends the page's automatic edits (pageEdits.ts).
 import { afterEach, expect, test } from "bun:test";

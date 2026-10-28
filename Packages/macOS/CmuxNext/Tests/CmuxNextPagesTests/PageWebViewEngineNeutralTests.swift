@@ -65,7 +65,7 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
-    /// p01-process-232: on the page channel the page script names its event, and a post after the page's commit
+    /// On the page channel the page script names its event, and a post after the page's commit
     /// reaches the handler in the event's turn, each message of a batched post in order, with no DevTools call.
     @Test func aPageChannelPostReachesTheHandlerWithNoDevToolsCall() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
@@ -141,8 +141,8 @@ struct PageWebViewEngineNeutralTests {
         view.close()
     }
 
-    /// The WebKit engine is there for the WebKit-only tools only while it shows the page
-    /// (p13-webui-074): nil while Chromium shows it.
+    /// The WebKit engine is there for the WebKit-only tools only while it shows the page:
+    /// nil while Chromium shows it.
     @Test func theWebKitEngineIsOfferedOnlyWhileWebKitShowsThePage() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let (view, _) = try await started(FakeChromiumHosting())

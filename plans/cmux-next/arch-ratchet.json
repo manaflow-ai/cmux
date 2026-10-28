@@ -783,6 +783,18 @@
       "row": "blocking_allow_escapes",
       "allow": 1,
       "why": "p15-oracle-120: StandardErrorLogSink (CmuxNextCompat/Platform, Linux only) writes a Logger line to stderr synchronously, as Chromium's LOG() does on Linux (base/logging.cc, LOG_TO_STDERR, no ScopedBlockingCall), so the last lines before a crash are not lost. The blocking detector reports its violations through Logger, so a checked write would report itself. The file is not compiled on Darwin, where Logger is os.Logger."
+    },
+    {
+      "date": "2026-10-27",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p06-scheduler-202: MainExecutorHook.installedBits (CmuxNextWakeups), the one word through which the priority-ordered main executor reaches its queues. swift_task_enqueueMainExecutor_hook is a thin function with no context argument, so the hook the composition root makes (MainWorkScheduler.installMainExecutorHook) is published here once (a compare-exchange from 0; a second install is refused). Off unless the mainExecutorHook feature or CMUX_MAIN_EXECUTOR_HOOK=1 asks. The same shape as GlobalJobCensus.installedBits (p08-startup-082); Chrome reaches its process-wide task observers from the posting thread the same way (base/task/common/task_annotator.cc)."
+    },
+    {
+      "date": "2026-10-28",
+      "row": "blocking_allow_escapes",
+      "allow": 4,
+      "why": "cp/fix-server-helper-sources: CmuxNextCompatCore is the seam module the privileged server helper compiles whole without CmuxNextCompat (swift-atomics, the detector), so the Mac build's helper phase never compiles a hand-picked Compat file list again. Its four escapes are not main-thread blocking: Process.runOnOwnThread's process.run() moved unchanged from CmuxNextCompat/Threading (a seam folder the rule exempts) and runs on the dedicated thread it makes; RunningCodeSigningTeam's three Security calls each run inside the blockingCall its caller passes (the app's SigningTeamInstall passes CmuxNextCompat's checked blockingCall(.systemCall), so the detector still sees each; the helper passes CmuxThreading's). Chrome: the same ScopedBlockingCall seam in a lower component (base/threading/scoped_blocking_call.h)."
     }
   ],
   "observer_wrappers": [

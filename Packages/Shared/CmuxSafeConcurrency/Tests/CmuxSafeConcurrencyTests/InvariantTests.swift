@@ -32,7 +32,7 @@ private final class Counter: Sendable {
     }
 }
 
-/// The Invariant API's report tiers (p10-stability-099): a failing site reports once per launch through the
+/// The Invariant API's report tiers: a failing site reports once per launch through the
 /// installed sink, on the failing thread and without blocking; notFatalUntil traps only from its named build on.
 /// The trap tier runs end to end in ``InvariantTrapTests``.
 @Suite struct InvariantTests {
@@ -149,7 +149,7 @@ private func failOneSite(fatalFrom build: UInt64, in invariant: Invariant) -> Bo
     Invariant.notFatalUntil(false, "one-site", build: build, in: invariant)
 }
 
-/// The trap tier end to end (p10-stability-099): each body runs in its own child process, which must stop.
+/// The trap tier end to end: each body runs in its own child process, which must stop.
 #if os(macOS) || os(Linux)
 @Suite struct InvariantTrapTests {
     @Test func aFailedCheckStopsTheProcessInEveryBuild() async {

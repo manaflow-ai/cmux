@@ -13,7 +13,7 @@ import CmuxNextWakeupsTestSupport
 import Foundation
 import Testing
 
-/// p06-scheduler-346 (rule 9): one case per migrated owner class of the remaining targets' sweep.
+/// One case per migrated owner class of the remaining targets' sweep.
 ///
 /// - The cookie consent panel's answer is one outcome the import awaits off main: a panel that goes away without an
 ///   answer denies, and the first answer is the only one.
@@ -87,7 +87,8 @@ import Testing
         let center = ImportSuggestionsCenter(defaults: defaults, ledgerURL: ledger)
         center.scanThisMac = { _ in [] }
         let host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] }, openSettings: { _ in },
-                                   importClassic: { _ in nil }, appEvents: events)
+                                   importClassic: { _ in nil }, work: BackgroundWork(label: "test.import-cards"),
+                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()), appEvents: events)
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         center.start(host: host, registry: registry)
         center.start(host: host, registry: registry)
@@ -110,7 +111,8 @@ import Testing
             return []
         }
         let host = ImportCardsHost(runImport: { _, _, _ in throw CancellationError() }, importedProfiles: { [] }, openSettings: { _ in },
-                                   importClassic: { _ in nil }, appEvents: AppEvents(center: center))
+                                   importClassic: { _ in nil }, work: BackgroundWork(label: "test.import-cards"),
+                                   mainWork: MainWorkScheduler(budget: MainFrameBudget()), appEvents: AppEvents(center: center))
         cards.start(host: host, registry: ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases))
         #expect(runMainLoop { scans.count == 1 && !cards.isScanning }, "the first scan at start")
 

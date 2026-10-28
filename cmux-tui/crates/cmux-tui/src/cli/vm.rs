@@ -64,7 +64,7 @@ fn binary() -> OsString {
     if let Some(sibling) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|dir| dir.join("cmux-vm")))
-        .filter(|path| path.is_file())
+        .filter(|path| cmux_blocking::fs::metadata(path).is_ok_and(|metadata| metadata.is_file()))
     {
         return sibling.into_os_string();
     }

@@ -2,17 +2,17 @@ import AppKit
 @testable import CmuxNextBrowser
 import Testing
 
-/// The one view every hosted Chromium page shows in (p01-process-040): in-process layer hosting
+/// The one view every hosted Chromium page shows in: in-process layer hosting
 /// and the Chromium host app use the same type; only who takes the page's input differs.
 @MainActor
 @Suite struct ChromiumHostPageViewTests {
     let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
-    /// The pages' own center for the window's page update requests: no other test hears this one's.
+    /// The pages' own center for the window's screen notices: no other test hears this one's.
     let center = NotificationCenter()
 
     func makePage(_ input: ChromiumHostPageView.InputTarget,
                   layerHost: @escaping (UInt32) -> CALayer? = { _ in CALayer() }) -> ChromiumHostPageView {
-        ChromiumHostPageView(frame: frame, inputTarget: input, makeLayerHost: layerHost, pageUpdateCenter: center)
+        ChromiumHostPageView(frame: frame, inputTarget: input, makeLayerHost: layerHost, windowEventCenter: center)
     }
 
     /// A window with a stage (the layout root's place) holding a pane holding `page`.
@@ -114,7 +114,7 @@ import Testing
 
     /// P8: the owner hears of the page's screen rect only when it changed. An ancestor that moves
     /// (the layout root, a pane) reaches the page through the window's page update request, the
-    /// one the layout owner posts after panes, dividers or the sidebar moved.
+    /// one the layout owner makes after panes, dividers or the sidebar moved.
     @Test func geometryIsReportedOnlyWhenThePresentedRectChanged() throws {
         let page = makePage(.view)
         var reports: [ChromiumHostGeometry] = []
@@ -123,7 +123,7 @@ import Testing
         defer { page.removeFromSuperview(); window.close() }
         func layoutOwnerPostsPageUpdate() {
             // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
-            window.updateBrowserPageGeometry(center: center)
+            window.updateBrowserPageGeometry()
         }
         #expect(reports.count == 1)
         let first = try #require(reports.first)
@@ -175,11 +175,11 @@ import Testing
         var reports = 0
         pane.setFrameOrigin(NSPoint(x: 40, y: 30))
         // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
-        window.updateBrowserPageGeometry(center: center)
+        #expect(window.updateBrowserPageGeometry() == 0, "no taker yet: the page is not registered")
         page.onGeometry = { _ in reports += 1 }
         #expect(reports == 0)
         // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
-        window.updateBrowserPageGeometry(center: center)
+        #expect(window.updateBrowserPageGeometry() == 1)
         #expect(reports == 1)
     }
 
@@ -327,7 +327,7 @@ import Testing
         return try #require(NSEvent(cgEvent: cg))
     }
 
-    /// p04-input-063: the page view sends the event's phases, precise flag and
+    /// The page view sends the event's phases, precise flag and
     /// scrolling deltas. Before, it sent the integer point deltas only.
     @Test func aWheelCarriesItsPhasesAndPreciseDeltas() throws {
         let page = makePage(.view)

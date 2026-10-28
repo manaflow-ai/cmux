@@ -9,7 +9,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The Chromium host's idle exit (`chromiumHostIdleExit`, p07-memory-050) without Chromium: the
+/// The Chromium host's idle exit (`chromiumHostIdleExit`) without Chromium: the
 /// stand-in launcher of ``ChromiumHostSessionTests`` plays the host, the idle deadline is a
 /// ``MainDeadline`` on a wake-up queue only the test fires, and a borderless window decides whether
 /// the page is live. A host whose page is in

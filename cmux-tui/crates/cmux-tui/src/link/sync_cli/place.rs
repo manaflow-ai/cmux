@@ -357,7 +357,8 @@ impl Transaction {
         for relative in &self.deleted {
             let parts: Vec<&str> = relative.split('/').collect();
             for end in (1..parts.len()).rev() {
-                let folder = parts[..end].join("/");
+                let Some(folder_parts) = parts.get(..end) else { break };
+                let folder = folder_parts.join("/");
                 let Ok(Some((parent, name))) = parent_of(&self.root, &folder) else { break };
                 if parent.unlink(&name, true).is_err() {
                     break;
@@ -376,7 +377,12 @@ impl Transaction {
         let mut parts: Vec<&str> = relative.split('/').collect();
         let name = parts.pop().unwrap_or_default().to_string();
         let mut at: Option<Dir> = None;
-        for (index, part) in parts.iter().enumerate() {
+        let mut walked = String::with_capacity(relative.len());
+        for part in &parts {
+            if !walked.is_empty() {
+                walked.push('/');
+            }
+            walked.push_str(part);
             let parent = at.as_ref().unwrap_or(&self.root);
             let next = match parent.child(part) {
                 Ok(Some(next)) => next,
@@ -384,7 +390,7 @@ impl Transaction {
                     parent
                         .mkdir(part)
                         .with_context(|| format!("cannot make a folder for {relative}"))?;
-                    self.undo.push(Undo::MadeDir { folder: parts[..=index].join("/") });
+                    self.undo.push(Undo::MadeDir { folder: walked.clone() });
                     let parent = at.as_ref().unwrap_or(&self.root);
                     parent.child(part)?.with_context(|| format!("{part} went away"))?
                 }
@@ -492,7 +498,7 @@ impl Transaction {
         let mut out = dir.create_file(&part, 0o600)?;
         let copied = io::copy(&mut from, &mut out)
             .and_then(|_| out.set_permissions(mode))
-            .and_then(|()| out.sync_all())
+            .and_then(|()| crate::blocking::fs::sync_all(&out))
             .and_then(|()| link_new(dir, &part, dir, name));
         if copied.is_err() {
             let _ = dir.unlink(&part, false);

@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Foundation
 import Testing
 
-/// `debug.energy` (p14-energy-007, 008): the exact top-level keys, the idle histogram, the field names the idle bench reads, the
+/// `debug.energy`: the exact top-level keys, the idle histogram, the field names the idle bench reads, the
 /// wake queue's wakes, the ledger's top owners, the process counters Chrome's way (interrupt wakeups, not
 /// summed with package-idle ones) from one sample, and sampling off the main thread.
 @Suite(.timeLimit(.minutes(1)))
@@ -133,7 +133,7 @@ struct EnergyReportTests {
         #expect(report["inputs"]?["setting"]?.stringValue == "auto")
     }
 
-    /// `debug.energy.simulate` (p14-energy-123): the report says when the inputs are simulated, and the
+    /// `debug.energy.simulate`: the report says when the inputs are simulated, and the
     /// simulate method's `thermal` names are the ones the report gives.
     @Test func inputsSayWhetherTheyAreSimulated() async {
         #expect(await Self.report()["inputs"]?["simulated"] == JSONValue.bool(false))
@@ -194,7 +194,7 @@ struct EnergyReportTests {
         #expect(rendered?["perSecond"]?.doubleValue != nil)
     }
 
-    /// p14-energy-030: `cef.energySaver` is `applied` only when the built engine says the fork took the last
+    /// `cef.energySaver` is `applied` only when the built engine says the fork took the last
     /// state; a refused or uncalled saver and no Chromium built yet are `unsupported`.
     @Test func cefEnergySaverIsAppliedOnlyWhenTheEngineSaysSo() async {
         #expect(EnergyReport.CEF.Saver(applied: true) == .applied)
@@ -207,7 +207,7 @@ struct EnergyReportTests {
         }
     }
 
-    /// `tabs` (p14-energy-124): the sampled tab renderers, per tab. Two tabs on one renderer both show its
+    /// `tabs`: the sampled tab renderers, per tab. Two tabs on one renderer both show its
     /// whole usage and it names both. Only tab renderers count: an extension renderer (no client id) that a
     /// stale tab pid names is not one.
     @Test func tabsShowTheirRenderersUsageAndASharedRendererNamesEveryTab() throws {

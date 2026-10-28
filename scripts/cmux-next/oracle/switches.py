@@ -394,7 +394,7 @@ def check(roots: Roots) -> Tuple[List[Finding], int]:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# --expired (task p15-oracle-171): the MQ-switch-expiry queue, one deletion task per switch
+# --expired: the MQ-switch-expiry queue, one deletion task per switch
 
 
 @dataclass(frozen=True)
@@ -457,7 +457,7 @@ def expired(roots: Roots, today: dt.date) -> Tuple[List[DeletionTask], List[Find
 
 
 # ---------------------------------------------------------------------------------------------------------
-# --hits (p15-oracle-027)
+# --hits
 
 
 ARMS = ("old", "new")
@@ -564,7 +564,7 @@ def hits(roots: Roots, report_path: Path, name: str, arm: str) -> HitVerdict:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# Applying and reading back the arms (p15-oracle-049)
+# Applying and reading back the arms
 
 
 APP_SWITCHES_ENV = "CMUX_NEXT_SWITCHES"
@@ -773,7 +773,7 @@ def parse_requests(items: Sequence[str]) -> Dict[str, str]:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# bisect-switches (task p15-oracle-183): the smallest switch set at its planned arm that makes one case
+# bisect-switches: the smallest switch set at its planned arm that makes one case
 # diverge from all-default. `oracle.py bisect-switches CASE` runs the probes; this is the search.
 
 

@@ -7,7 +7,7 @@ import Foundation
 import Testing
 import WebKit
 
-/// The page lifecycle's freeze and thaw on both engines (p13-webui-028): a page is hidden before it
+/// The page lifecycle's freeze and thaw on both engines: a page is hidden before it
 /// freezes and thaws before it shows, a shown page refuses to freeze, Chromium gets one
 /// `setFrozen` per freeze, and WebKit stays in its window, hidden, with all of its hidden-page
 /// throttling on until the thaw gives back what it had. Every step is a call in the test's turn:
@@ -109,7 +109,7 @@ struct PageLifecycleFreezeTests {
 
     /// The frozen Chromium page's browser ends while the tab is hidden: after the supervisor gave up
     /// the hidden page still has no engine, so nothing builds WebKit or freezes; it reopens in WebKit,
-    /// running, when the tab shows (p13-webui-058).
+    /// running, when the tab shows.
     @Test func aFrozenChromiumPageWhoseBrowserEndedReopensInWebKitOnlyWhenShown() async throws {
         let (view, page) = try await chromiumView()
         defer { finish(view) }
@@ -191,7 +191,7 @@ struct PageLifecycleFreezeTests {
         #expect(view.webView.configuration.preferences.hiddenPageThrottling == Self.mixed)
     }
 
-    // MARK: Provider freeze hooks follow the engine (p13-webui-066)
+    // MARK: Provider freeze hooks follow the engine
 
     /// Counts the freeze hooks the router gives it.
     @MainActor final class HookCounter: PageProvider {

@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxMobileRPC
 
 /// The date parser is a plain `Sendable` value (two `Date.ISO8601FormatStyle`s) and the
-/// timeout cancellation bridge keeps its state in a `Mutex` (p10-stability-050). Run under
+/// timeout cancellation bridge keeps its state in a `Mutex`. Run under
 /// TSan (`swift test --sanitize=thread`) too.
 @Suite("Mobile RPC Sendable state")
 struct MobileRPCSendableStateTests {

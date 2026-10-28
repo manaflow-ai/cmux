@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Native popup rows hover once per frame (feature `pointerFrameHover`, p04-input-037): a page menu's
+/// Native popup rows hover once per frame (feature `pointerFrameHover`): a page menu's
 /// rows (``WebPopupRows``) share the menu's one consumer on p04-input-030's `FrameInputCoalescer`, so a
 /// frame interval's first move hovers in its own turn and the rest once at the frame, the row under the
 /// latest point (Chromium's rAF-aligned moves, main_thread_event_queue.cc). Crossing into or out of a row

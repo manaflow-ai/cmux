@@ -6,7 +6,7 @@ import Foundation
 import Testing
 @testable import CmuxNextChiefViews
 
-/// p13-webui-009: the Chief view gallery opens its page through the host it is given (the app's
+/// The Chief view gallery opens its page through the host it is given (the app's
 /// `AppServices.webUI`), not the static `PageWebView(descriptor:routes:)` path, so the host knows
 /// the page and lists it in its own registry.
 @Suite(.serialized)

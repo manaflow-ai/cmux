@@ -8,6 +8,7 @@
 //! crash reports are allowed (`crash_forward`), sends it to Sentry at once.
 //! Doubling keeps a runaway process to a handful of events.
 
+use crate::json_fields::JsonFields;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -114,7 +115,7 @@ pub(super) fn spawn(
             .map(|elapsed| elapsed.as_millis())
             .unwrap_or_default();
         let line = record(memory, crossed, started.elapsed(), at_ms);
-        crate::client_log::warn(LOG_AREA, line["message"].as_str().unwrap_or_default());
+        crate::client_log::warn(LOG_AREA, line.field("message").as_str().unwrap_or_default());
         append(&log, &line);
         if let Some(forwarder) = &forwarder
             && let Err(error) = forwarder.forward(&log)
@@ -163,7 +164,7 @@ where
                     (watch.alert)(memory, crossed);
                 }
                 // A periodic sample is this thread's intended behavior, not a wait on a condition.
-                std::thread::sleep(watch.interval);
+                cmux_blocking::thread::sleep(watch.interval);
                 if stop.is_stopped() {
                     return;
                 }
@@ -197,7 +198,7 @@ fn append(path: &Path, line: &serde_json::Value) {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600).custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW);
     }
-    if let Ok(mut file) = options.open(path) {
+    if let Ok(mut file) = crate::blocking::fs::open_with(&options, path) {
         let _ = file.write_all(format!("{line}\n").as_bytes());
     }
 }

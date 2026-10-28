@@ -76,13 +76,13 @@ CASES = {
 STORIES = {"chromium": "crash-survival", "webkit": "crash-survival-webkit"}
 # Check mode's cases unless --only names others: the capture slot's set from before the story.
 CHECK_CASES = ("renderer", "gpu", "webkit", "agent")
-# The feature that moves Chromium's browser process into the Chromium Host app (task p12-perf-process-101) and its
+# The feature that moves Chromium's browser process into the Chromium Host app and its
 # local override, the Debug toggle a bench sets through its tunables file (CMUX_NEXT_DEBUG_TUNABLES_FILE, as
 # chromium-host-bench.py does): a launched app strips an inherited CMUX_ENABLE_FEATURES (LaunchIdentity), and
 # features.list reports the toggle's value with source `local`. The file loads off the main thread after launch.
 HOST_FEATURE = "cefHelperHost"
 HOST_TOGGLE = "browserHost.helper"
-# chromiumHostTabs' local override: with the host on, the arm's Chromium tabs run in it (p01-process-080).
+# chromiumHostTabs' local override: with the host on, the arm's Chromium tabs run in it.
 HOST_TABS_TOGGLE = "browserHost.tabs"
 TUNABLES_FILE = "CMUX_NEXT_DEBUG_TUNABLES_FILE"
 HOST_SETTLE_SECONDS = 15
@@ -640,7 +640,7 @@ class Driver:
             at = self.kill("host", host)
             if at is None:
                 return NOT_MEASURABLE, f"host pid {host} not proved the app's", None
-            # The host's end shows the crash page with Reload, and Reload starts a new host (p01-process-082).
+            # The host's end shows the crash page with Reload, and Reload starts a new host.
             outcome, detail, recover = self.sad_tab_reloads("host", tab, at)
             if outcome != SURVIVED:
                 return outcome, detail, recover

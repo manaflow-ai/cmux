@@ -1,4 +1,4 @@
-// CodeRouter keeps its scroll across a discard (p13-webui-082). The accounts service owns every
+// CodeRouter keeps its scroll across a discard. The accounts service owns every
 // row and the page has no field, so it saves no inputs of its own.
 import { describe, expect, test } from "bun:test";
 import { restoredPageInputs } from "../shared/pageState";

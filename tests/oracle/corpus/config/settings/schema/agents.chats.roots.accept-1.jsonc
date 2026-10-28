@@ -1,9 +1,0 @@
-{
-  "agents": {
-    "chats": {
-      "roots": [
-        "/opt/cmux-chat-data"
-      ]
-    }
-  }
-}

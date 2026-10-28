@@ -247,7 +247,7 @@ public final class CrashKeySlots: Sendable {
     /// in `init`, freed in `deinit`. Kept as an integer so the class is `Sendable` with no unchecked claim; every
     /// access goes through ``AtomicPointerSlot``.
     public let wordsAddress: UInt
-    /// The process's crash-key page (``CrashKeyPage``, p09-observability-078), attached by the composition root
+    /// The process's crash-key page (``CrashKeyPage``), attached by the composition root
     /// once its black box made it: the owners these slots reach store the page's keys through it too.
     public let page = AttachedCrashKeyPage()
 

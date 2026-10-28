@@ -37,6 +37,10 @@ pub(crate) struct Candidate {
     pub url: String,
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: a constant pattern that compiles (the candidates tests run it)"
+)]
 static ADDRESS: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r"(?i)(?P<scheme>https?://)?(?P<host>localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\]|\[::ffff:127(?:\.\d{1,3}){3}\]|\*):(?P<port>\d{1,5})\b(?P<path>/[^\s'\x22<>()\[\],]*)?",
@@ -73,11 +77,10 @@ pub(crate) fn tail(text: &str, max: usize) -> &str {
     if text.len() <= max {
         return text;
     }
-    let mut start = text.len() - max;
-    while !text.is_char_boundary(start) {
-        start += 1;
-    }
-    &text[start..]
+    let first = text.len() - max;
+    // The end of the text is always a char boundary, so the cut is found.
+    let start = (first..text.len()).find(|at| text.is_char_boundary(*at)).unwrap_or(text.len());
+    text.get(start..).unwrap_or_default()
 }
 
 /// The loopback address that accepts a TCP connect on `port`, if any.

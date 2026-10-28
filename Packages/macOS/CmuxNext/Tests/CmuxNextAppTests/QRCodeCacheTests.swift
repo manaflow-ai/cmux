@@ -3,7 +3,7 @@ import CoreGraphics
 import Foundation
 import Testing
 
-/// The pairing QR codes are kept for the ``QRCode/kept`` most recently drawn payloads (p07-memory-060):
+/// The pairing QR codes are kept for the ``QRCode/kept`` most recently drawn payloads:
 /// a new payload past that evicts the least recently drawn one, a drawn one moves to the newest, and
 /// an evicted payload is drawn again.
 @MainActor @Suite(.serialized) struct QRCodeCacheTests {

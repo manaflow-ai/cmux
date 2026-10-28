@@ -5,7 +5,7 @@ import CmuxNextWakeups
 import Testing
 
 /// The browser toolbar's Back long press from the button's own mouse events and a deadline
-/// (p06-scheduler-321, R-timer): no nested event wait holds the run loop. A release before the deadline is a
+/// (R-timer): no nested event wait holds the run loop. A release before the deadline is a
 /// click; a press held past it shows the entry menu and does not click; a press held past it with no menu (a tab
 /// that lists no entries, as a Chromium fork before API 14) is still a click on its release, as the tracked press
 /// before it was.

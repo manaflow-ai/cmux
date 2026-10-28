@@ -1,6 +1,6 @@
 import Foundation
 
-/// The switches for Chromium's own spare renderer (p13-webui-020, p07-memory-113).
+/// The switches for Chromium's own spare renderer.
 nonisolated extension CEFSwitches {
     /// Chrome keeps one spare renderer (live, no site lock, no document) for the profile that
     /// last took a new process (`content/browser/renderer_host/spare_render_process_host_manager_impl.cc`

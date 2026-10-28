@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Testing
 
-/// The visibility tree (VisibilityNode.swift, p06-scheduler-020): effective = min(own, parent),
+/// The visibility tree (VisibilityNode.swift): effective = min(own, parent),
 /// a flip visits only the children it can change, subscribers hear only flips, and the tree keeps
 /// nothing alive.
 @MainActor @Suite(.timeLimit(.minutes(1))) struct VisibilityTreeTests {
@@ -243,7 +243,7 @@ import Testing
         #expect(window.childCounts.hidden == 1 && window.childCounts.shown == 0)
     }
 
-    /// Recipe R-appear (p06-scheduler-215, done check 10): three theme flips at 50 workspaces run the
+    /// Recipe R-appear: three theme flips at 50 workspaces run the
     /// appearance body of the visible workspace only, then one body per workspace as each shows.
     @Test func aThemeFlipAtFiftyWorkspacesAppliesOnlyWhatIsOnScreenThenOncePerShow() {
         let counts = VisibilityWorkCounts()

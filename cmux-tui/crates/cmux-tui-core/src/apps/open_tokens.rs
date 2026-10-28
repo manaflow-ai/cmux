@@ -12,7 +12,8 @@
 
 use std::time::{Duration, Instant};
 
-use super::supervisor::{Inner, Supervisor};
+use super::supervisor::{ApiError, Inner, Supervisor};
+use crate::panic_free::RecoverPoison;
 
 /// How long a stamped open token stays valid.
 const OPEN_TOKEN_TTL: Duration = Duration::from_secs(60);
@@ -34,14 +35,22 @@ pub(crate) struct OpenTokenUse {
     pub idempotency_key: Option<String>,
 }
 
-/// Mints a fresh 128-bit open token for one user run of `op`.
+/// Mints a fresh 128-bit open token for one user run of `op`; without the
+/// OS random source there is no token, never a guessable one.
 pub(super) fn mint_open_token(
     inner: &mut Inner,
     app: &str,
     op: &str,
     idempotency_key: Option<String>,
     now: Instant,
-) -> String {
+) -> Result<String, ApiError> {
+    let mut bytes = [0u8; 16];
+    getrandom::fill(&mut bytes).map_err(|error| {
+        ApiError::new(
+            "operation.failed",
+            format!("no open token: the OS random source failed: {error}"),
+        )
+    })?;
     inner.open_tokens.retain(|_, t| t.expires > now);
     if inner.open_tokens.len() >= MAX_OPEN_TOKENS
         && let Some(oldest) =
@@ -49,8 +58,6 @@ pub(super) fn mint_open_token(
     {
         inner.open_tokens.remove(&oldest);
     }
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).expect("the OS random source");
     let token: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     inner.open_tokens.insert(
         token.clone(),
@@ -61,7 +68,7 @@ pub(super) fn mint_open_token(
             expires: now + OPEN_TOKEN_TTL,
         },
     );
-    token
+    Ok(token)
 }
 
 impl Supervisor {
@@ -82,7 +89,7 @@ impl Supervisor {
         app: &str,
         now: Instant,
     ) -> Option<OpenTokenUse> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().recover_poison();
         let minted = inner.open_tokens.remove(token)?;
         inner.open_tokens.retain(|_, t| t.expires > now);
         // The op must still be one of the app's openOps (the manifest may have

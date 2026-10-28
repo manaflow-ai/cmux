@@ -47,6 +47,7 @@ pub(crate) fn wait_for_pty_readable_or_forced_drain(
             .unwrap_or(-1);
         // SAFETY: poll_fds points to two initialized values and both
         // descriptors remain owned by the caller for this call.
+        // wakeup-allow: deadline the forced drain's one window; no timeout (-1) until a drain is forced
         let ready = unsafe {
             libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, timeout_ms)
         };

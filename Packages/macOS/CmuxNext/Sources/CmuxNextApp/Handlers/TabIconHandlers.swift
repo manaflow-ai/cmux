@@ -57,7 +57,7 @@ enum TabIconHandlers {
     /// Changes the tab's icon (nil removes it); a user's change is an undo step (IconHistory).
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
-        // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051), no observation
+        // view-observation-allow: one MachineTabIndex lookup, no observation
         let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
         try? history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
@@ -67,7 +67,7 @@ enum TabIconHandlers {
     static func history(_ ctx: AppActionContext) -> IconHistory {
         let shownIn = UndoToastWindow()
         return IconHistory(messages: .tab, apply: { id, update in
-            // view-observation-allow: one MachineTabIndex lookup (p06-scheduler-051) per icon write, no observation
+            // view-observation-allow: one MachineTabIndex lookup per icon write, no observation
             guard let (tab, pane) = ctx.services.locateTab(id), let resource = tab.resourceID else { return false }
             let daemon = ctx.services.daemon(for: pane)
             guard daemon.store.servesStateResources else { return false }

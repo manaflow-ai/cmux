@@ -1,7 +1,7 @@
 //! A view's drain on the sequenced pool never holds a worker the echo path
-//! shares (p05-ipc-079): its end does not wait for room on a full
-//! connection, a bulk item (a snapshot READY or history chunk) ends its
-//! turn, and each item is an echo hang scope.
+//! shares: its end does not wait for room on a full
+//! connection and each item is an echo hang scope. Bulk work runs off the
+//! drain (snapshot_attach_out_tests.rs).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, mpsc};
@@ -9,11 +9,11 @@ use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use super::tests::{WAIT, connect, decoded, eventually, next_any, next_item, request};
+use super::tests::{WAIT, connect, decoded, next_any, next_item, request};
 use super::{AttachPump, PumpTimer, Step, ViewDrain, ViewOut, ViewSource};
 use crate::server::attach_streams::ClientStreamId;
 use crate::server::request_watchdog::{HangSink, REQUEST_WATCHDOG_THRESHOLD};
-use crate::server::sequenced_pool::{PoolConfig, SequencePriority, SequencedPool};
+use crate::server::sequenced_pool::SequencePriority;
 use crate::server::tests::captured_writer;
 use crate::server::{
     BoundedOutbound, ClientTransport, MessageWriter, OUTBOUND_CONNECTION_CAPACITY, RequestWatchdog,
@@ -134,69 +134,6 @@ fn views_ending_on_a_full_connection_hold_no_worker() {
     assert_eq!(ends, [1, 2]);
     disconnect_client(&mux, client, false);
     disconnect_client(&mux, full_client, false);
-    mux.shutdown();
-}
-
-/// Sends `bulk` bulk items, logging each as `name`.
-struct Logging {
-    name: &'static str,
-    bulk: usize,
-    log: Arc<Mutex<Vec<&'static str>>>,
-}
-
-impl ViewSource for Logging {
-    const WATCH: WatchKind = WatchKind::SnapshotAttachOut;
-
-    fn next(&mut self, _out: &mut ViewOut, _timer: &PumpTimer<'_>) -> Step {
-        if self.bulk == 0 {
-            return Step::Empty;
-        }
-        self.bulk -= 1;
-        self.log.lock().unwrap().push(self.name);
-        Step::Bulk
-    }
-}
-
-/// On one input worker, a view with five bulk items to send (a snapshot
-/// resync) lets another view's turn run after its first: a bulk item ends
-/// the turn. Sent as ordinary items, all five would go first.
-#[test]
-fn a_bulk_item_ends_its_turn() {
-    let mux = Mux::new_for_test("attach-pump-bulk", SurfaceOptions::default());
-    let surface = mux.new_workspace(None, Some((80, 24))).unwrap();
-    let pool =
-        SequencedPool::new(PoolConfig::for_cores(4).with_workers(SequencePriority::Input, 1));
-    let (writer, _outbound) = captured_writer();
-    let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    let log = Arc::new(Mutex::new(Vec::new()));
-
-    // The worker is busy until both views are posted.
-    let gate = pool.sequence(SequencePriority::Input);
-    let (entered, entering) = mpsc::channel();
-    let (release, released) = mpsc::channel::<()>();
-    gate.post(move || {
-        let _ = entered.send(());
-        let _ = released.recv();
-    })
-    .expect("posted");
-    entering.recv_timeout(WAIT).expect("the gate runs");
-
-    let mut pumps = Vec::new();
-    for (stream, name, bulk) in [(1, "resync", 5), (2, "echo", 1)] {
-        let pump = AttachPump::new(&pool, SequencePriority::Input);
-        let (out, _lifecycle) = bind(&pump, &mux, client, surface.id, &writer, stream);
-        let source = Logging { name, bulk, log: log.clone() };
-        pump.install(Box::new(ViewDrain::new(out, source)));
-        pumps.push(pump);
-    }
-    for pump in pumps {
-        pump.start().expect("posted");
-    }
-    let _ = release.send(());
-    eventually("every item", || log.lock().unwrap().len() == 6);
-    let log = log.lock().unwrap().clone();
-    assert_eq!(log[..2], ["resync", "echo"], "{log:?}");
-    disconnect_client(&mux, client, false);
     mux.shutdown();
 }
 

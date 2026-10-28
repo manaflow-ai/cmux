@@ -11,7 +11,7 @@ import CmuxNextOracle
 import Foundation
 import Testing
 
-/// The oracle's `history` and `notifications` facets (p15-oracle-042). History lists what Recently Closed can reopen,
+/// The oracle's `history` and `notifications` facets. History lists what Recently Closed can reopen,
 /// newest first, from the daemons' mirrored closed items, with titles hashed after the runner's case root and home
 /// become `$ROOT` and `$HOME`; notifications gives the Dock badge, each workspace's unread count from the store and
 /// its Needs you from the agent lanes the sidebar reads. Both read model values in the snapshot's main-actor turn: no

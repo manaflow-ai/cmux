@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAppearance
+import CmuxNextWakeups
 @testable import CmuxNextSettings
 import Foundation
 import Testing
@@ -28,9 +29,10 @@ import Testing
         await source.reload()
         await target.reload()
         let file = sourceHome.appending(path: "keymap.json")
-        try await source.exportShortcutKeymap(to: file)
+        let work = BackgroundWork(label: "test.keymap-file")
+        try await source.exportShortcutKeymap(to: file, runner: work)
         #expect(FileManager.default.fileExists(atPath: file.path))
-        try await target.importShortcutKeymap(from: file)
+        try await target.importShortcutKeymap(from: file, runner: work)
         #expect(try await target.shortcutKeymap() == source.shortcutKeymap())
     }
 }

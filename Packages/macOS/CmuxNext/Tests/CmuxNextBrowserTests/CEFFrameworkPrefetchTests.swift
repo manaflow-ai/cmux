@@ -4,7 +4,7 @@ import Foundation
 import os
 import Testing
 
-/// p08-startup-045: a predicted Chromium start's framework read (``CEFFrameworkPrefetch``) is one idle lane item
+/// A predicted Chromium start's framework read (``CEFFrameworkPrefetch``) is one idle lane item
 /// that the startup best-effort fence holds, so a cold launch with no visible Chromium page reads no Chromium file
 /// before startup completes; a start someone waits for promotes it to a user-blocking read that the fence never
 /// holds. Against a scratch framework folder and a spy in-process load.

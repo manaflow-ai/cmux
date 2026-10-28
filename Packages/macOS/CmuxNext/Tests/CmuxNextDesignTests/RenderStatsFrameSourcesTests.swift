@@ -4,7 +4,7 @@ import AVFoundation
 import QuartzCore
 import Testing
 
-/// `debug.layers` `frame_sources` (p14-energy-096): the frame sources no FrameScheduler sees.
+/// `debug.layers` `frame_sources`: the frame sources no FrameScheduler sees.
 @MainActor
 struct RenderStatsFrameSourcesTests {
     final class StarFieldView: NSView {}

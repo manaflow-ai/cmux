@@ -1,5 +1,5 @@
-// Checks the Chromium Host's tab and host mirrors (src/host_mirror.mm, tasks
-// p01-process-016 and 017) end to end: the real dispatcher
+// Checks the Chromium Host's tab and host mirrors (src/host_mirror.mm)
+// end to end: the real dispatcher
 // (src/host_dispatch.mm, the generated cases) with a fake shim on one end of a
 // socket pair, the real remote shim (client/remote_shim.mm, loaded as the
 // shared library cmux loads) on the other, and every read made through the
@@ -23,6 +23,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -117,6 +118,7 @@ struct Client {
   decltype(&cmux_shim_ext_list) ext_list;
   decltype(&cmux_shim_ext_commands) ext_commands;
   decltype(&cmux_shim_omnibox_keywords) omnibox_keywords;
+  decltype(&cmux_shim_renderer_client_ids) renderer_client_ids;
   decltype(&cmux_shim_free) free;
 
   // A string read: nullopt for NULL (no value in the cache).
@@ -165,6 +167,7 @@ Client LoadClient() {
   Bind(library, "cmux_shim_ext_list", &c.ext_list);
   Bind(library, "cmux_shim_ext_commands", &c.ext_commands);
   Bind(library, "cmux_shim_omnibox_keywords", &c.omnibox_keywords);
+  Bind(library, "cmux_shim_renderer_client_ids", &c.renderer_client_ids);
   Bind(library, "cmux_shim_free", &c.free);
   return c;
 }
@@ -180,6 +183,8 @@ struct Shim {
   // Task 017's values, by Chromium's browser id; every ext_actions read's icon size.
   std::map<int, std::string> side_panel, ext_actions, ext_list, ext_commands, omnibox_keywords;
   std::vector<int> icon_px;
+  // Task 225: each browser's frames' renderer client ids.
+  std::map<int, std::vector<int>> renderers;
   int next_browser = 3;
   int next_window = kWindow;  // the window the next create_window makes
   int live = 0;
@@ -254,6 +259,13 @@ char* cmux_shim_ext_list(int browser_id) { return ValueOf(shim.ext_list, browser
 char* cmux_shim_ext_commands(int browser_id) { return ValueOf(shim.ext_commands, browser_id); }
 char* cmux_shim_omnibox_keywords(int browser_id) { return ValueOf(shim.omnibox_keywords, browser_id); }
 void cmux_shim_free(char* s) { std::free(s); }
+int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
+  int count = 0;
+  for (const int id : shim.renderers[browser_id]) {
+    if (count < capacity) out[count++] = id;
+  }
+  return count;
+}
 int cmux_shim_tab_window_id(int browser_id) {
   ++shim.window_id_reads;
   auto found = shim.window_of.find(browser_id);
@@ -618,6 +630,63 @@ void SitePanelAndExtensionsWithNoWatch() {
   Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
 }
 
+// The renderer client ids cmux maps to the host's helpers (task 225): one count and what fits the
+// reader's buffer, the ids or nothing.
+std::pair<int, std::vector<int>> RendererClients(int tab, int capacity) {
+  std::vector<int> out(static_cast<size_t>(capacity), -1);
+  const int count = client.renderer_client_ids(tab, out.data(), capacity);
+  out.resize(static_cast<size_t>(std::clamp(count, 0, capacity)));
+  return {count, out};
+}
+
+// Task 225: a tab's renderer client ids are in cmux's cache with no watch and no reply. AFTER_CREATED
+// pushes them; a navigation that swaps the renderer has the new ones in the ADDRESS callback; an iframe
+// renderer that comes or goes after the load has them in FRAME_RENDERERS' callback; a renderer's end
+// refreshes them before RENDER_TERMINATED; BEFORE_CLOSE forgets them.
+void RendererClientIDsWithNoWatch() {
+  World w;
+  shim.renderers[3] = {7};
+  const int tab = w.CreateWindow("file:///a.html");
+  Check(RendererClients(tab, 32).second == std::vector<int>{7}, "AFTER_CREATED pushes the tab's renderer");
+  shim.renderers[3] = {9, 11};  // a cross-site navigation, and an out-of-process iframe
+  std::vector<int> at_address;
+  w.on_event = [&](const Event& e) {
+    if (e.kind == CMUX_SHIM_ADDRESS && e.browser == tab) at_address = RendererClients(tab, 32).second;
+  };
+  client.load_url(tab, "file:///b.html");
+  w.PumpUntilEvent(CMUX_SHIM_LOAD_END);
+  Check(at_address == std::vector<int>({9, 11}), "a read in ADDRESS's callback has the new renderers");
+  const auto [count, first] = RendererClients(tab, 1);
+  Check(count == 2 && first == std::vector<int>{9}, "a smaller buffer gets what fits and the count");
+  // An out-of-process iframe a script adds after LOAD_END, and its renderer's end: no main-frame event, the
+  // shim's FRAME_RENDERERS refreshes them before its callback.
+  shim.renderers[3] = {9, 11, 13};
+  std::vector<int> at_frames;
+  w.on_event = [&](const Event& e) {
+    if (e.kind == CMUX_SHIM_FRAME_RENDERERS && e.browser == tab) at_frames = RendererClients(tab, 32).second;
+  };
+  Emit(CMUX_SHIM_FRAME_RENDERERS, 3, 0);
+  w.PumpUntilEvent(CMUX_SHIM_FRAME_RENDERERS);
+  Check(at_frames == std::vector<int>({9, 11, 13}), "an iframe renderer added after LOAD_END reaches the cache");
+  shim.renderers[3] = {9, 11};
+  Emit(CMUX_SHIM_FRAME_RENDERERS, 3, 0);
+  w.PumpUntilEvent(CMUX_SHIM_FRAME_RENDERERS);
+  Check(at_frames == std::vector<int>({9, 11}), "an iframe renderer's end leaves it");
+  shim.renderers[3] = {};
+  std::optional<int> at_terminated;
+  w.on_event = [&](const Event& e) {
+    if (e.kind == CMUX_SHIM_RENDER_TERMINATED) at_terminated = RendererClients(tab, 32).first;
+  };
+  Emit(CMUX_SHIM_RENDER_TERMINATED, 3, 1, 2, 9);
+  w.PumpUntilEvent(CMUX_SHIM_RENDER_TERMINATED);
+  Check(at_terminated == 0, "the renderer's end refreshes them before RENDER_TERMINATED's callback");
+  shim.renderers[3] = {5};
+  Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
+  w.PumpUntilEvent(CMUX_SHIM_BEFORE_CLOSE);
+  Check(RendererClients(tab, 32).first == 0, "BEFORE_CLOSE forgets them");
+  Check(w.delegate.bad.empty() && ended == -1, "neither side ended the wire");
+}
+
 // Which tabs each refresh row of task 017's mirrors names. Every such row of
 // the generated kMirrorRefreshes must be listed: a row added to the ops JSON
 // fails here until its scope is written down.
@@ -762,6 +831,7 @@ int main() {
   Counts();
   CloseForgets();
   SitePanelAndExtensionsWithNoWatch();
+  RendererClientIDsWithNoWatch();
   RefreshRowsMatchTheirScope();
   WindowsAndProfilesFollowTheTabs();
   if (failures) return EXIT_FAILURE;

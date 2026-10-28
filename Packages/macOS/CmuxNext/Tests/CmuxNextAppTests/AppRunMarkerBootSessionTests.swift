@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextLaunch
 import CmuxNextMetrics
 import Foundation
 import Testing
@@ -42,6 +43,20 @@ struct AppRunMarkerBootSessionTests {
         #expect(old.uncleanExit(bootSession: Self.thisBoot) == .killed)
         let run = try Self.previous(boot: Self.earlierBoot, survived: false)
         #expect(run.uncleanExit(bootSession: nil) == .killed)
+    }
+
+    /// A power loss or a reboot left no daemon to reattach, so its launch keeps the saved terminal frames
+    /// and window picture through the cold daemon start; a kill or a crash in this boot left it running, so they go.
+    @Test func onlyAnEndInThisBootReattaches() throws {
+        let shutdown = try Self.previous(boot: Self.earlierBoot, survived: false).uncleanExit(bootSession: Self.thisBoot)
+        #expect(RelaunchReattach.PreviousEnd(shutdown) == .systemShutdown)
+        #expect(RelaunchReattach(previousEnd: .init(shutdown), enabled: true).keepsSavedScreens)
+        let killed = try Self.previous(boot: Self.thisBoot, survived: false).uncleanExit(bootSession: Self.thisBoot)
+        #expect(!RelaunchReattach(previousEnd: .init(killed), enabled: true).keepsSavedScreens)
+        let crashed = try Self.previous(boot: Self.earlierBoot, signal: "\(SIGSEGV)\n").uncleanExit(bootSession: Self.thisBoot)
+        #expect(RelaunchReattach.PreviousEnd(crashed) == .crashed)
+        #expect(RelaunchReattach.PreviousEnd(nil) == .quit)
+        #expect(RelaunchReattach.PreviousEnd(.fatalHang) == .killed)
     }
 
     @Test func theBootIsThirtyTwoHexDigits() {

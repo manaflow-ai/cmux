@@ -38,7 +38,7 @@ fn cell_pixel_fanout_runs_concurrently_with_one_shared_deadline() {
     assert!(max_active.load(Ordering::Acquire) > 1);
 }
 
-/// A deadline fanout worker is a control stream (p05-ipc-080): a request
+/// A deadline fanout worker is a control stream: a request
 /// waits on its batch, so it runs at the dispatcher's class and may block.
 /// The job reads both inside the worker's body.
 #[test]

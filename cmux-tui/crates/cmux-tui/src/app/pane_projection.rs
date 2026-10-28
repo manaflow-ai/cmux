@@ -251,7 +251,7 @@ impl ViewportPaneAreaProjection {
         if start >= end {
             return;
         }
-        for &source in &self.sources[start..end] {
+        for &source in self.sources.iter().take(end).skip(start) {
             #[cfg(test)]
             record_pane_area_projection_work(1);
             if let Some(projected) = project_pane_area(source, area, Some(viewport_offset)) {

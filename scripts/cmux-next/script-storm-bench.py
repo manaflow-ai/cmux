@@ -138,12 +138,12 @@ SIGNPOSTS_STOP_DEADLINE_S = 30.0
 # needs the probe change (TypingLatencyProbe); debug.frames' missed vsyncs and main-thread busy are the frame evidence.
 KEY_COLUMN = "contents_ms"
 # --hidden: the store's drain of one batch of daemon events (most of them from the storm's hidden workspaces) under
-# 1 ms at p99 (p06-scheduler-033). A measurement, reported next to the phase, never a gate.
+# 1 ms at p99. A measurement, reported next to the phase, never a gate.
 DRAIN_P99_BUDGET_MS = 1.0
 # --hidden N: the hidden phase's CLI ops (plans/cmux-next/chrome-parity/p06-scheduler.md, done check 4), the daemon op
 # kinds that make them (changes inside hidden workspaces only: reorder moves a row of the always-shown sidebar, which
 # is visible work, so it is left out), and the settle after a kind's last reply: the app applies the last events, and
-# the frontend mailbox's 1 s aligned flush of hidden surfaces' field events (p06-scheduler-227) lands inside the window.
+# the frontend mailbox's 1 s aligned flush of hidden surfaces' field events lands inside the window.
 HIDDEN_OPS = 1000
 HIDDEN_KINDS = ("move", "column", "rename")
 # The kind whose load is field events of hidden surfaces only (title changes of prepared hidden tabs).
@@ -152,7 +152,7 @@ HIDDEN_FIELD_KIND = "rename"
 HIDDEN_FIELD_EVENTS = "hidden_surface_field_events_per_surface_per_s"
 HIDDEN_SETTLE_S = 2.0
 HIDDEN_WORKSPACES_BARE = 50
-# The debug.layout_counters fields the hidden phase reads as deltas (p06-scheduler-229).
+# The debug.layout_counters fields the hidden phase reads as deltas.
 HIDDEN_LAYOUT_FIELDS = ("hidden_workspace_layouts", "hidden_workspace_applies")
 SESSION_SHAPE = {"light": "light", "stress": "STRESS-busy-elsewhere"}
 

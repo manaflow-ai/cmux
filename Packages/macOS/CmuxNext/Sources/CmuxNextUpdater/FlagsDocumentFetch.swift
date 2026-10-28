@@ -10,7 +10,7 @@ nonisolated public enum FlagsDocumentRejection: Error, Sendable, Equatable {
     case badSignature
 }
 
-/// One conditional fetch of the signed `notes/flags.json` (p12-perf-process-093),
+/// One conditional fetch of the signed `notes/flags.json`,
 /// next to the release notes, with their content key: no second URL or key.
 /// Chrome's variations seed fetch is the model
 /// (components/variations/service/variations_service.cc: `If-None-Match`, a 304

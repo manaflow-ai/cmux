@@ -8,6 +8,9 @@
 //! a new daemon re-attaches from the rings. Design:
 //! `plans/cmux-next/terminal-host-model-DESIGN.md`.
 
+// Threads start through cmux_threads (named, registered, at a declared QoS):
+// plans/cmux-next/chrome-parity/p02-threads.md, tasks 213-218.
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
 #![cfg(unix)]
 
 pub mod client;
@@ -209,7 +212,7 @@ pub fn parse_version_line(line: &str) -> Option<(u16, u16)> {
 pub const IN_USE_LOCK: &str = "in-use.lock";
 
 /// Where a holder started with `args` keeps its rings, for its `main` to
-/// start the black box before anything else (p09-observability-095): a
+/// start the black box before anything else: a
 /// holder-lifetime directory beside its socket (`<socket>.trace`, in the
 /// daemon's private socket directory), or the `CMUX_TRACE_FLOWS` folder while
 /// key-press flows are on (their recording must be a file there). None when
@@ -418,7 +421,7 @@ fn invalid(message: &str) -> io::Error {
 mod tests {
     use super::*;
 
-    /// p09-observability-095: `main` finds the holder-lifetime ring folder
+    /// `main` finds the holder-lifetime ring folder
     /// beside the socket before anything else runs; no socket, no folder.
     #[test]
     fn the_blackbox_dir_is_beside_the_socket() {

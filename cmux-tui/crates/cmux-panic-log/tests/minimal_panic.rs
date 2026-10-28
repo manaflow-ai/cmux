@@ -30,7 +30,7 @@ fn scratch_log() -> PathBuf {
 fn a_minimal_panic_hook_writes_one_line_and_runs_the_previous_hook() {
     let log = scratch_log();
     // The holder traces as holder, so its lines name the role and uptime, and
-    // the scopes the panic ran in (p09-observability-082), as the json writer's do.
+    // the scopes the panic ran in, as the json writer's do.
     cmux_trace::init_blackbox(log.parent().unwrap(), cmux_trace::Role::Holder)
         .expect("the first trace start")
         .wait()

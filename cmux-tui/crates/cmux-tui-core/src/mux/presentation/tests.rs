@@ -372,7 +372,7 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// p02-threads-221: a tree read on a request thread answers git HEADs from
+/// A tree read on a request thread answers git HEADs from
 /// memory and never reads the repository there.
 #[test]
 fn git_head_lookup_on_a_request_thread_never_reads_the_disk() {

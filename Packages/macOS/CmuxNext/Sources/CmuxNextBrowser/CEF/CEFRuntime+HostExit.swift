@@ -1,7 +1,7 @@
 import CmuxNextWakeups
 import Foundation
 
-/// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``, p08-startup-046).
+/// The Chromium Host's end while Chromium runs in it (``BrowserBackend/host``).
 extension CEFRuntime {
     /// The host ended: everything still awaited from it resolves (``hostWireEnded()``), every page it showed
     /// shows `exit`'s crash state (the sad tab), and the crash log records the host once. Only the host's process
@@ -53,6 +53,7 @@ extension CEFRuntime {
         if let hostStart, state == .ready, shutdownSequence == nil {
             hostStart.hostEnded()
             hostStart.pagesAwaitEnd = true
+            publishHelperParent()  // none until the next host is attached
             shim = nil
             state = .idle
         }
@@ -128,7 +129,7 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostInput:hostDrags:hostResizeFence:hostPopupMenus:hostSuggestions:hostChoosers:hostFileDialogs:hostLocks:hostAppEvents:helperParent:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, hosted pages' input through
     /// the host's input ring with `routesInput`, drops with `takesDrags`, page
     /// resizes fenced with `fencesResizes`, `<select>` popups as cmux menus with `drawsPopupMenus`, suggestions in cmux's

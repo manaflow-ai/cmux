@@ -28,6 +28,7 @@
 //! entry, not this one.
 
 use super::*;
+use crate::no_panic::JsonExt;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD as BASE64;
 
@@ -343,7 +344,7 @@ impl Hub {
         }
         let mut record = json!({"transferId": transfer_id});
         if let Some(reason) = reason {
-            record["reason"] = json!(reason);
+            record.set("reason", json!(reason));
         }
         self.end_move(session);
         self.append(session, "mux", "transfer_aborted", record);

@@ -293,6 +293,10 @@ pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Op
         .then_some("Codex's `cli_auth_credentials_store` does not keep its login in a file")
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "INVARIANT: a constant pattern; tests::the_constant_patterns_compile builds it"
+)]
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern") // crash-allow: constant pattern
@@ -390,17 +394,21 @@ impl HealthService {
                     row.latest_checked_at = p.latest_checked_at;
                 }
                 (_, Some(url)) => {
-                    if !asked.contains_key(&url) {
-                        let answer = match latest::fetch_json(&url).await {
-                            Ok(body) => latest::parse(row.channel, &body),
-                            Err(e) => {
-                                tracing::info!(harness = %row.id, error = %e, "newest version not read");
-                                None
-                            }
-                        };
-                        asked.insert(url.clone(), answer);
-                    }
-                    match asked[&url].clone() {
+                    let answer = match asked.get(&url) {
+                        Some(answer) => answer.clone(),
+                        None => {
+                            let answer = match latest::fetch_json(&url).await {
+                                Ok(body) => latest::parse(row.channel, &body),
+                                Err(e) => {
+                                    tracing::info!(harness = %row.id, error = %e, "newest version not read");
+                                    None
+                                }
+                            };
+                            asked.insert(url.clone(), answer.clone());
+                            answer
+                        }
+                    };
+                    match answer {
                         Some(v) => (row.latest, row.latest_checked_at) = (Some(v), Some(now)),
                         None => {
                             row.latest = kept.and_then(|p| p.latest.clone());
@@ -499,6 +507,14 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 #[cfg(test)]
 mod tests {
     use super::codex_login_in_file;
+
+    /// SIGN_IN is a constant behind an INVARIANT expect: building it here keeps a
+    /// broken pattern a test failure, never a daemon panic.
+    #[test]
+    fn the_constant_patterns_compile() {
+        assert!(super::names_sign_in("Error: not logged in"));
+        assert!(!super::names_sign_in("ready"));
+    }
     use serde_json::json;
     use std::collections::BTreeMap;
 

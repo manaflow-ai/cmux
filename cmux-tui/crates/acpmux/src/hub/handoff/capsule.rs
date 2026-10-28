@@ -29,15 +29,18 @@ const SEPARATOR: &str = "\n\n";
 const CLOSING: &str = "\n</transcript>\n";
 
 /// The last `max` bytes of `s`, starting on a character boundary.
-fn tail(s: &str, max: usize) -> &str {
+pub(in crate::hub) fn tail(s: &str, max: usize) -> &str {
     if s.len() <= max {
         return s;
     }
-    let mut start = s.len() - max;
-    while !s.is_char_boundary(start) {
-        start += 1;
-    }
-    &s[start..]
+    let cut = s.len() - max;
+    // Drop every character that starts before `cut`.
+    let mut skipped = 0;
+    s.trim_start_matches(|c: char| {
+        let before = skipped < cut;
+        skipped += c.len_utf8();
+        before
+    })
 }
 
 fn kb(bytes: usize) -> String {
@@ -60,7 +63,7 @@ impl Hub {
         let mut summary: Option<(u64, String)> = None;
         let flush = |assistant: &mut Option<Entry>, entries: &mut Vec<Entry>| {
             if let Some(a) = assistant.take()
-                && !a.text[ASSISTANT.len()..].trim().is_empty()
+                && !a.text.strip_prefix(ASSISTANT).unwrap_or(&a.text).trim().is_empty()
             {
                 entries.push(a);
             }
@@ -159,9 +162,10 @@ impl Hub {
                 kept.push(&e.text);
                 from_seq = e.from_seq;
             }
-            if kept.is_empty() {
+            if kept.is_empty()
+                && let Some(last) = entries.last()
+            {
                 // Even the newest message is over budget: keep its end.
-                let last = &entries[entries.len() - 1];
                 let cut = tail(&last.text, budget);
                 used = cut.len();
                 kept.push(cut);

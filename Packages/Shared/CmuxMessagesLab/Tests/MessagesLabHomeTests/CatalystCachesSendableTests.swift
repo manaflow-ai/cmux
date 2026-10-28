@@ -6,8 +6,8 @@ import os
 import Testing
 @testable import MessagesLabHome
 
-/// The transcript's measure, parse, decode and long-text caches, used from the row threads at once
-/// (p10-stability-055): they were `@unchecked Sendable` classes over an NSLock and are now checked
+/// The transcript's measure, parse, decode and long-text caches, used from the row threads at once:
+/// they were `@unchecked Sendable` classes over an NSLock and are now checked
 /// `Sendable` with one `Mutex` state each. Every concurrent lookup is counted once, a byte budget holds,
 /// an attributed string is built once per side, a dropped long-text layout is retired and every index has
 /// its own lineage.

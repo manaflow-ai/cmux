@@ -3,7 +3,7 @@ import AppKit
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// `debug.damage` (p03-rendering-003): the owner table render-idle-damage.py turns into the
+/// `debug.damage`: the owner table render-idle-damage.py turns into the
 /// MQ-damage-owners queue. The hooks are process-wide (RenderStatsTests owns them), so the window's
 /// arm, re-start, stop and expiry logic runs against a fake ``RenderCounting`` and a fake display-pass probe.
 @MainActor

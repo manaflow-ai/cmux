@@ -4,7 +4,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 
-/// Hit testing during a render-server spring (chrome-parity p03-rendering-098, `motion.renderServer` on): the
+/// Hit testing during a render-server spring (`motion.renderServer` on): the
 /// hosts' frames are at rest from the change's turn while Core Animation draws them elsewhere, so a press goes
 /// to the pane drawn under it, at the same place of that pane's content, and focuses that pane. Only moving
 /// hosts read a presentation layer, and only while they spring; a grab of a moving divider waits for the

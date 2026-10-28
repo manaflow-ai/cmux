@@ -24,7 +24,9 @@ dependencies = [
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-server-core",
+ "cmux-threads",
  "cmux-trace",
+ "cmux-tui-platform",
  "cmux-unix-socket",
  "cmux-wake",
  "cmux-worktree-care",
@@ -970,6 +972,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-panic-log",
  "cmux-threads",
  "cmux-trace",
  "libc",
@@ -1002,6 +1005,9 @@ name = "cmux-browser-host"
 version = "1.0.0"
 dependencies = [
  "chacha20poly1305",
+ "cmux-link",
+ "cmux-panic-log",
+ "cmux-threads",
  "cmux-trace",
  "getrandom 0.3.4",
  "hmac",
@@ -1010,6 +1016,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha1",
+ "sha2 0.10.9",
  "url",
 ]
 
@@ -1252,6 +1259,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-server",
  "cmux-server-core",
+ "cmux-threads",
  "flate2",
  "libc",
  "proptest",
@@ -1491,6 +1499,7 @@ dependencies = [
  "bytes",
  "cmux-blocking",
  "cmux-build-identity",
+ "cmux-ipc",
  "cmux-link",
  "cmux-panic-log",
  "cmux-pty",
@@ -1630,6 +1639,7 @@ name = "cmux-tasks"
 version = "0.1.0"
 dependencies = [
  "cmux-tasks-core",
+ "cmux-threads",
  "fs4",
  "getrandom 0.3.4",
  "proptest",
@@ -1793,6 +1803,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "serde_json",
  "tungstenite",
 ]
@@ -1855,6 +1866,7 @@ dependencies = [
  "cmux-tui-remote-access",
  "cmux-tui-util",
  "cmux-unix-socket",
+ "cmux-vt-stream",
  "cmux-wake",
  "flate2",
  "fs4",
@@ -1991,6 +2003,26 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "tempfile",
+]
+
+[[package]]
+name = "cmux-vt-stream"
+version = "0.1.0"
+dependencies = [
+ "ghostty-vt",
+]
+
+[[package]]
+name = "cmux-vt-worker"
+version = "0.1.0"
+dependencies = [
+ "cmux-holder",
+ "cmux-ipc",
+ "cmux-kitty-media",
+ "cmux-process",
+ "cmux-vt-stream",
+ "ghostty-vt",
+ "libc",
 ]
 
 [[package]]

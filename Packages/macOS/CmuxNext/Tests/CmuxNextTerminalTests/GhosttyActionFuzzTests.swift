@@ -4,7 +4,7 @@ import Foundation
 import GhosttyNextKit
 import Testing
 
-/// The app's side of OSC parsing (p10-stability-030): Ghostty parses OSC 0/2 titles, OSC 7 folders,
+/// The app's side of OSC parsing: Ghostty parses OSC 0/2 titles, OSC 7 folders,
 /// OSC 8 links, OSC 9;4 progress and OSC 133 command ends from program output and hands each to
 /// `action_cb`; ``GhosttyActionDecoder`` copies it out of C memory. Any tag and any payload a
 /// program can make (invalid UTF-8, NUL, a huge title, out-of-range enums and numbers) decodes to
@@ -26,7 +26,7 @@ struct GhosttyActionFuzzTests {
     }
 
     /// One input, replayed from bytes. Darwin only: the decoder needs GhosttyNextKit, so the Linux
-    /// libFuzzer targets (p10-stability-182) skip this suite; the seeded runs here are its fuzzing.
+    /// libFuzzer targets skip this suite; the seeded runs here are its fuzzing.
     static func oneInput(_ data: Data) throws {
         var rng = FuzzRNG(replaying: data)
         try decodeOne(&rng)

@@ -247,10 +247,14 @@ impl MessageSink for QueuedSink {
         self.outbound.client_stream(id)
     }
 
+    fn set_stream_lane(&self, stream: &OutboundStream, lane: cmux_ipc::StreamLane) {
+        self.outbound.set_stream_lane(stream, lane);
+    }
+
     fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {
         match self.control {
             Some(SinkControl::Unix(_)) => self.outbound.push_frame(header, text),
-            // Frames are granted only to local Unix peers (p05-ipc-060).
+            // Frames are granted only to local Unix peers.
             Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
                 std::io::ErrorKind::Unsupported,
                 "frames ride only a local Unix connection",
@@ -311,6 +315,10 @@ impl MessageSink for QueuedSink {
     }
 
     fn set_write_timeout(&self, timeout: Option<Duration>) -> std::io::Result<()> {
+        // A socket the mux-io loop writes does not block: its timeout is
+        // the queue's (server/mux_io.rs). A writer thread's socket keeps
+        // `SO_SNDTIMEO`.
+        self.outbound.set_write_timeout(timeout);
         self.control.as_ref().map_or(Ok(()), |control| control.set_write_timeout(timeout))
     }
 

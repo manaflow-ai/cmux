@@ -51,7 +51,7 @@ MANIFEST = SUITE / "_scripts-097.json"
 SHA = re.compile(r"^[0-9a-f]{40}$")
 
 # The facets debug.oracle.snapshot answers with a provider in the base build: makeOracleFacets' list and the router's
-# topology (OracleControl). No sidebar (p15-oracle-036) and no switches (p15-oracle-027) provider yet.
+# topology (OracleControl). No sidebar and no switches provider yet.
 SNAPSHOT_PROVIDED = ("topology", "focus", "layout", "tabs", "overlays", "settings", "intents", "windows", "history",
                      "notifications", "agents", "terminals", "webviews", "ax", "crashes", "liveObjects", "invariants")
 # What debug.oracle.wait_for can wait on (OracleFacets.signalsChanges): a main-actor provider, or one with a change
@@ -86,7 +86,7 @@ def digest(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode()).hexdigest()
 
 
-# A task id a gap names as its owner (p15-oracle-035, p03-rendering-075, p10-stability-196).
+# A task id a gap names as its owner.
 TASK_ID = re.compile(r"\bp\d{2}-[a-z][a-z-]*-\d{3}[a-z]?\b")
 PROMPT = "$ "
 CLEAR = object()  # the shell's `clear` in a terminal's pending output

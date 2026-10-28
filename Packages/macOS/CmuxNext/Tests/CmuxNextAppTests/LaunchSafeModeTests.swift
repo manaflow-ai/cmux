@@ -8,7 +8,7 @@ import Darwin
 import Foundation
 import Testing
 
-/// The crash-streak safe launch (p08-startup-089, Chrome's `VariationsSafeModeTracker`): the run marker records
+/// The crash-streak safe launch (Chrome's `VariationsSafeModeTracker`): the run marker records
 /// whether a run's startup completed and the last startup task it began; after two runs in a row ended before their
 /// startup completed, the launch reads no launch cache, and a completed startup resets the streak.
 struct LaunchSafeModeTests {

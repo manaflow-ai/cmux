@@ -313,9 +313,8 @@ pub(super) fn message_body(text: &str) -> &str {
     if !text.starts_with("[cmux agent message") {
         return text;
     }
-    let Some(start) = text.find("\n---\n").map(|i| i + 5) else { return text };
-    let end = text.rfind("\n--- end of message").filter(|e| *e >= start).unwrap_or(text.len());
-    &text[start..end]
+    let Some((_, body)) = text.split_once("\n---\n") else { return text };
+    body.rsplit_once("\n--- end of message").map_or(body, |(body, _)| body)
 }
 
 /// The message's words: lowercase, without digits or punctuation.

@@ -8,7 +8,6 @@ use std::os::fd::AsRawFd;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, anyhow};
@@ -623,7 +622,7 @@ fn connect_with_flags(
                 && !connected.runtime.is_finished()
                 && owner.is_none_or(parent_process_is)
             {
-                thread::sleep(Duration::from_millis(100));
+                cmux_blocking::thread::sleep(Duration::from_millis(100));
             }
         }
         return connected.runtime.shutdown();
@@ -1000,7 +999,7 @@ fn reachable_unix_route(route: &Url) -> bool {
         && route
             .to_file_path()
             .ok()
-            .and_then(|path| fs::symlink_metadata(path).ok())
+            .and_then(|path| cmux_blocking::fs::symlink_metadata(path).ok())
             .is_some_and(|metadata| metadata.file_type().is_socket())
 }
 
@@ -1111,9 +1110,8 @@ fn run_browser_proxy(args: &[String]) -> anyhow::Result<()> {
 fn spawn_rpc_stdin_reader() -> anyhow::Result<tokio::sync::mpsc::Receiver<io::Result<String>>> {
     let (sender, receiver) = tokio::sync::mpsc::channel(1);
     // supervise-allow: one-shot helper of this CLI process; a panic drops its sender, so the async side sees the end.
-    let _reader = thread::Builder::new()
-        .name("cmux-rpc-stdin".into())
-        .spawn(move || {
+    let _reader =
+        cmux_threads::spawn("cmux-rpc-stdin", cmux_threads::ThreadQos::UserInitiated, move || {
             let stdin = io::stdin();
             let mut stdin = stdin.lock();
             loop {
@@ -1764,9 +1762,10 @@ async fn wait_for_parent_exit(expected: u32) {
     }
     let (sender, receiver) = tokio::sync::oneshot::channel();
     // supervise-allow: one-shot helper of this CLI process; a panic drops its sender, so the async side sees the end.
-    let waiter = thread::Builder::new().name("cmux-parent-exit".into()).spawn(move || {
-        let _ = sender.send(wait_for_process_exit(expected));
-    });
+    let waiter =
+        cmux_threads::spawn("cmux-parent-exit", cmux_threads::ThreadQos::Utility, move || {
+            let _ = sender.send(wait_for_process_exit(expected));
+        });
     if waiter.is_ok() && matches!(receiver.await, Ok(Ok(()))) {
         return;
     }
@@ -2012,11 +2011,11 @@ fn open_install_parent(path: &Path) -> anyhow::Result<std::os::fd::OwnedFd> {
     use std::os::unix::fs::{MetadataExt as _, OpenOptionsExt as _};
 
     // std opens close-on-exec; read-only is O_RDONLY.
-    let parent = OpenOptions::new()
-        .read(true)
-        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW)
-        .open(path)
-        .context("could not open install parent")?;
+    let parent = crate::blocking::fs::open_with(
+        OpenOptions::new().read(true).custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW),
+        path,
+    )
+    .context("could not open install parent")?;
     let status = parent.metadata().context("could not inspect install parent")?;
     if status.uid() != cmux_tui_core::platform::effective_uid() || status.mode() & 0o022 != 0 {
         return Err(anyhow!(
@@ -2043,7 +2042,7 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
         return Err(anyhow!("destination has an invalid file name"));
     }
     let destination_name = install_path_component(destination_name, "destination file name")?;
-    fs::create_dir_all(parent)?;
+    cmux_blocking::fs::create_dir_all(parent)?;
     let parent = open_install_parent(parent)?;
     #[allow(clippy::expect_used, reason = "INVARIANT: a formatted UUID is ASCII hex, never NUL")]
     let temporary_name =
@@ -2066,16 +2065,17 @@ fn run_install_self(args: &[String]) -> anyhow::Result<()> {
     let mut temporary = unsafe { fs::File::from_raw_fd(temporary_descriptor) };
     let mut pending =
         PendingInstall { parent_fd: parent.as_raw_fd(), name: temporary_name, armed: true };
-    let mut source_file =
-        fs::File::open(&source).with_context(|| format!("could not open {}", source.display()))?;
+    let mut source_file = cmux_blocking::fs::open(&source)
+        .with_context(|| format!("could not open {}", source.display()))?;
     io::copy(&mut source_file, &mut temporary)
         .with_context(|| format!("could not copy {}", source.display()))?;
     temporary.flush().context("could not flush staged install")?;
-    temporary.sync_all().context("could not sync staged install")?;
+    crate::blocking::fs::sync_all(&temporary).context("could not sync staged install")?;
     temporary
         .set_permissions(fs::Permissions::from_mode(0o755))
         .context("could not set staged install permissions")?;
-    temporary.sync_all().context("could not sync staged install permissions")?;
+    crate::blocking::fs::sync_all(&temporary)
+        .context("could not sync staged install permissions")?;
     // SAFETY: both names are NUL-terminated CStrings that outlive the call and `parent` is open.
     if unsafe {
         libc::renameat(
@@ -2294,7 +2294,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 ));
             }
             let runtime_path = state_dir.join("runtime.json");
-            match fs::symlink_metadata(&runtime_path) {
+            match cmux_blocking::fs::symlink_metadata(&runtime_path) {
                 Ok(_) => {
                     return Err(anyhow!(
                         catalog()
@@ -2357,7 +2357,10 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
     while Instant::now() < deadline {
         let process_exited =
             peer_exit.has_exited().context(catalog().remote.observe_daemon_exit)?;
-        if process_exited && UnixStream::connect(&link).is_err() && !runtime_file.exists() {
+        if process_exited
+            && UnixStream::connect(&link).is_err()
+            && cmux_blocking::fs::metadata(&runtime_file).is_err()
+        {
             match lifecycle_id.as_deref() {
                 Some(lifecycle_id) => verify_shutdown_outcome(&state_dir, lifecycle_id),
                 None => Ok(()),
@@ -2366,7 +2369,7 @@ fn run_remote_stop(args: &[String]) -> anyhow::Result<()> {
                 .block_on(complete_verified_daemon_stop(&state_dir, &parsed.session))?;
             return Ok(());
         }
-        thread::sleep(Duration::from_millis(50));
+        cmux_blocking::thread::sleep(Duration::from_millis(50));
     }
     Err(anyhow!(catalog().remote.daemon_stop_timeout))
 }
@@ -2382,7 +2385,7 @@ fn shutdown_request_for_lifecycle(lifecycle_id: Option<&str>) -> AdminRequest {
 
 fn verify_inactive_shutdown_outcome(state_dir: &Path) -> anyhow::Result<()> {
     let path = state_dir.join("shutdown.json");
-    match fs::symlink_metadata(&path) {
+    match cmux_blocking::fs::symlink_metadata(&path) {
         Ok(_) => {}
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => {
@@ -2626,7 +2629,7 @@ fn wait_for_detached_socket(
                 };
             }
         }
-        thread::sleep(Duration::from_millis(50));
+        cmux_blocking::thread::sleep(Duration::from_millis(50));
     }
     match terminate_detached_process(child) {
         Ok(()) => Err(anyhow!("{process_name} did not create {}", socket.display())),
@@ -2675,7 +2678,7 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration) -> io::Result<bool>
         if Instant::now() >= deadline {
             return Ok(false);
         }
-        thread::sleep(Duration::from_millis(10));
+        cmux_blocking::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -2694,7 +2697,7 @@ fn open_mux_monitor(path: &Path) -> anyhow::Result<UnixStream> {
 fn mux_monitor_disconnected(stream: &mut UnixStream, path: &Path) -> anyhow::Result<bool> {
     use std::os::unix::fs::FileTypeExt;
 
-    match fs::symlink_metadata(path) {
+    match cmux_blocking::fs::symlink_metadata(path) {
         Ok(metadata) if metadata.file_type().is_socket() => {}
         Ok(_) => return Ok(true),
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(true),
@@ -2742,7 +2745,7 @@ fn open_private_daemon_file(path: &Path, append: bool) -> io::Result<fs::File> {
         // Opening a hostile FIFO must return so its type can be rejected
         // below, rather than waiting for a peer that never arrives.
         .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK);
-    let file = options.open(path)?;
+    let file = crate::blocking::fs::open_with(&options, path)?;
     let metadata = file.metadata()?;
     if !metadata.is_file() {
         return Err(io::Error::new(
@@ -3036,6 +3039,7 @@ mod tests {
     }
 
     use super::*;
+    use std::thread;
 
     fn seed_legacy_authorization_state(state_dir: &Path) {
         let auth_state_dir = state_dir.join("auth");

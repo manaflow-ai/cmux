@@ -5,7 +5,7 @@ import CoreVideo
 import Foundation
 import Testing
 
-/// The remote view's pointer sites after the strict-memory-safety pass (p10-stability-066): every
+/// The remote view's pointer sites after the strict-memory-safety pass: every
 /// pointer handed to the rd core, Core Media, VideoToolbox or Core Video stays inside the memory it
 /// names, for the lifetime the `// SAFETY:` argument above it claims. Run under ASan
 /// (`--sanitize=address`): an out-of-bounds or dangling access fails the run, not only an expectation.

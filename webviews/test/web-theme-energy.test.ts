@@ -1,4 +1,4 @@
-// Energy Saver reaches every cmux page through the one web theme (p14-energy-134): the app's
+// Energy Saver reaches every cmux page through the one web theme: the app's
 // WebTheme bootstrap sets `data-cmux-energy="saver"` on <html> when the payload carries
 // `energy: "saver"` and removes it when the payload has none, next to `data-cmux-motion`.
 // The stylesheets hold their ambient loops still under it.

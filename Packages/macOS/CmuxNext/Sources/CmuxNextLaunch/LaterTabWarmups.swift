@@ -33,7 +33,7 @@ public protocol LaterTabWarmupHost: AnyObject, Sendable {
 /// and the gates that keep Home's web objects to the ones the launch can use (plans/cmux-next/chrome-parity/
 /// p13-webui.md D1 and D2, HomeWebFootprintTests). Chrome warms only the process the next navigation takes
 /// (content/browser/renderer_host/spare_render_process_host_manager_impl.cc): Settings, History and Cloud
-/// preload nothing at launch, and later only in the engine their next open takes (`PagePreloads`, p13-webui-045).
+/// preload nothing at launch, and later only in the engine their next open takes (`PagePreloads`).
 ///
 /// ```swift
 /// LaterTabWarmups(host: services).posts().post(on: startup)

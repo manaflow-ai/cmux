@@ -1,6 +1,7 @@
 //! Part of `Hub`; see `hub/mod.rs`.
 
 use super::*;
+use crate::no_panic::LockExt;
 
 use super::adoption::{Adoption, adopted_in, start_folder};
 use super::new_request::{claude_resume_refusal, unique_name_among};
@@ -163,7 +164,7 @@ impl Hub {
         // Pick or check the name and insert under one lock, so concurrent
         // creations can never publish the same name twice.
         let session = {
-            let mut sessions = self.sessions.lock().unwrap();
+            let mut sessions = self.sessions.lock_or_recover();
             // The shutdown reads the sessions after it starts: a session
             // inserted after that is never ended, so none is (shutdown.rs).
             if self.shutting_down() {
@@ -213,7 +214,7 @@ impl Hub {
             if let Err(e) =
                 crate::routes::set_binding(&state, &format!("chat:{id}"), Some(route_id))
             {
-                self.sessions.lock().unwrap().remove(&id);
+                self.sessions.lock_or_recover().remove(&id);
                 return Err(RpcError::invalid_params(e.message().to_owned()));
             }
         }
@@ -333,8 +334,7 @@ impl Hub {
             }
             crate::config::HarnessKind::Acp => ids.extend(
                 self.known_models
-                    .lock()
-                    .unwrap()
+                    .lock_or_recover()
                     .get(profile)
                     .into_iter()
                     .flatten()
@@ -348,7 +348,7 @@ impl Hub {
     }
 
     pub(super) fn unique_name(&self, agent: &str) -> String {
-        unique_name_among(&self.sessions.lock().unwrap(), agent)
+        unique_name_among(&self.sessions.lock_or_recover(), agent)
     }
 
     pub(super) async fn ensure_child(
@@ -362,6 +362,8 @@ impl Hub {
         if self.shutting_down() {
             return Err(super::shutdown::shutting_down_error());
         }
+        // An agent started below inherits the daemon's priority: normal first.
+        self.clients.foreground();
         if let Some(child) = session.child.lock().await.as_ref()
             && child.is_alive().await
         {
@@ -487,7 +489,7 @@ impl Hub {
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let mut existing_sid = session.meta().agent_session_id.clone();
         // Cleared only once the fork has started; a failed start retries it.
-        let fork_from = session.fork_from.lock().unwrap().clone();
+        let fork_from = session.fork_from.lock_or_recover().clone();
         // Resume a Claude conversation only from a store that has it: one
         // that never finished a turn may not be stored at all, and one that
         // another profile ran lives in that profile's store (a failover onto
@@ -507,7 +509,7 @@ impl Hub {
                 json!({"error": format!("Claude conversation {sid} {why}, so a fresh one starts")}),
             );
             {
-                let mut m = session.meta.lock().unwrap();
+                let mut m = session.meta.lock_or_recover();
                 m.agent_session_id = None;
                 m.claude_unstored = false;
             }
@@ -686,7 +688,7 @@ impl Hub {
             .unwrap_or(false);
         session.steering.store(steering, Ordering::SeqCst);
         {
-            let mut m = session.meta.lock().unwrap();
+            let mut m = session.meta.lock_or_recover();
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
             m.steering = steering;
@@ -710,7 +712,7 @@ impl Hub {
             let state = child.claude_state().await.unwrap_or_default();
             let (sid, modes, opts) = (state.session_id, state.modes, state.config_options);
             {
-                let mut m = session.meta.lock().unwrap();
+                let mut m = session.meta.lock_or_recover();
                 let level = if fork_from.is_some() {
                     "fork"
                 } else if existing_sid.is_some() {
@@ -732,7 +734,7 @@ impl Hub {
                     self.restore_mode_mark(session, mode);
                 }
                 if fork_from.is_some() {
-                    session.fork_from.lock().unwrap().take();
+                    session.fork_from.lock_or_recover().take();
                 }
                 if level != "new" {
                     self.append(session, "mux", "resumed", json!({"level": level}));
@@ -794,7 +796,7 @@ impl Hub {
                 .ok_or_else(|| RpcError::internal("session/new returned no sessionId"))?
                 .to_owned();
             {
-                let mut m = session.meta.lock().unwrap();
+                let mut m = session.meta.lock_or_recover();
                 m.agent_session_id = Some(sid);
             }
             self.absorb_session_response(session, &res);
@@ -943,7 +945,7 @@ impl Hub {
             }
         }
         if !list.is_empty() {
-            self.known_models.lock().unwrap().insert(agent.to_owned(), list);
+            self.known_models.lock_or_recover().insert(agent.to_owned(), list);
         }
     }
 
@@ -959,7 +961,7 @@ impl Hub {
     /// `daemon models --refresh`: forget every reported catalog, probe every
     /// ACP harness again, and wait for the answers (bounded).
     pub async fn refresh_models(self: &Arc<Self>) {
-        self.known_models.lock().unwrap().clear();
+        self.known_models.lock_or_recover().clear();
         self.probe_models_with(true, true, None).await;
     }
 
@@ -980,7 +982,7 @@ impl Hub {
         let picked = |n: &str| policy.allows(n) && only.as_ref().is_none_or(|o| o.contains(n));
         let agents: Vec<(String, HarnessProfile)> = {
             let cfg = self.config.read().await;
-            let known = self.known_models.lock().unwrap();
+            let known = self.known_models.lock_or_recover();
             cfg.harnesses
                 .iter()
                 .filter(|(n, p)| {
@@ -1015,17 +1017,16 @@ impl Hub {
                 {
                     Ok(Ok(n)) => {
                         tracing::info!(agent = %name, models = n, "model probe done");
-                        hub.probe_errors.lock().unwrap().remove(&name);
+                        hub.probe_errors.lock_or_recover().remove(&name);
                     }
                     Ok(Err(e)) => {
                         tracing::warn!(agent = %name, error = %e, "model probe failed");
-                        hub.probe_errors.lock().unwrap().insert(name, format!("{e:#}"));
+                        hub.probe_errors.lock_or_recover().insert(name, format!("{e:#}"));
                     }
                     Err(_) => {
                         tracing::warn!(agent = %name, "model probe timed out");
                         hub.probe_errors
-                            .lock()
-                            .unwrap()
+                            .lock_or_recover()
                             .insert(name, "the model probe timed out after 60 s".into());
                     }
                 }
@@ -1067,7 +1068,7 @@ impl Hub {
             if cfg.harnesses.get(name) == Some(profile) {
                 self.remember_models_from(name, res.get("configOptions").filter(|v| !v.is_null()), res.get("models").filter(|v| !v.is_null()));
             }
-            Ok(self.known_models.lock().unwrap().get(name).map(|l| l.len()).unwrap_or(0))
+            Ok(self.known_models.lock_or_recover().get(name).map(|l| l.len()).unwrap_or(0))
         }).await;
         child.kill().await;
         drain.abort();
@@ -1087,7 +1088,7 @@ impl Hub {
         writes.extend(present("configOptions").map(ModeWrite::ConfigOptions));
         self.write_mode_state(session, writes);
         if let Some(models) = present("models") {
-            session.meta.lock().unwrap().models = Some(models);
+            session.meta.lock_or_recover().models = Some(models);
         }
     }
 

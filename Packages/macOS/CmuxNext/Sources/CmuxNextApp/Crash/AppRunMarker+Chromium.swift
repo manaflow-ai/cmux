@@ -22,8 +22,8 @@ extension AppRunMarker {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Writes a crash report on the files lane for each end of the Chromium Host that was not a clean exit
-    /// (p01-process-085): its signal or exit code, what it ran and its log's last lines without URLs. It stands for
+    /// Writes a crash report on the files lane for each end of the Chromium Host that was not a clean exit:
+    /// its signal or exit code, what it ran and its log's last lines without URLs. It stands for
     /// the crash log's `chromium-host` record of that end, which writes no report (``CrashRecoveryService/observe(_:reporter:)``).
     static func reportHostCrashes(of supervising: (any ChromiumHostSupervising)?, writer: CrashReportWriter, work: BackgroundWork) {
         guard let supervisor = supervising as? ChromiumHostSupervisor else { return }
@@ -36,7 +36,7 @@ extension AppRunMarker {
 }
 
 extension ChromiumFatalLog {
-    /// The log of the previous app run that ran `CefInitialize` in process (p09-observability-084), read for its
+    /// The log of the previous app run that ran `CefInitialize` in process, read for its
     /// crash event at this launch (``CrashReporter/previousRunEvidence(marker:bundleID:home:now:)``). `storage` is
     /// the app's Chromium storage, as `CEFRuntime` picks it.
     nonisolated static func app(previous run: PreviousRun, endedUncleanly: Bool, launched now: Date,

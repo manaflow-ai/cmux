@@ -3,10 +3,10 @@ public import Foundation
 
 /// The wallpapers macOS ships, read where macOS keeps them; cmux copies none.
 ///
-/// - Stills (`pictures(assets:fileManager:)`, CmuxNextDesign, which reads their frames): every picture and `.madesktop` description in
+/// - Stills (`pictures(assets:)`, CmuxNextDesign, which reads their frames): every picture and `.madesktop` description in
 ///   the Desktop Pictures folder, in the Wallpaper pane's order (``AppleWallpaper``), for the
 ///   picker's Apple Wallpapers group.
-/// - Moving wallpapers (cx-14vdf, ``videos(fileManager:)``):
+/// - Moving wallpapers (cx-14vdf, ``videos()``):
 ///   `/System/Library/Desktop Pictures/.wallpapers/<name>/*.mov`, the shipped moving wallpapers
 ///   (Sonoma) in a light and a dark cut, the window playing the cut for its appearance; and the
 ///   aerials idleassetsd downloaded (`Customer/**/*.mov`, named by `entries.json`).
@@ -47,13 +47,13 @@ public nonisolated struct AppleWallpapers: Sendable {
 
     /// Every moving wallpaper on disk: one per shipped wallpaper (its light cut, or its only one),
     /// then the downloaded aerials.
-    public func videos(fileManager: FileManager = .default) -> [BackdropSelection] {
-        let shipped = Self.files(in: desktopPictures.appendingPathComponent(".wallpapers"), fileManager: fileManager)
-            .flatMap { Self.files(in: $0, fileManager: fileManager) }
+    public func videos() -> [BackdropSelection] {
+        let shipped = Self.files(in: desktopPictures.appendingPathComponent(".wallpapers"))
+            .flatMap { Self.files(in: $0) }
             .filter { Self.isVideo($0.path) && !$0.lastPathComponent.contains("Portrait") }
-            .filter { !$0.lastPathComponent.contains(" Dark ") || !fileManager.fileExists(atPath: Self.cut($0.path, dark: false)) }
-        let downloaded = Self.files(in: aerials, fileManager: fileManager)
-            .flatMap { Self.isVideo($0.path) ? [$0] : Self.files(in: $0, fileManager: fileManager) }
+            .filter { !$0.lastPathComponent.contains(" Dark ") || !FileManager.checked.fileExists(atPath: Self.cut($0.path, dark: false)) }
+        let downloaded = Self.files(in: aerials)
+            .flatMap { Self.isVideo($0.path) ? [$0] : Self.files(in: $0) }
             .filter { Self.isVideo($0.path) }
         return (Self.byName(shipped) + Self.byName(downloaded)).map { .system(path: $0.path) }
     }
@@ -99,8 +99,8 @@ public nonisolated struct AppleWallpapers: Sendable {
     }
 
     /// A folder's entries, hidden ones included (`.wallpapers` is hidden).
-    private static func files(in folder: URL, fileManager: FileManager) -> [URL] {
-        (try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [])) ?? []
+    private static func files(in folder: URL) -> [URL] {
+        (try? FileManager.checked.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil, options: [])) ?? []
     }
 
     private static func byName(_ urls: [URL]) -> [URL] {

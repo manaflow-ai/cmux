@@ -1,6 +1,7 @@
 //! Config file I/O: locating the config file, bounded reads, and atomic, durably synced writes of plugin entries.
 
 use super::*;
+use crate::json_fields::JsonFields;
 
 pub fn config_path() -> anyhow::Result<PathBuf> {
     platform::config_path().ok_or_else(|| anyhow::anyhow!("could not resolve mux config path"))
@@ -10,7 +11,7 @@ pub fn config_path() -> anyhow::Result<PathBuf> {
 /// an exact-size file from one that exceeds the limit without allocating an
 /// unbounded buffer.
 pub(crate) fn read_bounded_utf8_file(path: &Path, max_bytes: usize) -> io::Result<String> {
-    let file = std::fs::File::open(path)?;
+    let file = cmux_blocking::fs::open(path)?;
     let mut text = String::new();
     file.take(u64::try_from(max_bytes).unwrap_or(u64::MAX).saturating_add(1))
         .read_to_string(&mut text)?;
@@ -75,10 +76,12 @@ pub(crate) fn write_sidebar_plugin_at_path(
             if !sidebar.is_object() {
                 *sidebar = json!({});
             }
-            let sidebar_object = sidebar.as_object_mut().expect("sidebar was just made an object");
+            let Some(sidebar_object) = sidebar.as_object_mut() else {
+                anyhow::bail!("{} sidebar is not a JSON object", path.display());
+            };
             let mut plugin_value = json!({ "command": &plugin.command });
             if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+                plugin_value.insert("cwd", json!(cwd));
             }
             sidebar_object.insert("plugin".to_string(), plugin_value);
         }
@@ -115,16 +118,18 @@ pub(crate) fn write_agent_plugin_at_path(
             if !agents.is_object() {
                 *agents = json!({});
             }
-            let agents_object = agents.as_object_mut().expect("agents was just made an object");
+            let Some(agents_object) = agents.as_object_mut() else {
+                anyhow::bail!("{} agents is not a JSON object", path.display());
+            };
             let mut plugin_value = json!({
                 "id": &plugin.id,
                 "command": &plugin.command,
             });
             if let Some(cwd) = &plugin.cwd {
-                plugin_value["cwd"] = json!(cwd);
+                plugin_value.insert("cwd", json!(cwd));
             }
             if let Some(revision) = &plugin.revision {
-                plugin_value["revision"] = json!(revision);
+                plugin_value.insert("revision", json!(revision));
             }
             agents_object.insert("plugin".to_string(), plugin_value);
         }
@@ -207,7 +212,7 @@ pub(super) fn write_config_value_atomic_with_sync_and_staging(
             // with this process before open(2).
             options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
         }
-        match options.open(&tmp_path) {
+        match crate::blocking::fs::open_with(&options, &tmp_path) {
             Ok(file) => {
                 staged = Some((tmp_path, file));
                 break;
@@ -222,13 +227,13 @@ pub(super) fn write_config_value_atomic_with_sync_and_staging(
     let result = (|| -> anyhow::Result<()> {
         serde_json::to_writer_pretty(&mut file, value)?;
         file.write_all(b"\n")?;
-        file.sync_all()?;
+        crate::blocking::fs::sync_all(&file)?;
         drop(file);
-        std::fs::rename(&tmp_path, path)?;
+        cmux_blocking::fs::rename(&tmp_path, path)?;
         Ok(())
     })();
     if let Err(error) = result {
-        let _ = std::fs::remove_file(&tmp_path);
+        let _ = cmux_blocking::fs::remove_file(&tmp_path);
         return Err(error);
     }
 
@@ -259,10 +264,10 @@ pub(super) fn ensure_config_parent_directory(parent: &Path) -> anyhow::Result<Ve
         if !matches!(component, Component::Normal(_)) {
             continue;
         }
-        match std::fs::create_dir(&current) {
+        match crate::blocking::fs::create_dir(&current) {
             Ok(()) => created_directories.push(current.clone()),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                if !std::fs::metadata(&current)?.is_dir() {
+                if !cmux_blocking::fs::metadata(&current)?.is_dir() {
                     anyhow::bail!(
                         "config parent component {} is not a directory",
                         current.display()
@@ -285,7 +290,8 @@ pub(super) enum ConfigParentSyncOutcome {
 pub(super) fn sync_config_parent_directory(
     parent: &Path,
 ) -> anyhow::Result<ConfigParentSyncOutcome> {
-    let result = std::fs::File::open(parent).and_then(|directory| directory.sync_all());
+    let result = cmux_blocking::fs::open(parent)
+        .and_then(|directory| crate::blocking::fs::sync_all(&directory));
     #[cfg(target_os = "macos")]
     if let Err(error) = &result
         && matches!(error.raw_os_error(), Some(code) if code == libc::EINVAL || code == libc::ENOTSUP)

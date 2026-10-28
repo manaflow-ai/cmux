@@ -40,7 +40,7 @@ import Testing
         #expect(!rig.hasArmedWake, "a finished gesture kept its deadline's wake")
     }
 
-    /// The gesture's bound is a `visible` deadline on the app's placer (p06-scheduler-329, R-timer): nothing goes
+    /// The gesture's bound is a `visible` deadline on the app's placer (R-timer): nothing goes
     /// before it, and the rest closes at it, no sooner.
     @Test func aPageThatKeepsItsTabDoesNotHoldTheRest() {
         let recorder = Recorder(), pane = Pane(), rig = MainDeadlineRig()

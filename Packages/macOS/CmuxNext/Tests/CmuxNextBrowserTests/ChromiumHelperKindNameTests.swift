@@ -3,7 +3,7 @@ import Testing
 @testable import CmuxNextBrowser
 
 /// `debug.webui` names each Chromium helper from its argv: the kind's name and, for a tab renderer,
-/// its `--renderer-client-id` (the id a page's frames report), for every kind (p13-webui-001).
+/// its `--renderer-client-id` (the id a page's frames report), for every kind.
 @Suite struct ChromiumHelperKindNameTests {
     @Test func everyKindHasItsCensusNameAndOnlyARendererHasAClientID() {
         let rows: [(ChromiumHelperProcess.Kind, String, Int32?)] = [

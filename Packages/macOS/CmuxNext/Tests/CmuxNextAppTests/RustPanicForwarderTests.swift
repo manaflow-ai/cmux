@@ -52,6 +52,57 @@ import Testing
         #expect(forwarder.forwardNew().isEmpty)
     }
 
+    /// The app hosts, the browser host, `cmux mcp serve` and acpmux's agent
+    /// hosts each write their own log, at the path the Rust side names, and group apart in Sentry.
+    @Test(arguments: [
+        (RustPanicSource.appHost, "app-host-panics.jsonl", "app-host-panic", "app_host_panic_log", "cmux-app-host"),
+        (RustPanicSource.browserHost, "browser-host-panics.jsonl", "browser-host-panic", "browser_host_panic_log",
+         "cmux-browser-host"),
+        (RustPanicSource.mcp, "mcp-panics.jsonl", "mcp-panic", "mcp_panic_log", "cmux-mcp"),
+        (RustPanicSource.agentHost, "agent-host-panics.jsonl", "agent-host-panic", "agent_host_panic_log",
+         "acpmux-agent-host"),
+    ])
+    func aHelperPanicLineIsSentWithItsOwnProcessAndFingerprint(
+        source: RustPanicSource, file: String, prefix: String, crashSource: String, process: String
+    ) throws {
+        let dir = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let log = dir.appending(path: file)
+        let roots = RustDiagnosticsLog.Roots.app(sessionsDirectory: dir.appending(path: "sessions"), session: "main",
+                                                 acpmuxHome: dir, bundleID: "com.cmuxterm.app.next")
+        #expect(RustDiagnosticsLog.all(roots).contains { entry in
+            entry.source == source && entry.kind == .panic && entry.directory.standardizedFileURL.path == dir.standardizedFileURL.path
+                && entry.name.matches(file)
+        }, "the app's log list reads \(file)")
+        try Data().write(to: log)
+        let forwarder = OwnerPanicForwarder(log: log, stateFile: dir.appending(path: "state.json"), sends: true,
+                                            source: source, capture: { _ in })
+        #expect(forwarder.forwardNew().isEmpty)
+        let location = "crates/x/src/main.rs:1:1"
+        try Self.append(Self.line(["process": process, "message": "boom", "location": location, "thread": "w",
+                                   "pid": 42, "test": false]), to: log)
+        let sent = forwarder.forwardNew()
+        try #require(sent.count == 1)
+        #expect(sent[0].fingerprint == [prefix, location])
+        #expect(sent[0].tags?["process"] == process)
+        #expect(sent[0].tags?["crash_source"] == crashSource)
+    }
+
+    @Test func theHelpersSharedLogsAndPerProcessLogsAreBothRead() {
+        let roots = RustDiagnosticsLog.Roots.app(sessionsDirectory: URL(filePath: "/state/sessions"), session: "main",
+                                                 acpmuxHome: URL(filePath: "/acpmux"), bundleID: "com.cmuxterm.app.next")
+        let logs = RustDiagnosticsLog.all(roots)
+        for (source, stem) in [(RustPanicSource.appHost, "app-host"), (.browserHost, "browser-host"), (.mcp, "mcp")] {
+            let atRoot = logs.filter { $0.source == source && $0.kind == .panic && $0.directory.path == "/state" }
+            #expect(atRoot.contains { $0.name.matches("\(stem)-panics.jsonl") }, "\(stem) shared log")
+            #expect(atRoot.contains { $0.name.matches("\(stem)-panics-42.jsonl") }, "\(stem) per-process log")
+            #expect(!atRoot.contains { $0.name.matches("\(stem)-panics.jsonl.sent") })
+        }
+        #expect(logs.contains { $0.source == .agentHost && $0.kind == .panic
+            && $0.name == .exact("agent-host-panics.jsonl") && $0.directory.path == "/acpmux" })
+        #expect(RustDiagnosticsLog.acpmux(home: URL(filePath: "/acpmux")).contains { $0.source == .agentHost })
+    }
+
     @Test func theOwnerSourceKeepsItsEarlierFingerprint() throws {
         let dir = try Self.scratch()
         defer { try? FileManager.default.removeItem(at: dir) }

@@ -1,8 +1,8 @@
 import AppKit
 import CmuxNextWakeups
 
-/// A hosted page in an occluded window is told so (p03-rendering-097): the fork's embedder visibility
-/// `occluded` (p03-rendering-058), as Chrome's `WebContentsViewCocoa` sets `Visibility::OCCLUDED` on its
+/// A hosted page in an occluded window is told so: the fork's embedder visibility
+/// `occluded`, as Chrome's `WebContentsViewCocoa` sets `Visibility::OCCLUDED` on its
 /// tabs when its window is occluded (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm,
 /// `-updateWebContentsVisibility`). The renderer then draws no frames and reads as hidden, after
 /// Chrome's one second of coalescing. Occluded means its window's ``WindowOcclusionFamily`` says so:

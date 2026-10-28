@@ -1,4 +1,4 @@
-// The agent page's own keep reasons (p13-webui-089): an unsent prompt or attachments hold `draft`,
+// The agent page's own keep reasons: an unsent prompt or attachments hold `draft`,
 // which keeps the hidden page from being discarded, and dictation holds `capture`, which also keeps
 // it from being frozen. The host hears each start and end once (PageKeepAlive), never per keystroke.
 import { useEffect, useRef } from "react";

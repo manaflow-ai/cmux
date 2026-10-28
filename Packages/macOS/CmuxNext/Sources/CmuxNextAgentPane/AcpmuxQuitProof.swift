@@ -1,6 +1,6 @@
 import Darwin
 public import Foundation
-import CmuxNextCompat
+public import CmuxNextCompat
 
 /// What proves that Quit Everything ended the local agents (R96 + P2-9).
 ///
@@ -37,7 +37,13 @@ public nonisolated struct AcpmuxQuitProof {
         }
     }
 
-    /// Probes the daemon lock and every host lock of `home`.
+    /// ``read(home:)`` on `runner`'s files lane; a refused read (quit began) is an unknown daemon lock, which is
+    /// never success.
+    public static func read(home: URL, runner: any MayBlockRunner) async -> Facts {
+        (try? await runner.runFiles(.userBlocking) { read(home: home) }) ?? Facts(daemon: .unknown)
+    }
+
+    /// Probes the daemon lock and every host lock of `home`; on a files lane.
     public static func read(home: URL) -> Facts {
         // concurrency-allow: nonisolated; the app calls it only from @concurrent AcpmuxQuit paths, off the main actor
         let pidText = try? String(contentsOf: home.appendingPathComponent("daemon.pid"), encoding: .utf8)
@@ -83,13 +89,14 @@ public nonisolated struct AcpmuxQuitProof {
     /// Waits (bounded, no polling) until daemon.lock is free: the kernel exit
     /// event of the pid `daemon.pid` names, then the lock decides. A reused
     /// pid only makes the wait time out; the lock is the proof.
-    @concurrent static func waitForDaemonExit(home: URL, within: Duration) async -> Bool {
-        let facts = read(home: home)
+    @concurrent static func waitForDaemonExit(home: URL, within: Duration, runner: any MayBlockRunner) async -> Bool {
+        let facts = await read(home: home, runner: runner)
         if facts.daemon == .free { return true }
         if let pid = facts.daemonPID, pid > 0 {
             _ = await AgentPaneProcessExit(pid: pid).event(within: within)
         }
-        return lockState(home.appendingPathComponent("daemon.lock")) == .free
+        let lock = home.appendingPathComponent("daemon.lock")
+        return (try? await runner.runFiles(.userBlocking) { lockState(lock) }) == .free
     }
 
     /// The Home Chief's sessions as last read from each daemon home (census
@@ -143,13 +150,13 @@ public nonisolated struct AcpmuxQuitProof {
     /// window; accepted in the durable review).
     static func lockState(_ url: URL) -> LockState {
         // SAFETY: open reads the NUL-terminated copy of the path made for the call.
-        let fd = unsafe open(url.path, O_RDWR | O_CLOEXEC)
+        let fd = unsafe blockingOpen(url.path, O_RDWR | O_CLOEXEC)
         if fd < 0 { return errno == ENOENT ? .free : .unknown }
         defer { close(fd) }
         // One retry covers an interrupted call (EINTR); anything else decides.
         for _ in 0..<2 {
-            if flock(fd, LOCK_EX | LOCK_NB) == 0 {
-                flock(fd, LOCK_UN)
+            if blockingFlock(fd, LOCK_EX | LOCK_NB) == 0 {
+                _ = blockingFlock(fd, LOCK_UN)
                 return .free
             }
             if errno == EWOULDBLOCK { return .held }

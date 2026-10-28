@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 
 /// A drag of a file out of an agent chat starts at once with no read, and reads an image's bytes and
 /// picture, or the file's icon, on the app's blocking-work lanes after the start
-/// (plans/cmux-next/threading-model.md, p02-threads-006). Each test binds its own blocking table, so a read
+/// (plans/cmux-next/threading-model.md). Each test binds its own blocking table, so a read
 /// or a Launch Services query on the main thread shows as a site.
 @MainActor @Suite(.serialized)
 struct AgentPaneFileDragTests {
@@ -71,8 +71,8 @@ struct AgentPaneFileDragTests {
         #expect(contents.icon == nil)
     }
 
-    /// The drag asked Launch Services for the file's icon on the main thread, in the event's turn
-    /// (p02-threads-006). Now the turn's item (what `start` hands `beginDraggingSession`) asks the icon source
+    /// The drag asked Launch Services for the file's icon on the main thread, in the event's turn.
+    /// Now the turn's item (what `start` hands `beginDraggingSession`) asks the icon source
     /// nothing, and the lane read asks it once, off the main thread.
     @Test func aFilesIconIsAskedForOnTheSystemLaneNotInTheDragsTurn() async throws {
         let folder = try Self.folder()

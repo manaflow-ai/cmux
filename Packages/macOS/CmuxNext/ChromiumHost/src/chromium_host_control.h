@@ -1,5 +1,5 @@
 // The control channel between cmux and the Chromium host
-// (plans/cmux-next/chrome-parity/p01-process.md 3.1, task p01-process-012).
+// (plans/cmux-next/chrome-parity/p01-process.md 3.1).
 // Input frames go on the shm ring (task 041); everything else goes here.
 // CmuxNextBrowser mirrors it in ChromiumHostControlChannel.swift; the golden
 // frame in ../tests/chromium_host_control_test.cpp and

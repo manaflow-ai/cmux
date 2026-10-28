@@ -5,7 +5,7 @@ import Foundation
 /// mirrors and decides which ones a Chromium extension change refreshes.
 @MainActor
 final class CEFExtensionStores {
-    /// The runtime, which owns these as `CEFRuntime.extensionStores` (p10-stability-091).
+    /// The runtime, which owns these as `CEFRuntime.extensionStores`.
     private let runtimeReference: OwnerReference<CEFRuntime>
     /// The runtime; nil (reported) only once it is gone.
     private var runtime: CEFRuntime? { runtimeReference.resolve() }

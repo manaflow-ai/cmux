@@ -22,6 +22,7 @@
 //! - The person may accept after the child's first turn ended: the answer sends it then.
 
 use super::{Hub, PromptOptions, Session};
+use crate::no_panic::JsonExt;
 use crate::rpc::method;
 use crate::store::EventRecord;
 use crate::supervised::{Fatal, ShutdownBehavior};
@@ -112,8 +113,8 @@ impl Hub {
                 }
                 "session_offer_decision"
                     if started.is_none()
-                        && e.msg["outcome"] == "accepted"
-                        && e.msg["childSessionId"] == child =>
+                        && e.msg.field("outcome") == "accepted"
+                        && e.msg.field("childSessionId") == child =>
                 {
                     let offer_id = text(&e, "offerId");
                     let title = titles.remove(&offer_id).unwrap_or_default();

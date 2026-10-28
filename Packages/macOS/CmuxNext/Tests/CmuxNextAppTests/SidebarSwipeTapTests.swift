@@ -4,12 +4,12 @@ import CmuxNextInput
 @testable import CmuxNextSidebar
 import Testing
 
-/// The sidebar's space paging hears the app's input tap (p04-input-100), not `scrollWheel(with:)`: the list's
+/// The sidebar's space paging hears the app's input tap, not `scrollWheel(with:)`: the list's
 /// scroll view and the space bar each hold one passing scroll intercept while in a window with the tap; a
 /// scroll an earlier intercept consumed (a hover card's) pages nothing; a
 /// horizontal trackpad gesture that began over the view pages 1:1 and never scrolls; a vertical one scrolls; a
 /// gesture that began elsewhere never pages; a wheel roll pages once and its rest is held; an event the tap never
-/// fed scrolls. So responsive scrolling (p03-rendering-110), which tracks a gesture without calling
+/// fed scrolls. So responsive scrolling, which tracks a gesture without calling
 /// `scrollWheel(with:)` per event, cannot take the paging away.
 @MainActor @Suite(.serialized) struct SidebarSwipeTapTests {
     final class Harness {

@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextCompat
+public import CmuxNextCompat
 public import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextWakeups
@@ -107,7 +107,7 @@ public final class AgentPaneModel {
     /// The agent chat open that made this pane (its `create.tab` stages, ``ChatOpenStages``); nil for a pane made
     /// with no open (a restored one, the prewarmed New Tab page). Its page is made with it.
     @ObservationIgnored public var chatOpen: ChatOpenStages?
-    /// Who asks for its page (``PageOpenOrigin/launchRestore``: the launch restored the tab, p08-startup-041).
+    /// Who asks for its page (``PageOpenOrigin/launchRestore``: the launch restored the tab).
     @ObservationIgnored public var pageOrigin: PageOpenOrigin = .user
     /// The last quit's state of this chat while the launch still reads it (``AgentPaneRelaunchWake/hand(_:to:)``):
     /// the page's first `ready` awaits it into ``pendingWake``.
@@ -193,12 +193,17 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onUploadStage: (@MainActor () -> AgentPaneUploadStager?)?
 
     @ObservationIgnored let host: any AgentPaneHostProviding
+    /// The app's blocking-work lanes (the composition root's one ``BackgroundWork``): the pane's file reads and
+    /// writes (attachments, image copies, captures, the scheme handler's library reads) run there, never on the
+    /// cooperative pool.
+    @ObservationIgnored public let runner: any MayBlockRunner
     /// The page's host is another machine's (cx-k21v): it never becomes this Mac's prewarmed spare.
     @ObservationIgnored public var neverPooled = false
     /// What a new chat inherits from the tab it was opened from.
     @ObservationIgnored let seed: AgentPaneSeedSource?
 
     public init(
+        runner: any MayBlockRunner,
         host: any AgentPaneHostProviding,
         sessionId: String? = nil,
         seed: AgentPaneSeedSource? = nil,
@@ -208,6 +213,7 @@ public final class AgentPaneModel {
         deadlines: MainDeadlineScheduler
     ) {
         self.allowsTabConversion = allowsTabConversion
+        self.runner = runner
         self.host = host
         self.deadlines = deadlines
         shell = AgentPaneShell(deadlines: deadlines)

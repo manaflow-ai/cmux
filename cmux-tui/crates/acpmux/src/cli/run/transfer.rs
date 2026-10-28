@@ -3,6 +3,7 @@
 //! move: it pages the bundle from one daemon to the other, and gives the chat back on a failure.
 
 use super::*;
+use crate::no_panic::JsonExt;
 
 /// Moves `session` to the daemon at `to`.
 pub(super) async fn run(
@@ -25,7 +26,7 @@ pub(super) async fn run(
     let socket = std::path::absolute(to)?;
     let begin_params = json!({"sessionId": id, "interrupt": interrupt, "to": {"socket": socket}});
     let begin = src.request("_acpmux/transfer_begin", begin_params).await?;
-    let transfer_id = begin["transferId"].as_str().unwrap_or_default().to_owned();
+    let transfer_id = begin.field("transferId").as_str().unwrap_or_default().to_owned();
     let abort = async || {
         let abort = json!({"sessionId": id, "transferId": transfer_id});
         if let Err(e) = src.request("_acpmux/transfer_abort", abort).await {
@@ -39,7 +40,7 @@ pub(super) async fn run(
             return Err(e);
         }
     };
-    let moved = match copy(&src, &dst, &begin, &receive["receiveId"], cwd, name).await {
+    let moved = match copy(&src, &dst, &begin, receive.field("receiveId"), cwd, name).await {
         Ok(moved) => moved,
         // A finish whose answer was lost may have landed, and the target runs the queue then:
         // the source commits. Only a target that shows no such move lets the chat come back.
@@ -57,7 +58,7 @@ pub(super) async fn run(
             }
         },
     };
-    let to_meta = json!({"sessionId": moved["sessionId"], "socket": to});
+    let to_meta = json!({"sessionId": moved.field("sessionId"), "socket": to});
     src.request(
         "_acpmux/transfer_commit",
         json!({"sessionId": id, "transferId": transfer_id, "to": to_meta}),
@@ -66,7 +67,7 @@ pub(super) async fn run(
     if json_out {
         print_json(&moved);
     } else {
-        println!("moved {} to {}", moved["name"].as_str().unwrap_or(&id), to.display());
+        println!("moved {} to {}", moved.field("name").as_str().unwrap_or(&id), to.display());
     }
     Ok(())
 }
@@ -77,11 +78,11 @@ async fn landed(dst: &Client, id: &str, transfer_id: &str) -> Option<bool> {
     let kinds = json!({"sessionId": id, "afterSeq": 0, "kinds": ["transferred_in"]});
     match dst.request(method::MUX_EVENTS, kinds).await {
         Ok(page) => Some(
-            page["events"]
+            page.field("events")
                 .as_array()
                 .into_iter()
                 .flatten()
-                .any(|e| e["msg"]["transferId"] == transfer_id),
+                .any(|e| *e.field("msg").field("transferId") == transfer_id),
         ),
         Err(e) => {
             let m = e.to_string().to_lowercase();
@@ -105,20 +106,21 @@ async fn copy(
         loop {
             let read = json!({"transferId": begin["transferId"], "path": path, "offset": offset});
             let page = src.request("_acpmux/transfer_read", read).await?;
-            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page["data"]});
+            let write = json!({"receiveId": receive_id, "path": path, "offset": offset, "data": page.field("data")});
             dst.request("_acpmux/transfer_write", write).await?;
-            offset = page["next"].as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
-            if page["eof"] == true {
+            offset =
+                page.field("next").as_u64().ok_or_else(|| anyhow!("transfer_read: no next"))?;
+            if *page.field("eof") == true {
                 break;
             }
         }
     }
     let mut finish = json!({"receiveId": receive_id, "from": {"sessionId": begin["sessionId"]}});
     if let Some(cwd) = cwd {
-        finish["cwd"] = json!(cwd);
+        finish.set("cwd", json!(cwd));
     }
     if let Some(name) = name {
-        finish["name"] = json!(name);
+        finish.set("name", json!(name));
     }
     dst.request("_acpmux/transfer_finish", finish).await
 }

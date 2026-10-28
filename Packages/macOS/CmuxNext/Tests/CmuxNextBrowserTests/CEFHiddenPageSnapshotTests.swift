@@ -3,7 +3,7 @@ import AppKit
 import IOSurface
 import Testing
 
-/// p03-rendering-055: a hosted page hidden past its grace holds no layer host and one volatile snapshot,
+/// A hosted page hidden past its grace holds no layer host and one volatile snapshot,
 /// and a show presents the snapshot in the switch's own turn, the live page on its next frame. Without
 /// Chromium: a fake fork, a real IOSurface, and the commit and the fork's copy run when the test says.
 @MainActor

@@ -303,6 +303,37 @@ import Testing
         await source.shutdown()
     }
 
+    /// A socket pings only after `keepaliveInterval` with no frame from the owner
+    /// (Chromium's QUIC ping alarm), and every keepalive wait is flexible. The old loop pinged every
+    /// 25 s whatever the socket carried.
+    @Test func aSocketThatHearsFramesSendsNoPing() async throws {
+        let source = makeSource()
+        let log = try await connect(source)
+        defer { log.stop() }
+        let user = try #require(sockets.dialed(userPath).first)
+        let socket = try await open(source)
+        // Both keepalives wait for their first due time (25 s after their sockets opened, at 0 s).
+        await waitUntil { clock.pendingSleepers == 2 }
+        #expect(clock.tolerances.allSatisfy { $0 == .seconds(1) }, "keepalive waits are flexible: min(10%, 1 s)")
+
+        clock.advance(by: .seconds(20))
+        socket.push(WireFixture.event(seq: 4, op: "message.send", head: WireFixture.head(rev: 4, lastSeq: 2),
+                                      messages: [WireFixture.message(seq: 2)]))
+        await waitUntil { log.messages.contains { $0.message.seq == 2 } }
+
+        // 30 s: the quiet inbox socket is due and pings; the conversation socket heard a frame 10 s ago.
+        clock.advance(by: .seconds(10))
+        await waitUntil { user.pings == 1 }
+        await waitUntil { clock.pendingSleepers == 2 }
+        #expect(socket.pings == 0, "a frame 10 s ago proves the socket lives: no ping")
+
+        // 45 s: 25 s of quiet since the frame.
+        clock.advance(by: .seconds(15))
+        await waitUntil { socket.pings == 1 }
+        #expect(user.pings == 1, "the inbox pinged at 30 s and is next due at 55 s")
+        await source.shutdown()
+    }
+
     @Test func theBackoffGrowsToThirtySeconds() {
         #expect((0..<7).map { reconnectDelay(attempt: $0) } == [1, 2, 4, 8, 16, 30, 30].map { Duration.seconds($0) })
     }

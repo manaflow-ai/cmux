@@ -75,7 +75,7 @@ public final class Invariant: @unchecked Sendable { // crash-allow: every word o
     /// The process's invariant state, which the static calls use by default; its sink is installed by the
     /// composition root.
     // singleton-allow: Invariant.check / notFatalUntil / dumpWillBeCheck are free-standing calls any package makes on any thread, before any composition root exists and inside code that has no instance to take it through; Chrome's CHECK reaches the process's dump function the same way (base/debug/dump_without_crashing.cc).
-    // lint:allow singleton: the process invariant table, the same exception as BlockingCallHookSlot.process (p10-stability-099).
+    // lint:allow singleton: the process invariant table, the same exception as BlockingCallHookSlot.process.
     public static let process = Invariant()
 
     /// Sites one invariant table holds by default: more distinct failing sites than one launch should ever see.

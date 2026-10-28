@@ -2,16 +2,18 @@
 //! mirrored surface terminals (VT replay + live stream).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::fs;
+
+use crate::panic_free::RecoverPoison;
 use std::io::{self, BufRead, BufReader, Write};
 use std::net::Shutdown;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Condvar, Mutex, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use base64::Engine;
+use cmux_threads::sync::Condvar;
 use cmux_tui_core::server::{VIEWPORT_COLUMN_RESIZE_CAPABILITY, VIEWPORT_SPLITS_CAPABILITY};
 use cmux_tui_core::sizing_policy::TerminalSizingState;
 use cmux_tui_core::{
@@ -491,11 +493,11 @@ impl RemoteSurface {
     /// Whether the inner application authored the cursor style (DECSCUSR)
     /// through the raw output stream since the last daemon replay.
     pub(super) fn cursor_style_authored(&self) -> bool {
-        self.cursor_provenance.lock().unwrap().authored()
+        self.cursor_provenance.lock().recover_poison().authored()
     }
 
     fn scan_cursor_provenance(&self, bytes: &[u8]) {
-        self.cursor_provenance.lock().unwrap().scan(bytes);
+        self.cursor_provenance.lock().recover_poison().scan(bytes);
     }
 
     #[cfg(test)]
@@ -504,7 +506,7 @@ impl RemoteSurface {
     }
 
     pub(super) fn sync_mouse_encoders(&self, terminal: &Terminal) {
-        self.mouse_encoders.lock().unwrap().sync_from_terminal(terminal);
+        self.mouse_encoders.lock().recover_poison().sync_from_terminal(terminal);
     }
 
     pub(super) fn encode_mouse(
@@ -648,7 +650,7 @@ impl RemoteSurface {
     }
 
     pub(super) fn reset_mouse_motion_dedupe(&self) {
-        self.mouse_encoders.lock().unwrap().reset_motion_dedupe();
+        self.mouse_encoders.lock().recover_poison().reset_motion_dedupe();
     }
 
     pub(super) fn try_pointer_semantics(&self) -> PointerSemanticProbe {
@@ -713,13 +715,13 @@ impl RemoteSurface {
     ) -> ghostty_vt::Result<()> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeStarted);
-        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().recover_poison();
         let daemon_replay = replay.is_some();
         let (cols, rows) = (cols.max(1), rows.max(1));
-        let cell_pixels = *self.cell_pixels.lock().unwrap();
+        let cell_pixels = *self.cell_pixels.lock().recover_poison();
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::StreamResizeCommitBoundary);
-        let mut term = self.term.lock().unwrap();
+        let mut term = self.term.lock().recover_poison();
         let owned_replay;
         let (replay, replay_aliases, replay_state, pending_sequence) = match replay {
             Some(replay) => (
@@ -755,7 +757,7 @@ impl RemoteSurface {
         if daemon_replay {
             // Daemon-built replays carry resolved state, not application
             // intent; cursor-style provenance restarts from "not authored".
-            self.cursor_provenance.lock().unwrap().reset_for_replay();
+            self.cursor_provenance.lock().recover_poison().reset_for_replay();
         }
         self.sync_mouse_encoders(&term);
         self.content_generation.fetch_add(1, Ordering::AcqRel);
@@ -765,18 +767,18 @@ impl RemoteSurface {
     fn set_cell_pixel_size(&self, width_px: u16, height_px: u16) -> ghostty_vt::Result<bool> {
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelStarted);
-        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().recover_poison();
         let next = (width_px.max(1), height_px.max(1));
-        if *self.cell_pixels.lock().unwrap() == next {
+        if *self.cell_pixels.lock().recover_poison() == next {
             return Ok(false);
         }
         if self.kind == SurfaceKind::Pty {
-            let mut term = self.term.lock().unwrap();
+            let mut term = self.term.lock().recover_poison();
             let size = (term.cols(), term.rows());
             term.resize(size.0, size.1, u32::from(next.0), u32::from(next.1))?;
-            *self.cell_pixels.lock().unwrap() = next;
+            *self.cell_pixels.lock().recover_poison() = next;
         } else {
-            *self.cell_pixels.lock().unwrap() = next;
+            *self.cell_pixels.lock().recover_poison() = next;
         }
         #[cfg(test)]
         self.run_geometry_test_hook(RemoteGeometryTestStep::CellPixelCommitBoundary);
@@ -785,27 +787,27 @@ impl RemoteSurface {
     }
 
     fn cell_pixel_size(&self) -> (u16, u16) {
-        let _geometry_lifecycle = self.geometry_lifecycle.lock().unwrap();
-        *self.cell_pixels.lock().unwrap()
+        let _geometry_lifecycle = self.geometry_lifecycle.lock().recover_poison();
+        *self.cell_pixels.lock().recover_poison()
     }
 
     pub(super) fn reported_size(&self) -> Option<(u16, u16)> {
-        *self.reported_size.lock().unwrap()
+        *self.reported_size.lock().recover_poison()
     }
 
     pub(super) fn set_reported_size(&self, size: (u16, u16)) {
-        *self.reported_size.lock().unwrap() = Some(size);
+        *self.reported_size.lock().recover_poison() = Some(size);
     }
 
     pub(super) fn clear_reported_size_if(&self, size: (u16, u16)) {
-        let mut reported = self.reported_size.lock().unwrap();
+        let mut reported = self.reported_size.lock().recover_poison();
         if *reported == Some(size) {
             *reported = None;
         }
     }
 
     pub(super) fn clear_reported_size(&self) {
-        *self.reported_size.lock().unwrap() = None;
+        *self.reported_size.lock().recover_poison() = None;
     }
 
     #[cfg(test)]
@@ -819,7 +821,7 @@ impl RemoteSurface {
     }
 
     pub fn browser_frame_metadata(&self) -> Option<(u64, u32, u32, Option<u64>)> {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock().recover_poison();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             None
         } else {
@@ -835,7 +837,7 @@ impl RemoteSurface {
     }
 
     pub fn browser_frame_update(&self) -> Option<BrowserFrameUpdate> {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock().recover_poison();
         if matches!(browser.status, BrowserStatus::Failed(_)) {
             return None;
         }
@@ -858,20 +860,20 @@ impl RemoteSurface {
     }
 
     pub fn browser_accepts_pointer_frame(&self, frame_seq: u64) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock().recover_poison();
         matches!(browser.status, BrowserStatus::Live)
             && browser.presented_pointer_frame_seq == Some(frame_seq)
             && pointer_frame_is_in_range(&browser, frame_seq)
     }
 
     pub fn browser_pointer_frame_is_in_current_route(&self, frame_seq: u64) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock().recover_poison();
         matches!(browser.status, BrowserStatus::Live)
             && pointer_frame_is_in_range(&browser, frame_seq)
     }
 
     pub fn acknowledge_browser_pointer_frame(&self, frame_seq: u64) -> bool {
-        let mut browser = self.browser.lock().unwrap();
+        let mut browser = self.browser.lock().recover_poison();
         if !matches!(browser.status, BrowserStatus::Live)
             || !pointer_frame_is_in_range(&browser, frame_seq)
             || browser.presented_pointer_frame_seq == Some(frame_seq)
@@ -884,20 +886,20 @@ impl RemoteSurface {
     }
 
     pub fn has_browser_frame(&self) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock().recover_poison();
         !matches!(browser.status, BrowserStatus::Failed(_)) && browser.frame.is_some()
     }
 
     pub fn browser_url(&self) -> Option<String> {
-        self.browser.lock().unwrap().url.clone()
+        self.browser.lock().recover_poison().url.clone()
     }
 
     pub fn browser_status(&self) -> BrowserStatus {
-        self.browser.lock().unwrap().status.clone()
+        self.browser.lock().recover_poison().status.clone()
     }
 
     pub fn browser_frames_stalled(&self) -> bool {
-        let browser = self.browser.lock().unwrap();
+        let browser = self.browser.lock().recover_poison();
         if !matches!(browser.status, BrowserStatus::Live) {
             return false;
         }
@@ -914,11 +916,11 @@ impl RemoteSurface {
     }
 
     fn update_browser_source(&self, source: Option<BrowserSource>) {
-        self.browser.lock().unwrap().source = source;
+        self.browser.lock().recover_poison().source = source;
     }
 
     fn update_browser_state(&self, value: &Value) {
-        let mut browser = self.browser.lock().unwrap();
+        let mut browser = self.browser.lock().recover_poison();
         let previous_status = browser.status.clone();
         browser.url = value.get("url").and_then(|v| v.as_str()).map(str::to_string);
         browser.title = value.get("title").and_then(|v| v.as_str()).map(str::to_string);
@@ -953,7 +955,7 @@ impl RemoteSurface {
 
     fn update_browser_frame(&self, value: &Value) {
         if let Some(frame) = parse_browser_frame(value) {
-            let mut browser = self.browser.lock().unwrap();
+            let mut browser = self.browser.lock().recover_poison();
             let previous_status = browser.status.clone();
             let status = parse_browser_status(value);
             if let Some(status) = status.clone() {
@@ -1241,9 +1243,13 @@ impl InteractiveWriteMetrics {
     fn record_latency(&self, latency: Duration) {
         let micros = u64::try_from(latency.as_micros()).unwrap_or(u64::MAX);
         let bucket = INTERACTIVE_LATENCY_BUCKET_UPPER_US
-            .partition_point(|upper_bound| *upper_bound < micros)
-            .min(self.latency_buckets.len() - 1);
-        self.latency_buckets[bucket].fetch_add(1, Ordering::Relaxed);
+            .partition_point(|upper_bound| *upper_bound < micros);
+        // Past the last bound counts in the last bucket.
+        if let Some(counter) =
+            self.latency_buckets.get(bucket).or_else(|| self.latency_buckets.last())
+        {
+            counter.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     fn snapshot(&self) -> InteractiveWriteMetricsSnapshot {
@@ -1717,7 +1723,7 @@ fn decimal_after_prefix(bytes: &[u8], prefix: &[u8]) -> Option<u64> {
     if digits == 0 || !matches!(tail.get(digits), Some(b',') | Some(b'}')) {
         return None;
     }
-    std::str::from_utf8(&tail[..digits]).ok()?.parse().ok()
+    std::str::from_utf8(tail.get(..digits)?).ok()?.parse().ok()
 }
 
 fn remote_progress_target(partial: &[u8]) -> Option<RemoteProgressTarget> {
@@ -1810,15 +1816,15 @@ fn read_json_line_with_progress_bounded<R: BufRead>(
                 break;
             }
             let complete_at = available.iter().position(|byte| *byte == b'\n');
-            let payload_bytes = complete_at.unwrap_or(available.len());
-            if payload_bytes > max_message_bytes.saturating_sub(bytes.len()) {
+            let payload = complete_at.and_then(|index| available.get(..index)).unwrap_or(available);
+            if payload.len() > max_message_bytes.saturating_sub(bytes.len()) {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,
                     format!("remote session message exceeds the {max_message_bytes}-byte limit"),
                 ));
             }
             let consumed = complete_at.map_or(available.len(), |index| index + 1);
-            bytes.extend_from_slice(&available[..payload_bytes]);
+            bytes.extend_from_slice(payload);
             (consumed, complete_at.is_some())
         };
         reader.consume(consumed);
@@ -1934,20 +1940,20 @@ impl RemoteMessageWriter for JsonLineWriter {
 
 impl RemoteSession {
     pub(super) fn has_surface(&self, id: SurfaceId) -> bool {
-        self.surfaces.lock().unwrap().contains_key(&id)
+        self.surfaces.lock().recover_poison().contains_key(&id)
     }
 
     pub(super) fn surface(&self, id: SurfaceId) -> Option<Arc<RemoteSurface>> {
-        self.surfaces.lock().unwrap().get(&id).cloned()
+        self.surfaces.lock().recover_poison().get(&id).cloned()
     }
 
     pub(super) fn attachment_lease(&self, id: SurfaceId) -> Option<String> {
-        self.surface_leases.lock().unwrap().get(&id).cloned()
+        self.surface_leases.lock().recover_poison().get(&id).cloned()
     }
 
     /// The latest `size-state` for `surface`.
     pub(super) fn size_state(&self, surface: SurfaceId) -> Option<super::SurfaceSizeState> {
-        self.size_states.lock().unwrap().get(&surface).cloned()
+        self.size_states.lock().recover_poison().get(&surface).cloned()
     }
 
     /// Keeps the newest state per terminal; an older generation is ignored.
@@ -1958,7 +1964,7 @@ impl RemoteSession {
         state: TerminalSizingState,
         self_participant: Option<String>,
     ) -> bool {
-        let mut states = self.size_states.lock().unwrap();
+        let mut states = self.size_states.lock().recover_poison();
         if let Some(current) = states.get(&surface)
             && (current.state.generation > state.generation
                 || (current.state == state && current.self_participant == self_participant))
@@ -1992,7 +1998,7 @@ impl RemoteSession {
     }
 
     pub(super) fn supports_capability(&self, capability: &str) -> bool {
-        self.capabilities.lock().unwrap().contains(capability)
+        self.capabilities.lock().recover_poison().contains(capability)
     }
 
     pub fn supports_surface_subscription_filter(&self) -> bool {
@@ -2020,11 +2026,11 @@ impl RemoteSession {
     }
 
     pub fn cached_tree(&self) -> TreeView {
-        self.tree.lock().unwrap().view.clone()
+        self.tree.lock().recover_poison().view.clone()
     }
 
     pub fn cached_agents(&self) -> Vec<AgentInfo> {
-        self.tree.lock().unwrap().agents.clone()
+        self.tree.lock().recover_poison().agents.clone()
     }
 
     pub fn refresh_tree(&self) -> anyhow::Result<TreeView> {
@@ -2036,12 +2042,12 @@ impl RemoteSession {
     }
 
     fn refresh_tree_inner(&self, identity_refresh: bool) -> anyhow::Result<TreeView> {
-        let _refresh = self.tree_refresh.lock().unwrap();
+        let _refresh = self.tree_refresh.lock().recover_poison();
         if identity_refresh {
             self.tree_stale.store(false, Ordering::Release);
         }
         let (title_refresh_generation, agent_refresh_generation) = {
-            let cache = self.tree.lock().unwrap();
+            let cache = self.tree.lock().recover_poison();
             (cache.title_generation(), cache.agent_generation())
         };
         let data = match self.request(json!({"cmd": "list-workspaces"})) {
@@ -2063,7 +2069,7 @@ impl RemoteSession {
                     .and_then(|agents| serde_json::from_value::<Vec<AgentInfo>>(agents).ok())
             })
             .unwrap_or_default();
-        let capabilities = self.capabilities.lock().unwrap();
+        let capabilities = self.capabilities.lock().recover_poison();
         let tree = parse_tree_with_capabilities(
             &data,
             TreeCapabilities {
@@ -2084,7 +2090,7 @@ impl RemoteSession {
         // lazy mirror and may be empty during startup or reconnect, so it
         // cannot be used as a negative filter. Remove only explicit retire
         // evidence captured at the detach boundary.
-        let retired_surface_ids = self.retired_surfaces.lock().unwrap().clone();
+        let retired_surface_ids = self.retired_surfaces.lock().recover_poison().clone();
         let mut tree = tree;
         tree.retain_not_retired(&retired_surface_ids);
         self.order_tree_by_sidebar_doc(&mut tree);
@@ -2098,16 +2104,16 @@ impl RemoteSession {
             .collect::<HashSet<_>>();
         self.retired_surfaces
             .lock()
-            .unwrap()
+            .recover_poison()
             .retain(|surface_id| raw_surface_ids.contains(surface_id));
         self.prune_exited_surfaces(&live_surface_ids);
         self.surface_overflow_recovery
             .lock()
-            .unwrap()
+            .recover_poison()
             .retain(|surface_id, _| live_surface_ids.contains(surface_id));
-        let retired_surfaces = self.retired_surfaces.lock().unwrap();
+        let retired_surfaces = self.retired_surfaces.lock().recover_poison();
         let tree = {
-            let mut cache = self.tree.lock().unwrap();
+            let mut cache = self.tree.lock().recover_poison();
             tree.retain_not_retired(&retired_surfaces);
             cache.replace(tree, title_refresh_generation);
             cache.replace_agents(agents, agent_refresh_generation, &retired_surfaces);
@@ -2115,8 +2121,8 @@ impl RemoteSession {
         };
         drop(retired_surfaces);
         let browser_sources = browser_sources_from_tree(&tree);
-        *self.browser_sources.lock().unwrap() = browser_sources.clone();
-        let surfaces = self.surfaces.lock().unwrap().clone();
+        *self.browser_sources.lock().recover_poison() = browser_sources.clone();
+        let surfaces = self.surfaces.lock().recover_poison().clone();
         for (id, surface) in surfaces {
             surface.update_browser_source(browser_sources.get(&id).copied());
         }
@@ -2124,7 +2130,7 @@ impl RemoteSession {
     }
 
     fn prune_exited_surfaces(&self, live_surface_ids: &HashSet<SurfaceId>) {
-        let mut exited = self.exited_surfaces.lock().unwrap();
+        let mut exited = self.exited_surfaces.lock().recover_poison();
         let retained_handles = exited
             .handles
             .iter()
@@ -2185,17 +2191,17 @@ impl Drop for RemoteSession {
         let Some(dir) = self.frame_dump_dir.as_deref() else {
             return;
         };
-        let _ = fs::create_dir_all(dir);
-        let logs = self.frame_logs.lock().unwrap();
+        let _ = cmux_blocking::fs::create_dir_all(dir);
+        let logs = self.frame_logs.lock().recover_poison();
         let mut entries_by_surface: HashMap<SurfaceId, Vec<&str>> = HashMap::new();
         for entry in &logs.entries {
             entries_by_surface.entry(entry.surface).or_default().push(&entry.line);
         }
-        for surface in self.surfaces.lock().unwrap().values() {
+        for surface in self.surfaces.lock().recover_poison().values() {
             let path = dir.join(format!("mirror-{}.txt", surface.id));
-            let _ = fs::write(path, dump_mirror(surface));
+            let _ = cmux_blocking::fs::write(path, dump_mirror(surface));
             let frames = dir.join(format!("frames-{}.log", surface.id));
-            if let Ok(file) = fs::File::create(frames) {
+            if let Ok(file) = cmux_blocking::fs::create(frames) {
                 let mut writer = io::BufWriter::new(file);
                 for line in entries_by_surface.get(&surface.id).into_iter().flatten() {
                     let _ = writeln!(writer, "{line}");
@@ -2290,7 +2296,7 @@ fn parse_kitty_replay_state(value: &Value) -> Result<KittyReplayState, &'static 
 
 fn dump_mirror(surface: &RemoteSurface) -> String {
     let mut out = String::new();
-    let mut term = surface.term.lock().unwrap();
+    let mut term = surface.term.lock().recover_poison();
     let cols = term.cols();
     let rows = term.rows();
     let scrollbar = term.scrollbar();
@@ -2366,7 +2372,9 @@ fn parse_terminal_colors(value: &Value) -> Option<RemoteTerminalColors> {
         for (index, color) in entries {
             let Some(index) = index.parse::<u8>().ok() else { continue };
             let Some(color) = color.as_str().and_then(parse_color) else { continue };
-            palette[index as usize] = Some(color);
+            if let Some(slot) = palette.get_mut(usize::from(index)) {
+                *slot = Some(color);
+            }
         }
     }
     Some(RemoteTerminalColors {
@@ -2419,11 +2427,11 @@ fn terminal_palette_override_delta(
     next: &TerminalColorOverrides,
 ) -> Vec<u8> {
     let mut output = Vec::new();
-    for index in 0..256 {
-        if previous.palette[index] == next.palette[index] {
+    for (index, (previous, next)) in previous.palette.iter().zip(&next.palette).enumerate() {
+        if previous == next {
             continue;
         }
-        match next.palette[index] {
+        match next {
             Some(color) => output.extend_from_slice(
                 format!("\x1b]4;{index};rgb:{:02x}/{:02x}/{:02x}\x1b\\", color.r, color.g, color.b)
                     .as_bytes(),
