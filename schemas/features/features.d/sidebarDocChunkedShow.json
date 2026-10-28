@@ -3,7 +3,7 @@
   "name": "sidebarDocChunkedShow",
   "owner": "a590",
   "description": "The sidebar builds what it shows from the sidebar document a few rows at a time across frames, so a large rebuild keeps to the visible share of each frame and a key press goes first.",
-  "defaults": { "dev": false, "nightly": false, "release": false },
+  "defaults": { "dev": true, "nightly": true, "release": false },
   "kind": "perfPath",
   "expires": "2026-12-20",
   "process": "app",
