@@ -3,7 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
 @testable import CmuxNextDaemon
-import CmuxNextDaemonService
+@testable import CmuxNextDaemonService
 import CmuxNextFocus
 import CmuxNextFocusUI
 import CmuxNextLaunch
@@ -291,7 +291,9 @@ struct LaunchPictureInputTests {
         var answersAtOnce = true
         /// What the daemon answers a send with: nil takes it.
         var refusal: String?
-        private var unanswered: [(target: LaunchPictureKeys.Target, texts: [String], answered: @MainActor (String?) -> Void)] = []
+        /// How many keys of a send go by id before one that only the live view can take (nil: all of them).
+        var byIDLimit: Int?
+        private var unanswered: [(target: LaunchPictureKeys.Target, texts: [String], count: Int, answered: LaunchPictureKeys.Answered)] = []
 
         func deliver(_ target: LaunchPictureKeys.Target, _ events: [NSEvent]) -> Bool {
             guard live.contains(target) else { return false }
@@ -302,22 +304,24 @@ struct LaunchPictureInputTests {
         }
 
         /// One send to the daemon: `events` in order, answered once for all of them.
-        func forward(_ target: LaunchPictureKeys.Target, _ events: [NSEvent], _ answered: @escaping @MainActor (String?) -> Void) {
-            let texts = events.map { $0.characters ?? "" }
+        func forward(_ target: LaunchPictureKeys.Target, _ events: [NSEvent], _ answered: @escaping LaunchPictureKeys.Answered) {
+            let texts = Array(events.map { $0.characters ?? "" }.prefix(byIDLimit ?? events.count))
             forwarded[target, default: []] += texts
-            if answersAtOnce { take(target, texts, answered) } else { unanswered.append((target, texts, answered)) }
+            if answersAtOnce { take(target, texts, events.count, answered) } else { unanswered.append((target, texts, events.count, answered)) }
         }
 
         /// The daemon answers every send waiting for it, in order.
         func answer() {
             let waiting = unanswered
             unanswered = []
-            for send in waiting { take(send.target, send.texts, send.answered) }
+            for send in waiting { take(send.target, send.texts, send.count, send.answered) }
         }
 
-        private func take(_ target: LaunchPictureKeys.Target, _ texts: [String], _ answered: @MainActor (String?) -> Void) {
-            if refusal == nil { arrived[target, default: []] += texts }
-            answered(refusal)
+        /// The daemon takes `texts` (or refuses them all); with `byIDLimit` the rest can only go to the view.
+        private func take(_ target: LaunchPictureKeys.Target, _ texts: [String], _ count: Int, _ answered: LaunchPictureKeys.Answered) {
+            if let refusal { return answered(.refused(taken: 0, reason: refusal)) }
+            arrived[target, default: []] += texts
+            answered(texts.count < count ? .keptForView(taken: texts.count) : .taken)
         }
     }
 
@@ -416,8 +420,8 @@ struct LaunchPictureInputTests {
     }
 
     /// A terminal that never goes live: nothing is dropped silently. Keys the daemon has not answered keep waiting for
-    /// it (no time limit drops them); a key it refuses, and every key behind it, is refused visibly, with the text
-    /// kept for the person.
+    /// it (no time limit drops them); a key it refuses, and every key behind it, is refused visibly with the daemon's
+    /// reason, and the text they typed is kept for the person (text only: Return is a key, not text).
     @Test func aTerminalThatNeverGoesLiveDropsNothingSilently() throws {
         let terminals = FakeTerminals()
         terminals.answersAtOnce = false
@@ -435,52 +439,244 @@ struct LaunchPictureInputTests {
 
         terminals.refusal = "no such terminal"
         terminals.answer()
-        #expect(refusals == [Refusal(window: "w", text: "ls\r", reason: "no such terminal")], "refused \(refusals)")
+        #expect(refusals == [Refusal(window: "w", text: "ls", reason: "no such terminal")], "refused \(refusals)")
         #expect(keys.refused == 3)
         #expect(!keys.isActive && active == [true, false])
     }
 
-    /// With nothing to send a terminal's keys to, they are refused visibly and kept, never dropped.
-    @Test func keysWithNoWayToTheirTerminalAreRefusedAndKept() throws {
+    /// A send the daemon took in part: only the keys it did not take are refused and kept.
+    @Test func aSendTakenInPartRefusesOnlyTheRest() throws {
+        var refusals: [Refusal] = []
+        let keys = LaunchPictureKeys { _, _ in false }
+        var answer: LaunchPictureKeys.Answered?
+        keys.forward = { _, _, answered in answer = answered }
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        keys.begin(window: "w", shell: nil) { _ in }
+        for letter in ["a", "b", "c"] { keys.hold(try Self.key(letter, keyCode: 0), for: Self.a) }
+        let first = try #require(answer)
+        first(.taken)
+        let second = try #require(answer)
+        second(.refused(taken: 1, reason: "write failed"))
+        #expect(refusals == [Refusal(window: "w", text: "c", reason: "write failed")], "refused \(refusals)")
+        #expect(keys.refused == 1)
+    }
+
+    /// Keys only the live view can take (no way by id: a remote terminal's session that takes no input by id, a key
+    /// with no input of its own, an input method's key) wait for the view, in order with the keys before and after
+    /// them, and reach it once it is live; a view that never shows by the picture's bound refuses them, text kept.
+    @Test func keysOnlyTheViewCanTakeWaitForItAndAreRefusedAtTheBound() throws {
+        let terminals = FakeTerminals()
+        terminals.byIDLimit = 1
+        var refusals: [Refusal] = []
+        let keys = Self.buffer(terminals)
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        keys.begin(window: "w", shell: nil) { _ in }
+        keys.hold(try Self.key("1", keyCode: 18), for: Self.a)
+        terminals.byIDLimit = 0
+        for (letter, code) in [("2", UInt16(19)), ("3", 20)] { keys.hold(try Self.key(letter, keyCode: code), for: Self.a) }
+        keys.hold(try Self.key("x", keyCode: 7), for: Self.b)
+        #expect(terminals.forwarded[Self.a] == ["1"] && keys.isHolding(Self.a))
+        keys.retry()
+        #expect(terminals.received.isEmpty && refusals.isEmpty, "keys for the view went somewhere while it was not live")
+
+        terminals.live.insert(Self.a)
+        keys.hold(try Self.key("4", keyCode: 21), for: Self.a)
+        #expect(terminals.arrived[Self.a] == ["1", "2", "3", "4"], "the terminal got \(terminals.arrived[Self.a] ?? [])")
+        keys.end(window: "w")
+        #expect(refusals == [Refusal(window: "w", text: "x", reason: nil)], "refused \(refusals)")
+        #expect(!keys.isActive && keys.refused == 1)
+    }
+
+    /// With no way to send a terminal's keys by id, they wait for its live view and, if it never shows by the
+    /// picture's bound, are refused visibly with their text kept, never dropped.
+    @Test func keysWithNoWayToTheirTerminalAreRefusedAtTheBoundAndKept() throws {
         var refusals: [Refusal] = []
         let keys = LaunchPictureKeys { _, _ in false }
         keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
         keys.begin(window: "w", shell: nil) { _ in }
         keys.hold(try Self.key("z", keyCode: 6), for: Self.a)
+        #expect(refusals.isEmpty && keys.isHolding(Self.a), "the key was refused before the picture's bound")
+        keys.end(window: "w")
         #expect(refusals == [Refusal(window: "w", text: "z", reason: nil)])
         #expect(keys.refused == 1 && !keys.isHolding(Self.a))
     }
 
     /// Keys the window could still not decide when its picture left (it closed before its controller was built) are
-    /// refused visibly and kept, never dropped.
+    /// refused visibly and kept, never dropped; each wait is recorded as a measured stage with its reason.
     @Test func undecidedKeysTheWindowNeverDecidesAreRefusedAndKept() throws {
+        let start = ContinuousClock.now
+        var elapsed = Duration.zero
         var refusals: [Refusal] = []
-        let keys = LaunchPictureKeys { _, _ in false }
+        var waits: [(reason: String, keys: Int, waited: Duration)] = []
+        let keys = LaunchPictureKeys(now: { start + elapsed }) { _, _ in false }
         keys.replay = { _, _ in false }
         keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        keys.onWaited = { waits.append(($0, $1, $2)) }
         keys.begin(window: "w", shell: nil) { _ in }
         for letter in ["c", "d"] { keys.holdUndecided(try Self.key(letter, keyCode: 0), window: "w") }
+        elapsed = .milliseconds(30)
         keys.retry()
         #expect(refusals.isEmpty && keys.isHoldingUndecided(window: "w"), "undecided keys were given up while the picture showed")
+        elapsed = .milliseconds(80)
         keys.end(window: "w")
         #expect(refusals == [Refusal(window: "w", text: "cd", reason: nil)])
         #expect(!keys.isActive && keys.refused == 2)
+        #expect(waits.count == 1 && waits.first?.reason == LaunchPictureKeys.WaitReason.undecided.rawValue
+                    && waits.first?.keys == 2 && waits.first?.waited == .milliseconds(80), "recorded \(waits)")
     }
 
-    /// A key sent by id is what the terminal takes for it: text a key commits is that text; a key Ghostty encodes
-    /// from the key itself goes by its `send-key` name, for the daemon to encode with the program's modes; a
-    /// Command chord is never typing.
-    @Test func aKeySentByIdIsWhatTheTerminalTakesForIt() throws {
-        #expect(TypedTerminalInput(try Self.key("a", keyCode: 0)) == .text("a"))
-        #expect(TypedTerminalInput(try Self.key("A", keyCode: 0, modifiers: .shift, ignoringModifiers: "a")) == .text("A"))
-        #expect(TypedTerminalInput(try Self.key("!", keyCode: 18, modifiers: .shift, ignoringModifiers: "1")) == .text("!"))
-        #expect(TypedTerminalInput(try Self.key("é", keyCode: 14, modifiers: .option, ignoringModifiers: "e")) == .text("é"))
-        #expect(TypedTerminalInput(try Self.key("\r", keyCode: 36)) == .key("enter"))
-        #expect(TypedTerminalInput(try Self.key("\u{7f}", keyCode: 51)) == .key("backspace"))
-        #expect(TypedTerminalInput(try Self.key("\t", keyCode: 48, modifiers: .shift)) == .key("shift+tab"))
-        #expect(TypedTerminalInput(try Self.key(Shortcut.upArrowKey, keyCode: 126)) == .key("up"))
-        #expect(TypedTerminalInput(try Self.key("\u{03}", keyCode: 8, modifiers: .control, ignoringModifiers: "c")) == .key("ctrl+c"))
-        #expect(TypedTerminalInput(try Self.key("k", keyCode: 40, modifiers: .command)) == nil)
+    /// Kept text grows with each refusal of a window until the person is done with it (closed the notice, or
+    /// copied it): then it starts over.
+    @Test func keptTextStartsOverOnceThePersonIsDoneWithIt() throws {
+        var refusals: [Refusal] = []
+        let keys = LaunchPictureKeys { _, _ in false }
+        keys.refuse = { refusals.append(Refusal(window: $0, text: $1, reason: $2)) }
+        for letters in [["a"], ["b"]] {
+            keys.begin(window: "w", shell: nil) { _ in }
+            for letter in letters { keys.hold(try Self.key(letter, keyCode: 0), for: Self.a) }
+            keys.end(window: "w")
+        }
+        #expect(refusals.map(\.text) == ["a", "ab"])
+        keys.forgetKept(window: "w")
+        keys.begin(window: "w", shell: nil) { _ in }
+        keys.hold(try Self.key("c", keyCode: 8), for: Self.a)
+        keys.end(window: "w")
+        #expect(refusals.map(\.text) == ["a", "ab", "c"])
+    }
+
+    /// A key sent by id is what the live view would send for it: text a key commits is that text; a key Ghostty
+    /// encodes from the key itself goes by its `send-key` name (a Control chord by its key code's ANSI key, as
+    /// Ghostty reads it), for the daemon to encode with the program's modes; Option is Alt when
+    /// `macos-option-as-alt` says so for that side. Nil keeps the key for the live view: a Command chord, a key
+    /// that commits nothing, an Option key while the config is not read.
+    @Test func aKeySentByIdIsWhatTheLiveViewWouldSend() throws {
+        func input(_ event: NSEvent, _ optionAsAlt: TypedTerminalInput.OptionAsAlt? = .off) -> TypedTerminalInput? {
+            TypedTerminalInput(event, optionAsAlt: optionAsAlt)
+        }
+        #expect(input(try Self.key("a", keyCode: 0)) == .text("a"))
+        #expect(input(try Self.key("A", keyCode: 0, modifiers: .shift, ignoringModifiers: "a")) == .text("A"))
+        #expect(input(try Self.key("!", keyCode: 18, modifiers: .shift, ignoringModifiers: "1")) == .text("!"))
+        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f")) == .text("ƒ"))
+        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f"), .both) == .key("alt+f"))
+        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f"), .right) == .text("ƒ"),
+                "left Option is not Alt when only the right one is")
+        #expect(input(try Self.key("ƒ", keyCode: 3, modifiers: .option, ignoringModifiers: "f"), nil) == nil,
+                "an Option key went by id before the config said what Option is")
+        #expect(input(try Self.key("\r", keyCode: 36)) == .key("enter"))
+        #expect(input(try Self.key("\u{7f}", keyCode: 51)) == .key("backspace"))
+        #expect(input(try Self.key("\t", keyCode: 48, modifiers: .shift)) == .key("shift+tab"))
+        #expect(input(try Self.key(Shortcut.upArrowKey, keyCode: 126)) == .key("up"))
+        #expect(input(try Self.key("\u{03}", keyCode: 8, modifiers: .control, ignoringModifiers: "c")) == .key("ctrl+c"))
+        #expect(input(try Self.key("\u{0a}", keyCode: 8, modifiers: .control, ignoringModifiers: "j")) == .key("ctrl+c"),
+                "a Control chord named by its layout's character, not its key")
+        #expect(input(try Self.key("", keyCode: 14, modifiers: .option, ignoringModifiers: "e")) == nil, "a dead key went by id")
+        #expect(input(try Self.key("k", keyCode: 40, modifiers: .command)) == nil)
+        #expect(input(try Self.key("\r", keyCode: 36))?.text == nil && input(try Self.key("a", keyCode: 0))?.text == "a")
+    }
+
+    // MARK: Keys through the real wiring, to a scripted daemon
+
+    /// The daemon, scripted on the real JSON-lines transport: it takes `send` (by `terminal_id` or `surface`) and
+    /// `send-key`, records each, refuses `send-key` in `refuse-keys` mode, and reports what it got.
+    private static let typingDaemon = #"""
+    import json, sys
+    mode = sys.argv[1]
+    print('{"ok":true}', file=sys.stderr, flush=True)
+    got = []
+    def reply(frame, data):
+        print(json.dumps({'id': frame.get('id'), 'ok': True, 'data': data}), flush=True)
+    for line in sys.stdin:
+        frame = json.loads(line)
+        command = frame.get('cmd')
+        if command == 'identify':
+            reply(frame, {'app': 'cmux-tui', 'protocol': 12, 'generation': 'typing-test',
+                          'capabilities': ['terminal-input-while-creating-v1']})
+        elif command == 'send':
+            got.append({'cmd': 'send', 'terminal_id': frame.get('terminal_id'), 'surface': frame.get('surface'),
+                        'bytes': frame.get('bytes')})
+            reply(frame, {})
+        elif command == 'send-key':
+            if mode == 'refuse-keys':
+                print(json.dumps({'id': frame.get('id'), 'ok': False, 'error': 'surface does not support key input'}), flush=True)
+                continue
+            got.append({'cmd': 'send-key', 'surface': frame.get('surface'), 'keys': frame.get('keys')})
+            reply(frame, {})
+        elif command == 'test-typed':
+            reply(frame, {'got': got})
+        else:
+            reply(frame, {})
+    """#
+
+    private struct Typed: DaemonRequest {
+        typealias Response = CmuxNextDaemon.JSONValue
+        static let commandName: DaemonCommandName = "test-typed"
+    }
+
+    /// The app's own wiring (`LaunchPictureKeys.routed`, `DaemonService.type`) over a scripted daemon connection.
+    private static func typingRig(_ mode: String) async throws -> (services: AppServices, connection: DaemonConnection, target: LaunchPictureKeys.Target) {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.windows.ordersWindowsIn = false
+        let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", Self.typingDaemon, mode])
+        let connection = DaemonConnection(
+            endpoint: .init(socketPath: "/tmp/cmux-launch-typing-\(UUID().uuidString.prefix(8)).sock", bridge: bridge),
+            configuration: .init(requiredCapabilities: [], requestTimeout: .seconds(5), spawnTimeout: .seconds(5), terminalEnvironment: nil))
+        try await connection.start()
+        services.daemon.connection = connection
+        let pane = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [
+            TabSnapshot(surface: SurfaceID(rawValue: 9), terminalID: TerminalID(rawValue: "0123456789abcdef0123456789abcdef"), title: "~"),
+        ])
+        let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: .leaf(pane.id), panes: [pane])
+        services.daemon.store.apply(snapshot: DaemonTree(registryID: "s-local", workspaces: [
+            WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: WorkspaceKey(rawValue: "typing-ws"), name: "typing", screens: [screen]),
+        ]))
+        let model = try #require(services.daemon.store.workspaces.first?.screens.first?.panes.first)
+        let tab = try #require(model.tabs.first)
+        return (services, connection, LaunchPictureKeys.Target(window: "typing-window", pane: model.id, tab: tab.id))
+    }
+
+    private static func settle(_ keys: LaunchPictureKeys, _ target: LaunchPictureKeys.Target) async {
+        // The daemon's answers reach main as posted tasks: run main turns until none is on its way.
+        let deadline = ContinuousClock.now + .seconds(10)
+        while keys.isHolding(target), ContinuousClock.now < deadline {
+            await drainMainTurns(rounds: 1)
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+    }
+
+    /// Keys for a terminal still a picture reach the daemon through the app's own wiring in typing order: text by
+    /// the terminal's id (`send {terminal_id}`), a key Ghostty encodes by its name (`send-key {surface}`).
+    @Test func theRealWiringSendsTextByIdAndKeysByNameInOrder() async throws {
+        let rig = try await Self.typingRig("take")
+        defer { for controller in rig.services.windows.controllers { controller.window?.close() } }
+        let keys = rig.services.keyRouter.launchPictureKeys
+        keys.begin(window: rig.target.window, shell: nil) { _ in }
+        for (letter, code) in [("l", UInt16(37)), ("s", 1), ("\r", 36)] { keys.hold(try Self.key(letter, keyCode: code), for: rig.target) }
+        await Self.settle(keys, rig.target)
+        let got = try #require(try await rig.connection.request(Typed())["got"]?.arrayValue)
+        await rig.connection.close()
+        #expect(got.map { $0["cmd"]?.stringValue } == ["send", "send", "send-key"], "the daemon got \(got)")
+        #expect(got.prefix(2).map { $0["terminal_id"]?.stringValue } == ["0123456789abcdef0123456789abcdef", "0123456789abcdef0123456789abcdef"])
+        #expect(got.prefix(2).map { $0["bytes"]?.stringValue } == [Data("l".utf8).base64EncodedString(), Data("s".utf8).base64EncodedString()])
+        #expect(got.last?["keys"]?.arrayValue?.map(\.stringValue) == ["enter"] && got.last?["surface"]?.doubleValue == 9)
+        #expect(keys.refused == 0)
+    }
+
+    /// A key the daemon refuses through the real wiring is refused with the rest behind it, and only their text is
+    /// kept: the text the daemon took is not.
+    @Test func theRealWiringRefusesWhatTheDaemonRefusesAndKeepsItsText() async throws {
+        let rig = try await Self.typingRig("refuse-keys")
+        defer { for controller in rig.services.windows.controllers { controller.window?.close() } }
+        let keys = rig.services.keyRouter.launchPictureKeys
+        keys.begin(window: rig.target.window, shell: nil) { _ in }
+        for (letter, code) in [("l", UInt16(37)), ("s", 1), ("\r", 36), ("x", 7)] { keys.hold(try Self.key(letter, keyCode: code), for: rig.target) }
+        await Self.settle(keys, rig.target)
+        let got = try #require(try await rig.connection.request(Typed())["got"]?.arrayValue)
+        await rig.connection.close()
+        #expect(got.map { $0["cmd"]?.stringValue } == ["send", "send"], "the daemon got \(got)")
+        #expect(keys.refused == 2, "refused \(keys.refused) keys, not Return and x")
+        #expect(keys.kept(window: rig.target.window) == "x")
     }
 
     // MARK: Keys typed before the window decides, to its restored focus
