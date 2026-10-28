@@ -8,6 +8,56 @@ import Testing
 #endif
 
 extension CrashDiagnosticSessionPolicyTests {
+    @Test("Distinct panes sharing an agent checkpoint survive richer directory metadata")
+    func crashMergeKeepsRepeatedAgentPanes() throws {
+        let original = crashTestWindow([crashTestWorkspace("api", agents: ["a"])])
+        let replay = crashTestWindow(
+            [crashTestWorkspace("api", agents: ["a", "a"], richDirectories: false)], id: try #require(original.windowId)
+        )
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
+        )))
+        let workspaces = try #require(result.windows.first).tabManager.workspaces
+        #expect(workspaces.count == 1)
+        #expect(workspaces[0].panels.map(\.id) == replay.tabManager.workspaces[0].panels.map(\.id))
+    }
+
+    @Test("Agent pane settings cannot be discarded by checkpoint equality")
+    func crashMergeKeepsAgentPaneSettings() throws {
+        let original = crashTestWindow([crashTestWorkspace("api", agents: ["a"])])
+        var replay = original
+        replay.tabManager.workspaces[0].panels[0].customTitle = "Keep this pane"
+        replay.tabManager.workspaces[0].panels[0].isPinned = true
+        replay.tabManager.workspaces[0].panels[0].terminal?.fontSize = 20
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
+        )))
+        let panels = try #require(result.windows.first).tabManager.workspaces.flatMap(\.panels)
+        #expect(panels.count == 2)
+        #expect(panels[1].customTitle == "Keep this pane")
+        #expect(panels[1].isPinned)
+        #expect(panels[1].terminal?.fontSize == 20)
+    }
+
+    @Test("Text stays associated with its own agent pane metadata")
+    func crashMergeKeepsAgentTextAssociation() throws {
+        var original = crashTestWindow([crashTestWorkspace("api", agents: ["a", "a"])])
+        original.tabManager.workspaces[0].panels[0].customTitle = "first"
+        original.tabManager.workspaces[0].panels[1].customTitle = "second"
+        original.tabManager.workspaces[0].panels[0].terminal?.scrollback = "first text"
+        original.tabManager.workspaces[0].panels[1].terminal?.scrollback = "second text"
+        var replay = original
+        replay.tabManager.workspaces[0].panels[0].terminal?.scrollback = "second text"
+        replay.tabManager.workspaces[0].panels[1].terminal?.scrollback = "first text"
+        let result = try #require(SessionPersistencePolicy.snapshotForLiveRestore(AppSessionSnapshot(
+            version: SessionSnapshotSchema.currentVersion, createdAt: 10, windows: [original, replay]
+        )))
+        let workspaces = try #require(result.windows.first).tabManager.workspaces
+        #expect(workspaces.count == 2)
+        #expect(workspaces[0].panels[0].terminal?.scrollback == "first text")
+        #expect(workspaces[1].panels[0].terminal?.scrollback == "second text")
+    }
+
     @Test("Merging identical window IDs does not absorb another window sharing sessions")
     func crashMergeDoesNotInventReplayEvidence() throws {
         let original = crashTestWindow([
