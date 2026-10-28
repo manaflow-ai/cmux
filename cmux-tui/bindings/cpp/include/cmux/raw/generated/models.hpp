@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9";
+inline constexpr std::string_view kProtocolIrSha256 = "202419ac143b60ebe374b0a4dbd527b531c879f275b94e50776490a1f23c893b";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;

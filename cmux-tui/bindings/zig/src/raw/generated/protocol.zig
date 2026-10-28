@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9";
+pub const ir_sha256 = "202419ac143b60ebe374b0a4dbd527b531c879f275b94e50776490a1f23c893b";
 
 pub const AccessRequestKind = enum {
     file,

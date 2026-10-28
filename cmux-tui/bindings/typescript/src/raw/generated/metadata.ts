@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9. */
+/* cmux-tui mux protocol 12, IR 202419ac143b60ebe374b0a4dbd527b531c879f275b94e50776490a1f23c893b. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "051ebbe76a94d70197d5952f4ae8244921067d444cb298d8af7c7e621bbbf2d9" as const;
+export const SDK_IR_SHA256 = "202419ac143b60ebe374b0a4dbd527b531c879f275b94e50776490a1f23c893b" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -15607,7 +15607,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "Present only when include names terminal_models.",
-      "Each live terminal counted once by where its PTY lives. host_adopted: hosted terminals whose shell an earlier daemon's host started (still counted after a replacement host). host_launched: hosts this daemon started (every host under the hosts model; under the holder model only a respawn or restart-tab of a hosted terminal). holder_start_failures: new terminals whose holder start failed (such a create fails, no host is started instead)."
+      "Each live terminal counted once by where its PTY lives. host_adopted: hosted terminals whose shell an earlier daemon's host started (still counted after a replacement host). host_launched: hosts this daemon started (every host under the hosts model; under the holder model only an automatic respawn of a hosted terminal or a restart-tab of any dead terminal, a holder one too). holder_start_failures: new terminals whose holder start failed (such a create fails, no host is started instead)."
     ],
     "fields": {
       "daemon": {
