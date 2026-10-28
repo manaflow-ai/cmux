@@ -1,4 +1,6 @@
 import AppKit
+import CmuxNextActions
+import CmuxNextAppCore
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
@@ -110,7 +112,8 @@ final class SandboxRunNotices {
         return (title, body)
     }
 
-    /// A click on banner `banner`: the tab that sent the Run, else a new tab showing its card.
+    /// A click on banner `banner`: the tab that sent the Run, else a new workspace whose chat shows
+    /// its card, as Open Chat opens one (it opens a window when none is open).
     /// False when the banner is no Run's.
     @discardableResult
     func open(banner: String) -> Bool {
@@ -123,10 +126,20 @@ final class SandboxRunNotices {
             services.notifications.open(surface: tab.surface)
             return true
         }
-        let card = run.card.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] } ?? [:]
-        let seed = AgentPaneSeedSource(AgentPaneSeed())
-        seed.sandboxResult = (run.record.task, run.record.key, card)
-        services.windows.active?.focusedPane?.newTabPage(seed: seed)
+        var seed = AgentPaneSeed()
+        seed.sandboxResult = .init(task: run.record.task, key: run.record.key, card: run.card)
+        var spawn = WorkspaceSpawn(name: Self.text(SandboxRunEnd(record: run.record, outcome: run.outcome, snapshot: Data())).title)
+        spawn.firstChat = seed
+        let windowID = services.windows.active?.state.id
+        // task-owner: the registry tracks this one workspace create (ChatsOpenCoordinator's path)
+        services.registry.track(Task { @MainActor in
+            do {
+                _ = try await services.windows.createWorkspace(spawn, into: windowID)
+                return nil
+            } catch {
+                return ActionWorkFailure("open run", error)
+            }
+        })
         return true
     }
 

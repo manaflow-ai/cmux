@@ -321,18 +321,19 @@ struct SandboxRunNoticeTests {
     }
 
     @Test func aRestoredPageShowsTheEndedSendAsItsOwn() async throws {
-        let seed = AgentPaneSeedSource(AgentPaneSeed())
-        #expect(seed.holdsOnlyFolder)
-        let snapshot = try #require(try JSONSerialization.jsonObject(with: Data(Self.succeeded.utf8)) as? [String: Any])
-        seed.sandboxResult = ("Fix it", "key-r1", snapshot)
+        #expect(AgentPaneSeedSource(AgentPaneSeed()).holdsOnlyFolder)
+        var value = AgentPaneSeed()
+        value.sandboxResult = .init(task: "Fix it", key: "key-r1", card: SandboxRunFollower.card(Data(Self.succeeded.utf8)))
+        // The seed a banner's click opens a workspace with (WorkspaceSpawn.firstChat) carries it to the page.
+        let seed = AgentPaneSeedSource(value)
         // A restored page never adopts the prewarmed spare: the spare's page already read its state.
         #expect(!seed.holdsOnlyFolder)
         let model = AgentPaneModel(host: NoHost(), seed: seed)
         #expect(model.sandboxRuns.holds(key: "key-r1"))
         let state = await model.respond(to: .sandboxState(wait: false))
-        let value = state["value"] as? [String: Any]
-        #expect(value?["key"] as? String == "key-r1")
-        #expect(((value?["reply"] as? [String: Any])?["value"] as? [String: Any])?["receipt"] != nil)
+        let answer = state["value"] as? [String: Any]
+        #expect(answer?["key"] as? String == "key-r1")
+        #expect(((answer?["reply"] as? [String: Any])?["value"] as? [String: Any])?["receipt"] != nil)
         // The tab's one send is spent.
         #expect(model.sandboxRuns.isRunning == false)
     }
