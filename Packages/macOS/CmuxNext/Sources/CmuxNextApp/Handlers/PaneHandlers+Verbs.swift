@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextDesign
 import CmuxNextLayout
+import CmuxNextSettings
 
 // Swap, close, rename, flash and workspace font size.
 extension PaneHandlers {
@@ -137,6 +138,12 @@ extension PaneHandlers {
         ]
         for (id, binding) in bindings {
             registry.bind(id, invoke: { invocation in
+                // The same keys change the chat's text size when its composer or transcript
+                // owns focus. The page-zoom actions remain available from the View menu/palette.
+                if let pane = ctx.scope(invocation).pane, case .agent = pane.currentContent {
+                    changeChatFontSize(id, ctx)
+                    return
+                }
                 guard let content = ctx.content(invocation) else { return }
                 var applied = 0
                 for pane in content.panes.values {
@@ -147,5 +154,26 @@ extension PaneHandlers {
                 if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
+    }
+
+    /// One point per key press, within the Settings row's range. An absent value is its 14 pt
+    /// default; reset removes the override so later default changes still apply.
+    private static func changeChatFontSize(_ id: ActionID, _ ctx: AppActionContext) {
+        guard let settings = ctx.services.settings else { return ctx.refuse(RefusalStrings.settingsNotLoaded) }
+        let path = AgentPaneDisplaySetting.fontSizePath
+        if let managed = settings.managedKey(forPath: path) {
+            return ctx.refuse(RefusalStrings.settingManaged(managed.key))
+        }
+        if id == "resetWorkspaceTerminalFontSize" {
+            ctx.writeSetting("reset chat font size", path, nil, reloadOnFailure: true)
+            return
+        }
+        let current = AgentPaneDisplaySetting(fileRoot: settings.fileRoot)
+            .values[path.joined(separator: ".")]?.doubleValue ?? AgentPaneDisplaySetting.fontSizeFallback
+        let delta = id == "increaseWorkspaceTerminalFontSize" ? 1.0 : -1.0
+        let range = AgentPaneDisplaySetting.fontSizeRange
+        let next = min(max(current + delta, range.lowerBound), range.upperBound)
+        guard next != current else { return }
+        ctx.writeSetting("change chat font size", path, .number(next), reloadOnFailure: true)
     }
 }
