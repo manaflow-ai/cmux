@@ -8113,13 +8113,10 @@ function AcpmuxPane() {
   useEffect(() => {
     if (cloudChat) void refreshCloudMachines();
   }, [cloudChat, snapshot.sessionId]);
-  // Stop and Pause waits for the turn to end before it pauses (cloudMachineMenu.ts).
+  // Stop and Pause waits for the chat's turn to end before it pauses (cloudMachineMenu.ts): its
+  // own turn state, which a forced stop's cleared working indicator does not end.
   const stopWaiter = useMemo(createStopWaiter, []);
-  const chatWorking = useRef(snapshot.isWorking);
-  chatWorking.current = snapshot.isWorking;
-  useEffect(() => {
-    if (!snapshot.isWorking) stopWaiter.ended();
-  }, [snapshot.isWorking, stopWaiter]);
+  useEffect(() => stopWaiter.changed(), [snapshot, stopWaiter]);
   const localCwd =
     summary && !summary.peer && !(summary.host && summary.hostKind !== "local") ? summary.cwd : undefined;
   instructionsFolder.current = localCwd;
@@ -8321,7 +8318,15 @@ function AcpmuxPane() {
             t,
             (method, params) => callNative(method, params),
             (picked) => void readUntilMoved(picked),
-            () => stopWaiter.wait(() => chatWorking.current),
+            () => {
+              const client = directClient.current;
+              return { session: client?.shownSession(), running: client?.turnRunning() ?? false };
+            },
+            (session) =>
+              stopWaiter.wait(() => {
+                const client = directClient.current;
+                return client?.shownSession() === session && client.turnRunning();
+              }),
           )
         : [];
     const copy = copyRow(

@@ -30,9 +30,17 @@ test("a Cloud chat's machine is the account's machine of its peer name, any case
   expect(chatCloudMachine({ hostKind: "local", host: "This Mac" }, machines)).toBeUndefined();
   expect(chatCloudMachine({ hostKind: "cloud", peer: "elsewhere" }, machines)).toBeUndefined();
   expect(chatCloudMachine(undefined, machines)).toBeUndefined();
+  // Two machines of that name: neither, so a pick never lands on the other one.
+  const twins = [...machines, { id: "vm_twin", name: "dev-vm-2", stage: "ready" }];
+  expect(chatCloudMachine({ hostKind: "cloud", peer: "dev-vm-2" }, twins)).toBeUndefined();
 });
 
-function rows(machine: CloudMachine | undefined, working: boolean, stops = true) {
+function rows(
+  machine: CloudMachine | undefined,
+  working: boolean,
+  stops = true,
+  state: { session: string | undefined; running: boolean } = { session: "s1", running: working },
+) {
   const calls: [string, unknown][] = [];
   let reads = 0;
   const call = async (method: string, params?: Record<string, unknown>) => {
@@ -46,8 +54,9 @@ function rows(machine: CloudMachine | undefined, working: boolean, stops = true)
     t,
     call,
     () => (reads += 1),
-    async () => {
-      calls.push(["(turn ended?)", stops]);
+    () => ({ ...state }),
+    async (session) => {
+      calls.push(["(turn ended?)", session]);
       return stops;
     },
   );
@@ -56,7 +65,7 @@ function rows(machine: CloudMachine | undefined, working: boolean, stops = true)
     item.onSelect!();
     await new Promise((resolve) => setTimeout(resolve, 0));
   };
-  return { items, calls, pick, reads: () => reads };
+  return { items, calls, pick, reads: () => reads, state };
 }
 
 const label = (item: ChatMenuItem | undefined) => (item && item !== "separator" ? item.label : undefined);
@@ -75,9 +84,27 @@ test("while the chat's turn runs, Pause says it stops the turn and stops it firs
   await r.pick();
   expect(r.calls).toEqual([
     ["chat.cancel", undefined],
-    ["(turn ended?)", true],
+    ["(turn ended?)", "s1"],
     ["cloudMachine.pause", { id: "vm_run" }],
   ]);
+});
+
+test("the pick reads the chat's turn when it runs, not when the menu was drawn", async () => {
+  // Drawn while idle; a turn began before the click: it is stopped first all the same.
+  const r = rows(machines[0], false, true, { session: "s1", running: true });
+  await r.pick();
+  expect(r.calls.map(([method]) => method)).toEqual(["chat.cancel", "(turn ended?)", "cloudMachine.pause"]);
+});
+
+test("a pick for a chat the pane has left pauses nothing", async () => {
+  const r = rows(machines[0], false);
+  const pick = (r.items[0] as Exclude<ChatMenuItem, "separator">).onSelect!;
+  pick();
+  // The pane shows another chat by the time the pick runs its check.
+  r.state.session = "s2";
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(r.calls).toEqual([]);
+  expect(r.reads()).toBe(1);
 });
 
 test("a turn that has not stopped is not frozen: no pause, and the list is read again", async () => {
@@ -85,7 +112,7 @@ test("a turn that has not stopped is not frozen: no pause, and the list is read 
   await r.pick();
   expect(r.calls).toEqual([
     ["chat.cancel", undefined],
-    ["(turn ended?)", false],
+    ["(turn ended?)", "s1"],
   ]);
   expect(r.reads()).toBe(1);
 });
@@ -93,12 +120,16 @@ test("a turn that has not stopped is not frozen: no pause, and the list is read 
 test("a wait for the turn ends when the turn does, or after its timeout", async () => {
   const waiter = createStopWaiter();
   expect(await waiter.wait(() => false)).toBe(true);
-  const waiting = waiter.wait(() => true, 60_000);
-  waiter.ended();
+  let running = true;
+  const waiting = waiter.wait(() => running, 60_000);
+  // A change that leaves the turn running (a forced stop clears only the indicator) ends nothing.
+  waiter.changed();
+  running = false;
+  waiter.changed();
   expect(await waiting).toBe(true);
   expect(await waiter.wait(() => true, 5)).toBe(false);
-  // A wait that ended is not resolved again by a later end.
-  waiter.ended();
+  // A wait that ended is not resolved again by a later change.
+  waiter.changed();
 });
 
 test("a paused machine offers Resume; one starting or not the account's offers nothing", async () => {

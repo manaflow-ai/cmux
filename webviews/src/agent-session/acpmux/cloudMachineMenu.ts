@@ -6,7 +6,8 @@
 // turn mid-call, and a stopped turn ends on the chat's hand-off as stopped (acpmux reports it,
 // daemon/cloud_handoff.rs) instead of reading as running while the machine sleeps. A stop
 // request returns before the turn stops, so the pause waits for the turn to end
-// (`StopWaiter`) and is not sent if the turn still runs after STOP_WAIT_MS.
+// (`StopWaiter`, on the chat's own turn state, not the working indicator a forced stop clears)
+// and is not sent if the turn still runs after STOP_WAIT_MS, or if the pane shows another chat.
 import type { ChatMenuItem } from "./header/ChatHeaderTools";
 import type { CloudMachine } from "./cloudMachines";
 import type { Translate } from "./i18n";
@@ -16,11 +17,11 @@ type Call = (method: string, params?: Record<string, unknown>) => Promise<unknow
 /// How long Stop and Pause waits for the chat's turn to end before it gives up on the pause.
 export const STOP_WAIT_MS = 10_000;
 
-/// Resolves waits for the chat's turn to end. The pane calls `ended` when its turn is no longer
-/// running; each wait also ends after its own timeout, so none outlives STOP_WAIT_MS.
+/// Resolves waits for the chat's turn to end. The pane calls `changed` when its chat's state
+/// changes; each wait also ends after its own timeout, so none outlives STOP_WAIT_MS.
 export type StopWaiter = {
-  /// The chat's turn is no longer running: every wait resolves true.
-  ended(): void;
+  /// The chat's state changed: each wait whose turn no longer runs resolves true.
+  changed(): void;
   /// True once the turn ends (at once when `working()` is false), false after `ms`.
   wait(working: () => boolean, ms?: number): Promise<boolean>;
 };
@@ -28,28 +29,31 @@ export type StopWaiter = {
 export function createStopWaiter(): StopWaiter {
   const waiting = new Set<() => void>();
   return {
-    ended() {
+    changed() {
       // A Set may lose its current entry while it is iterated (each wait removes itself).
-      for (const done of waiting) done();
+      for (const check of waiting) check();
     },
     wait(working, ms = STOP_WAIT_MS) {
       if (!working()) return Promise.resolve(true);
       return new Promise((resolve) => {
         const finish = (stopped: boolean) => {
           clearTimeout(timer);
-          waiting.delete(onEnded);
+          waiting.delete(check);
           resolve(stopped);
         };
-        const onEnded = () => finish(true);
+        const check = () => {
+          if (!working()) finish(true);
+        };
         const timer = setTimeout(() => finish(false), ms);
-        waiting.add(onEnded);
+        waiting.add(check);
       });
     },
   };
 }
 
 /// The account's machine the chat runs on: a Cloud chat whose peer is one of the account's
-/// machines by name (any case).
+/// machines by name (any case). Two machines of that name (names are not unique) give none:
+/// a pause or resume must never land on the other one.
 export function chatCloudMachine(
   summary: { peer?: unknown; host?: unknown; hostKind?: unknown } | undefined,
   machines: readonly CloudMachine[],
@@ -58,31 +62,38 @@ export function chatCloudMachine(
   const name = typeof summary.peer === "string" && summary.peer ? summary.peer : summary.host;
   if (typeof name !== "string" || !name) return undefined;
   const lower = name.toLowerCase();
-  return machines.find((machine) => machine.name.toLowerCase() === lower);
+  const named = machines.filter((machine) => machine.name.toLowerCase() === lower);
+  return named.length === 1 ? named[0] : undefined;
 }
 
 /// The menu rows for the chat's machine: Pause while it runs (stopping a running turn first),
 /// Resume while it is paused, none while it starts, fails or is not one of the account's.
 /// Each row's pick is the person's click (the app runs it only on a gesture); `after` reads the
-/// account's list again so the next look shows the machine's new stage. `stopped` resolves true
-/// once the chat's turn has ended after a stop (false: it still runs, and nothing is paused).
+/// account's list again so the next look shows the machine's new stage. `live` is the chat the
+/// pane shows now and whether its turn runs, read at the pick (not when the menu was drawn);
+/// `stopped(session)` resolves true once that chat's turn has ended after a stop (false: it still
+/// runs, and nothing is paused).
 export function cloudMachineRows(
   machine: CloudMachine | undefined,
   working: boolean,
   t: Translate,
   call: Call,
   after: (machine: CloudMachine) => void,
-  stopped: () => Promise<boolean>,
+  live: () => { session: string | undefined; running: boolean },
+  stopped: (session: string | undefined) => Promise<boolean>,
 ): ChatMenuItem[] {
   if (!machine) return [];
   const run = (method: string) => () =>
     void (async () => {
+      const { session, running } = live();
       try {
-        if (method === "cloudMachine.pause" && working) {
+        if (method === "cloudMachine.pause" && running) {
           await call("chat.cancel");
           // A paused machine would freeze a turn that has not stopped yet: no pause then.
-          if (!(await stopped())) return;
+          if (!(await stopped(session))) return;
         }
+        // The pane moved to another chat meanwhile: this pick was for the one it left.
+        if (live().session !== session) return;
         await call(method, { id: machine.id });
       } catch {
         // The app refused (no gesture, the machine moved on): the list read shows its stage.

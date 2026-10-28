@@ -135,9 +135,11 @@ export function runCloudMachine(machine: CloudMachine, call: Call = postNative):
 }
 
 /// After a pause or resume the app runs the action in the background and its list catches up
-/// when the action's own list read lands: the list is read at these waits (ms) after the pick,
-/// and the reads stop once the machine's stage moved on, or after the last one (15 s in all).
-export const ACTION_READS_MS = [0, 1_000, 2_000, 4_000, 8_000];
+/// when the action's own list read lands (a resume may take as long as a machine's start, up to
+/// 16 minutes): the list is read at these waits (ms) after the pick, from every second to every
+/// minute, and the reads stop once the machine's stage moved on, or after the last one (16
+/// minutes in all).
+export const ACTION_READS_MS = [0, 1_000, 2_000, 4_000, 8_000, 15_000, 30_000, ...Array<number>(15).fill(60_000)];
 
 const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 

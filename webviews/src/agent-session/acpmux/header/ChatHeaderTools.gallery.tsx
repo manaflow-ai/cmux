@@ -326,6 +326,7 @@ const keyboardSubmenu: Play = async (ctx) => {
 const noop = () => undefined;
 const noCall = async () => undefined;
 const noStop = async () => true;
+const noLive = () => ({ session: undefined, running: false });
 const galleryT = translate;
 const withMachine = (machine: ChatMenuItem[]): ChatMenuItem[] => {
   const rows = menuRows();
@@ -595,7 +596,7 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop, noStop),
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, false, galleryT, noCall, noop, noLive, noStop),
           ),
       },
       play: openMenu,
@@ -607,7 +608,7 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop, noStop),
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "ready" }, true, galleryT, noCall, noop, noLive, noStop),
           ),
       },
       play: openMenu,
@@ -619,7 +620,7 @@ export default componentEntry<HeaderToolsProps>({
         ...base,
         menu: () =>
           withMachine(
-            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop, noStop),
+            cloudMachineRows({ id: "vm_1", name: "dev-vm-2", stage: "paused" }, false, galleryT, noCall, noop, noLive, noStop),
           ),
       },
       play: openMenu,
