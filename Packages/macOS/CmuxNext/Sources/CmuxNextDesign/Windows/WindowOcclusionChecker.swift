@@ -114,8 +114,9 @@ public nonisolated struct WindowOcclusionRule: Sendable {
 /// (``windowsDidReorder()``). As in Chrome, events coalesce into one pass on a later main turn
 /// (`performSelector:afterDelay:0`), so the owner's reaction never runs inside a window
 /// notification: one `visible` task on the app's scheduler (a window coming back on screen resumes
-/// its frames). The notices whose handler needs no sender come through one ``AppEvents`` fan-out,
-/// the displays' sleep through the app's workspace one.
+/// its frames). As in Chrome, a child window's notices start no pass (`-windowCanTriggerOcclusionUpdates:`):
+/// it is never judged and moves with its parent. The notices whose handler needs no sender come through
+/// one ``AppEvents`` fan-out, the displays' sleep through the app's workspace one.
 ///
 /// ```swift
 /// let checker = WindowOcclusionChecker(windows: { controllers.compactMap(\.window) },
@@ -205,6 +206,14 @@ public nonisolated struct WindowOcclusionRule: Sendable {
         on(NSWindow.willCloseNotification) { [weak self] in self?.windowWillClose($0) }  // raw-observer-allow: reads the sender
         on(NSWindow.willEnterFullScreenNotification) { [weak self] in self?.fullscreenTransition = $0 }  // raw-observer-allow: reads the sender
         on(NSWindow.willExitFullScreenNotification) { [weak self] in self?.fullscreenTransition = $0 }  // raw-observer-allow: reads the sender
+        // A child window's own occlusion or main change starts no pass: it is not in `orderedWindows`, is never
+        // judged and moves with its parent, so it changes no verdict. A new tab or split orders overlay panels,
+        // divider catchers and page windows as children, and each pass waits on the window server for the order
+        // (Chrome: `-windowCanTriggerOcclusionUpdates:`, components/remote_cocoa/app_shim/window_occlusion_checker_mac.mm).
+        let topLevelPass: @MainActor (NSWindow) -> Void = { [weak self] window in if window.parent == nil { self?.schedule() } }
+        on(NSWindow.didChangeOcclusionStateNotification, topLevelPass)  // raw-observer-allow: reads the sender
+        on(NSWindow.didBecomeMainNotification, topLevelPass)  // raw-observer-allow: reads the sender
+        on(NSWindow.didResignMainNotification, topLevelPass)  // raw-observer-allow: reads the sender
         let owner = "WindowOcclusionChecker"
         let pass: @MainActor () -> Void = { [weak self] in self?.schedule() }
         let fullscreenEnded: @MainActor () -> Void = { [weak self] in
@@ -212,9 +221,6 @@ public nonisolated struct WindowOcclusionRule: Sendable {
             self?.schedule()
         }
         subscriptions = [
-            notices.subscribe(NSWindow.didChangeOcclusionStateNotification, owner: owner, pass),
-            notices.subscribe(NSWindow.didBecomeMainNotification, owner: owner, pass),
-            notices.subscribe(NSWindow.didResignMainNotification, owner: owner, pass),
             notices.subscribe(NSWindow.didEnterFullScreenNotification, owner: owner, fullscreenEnded),
             notices.subscribe(NSWindow.didExitFullScreenNotification, owner: owner, fullscreenEnded),
             // Hiding the app orders every window out without an occlusion change of its own.
