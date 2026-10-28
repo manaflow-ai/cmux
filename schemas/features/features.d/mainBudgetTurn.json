@@ -1,0 +1,13 @@
+{
+  "name": "mainBudgetTurn",
+  "owner": "Performance Lead",
+  "description": "The main thread's budgeted batch runs in its own run-loop turn right after the frame's commit, on shares scaled to the display's refresh rate, instead of inside the display tick.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["automation-typing", "typing-stress"],
+  "sticky": false,
+  "runtimeMutable": false
+}

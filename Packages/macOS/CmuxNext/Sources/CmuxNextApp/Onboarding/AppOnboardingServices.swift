@@ -102,14 +102,9 @@ final class AppOnboardingServices: OnboardingServices {
     /// the import, since an "Always Allow" on the Keychain prompt means no
     /// prompt follows.
     func authorizePasswordRead(reason: String) async -> Bool {
-        let context = LAContext()
-        var unavailable: NSError?
-        // SAFETY: the error pointer is a local live for the call; LocalAuthentication stores at most one
-        // autoreleased NSError through it and keeps no reference to the pointer.
-        guard unsafe context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &unavailable) else {
-            return unavailable?.domain == LAErrorDomain && unavailable?.code == LAError.Code.passcodeNotSet.rawValue
-        }
-        return (try? await context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason)) ?? false
+        // No synchronous canEvaluatePolicy on main: evaluatePolicy fails at once with the same error.
+        do { return try await LAContext().evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) }
+        catch { return (error as? LAError)?.code == .passcodeNotSet }
     }
 
     func openExternal(_ url: URL) { NSWorkspace.shared.openInBackground(url) }

@@ -24,7 +24,7 @@ import CmuxNextDesign
 /// it shows again). The chrome syncs on layout and window, superview and
 /// hidden changes; a move of the window's pages without a resize (a pane
 /// swap) arrives as the window's page update request
-/// (`BrowserPageUpdates`).
+/// (`ChildPageGeometryRegistry`): only the page's own window's requests reach the cards.
 @MainActor
 final class PageFloatingOverlays {
     private struct Card {
@@ -37,13 +37,11 @@ final class PageFloatingOverlays {
 
     private var cards: [Card] = []
     private weak var page: NSView?
-    private var pagesObserver: MainActorObservation?
-    /// Where the window's page update requests arrive: `.default` in the app, a private center in tests.
-    private let pageUpdateCenter: NotificationCenter
+    /// The cards' place in the page's window's `ChildPageGeometryRegistry`, while they have cards there.
+    private var pageUpdates: (registry: ChildPageGeometryRegistry, registration: ChildPageGeometryRegistry.Registration)?
 
-    init(page: NSView, pageUpdateCenter: NotificationCenter = .default) {
+    init(page: NSView) {
         self.page = page
-        self.pageUpdateCenter = pageUpdateCenter
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -64,7 +62,7 @@ final class PageFloatingOverlays {
         guard !cards.contains(where: { $0.view === view }) else { return }
         view.translatesAutoresizingMaskIntoConstraints = true
         cards.append(Card(view: view, lift: lift))
-        observePages()
+        followPages(of: page?.window)
     }
 
     /// `view` starts to fade out: from now on clicks pass through it to the
@@ -79,7 +77,7 @@ final class PageFloatingOverlays {
     func remove(_ view: NSView) {
         guard let index = cards.firstIndex(where: { $0.view === view }) else { return }
         cards.remove(at: index).handle?.dismiss()
-        if cards.isEmpty { pagesObserver = nil }
+        if cards.isEmpty { pageUpdates = nil }
     }
 
     /// Places every card over the page when it shows in a window, else
@@ -89,6 +87,7 @@ final class PageFloatingOverlays {
     /// card.
     func sync() {
         guard !cards.isEmpty, let page else { return }
+        followPages(of: page.window)
         // visibility-walk-allow: the cards are child windows placed over the page AppKit shows; a node would place them a turn after the page
         guard let window = page.window, !page.isHiddenOrHasHiddenAncestor else {
             for index in cards.indices { dismiss(index) }
@@ -132,14 +131,23 @@ final class PageFloatingOverlays {
         return host.acceptsMouse(at: NSPoint(x: frame.midX, y: frame.midY))
     }
 
-    /// The window's pages moved or were re-clipped without a layout of this
-    /// chrome (a pane swap of equal size): the cards follow.
-    private func observePages() {
-        guard pagesObserver == nil else { return }
-        pagesObserver = BrowserPageUpdates.observe(of: nil, center: pageUpdateCenter) { [weak self] update in
-            guard let self, let window = update.window, window === self.page?.window else { return }
-            self.sync()
+    /// The page's window's pages moved or were re-clipped without a layout of
+    /// this chrome (a pane swap of equal size): the cards follow. Only that
+    /// window's page updates reach them; a page that changed window takes its
+    /// cards to the new window's registry on the next sync.
+    private func followPages(of window: NSWindow?) {
+        guard let window else {
+            pageUpdates = nil
+            return
         }
+        let registry = ChildPageGeometryRegistry.of(window)
+        guard pageUpdates?.registry !== registry else { return }
+        // Cards are not pages: they report no page change.
+        let registration = registry.register { [weak self] _ in
+            self?.sync()
+            return false
+        }
+        pageUpdates = (registry, registration)
     }
 
     private func dismiss(_ index: Int) {

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 
 /// New system crash and hang reports (`.ips`) of cmux processes in
 /// `~/Library/Logs/DiagnosticReports`. Each becomes one `crash` event naming the process,
@@ -34,17 +35,16 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
     /// Reports dated after now (plus ``clockSlack``) wait for their date, so the cursor it
     /// returns is always one ``cursorDate(_:now:)`` accepts on the next harvest.
     func harvest(after cursor: String?) -> ErrorHarvest {
-        let files = FileManager()
         let now = self.now()
         let latest = now.addingTimeInterval(Self.clockSlack)
         let since = cursor.flatMap { Self.cursorDate($0, now: now) } ?? now.addingTimeInterval(-firstLookBack)
-        let names = (try? files.contentsOfDirectory(atPath: directory.path)) ?? []
+        let names = (try? FileManager.checked.contentsOfDirectory(atPath: directory.path)) ?? []
         var newest = since
         var events: [ErrorEvent] = []
         for name in names where name.hasSuffix(".ips") && prefixes.contains(where: { name.lowercased().hasPrefix($0) }) {
             let url = directory.appendingPathComponent(name)
             // Regular files only: opening a FIFO named like a report would wait for a writer forever.
-            guard let attributes: [FileAttributeKey: Any] = try? files.attributesOfItem(atPath: url.path),
+            guard let attributes: [FileAttributeKey: Any] = try? FileManager.checked.attributesOfItem(atPath: url.path),
                   attributes[.type] as? FileAttributeType == .typeRegular,
                   let modified = attributes[.modificationDate] as? Date, modified > since, modified <= latest else { continue }
             newest = max(newest, modified)
@@ -75,9 +75,9 @@ public struct CrashReportErrorSource: ErrorHarvestSource {
     static let maxCursorAge: TimeInterval = 365 * 86400
 
     static func event(report url: URL, modified: Date) -> ErrorEvent {
-        let head = (try? FileHandle(forReadingFrom: url)).flatMap { handle -> Data? in
+        let head = (try? FileHandle.blockingForReading(from: url)).flatMap { handle -> Data? in
             defer { try? handle.close() }
-            return try? handle.read(upToCount: 64 << 10)
+            return try? handle.blockingRead(upToCount: 64 << 10)
         } ?? Data()
         let text = String(decoding: head, as: UTF8.self)
         let header = text.split(separator: "\n", maxSplits: 1).first.flatMap {

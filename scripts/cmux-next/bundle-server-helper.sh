@@ -36,15 +36,18 @@
 # fails, so the app registers the agent only behind the Debug Settings switch
 # `server.agent.allowRegister` (off by default) until the server stack ships.
 #
-# The helper is compiled with swiftc from Packages/macOS/CmuxNext/Sources/
-# CmuxNextServerHelper (its package dependencies are compiled first the same way:
-# Packages/Shared/CmuxSafeConcurrency, whose OnceContinuation the helper uses and
-# whose Mutex CmuxNextCompat's wraps, with its header-only C module
-# CmuxSafeConcurrencyAtomics through a module map; then CmuxNextCompat,
-# Mutex.swift and Threading/Process+OwnThread.swift only: Atomic.swift needs
-# swift-atomics, which the helper does not use) and CmuxNextServerHelperDaemon/
+# The helper is compiled with swiftc, whole modules only, in dependency order
+# (HELPER_MODULES below): Packages/Shared/CmuxSafeConcurrency (OnceContinuation;
+# its header-only C module CmuxSafeConcurrencyAtomics through a module map),
+# Packages/Shared/CmuxThreading (Mutex), CmuxNextCompatCore (runOnOwnThread, the
+# signing-team read), CmuxNextServerHelper, then CmuxNextServerHelperDaemon's
 # main.swift, one slice per arch in $ARCHS: resolving the whole CmuxNext package
 # for one small executable would fetch every remote dependency inside the phase.
+# Each module is every .swift file under its target folder, so no file list can
+# go stale; the helper never depends on CmuxNextCompat (swift-atomics, the app's
+# blocking detector). A hand-picked subset of Compat's files went stale once
+# (SigningTeamInstall, p02-threads-054..055: every Mac build failed). The modules
+# here must be the helper target's dependency closure in Package.swift.
 # scripts/sign-cmux-bundle-helpers.sh signs it for Developer ID with no
 # entitlements; here it gets the build's identity. Its identifier is
 # cmux-server-helper (the file name) in both places. The plists are resources
@@ -162,12 +165,21 @@ helper="$app/Contents/Resources/libexec/cmux-server-helper"
 root="${SRCROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
 sources="$root/Packages/macOS/CmuxNext/Sources"
 safe_sources="$root/Packages/Shared/CmuxSafeConcurrency/Sources"
+# The helper's library modules in dependency order: name, sources folder, flags ("safe": the Shared packages'
+# own settings, "next": CmuxNext's daemonSwiftSettings). Each compiles from every .swift file under its folder.
+HELPER_MODULES=(
+  "CmuxSafeConcurrency|$safe_sources/CmuxSafeConcurrency|safe"
+  "CmuxThreading|$root/Packages/Shared/CmuxThreading/Sources/CmuxThreading|safe"
+  "CmuxNextCompatCore|$sources/CmuxNextCompatCore|next"
+  "CmuxNextServerHelper|$sources/CmuxNextServerHelper|next"
+)
 work="${TARGET_TEMP_DIR:-$(mktemp -d)}/server-helper"
 min_macos="${MACOSX_DEPLOYMENT_TARGET:-14.0}"
 optimize="-O"
 [[ "${CONFIGURATION:-Debug}" == "Debug" ]] && optimize="-Onone"
 swift_flags=(
   -swift-version 6
+  -strict-memory-safety
   -enable-upcoming-feature NonisolatedNonsendingByDefault
   -enable-upcoming-feature InferIsolatedConformances
   -enable-upcoming-feature ExistentialAny
@@ -184,7 +196,7 @@ if command -v dsymutil >/dev/null 2>&1; then
 else
   echo "note: no dsymutil on PATH: the server helper builds without a dSYM" >&2
 fi
-# CmuxSafeConcurrency's own settings (its Package.swift).
+# CmuxSafeConcurrency's and CmuxThreading's own settings (their Package.swift).
 safe_flags=(
   -swift-version 6
   -strict-memory-safety
@@ -204,23 +216,23 @@ for arch in $archs; do
   # so a module map is all swiftc needs; -I "$out" finds it for every module that loads it.
   printf 'module CmuxSafeConcurrencyAtomics {\n  header "%s"\n  export *\n}\n' \
     "$safe_sources/CmuxSafeConcurrencyAtomics/include/CmuxSafeConcurrencyAtomics.h" > "$out/module.modulemap"
-  xcrun swiftc "${safe_flags[@]}" -target "$target" -parse-as-library \
-    -I "$out" \
-    -module-name CmuxSafeConcurrency -emit-module -emit-module-path "$out/CmuxSafeConcurrency.swiftmodule" \
-    -emit-library -static -o "$out/libCmuxSafeConcurrency.a" \
-    "$safe_sources"/CmuxSafeConcurrency/*.swift
-  xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
-    -I "$out" \
-    -module-name CmuxNextCompat -emit-module -emit-module-path "$out/CmuxNextCompat.swiftmodule" \
-    -emit-library -static -o "$out/libCmuxNextCompat.a" \
-    "$sources"/CmuxNextCompat/Mutex.swift "$sources"/CmuxNextCompat/Threading/Process+OwnThread.swift
-  xcrun swiftc "${swift_flags[@]}" -target "$target" -parse-as-library \
-    -I "$out" \
-    -module-name CmuxNextServerHelper -emit-module -emit-module-path "$out/CmuxNextServerHelper.swiftmodule" \
-    -emit-library -static -o "$out/libCmuxNextServerHelper.a" \
-    "$sources"/CmuxNextServerHelper/*.swift
+  link=()
+  for spec in "${HELPER_MODULES[@]}"; do
+    IFS='|' read -r module folder kind <<<"$spec"
+    module_sources=()
+    while IFS= read -r file; do module_sources+=("$file"); done < <(find "$folder" -name '*.swift' -type f | LC_ALL=C sort)
+    [[ ${#module_sources[@]} -gt 0 ]] || { echo "error: bundle-server-helper: no Swift sources in $folder" >&2; exit 1; }
+    if [[ "$kind" == safe ]]; then flags=("${safe_flags[@]}"); else flags=("${swift_flags[@]}"); fi
+    xcrun swiftc "${flags[@]}" -target "$target" -parse-as-library \
+      -I "$out" \
+      -module-name "$module" -emit-module -emit-module-path "$out/$module.swiftmodule" \
+      -emit-library -static -o "$out/lib$module.a" \
+      "${module_sources[@]}"
+    # Dependents link first. `${link[@]+...}`: macOS's bash 3.2 calls an empty array unbound under `set -u`.
+    link=("-l$module" ${link[@]+"${link[@]}"})
+  done
   xcrun swiftc "${swift_flags[@]}" -target "$target" -module-name cmux_server_helper \
-    -I "$out" -L "$out" -lCmuxNextServerHelper -lCmuxNextCompat -lCmuxSafeConcurrency \
+    -I "$out" -L "$out" "${link[@]}" \
     -o "$out/cmux-server-helper" "$sources/CmuxNextServerHelperDaemon/main.swift"
   # The driver writes the dSYM when it links with debug info; if it did not,
   # dsymutil reads what the static libraries hold.

@@ -162,7 +162,7 @@ import Testing
     @Test func aHiddenViewStaysHiddenAcrossItsWindow() {
         let window = FakeWindow()
         let view = ChromiumHostPageView(frame: window.container.bounds, inputTarget: .view,
-                                        makeLayerHost: { _ in CALayer() }, pageUpdateCenter: NotificationCenter())
+                                        makeLayerHost: { _ in CALayer() }, windowEventCenter: NotificationCenter())
         view.visibilitySource = window.source
         var seen: [ChromiumHostPageVisibility] = []
         view.onPageVisibility = { seen.append($0) }

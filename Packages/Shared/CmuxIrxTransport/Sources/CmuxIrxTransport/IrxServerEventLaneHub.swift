@@ -147,6 +147,7 @@ public actor IrxServerEventLaneHub {
             var aligner = IrxEventFrameAligner(maximumFrameByteCount: maximumFrameByteCount)
             var stopCode: UInt64?
             do {
+                // wakeup-allow: bounded each pass awaits one lane read; EOF or an error ends it
                 while !Task.isCancelled, let chunk = try await reader.readRaw() {
                     guard !chunk.isEmpty else { continue }
                     guard let frames = try aligner.append(chunk) else { continue }
