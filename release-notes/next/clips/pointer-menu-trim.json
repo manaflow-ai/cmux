@@ -8,7 +8,9 @@
       "metrics": {
         "sidebarWidth": 240,
         "titlebarHeight": 32,
-        "tabMaxWidth": 200
+        "tabMaxWidth": 200,
+        "tabMinActiveWidth": 200,
+        "tabMinInactiveWidth": 200
       }
     },
     "window": {
@@ -48,13 +50,30 @@
     },
     {
       "title": "A public workspace",
-      "cmux": [
-        "workspace",
-        "new",
-        "--name",
-        "Release review"
-      ],
-      "wait": 2
+      "wait": 2,
+      "rpc": {
+        "method": "action.run",
+        "params": {
+          "action": "newTab",
+          "args": {
+            "name": "Release review",
+            "command": "printf 'Release review\\n'; exec /bin/cat"
+          },
+          "focus": true,
+          "wait": true
+        }
+      }
+    },
+    {
+      "title": "Select Release review through its sidebar row",
+      "rpc": {
+        "method": "debug.mouse",
+        "params": {
+          "action": "click",
+          "row": "Release review"
+        }
+      },
+      "wait": 1
     },
     {
       "title": "A public guide page",
@@ -62,18 +81,10 @@
         "tab",
         "new-browser",
         "--url",
-        "https://example.com"
+        "https://example.org",
+        "--focus"
       ],
       "wait": 3
-    },
-    {
-      "title": "Put the guide in the first tab",
-      "cmux": [
-        "action",
-        "run",
-        "moveSurfaceLeft"
-      ],
-      "wait": 0.5
     },
     {
       "title": "A second public page",
@@ -81,42 +92,46 @@
         "tab",
         "new-browser",
         "--url",
-        "https://example.org"
+        "https://example.net",
+        "--focus"
       ],
       "wait": 3
     },
     {
-      "title": "Report the tab strip geometry before clicking",
+      "title": "Set the comparison appearance before opening the native menu",
       "rpc": {
-        "method": "debug.pane_chrome",
-        "params": {}
+        "method": "debug.appearance",
+        "params": {
+          "mode": "light"
+        }
       },
-      "wait": 0.8
+      "wait": 0.5
     },
     {
-      "title": "Right-click the first browser tab",
+      "title": "Right-click a browser tab in the selected workspace",
       "rpc": {
         "method": "debug.mouse",
         "params": {
           "action": "click",
           "button": "right",
-          "x": 300,
+          "x": 550,
           "y": 46
         }
       },
-      "wait": 3,
+      "wait": 2,
       "clip": true
     },
     {
       "title": "Keep the native menu open for the final stills",
-      "wait": 0.3
+      "wait": 1,
+      "clip": true
     }
   ],
   "crop": [
-    0.19,
+    0.44,
     0.03,
-    0.48,
-    0.66
+    0.36,
+    0.6
   ],
   "lead": 0.6,
   "hold": 1.2
