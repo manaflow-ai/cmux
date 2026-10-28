@@ -149,7 +149,7 @@ async fn turning_chats_off_hides_every_chat_and_survives_a_restart() {
         use std::os::unix::fs::PermissionsExt;
         assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     }
-    let restarted = ChatService::start(sources(&h.0));
+    let restarted = ChatService::start(sources(&h.0), acpmux::supervised::embedded());
     assert!(!restarted.enabled());
     assert!(restarted.list(&Default::default()).0.is_empty());
 
