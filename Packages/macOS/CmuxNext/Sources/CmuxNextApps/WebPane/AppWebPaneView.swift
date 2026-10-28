@@ -42,7 +42,18 @@ public final class AppWebPaneView: NSView, WKNavigationDelegate {
         configuration.setURLSchemeHandler(AppWebPaneSchemeHandler(pane: pane), forURLScheme: AppWebPane.scheme)
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.preferences.isElementFullscreenEnabled = false
+        // No network the content policy cannot see: WebRTC (ICE reaches any STUN or TURN host)
+        // and DNS prefetch (a lookup carries data in the name). WebKit has no public switch for
+        // either; skip a key this WebKit does not answer rather than raise.
+        for (key, setter) in [("peerConnectionEnabled", "_setPeerConnectionEnabled:"),
+                              ("DNSPrefetchingEnabled", "_setDNSPrefetchingEnabled:")]
+            // crash-allow: a fixed private setter name, only checked with responds(to:); no message is sent.
+            where configuration.preferences.responds(to: NSSelectorFromString(setter)) {
+            // crash-allow: guarded by responds(to:) on the private setter this KVC key resolves to; absent on older WebKit, skipped.
+            configuration.preferences.setValue(false, forKey: key)
+        }
         let content = configuration.userContentController
+        content.addUserScript(AppWebPaneBridge.noPeerConnections)
         content.addUserScript(AppWebPaneBridge.script(appID: pane.appID))
         content.addScriptMessageHandler(bridge, contentWorld: .page, name: AppWebPaneBridge.handlerName)
         webView = WKWebView(frame: .zero, configuration: configuration)

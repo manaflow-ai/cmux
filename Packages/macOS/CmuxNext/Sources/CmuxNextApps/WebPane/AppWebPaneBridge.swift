@@ -97,18 +97,23 @@ final class AppWebPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         ["ok": false, "code": code, "message": message]
     }
 
+    /// No peer connections: ICE talks to any STUN or TURN host, which neither the content policy
+    /// nor the egress gate sees. ``AppWebPaneView`` turns WebRTC off in the preferences; this
+    /// removes the constructors as well, in every frame (a same-origin `about:blank` child frame
+    /// has its own copies), before the frame's first script.
+    static let noPeerConnections = WKUserScript(source: """
+        for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel",
+                            "RTCSessionDescription", "RTCIceCandidate"]) {
+          try { delete window[name]; } catch {}
+          try { Object.defineProperty(window, name, { value: undefined, writable: false, configurable: false }); } catch {}
+        }
+        """, injectionTime: .atDocumentStart, forMainFrameOnly: false)
+
     /// The page's `cmux` object, injected before any page script runs.
     static func script(appID: String) -> WKUserScript {
         let app = (try? String(data: JSONSerialization.data(withJSONObject: [appID]), encoding: .utf8)) ?? "[\"\"]"
         let source = """
         (() => {
-          // No peer connections: ICE talks to any STUN or TURN host, which neither the content
-          // policy nor the egress gate sees. Gone before the page's first script, for good.
-          for (const name of ["RTCPeerConnection", "webkitRTCPeerConnection", "RTCDataChannel",
-                              "RTCSessionDescription", "RTCIceCandidate"]) {
-            try { delete window[name]; } catch {}
-            try { Object.defineProperty(window, name, { value: undefined, writable: false, configurable: false }); } catch {}
-          }
           const handler = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
           if (!handler) return;
           const post = handler.postMessage.bind(handler);

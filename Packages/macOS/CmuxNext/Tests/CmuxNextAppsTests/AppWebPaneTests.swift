@@ -89,9 +89,15 @@ struct AppWebPaneTests {
         // No peer connections, and the page cannot bring them back.
         let rtc = try await view.webView.callAsyncJavaScript("""
             try { window.RTCPeerConnection = function () {}; } catch {}
-            return [typeof RTCPeerConnection, typeof webkitRTCPeerConnection, typeof RTCDataChannel].join(",");
+            const blank = document.body.appendChild(document.createElement("iframe")).contentWindow;
+            const doc = document.createElement("iframe");
+            doc.srcdoc = "<p>child</p>";
+            document.body.appendChild(doc);
+            return [typeof RTCPeerConnection, typeof webkitRTCPeerConnection, typeof RTCDataChannel,
+                    typeof blank.RTCPeerConnection, typeof doc.contentWindow.RTCPeerConnection].join(",");
             """, arguments: [:], in: nil, contentWorld: .page) as? String
-        #expect(rtc == "undefined,undefined,undefined", "\(rtc ?? "nil")")
+        // A child frame (blank or `srcdoc`) is the same origin with its own constructors.
+        #expect(rtc == "undefined,undefined,undefined,undefined,undefined", "\(rtc ?? "nil")")
 
         let (refused, refusal) = AsyncStream.makeStream(of: Void.self)
         view.onRefusedNavigation = { refusal.yield() }

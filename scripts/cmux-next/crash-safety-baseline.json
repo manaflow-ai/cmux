@@ -137,6 +137,7 @@
   "swift": {
    "dynamic_dispatch": {
     "CmuxNextAgentPane": 2,
+    "CmuxNextApps": 2,
     "CmuxNextBrowser": 11,
     "CmuxNextBrowserAutomation": 5,
     "CmuxNextDesign": 5,
