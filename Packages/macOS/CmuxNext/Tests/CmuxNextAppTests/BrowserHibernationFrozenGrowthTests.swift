@@ -136,7 +136,8 @@ struct BrowserHibernationFrozenGrowthTests {
         try await rig.until("every hidden page freezes with a baseline") {
             keys.allSatisfy { rig.hibernation.frozenGrowth.pages[$0]?.baseline != nil }
         }
-        // Linked once frozen: a group with a shown member does not freeze (`FreezeEligibility`).
+        // Linked once frozen: a group with a shown member does not freeze (`FreezeEligibility`), so this test checks
+        // only FrozenGrowthRule's filter (it discards frozen members, never the shown one).
         rig.hibernation.openerLinks = { [popup: opener, shown: opener] }
 
         rig.hibernation.noteMemory([popup: Self.alone(popup, 200), opener: Self.alone(opener, 100),
