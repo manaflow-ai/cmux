@@ -910,6 +910,24 @@ test("a refused native save retries once per swap or quit and keeps the newest e
   expect(webSwapHold()).toBeNull();
 });
 
+test("Escape after a refused newer save cannot revive the older durable edit", async () => {
+  const container = await render(
+    async () => true,
+    async () => true,
+  );
+  const kept = draftHost(undefined, 1, "discard the unsaved revision");
+  await startEdit(container, "p-1");
+  const field = await typeQueueEdit(container, "discard the unsaved revision");
+  expect([...kept.values()][0]?.text).toBe("first");
+  await act(async () =>
+    field.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true })),
+  );
+  await settleQueuedEditWrites();
+  expect(kept.size).toBe(0);
+  await relaunchQueue(container, queue);
+  expect(container.querySelector("textarea")).toBeNull();
+});
+
 test("a saved edit remains recoverable until queue_edit acknowledges it; that acknowledgement clears it", async () => {
   let acknowledge: (ok: boolean) => void = () => {};
   const container = await render(
