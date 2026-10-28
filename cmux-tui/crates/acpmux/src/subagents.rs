@@ -145,7 +145,7 @@ impl SubagentTree {
             }
             if event.get("tokens").is_none() {
                 if let Some(tokens) = preview.tokens {
-                    event["tokens"] = json!(tokens);
+                    event.insert("tokens".into(), json!(tokens));
                 }
             }
             if event.get("lastMessage").is_none() && !preview.text.is_empty() {
@@ -256,7 +256,7 @@ impl SubagentTree {
                     }
                 }
                 if let Some(tokens) = update.get("tokens").and_then(Value::as_u64) {
-                    event["tokens"] = json!(tokens);
+                    event.insert("tokens".into(), json!(tokens));
                 }
                 vec![Value::Object(event)]
             }
