@@ -6,6 +6,7 @@ import "./guest.css";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { VirtualTranscript } from "../acpmux/App";
 import { AcpmuxDirectClient } from "../acpmux/direct";
+import { GuestActionsBoundary } from "../acpmux/conversation/GuestActionsBoundary";
 import { useT } from "../acpmux/i18n";
 import type { AcpmuxSnapshot } from "../acpmux/model";
 import { PresenceStack } from "../acpmux/multiplayer/Faces";
@@ -206,41 +207,43 @@ export function LiveChat({
     .filter((person) => person.viewing !== false && !isMe(person.id, guestId))
     .flatMap((person) => participant(person.id, person.name) ?? []);
   return (
-    <div className="guest-live">
-      <header className="guest-live__header">
-        <div className="guest-live__titles">
-          <h1 className="guest-live__title">{displayName(chat.title) ?? t("guest.live.untitled")}</h1>
-          {owner && <p className="guest-live__owner">{t("guest.live.sharedBy", { owner: owner.name })}</p>}
-        </div>
-        <PresenceStack viewing={viewing} />
-      </header>
-      {connection !== "live" && (
-        <output className="guest-live__notice">
-          {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
-        </output>
-      )}
-      {snapshot && (
-        <div className="guest-live__transcript">
-          <VirtualTranscript
-            rows={snapshot.rows}
-            sessionId={GUEST_SESSION}
-            expanded={expanded}
-            onToggleActivity={toggle}
-            working={snapshot.isWorking}
-            readOnly
-            canLoadOlder={hasMore}
-            historyFrom={snapshot.historyFrom}
-            onLoadOlder={loadOlder}
-          />
-        </div>
-      )}
-      {snapshot?.permission && (
-        <output className="guest-live__ask">
-          {t("guest.live.waitingAnswer", { owner: ownerName })}
-          {snapshot.permission.title && <span className="guest-live__ask-title">{snapshot.permission.title}</span>}
-        </output>
-      )}
-    </div>
+    <GuestActionsBoundary>
+      <div className="guest-live">
+        <header className="guest-live__header">
+          <div className="guest-live__titles">
+            <h1 className="guest-live__title">{displayName(chat.title) ?? t("guest.live.untitled")}</h1>
+            {owner && <p className="guest-live__owner">{t("guest.live.sharedBy", { owner: owner.name })}</p>}
+          </div>
+          <PresenceStack viewing={viewing} />
+        </header>
+        {connection !== "live" && (
+          <output className="guest-live__notice">
+            {t(connection === "connecting" ? "guest.live.connecting" : "guest.live.reconnecting")}
+          </output>
+        )}
+        {snapshot && (
+          <div className="guest-live__transcript">
+            <VirtualTranscript
+              rows={snapshot.rows}
+              sessionId={GUEST_SESSION}
+              expanded={expanded}
+              onToggleActivity={toggle}
+              working={snapshot.isWorking}
+              readOnly
+              canLoadOlder={hasMore}
+              historyFrom={snapshot.historyFrom}
+              onLoadOlder={loadOlder}
+            />
+          </div>
+        )}
+        {snapshot?.permission && (
+          <output className="guest-live__ask">
+            {t("guest.live.waitingAnswer", { owner: ownerName })}
+            {snapshot.permission.title && <span className="guest-live__ask-title">{snapshot.permission.title}</span>}
+          </output>
+        )}
+      </div>
+    </GuestActionsBoundary>
   );
 }
 

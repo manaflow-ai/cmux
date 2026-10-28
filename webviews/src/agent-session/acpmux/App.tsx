@@ -337,6 +337,7 @@ import {
   type TurnActions,
 } from "./conversation/turnActions";
 import { TranscriptReadOnly, useTranscriptReadOnly } from "./conversation/readOnly";
+import { GuestActionsBoundary } from "./conversation/GuestActionsBoundary";
 import {
   RunInBackgroundContext,
   backgroundsWork,
@@ -2313,6 +2314,11 @@ function JumpToLatest({
   );
 }
 
+/// A read-only transcript draws inside the guest boundary: owner actions and host reads are empty.
+function ReadOnlyBoundary({ readOnly, children }: { readOnly: boolean; children: React.ReactNode }) {
+  return readOnly ? <GuestActionsBoundary>{children}</GuestActionsBoundary> : <>{children}</>;
+}
+
 /// What the transcript's rows read from it: Find's reveal target and, for a prompt's own bookmark
 /// button, the session its marks key into (threadMinimap/promptMarks.ts).
 function TranscriptContext({
@@ -3841,8 +3847,11 @@ export function VirtualTranscript({
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
   const pacing = useMemo(
-    () => new ScrollPacing((intervals) => void reportScrollPacing(intervals, callNative, renderRate)),
-    [renderRate],
+    () =>
+      new ScrollPacing((intervals) => {
+        if (!readOnly) void reportScrollPacing(intervals, callNative, renderRate);
+      }),
+    [renderRate, readOnly],
   );
   useEffect(() => () => pacing.stop(), [pacing]);
   // Find in Chat: a new current match scrolls its row in (it may not be mounted), then, once its
@@ -4566,11 +4575,12 @@ export function VirtualTranscript({
   const behind = jumpShown.current;
   if (renderStart > 0) acpmuxPerf.span("vt.body", performance.now() - renderStart);
   return (
-    <>
+    <ReadOnlyBoundary readOnly={readOnly}>
       <div
         ref={ref}
         className="acpmux-scroll"
         role="feed"
+        data-read-only-transcript={readOnly ? "" : undefined}
         // Its place comes back after a web update's reload (reportAnchor, pages/shared/webSwap.ts).
         {...(onAnchor ? { [WEB_SWAP_KEPT_SCROLL]: "kept" } : {})}
         aria-label={t("transcript.label")}
@@ -4749,7 +4759,7 @@ export function VirtualTranscript({
           needsYou={needsYou}
         />
       )}
-    </>
+    </ReadOnlyBoundary>
   );
 }
 

@@ -101,7 +101,18 @@ function useMediaLoad(source: string, auto: boolean) {
 
 /// `path` is a local file (absolute or from the session's folder); `fallback` is how it draws when
 /// the pane will not play it.
-export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
+export function ReplyMedia(props: { path: string; alt: string; fallback?: ReactNode }) {
+  const readOnly = useTranscriptReadOnly();
+  if (readOnly)
+    return (
+      <span className={`cv-media is-${mediaKind(props.path) ?? "video"}`}>
+        <span className="cv-media__name">{props.alt || pathName(props.path)}</span>
+      </span>
+    );
+  return <HostReplyMedia {...props} />;
+}
+
+function HostReplyMedia({ path, alt, fallback }: { path: string; alt: string; fallback?: ReactNode }) {
   const kind = mediaKind(path) ?? "video";
   const { info, answered } = usePathInfo(path);
   const place = info?.place;
@@ -120,17 +131,22 @@ export function ReplyMedia({ path, alt, fallback }: { path: string; alt: string;
 }
 
 /// Web media at `url`; `fallback` is its link, for `never` and a failed load.
-export function RemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
+export function RemoteMedia(props: { url: string; alt: string; fallback?: ReactNode }) {
+  const readOnly = useTranscriptReadOnly();
+  if (readOnly) return <>{props.fallback}</>;
+  return <HostRemoteMedia {...props} />;
+}
+
+function HostRemoteMedia({ url, alt, fallback }: { url: string; alt: string; fallback?: ReactNode }) {
   const t = useT();
   const policy = useReplyPolicy();
-  const readOnly = useTranscriptReadOnly();
   const kind = mediaKind(webURL(url)?.pathname ?? "") ?? "video";
   const [frame, setFrame] = useState<HTMLSpanElement | null>(null);
   const near = useNearViewport(frame);
-  const { src, state, load, fail } = useMediaLoad(url, !readOnly && near && policy.remoteImages === "always");
+  const { src, state, load, fail } = useMediaLoad(url, near && policy.remoteImages === "always");
   const name = alt || webURL(url)?.pathname.split("/").pop() || url;
   if (src) return <MediaPlayer src={src} source={url} kind={kind} name={name} onError={fail} />;
-  if (readOnly || policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
+  if (policy.remoteImages === "never" || (state === "failed" && fallback)) return <>{fallback}</>;
   return (
     <span ref={setFrame} className={`cv-media is-${kind} is-remote`}>
       <span className="cv-media__host">{webURL(url)?.host}</span>

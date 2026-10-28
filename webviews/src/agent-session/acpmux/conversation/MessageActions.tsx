@@ -180,7 +180,8 @@ export function PinButton({ rowId }: { rowId: string }) {
 /// right-click's report (messageMenu.ts); nothing where no host shows that menu.
 export function MessageMore({ rowId }: { rowId: string }) {
   const t = useT();
-  if (!hasMessageMenuHost()) return null;
+  const readOnly = useTranscriptReadOnly();
+  if (!hasMessageMenuHost() || readOnly) return null;
   const label = t("message.moreMenu");
   return (
     <button

@@ -200,6 +200,8 @@ export function ReplyImage({
     ) : (
       <ElsewhereChip path={local} host={scope?.host ?? ""} label={alt || undefined} />
     );
+  // Read only, a web image or media file stays its link text: nothing asks the owner's host.
+  if (readOnly) return <>{fallback}</>;
   if (local && mediaKind(local)) return <ReplyMedia path={local} alt={alt} fallback={fallback} />;
   if (!local && isRemoteMedia(src)) return <RemoteMedia url={src} alt={alt} fallback={fallback} />;
   const host = local ? undefined : remoteImageHost(src);
@@ -278,14 +280,12 @@ function RemoteImage({
   fallback: ReactNode;
   thumb: boolean;
 }) {
-  // Read only, an image the owner's machine would fetch stays its link (no host load).
-  const readOnly = useTranscriptReadOnly();
   const t = useT();
   const policy = useReplyPolicy();
   const clickFree = loadsWithoutClick(src, policy);
   const { state, load } = useImageLoad(src, policy.remoteImages === "always" || clickFree, clickFree);
   if (state.kind === "shown") return <OpenableImage src={state.src} alt={alt} thumb={thumb} />;
-  if (policy.remoteImages === "never" || readOnly) return <>{fallback}</>;
+  if (policy.remoteImages === "never") return <>{fallback}</>;
   const placeholder = (
     <span className="cv-image-placeholder">
       <ImageIcon size={16} className="cv-chip__icon" />
