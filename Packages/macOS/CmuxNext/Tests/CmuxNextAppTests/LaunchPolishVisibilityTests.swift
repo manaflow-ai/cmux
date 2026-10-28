@@ -14,6 +14,11 @@ struct LaunchPolishVisibilityTests {
         #expect(hidden.firstItem(with: .app("cmux/app-store")) == nil)
         #expect(SidebarRows.visibleLayout(stored, showAppStore: true) == stored.withoutChats)
     }
+    @Test func whatsNewSettingDefaultsOffSoTheCardIsRemovedUnlessTurnedOnAgain() {
+        // Konsti review (2026-10-27): "Remove what's new?". Default picked: the setting starts off.
+        #expect(UpdatesSettings.showWhatsNewDefault == false)
+        #expect(UpdatesSettings().showWhatsNew == false)
+    }
     @Test func whatsNewCardRemainsHiddenByDefaultAndReturnsWhenPreviewsAreEnabled() async throws {
         let suite = "launch-polish-visibility-\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

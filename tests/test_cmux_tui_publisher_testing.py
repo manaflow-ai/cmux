@@ -26,7 +26,7 @@ spec.loader.exec_module(publisher)
 
 NOW = dt.datetime(2026, 10, 21, 6, 30, tzinfo=dt.timezone.utc)
 POOL = "glaeda-side-light-xcode-26.6"
-GATE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}"
+GATE_RUNS_ON = "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_CLOUD_OVERFLOW_SAVED && 'blacksmith-16vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}"
 
 
 def job(status, conclusion=None, minutes_ago=1.0, labels=(POOL,), name=publisher.JOB_NAME):
