@@ -61,6 +61,7 @@ enum PaletteLayout {
         [Typography.body, Typography.bodyEmphasized, Typography.caption, Typography.header, Typography.search, Typography.shortcut]
             .map(\.pointSize)
     }
+}
 
 extension NSView {
     /// `rect` on whole backing pixels, for a text field's frame set from `layout()` (cx-wcej; see
