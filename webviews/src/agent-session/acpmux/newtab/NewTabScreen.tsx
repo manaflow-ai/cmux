@@ -166,6 +166,8 @@ export type NewTabScreenActions = {
     model: string | undefined,
     attachments: ComposerAttachment[],
   ): boolean | string;
+  /// How a Cloud send from here goes (CloudStartView): shown over the box while Cloud is the mode.
+  cloudStatus?: React.ReactNode;
   /// The page goes with an unsent draft (a typed prompt, staged attachments): handed over so the
   /// view that replaces it can keep it (the tab's Sandboxed run taking the chat view).
   onLeaveDraft?(text: string, attachments: ComposerAttachment[]): void;
@@ -1366,6 +1368,7 @@ export function NewTabScreen(props: Props) {
             <span role="alert">{sandboxRefusal}</span>
           </output>
         )}
+        {props.runMode?.mode === "cloud" && props.cloudStatus}
         {/* Above the box: the project strip (Cards draws it under the field). */}
         {!pill && !split && <div className="nt-above">{folderStrip}</div>}
         <div ref={setBox} className="ui-glass ui-glass-floats nt-box">

@@ -3,8 +3,9 @@
 /// `cloud.startChat` to the host (AgentPaneCloudStart). The host takes a Cloud machine sized for
 /// the chat, copies the chat's folder there and opens the chat there with this prompt; this tab,
 /// which never started a chat, then closes. Nothing asks for a machine, a size or an environment.
-/// The host shows the progress and any failure as its own toast; the prompt stays in the composer
-/// until the chat opens on the machine.
+/// The host shows the progress and any failure as its own toast, and the chat shows them under the
+/// message (CloudStartView, cloudStartProgress.ts); the prompt stays in the composer until the chat
+/// opens on the machine.
 
 /// What the page hands the host.
 export type CloudStart = { task: string; cwd?: string; harness?: string; model?: string };
@@ -57,12 +58,12 @@ export async function startCloudChat(
 /// another Return starts nothing and says nothing, instead of a second start the host refuses.
 export function oneCloudStart(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
-): (start: CloudStart) => Promise<CloudStartAnswer> | undefined {
+): (start: CloudStart, key?: string) => Promise<CloudStartAnswer> | undefined {
   let waiting = false;
-  return (start) => {
+  return (start, key) => {
     if (waiting) return undefined;
     waiting = true;
-    return startCloudChat(call, start).finally(() => {
+    return startCloudChat(call, start, key).finally(() => {
       waiting = false;
     });
   };

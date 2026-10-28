@@ -357,6 +357,8 @@ import { RecapCard, useRecapCard } from "./RecapCard";
 import { HarnessStatusCard } from "./HarnessStatusCard";
 import { cloudPageRefusal, cloudStartToasted, oneCloudStart, type CloudStart } from "./cloudRun";
 import { folderRunLocation } from "./runLocationDefault";
+import { cloudStartBegun, cloudStartEnded, cloudStartPushed, type CloudStartProgress } from "./cloudStartProgress";
+import { CloudStartView } from "./CloudStartView";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
@@ -528,6 +530,9 @@ declare global {
       /// Preview features on or off (Settings > Advanced > Labs, `labs.previewFeatures`, off by
       /// default): the session coverage label.
       applyPreview?(on: boolean): void;
+      /// How a Cloud start goes (cloudStartProgress.ts `cloudStartPushed`): `{key, step?, machine?,
+      /// size?, secrets?, network?}` for the start `cloud.startChat {key}` began.
+      cloudStartProgress?(push: unknown): void;
       /// Experimental workflow summary/detail (Labs), separate from environment preview and off by default.
       applyWorkflowLabs?(on: boolean): void;
       /// The native Debug Settings baseline for the sidebar latest-reply preview.
@@ -5927,20 +5932,27 @@ function AcpmuxPane() {
   /// Cloud picked (cloudRun.ts): the first send goes to the host, which opens the chat on a Cloud
   /// machine and closes this tab. False keeps the prompt in the composer meanwhile; a string is a
   /// refusal said here, also while Cloud is picked but not offered now (as `sandboxPickedNotOffered`).
-  /// The host says its own progress and failures (toasts).
+  /// The host says its own progress and failures (toasts), and the chat shows the start under the
+  /// message as it goes (CloudStartView; the host's `cloudStartProgress` pushes fill it in).
   const cloudPicked = sandbox.mode === "cloud" && !snapshot.sessionId;
   const cloudPickedNotOffered = cloudPicked && !sandboxOffered;
   const [startCloud] = useState(() => oneCloudStart(callNative));
+  const [cloudStart, setCloudStart] = useState<CloudStartProgress>();
   const sendToCloud = (text: string, attachmentCount: number, start: Omit<CloudStart, "task">): string | false => {
     const refused = cloudPageRefusal(sandboxOffered, attachmentCount);
     if (refused === "cloud_not_now")
       return translate("composer.offloadNotRun", { action: translate("composer.cloud") });
     if (refused) return translate("composer.cloudAttachments");
-    const started = startCloud({ task: text, ...start });
-    if (started) cloudStartPending.current = true;
-    void started?.then((answer) => {
+    const key = crypto.randomUUID();
+    const started = startCloud({ task: text, ...start }, key);
+    // Another Return while a start waits starts nothing, and the card keeps that start.
+    if (!started) return false;
+    cloudStartPending.current = true;
+    setCloudStart(cloudStartBegun(key, text, start.cwd));
+    void started.then((answer) => {
       cloudStartPending.current = false;
       setCloudStartsEnded((count) => count + 1);
+      setCloudStart((current) => cloudStartEnded(current, key, answer));
       if (!answer.ok && !cloudStartToasted(answer))
         directClient.current?.notice(translate("composer.offloadNotRun", { action: translate("composer.cloud") }));
     });
@@ -5961,6 +5973,8 @@ function AcpmuxPane() {
     setSandboxViewing(false);
     sandboxWake.current = undefined;
     runModePicked.current = false;
+    // Another chat shows here: a Cloud start's card belongs to the new chat it was sent from.
+    setCloudStart(undefined);
   }, [snapshot.sessionId, newTabGeneration]);
   /// Labs went off: Sandboxed is no longer offered or shown, so the composer is Persistent again
   /// (a send from it isn't refused as Sandboxed). A run already out stays the tab's.
@@ -6986,6 +7000,9 @@ function AcpmuxPane() {
       },
       applyShortcuts(labels) {
         setShortcuts(readShortcuts(labels));
+      },
+      cloudStartProgress(push) {
+        setCloudStart((current) => cloudStartPushed(current, push));
       },
       applyPreview(on) {
         setPreview(on === true);
@@ -9875,6 +9892,7 @@ function AcpmuxPane() {
                     runMode: sandboxModeRows,
                     // A page-side refusal goes to the chat view, which says why (SandboxRunView), with
                     // the prompt and attachments put back in its composer.
+                    ...(cloudStart ? { cloudStatus: <CloudStartView start={cloudStart} bubble={false} /> } : {}),
                     onCloud: (
                       harness: string,
                       text: string,
@@ -10200,6 +10218,8 @@ function AcpmuxPane() {
                   />
                 ) : freshView && pastTurns && (!pastWaitsForTrust || trustAsk.ask) ? (
                   <PastChat turns={pastTurns} {...(githubRepository ? { githubRepository } : {})} />
+                ) : cloudStart && !snapshot.sessionId && (cloudStart.state === "starting" || sandbox.mode === "cloud") ? (
+                  <CloudStartView start={cloudStart} />
                 ) : sandboxView && !snapshot.sessionId && (sandboxHoldsChat || sandbox.mode === "sandboxed") ? (
                   <SandboxRunView
                     run={sandboxView}
