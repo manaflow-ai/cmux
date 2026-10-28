@@ -1031,12 +1031,6 @@ impl Translator {
         let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
-        if workflow {
-            self.workflows
-                .lock()
-                .await
-                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input));
-        }
         let background = workflow || input.get("run_in_background") == Some(&Value::Bool(true));
         if background {
             self.background_subagents.lock().await.insert(tool_use_id.to_owned());
@@ -1055,6 +1049,12 @@ impl Translator {
             .or(s("reasoning_effort"))
             .map(str::to_owned)
             .or(Some(self.effort.lock().await.clone()));
+        if workflow {
+            self.workflows
+                .lock()
+                .await
+                .insert(tool_use_id.to_owned(), workflows::WorkflowRun::new(input, effort.clone()));
+        }
         let mut update = json!({
             "sessionUpdate": "subagent_spawned",
             "subagentSessionId": child,

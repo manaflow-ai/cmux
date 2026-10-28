@@ -136,8 +136,10 @@ impl SubagentTree {
                 if !preview.text.is_empty() && event.get("lastMessage").is_none() {
                     event["lastMessage"] = json!(truncate_last_message(&preview.text));
                 }
-                if let Some(tokens) = preview.tokens {
-                    event["tokens"] = json!(tokens);
+                if event.get("tokens").is_none() {
+                    if let Some(tokens) = preview.tokens {
+                        event["tokens"] = json!(tokens);
+                    }
                 }
             }
         }
@@ -590,6 +592,23 @@ mod codex_tests {
         );
         assert_eq!(activity[0]["state"], json!("running"));
         assert_eq!(activity[0]["background"], json!(true));
+    }
+
+    #[test]
+    fn subagent_progress_tokens_take_precedence_over_cached_usage() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "child"}),
+        );
+        let mut usage =
+            json!({"sessionId": "child", "update": {"sessionUpdate": "usage_update", "used": 100}});
+        tree.annotate(&mut usage);
+        let events = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_progress", "subagentSessionId": "child", "tokens": 200}),
+        );
+        assert_eq!(events[0]["tokens"], 200);
     }
 
     #[test]

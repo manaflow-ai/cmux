@@ -607,3 +607,15 @@ async fn stopping_a_background_subagent_stops_its_claude_task() {
         panic!("stopping an unknown subagent did not fail")
     };
 }
+
+#[tokio::test]
+async fn workflow_effort_stays_at_launch_when_parent_changes() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "low");
+    let mut call = workflow_call("toolu_w");
+    call["message"]["content"][0]["input"]["effort"] = json!("high");
+    let out = updates(&t.inbound(&call).await);
+    assert_eq!(of_kind(&out, "subagent_spawned")[0]["effort"], "high");
+    *t.effort.lock().await = "medium".into();
+    let out = updates(&t.inbound(&snapshot(json!([]))).await);
+    assert_eq!(of_kind(&out, "subagent_progress")[0]["effort"], "high");
+}
