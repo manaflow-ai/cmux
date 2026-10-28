@@ -37,6 +37,7 @@ WORK = os.path.join(ROOT, "work")
 AGENT = os.path.join(HERE, "agentqa_agent.py")
 FAKE = os.path.join(ROOT, "fake_agent.py")
 SIM_NAME = os.environ.get("AQ_SIM", "agentqa-phone")
+SIMCTL = "/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl"
 
 
 def load():
@@ -244,9 +245,21 @@ def background(seconds=None):
 
 # ---- recording ------------------------------------------------------------
 def rec_start(name):
+    """Records the phone to <name>.mp4. A simulator takes one recorder at a time, so a
+    recorder an earlier (crashed) step left on this simulator is stopped first; otherwise
+    this one fails silently and no file is written."""
+    rec_stop()
     st = load()
+    for line in sh("pgrep", "-f", f"recordVideo.*{st['udid']}").stdout.split():
+        try:
+            os.kill(int(line), signal.SIGINT)
+        except (ProcessLookupError, ValueError):
+            pass
+    time.sleep(1.0)
     path = os.path.join(ev_dir(), f"{name}.mp4")
-    p = subprocess.Popen(["xcrun", "simctl", "io", st["udid"], "recordVideo", "--codec", "h264", "--force", path],
+    # CoreSimulator's own simctl: Xcode's wrapper runs `xcodebuild -runFirstLaunch` first when the
+    # installed CoreSimulator is another version (shared minis), and a recorder behind it never starts.
+    p = subprocess.Popen([SIMCTL, "io", st["udid"], "recordVideo", "--codec", "h264", "--force", path],
                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     st["rec"] = {"pid": p.pid, "path": path}
     save(st)
