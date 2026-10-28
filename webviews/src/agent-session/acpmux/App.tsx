@@ -721,7 +721,10 @@ const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools",
 /// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
 const postTyping = (text: string, sessionId?: string) =>
   void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
-const postUnsentDraft = (text: string) => callNative("chat.unsentDraft", { text }).catch(() => undefined);
+const postUnsentDraft = (text: string, attachments?: ComposerAttachment[]) =>
+  callNative("chat.unsentDraft", { text, ...(attachments !== undefined ? { attachments } : {}) }).catch(
+    () => undefined,
+  );
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
 const keptAttachments: KeptAttachments = {
@@ -7175,7 +7178,14 @@ function AcpmuxPane() {
         const seeded = composerDraft(host.draft);
         if (seeded) setDraft(seeded);
         // A reconnect omits the one-time seed; only an explicit list replaces restored chips.
-        setDraftAttachments((current) => restoredDraftAttachments(current, host.draftAttachments));
+        // A fresh ready for another tab must clear the previous tab's seed when it has none.
+        setDraftAttachments((current) =>
+          reconnect
+            ? restoredDraftAttachments(current, host.draftAttachments)
+            : Array.isArray(host.draftAttachments)
+              ? host.draftAttachments
+              : undefined,
+        );
         // Integrate a Harness… from the palette or the menu opened this tab (cx-uj5g8).
         if (host.harnesses === true) setHarnessesOpen(true);
         pendingPrompt = composerDraft(host.prompt) ?? pendingPrompt;
@@ -8574,8 +8584,8 @@ function AcpmuxPane() {
   };
   // Stable, so the composer's unsent-draft throttle is not rebuilt on every render.
   const onNewChatDraft = useCallback(
-    (text: string) => {
-      const sent = postUnsentDraft(text);
+    (text: string, attachments: ComposerAttachment[] = []) => {
+      const sent = postUnsentDraft(text, attachments);
       const { harness } = freshPick.current;
       const cwd = freshPick.current.cwd ?? directClient.current?.newChatCwd();
       const target: PrewarmTarget | undefined = cwd ? { ...(harness ? { harness } : {}), cwd } : undefined;
@@ -9242,6 +9252,7 @@ function AcpmuxPane() {
             permissionAccess={permissionAccess}
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
+            initialAttachments={draftAttachments}
             onUnsentDraft={quick ? undefined : onNewChatDraft}
             onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}

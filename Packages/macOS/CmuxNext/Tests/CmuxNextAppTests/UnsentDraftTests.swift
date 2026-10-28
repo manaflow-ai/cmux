@@ -51,6 +51,14 @@ struct UnsentDraftTests {
         _ = await model.respond(to: Self.request("chat.unsentDraft", ["text": "edited text only"]))
         let preserved = AgentUnsentDrafts(file: file)
         #expect(await preserved.seed(for: "tab-1", session: nil)?.take()?.draftAttachments == [attachment])
+        // Explicitly removing the last chip sends attachments: [] and clears it, rather than
+        // leaving the old attachment to resurrect on the next handshake.
+        _ = await model.respond(to: Self.request("chat.unsentDraft", [
+            "text": "edited text only",
+            "attachments": [],
+        ]))
+        let cleared = AgentUnsentDrafts(file: file)
+        #expect(await cleared.seed(for: "tab-1", session: nil)?.take()?.draftAttachments == [])
 
         // The first prompt starts the chat's session: the tab's copy goes, and later text is acpmux's.
         _ = await model.respond(to: Self.request("chat.persistSession", ["sessionId": "s-1"]))
