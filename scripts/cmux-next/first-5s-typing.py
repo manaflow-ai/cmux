@@ -376,15 +376,17 @@ class NextApp:
             if mods:
                 params["modifiers"] = list(mods)
             conn.sendall((json.dumps({"id": rid, "method": "debug.key", "params": params}) + "\n").encode())
+        # Each key leaves when its time comes and carries the time it really left (cp/first5s-measure-f 3ffa92040cb):
+        # a fleet step's `time.sleep` came back up to ~150 ms late (timer coalescing), the old 100-150 ms floor.
         open_ns = NOW_NS()
         send(0, name, modifiers, open_ns)
         for k, letter in enumerate(typed):
             when = open_ns + int((k + 1) * opts.interval * 1e9)
-            wait = (when - NOW_NS()) / 1e9
-            if wait > 0:
-                time.sleep(wait)
-            sent[k]["send_late_ms"] = round((NOW_NS() - when) / 1e6, 2)
-            send(k + 1, letter, (), when)
+            while NOW_NS() < when:
+                pass
+            at = NOW_NS()
+            sent[k]["send_late_ms"] = round((at - when) / 1e6, 3)
+            send(k + 1, letter, (), at)
         thread.join(30)
         try:
             conn.close()
@@ -784,7 +786,8 @@ def run_round(app, scenario, index, sampled):
                      "complete": (row or {}).get("complete"), "dispatch_end_ms": col("dispatch_end_ms"), "io_write_ms": col("io_write_ms"),
                      "output_received_ms": col("output_received_ms"), "contents_ms": col("contents_ms"), "commit_ms": col("commit_ms"),
                      "dispatch_start_ms": col("dispatch_start_ms"),
-                     "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None})
+                     "delay_ms": sent[k].get("delay_ms") if k < len(sent) else None,
+                     "send_late_ms": sent[k].get("send_late_ms") if k < len(sent) else None})
     # The tracker's split per key (first-keys-held instrumentation): the dispatch that ran the key is its latest slot.
     def near(rows, when):
         return [r for r in rows if isinstance(r, dict) and abs((r.get("generated_ns") or 0) - when) < 1e6]
@@ -1014,6 +1017,8 @@ def measure(app_path, zdot, result, family, features=""):
             print_table(entry["app"], scenario, entry["scenarios"][scenario])
             print_split(entry["app"], scenario, entry["scenarios"][scenario])
             print_holds(entry["app"], scenario, entry["scenarios"][scenario])
+            late = [k["send_late_ms"] for r in rounds for k in r["keys"] if k.get("send_late_ms") is not None]
+            note(f"FIRST5S-SENDER {entry['app']} {scenario}: key sent after its planned time, ms {typing_report.distribution(late, mean=False)}")
             print_dispatch(entry["app"], scenario, entry["scenarios"][scenario])
             save(result)
     finally:
