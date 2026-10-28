@@ -52,7 +52,7 @@ import Testing
     /// `count` material views in `window` (the backdrop and pane backdrops).
     private static func addViews(_ count: Int, to window: NSWindow) -> [WindowMaterialView] {
         (0..<count).map { _ in
-            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 40, height: 30), videos: BackdropVideoPlayers())
             window.contentView?.addSubview(view)
             return view
         }

@@ -11,7 +11,7 @@ final class CertificateViewerWindow: PageInfoWindow {
     private let container = NSView()
     private var selected = 0
 
-    init(chain: [PageInfoCertificate], site: PageInfoSite, failure: String?) {
+    init(chain: [PageInfoCertificate], site: PageInfoSite, failure: String?, videos: BackdropVideoPlayers) {
         self.chain = chain
         let name = chain.first?.subject.commonName ?? site.host ?? site.displayName
         super.init(title: PageInfoStrings.viewerTitle(name), size: CGSize(width: 520, height: 560))
@@ -48,7 +48,7 @@ final class CertificateViewerWindow: PageInfoWindow {
         }
         constraints.append(container.bottomAnchor.constraint(equalTo: bottom, constant: -PageInfoStyle.inset))
         NSLayoutConstraint.activate(constraints)
-        installContent(root)
+        installContent(root, videos: videos)
         showTab(0)
     }
 

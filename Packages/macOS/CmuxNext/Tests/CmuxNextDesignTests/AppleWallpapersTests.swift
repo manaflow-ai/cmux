@@ -170,7 +170,7 @@ import UniformTypeIdentifiers
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }
         let store = BackdropImageStore(maxPixelSize: 64)
-        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: store)
+        let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 64, height: 40), images: store, videos: BackdropVideoPlayers())
         view.appearance = NSAppearance(named: .aqua)
         var backdrop = WindowBackdrop(backgroundOpacity: 0.5, backgroundBlur: 0)
         backdrop.selection = .system(path: fixture.path("Sonoma.heic"))

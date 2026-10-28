@@ -16,9 +16,12 @@ final class PageInfoWindows {
         self.mainWork = mainWork
     }
 
+    /// The shell window's video wallpaper players; a bubble with no shell window (tests) gets a table of its own.
+    private var videos: BackdropVideoPlayers { parentWindow()?.backdropVideos ?? BackdropVideoPlayers() }
+
     func showCertificate(_ chain: [PageInfoCertificate], site: PageInfoSite, failure: String?) {
         certificate?.close()
-        let window = CertificateViewerWindow(chain: chain, site: site, failure: failure)
+        let window = CertificateViewerWindow(chain: chain, site: site, failure: failure, videos: videos)
         certificate = window
         present(window)
     }
@@ -29,14 +32,15 @@ final class PageInfoWindows {
             return present(siteSettings)
         }
         siteSettings?.close()
-        let window = SiteSettingsWindow(origin: origin, site: site, store: store, provider: provider, mainWork: mainWork, send: send)
+        let window = SiteSettingsWindow(origin: origin, site: site, store: store, provider: provider, mainWork: mainWork,
+                                        videos: videos, send: send)
         siteSettings = window
         present(window)
     }
 
     func showSiteData(site: PageInfoSite, provider: any PageInfoProviding, send: @escaping (PageInfoCommand) -> Void) {
         siteData?.close()
-        let window = SiteDataWindow(site: site, send: send)
+        let window = SiteDataWindow(site: site, videos: videos, send: send)
         siteData = window
         present(window)
         // main-hop-allow: pageInfoSiteData is the engine's main-actor async read of the profile's data store; the task only starts it and fills the window it opened
@@ -77,8 +81,9 @@ class PageInfoWindow: NSWindow {
 
     /// Sets the window's content through the window kit (kind
     /// `.pageInfo`); `PageInfoWindows` adopts the shell window's scope.
-    func installContent(_ content: NSView) {
-        install(kind: .pageInfo, content: content, scope: themeScope)
+    /// `videos`: the shell window's players (``NSWindow/backdropVideos``).
+    func installContent(_ content: NSView, videos: BackdropVideoPlayers) {
+        install(kind: .pageInfo, content: content, scope: themeScope, videos: videos)
     }
 
     /// Escape closes.

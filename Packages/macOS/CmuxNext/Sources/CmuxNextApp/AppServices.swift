@@ -829,7 +829,7 @@ final class AppServices {
             ?? environment.sidebarSnapshotFile?.startLaunchRead(on: work, reader: environment.launchCacheReader))
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork, inputTap: inputTap, videos: backdropVideos)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, runMarker: environment.runMarker, crashKeys: crashKeys, work: work, mainWork: mainWork)
         if let launchStartup { crashRecovery.marker?.observe(launchStartup) }  // its last task and completion in run.json (p08-startup-089)

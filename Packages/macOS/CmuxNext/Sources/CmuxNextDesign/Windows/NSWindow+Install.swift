@@ -11,6 +11,13 @@ public protocol WindowSurfacePainting: NSView {
 }
 
 extension NSWindow {
+    private static let videoPlayers = ObjectAssociation<BackdropVideoPlayers>()
+
+    /// The video wallpaper players this window's owner installed it with (``install(kind:content:scope:videos:)``);
+    /// nil before. A window a cmux window opens (DevTools, page info, a popup) installs with its owner's, so every
+    /// window of the app plays through the app's one table.
+    public var backdropVideos: BackdropVideoPlayers? { Self.videoPlayers.value(on: self) }
+
     /// The only way a window gets its content (plans/cmux-next/windows.md):
     /// records `kind`, makes the window titled and closable with the
     /// kind's buttons and not restorable (cmux restores its windows from
@@ -30,6 +37,7 @@ extension NSWindow {
     /// ```
     public func install(kind: WindowKind, content: NSView, scope: ThemeScope, videos: BackdropVideoPlayers) {
         WindowKindRegistry.setKind(kind, of: self)
+        Self.videoPlayers.set(videos, on: self)
         let traits = kind.traits
         styleMask.formUnion([.titled, .closable])
         isRestorable = false

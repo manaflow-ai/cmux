@@ -87,9 +87,10 @@ public final class BrowserPopupWindow: NSWindow, PageSurfaceHosting, InputTapHos
     ///   - inputTap: The app's one input tap (``InputTapHosting``).
     ///   - textInputStage: The app's one text input stage (``TextInputStageHosting``); nil where no address is
     ///     typed (a system sign-in window) or in tests.
+    ///   - videos: The app's video wallpaper players (the opener's ``NSWindow/backdropVideos``).
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
                 readOnlyAddress: Bool = false, mainWork: MainWorkScheduler, inputTap: InputEventTap?,
-                textInputStage: TextInputStage? = nil) {
+                textInputStage: TextInputStage? = nil, videos: BackdropVideoPlayers) {
         self.page = page
         pageSurface = (page as? CEFTab)?.pageSurface ?? .childWindows
         self.inputTap = inputTap
@@ -110,7 +111,7 @@ public final class BrowserPopupWindow: NSWindow, PageSurfaceHosting, InputTapHos
         animationBehavior = Motion.panes.animatesMovement ? .documentWindow : .none
         // Kind `.browserPopup`: the three traffic lights and the one surface
         // background; the opener's scope is adopted when it opens.
-        install(kind: .browserPopup, content: makeContent(), scope: .app)
+        install(kind: .browserPopup, content: makeContent(), scope: .app, videos: videos)
         observeTitle(on: mainWork)
         observeFullscreen()
     }

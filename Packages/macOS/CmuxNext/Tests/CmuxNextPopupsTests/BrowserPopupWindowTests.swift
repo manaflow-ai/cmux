@@ -81,7 +81,7 @@ import CmuxNextWakeups
 
     private func open(_ url: String, request: BrowserPopupRequest = BrowserPopupRequest(size: CGSize(width: 480, height: 360)))
         -> (BrowserPopupWindows, MockBrowserTab, BrowserPopupWindow, NSWindow) {
-        let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap())
+        let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap(), videos: BackdropVideoPlayers())
         popups.ordersWindowsIn = false
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: url)))
         let opener = makeOpener()
@@ -171,7 +171,7 @@ import CmuxNextWakeups
 
     @Test func aSignInWindowsOmnibarIsReadOnly() async throws {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil, videos: BackdropVideoPlayers())
         defer { window.close() }
         let bars = descendants(of: window.contentView).compactMap { $0 as? AddressBarView }
         #expect(bars.count == 1, "the same omnibar view, read-only")
@@ -288,7 +288,7 @@ import CmuxNextWakeups
     /// the popup's `addChildWindow` does it in the same call, as the main window's does.
     @Test func aPageAddedToThePopupGoesBelowItsOverlayPanel() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 100, y: 100, width: 480, height: 600), mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 100, y: 100, width: 480, height: 600), mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil, videos: BackdropVideoPlayers())
         window.orderFrontRegardless()
         let host = WindowOverlayHost.host(for: window)
         host.setPlanesWantPanel(true)
@@ -309,7 +309,7 @@ import CmuxNextWakeups
 
     @Test func aSignInWindowTakesCmdL() {
         let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
-        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil)
+        let window = BrowserPopupWindow(page: tab, frame: CGRect(x: 0, y: 0, width: 480, height: 600), readOnlyAddress: true, mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: nil, videos: BackdropVideoPlayers())
         defer { window.close() }
         window.focusAddressBar()
         #expect(window.addressBar.isEditing, "the address can still be selected and copied")

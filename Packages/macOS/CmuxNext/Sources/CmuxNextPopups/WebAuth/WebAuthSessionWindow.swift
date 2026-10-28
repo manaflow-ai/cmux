@@ -28,6 +28,7 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
     private let onEnd: (UUID) -> Void
     private var page: (any BrowserTab)?
     private var panel: BrowserPopupWindow?
+    private let videos: BackdropVideoPlayers
     /// The page URL check (``observeNavigation(_:)``).
     private var navigationWatch: ServiceObservation<URL?>?
     private var ended = false
@@ -42,9 +43,11 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         contextMenus: BrowserContextMenuBuilder,
         mainWork: MainWorkScheduler,
         inputTap: InputEventTap?,
+        videos: BackdropVideoPlayers,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void,
         onEnd: @escaping (UUID) -> Void
     ) {
+        self.videos = videos
         self.mainWork = mainWork
         self.inputTap = inputTap
         id = request.id
@@ -87,7 +90,8 @@ final class WebAuthSessionWindow: NSObject, WebAuthSessionSurface, BrowserTabDel
         if let cef = page as? CEFTab {
             signInCallbacks.set(Self.shimCallback(callback), on: cef) { [weak self] url in self?.shimStopped(url) }
         }
-        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, mainWork: mainWork, inputTap: inputTap)
+        let panel = BrowserPopupWindow(page: page, frame: Self.frame(), readOnlyAddress: true, mainWork: mainWork, inputTap: inputTap,
+                                       videos: videos)
         panel.onEscape = { [weak self] in self?.close() }
         panel.onClose = { [weak self] in self?.end() }
         self.panel = panel

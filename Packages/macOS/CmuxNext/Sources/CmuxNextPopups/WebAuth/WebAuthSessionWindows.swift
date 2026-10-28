@@ -23,6 +23,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
     private let signInCallbacks: CEFSignInCallbacks
     private let contextMenus: BrowserContextMenuBuilder
     private let mainWork: MainWorkScheduler
+    private let videos: BackdropVideoPlayers
     private let inputTap: InputEventTap?
     private let present: @MainActor (NSWindow, WindowActivation.Intent) -> Void
     private(set) var windows: [UUID: WebAuthSessionWindow] = [:]
@@ -49,8 +50,10 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
         contextMenus: BrowserContextMenuBuilder,
         mainWork: MainWorkScheduler,
         inputTap: InputEventTap?,
+        videos: BackdropVideoPlayers,
         present: @escaping @MainActor (NSWindow, WindowActivation.Intent) -> Void = { WindowActivation.show($0, $1) }
     ) {
+        self.videos = videos
         self.mainWork = mainWork
         self.inputTap = inputTap
         self.host = host
@@ -65,7 +68,7 @@ package final class WebAuthSessionWindows: WebAuthSessionOpening {
         let window = WebAuthSessionWindow(
             request: request, broker: broker, host: host, logger: logger,
             profiles: profiles, signInCallbacks: signInCallbacks, contextMenus: contextMenus, mainWork: mainWork,
-            inputTap: inputTap, present: present
+            inputTap: inputTap, videos: videos, present: present
         ) { [weak self] id in
             self?.windows[id] = nil
         }

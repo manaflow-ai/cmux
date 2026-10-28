@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextInputCore
 @testable import CmuxNextPopups
@@ -15,7 +16,7 @@ import CmuxNextWakeups
         let dispatch = InputLatencyDispatch(tracker: InputLatencyTracker(presentation: PresentationClock(), frameIntervals: nil),
                                             classifier: InputTargetClassifier(rules: []),
                                             frameInterval: { _ in 1.0 / 60 }, windowChanged: { _ in false })
-        let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap())
+        let popups = BrowserPopupWindows(mainWork: MainWorkScheduler(budget: MainFrameBudget()), inputTap: InputEventTap(), videos: BackdropVideoPlayers())
         popups.ordersWindowsIn = false
         popups.textInputStage = dispatch.textInput
         defer { popups.closeAll() }

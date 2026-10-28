@@ -16,6 +16,7 @@ final class SiteSettingsWindow: PageInfoWindow {
     private var observation: ObservationLoop?
 
     init(origin: String, site: PageInfoSite, store: SitePermissionStore, provider: any PageInfoProviding, mainWork: MainWorkScheduler,
+         videos: BackdropVideoPlayers,
          send: @escaping (PageInfoCommand) -> Void) {
         self.origin = origin
         self.store = store
@@ -71,7 +72,7 @@ final class SiteSettingsWindow: PageInfoWindow {
         stack.setCustomSpacing(PageInfoStyle.inset * 2, after: deleteData)
         stack.edgeInsets = NSEdgeInsets(top: PageInfoStyle.inset * 1.5, left: PageInfoStyle.inset * 1.5,
                                         bottom: PageInfoStyle.inset * 1.5, right: PageInfoStyle.inset * 1.5)
-        installContent(stack)
+        installContent(stack, videos: videos)
         // node-free: its own window, outside any tab; the menus follow the store while it is open
         observation = ObservationLoop(owner: "browser.siteSettings", delivery: .visible(nil), on: mainWork) { [weak self] in self?.syncMenus() }
         Task { [weak self, provider] in

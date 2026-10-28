@@ -88,7 +88,8 @@ extension AppDelegate {
         // The engines' incognito profiles and the Chromium engine's sign-in tabs (AppServices).
         let webAuthWindows = WebAuthSessionWindows(host: services, logger: services.daemon.logger,
                                                    profiles: services.browserStores.offTheRecord, signInCallbacks: services.signInCallbacks,
-                                                   contextMenus: services.contextMenus, mainWork: services.mainWork, inputTap: services.inputTap)
+                                                   contextMenus: services.contextMenus, mainWork: services.mainWork, inputTap: services.inputTap,
+                                                   videos: services.backdropVideos)
         let webAuthHandler = WebAuthSessionHandler(broker: WebAuthSessionBroker(opener: webAuthWindows))
         self.webAuthHandler = webAuthHandler
         WebAuthSessionHandler.install(webAuthHandler)

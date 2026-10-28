@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextBrowser
-import CmuxNextDesign
+public import CmuxNextDesign
 public import CmuxNextInput
 public import CmuxNextWakeups
 
@@ -29,12 +29,17 @@ public final class BrowserPopupWindows {
     public var textInputStage: TextInputStage?
 
     /// `mainWork` is the app's one main-thread scheduler, for the popups' location bars; `inputTap`
-    /// the app's one input tap, which each popup window carries (``InputTapHosting``).
-    public init(contextMenus: BrowserContextMenuBuilder = .shared, mainWork: MainWorkScheduler, inputTap: InputEventTap?) {
+    /// the app's one input tap, which each popup window carries (``InputTapHosting``); `videos` the app's video
+    /// wallpaper players, which each popup's backdrop plays through.
+    public init(contextMenus: BrowserContextMenuBuilder = .shared, mainWork: MainWorkScheduler, inputTap: InputEventTap?,
+                videos: BackdropVideoPlayers) {
+        self.videos = videos
         self.contextMenus = contextMenus
         self.mainWork = mainWork
         self.inputTap = inputTap
     }
+
+    private let videos: BackdropVideoPlayers
 
     private struct Entry {
         let window: BrowserPopupWindow
@@ -90,7 +95,7 @@ public final class BrowserPopupWindows {
                                                      visibleFrame: visible, primaryHeight: primaryHeight,
                                                      chromeHeight: BrowserPopupWindow.chromeHeight)
         let window = BrowserPopupWindow(page: page, frame: frame, suggestionEngine: suggestionEngine?(page) ?? OmniboxSuggestionEngine(),
-                                        mainWork: mainWork, inputTap: inputTap, textInputStage: textInputStage)
+                                        mainWork: mainWork, inputTap: inputTap, textInputStage: textInputStage, videos: videos)
         let id = ObjectIdentifier(page)
         // A popup's own popups keep the cmux window of the first opener.
         let cmuxOpener = (opener as? BrowserPopupWindow).flatMap { entries[ObjectIdentifier($0.page)]?.opener } ?? opener

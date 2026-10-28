@@ -97,7 +97,7 @@ struct WindowKeyFamilyActivationTraceTests {
                                   backing: .buffered, defer: true)
             window.isReleasedWhenClosed = false
             let family = WindowKeyFamily.of(window, environment: environment)
-            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 40, height: 30))
+            let view = WindowMaterialView(frame: NSRect(x: 0, y: 0, width: 40, height: 30), videos: BackdropVideoPlayers())
             window.contentView?.addSubview(view)
             return (window, family, view)
         }

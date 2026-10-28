@@ -39,7 +39,8 @@ final class CEFDevToolsWindow: NSPanel, PageSurfaceHosting {
         let content = NSView(frame: CGRect(origin: .zero, size: frame.size))
         content.wantsLayer = true
         setAccessibilityIdentifier("browser.devtools.window")
-        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app)
+        // The owner's players; a DevTools window with no owner (tests) gets a table of its own.
+        install(kind: .devTools, content: content, scope: owner?.themeScope ?? .app, videos: owner?.backdropVideos ?? BackdropVideoPlayers())
         // The initializer places the rect relative to the main screen; set
         // the global frame so the window opens over the cmux window's screen.
         setFrame(frame, display: false)

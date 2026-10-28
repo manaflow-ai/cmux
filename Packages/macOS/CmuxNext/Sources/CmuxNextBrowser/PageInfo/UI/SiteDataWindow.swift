@@ -8,7 +8,7 @@ final class SiteDataWindow: PageInfoWindow {
     private let list = NSStackView()
     private var scrollFit: ScrollFitElasticity?
 
-    init(site: PageInfoSite, send: @escaping (PageInfoCommand) -> Void) {
+    init(site: PageInfoSite, videos: BackdropVideoPlayers, send: @escaping (PageInfoCommand) -> Void) {
         self.send = send
         super.init(title: PageInfoStrings.siteDataTitle, size: CGSize(width: 440, height: 420))
         setAccessibilityIdentifier("cmux.pageInfo.siteData")
@@ -53,7 +53,7 @@ final class SiteDataWindow: PageInfoWindow {
             list.trailingAnchor.constraint(equalTo: document.trailingAnchor),
             list.bottomAnchor.constraint(equalTo: document.bottomAnchor),
         ])
-        installContent(root)
+        installContent(root, videos: videos)
     }
 
     func show(_ data: SiteDataSummary) {
