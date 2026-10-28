@@ -1,6 +1,6 @@
 // Attach Screenshot… and Attach Window… in the composer's + menu (cx-ncc.71, Codex desktop app
-// parity): the host captures with macOS screencapture and the page attaches the image as a chip;
-// either way, focus returns to the prompt.
+// parity): the host captures with macOS screencapture and the page attaches the image as a chip,
+// at any size, and saves its original for the agent; either way, focus returns to the prompt.
 // The composer gallery's plays answer the host call in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
@@ -65,11 +65,6 @@ await requireBrowserLane("composer-capture.test.ts", async () => {
 
   test("Attach Screenshot… attaches the host's region capture", async () => {
     const result = await play("attach-screenshot");
-    expect(playFailures(result.report)).toEqual([]);
-  });
-
-  test("a capture too large to attach says so", async () => {
-    const result = await play("attach-screenshot-too-large");
     expect(playFailures(result.report)).toEqual([]);
   });
 

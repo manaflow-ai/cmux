@@ -166,8 +166,8 @@ function isMadeFile(file: File | MadeFile): file is MadeFile {
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
-/// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
-/// drop, or a capture). `pending`: the files still being read, shown at once (PendingAttachment).
+/// `attach(files, uploads, kind)` adds files another way (the + menu's chooser or a capture, which
+/// upload like a drop). `pending`: the files still being read, shown at once (PendingAttachment).
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -212,7 +212,7 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   }, [scope]);
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
-  /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
+  /// the saved path (composer/intakeFiles.ts); a capture's original is saved the same way. `kind`: the person's own drop or
   /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
   const [attach] = useState(() => async (given: (File | MadeFile)[], uploads = false, kind?: DroppedKind) => {
     if (given.length === 0) return;

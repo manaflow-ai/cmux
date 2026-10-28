@@ -1665,31 +1665,6 @@ export default agentPaneEntry({
           throw new Error("a cancelled capture left focus off the prompt");
       },
     },
-    "attach-screenshot-too-large": {
-      note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
-      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
-        chat(finished),
-      ),
-      checks: {
-        anchorMovePx: {
-          value: 40,
-          reason: "The note row opens above the prompt, as a pasted file that is too large does.",
-        },
-        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
-      },
-      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
-      play: async (ctx) => {
-        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
-        await ctx.click({ selector: '.acpmux-composer-plus [data-value="add.screenshot"]' });
-        await ctx.waitFor(() =>
-          ctx.document
-            .querySelector(".acpmux-attachment-note")
-            ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
-        );
-        if (ctx.document.querySelector(".acpmux-attachment-image"))
-          throw new Error("a refused capture attached an image");
-      },
-    },
     "context-breakdown": {
       note: "Play: rest the pointer on the context ring after a first message on Codex; the glass card shows the share and tokens used and the window as a bar.",
       snapshot: chat(finished, {

@@ -6,7 +6,7 @@ import type { ConnectKind, OffloadKind } from "./environments";
 import type { RunModeRows } from "./sandboxRun";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { type AttachmentError, type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
+import { type ComposerAttachment, type DroppedKind, type LinkItem } from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { opensProcessTerminal } from "./processTerminal";
@@ -76,12 +76,7 @@ import { useComposerLook } from "./composerLook";
 import { LookSwitch } from "./LookSwitch";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
-import {
-  appendAttachments,
-  attachmentErrorText,
-  useAttachmentIntake,
-  useSendWhenAttached,
-} from "./composer/attachmentIntake";
+import { appendAttachments, useAttachmentIntake, useSendWhenAttached } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import { holdWebSwap, takeWebSwapFocus, WEB_SWAP_FOCUS, WEB_SWAP_KEPT_TEXT } from "../../pages/shared/webSwap";
 import { usePasteAnywhere } from "./composer/pasteAnywhere";
@@ -277,9 +272,9 @@ type Props = {
   plusExtensions?: readonly ComposerPlusExtension[];
   onPlusCommand?(id: string): void;
   /// The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host's capture of a region
-  /// or a window, attached as an image; an error for one too large to attach (shown as the
-  /// composer's note); undefined when the person cancelled the pick.
-  capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// or a window at any size, attached as an image whose original is saved for the agent as a pasted
+  /// screenshot's is; undefined when the person cancelled the pick.
+  capture?(mode: "screen" | "window"): Promise<File | undefined>;
   /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
@@ -1967,8 +1962,7 @@ export function Composer({
                                 else if (action === "composer.attachScreenshot" || action === "composer.attachWindow") {
                                   void capture?.(action === "composer.attachWindow" ? "window" : "screen")
                                     .then(async (shot) => {
-                                      if (shot instanceof File) await attach([shot]);
-                                      else if (shot) setAttachError(attachmentErrorText(shot, t));
+                                      if (shot) await attach([shot], true);
                                     })
                                     .finally(() => {
                                       const focused = document.activeElement;

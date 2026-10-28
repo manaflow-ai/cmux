@@ -4984,14 +4984,12 @@ function AcpmuxPane() {
   // client (or the mock daemon), else the native host.
   const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
-  // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
-  // that would not fit the image cap answers `tooLarge` with its name.
+  // screencapture's own pick and answers the PNG as taken, at any size; a cancelled pick answers no
+  // data. The app and this page ship together, so no host answers `tooLarge` any more.
   const captureScreen = useCallback(async (mode: "screen" | "window") => {
-    const shot = await callNative<{ name?: string; mimeType?: string; data?: string; tooLarge?: boolean } | null>(
-      "composer.capture",
-      { mode },
-    ).catch(() => null);
-    if (shot?.tooLarge) return { name: shot.name ?? "Screenshot.png", reason: "tooLarge" } as const;
+    const shot = await callNative<{ name?: string; mimeType?: string; data?: string } | null>("composer.capture", {
+      mode,
+    }).catch(() => null);
     if (!shot?.data) return undefined;
     const bytes = Uint8Array.from(atob(shot.data), (char) => char.charCodeAt(0));
     return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
