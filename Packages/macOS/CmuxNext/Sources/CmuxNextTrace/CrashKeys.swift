@@ -366,8 +366,8 @@ extension CrashKeyPage {
                 case .unclosedAgentPaneMaker:
                     let (maker, uptime) = CrashKeySlot.unclosedAgentPane(value)
                     let millis = uptime / 1_000_000
-                    let fraction = String(millis % 1000)
-                    tags["crash_key.\(slot.name)"] = "\(maker)@\(millis / 1000)." + String(repeating: "0", count: 3 - fraction.count) + fraction + "s"
+                    // Three digits: 1000 plus the remainder, without its leading 1.
+                    tags["crash_key.\(slot.name)"] = "\(maker)@\(millis / 1000)." + String(1000 + millis % 1000).dropFirst() + "s"
                 default: tags["crash_key.\(slot.name)"] = String(value)
                 }
             }
