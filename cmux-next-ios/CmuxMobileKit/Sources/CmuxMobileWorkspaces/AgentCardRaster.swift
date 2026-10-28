@@ -20,8 +20,12 @@ struct AgentCardRasterKey: Equatable {
     /// Pixels per page point: the card's on-screen resolution.
     var scale: CGFloat
 
-    /// A running turn animates (its working label): drawn live, not as a still.
-    var isDrawable: Bool { turns.last?.status != .running && page.width > 0 && visibleHeight > 0 }
+    /// A running turn animates (its working label): drawn live, not as a
+    /// still. Attachment thumbnails load in a `.task`, which never runs in a
+    /// picture: a turn with attachments is drawn live too.
+    var isDrawable: Bool {
+        turns.last?.status != .running && !turns.contains { !$0.attachments.isEmpty } && page.width > 0 && visibleHeight > 0
+    }
 }
 
 /// Agent cards drawn once as pictures. A chat's preview is a full page of
@@ -155,6 +159,11 @@ struct AgentTabCard: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.displayScale) private var displayScale
 
+    private struct PictureRequest: Equatable {
+        var key: AgentCardRasterKey
+        var drawn: Bool
+    }
+
     /// TabsKit's card aspect (`OverviewLayout.cardAspect`): the page height a card shows per page width.
     static let cardAspect: CGFloat = 249.3 / 177.0
 
@@ -173,7 +182,10 @@ struct AgentTabCard: View {
                 AgentChatPreview(store: feed.store, turns: feed.turns, topInset: topInset, bottomInset: bottomInset)
             }
         }
-        .onChange(of: key, initial: true) { _, key in rasterizer.want(feed, key) }
+        // Asked again when its picture is dropped (the cache's oldest goes).
+        .onChange(of: PictureRequest(key: key, drawn: feed.raster?.key == key), initial: true) { _, request in
+            if !request.drawn { rasterizer.want(feed, request.key) }
+        }
     }
 }
 #endif

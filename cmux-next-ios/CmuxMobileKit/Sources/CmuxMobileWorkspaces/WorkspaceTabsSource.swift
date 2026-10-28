@@ -120,6 +120,22 @@ public final class WorkspaceTabsSource: TabsDataSource {
     /// The workspace as of the last `refreshTabs()` (not observed): what
     /// cards, pages and menus pass to the chat and terminal stores.
     @ObservationIgnored private(set) var workspaceSnapshot: Workspace?
+    /// What pages and cards take from the workspace (its Mac, folder, title,
+    /// branch): observed, and written only when it changes, so a card re-runs
+    /// when its workspace is replaced, not on every Mac publish.
+    private var workspaceIdentity: WorkspaceIdentity?
+    /// The listed workspace, for page, card and accessory bodies.
+    var listedWorkspace: Workspace? {
+        _ = workspaceIdentity
+        return workspaceSnapshot
+    }
+
+    struct WorkspaceIdentity: Equatable {
+        var macID: String
+        var title: String
+        var directory: String
+        var branch: String?
+    }
     /// Per tab: its model as last listed, for its card and page (`TabEntry`).
     @ObservationIgnored private var entries: [String: TabEntry] = [:]
     /// Per tab: the inputs its kit tab was built from and that tab, so an
@@ -168,8 +184,13 @@ public final class WorkspaceTabsSource: TabsDataSource {
         }
         workspaceSnapshot = workspace
         if openingTabID != opening { openingTabID = opening }
+        let identity = workspace.map { WorkspaceIdentity(macID: $0.macID, title: $0.title, directory: $0.directory, branch: $0.branch) }
+        if workspaceIdentity != identity { workspaceIdentity = identity }
         guard let workspace else {
             if !tabs.isEmpty { tabs = [] }
+            entries = [:]
+            built = [:]
+            tabGenerations = [:]
             return
         }
         let key = WorkspaceKey(macID: workspace.macID, title: workspace.title, directory: workspace.directory)
@@ -665,9 +686,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if store.workspace(id: workspaceID)?.tabs.contains(where: { $0.id == tab.id }) != true {
             store.appendTab(tab, to: workspaceID)
         }
-        refreshTabs()
         let id = tab.id
         if tab.kind == .browser, !streamed.isLive, browsers[id] == nil { browsers[id] = BrowserTabModel(url: tab.url) }
+        refreshTabs()
         // A new chat opens ready to type (SPEC 6.2; ChatGPT, Claude and Grok
         // open a new chat with the keyboard up).
         if tab.kind == .agent { surface(id).composerFocused = true }
@@ -705,7 +726,17 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     func chatStore(_ tab: WorkspaceTab, _ workspace: Workspace) -> AgentChatStore {
-        sessions.store(workspace: workspace, tab: tab, macName: macName)
+        let existed = sessions.existingStore(id: tab.id, macID: workspace.macID) != nil
+        let store = sessions.store(workspace: workspace, tab: tab, macName: macName)
+        // The tab's title comes from its chat (`kitTab`): a store made now
+        // (often in a page or card body) was not there when the tab was
+        // built, so the tab is rebuilt once, after this update.
+        if !existed { scheduleTabRefresh(tab.id) }
+        return store
+    }
+
+    private func scheduleTabRefresh(_ id: String) {
+        Task { @MainActor [weak self] in self?.refreshTab(id) }
     }
 
     /// The tab's page: streamed from the Mac while linked, else a local web view.
@@ -723,6 +754,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         if let model = browsers[tab.id] { return model }
         let model = BrowserTabModel(url: tab.url)
         browsers[tab.id] = model
+        // Its title and progress feed the tab (`kitTab`), which was built without it.
+        scheduleTabRefresh(tab.id)
         return model
     }
 
@@ -1380,7 +1413,7 @@ struct WorkspaceTabPage: View {
     var body: some View {
         // The tab's own entry, not the workspace: a Mac publish re-runs the
         // page only when this tab changed.
-        if let tab = source.entry(tabID)?.tab, let workspace = source.workspaceSnapshot {
+        if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
             page(tab, workspace)
                 .onAppear {
                     source.remember(context.safeAreaInsets, pageSize: context.pageSize)
@@ -1469,7 +1502,7 @@ struct WorkspaceTabAccessory: View {
     }
 
     @ViewBuilder private var row: some View {
-        if let tab = source.entry(tabID)?.tab, let workspace = source.workspaceSnapshot {
+        if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
             switch tab.kind {
             case .agent:
                 AgentChatBottomStack(store: source.chatStore(tab, workspace), surface: source.surface(tab.id))
@@ -1520,7 +1553,7 @@ struct WorkspaceTabCard: View {
     var body: some View {
         // Its own tab's entry (one card re-runs when its tab changes), and
         // values only: no host or store is made here.
-        if let tab = source.entry(tabID)?.tab, let workspace = source.workspaceSnapshot {
+        if let tab = source.entry(tabID)?.tab, let workspace = source.listedWorkspace {
             #if DEBUG
             if ListStressSettings.shared.plainCards.contains(tab.kind.rawValue) {
                 Color.cmuxMobileBackground

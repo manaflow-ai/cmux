@@ -120,5 +120,47 @@ import SwiftUI
         source.refreshTabs()
         #expect(abs(source.cardScale - 268.0 / 402) < 0.001)
     }
+
+    /// Review finding 1: an agent tab's title comes from its chat store; a
+    /// store made after the tab was built (in a page or card body) rebuilds
+    /// that tab once, after the update, so its title is not frozen.
+    @Test func chatStoreAppearingRebuildsItsTab() async throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        let workspace = try #require(source.listedWorkspace)
+        let agent = try #require(workspace.tabs.first { $0.kind == .agent })
+        let before = source.kitTabBuilds
+        _ = source.chatStore(agent, workspace)
+        #expect(source.kitTabBuilds == before)
+        for _ in 0..<5 { await Task.yield() }
+        #expect(source.kitTabBuilds == before + 1)
+        // The second read finds the store: nothing more.
+        _ = source.chatStore(agent, workspace)
+        for _ in 0..<5 { await Task.yield() }
+        #expect(source.kitTabBuilds == before + 1)
+    }
+
+    /// Review finding 3: a workspace replaced with a new Mac or folder tells
+    /// the bodies that read it; another publish (activity) does not.
+    @Test func workspaceIdentityChangeNotifiesBodies() throws {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        let source = Self.source(store)
+        let notified = SourceChanges()
+        withObservationTracking { _ = source.listedWorkspace } onChange: { notified.count += 1 }
+        store.workspaces = store.workspaces.map { ws in
+            var ws = ws
+            if ws.id == "ws-cmux" { ws.lastActivityAt = Date().addingTimeInterval(90) }
+            return ws
+        }
+        source.refreshTabs()
+        #expect(notified.count == 0)
+        store.workspaces = store.workspaces.map { ws in
+            var ws = ws
+            if ws.id == "ws-cmux" { ws.directory = "~/elsewhere" }
+            return ws
+        }
+        source.refreshTabs()
+        #expect(notified.count == 1)
+    }
 }
 #endif

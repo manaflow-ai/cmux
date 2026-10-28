@@ -332,9 +332,15 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
         if let slot = slots[tab.id], let cached = cardViews[tab.id], cached.slot == ObjectIdentifier(slot),
            hostMacs[tab.id] == workspace.macID { return cached.view }
         // A card shown before its tab was prepared (or after its slot was
-        // cooled): its host and slot are made now, once; the screen read
-        // waits for `prepareCard` or the grid's own refresh.
-        let slot = slot(for: tab.id, host: host(for: tab, in: workspace))
+        // cooled): its host and slot are made now, once.
+        let host = host(for: tab, in: workspace)
+        let slot = slot(for: tab.id, host: host)
+        // A new host (first card, or after a cool or a Mac swap) asks for the
+        // Mac's screen after this update, as `prepareCard` does.
+        Task { @MainActor [weak self, weak model = host.model] in
+            guard let self, let model else { return }
+            self.refreshScreenText(for: tab, model: model)
+        }
         return cardView(tab.id, slot: slot)
     }
 
