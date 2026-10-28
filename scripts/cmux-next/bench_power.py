@@ -441,7 +441,7 @@ def run_loaded(args):
     wipe_state(args.app)
     root = tempfile.mkdtemp(prefix="idle-cost-")
     acpmux_home = os.path.join(root, "acpmux")
-    fake_agent = os.path.normpath(os.path.join(HERE, "..", "..", "cmux-tui/crates/acpmux/tests/fake_agent.py"))
+    fake_agent = os.path.join(HERE, "idle_cost_agent.py")  # fake_agent.py plus the `stream:` prompt
     seeded = load.seed_store(acpmux_home, args.load_sessions, args.load_closed, bm.FAKE_AGENT_ID, root)
     env = dict(item.split("=", 1) for item in args.env)
     env["ACPMUX_HOME"] = acpmux_home
