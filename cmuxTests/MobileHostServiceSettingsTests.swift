@@ -73,7 +73,7 @@ struct MobileHostServiceSettingsTests {
         #expect(MobileHostService.configuredPort(defaults: defaults) == expected)
     }
 
-    @Test func settingsUseObservedLocalAddressesAndIgnoreLegacyRouteHints() throws {
+    @Test func settingsUseObservedTailscaleAddressesAndIgnoreLegacyRouteHints() throws {
         let status = MobileHostServiceStatus(
             isRunning: true, port: 58465, configuredPort: 60000,
             usesEphemeralFallback: false, routes: [try CmxAttachRoute(
@@ -81,12 +81,26 @@ struct MobileHostServiceSettingsTests {
                 endpoint: .hostPort(host: "100.64.0.1", port: 1234))],
             activeConnectionCount: 2, lastErrorDescription: nil,
             pendingPortChange: true,
-            localSocketAddresses: ["192.168.1.2:58465", "[fd00::2]:58465", "192.168.1.2:58465"])
+            localSocketAddresses: ["192.168.1.2:58465", "[fd00::2]:58465", "192.168.1.2:58465"],
+            tailscaleIsRunning: true, tailscalePort: 58465)
         let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
         #expect(snapshot.routes.map(\.endpoint) == ["192.168.1.2:58465", "[fd00::2]:58465"])
+        #expect(snapshot.routes.allSatisfy { $0.kindLabel == "Tailscale" })
         #expect(snapshot.boundPort == 58465)
         #expect(snapshot.configuredPort == 60000)
         #expect(snapshot.pendingPortChange)
+    }
+
+    @Test func settingsDoNotReportIrohReadinessAsTailscaleListenerReadiness() throws {
+        let status = MobileHostServiceStatus(
+            isRunning: true, port: 58465, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: nil, tailscaleFailureDescription: "Could not bind the configured port")
+
+        let snapshot = HostSettingsActions.mobilePairingSnapshot(from: status)
+        #expect(!snapshot.isRunning)
+        #expect(snapshot.boundPort == nil)
+        #expect(snapshot.tailscaleFailureDescription == "Could not bind the configured port")
     }
 
     @Test func splitSocketAddressParsesSocketLiteralsOnly() throws {
@@ -144,21 +158,83 @@ struct MobileHostV2LifecycleTests {
         try #require(runtime.subscriberCount > 0)
     }
 
-    @Test func savingPortLeavesTheCurrentEndpointRunning() async throws {
+    @Test func enabledPairingBindsConfiguredTailscaleListenerAndPortEditsStayPending() async throws {
         try await withDefaults { defaults in
+            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            defaults.set(52_074, forKey: MobileHostService.portDefaultsKey)
             let runtime = MobileHostRuntimeProbe(state: .init(phase: .ready, boundPort: 58465, preferredPort: 58465))
             let service = MobileHostService(defaults: defaults, runtime: runtime)
-            #expect(await service.applyConfiguredPort(60001) == .savedForLater)
-            #expect(MobileHostService.configuredPort(defaults: defaults) == 60001)
-            let status = service.statusSnapshot()
+            service.syncToSettings()
+            let status = try await waitForTailscaleListener(service)
+            #expect(status.tailscaleIsRunning)
+            #expect(status.tailscalePort == 52_074)
+            #expect(status.port == 52_074)
             #expect(status.isRunning)
-            #expect(status.port == 58465)
-            #expect(status.pendingPortChange)
             #expect(!status.usesEphemeralFallback)
-            #expect(runtime.startCount == 0)
+            #expect(runtime.startCount == 1)
             #expect(runtime.stopCount == 0)
-            #expect(await service.applyConfiguredPort(58465) == .applied(58465))
+            #expect(await service.applyConfiguredPort(60_001) == .savedForLater)
+            #expect(MobileHostService.configuredPort(defaults: defaults) == 60_001)
+            #expect(service.statusSnapshot().pendingPortChange)
+            #expect(await service.applyConfiguredPort(52_074) == .applied(52_074))
             #expect(!service.statusSnapshot().pendingPortChange)
+            service.beginSignOutPreparation()
+            #expect(!service.statusSnapshot().tailscaleIsRunning)
+            #expect(service.statusSnapshot().tailscaleRoutes.isEmpty)
+            service.syncToSettings()
+            #expect(!service.statusSnapshot().tailscaleIsRunning)
+            service.stop()
+        }
+    }
+
+    @Test func tailscalePairingRemainsAvailableWhenIrohNetworkingIsDisabled() async throws {
+        try await withDefaults { defaults in
+            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            defaults.set(52_075, forKey: MobileHostService.portDefaultsKey)
+            // This probe models DisableIrohNetworking: the secure Iroh owner
+            // must stay stopped while the independently opted-in TCP listener
+            // remains available for legacy Tailscale pairing.
+            let runtime = MobileHostRuntimeProbe(allowed: false)
+            let service = MobileHostService(defaults: defaults, runtime: runtime)
+            defer { service.stop() }
+
+            service.syncToSettings()
+            let status = try await waitForTailscaleListener(service)
+            #expect(status.tailscaleIsRunning)
+            #expect(status.tailscalePort == 52_075)
+            #expect(status.irohPort == nil)
+            #expect(!status.isPairingReady)
+            #expect(await service.applyConfiguredPort(52_075) == .applied(52_075))
+
+            defaults.set(false, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            let hidden = service.statusSnapshot()
+            #expect(!hidden.isRunning)
+            #expect(!hidden.tailscaleIsRunning)
+            #expect(hidden.tailscalePort == nil)
+            #expect(hidden.tailscaleRoutes.isEmpty)
+            #expect(hidden.routes.isEmpty)
+            #expect(await service.ensureListeningAndReady().tailscaleIsRunning == false)
+        }
+    }
+
+    @Test("Pairing refresh returns TCP readiness without waiting for Iroh", arguments: [false, true])
+    func refreshWaitsForTailscaleReadiness(irohAllowed: Bool) async throws {
+        try await withDefaults { defaults in
+            defaults.set(true, forKey: MobileHostService.listeningEnabledDefaultsKey)
+            let port = irohAllowed ? 52_077 : 52_076
+            defaults.set(port, forKey: MobileHostService.portDefaultsKey)
+            let runtime = MobileHostRuntimeProbe(allowed: irohAllowed)
+            let service = MobileHostService(defaults: defaults, runtime: runtime)
+            defer { service.stop() }
+
+            // Do not pre-start or independently wait for the listener: this is
+            // the exact entrypoint used when the user opens the pairing sheet.
+            let status = await service.ensureListeningAndReady()
+            #expect(status.isRunning)
+            #expect(status.tailscaleIsRunning)
+            #expect(status.tailscalePort == port)
+            #expect(!status.isPairingReady)
+            #expect(runtime.listenerState.phase == (irohAllowed ? .starting : .stopped))
         }
     }
 
@@ -185,8 +261,9 @@ struct MobileHostV2LifecycleTests {
             runtime.emit(.init(phase: .ready, boundPort: 60002, preferredPort: 58465))
             let status = await waiting.value
             #expect(status.isRunning)
-            #expect(status.port == 60002)
-            #expect(status.usesEphemeralFallback)
+            #expect(status.port == nil)
+            #expect(status.irohPort == 60002)
+            #expect(!status.usesEphemeralFallback)
             #expect(runtime.startCount == 1)
         }
     }
@@ -217,7 +294,30 @@ struct MobileHostV2LifecycleTests {
             #expect(!status.pendingPortChange)
         }
     }
+
+    private func waitForTailscaleListener(
+        _ service: MobileHostService
+    ) async throws -> MobileHostServiceStatus {
+        let updates = service.statusUpdates()
+        return try await withThrowingTaskGroup(of: MobileHostServiceStatus.self) { group in
+            group.addTask {
+                for await status in updates where status.tailscaleIsRunning {
+                    return status
+                }
+                throw CancellationError()
+            }
+            group.addTask {
+                try await Task.sleep(for: .seconds(2))
+                throw TestTimeoutError()
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
+        }
+    }
 }
+
+private struct TestTimeoutError: Error {}
 
 @MainActor
 private final class MobileHostRuntimeProbe: MobileHostPairingRuntime {

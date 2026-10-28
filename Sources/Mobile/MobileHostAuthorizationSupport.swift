@@ -225,17 +225,20 @@ private actor MobileHostAccessTokenStore: TokenStoreProtocol {
 
 actor MobileHostSerializedTransportWriter {
     private let transport: any CmxByteTransport
+    private let isSessionCurrent: @Sendable () -> Bool
     private var sending = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
 
-    init(transport: any CmxByteTransport) {
+    init(transport: any CmxByteTransport, isSessionCurrent: @escaping @Sendable () -> Bool = { true }) {
         self.transport = transport
+        self.isSessionCurrent = isSessionCurrent
     }
 
     func send(_ data: Data) async throws {
         await acquire()
         defer { release() }
         try Task.checkCancellation()
+        guard isSessionCurrent() else { throw CancellationError() }
         try await transport.send(data)
     }
 

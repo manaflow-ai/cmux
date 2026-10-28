@@ -123,7 +123,7 @@ public struct MobileSection: View {
                     }
                     SettingsCardNote(String(
                         localized: "settings.mobile.port.note",
-                        defaultValue: "Apply saves the port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, cmux chooses an available port."
+                        defaultValue: "Apply saves the TCP port for the next pairing start. Current connections continue. To use the new port, turn iOS Pairing off and on. If the port is unavailable, choose another port. Iroh connects independently."
                     ))
                 }
                 .disabled(remoteControlManagedByPolicy)
@@ -251,8 +251,8 @@ public struct MobileSection: View {
             subtitle: String(
                 localized: "settings.mobile.pairDevice.subtitle",
                 defaultValue: """
-                Sign in to cmux on your iPhone with the same account and it \
-                connects automatically. No QR code is needed.
+                Sign in to cmux on your iPhone with the same account to connect automatically, \
+                or open pairing to scan this Mac’s Tailscale QR code when a Tailscale route is available.
                 """
             )
         ) {
@@ -286,7 +286,7 @@ public struct MobileSection: View {
             configurationReview: .settingsOnly,
             searchAnchorID: "setting:mobile:iOSPairingPort",
             String(localized: "settings.mobile.port", defaultValue: "Pairing Port"),
-            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "Preferred port for IROH connections, 1–65535.")
+            subtitle: String(localized: "settings.mobile.port.subtitle", defaultValue: "TCP port for Tailscale pairing, 1–65535.")
         ) {
             HStack(spacing: 8) {
                 TextField(
@@ -386,7 +386,10 @@ public struct MobileSection: View {
 
     @ViewBuilder
     private func boundPortStatusText(_ snapshot: MobilePairingStatusSnapshot) -> some View {
-        if !snapshot.isRunning {
+        if let failure = snapshot.tailscaleFailureDescription {
+            Label(failure, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } else if !snapshot.isRunning {
             Text(String(localized: "settings.mobile.port.status.starting", defaultValue: "Starting the pairing listener…"))
                 .foregroundStyle(.secondary)
         } else if snapshot.usesEphemeralFallback, let bound = snapshot.boundPort {

@@ -234,9 +234,19 @@ struct MobileHostServiceStatus {
     let routes: [CmxAttachRoute]
     let activeConnectionCount: Int
     let lastErrorDescription: String?
+    /// Iroh readiness and socket details are independent from the TCP route.
+    var irohPort: Int?
+    var irohLocalSocketAddresses: [String] = []
     var pendingPortChange: Bool = false
     var localSocketAddresses: [String] = []
     var isPairingReady = false
+    /// The independent TCP listener used by legacy Tailscale clients.
+    var tailscaleIsRunning = false
+    var tailscalePort: Int?
+    var tailscaleFailureDescription: String?
+    var tailscaleRoutes: [CmxAttachRoute] = []
+    /// Sessions that authenticated and completed workspace/event readiness.
+    var usableConnectionCount = 0
 
     var payload: [String: Any] {
         let now = Date()
@@ -248,7 +258,11 @@ struct MobileHostServiceStatus {
             "pending_port_change": pendingPortChange,
             "routes": routes.mobileHostJSONObjects(for: .authenticated, at: now),
             "active_connection_count": activeConnectionCount,
-            "last_error": lastErrorDescription ?? NSNull()
+            "last_error": lastErrorDescription ?? NSNull(),
+            "iroh_port": irohPort ?? NSNull(),
+            "tailscale_is_running": tailscaleIsRunning,
+            "tailscale_port": tailscalePort ?? NSNull(),
+            "tailscale_error": tailscaleFailureDescription ?? NSNull()
         ]
     }
 }
@@ -393,7 +407,9 @@ final class MobileHostService {
     /// degrades to identity-free and the phone's identity-recovery retry
     /// picks it up later). A flood of unique garbage tokens therefore cannot
     /// queue unbounded Stack lookups behind this verb.
-    nonisolated static func networkStatusResult(for request: MobileHostRPCRequest) async -> MobileHostRPCResult {
+    nonisolated static func networkStatusResult(
+        for request: MobileHostRPCRequest, hostDeviceID: String? = nil
+    ) async -> MobileHostRPCResult {
         let trimmedToken = request.auth?.stackAccessToken?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard trimmedToken?.isEmpty == false else {
             return MobileHostPublicStatusCache.result(includeIdentity: false)
@@ -413,12 +429,33 @@ final class MobileHostService {
         }
         return MobileHostPublicStatusCache.result(
             includeIdentity: true,
+            deviceID: hostDeviceID,
             phonePushAdmission: phonePushStatus.0,
             phonePushQueuePersistenceStatus: phonePushStatus.1
         )
     }
 
     private let callbackQueue = DispatchQueue(label: "dev.cmux.mobile.host-listener")
+    /// TCP compatibility listener for legacy Tailscale clients. Iroh owns its
+    /// own UDP endpoint and never shares this socket or its lifecycle.
+    private var tailscaleListener: NWListener?
+    private var tailscaleIsRunning = false
+    private var tailscalePort: Int?
+    private var tailscaleFailureDescription: String?
+    private var tailscaleRoutes: [CmxAttachRoute] = []
+    /// Invalidates callbacks from a listener that was stopped or replaced.
+    /// Network.framework may deliver a queued `.cancelled` event after the
+    /// next listener has already started, so state updates must be generation
+    /// scoped rather than inferred from the current socket reference.
+    private var tailscaleListenerGeneration = UUID()
+    private var tailscaleAdmissionGeneration: UUID?
+    /// Admission tasks remain owned by the listener so disabling pairing can
+    /// cancel work that has not inserted its connection into the registry yet.
+    private var tailscaleAdmissionTasks: [UUID: Task<Void, Never>] = [:]
+    private var signingOutScope: AuthenticatedTeamScope?
+    private var isSigningOut = false
+    private var authObservationTask: Task<Void, Never>?
+    private let tailscaleRouteResolver = MobileRouteResolver()
     private let ticketStore = MobileAttachTicketStore()
     private var clientIDsByConnectionID: [UUID: Set<String>] = [:]
     private var pathMonitor: MobileHostNetworkPathMonitor?
@@ -464,11 +501,40 @@ final class MobileHostService {
         Self.emitEvent(topic: "mobile.host.capabilities.changed", payload: [:])
     }
 
+    deinit {
+        authObservationTask?.cancel()
+    }
+
     /// Inject the auth dependency. Call once at the composition root.
     /// The v2 runtime owns the selected team's IROH device identity.
     func configure(auth: AuthCoordinator) {
         self.auth = auth
         pairingRuntime.configure(auth: auth)
+        authObservationTask?.cancel()
+        authObservationTask = Task { @MainActor [weak self, weak auth] in
+            guard let auth else { return }
+            await auth.awaitBootstrapped()
+            var previousScope: AuthenticatedTeamScope?
+            for await scope in auth.authenticatedTeamScopes() {
+                guard let self, !Task.isCancelled else { return }
+                if scope != previousScope {
+                    self.stopTailscaleListener()
+                    previousScope = scope
+                }
+                if let scope, scope != self.signingOutScope {
+                    self.isSigningOut = false
+                    self.syncToSettings()
+                }
+            }
+        }
+    }
+
+    /// Revoke the TCP listener and its sessions before the account is cleared.
+    func beginSignOutPreparation() {
+        signingOutScope = auth?.authenticatedTeamScope
+        isSigningOut = true
+        stopTailscaleListener()
+        stopNetworkPathMonitor()
     }
 
     func updateIrohRoute(
@@ -790,11 +856,10 @@ final class MobileHostService {
         return iOSPairingEnabled
     }
 
-    /// User-default key for the preferred iOS pairing listener port.
+    /// User-default key for the legacy Tailscale TCP pairing listener port.
     nonisolated static let portDefaultsKey = SettingCatalog().mobile.iOSPairingPort.userDefaultsKey
 
-    /// Preferred UDP port for the next IROH listener start. A busy port falls
-    /// back to an available port, which the runtime reports separately.
+    /// Configured TCP port for the legacy Tailscale compatibility listener.
     nonisolated static func configuredPort(defaults: UserDefaults = .standard) -> Int {
         let fallback = SettingCatalog().mobile.iOSPairingPort.defaultValue
         guard let raw = defaults.object(forKey: portDefaultsKey) as? Int else {
@@ -809,8 +874,7 @@ final class MobileHostService {
         guard (1...65535).contains(port) else { return .invalid }
         defaults.set(port, forKey: Self.portDefaultsKey)
         NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
-        let state = pairingRuntime.listenerState
-        if pairingRuntime.isNetworkingAllowed, state.isRunning, state.boundPort == port {
+        if tailscaleIsRunning, tailscalePort == port {
             return .applied(port)
         }
         return .savedForLater
@@ -821,6 +885,7 @@ final class MobileHostService {
     }
 
     func stop() {
+        stopTailscaleListener()
         let runtime = pairingRuntime
         runtime.prepareForStop()
         Task { @MainActor in await runtime.stopHost() }
@@ -877,17 +942,34 @@ final class MobileHostService {
         }
     }
 
-    /// Waits for the IROH owner's actual readiness, with a bounded UI wait.
+    /// Waits for either listener to become ready, or for both startup attempts
+    /// to settle, within the existing bounded UI wait.
     func ensureListeningAndReady(timeout: Duration = .seconds(6)) async -> MobileHostServiceStatus {
         let runtime = pairingRuntime
         if !runtime.isNetworkingAllowed { runtime.prepareForStop() }
         await runtime.applyManagedNetworkingPolicy()
-        guard runtime.isNetworkingAllowed, !runtime.listenerState.isSettled else { return statusSnapshot() }
+        if Self.isListeningEnabled(defaults: defaults) {
+            // A Tailscale bind failure is independent of Iroh readiness. An
+            // explicit pairing refresh is the user's retry action, so retry
+            // the TCP listener even when the Iroh endpoint is already settled.
+            startTailscaleListenerIfNeeded()
+        } else {
+            stopTailscaleListener()
+        }
+        guard !pairingStartupIsSettled else { return statusSnapshot() }
         let updates = runtime.listenerStateUpdates()
+        let hostUpdates = statusUpdates()
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
-                for await state in updates {
-                    if Task.isCancelled || state.isSettled { return }
+                for await _ in updates {
+                    if Task.isCancelled { return }
+                    if await self.pairingStartupIsSettled { return }
+                }
+            }
+            group.addTask {
+                for await _ in hostUpdates {
+                    if Task.isCancelled { return }
+                    if await self.pairingStartupIsSettled { return }
                 }
             }
             group.addTask { try? await Task.sleep(for: timeout) }
@@ -897,21 +979,44 @@ final class MobileHostService {
         return statusSnapshot()
     }
 
+    private var pairingStartupIsSettled: Bool {
+        let runtime = pairingRuntime
+        if tailscaleIsRunning || (runtime.isNetworkingAllowed && runtime.listenerState.isRunning) {
+            return true
+        }
+        let tailscaleStarting = tailscaleListener != nil && tailscaleFailureDescription == nil
+        return !tailscaleStarting && (!runtime.isNetworkingAllowed || runtime.listenerState.isSettled)
+    }
+
     private func makeStatus(routes: [CmxAttachRoute]) -> MobileHostServiceStatus {
         let runtime = pairingRuntime
         let state = runtime.isNetworkingAllowed ? runtime.listenerState : MobileHostListenerState()
         let desiredPort = Self.configuredPort(defaults: defaults)
+        let tailscaleAllowed = !isSigningOut && Self.isListeningEnabled(defaults: defaults)
+        let tcpRunning = tailscaleAllowed && tailscaleIsRunning
+        let tcpPort = tcpRunning ? tailscalePort : nil
+        let tcpRoutes = tcpRunning ? tailscaleRoutes : []
         return MobileHostServiceStatus(
-            isRunning: state.isRunning,
-            port: state.boundPort,
+            isRunning: state.isRunning || tcpRunning,
+            port: tcpPort,
             configuredPort: desiredPort,
-            usesEphemeralFallback: state.usesEphemeralFallback,
-            routes: state.isRunning ? routes : [],
+            usesEphemeralFallback: false,
+            routes: routes.filter { $0.kind == .iroh ? state.isRunning : tcpRunning },
             activeConnectionCount: MobileHostConnectionRegistry.shared.count,
             lastErrorDescription: state.failureDescription,
-            pendingPortChange: state.isRunning && state.preferredPort != desiredPort,
-            localSocketAddresses: state.localSocketAddresses,
-            isPairingReady: state.isRunning && state.hasAuthenticatedRegistration
+            irohPort: state.boundPort,
+            irohLocalSocketAddresses: state.localSocketAddresses,
+            pendingPortChange: tcpRunning && tcpPort != desiredPort,
+            localSocketAddresses: tcpRoutes.compactMap { route in
+                guard case let .hostPort(host, port) = route.endpoint else { return nil }
+                return host.contains(":") ? "[\(host)]:\(port)" : "\(host):\(port)"
+            },
+            isPairingReady: state.isRunning && state.hasAuthenticatedRegistration,
+            tailscaleIsRunning: tcpRunning,
+            tailscalePort: tcpPort,
+            tailscaleFailureDescription: tailscaleAllowed ? tailscaleFailureDescription : nil,
+            tailscaleRoutes: tcpRoutes,
+            usableConnectionCount: MobileHostConnectionRegistry.shared.usableConnectionCount
         )
     }
 
@@ -921,14 +1026,165 @@ final class MobileHostService {
         let runtime = pairingRuntime
         if !runtime.isNetworkingAllowed { runtime.prepareForStop() }
         Task { @MainActor in await runtime.applyManagedNetworkingPolicy() }
-        if runtime.isNetworkingAllowed {
+        if Self.isListeningEnabled(defaults: defaults) {
+            startTailscaleListenerIfNeeded()
             startNetworkPathMonitorIfNeeded()
         } else {
+            stopTailscaleListener()
             stopNetworkPathMonitor()
-            for connection in MobileHostConnectionRegistry.shared.removeAll() {
-                Task { await connection.close(reason: "iOS pairing disabled") }
+        }
+        if !runtime.isNetworkingAllowed {
+            for connection in MobileHostConnectionRegistry.shared.removeAllIrohConnections() {
+                Task { await connection.close(reason: "Iroh networking disabled") }
             }
         }
+    }
+
+    /// Starts the legacy TCP compatibility listener independently of Iroh.
+    /// Iroh uses its own UDP endpoint and may use an ephemeral port; this port
+    /// is reserved only for clients that explicitly select the Tailscale route.
+    private func startTailscaleListenerIfNeeded() {
+        guard !isSigningOut, auth == nil || auth?.authenticatedTeamScope != nil,
+              Self.isListeningEnabled(defaults: defaults), tailscaleListener == nil else { return }
+        let configuredPort = Self.configuredPort(defaults: defaults)
+        let port = NWEndpoint.Port(integerLiteral: UInt16(configuredPort))
+        let generation = UUID()
+        tailscaleListenerGeneration = generation
+        tailscaleAdmissionGeneration = MobileHostConnectionRegistry.shared.currentStackBearerGeneration()
+        do {
+            let listener = try NWListener(using: .tcp, on: port)
+            listener.stateUpdateHandler = { [weak self] state in
+                Task { @MainActor in
+                    self?.handleTailscaleListenerState(state, generation: generation)
+                }
+            }
+            listener.newConnectionHandler = { [weak self] connection in
+                Task { @MainActor in
+                    self?.acceptTailscaleConnection(connection, generation: generation)
+                }
+            }
+            tailscaleListener = listener
+            tailscaleFailureDescription = nil
+            listener.start(queue: callbackQueue)
+        } catch {
+            tailscaleListenerGeneration = UUID()
+            tailscaleFailureDescription = listenerFailureDescription(
+                port: configuredPort,
+                error: safeListenerFailureDetail(error)
+            )
+            NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+        }
+    }
+
+    private func handleTailscaleListenerState(
+        _ state: NWListener.State,
+        generation: UUID
+    ) {
+        guard generation == tailscaleListenerGeneration else { return }
+        switch state {
+        case .ready:
+            guard Self.isListeningEnabled(defaults: defaults) else {
+                stopTailscaleListener()
+                return
+            }
+            tailscaleIsRunning = true
+            tailscalePort = tailscaleListener?.port.map { Int($0.rawValue) }
+            tailscaleFailureDescription = nil
+            let routes = tailscalePort.map { tailscaleRouteResolver.routes(port: $0).routes } ?? []
+            tailscaleRoutes = routes
+            MobileHostPublicStatusCache.update(routes: routes)
+        case .failed(let error):
+            tailscaleListenerGeneration = UUID()
+            tailscaleListener?.cancel()
+            tailscaleListener = nil
+            tailscaleIsRunning = false
+            tailscalePort = nil
+            tailscaleFailureDescription = listenerFailureDescription(
+                port: Self.configuredPort(defaults: defaults),
+                error: safeListenerFailureDetail(error)
+            )
+            MobileHostPublicStatusCache.update(routes: [])
+            tailscaleRoutes = []
+        case .cancelled:
+            tailscaleIsRunning = false
+            tailscalePort = nil
+            tailscaleRoutes = []
+            MobileHostPublicStatusCache.update(routes: [])
+        default:
+            tailscaleIsRunning = false
+        }
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    nonisolated private func listenerFailureDescription(port: Int, error: String) -> String {
+        let format = String(
+            localized: "mobile.pairing.error.tailscaleListener",
+            defaultValue: "Could not start the Tailscale pairing listener on port %@: %@",
+            comment: "The placeholders are the configured TCP port and a safe OS diagnostic."
+        )
+        return String(format: format, locale: .current, String(port), error)
+    }
+
+    /// Network.framework errors can include raw POSIX, DNS, or TLS details.
+    /// Keep those in the log and expose only recovery guidance in Settings.
+    nonisolated private func safeListenerFailureDetail(_ error: any Error) -> String {
+        String(
+            localized: "mobile.pairing.error.listenerOffline",
+            defaultValue: "Could not start the pairing listener on this Mac."
+        )
+    }
+
+    private func stopTailscaleListener() {
+        tailscaleListenerGeneration = UUID()
+        tailscaleAdmissionGeneration = nil
+        let admissionTasks = Array(tailscaleAdmissionTasks.values)
+        tailscaleAdmissionTasks.removeAll()
+        for task in admissionTasks {
+            task.cancel()
+        }
+        for connection in MobileHostConnectionRegistry.shared.removeStackBearerConnections() {
+            Task { await connection.close(reason: "Tailscale listener stopped") }
+        }
+        tailscaleListener?.cancel()
+        tailscaleListener = nil
+        tailscaleIsRunning = false
+        tailscalePort = nil
+        tailscaleFailureDescription = nil
+        tailscaleRoutes = []
+        MobileHostPublicStatusCache.update(routes: [])
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
+    }
+
+    private func acceptTailscaleConnection(_ connection: NWConnection, generation: UUID) {
+        guard generation == tailscaleListenerGeneration,
+              tailscaleIsRunning,
+              let admissionGeneration = tailscaleAdmissionGeneration,
+              tailscaleAdmissionTasks.count < Self.maximumActiveConnectionCount * 2,
+              !isSigningOut,
+              Self.isListeningEnabled(defaults: defaults) else {
+            connection.cancel()
+            return
+        }
+        let transport = CmxNetworkByteTransport(acceptedConnection: connection)
+        let taskID = UUID()
+        let task = Task { @MainActor [weak self] in
+            _ = await Self.acceptTransport(
+                transport,
+                authorization: .stackBearer,
+                stackBearerGeneration: admissionGeneration,
+                hostDeviceID: MobileHostIdentity.deviceID(),
+                isCurrent: { [weak self] in
+                    await MainActor.run { [weak self] in
+                        guard let self else { return false }
+                        return self.tailscaleListenerGeneration == generation
+                            && self.tailscaleIsRunning
+                            && Self.isListeningEnabled(defaults: self.defaults)
+                    }
+                }
+            )
+            self?.tailscaleAdmissionTasks.removeValue(forKey: taskID)
+        }
+        tailscaleAdmissionTasks[taskID] = task
     }
 
     @discardableResult
@@ -936,6 +1192,7 @@ final class MobileHostService {
         _ transport: any CmxByteTransport,
         authorization: MobileHostConnectionAuthorizationContext,
         registry: MobileHostConnectionRegistry = .shared,
+        stackBearerGeneration: UUID? = nil,
         hostDeviceID: String? = nil,
         artifactTransfers: MobileHostIrohArtifactTransferRegistry? = nil,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
@@ -967,6 +1224,10 @@ final class MobileHostService {
             return expectedExit
         }
 
+        let isSessionCurrent: @Sendable () -> Bool = {
+            guard let stackBearerGeneration else { return true }
+            return registry.isCurrentStackBearerGeneration(stackBearerGeneration)
+        }
         let id = UUID()
         let defaultFirstFrameTimeout: UInt64 = switch authorization {
         case .irohAdmission:
@@ -982,15 +1243,21 @@ final class MobileHostService {
             transport: transport,
             firstFrameTimeoutNanoseconds: firstFrameTimeoutNanoseconds
                 ?? defaultFirstFrameTimeout,
+            requiresAuthenticatedRequest: authorization == .stackBearer,
             independentEventWriter: independentEventWriter,
             authorizeRequest: { request in
-                await Self.connectionAuthorizationError(
+                if let error = await Self.connectionAuthorizationError(
                     for: request,
                     authorization: authorization,
                     stackAuthorization: { request in
                         await MobileHostService.shared.authorizationError(for: request)
                     }
-                )
+                ) { return error }
+                if authorization == .stackBearer, Self.requiresAuthorization(method: request.method),
+                   !registry.promoteStackBearerConnection(id: id, limit: Self.maximumActiveConnectionCount) {
+                    return .failure(MobileHostRPCError(code: "server_busy", message: "Too many connections are active"))
+                }
+                return nil
             },
             onAuthorizedRequest: { request in
                 guard let clientID = Self.clientID(from: request.params) else {
@@ -1003,9 +1270,11 @@ final class MobileHostService {
                 await Self.retireSupersededIrohConnections(
                     newestConnectionID: id, registry: registry
                 )
-                return true
+                return registry.markUsable(id: id)
             },
+            isSessionCurrent: isSessionCurrent,
             isAuthorizationCurrent: {
+                guard isSessionCurrent() else { return false }
                 if case .irohAdmission = authorization {
                     return await irohAdmissionIsAuthorized()
                 }
@@ -1019,8 +1288,8 @@ final class MobileHostService {
                         authorization: authorization,
                         hostDeviceID: hostDeviceID,
                         supportsArtifactLane: artifactTransfers != nil,
-                        stackStatus: { request in
-                            await MobileHostService.networkStatusResult(for: request)
+                        stackStatus: { request, deviceID in
+                            await MobileHostService.networkStatusResult(for: request, hostDeviceID: deviceID)
                         }
                     )
                 }
@@ -1032,7 +1301,8 @@ final class MobileHostService {
                     executionContext: MobileHostRPCExecutionContext(
                         connectionID: id,
                         authorization: authorization,
-                        artifactTransfers: artifactTransfers
+                        artifactTransfers: artifactTransfers,
+                        hostDeviceID: authorization == .stackBearer ? hostDeviceID : nil
                     )
                 )
                 await MobileHostService.shared.recordCreatedResourcesIfNeeded(
@@ -1063,7 +1333,9 @@ final class MobileHostService {
             session,
             id: id,
             authorization: authorization,
-            limit: Self.maximumActiveConnectionCount
+            limit: Self.maximumActiveConnectionCount,
+            stackBearerGeneration: stackBearerGeneration,
+            pendingAuthentication: authorization == .stackBearer
         ) else {
             mobileHostLog.error(
                 "mobile host rejected connection because an active connection quota was reached"
@@ -1094,11 +1366,11 @@ final class MobileHostService {
         authorization: MobileHostConnectionAuthorizationContext,
         hostDeviceID: String? = nil,
         supportsArtifactLane: Bool = false,
-        stackStatus: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
+        stackStatus: @escaping @Sendable (MobileHostRPCRequest, String?) async -> MobileHostRPCResult
     ) async -> MobileHostRPCResult {
         switch authorization {
         case .stackBearer:
-            return await stackStatus(request)
+            return await stackStatus(request, hostDeviceID)
         case .irohAdmission:
             let phonePushStatus = await MainActor.run {
                 (
@@ -1126,11 +1398,13 @@ final class MobileHostService {
         routeKind: String? = nil,
         routeDisclosureMode: CmxPairingRouteDisclosureMode = .legacyPrivateNetworkCompatibility,
         target: MobileAttachTarget? = nil,
+        transportRouteKinds: [CmxAttachTransportKind]? = nil,
         pairingURLScheme: CmxPairingURLScheme? =
             CmxPairingURLSchemeResolver().resolved
     ) async throws -> [String: Any] {
         let subject = try Self.attachTicketSubject(
             publishedStatus: MobileHostPublicStatusCache.publishedStatus(),
+            transportRouteKinds: transportRouteKinds,
             routeID: routeID,
             routeKind: routeKind,
             target: target
@@ -1165,12 +1439,13 @@ final class MobileHostService {
     /// rather than falling back to the legacy per-install identity.
     static func attachTicketSubject(
         publishedStatus: MobileHostPublicStatusCache.PublishedStatus,
+        transportRouteKinds: [CmxAttachTransportKind]? = nil,
         routeID: String?,
         routeKind: String?,
         target: MobileAttachTarget?
     ) throws -> (routes: [CmxAttachRoute], deviceID: String) {
         let narrowedRoutes = try Self.filteredRoutes(
-            publishedStatus.routes,
+            publishedStatus.routes.filter { transportRouteKinds?.contains($0.kind) ?? true },
             routeID: routeID,
             routeKind: routeKind
         )
@@ -1404,7 +1679,7 @@ final class MobileHostService {
         }
     }
 
-    nonisolated private static func requiresAuthorization(method: String) -> Bool {
+    nonisolated fileprivate static func requiresAuthorization(method: String) -> Bool {
         switch method {
         // Only the unauthenticated host probe is exempt. `mobile.attach_ticket.create`
         // mints a bearer credential, so it MUST be authorized: a network caller has no
@@ -1441,8 +1716,20 @@ final class MobileHostService {
     }
 
     private func handleNetworkPathChange() {
+        if Self.isListeningEnabled(defaults: defaults), tailscaleListener == nil {
+            startTailscaleListenerIfNeeded()
+        }
+        refreshTailscaleRoutes()
         let runtime = pairingRuntime
         Task { @MainActor in await runtime.foreground() }
+    }
+
+    private func refreshTailscaleRoutes() {
+        guard tailscaleIsRunning, let port = tailscalePort else { return }
+        tailscaleRouteResolver.invalidateResolvedTailscaleHostCache()
+        tailscaleRoutes = tailscaleRouteResolver.routes(port: port).routes
+        MobileHostPublicStatusCache.update(routes: tailscaleRoutes)
+        NotificationCenter.default.post(name: .mobileHostStatusDidChange, object: nil)
     }
 }
 
@@ -1528,10 +1815,13 @@ actor MobileHostConnection {
     private let writer: MobileHostSerializedTransportWriter
     private let independentEventWriter: (any MobileHostIndependentEventWriting)?
     private let firstFrameTimeoutNanoseconds: UInt64
+    private let firstFrameClock: any Clock<Duration>
+    private let requiresAuthenticatedRequest: Bool
     private let authorizeRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?
     /// Per-request authorization for transports whose admission lease can
     /// expire while the connection remains open (Iroh).
     private let isAuthorizationCurrent: @Sendable () async -> Bool
+    nonisolated private let isSessionCurrent: @Sendable () -> Bool
     private let onAuthorizedRequest: @Sendable (MobileHostRPCRequest) async -> Void
     private let onUsableSession: @Sendable () async -> Bool
     private let handleRequest: @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult
@@ -1570,6 +1860,7 @@ actor MobileHostConnection {
     /// is scheduled first so keystroke echo never waits behind other surfaces.
     private var lastInteractiveSurfaceKey: String?
     private var didDecodeFirstFrame = false
+    private var didAuthenticateRequest = false
     private var isClosed = false
     private var exit = CmxIrohAdmittedConnectionExit(
         lifecycle: .explicitlyInvalidated,
@@ -1587,10 +1878,13 @@ actor MobileHostConnection {
         connection: NWConnection,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        firstFrameClock: any Clock<Duration> = ContinuousClock(),
+        requiresAuthenticatedRequest: Bool = false,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isSessionCurrent: @escaping @Sendable () -> Bool = { true },
         isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
@@ -1599,11 +1893,14 @@ actor MobileHostConnection {
         let transport = CmxNetworkByteTransport(acceptedConnection: connection)
         self.id = id
         self.transport = transport
-        self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.writer = MobileHostSerializedTransportWriter(transport: transport, isSessionCurrent: isSessionCurrent)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.firstFrameClock = firstFrameClock
+        self.requiresAuthenticatedRequest = requiresAuthenticatedRequest
         self.authorizeRequest = authorizeRequest
         self.isAuthorizationCurrent = isAuthorizationCurrent
+        self.isSessionCurrent = isSessionCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -1617,10 +1914,13 @@ actor MobileHostConnection {
         transport: any CmxByteTransport,
         eventQueue: MobileHostConnectionEventQueue = MobileHostConnectionEventQueue(),
         firstFrameTimeoutNanoseconds: UInt64 = MobileHostConnection.defaultFirstFrameTimeoutNanoseconds,
+        firstFrameClock: any Clock<Duration> = ContinuousClock(),
+        requiresAuthenticatedRequest: Bool = false,
         independentEventWriter: (any MobileHostIndependentEventWriting)? = nil,
         authorizeRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult?,
         onAuthorizedRequest: @escaping @Sendable (MobileHostRPCRequest) async -> Void,
         onUsableSession: @escaping @Sendable () async -> Bool = { true },
+        isSessionCurrent: @escaping @Sendable () -> Bool = { true },
         isAuthorizationCurrent: @escaping @Sendable () async -> Bool = { true },
         handleRequest: @escaping @Sendable (MobileHostRPCRequest) async -> MobileHostRPCResult,
         onClose: @escaping @Sendable (UUID) async -> Void,
@@ -1628,11 +1928,14 @@ actor MobileHostConnection {
     ) {
         self.id = id
         self.transport = transport
-        self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.writer = MobileHostSerializedTransportWriter(transport: transport, isSessionCurrent: isSessionCurrent)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
+        self.firstFrameClock = firstFrameClock
+        self.requiresAuthenticatedRequest = requiresAuthenticatedRequest
         self.authorizeRequest = authorizeRequest
         self.isAuthorizationCurrent = isAuthorizationCurrent
+        self.isSessionCurrent = isSessionCurrent
         self.onAuthorizedRequest = onAuthorizedRequest
         self.onUsableSession = onUsableSession
         self.handleRequest = handleRequest
@@ -1759,8 +2062,10 @@ actor MobileHostConnection {
                     )
                     if !frames.isEmpty {
                         didDecodeFirstFrame = true
-                        firstFrameTimeoutTask?.cancel()
-                        firstFrameTimeoutTask = nil
+                        if !requiresAuthenticatedRequest {
+                            firstFrameTimeoutTask?.cancel()
+                            firstFrameTimeoutTask = nil
+                        }
                     }
                     for frame in frames {
                         guard !isClosed else { return }
@@ -1908,20 +2213,21 @@ actor MobileHostConnection {
         }
         firstFrameTimeoutTask?.cancel()
         let timeoutNanoseconds = firstFrameTimeoutNanoseconds
+        let clock = firstFrameClock
         firstFrameTimeoutTask = Task { [weak self] in
             do {
-                try await Task.sleep(nanoseconds: timeoutNanoseconds)
+                try await clock.sleep(for: .nanoseconds(Int64(clamping: timeoutNanoseconds)))
                 await self?.closeIfWaitingForFirstFrame()
             } catch {}
         }
     }
 
     private func closeIfWaitingForFirstFrame() async {
-        guard !didDecodeFirstFrame else {
+        guard requiresAuthenticatedRequest ? !didAuthenticateRequest : !didDecodeFirstFrame else {
             return
         }
         await close(
-            reason: "first frame timed out",
+            reason: requiresAuthenticatedRequest ? "authentication timed out" : "first frame timed out",
             exit: CmxIrohAdmittedConnectionExit(
                 lifecycle: .controlReadFailed,
                 failure: .timedOut
@@ -1964,7 +2270,7 @@ actor MobileHostConnection {
     private func successResponsePayload(
         for request: MobileHostRPCRequest
     ) async -> PreparedResponse? {
-        guard !isClosed, !Task.isCancelled else {
+        guard !isClosed, !Task.isCancelled, isSessionCurrent() else {
             return nil
         }
         guard await isAuthorizationCurrent() else {
@@ -1989,7 +2295,7 @@ actor MobileHostConnection {
             }
         }
         if let error = await authorizeRequest(request) {
-            guard !isClosed, !Task.isCancelled else {
+            guard !isClosed, !Task.isCancelled, isSessionCurrent() else {
                 return nil
             }
             return PreparedResponse(
@@ -2000,14 +2306,20 @@ actor MobileHostConnection {
                 readinessContribution: nil
             )
         }
-        guard !isClosed, !Task.isCancelled else {
+        guard !isClosed, !Task.isCancelled, isSessionCurrent() else {
             return nil
         }
+        if requiresAuthenticatedRequest, MobileHostService.requiresAuthorization(method: request.method) {
+            didAuthenticateRequest = true
+            firstFrameTimeoutTask?.cancel()
+            firstFrameTimeoutTask = nil
+        }
         await onAuthorizedRequest(request)
-        guard !isClosed, !Task.isCancelled else {
+        guard !isClosed, !Task.isCancelled, isSessionCurrent() else {
             return nil
         }
         if let intercepted = await handleSubscriptionRPC(request) {
+            guard !isClosed, !Task.isCancelled, isSessionCurrent() else { return nil }
             return PreparedResponse(
                 data: MobileHostRPCEnvelope.encodeResponse(
                     id: request.id,
@@ -2020,7 +2332,7 @@ actor MobileHostConnection {
             )
         }
         let result = await handleRequest(request)
-        guard !isClosed, !Task.isCancelled else {
+        guard !isClosed, !Task.isCancelled, isSessionCurrent() else {
             return nil
         }
         return PreparedResponse(
@@ -2252,6 +2564,7 @@ actor MobileHostConnection {
         clientID: String? = nil,
         surfaceEventLanes: Bool = false
     ) async {
+        guard !isClosed, isSessionCurrent() else { return }
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
@@ -2320,7 +2633,7 @@ actor MobileHostConnection {
     /// event was admitted.
     @discardableResult
     func sendEvent(topic: String, payload: [String: Any]) async -> Bool {
-        guard !isClosed else {
+        guard !isClosed, isSessionCurrent() else {
             #if DEBUG
             cmuxDebugLog("mobile.send skip: closed topic=\(topic) connID=\(self.id.uuidString)")
             #endif
@@ -2373,7 +2686,8 @@ actor MobileHostConnection {
         isFullRenderGridFrame: Bool,
         stateSeq: UInt64?
     ) -> MobileHostEventEnqueueResult {
-        eventQueue.enqueue(
+        guard isSessionCurrent() else { return .rejected }
+        return eventQueue.enqueue(
             topic: topic,
             coalesceKey: coalesceKey,
             isFullRenderGridFrame: isFullRenderGridFrame,
@@ -2459,7 +2773,7 @@ actor MobileHostConnection {
     /// unusable control session).
     func drainQueuedEvents(lane: MobileHostEventLane = .shared) async {
         while true {
-            if isClosed {
+            if isClosed || !isSessionCurrent() {
                 eventQueue.abandonDrain(lane: lane)
                 return
             }
@@ -2691,7 +3005,7 @@ actor MobileHostConnection {
     }
 
     private func sendControlFrame(_ frame: Data) async -> Bool {
-        guard !isClosed else { return false }
+        guard !isClosed, isSessionCurrent() else { return false }
         do {
             try await writer.send(frame)
             return true

@@ -304,7 +304,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         accountAdmission?.invalidate()
         generationToken = UUID()
         listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
     }
 
     func stopHost() async {
@@ -319,7 +319,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         generationToken = UUID()
         wantsHost = false
         listenerState = MobileHostListenerState()
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
         let token = generationToken
         shutdownTask?.cancel()
         shutdownTask = Task { @MainActor [weak self] in
@@ -442,7 +442,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         lastLoggedControlState = nil
         hadLiveDiscoveryThisRun = false
         setSettingsPhase(.idle)
-        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeAll() }
+        if publishesPublicHostStatus { MobileHostPublicStatusCache.removeIroh() }
         await outgoingDeviceClient?.enforce(nil, releaseAll: true)
         await outgoingDeviceClient?.enforceAccount(nil)
         // Leave the account directory while the old ticket still authenticates,
@@ -471,7 +471,8 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     return
                 } catch {
                     guard self.isCurrent(token), !Task.isCancelled else { return }
-                    self.setSettingsPhase(.failed)
+                    self.setSettingsPhase(.failed, error: error)
+                    self.listenerState.failureDescription = Self.listenerFailureDescription(error)
                     Self.journal.record("v2-host", "setup-retry", [
                         "error": (error as? V2ControlFailure)?.diagnosticCode ?? String(describing: type(of: error))
                     ])
@@ -501,7 +502,14 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         switch phase {
         case .idle: listenerState = MobileHostListenerState()
         case .activating: listenerState.phase = .starting
-        case .failed: listenerState = MobileHostListenerState(phase: .retrying)
+        case .failed:
+            // Keep the last endpoint diagnosis attached to the listener state.
+            // The pairing window reads this state through `mobile.host.status`;
+            // replacing it with a bare retrying value used to erase the cause
+            // before the UI could render it.
+            listenerState.phase = .retrying
+            listenerState.boundPort = nil
+            listenerState.localSocketAddresses = []
         case .active: break
         }
         publishIrxSettingsUpdate()
@@ -528,9 +536,10 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                 pairingEnabled: pairingEnabled(), platform: .mac,
                 relayURLs: restored?.device?.descriptor.metadata.relayURLs ?? []))
         let identity = IrxIdentity(privateKeyData: key.secretKey, deviceID: deviceID, appInstanceID: key.endpointID)
-        let preferredPort = MobileHostService.configuredPort()
         let supervisor = IrxEndpointSupervisor(configuration: .init(identity: identity, pathMode: Self.pathMode,
-            preferredBindAddress: "0.0.0.0:\(preferredPort)",
+            // Iroh owns an independent UDP endpoint and does not need the
+            // fixed TCP compatibility port reserved for Tailscale clients.
+            preferredBindAddress: nil,
             initialRemoteBiStreams: 1, initialRemoteUniStreams: 0,
             additionalALPNs: Self.endpointAdditionalALPNs), journal: Self.journal)
         let admission = try V2InboundAdmissionAuthority(host: device)
@@ -562,7 +571,6 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
             journal: Self.journal)
         let service = V2ControlService(configuration: try .init(baseURL: configuration.baseURL, device: device),
             dependencies: dependencies, store: store)
-        listenerState.preferredPort = preferredPort
         self.identity = identity
         self.admission = admission
         if pairingEnabled(), let namespace = CmxIrohMacBundleNamespace(bundleIdentifier: Bundle.main.bundleIdentifier),
@@ -919,6 +927,7 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
                     self.listenerState.phase = .retrying
                     self.listenerState.boundPort = nil
                     self.listenerState.localSocketAddresses = []
+                    self.listenerState.failureDescription = Self.listenerFailureDescription(error)
                     let delay = Self.activationRetryDelay(after: error, failureCount: failures, jitterUnitInterval: Double.random(in: 0...1))
                     failures += 1
                     try? await Task.sleep(for: .seconds(delay))
@@ -1016,9 +1025,40 @@ final class MobileHostIrxRuntime: MobileHostPairingRuntime {
         next.phase = healthy ? .ready : .starting
         next.boundPort = healthy ? port : nil
         next.localSocketAddresses = healthy ? addresses : []
+        if healthy { next.failureDescription = nil }
         listenerState = next
         if healthy { publishRoute(relayURL: relayURL) }
         else if publishesPublicHostStatus { MobileHostPublicStatusCache.update(irohIdentity: nil) }
+    }
+
+    nonisolated private static func listenerFailureDescription(_ error: any Error) -> String {
+        if let error = error as? IrxEndpointError {
+            switch error {
+            case .noUsableRelayCredential:
+                return String(
+                    localized: "mobile.pairing.error.noRelayCredential",
+                    defaultValue: "Secure pairing has no usable relay credentials. Check your connection and try again."
+                )
+            case .endpointClosed:
+                return String(
+                    localized: "mobile.pairing.error.endpointClosed",
+                    defaultValue: "The secure pairing endpoint stopped before startup completed. Close other cmux builds and try again."
+                )
+            case .noDirectAddress:
+                return String(
+                    localized: "mobile.pairing.error.noDirectAddress",
+                    defaultValue: "The secure pairing endpoint is running, but this Mac has no direct network address. Check Tailscale or your network connection."
+                )
+            case .bindFailed:
+                break
+            }
+        }
+        // Native relay failures can contain endpoint details. Keep those in
+        // diagnostics and present the localized recovery message to the user.
+        return String(
+            localized: "mobile.pairing.error.preparationFailed",
+            defaultValue: "Pairing could not finish. Check your connection and try again."
+        )
     }
 
     private func publishRoute(relayURL: String?) {

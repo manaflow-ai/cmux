@@ -1080,7 +1080,7 @@ private actor GatedMobileHostByteTransport: CmxByteTransport {
     }
 }
 
-private actor ScriptedMobileHostByteTransport: CmxByteTransport {
+actor ScriptedMobileHostByteTransport: CmxByteTransport {
     private enum Failure: Error {
         case scriptedSend
     }

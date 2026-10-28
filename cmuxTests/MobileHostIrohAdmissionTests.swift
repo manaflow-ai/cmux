@@ -440,7 +440,7 @@ extension MobileHostAuthorizationTests {
             for: request,
             authorization: try irohAdmissionContext(),
             supportsArtifactLane: true,
-            stackStatus: { _ in .ok(["routes": []]) }
+            stackStatus: { _, _ in .ok(["routes": []]) }
         )
         guard case let .ok(admittedPayload as [String: Any]) = admitted else {
             return #expect(Bool(false), "Admitted Iroh status must return an object")
@@ -453,7 +453,7 @@ extension MobileHostAuthorizationTests {
             for: request,
             authorization: try irohAdmissionContext(),
             supportsArtifactLane: false,
-            stackStatus: { _ in .ok(["routes": []]) }
+            stackStatus: { _, _ in .ok(["routes": []]) }
         )
         guard case let .ok(unownedPayload as [String: Any]) = admittedWithoutHandler else {
             return #expect(Bool(false), "Admitted Iroh status must return an object")
@@ -464,7 +464,7 @@ extension MobileHostAuthorizationTests {
         let tcp = await MobileHostService.connectionStatusResult(
             for: request,
             authorization: .stackBearer,
-            stackStatus: { _ in
+            stackStatus: { _, _ in
                 .ok(MobileHostService.publicStatusPayload(routes: []))
             }
         )

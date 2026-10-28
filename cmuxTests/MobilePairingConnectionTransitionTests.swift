@@ -37,6 +37,48 @@ struct MobilePairingConnectionTransitionTests {
         #expect(MobilePairingModel.v2StatusTransition(status, baselineConnectionCount: 0) == .preparing)
     }
 
+    @Test("A ready Tailscale listener displays a scannable QR and manual address", arguments: [false, true])
+    func tailscaleListenerProducesPairingCode(irohReady: Bool) throws {
+        let route = try tailscaleRoute()
+        var status = MobileHostServiceStatus(
+            isRunning: true, port: 7777, configuredPort: 7777,
+            usesEphemeralFallback: false, routes: [route], activeConnectionCount: 0,
+            lastErrorDescription: nil, tailscaleIsRunning: true, tailscalePort: 7777,
+            tailscaleRoutes: [route]
+        )
+        status.isPairingReady = irohReady
+        let model = MobilePairingModel()
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        defer { model.stopObserving() }
+        guard case let .ready(ready) = model.state else {
+            Issue.record("A ready Tailscale listener must allow pairing independently of Iroh")
+            return
+        }
+        #expect(!ready.v2Only)
+        #expect(ready.tailscaleLines == ["100.64.0.1:7777"])
+        #expect(ready.manualEntry == CmxManualPairingEntry(host: "100.64.0.1", port: 7777))
+        let components = try #require(URLComponents(string: ready.attachURL))
+        let ticket = try CmxPairingQRCode().decode(components)
+        #expect(ticket.routes.map(\.endpoint) == [route.endpoint])
+        // The compatibility grammar intentionally defers device identity to
+        // authenticated host status; it must not require identity before dialing.
+        #expect(ticket.macDeviceID.isEmpty)
+        #expect(ticket.macDisplayName == nil)
+        #expect(ticket.macPairingCompatibilityVersion == CmxMobileDefaults.pairingCompatibilityVersion)
+        #expect(ticket.expiresAt == nil)
+        #expect(ticket.authToken == nil)
+
+        status.tailscaleIsRunning = false
+        status.tailscaleRoutes = []
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        if case let .ready(withdrawn) = model.state {
+            #expect(withdrawn.attachURL.isEmpty)
+            #expect(withdrawn.v2Only)
+        } else {
+            #expect(!irohReady)
+        }
+    }
+
     @Test("Listener and registration failures expose recovery", arguments: [false, true])
     func v2FailuresDoNotRemainPreparing(running: Bool) {
         let status = MobileHostServiceStatus(
@@ -48,6 +90,50 @@ struct MobilePairingConnectionTransitionTests {
             Issue.record("A failed listener or registration must expose the Try Again state")
             return
         }
+    }
+
+    @Test func tcpProbesDoNotHideThePairingCodeBeforeUsableSessionReadiness() throws {
+        let route = try tailscaleRoute()
+        var status = MobileHostServiceStatus(
+            isRunning: true, port: 7777, configuredPort: 7777,
+            usesEphemeralFallback: false, routes: [route], activeConnectionCount: 2,
+            lastErrorDescription: nil, tailscaleIsRunning: true, tailscalePort: 7777,
+            tailscaleRoutes: [route]
+        )
+        let model = MobilePairingModel()
+        defer { model.stopObserving() }
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        guard case let .ready(ready) = model.state else {
+            Issue.record("Accepted TCP probes must leave the QR available")
+            return
+        }
+        #expect(!ready.attachURL.isEmpty)
+        status.usableConnectionCount = 1
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        #expect(model.state == .connected(from: .ready(ready)))
+        // Pairing another phone starts from the established usable-session count,
+        // even if other unauthenticated sockets are still connected.
+        model.receiveHostStatus(status, baselineConnectionCount: 1)
+        #expect(model.state == .ready(ready))
+        status.usableConnectionCount = 0
+        model.receiveHostStatus(status, baselineConnectionCount: 0)
+        #expect(model.state == .ready(ready))
+    }
+
+    @Test func v2FailurePreservesTransportDiagnosis() throws {
+        let status = MobileHostServiceStatus(
+            isRunning: false, port: nil, configuredPort: 58465,
+            usesEphemeralFallback: false, routes: [], activeConnectionCount: 0,
+            lastErrorDescription: "Another cmux instance owns the endpoint"
+        )
+        guard case let .failed(message) = MobilePairingModel.v2StatusTransition(
+            status,
+            baselineConnectionCount: 0
+        ) else {
+            Issue.record("A transport diagnosis must produce a visible failure")
+            return
+        }
+        #expect(message.contains("Another cmux instance owns the endpoint"))
     }
 
     @Test("Preparation has a cancellable deadline and keeps recovery visible")

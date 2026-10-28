@@ -1,3 +1,4 @@
+import CmuxCloud
 import CMUXMobileCore
 import CmuxIrohTransport
 @testable import CmuxMobileHost
@@ -12,6 +13,113 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct MobileHostAuthorizationTests {
+    @Test("TCP tickets and status retain their identity with and without Iroh", arguments: [false, true],
+          [CmxAttachTransportKind.tailscale, .debugLoopback])
+    func tcpTicketAndStatusIdentity(irohPublished: Bool, routeKind: CmxAttachTransportKind) async throws {
+        let tcp = try CmxAttachRoute(id: routeKind.rawValue, kind: routeKind,
+            endpoint: .hostPort(host: routeKind == .debugLoopback ? "127.0.0.1" : "100.64.0.1", port: 7777))
+        let iroh = try CmxAttachRoute(id: "iroh", kind: .iroh,
+            endpoint: .peer(identity: CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64)), pathHints: []))
+        let published = MobileHostPublicStatusCache.PublishedStatus(
+            routes: [iroh, tcp], v2DeviceID: irohPublished ? "v2-device" : nil
+        )
+        let subject = try MobileHostService.attachTicketSubject(
+            publishedStatus: published, transportRouteKinds: [.tailscale, .debugLoopback],
+            routeID: nil, routeKind: nil, target: .ticketOnly
+        )
+        #expect(subject.routes == [tcp])
+        #expect(subject.deviceID == MobileHostIdentity.deviceID())
+        MobileHostPublicStatusCache.updateV2DeviceID(published.v2DeviceID)
+        defer { MobileHostPublicStatusCache.removeAll() }
+        let response = await MobileHostService.connectionStatusResult(
+            for: MobileHostRPCRequest(id: "status", method: "mobile.host.status", params: [:], auth: nil),
+            authorization: .stackBearer, hostDeviceID: subject.deviceID,
+            stackStatus: { _, deviceID in
+                MobileHostPublicStatusCache.result(includeIdentity: true, deviceID: deviceID)
+            }
+        )
+        guard case let .ok(payload as [String: Any]) = response else {
+            Issue.record("The TCP identity must not depend on an Iroh publication")
+            return
+        }
+        #expect(payload["mac_device_id"] as? String == subject.deviceID)
+    }
+
+    @Test func revokedTailscaleGenerationRejectsAnAcceptThatAlreadyPassedItsCheck() async {
+        let registry = MobileHostConnectionRegistry()
+        let generation = registry.currentStackBearerGeneration()
+        #expect(registry.isCurrentStackBearerGeneration(generation))
+        _ = registry.removeStackBearerConnections()
+        let id = UUID()
+        let session = MobileHostConnection(
+            id: id, transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) }, onClose: { _ in }
+        )
+        #expect(!registry.insert(session, id: id, authorization: .stackBearer, limit: 4,
+            stackBearerGeneration: generation))
+        #expect(registry.count == 0)
+        await session.close(reason: "test complete")
+    }
+
+    @Test func revokedTailscaleSessionDropsQueuedFanoutWithoutWaitingForClose() async throws {
+        let registry = MobileHostConnectionRegistry()
+        let generation = registry.currentStackBearerGeneration()
+        let id = UUID()
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: id, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            isSessionCurrent: { registry.isCurrentStackBearerGeneration(generation) },
+            handleRequest: { _ in .ok([:]) }, onClose: { registry.remove(id: $0) }
+        )
+        try #require(registry.insert(session, id: id, authorization: .stackBearer, limit: 4,
+            stackBearerGeneration: generation))
+        await session.subscribe(streamID: "queued", topics: ["terminal.updated"])
+        let before = session.enqueueEventFrame(Data("private".utf8), topic: "terminal.updated",
+            coalesceKey: nil, isFullRenderGridFrame: false, stateSeq: nil)
+        #expect(before.admitted)
+        // Retire the generation but deliberately leave the actor and transport
+        // open. The asynchronous close must not be what suppresses delivery.
+        _ = registry.removeStackBearerConnections()
+        await session.drainQueuedEvents()
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(await transport.waitForSentBufferCount(0).isEmpty)
+        let after = session.enqueueEventFrame(Data("private".utf8), topic: "terminal.updated",
+            coalesceKey: nil, isFullRenderGridFrame: false, stateSeq: nil)
+        #expect(!after.admitted)
+        await session.subscribe(streamID: "late", topics: ["workspace.updated"])
+        #expect(await session.isSubscribed(to: "workspace.updated") == false)
+        #expect(await session.sendEvent(topic: "terminal.updated", payload: ["content": "private"]) == false)
+        await session.close(reason: "test complete")
+    }
+
+    @Test func signOutRevokesTailscaleSubscriptionsBeforeAsynchronousClose() async throws {
+        let registry = MobileHostConnectionRegistry.shared
+        let generation = registry.currentStackBearerGeneration()
+        let id = UUID()
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: id, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            isSessionCurrent: { registry.isCurrentStackBearerGeneration(generation) },
+            handleRequest: { _ in .ok([:]) }, onClose: { registry.remove(id: $0) }
+        )
+        try #require(registry.insert(session, id: id, authorization: .stackBearer, limit: 64,
+            stackBearerGeneration: generation))
+        await session.subscribe(streamID: "sign-out", topics: ["terminal.updated"])
+        let defaultsName = "MobileSignOutTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+        let service = MobileHostService(defaults: defaults)
+        service.beginSignOutPreparation()
+        #expect(!registry.isCurrentStackBearerGeneration(generation))
+        #expect(registry.connection(id: id) == nil)
+        #expect(await session.sendEvent(topic: "terminal.updated", payload: ["content": "private"]) == false)
+        #expect(await transport.waitForSentBufferCount(0).isEmpty)
+        await session.close(reason: "test complete")
+    }
+
     @Test func authenticatedStatusRetriesUntilTheCurrentIdentityExists() throws {
         MobileHostPublicStatusCache.removeAll()
         defer { MobileHostPublicStatusCache.removeAll() }
@@ -56,6 +164,62 @@ struct MobileHostAuthorizationTests {
             Issue.record("A stopped host cannot publish its previous identity")
             return
         }
+    }
+
+    @Test func removingIrohStatusPreservesTheIndependentTailscaleRoute() throws {
+        let tailscale = try CmxAttachRoute(
+            id: "tailscale",
+            kind: .tailscale,
+            endpoint: .hostPort(host: "100.64.0.7", port: 52_074)
+        )
+        let identity = try CmxIrohPeerIdentity(endpointID: String(repeating: "a", count: 64))
+        MobileHostPublicStatusCache.update(routes: [tailscale])
+        MobileHostPublicStatusCache.update(irohIdentity: identity)
+        MobileHostPublicStatusCache.updateV2DeviceID("iroh-device")
+        defer { MobileHostPublicStatusCache.removeAll() }
+
+        MobileHostPublicStatusCache.removeIroh()
+
+        #expect(MobileHostPublicStatusCache.snapshot() == [tailscale])
+        #expect(MobileHostPublicStatusCache.currentV2DeviceID() == nil)
+    }
+
+    @Test func removingStackBearerConnectionsPreservesIrohSessions() async throws {
+        let registry = MobileHostConnectionRegistry()
+        let stackID = UUID()
+        let irohID = UUID()
+        let stack = MobileHostConnection(
+            id: stackID,
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        let peer = CmxIrohAdmittedPeer(peer: CmxIrohGrantPeer(
+            bindingID: "123e4567-e89b-42d3-a456-426614174001",
+            deviceID: "123e4567-e89b-42d3-a456-426614174002",
+            tag: "ios-test",
+            platform: .ios,
+            endpointID: try CmxIrohPeerIdentity(endpointID: String(repeating: "b", count: 64)),
+            identityGeneration: 1
+        ))
+        let iroh = MobileHostConnection(
+            id: irohID,
+            transport: RecordingMobileHostByteTransport(),
+            authorizeRequest: { _ in nil },
+            onAuthorizedRequest: { _ in },
+            handleRequest: { _ in .ok([:]) },
+            onClose: { _ in }
+        )
+        #expect(registry.insert(stack, id: stackID, authorization: .stackBearer, limit: 4))
+        #expect(registry.insert(iroh, id: irohID, authorization: .irohAdmission(peer), limit: 4))
+
+        let removed = registry.removeStackBearerConnections()
+        #expect(removed.map(\.connectionID) == [stackID])
+        #expect(registry.count == 1)
+        for connection in removed { await connection.close(reason: "test") }
+        for connection in registry.removeAll() { await connection.close(reason: "test") }
     }
 
     @Test func testAttachTicketStoreKeepsMultipleTicketsForSameTerminal() throws {
