@@ -146,7 +146,7 @@ fn a_frontend_surface_op_is_admitted_while_automation_holds_every_shared_worker(
 
     let (app_writer, app_outbound) = captured_writer();
     let app = mux.control_clients.register(ClientTransport::Unix, app_writer.clone());
-    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None));
+    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None, false));
     assert_eq!(app_writer.lock_caller.get(), LockCaller::Frontend);
     let admitted = clear_reply(&mux, app, app_writer, &app_outbound);
     assert_eq!(admitted["id"], 1, "{admitted}");
@@ -181,7 +181,7 @@ fn a_frontend_resource_wait_is_admitted_while_automation_holds_every_shared_perm
 
     let (app_writer, _) = captured_writer();
     let app = mux.control_clients.register(ClientTransport::Unix, app_writer);
-    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None));
+    assert!(set_hello(&mux, app, HelloRole::Main, None, true, None, false));
     held.push(
         mux.control_clients
             .install_resource_wait(app, &request_id())
