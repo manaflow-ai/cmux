@@ -13,11 +13,21 @@ extension CMUXCLI {
             return path
         }
         let changeDirectoryError = errno
-        // Preserve the old guarded `cd`: a directory removed since capture
-        // falls back to the shell's current directory, while an existing but
-        // inaccessible path still blocks restore.
+        // A directory removed since capture must not fall back to the
+        // caller's directory: the agent would resume against a different
+        // checkout, and a provider that keys sessions by directory would
+        // report a valid session as missing. Refuse, so the user can
+        // recreate or remount the saved path and retry.
         if changeDirectoryError == ENOENT || changeDirectoryError == ENOTDIR {
-            return nil
+            throw loggedRestoreError(
+                stage: "working-directory.missing",
+                detail: path,
+                errorCode: changeDirectoryError,
+                message: String(
+                    localized: "cli.restore.error.workingDirectoryMissing",
+                    defaultValue: "restore: the saved working directory is missing or is not a directory. Recreate or remount it as a directory, then run 'cmux restore --surface'."
+                )
+            )
         }
         throw loggedRestoreError(
             stage: "working-directory.change",
@@ -95,13 +105,10 @@ extension CMUXCLI {
 
     func execLegacyRestoreRecord(
         _ command: String,
-        record: RestoreRecord,
+        appliedWorkingDirectory: String?,
         environment: [String: String],
         client: SocketClient
     ) throws {
-        let appliedWorkingDirectory = try applyRestoreWorkingDirectory(
-            requestedRestoreWorkingDirectory(for: record)
-        )
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory

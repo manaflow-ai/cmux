@@ -671652,6 +671652,256 @@
           }
         }
       }
+    },
+    "cli.restore.error.workingDirectoryMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: the saved working directory is missing or is not a directory. Recreate or remount it as a directory, then run 'cmux restore --surface'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: دليل العمل المحفوظ غير موجود أو ليس دليلًا. يرجى إعادة إنشائه أو إعادة تركيبه كدليل، ثم شغّل 'cmux restore --surface'."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: sačuvani radni direktorij nedostaje ili nije direktorij. Ponovo ga kreirajte ili montirajte kao direktorij, a zatim pokrenite 'cmux restore --surface'."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: den gemte arbejdsmappe mangler eller er ikke en mappe. Opret eller tilslut den igen som en mappe, og kør derefter 'cmux restore --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: Das gespeicherte Arbeitsverzeichnis fehlt oder ist kein Verzeichnis. Erstellen Sie es als Verzeichnis neu oder hängen Sie es erneut ein und führen Sie dann 'cmux restore --surface' aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: el directorio de trabajo guardado no existe o no es un directorio. Vuelva a crearlo o a montarlo como directorio y, a continuación, ejecute 'cmux restore --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore : le répertoire de travail enregistré est introuvable ou n’est pas un répertoire. Recréez-le ou remontez-le en tant que répertoire, puis exécutez 'cmux restore --surface'."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: la directory di lavoro salvata non esiste o non è una directory. Ricreala o montala di nuovo come directory, quindi esegui 'cmux restore --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 保存された作業ディレクトリが存在しないか、ディレクトリではありません。ディレクトリとして再作成するか再マウントしてから、'cmux restore --surface' を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: ថតការងារដែលបានរក្សាទុកបាត់ ឬមិនមែនជាថតទេ។ បង្កើតវាឡើងវិញ ឬម៉ោនវាឡើងវិញជាថត រួចដំណើរការ 'cmux restore --surface'។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: 저장된 작업 디렉터리가 없거나 디렉터리가 아닙니다. 디렉터리로 다시 만들거나 다시 마운트한 다음 'cmux restore --surface'를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: den lagrede arbeidsmappen mangler eller er ikke en mappe. Opprett eller monter den på nytt som en mappe, og kjør deretter 'cmux restore --surface'."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: zapisany katalog roboczy nie istnieje lub nie jest katalogiem. Utwórz go ponownie lub zamontuj jako katalog, a następnie uruchom 'cmux restore --surface'."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: o diretório de trabalho salvo não existe ou não é um diretório. Crie-o novamente ou remonte-o como diretório e execute 'cmux restore --surface'."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: сохранённый рабочий каталог отсутствует или не является каталогом. Создайте его заново или повторно смонтируйте как каталог, затем выполните 'cmux restore --surface'."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: ไม่พบไดเรกทอรีทำงานที่บันทึกไว้ หรือเส้นทางนั้นไม่ใช่ไดเรกทอรี สร้างหรือเมานต์ไดเรกทอรีนั้นใหม่ แล้วเรียกใช้ 'cmux restore --surface'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: kaydedilen çalışma dizini eksik veya bir dizin değil. Dizin olarak yeniden oluşturun ya da yeniden bağlayın, ardından 'cmux restore --surface' komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore: збережений робочий каталог відсутній або не є каталогом. Створіть його знову або повторно змонтуйте як каталог, а потім виконайте 'cmux restore --surface'."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：保存的工作目录不存在或不是目录。请将其重新创建或重新挂载为目录，然后运行 'cmux restore --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "restore：儲存的工作目錄不存在或不是目錄。請將其重新建立或重新掛載為目錄，然後執行 'cmux restore --surface'。"
+          }
+        }
+      }
+    },
+    "cli.fork.error.workingDirectoryMissing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: the saved working directory is missing or is not a directory. Recreate or remount it as a directory, then run 'cmux fork --surface'."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: دليل العمل المحفوظ غير موجود أو ليس دليلًا. يرجى إعادة إنشائه أو إعادة تركيبه كدليل، ثم شغّل 'cmux fork --surface'."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: sačuvani radni direktorij nedostaje ili nije direktorij. Ponovo ga kreirajte ili montirajte kao direktorij, a zatim pokrenite 'cmux fork --surface'."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: den gemte arbejdsmappe mangler eller er ikke en mappe. Opret eller tilslut den igen som en mappe, og kør derefter 'cmux fork --surface'."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: Das gespeicherte Arbeitsverzeichnis fehlt oder ist kein Verzeichnis. Erstellen Sie es als Verzeichnis neu oder hängen Sie es erneut ein und führen Sie dann 'cmux fork --surface' aus."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: el directorio de trabajo guardado no existe o no es un directorio. Vuelva a crearlo o a montarlo como directorio y, a continuación, ejecute 'cmux fork --surface'."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork : le répertoire de travail enregistré est introuvable ou n’est pas un répertoire. Recréez-le ou remontez-le en tant que répertoire, puis exécutez 'cmux fork --surface'."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: la directory di lavoro salvata non esiste o non è una directory. Ricreala o montala di nuovo come directory, quindi esegui 'cmux fork --surface'."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: 保存された作業ディレクトリが存在しないか、ディレクトリではありません。ディレクトリとして再作成するか再マウントしてから、'cmux fork --surface' を実行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: ថតការងារដែលបានរក្សាទុកបាត់ ឬមិនមែនជាថតទេ។ បង្កើតវាឡើងវិញ ឬម៉ោនវាឡើងវិញជាថត រួចដំណើរការ 'cmux fork --surface'។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: 저장된 작업 디렉터리가 없거나 디렉터리가 아닙니다. 디렉터리로 다시 만들거나 다시 마운트한 다음 'cmux fork --surface'를 실행하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: den lagrede arbeidsmappen mangler eller er ikke en mappe. Opprett eller monter den på nytt som en mappe, og kjør deretter 'cmux fork --surface'."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: zapisany katalog roboczy nie istnieje lub nie jest katalogiem. Utwórz go ponownie lub zamontuj jako katalog, a następnie uruchom 'cmux fork --surface'."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: o diretório de trabalho salvo não existe ou não é um diretório. Crie-o novamente ou remonte-o como diretório e execute 'cmux fork --surface'."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: сохранённый рабочий каталог отсутствует или не является каталогом. Создайте его заново или повторно смонтируйте как каталог, затем выполните 'cmux fork --surface'."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: ไม่พบไดเรกทอรีทำงานที่บันทึกไว้ หรือเส้นทางนั้นไม่ใช่ไดเรกทอรี สร้างหรือเมานต์ไดเรกทอรีนั้นใหม่ แล้วเรียกใช้ 'cmux fork --surface'"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: kaydedilen çalışma dizini eksik veya bir dizin değil. Dizin olarak yeniden oluşturun ya da yeniden bağlayın, ardından 'cmux fork --surface' komutunu çalıştırın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork: збережений робочий каталог відсутній або не є каталогом. Створіть його знову або повторно змонтуйте як каталог, а потім виконайте 'cmux fork --surface'."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork：保存的工作目录不存在或不是目录。请将其重新创建或重新挂载为目录，然后运行 'cmux fork --surface'。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "fork：儲存的工作目錄不存在或不是目錄。請將其重新建立或重新掛載為目錄，然後執行 'cmux fork --surface'。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

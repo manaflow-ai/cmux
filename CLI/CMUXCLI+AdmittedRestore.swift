@@ -135,7 +135,9 @@ extension CMUXCLI {
                 reportRestoreNotices(invocation.notices)
                 try execRestoreInvocation(invocation, appliedWorkingDirectory: effectiveWorkingDirectory, admittedScope: claim)
             case .legacy(let command, let environment):
-                try execLegacyRestoreRecord(command, record: record, environment: environment, client: client)
+                try execLegacyRestoreRecord(
+                    command, appliedWorkingDirectory: effectiveWorkingDirectory, environment: environment, client: client
+                )
             }
         } catch {
             releaseRestoreLaunchAdmission(claim, client: client)

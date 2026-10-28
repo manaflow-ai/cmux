@@ -116,6 +116,11 @@ extension CMUXCLI {
             }
         }
 
+        // Enter the saved directory once, before claiming or clearing a binding.
+        // Both launch paths use this result; reapplying a relative path after
+        // chdir would resolve it against a different directory.
+        let effectiveWorkingDirectory = try applyForkWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
+
         if codexRestoreBindingRequiresClaim(record),
            record.forkArguments == nil,
            legacyForkCommand(for: record) != nil,
@@ -176,20 +181,12 @@ extension CMUXCLI {
             try clearCodexForkParentBinding()
             try execLegacyForkRecord(
                 legacyCommand,
-                record: record,
+                appliedWorkingDirectory: effectiveWorkingDirectory,
                 environment: environment,
                 client: client
             )
         }
 
-        let requestedWorkingDirectory = requestedRestoreWorkingDirectory(for: record)
-        let appliedWorkingDirectory = try applyForkWorkingDirectory(requestedWorkingDirectory)
-        let effectiveWorkingDirectory: String? =
-            if requestedWorkingDirectory?.isEmpty == false {
-                appliedWorkingDirectory ?? FileManager.default.currentDirectoryPath
-            } else {
-                nil
-            }
         let transcriptTargetWorkingDirectory = normalizedRestoreWorkingDirectory(
             record.forkArgumentsWorkingDirectory
         ) ?? effectiveWorkingDirectory
@@ -222,7 +219,7 @@ extension CMUXCLI {
                 try clearCodexForkParentBinding()
                 try execLegacyForkRecord(
                     legacyCommand,
-                    record: record,
+                    appliedWorkingDirectory: effectiveWorkingDirectory,
                     environment: environment,
                     client: client
                 )

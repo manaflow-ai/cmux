@@ -18,6 +18,7 @@ extension CMUXCLI {
         case unsupported
         case providerSetupFailed
         case workingDirectoryFailed
+        case workingDirectoryMissing
         case executableNotFound
         case execveFailed
         case compatibilityShellFailed
@@ -66,6 +67,11 @@ extension CMUXCLI {
             return String(
                 localized: "cli.fork.error.workingDirectoryFailed",
                 defaultValue: "fork: the saved working directory is inaccessible. Restore access to it, then retry."
+            )
+        case .workingDirectoryMissing:
+            return String(
+                localized: "cli.fork.error.workingDirectoryMissing",
+                defaultValue: "fork: the saved working directory is missing or is not a directory. Recreate or remount it as a directory, then run 'cmux fork --surface'."
             )
         case .executableNotFound:
             return String(
@@ -126,8 +132,16 @@ extension CMUXCLI {
             return path
         }
         let changeDirectoryError = errno
+        // A directory removed since capture must not fall back to the
+        // caller's directory: the fork would start against a different
+        // checkout. Refuse, so the user can recreate or remount it.
         if changeDirectoryError == ENOENT || changeDirectoryError == ENOTDIR {
-            return nil
+            throw loggedForkError(
+                .workingDirectoryMissing,
+                stage: "working-directory.missing",
+                detail: path,
+                errorCode: changeDirectoryError
+            )
         }
         throw loggedForkError(
             .workingDirectoryFailed,
@@ -205,13 +219,10 @@ extension CMUXCLI {
 
     func execLegacyForkRecord(
         _ command: String,
-        record: RestoreRecord,
+        appliedWorkingDirectory: String?,
         environment: [String: String],
         client: SocketClient
     ) throws {
-        let appliedWorkingDirectory = try applyForkWorkingDirectory(
-            requestedRestoreWorkingDirectory(for: record)
-        )
         var legacyEnvironment = environment
         if let appliedWorkingDirectory {
             legacyEnvironment["PWD"] = appliedWorkingDirectory

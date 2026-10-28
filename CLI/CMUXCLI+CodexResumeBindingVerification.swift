@@ -174,8 +174,9 @@ extension CMUXCLI {
         guard shouldHandle else { return }
 
         // applyRestoreWorkingDirectory deliberately runs before the guarded
-        // clear. If the saved path is inaccessible, keep the binding intact so
-        // the user can repair the path and retry rather than losing the parent.
+        // clear. If the saved path is missing or inaccessible, keep the binding
+        // intact so the user can repair the path and retry rather than losing
+        // the parent.
         // A binding-change response is different: the returned record is stale,
         // so do not move the shell away from the newer parent's cwd.
         if case .bindingChanged = result {
