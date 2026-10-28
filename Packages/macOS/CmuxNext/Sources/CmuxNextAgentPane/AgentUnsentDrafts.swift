@@ -1,3 +1,5 @@
+import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
 
 /// A new chat's typed text from before it has an acpmux session (cx-z5vd), by tab, in a JSON file
@@ -10,23 +12,39 @@ public final class AgentUnsentDrafts {
 
     let file: URL?
     private var drafts: [String: String]
+    private let work: BackgroundWork
+    private var acceptsWrites = true
 
-    public init(file: URL?) {
+    public init(file: URL?, work: BackgroundWork = BackgroundWork()) {
         self.file = file
+        self.work = work
         // concurrency-allow: one read of a small local state file when the tab store is made
         let data = file.flatMap { try? Data(contentsOf: $0) }
         drafts = data.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
     }
 
     /// The file in the tag's state directory (beside the launch snapshot).
-    public convenience init(directory: URL?) {
-        self.init(file: directory?.appending(path: Self.fileName))
+    public convenience init(directory: URL?, work: BackgroundWork = BackgroundWork()) {
+        self.init(file: directory?.appending(path: Self.fileName), work: work)
+    }
+
+    /// Waits for this files lane's earlier saves without blocking the main actor.
+    public func flush() async {
+        await withCheckedContinuation { continuation in
+            work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) { continuation.resume() }
+        }
+    }
+
+    /// Called only after quit is committed: stop page writes before draining their ordered saves.
+    public func finalizeForQuit() async {
+        acceptsWrites = false
+        await flush()
     }
 
     /// Tab `key`'s kept text as a new chat's seed; nil for a tab whose chat has a session, or
     /// (`local` false) one on another machine.
     public func seed(for key: String, session: String?, local: Bool = true) -> AgentPaneSeedSource? {
-        guard local, session == nil, let text = drafts[key] else { return nil }
+        guard local, session == nil, let text = drafts[key], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         return AgentPaneSeedSource(AgentPaneSeed(draft: text))
     }
 
@@ -42,12 +60,13 @@ public final class AgentUnsentDrafts {
     }
 
     /// Whether tab `key` holds a new chat's typed text (its close earns an undo toast).
-    public func hasDraft(_ key: String) -> Bool { drafts[key] != nil }
+    public func hasDraft(_ key: String) -> Bool { drafts[key].map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? false }
 
-    /// Keeps `text` as tab `key`'s draft; blank text forgets it.
+    /// Keeps `text` as tab `key`'s draft; blank text keeps a clear tombstone for migration.
     public func set(_ text: String, for key: String) {
+        guard acceptsWrites else { return }
         let keep = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && text.count <= Self.maximumCharacters
-        let value = keep ? text : nil
+        let value = keep ? text : ""
         guard drafts[key] != value else { return }
         drafts[key] = value
         save()
@@ -55,18 +74,22 @@ public final class AgentUnsentDrafts {
 
     /// The store gave provisional tab `key` its id `real`.
     public func move(_ key: String, to real: String) {
-        guard key != real, let text = drafts.removeValue(forKey: key) else { return }
+        guard acceptsWrites, key != real, let text = drafts[key], !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        drafts[key] = ""
         drafts[real] = text
         save()
     }
 
     private func save() {
-        guard let file else { return }
-        if drafts.isEmpty {
-            try? FileManager.default.removeItem(at: file)
-            return
+        guard let file, let data = try? JSONEncoder().encode(drafts) else { return }
+        // Fixed priority keeps snapshots ordered; post registers the shutdown hold before returning.
+        work.post(.userVisible, mayBlock: .files, shutdown: .blockShutdown) {
+            do {
+                try FileManager.checked.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true,
+                                                        attributes: [.posixPermissions: 0o700])
+                try data.blockingWrite(to: file, options: .atomic)
+                try FileManager.checked.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+            } catch { }
         }
-        // concurrency-allow: one small atomic write per settled edit of a new chat's text
-        try? JSONEncoder().encode(drafts).write(to: file, options: .atomic)
     }
 }

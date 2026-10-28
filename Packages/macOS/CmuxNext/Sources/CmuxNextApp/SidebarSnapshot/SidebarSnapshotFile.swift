@@ -24,6 +24,32 @@ nonisolated struct SidebarSnapshotFile: Sendable {
         SidebarSnapshotFile(url: buildDirectory(launch: launch).appending(path: fileName))
     }
 
+    static func applicationSupportDirectory() -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appending(path: "cmux", directoryHint: .isDirectory)
+    }
+
+    /// The stable app-owned root for composer and relaunch drafts.
+    static func draftDirectory(launch: LaunchIdentity) -> URL {
+        launch.build.draftDirectory(appSupport: applicationSupportDirectory())
+    }
+
+    /// Prior per-build roots for this logical app. They are read-only migration sources.
+    static func legacyDraftDirectories(launch: LaunchIdentity, appSupport: URL? = nil) -> [URL] {
+        let cmux = appSupport ?? applicationSupportDirectory()
+        var roots: [URL] = [buildDirectory(launch: launch)]
+        if let state = launch.build.daemonStateDirectory(appSupport: cmux) {
+            roots.append(state.deletingLastPathComponent())
+        }
+        // No prefix scan: another channel or shipped tag can begin with this key.
+        roots.append(cmux.appending(path: "builds/\(launch.build.key)", directoryHint: .isDirectory))
+        if launch.build.keepsAppNames, let tag = launch.tag, !tag.isEmpty {
+            roots.append(cmux.appending(path: "tags/\(tag)", directoryHint: .isDirectory))
+        }
+        var seen = Set<String>()
+        return roots.filter { seen.insert($0.standardizedFileURL.path).inserted }
+    }
+
     /// The folder of this build's small per-build files (sidebar snapshot,
     /// agent drafts and launch images, diff recents and viewed files). A
     /// build that keeps its app names (``BuildIdentity/keepsAppNames``: the

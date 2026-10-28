@@ -29,6 +29,8 @@ struct QuitSteps {
     /// Ends the local acpmux agents (`_acpmux/shutdown endAgents`), before
     /// the terminals; returns its failure, if any.
     var endLocalAgents: @MainActor () async -> [EndSessionsFailure] = { [] }
+    /// Quiesces app-owned draft producers after all retryable session-end work.
+    var finalizeDrafts: @MainActor () async -> Void = {}
     var stopBrowserEngines: @MainActor () async -> Void
 }
 
@@ -43,6 +45,7 @@ enum QuitCompletion {
                 failures = await steps.endLocalAgents() + steps.endLocalSessions(choice)
             }
         }
+        await steps.finalizeDrafts()
         await steps.stopBrowserEngines()
     }
 }
