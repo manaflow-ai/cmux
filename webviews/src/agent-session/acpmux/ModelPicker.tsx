@@ -17,6 +17,7 @@ import { CheckIcon, ChevronIcon, PICKER_LABELS, SearchIcon } from "./ComposerPic
 import { Icon } from "./icons/Icon";
 import { usePromptFocus } from "./promptFocus";
 import { currentLanguage, useT } from "./i18n";
+import { fastModeIsOn, nextFastModeValue } from "./fastModeState";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { CHAT_COLUMN, MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
 import { curatedSections, modelSections } from "./modelSections";
@@ -38,7 +39,6 @@ import {
   PickerOptionList,
 } from "../../ui/PickerPrimitives";
 import { ScrollArea } from "../../ui/ScrollArea";
-import { FastToggle } from "./FastToggle";
 
 type HarnessChoice = {
   id: string;
@@ -400,7 +400,6 @@ export function ModelPicker(props: ModelPickerProps) {
     onHarnessEnable,
     onCombo,
     fastMode,
-    speed,
     catalogRefresh,
     signedOut,
     onLogIn,
@@ -1159,7 +1158,6 @@ export function ModelPicker(props: ModelPickerProps) {
               />
             )}
           </QuickModelMenu>
-          {speed && <FastToggle speed={speed} inline />}
         </>
       ) : (
         <>
@@ -1191,7 +1189,6 @@ export function ModelPicker(props: ModelPickerProps) {
             {chipFace}
             <ChevronIcon />
           </PickerButton>
-          {speed && <FastToggle speed={speed} inline />}
         </>
       )}
       {open && (
@@ -1290,7 +1287,7 @@ export function ModelPicker(props: ModelPickerProps) {
             </ScrollArea>
           )}
           <div className="acpmux-mp-content flex min-w-0 flex-1 flex-col">
-            <div className="acpmux-mp-search flex h-9 flex-none items-center gap-2 border-b-[0.5px] border-edge pr-1.5 pl-3 text-muted focus-within:text-fg">
+            <div className="acpmux-mp-search flex h-[var(--ui-row-height,28px)] flex-none items-center gap-2 border-b-[0.5px] border-edge px-2 text-muted focus-within:text-fg">
               <SearchIcon size={15} />
               <PickerComboboxInput
                 ref={search}
@@ -1333,7 +1330,7 @@ export function ModelPicker(props: ModelPickerProps) {
             <ScrollArea className="min-h-0 flex-1">
               <PickerOptionList
                 id={`${menuId}-models`}
-                className="acpmux-mp-models p-1.5"
+                className="acpmux-mp-models"
                 aria-label={searching ? searchText : starredView ? starredText : (selected?.name ?? modelText)}
               >
                 {!searching && !starredView && folderProfiles.length > 0 && (
@@ -1517,14 +1514,12 @@ export function ModelPicker(props: ModelPickerProps) {
                 <button
                   type="button"
                   className={`acpmux-mp-fast ${modelRow} ${rowFill(false)} justify-between`}
-                  aria-pressed={fastMode.currentValue === fastMode.onValue}
-                  onClick={() =>
-                    fastMode.onPick(fastMode.currentValue === fastMode.onValue ? fastMode.offValue : fastMode.onValue)
-                  }
+                  aria-pressed={fastModeIsOn(fastMode)}
+                  onClick={() => fastMode.onPick(nextFastModeValue(fastMode, fastMode.lastOnValue, fastMode.values))}
                 >
                   <span>{fastMode.name}</span>
                   <span className="text-detail text-dim">
-                    {fastMode.currentValue === fastMode.onValue ? fastMode.onLabel : fastMode.offLabel}
+                    {fastModeIsOn(fastMode) ? fastMode.onLabel : fastMode.offLabel}
                   </span>
                 </button>
               </div>

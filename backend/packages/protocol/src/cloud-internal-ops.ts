@@ -21,7 +21,13 @@ export const CloudDriverResultParams = Schema.Struct({
   /** create (and a failed resize): the VM's real resources read from the provider, so the record is honest. */
   resources: Schema.optionalKey(Schema.Struct({ cpu: Schema.Int, memory_mb: Schema.Int, disk_mb: Schema.Int })),
   /** create: sha256 (hex) of the one-time bind token written into the VM; the token itself never enters an op. */
-  bind_token_sha256: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)))
+  bind_token_sha256: Schema.optionalKey(Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/))),
+  /** env_build: where a failed build stopped and its log tail, or a finished build's timings (ms). */
+  env_build: Schema.optionalKey(Schema.Struct({
+    stage: Schema.optionalKey(Schema.Literals(["boot", "ready", "setup", "snapshot", "warm"])),
+    log_tail: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(8192))),
+    timings: Schema.optionalKey(Schema.Struct({ boot_ms: Schema.Int, ready_ms: Schema.Int, setup_ms: Schema.Int, snapshot_ms: Schema.Int, warm_ms: Schema.Int, total_ms: Schema.Int }))
+  }))
 })
 
 /**

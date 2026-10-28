@@ -124,7 +124,7 @@ class Excusing(unittest.TestCase):
         self.assertIn(SWIFT, "\n".join(self.judge()))
 
     def test_failing_tests_decide_and_error_lines_beside_them_are_not_compared(self):
-        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]error: the swift test run exited with signal 6")
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]error: the swift test run exited with code 1")
         self.assertIn(SWIFT, "\n".join(self.judge()))
 
     def test_a_compile_error_with_a_warning_only_the_head_printed_is_excused(self):
@@ -255,9 +255,9 @@ def crashed(job, signal, unfinished, frames, *extra):
                f"##[error]the test helper died on signal {signal}; crashed thread: {frames}")
 
 
-class BaseOwnedCrash(unittest.TestCase):
-    """A test helper crash on the base is the base's: the head's crash with the same signal is excused,
-    though the tests in flight and the crashed thread differ run to run."""
+class CrashIsNeverABaseRed(unittest.TestCase):
+    """A test helper crash is the head's own red whatever the base shows (scripts/ci/test_reds.py; cmux#26346
+    landed with its own signal 6 because its swift test job was red on the base too)."""
 
     def setUp(self):
         self.gh = FakeGitHub()
@@ -266,29 +266,43 @@ class BaseOwnedCrash(unittest.TestCase):
     def judge(self):
         return excuse.judge(REPO, "feat-cmux-next", HEAD, [10], self.gh)
 
-    def test_a_crash_with_the_signal_the_base_crashed_on_is_excused(self):
+    def test_a_crash_with_the_signal_the_base_crashed_on_still_blocks(self):
         self.gh.logs[1] = crashed(SWIFT, 5, ["c()", "d()", "e()"], "swift_task_checkIsolatedSwift <- ???")
-        text = "\n".join(self.judge())
-        self.assertIn("run 20", text)
-        self.assertIn("signal 5", text)
+        with self.assertRaisesRegex(excuse.Refused, r"crashed \(signal 5\).*never a base red"):
+            self.judge()
 
     def test_a_crash_the_base_did_not_have_blocks(self):
         self.gh.logs[1] = crashed(SWIFT, 5, ["c()"], "f")
         self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
-        with self.assertRaisesRegex(excuse.Refused, "signal"):
+        with self.assertRaisesRegex(excuse.Refused, "signal 5"):
             self.judge()
 
-    def test_a_crash_on_another_signal_blocks(self):
-        self.gh.logs[1] = crashed(SWIFT, 11, ["c()"], "f")
-        with self.assertRaisesRegex(excuse.Refused, "signal"):
+    def test_a_cut_short_run_blocks_with_no_crash(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, "##[error]the summaries count 2 tests in total but 3 "
+                              "started and 1 of those never finished; swift test exited 1")
+        with self.assertRaisesRegex(excuse.Refused, "never finished"):
             self.judge()
 
-    def test_a_red_test_before_the_crash_must_still_be_on_the_base(self):
-        self.gh.logs[1] = crashed(SWIFT, 5, ["c()"], "f", OTHER)
+    def test_a_non_test_job_that_died_on_a_signal_the_base_did_not_blocks(self):
+        scheme = "cmux app scheme compile (Debug)"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, scheme, "Build"), 2: failed_job(2, 20, BASE_SHA, scheme, "Build")}
+        self.gh.logs[1] = log(scheme, "Build", "error: cannot find 'x' in scope", "the test helper died on signal 11")
+        self.gh.logs[2] = log(scheme, "Build", "error: cannot find 'x' in scope")
+        with self.assertRaisesRegex(excuse.Refused, "signal 11"):
+            self.judge()
+
+    def test_a_tools_error_in_a_non_test_job_is_still_excused_when_the_base_has_it(self):
+        fast = "cmux-next fast tier"
+        self.gh.jobs = {1: failed_job(1, 10, HEAD, fast, "Install"), 2: failed_job(2, 20, BASE_SHA, fast, "Install")}
+        self.gh.logs[1] = self.gh.logs[2] = log(fast, "Install", "##[error]error: Could not find a version for foo")
+        self.assertIn(fast, "\n".join(self.judge()))
+
+    def test_a_red_test_the_base_does_not_fail_blocks(self):
+        self.gh.logs[1] = log(SWIFT, TEST_STEP, ISSUE, OTHER)
+        self.gh.logs[2] = log(SWIFT, TEST_STEP, ISSUE)
         with self.assertRaisesRegex(excuse.Refused, "palettePagesReleaseTheRegistry"):
             self.judge()
-        self.gh.logs[2] = crashed(SWIFT, 5, ["a()"], "g", OTHER)
-        self.assertTrue(self.judge())
+
 
 class Script(unittest.TestCase):
     def test_gh_merge_green_asks_the_base_before_refusing_a_red_lane(self):
