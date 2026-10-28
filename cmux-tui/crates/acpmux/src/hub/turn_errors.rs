@@ -159,7 +159,8 @@ pub(super) fn continuation_error<'a>(raw: Option<&'a str>, shown: &'a str) -> &'
 /// ([`transient_cause`]), or `agent_exited` (its agent process died mid-turn: "agent process
 /// closed"). `raw` is the
 /// agent's own error, `shown` the turn's error as recorded (with the dead process's last stderr
-/// line, or the sign-in explanation). A limit or sign-in failure in either is never continued:
+/// line, or the sign-in explanation). A limit or sign-in failure (an expired credential too) in
+/// either is never continued:
 /// the fallback profile, or the reconciler that reads `lastTurn`, moves that session. Nor is a
 /// refused request ([`is_refused_request`]) in either: an agent that died of one would be
 /// refused the same way again.
@@ -167,6 +168,7 @@ pub fn resume_cause(raw: &str, shown: &str) -> Option<&'static str> {
     if is_limit_error(raw)
         || is_limit_error(shown)
         || crate::claude_auth::is_sign_in_failure(shown)
+        || crate::claude_auth::is_expired_credential(shown)
         || is_refused_request(raw)
         || is_refused_request(shown)
     {
@@ -232,6 +234,8 @@ mod tests {
             Some("agent_exited")
         );
         assert_eq!(resume_cause(raw, "agent process closed (claude): You've hit your limit"), None);
+        // An expired credential is a sign-in failure too (`recovery::auth_kind`: auth.expired).
+        assert_eq!(resume_cause(raw, "agent process closed (claude): credential expired"), None);
         assert_eq!(
             resume_cause(raw, "agent process closed (fake): Not logged in · Please run /login"),
             None
