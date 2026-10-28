@@ -123,14 +123,25 @@ enum WorkspaceGroupClose {
     /// daemon's closed history, as Cmd-Shift-T does: the layout, tabs, scrollback and cwd. Called once the close is
     /// sent (after the question, when one asked), before the daemon records it.
     static func offerWorkspaceUndo(closing workspace: WorkspaceModel, from controller: WindowController?, _ services: AppServices) {
-        let id = workspace.id, windows = services.windows
-        let staysOpen = { (window: WindowController) in windows.registry.members(of: window.state.id).contains { $0 != id } }
-        guard let window = (controller.flatMap { staysOpen($0) ? $0.window : nil }
-            ?? windows.controllers.first(where: staysOpen)?.window) else { return }
+        let id = workspace.id, windows = services.windows, registry = windows.registry.value
+        // Nothing to bring back: an incognito workspace is never recorded, and a daemon without closed history records nothing.
+        guard !windows.isIncognito(workspace: id), services.machines.daemon(forWorkspace: id)?.store.servesStateResources == true else { return }
+        let staysOpen = { (window: String) in windows.registry.members(of: window).contains { $0 != id } }
+        // The window that showed it when it stays (it shows the next row or Home), else the most recent normal one that stays.
+        let here = controller.flatMap { staysOpen($0.state.id) ? $0 : nil }
+        let other = registry.mostRecentOpen(excluding: Set(registry.openWindows.map(\.id).filter { !staysOpen($0) })).flatMap(windows.controller(for:))
+        guard let window = (here ?? other)?.window else { return }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         let undo = services.registry.shortcutDisplay(for: "reopenClosedBrowserPanel").map(undoTitle) ?? CmuxToastStrings.undo
         offerUndo(workspaceToastID, workspaceClosedToast, groups: [(nil, [workspace.name])], after: seen, in: window, services,
                   action: .undo(undo), duration: workspaceToastDuration)
+    }
+
+    /// A refused close: its "Workspace closed" toast goes from every window (the refusal says what happened).
+    static func withdrawWorkspaceUndo(_ services: AppServices) {
+        for window in services.windows.controllers.compactMap(\.window) {
+            CmuxToastCenter.shared.dismiss(id: workspaceToastID, in: window)
+        }
     }
 
     static var workspaceClosedToast: String {

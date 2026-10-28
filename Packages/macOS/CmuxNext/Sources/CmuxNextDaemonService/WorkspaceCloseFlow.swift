@@ -82,6 +82,9 @@ public struct WorkspaceCloseFlow {
 @MainActor
 public final class WorkspaceCloseSelection {
     public var afterPress: String?
+    /// Undoes what the press's `hide` changed beyond the row (a window that took Home to stay open gives it back);
+    /// run by a cancelled close's `restore`.
+    public var undoHide: (@MainActor () -> Void)?
 
     public init() {}
 }

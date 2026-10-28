@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -74,6 +75,24 @@ struct CmdWLastTabClosesWorkspaceTests {
         }
     }
 
+    /// A close of several sidebar rows offers one "Closed N workspaces" toast, whose Undo reopens them all, never a
+    /// "Workspace closed" per row that replaces the last (review of 2696fc1cf95).
+    @Test func closingSeveralRowsOffersOneToastForAll() async throws {
+        try await PinnedPageTests.withApp { services, _ in
+            let store = services.daemon.store
+            let (window, second, first) = try await Self.secondWorkspace(services)
+            let nsWindow = try #require(window.window)
+            // A third workspace stays, so the window keeps a row without Home.
+            #expect(services.registry.perform("newTab", invocation: ActionInvocation(origin: .user)))
+            try await PinnedPageTests.until({ store.workspaces.count == 3 && window.state.workspaceID.map { $0 != first && $0 != second } == true },
+                                            report: { "no third workspace: \(store.workspaces.count)" })
+            window.sidebar.model.send(.close([SidebarWorkspaceID(first), SidebarWorkspaceID(second)]))
+            let ids = { CmuxToastCenter.shared.toasts(in: nsWindow).map(\.id) }
+            try await PinnedPageTests.until({ ids().contains("workspaces-closed") }, report: { "toasts \(ids())" })
+            #expect(!ids().contains("workspace-closed"), "a per-row toast showed: \(ids())")
+        }
+    }
+
     /// audit-findings-1 C, hold-shortcuts-ux.md: key repeat never crosses into a workspace close. A held Cmd-W stops at
     /// the last tab; a new press closes the workspace.
     @Test func aHeldCmdWStopsAtTheLastTab() async throws {
@@ -84,9 +103,11 @@ struct CmdWLastTabClosesWorkspaceTests {
                                                             timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: 0, context: nil,
                                                             characters: "w", charactersIgnoringModifiers: "w", isARepeat: true, keyCode: 13))
             let dispatching = services.registry.dispatchingInputEvent
-            services.registry.dispatchingInputEvent = { repeatEvent }
-            services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
-            services.registry.dispatchingInputEvent = dispatching
+            do {
+                services.registry.dispatchingInputEvent = { repeatEvent }
+                defer { services.registry.dispatchingInputEvent = dispatching }
+                services.registry.perform("closeTab", invocation: ActionInvocation(origin: .user))
+            }
             #expect(!ClosingWorkspaces.shared.ids.contains(closing), "a key repeat closed the workspace")
             #expect(window.state.workspaceID == closing, "a key repeat left the workspace")
             #expect(pane.orderedIDs.count == 1, "a key repeat closed the last tab")
@@ -121,9 +142,10 @@ struct CmdWLastTabClosesWorkspaceTests {
             #expect(services.windows.registry.members(of: id) == [home], "\(services.windows.registry.members(of: id))")
             #expect(window.state.workspaceID == home)
 
-            // Home cannot be closed: Close Workspace on it does nothing.
-            services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: home))
-            #expect(!ClosingWorkspaces.shared.ids.contains(home) && window.state.workspaceID == home, "Close Workspace closed Home")
+            // Home cannot be closed: Cmd-W on its last tab does not close it, and the window keeps showing it.
+            #expect(!services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: home)))
+            #expect(!WorkspaceCloseFlow.running.contains(home) && !ClosingWorkspaces.shared.ids.contains(home))
+            #expect(window.state.workspaceID == home, "Close Workspace left Home")
         }
     }
 }

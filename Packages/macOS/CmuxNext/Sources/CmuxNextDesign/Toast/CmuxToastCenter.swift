@@ -125,6 +125,12 @@ public final class CmuxToastCenter {
         return true
     }
 
+    /// Ends every toast with `id` in `window`, as its close button does.
+    public func dismiss(id: String, in window: NSWindow) {
+        let serials = stacks[ObjectIdentifier(window)]?.serials ?? []
+        for serial in serials where entries[serial]?.handle.toast.id == id { end(serial, .closed) }
+    }
+
     /// Runs the action of the newest toast with `id` in `window`, as its
     /// button does; false when none shows or it has no action.
     @discardableResult

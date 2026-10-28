@@ -10,14 +10,18 @@ enum InstantClose {
     /// store's home workspace) first and shows it, so it stays open, never empty (audit-findings-1 C). Without Home
     /// yet (its store has not answered `ensure_home`), or when Home is the only workspace of another window, the window
     /// closes with the workspace, as before.
-    static func begin(_ id: String, in window: String?, windows: WindowManager, keepsWindow: Bool = false) -> Bool {
+    /// `tookHome` hears the Home claim (Home's window before it), so a cancelled close can give it back (``giveBack``).
+    static func begin(_ id: String, in window: String?, windows: WindowManager, keepsWindow: Bool = false,
+                      tookHome: (InstantClose.TookHome) -> Void = { _ in }) -> Bool {
         guard let window, let controller = windows.controller(for: window) else { return false }
         let machines = windows.services.machines
         var room = WindowProfiles.visible(windows.registry.members(of: window), profile: controller.state.profileID, machines: machines)
         if keepsWindow, !room.contains(where: { $0 != id && !ClosingWorkspaces.shared.ids.contains($0) }),
-           let home = windows.services.home.homeWorkspace?.id, home != id, leavesItsWindowOpen(home, for: window, windows) {
+           let home = windows.services.home.homeWorkspace?.id, home != id, canTake(home, into: window, windows) {
+            let from = windows.registry.value.owner(of: home)
             // Into this window (from the window that lists it, if any) and its room, selected: one transition.
             windows.claim(workspaceID: home, in: controller.state)
+            tookHome(TookHome(home: home, from: from, wasShownThere: from.flatMap(windows.controller(for:))?.state.workspaceID == home))
             room = WindowProfiles.visible(windows.registry.members(of: window), profile: controller.state.profileID, machines: machines)
         }
         guard ClosingWorkspaces.shared.begin(id, among: room) else { return false }
@@ -30,10 +34,29 @@ enum InstantClose {
         return true
     }
 
-    /// Whether `window` can take Home without closing another: Home is in no window, already in `window`, or in a
-    /// window that keeps another workspace.
-    private static func leavesItsWindowOpen(_ home: String, for window: String, _ windows: WindowManager) -> Bool {
-        guard let owner = windows.registry.value.owner(of: home), owner != window else { return true }
-        return windows.registry.members(of: owner).contains { $0 != home }
+    /// Home as a close took it: its id, the window that listed it, and whether that window showed it.
+    struct TookHome {
+        var home: String
+        var from: String?
+        var wasShownThere: Bool
+    }
+
+    /// Whether `window` can take Home: a normal window (Home never enters an incognito one, whose close discards its
+    /// workspaces), and Home is in no window, already in `window`, or in a window that keeps another workspace and does
+    /// not show Home now (a person looking at Home there keeps it).
+    private static func canTake(_ home: String, into window: String, _ windows: WindowManager) -> Bool {
+        let registry = windows.registry.value
+        guard !registry.isIncognito(window), !registry.crossesIncognito([home], to: window) else { return false }
+        guard let owner = registry.owner(of: home), owner != window else { return true }
+        let shownThere = windows.controller(for: owner)?.state.workspaceID == home
+        return !shownThere && windows.registry.members(of: owner).contains { $0 != home }
+    }
+
+    /// A cancelled close (`WorkspaceCloseFlow`'s restore): Home goes back to the open window it came from, selected
+    /// there if it was shown; with no such window it stays.
+    static func giveBack(_ took: TookHome, from state: WindowState, windows: WindowManager) {
+        guard let from = took.from, from != state.id, windows.registry.value.window(from)?.isOpen == true,
+              let target = windows.controller(for: from), windows.registry.value.owner(of: took.home) == state.id else { return }
+        windows.claim(workspaceID: took.home, in: target.state, select: took.wasShownThere)
     }
 }

@@ -221,18 +221,17 @@ extension TabCloseGuard {
               content.layoutModel.screens.reduce(0, { $0 + $1.layout.panes.count }) == 1 else { return false }
         // Key repeat never crosses into a workspace close (audit-findings-1 C, hold-shortcuts-ux.md): a held Cmd-W
         // stops at the last tab, whatever the tab is; only a new press closes the workspace. True: nothing closes.
-        if press.isRepeat { return true }
+        if press.isRepeat {
+            // The burst bench counts it as a refused press, not a lost one.
+            ctx.services.burstTrace.mark(.refusal, input: press.time)
+            return true
+        }
         // Home cannot be closed (audit-findings-1 C): its tabs close as tabs.
-        if isHome(content.workspace, ctx.services) { return false }
+        if HomeRules.isHome(content.workspace) { return false }
         guard closing.allSatisfy({ closesQuietly($0, in: pane) }) else { return false }
         guard ctx.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: content.workspace.id)) else { return false }
         content.focus.noteEmptied(pane.paneKey, by: press)
         return true
-    }
-
-    /// Whether `workspace` is the store's home workspace (Home).
-    static func isHome(_ workspace: WorkspaceModel, _ services: AppServices) -> Bool {
-        workspace.kind == "home" || (workspace.resourceID != nil && workspace.resourceID == services.home.homeWorkspaceID)
     }
 
     /// Whether Close Workspace can take `id`'s close: it is not still asking or deciding, and no page decides it.
