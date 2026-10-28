@@ -87,6 +87,7 @@
     case CMUX_SHIM_DEVICE_CHOOSER:
     case CMUX_SHIM_DESKTOP_MEDIA:
     case CMUX_SHIM_SUBFRAME_RENDERER:
+    case CMUX_SHIM_LOCK:
       return true;
   }
   return false;
