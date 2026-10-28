@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '6c411d6bdd4ecf7ff0394081a5e55ff142d573370a7193e692cfde5e51fa96bd'
+IR_SHA256 = '7eb0d8fcc1fcd2e08b9ee438f00a912bc444483f3223f60cf30047b093765ee6'
 
 
 @dataclass(frozen=True)
@@ -750,6 +750,17 @@ COMMANDS = {
             'harness': CommandFieldMetadata(None, None),
             'session': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'bridge-hello': CommandMetadata(
+        'bridge-hello',
+        'local-admin',
+        12,
+        'bridge-hello-v1',
+        ('local-admin',),
+        None,
+        {
+            'features': CommandFieldMetadata(None, None),
         },
     ),
     'browser-activate': CommandMetadata(
@@ -4210,6 +4221,18 @@ COMMANDS = {
             'ratio': CommandFieldMetadata(None, None),
             'split': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(9, 'layout-undo-v1'),
+        },
+    ),
+    'set-stream-priority': CommandMetadata(
+        'set-stream-priority',
+        'frontend',
+        12,
+        'attach-streams-v1',
+        ('frontend',),
+        None,
+        {
+            'priority': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
         },
     ),
     'set-tab-pinned': CommandMetadata(

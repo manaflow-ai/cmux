@@ -333,7 +333,7 @@ fn peers() -> Result<Peers, Refusal> {
 /// JSON: loading the whole config would also discover every harness.
 fn configured_peers() -> Result<Vec<Value>, Refusal> {
     let path = acpmux::config::Config::path();
-    let text = match std::fs::read_to_string(&path) {
+    let text = match cmux_blocking::fs::read_to_string(&path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {

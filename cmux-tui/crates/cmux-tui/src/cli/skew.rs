@@ -157,8 +157,8 @@ pub(super) fn vet(daemon: &DaemonBuild, route: Route, own: &Own<'_>) -> Result<P
     if !path.is_absolute() {
         return Err(Refusal::NotAbsolute);
     }
-    let metadata =
-        std::fs::symlink_metadata(path).map_err(|error| Refusal::Unreadable(error.to_string()))?;
+    let metadata = cmux_blocking::fs::symlink_metadata(path)
+        .map_err(|error| Refusal::Unreadable(error.to_string()))?;
     if !metadata.file_type().is_file() {
         return Err(Refusal::NotRegularFile);
     }
@@ -168,7 +168,7 @@ pub(super) fn vet(daemon: &DaemonBuild, route: Route, own: &Own<'_>) -> Result<P
         return Err(Refusal::OtherInstallFamily);
     }
     for checked in path.ancestors().take_while(|ancestor| ancestor.starts_with(&bundle)) {
-        let metadata = std::fs::symlink_metadata(checked)
+        let metadata = cmux_blocking::fs::symlink_metadata(checked)
             .map_err(|error| Refusal::Unreadable(error.to_string()))?;
         if metadata.file_type().is_symlink() {
             return Err(Refusal::NotRegularFile);
@@ -277,12 +277,12 @@ fn remote_skew(daemon: &DaemonBuild, own_build: &str, socket: &Path) -> String {
 /// (no option, path, query or space), since it is printed as a command.
 fn tunnel_ssh_destination(socket: &Path) -> Option<String> {
     let record = crate::remote_runtime::tunnel_route_record(socket);
-    let metadata = std::fs::symlink_metadata(&record).ok()?;
+    let metadata = cmux_blocking::fs::symlink_metadata(&record).ok()?;
     let uid = cmux_tui_core::platform::effective_uid();
     if !metadata.file_type().is_file() || metadata.uid() != uid || metadata.mode() & 0o022 != 0 {
         return None;
     }
-    let route = std::fs::read_to_string(&record).ok()?;
+    let route = cmux_blocking::fs::read_to_string(&record).ok()?;
     let destination = route.trim().strip_prefix("ssh://")?;
     let plain = !destination.is_empty()
         && !destination.starts_with('-')
@@ -326,7 +326,7 @@ fn reexec_with(
     };
     let guard = std::env::var(GUARD_ENV).ok();
     let uid = cmux_tui_core::platform::effective_uid();
-    let exe = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
+    let exe = std::env::current_exe().and_then(cmux_blocking::fs::canonicalize).unwrap_or_default();
     let own = Own {
         build_id: own_build_id(),
         exe: &exe,
