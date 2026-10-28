@@ -116,6 +116,17 @@ FAILED_AND_NO_DAEMON_SUITE = """\
 ✘ Test run with 2 tests in 1 suite failed after 0.011 seconds with 1 issue.
 """
 
+# A suite whose only test skipped by its own trait while the suite line says "passed" (cmux-ci step 12b02341,
+# 2026-10-27: on a branch before the skip report, its row read "passed").
+TEST_SKIPPED_SUITE_PASSED = """\
+\t Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.001) seconds
+◇ Test run started.
+◇ Suite MotionRootSpeedProbeTests started.
+➜ Test rootSpeedReachesWhichPaths() skipped: "needs an awake display and animations on"
+✔ Suite MotionRootSpeedProbeTests passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.001 seconds.
+"""
+
 # XCTest's "Executed 0 tests" and nothing else: no test ran at all.
 ZERO_EXECUTED = """\
 Test Suite 'Selected tests' started at 2026-10-28 12:12:06.152.
@@ -228,7 +239,8 @@ class SuiteSkipTest(unittest.TestCase):
                              ("AAGalleryTests", PARTLY_SKIPPED_SUITE), ("XCSkippedTests", xctest_skipped),
                              ("EmptyTests", "Build complete!\n"), ("FirstLaunchTests", NO_DAEMON_SUITE),
                              ("DaemonRanTests", DAEMON_RAN_SUITE), ("PartlyDaemonTests", PARTLY_NO_DAEMON_SUITE),
-                             ("ZeroExecutedTests", ZERO_EXECUTED), ("FailedDaemonTests", FAILED_AND_NO_DAEMON_SUITE)):
+                             ("ZeroExecutedTests", ZERO_EXECUTED), ("FailedDaemonTests", FAILED_AND_NO_DAEMON_SUITE),
+                             ("MotionRootSpeedProbeTests", TEST_SKIPPED_SUITE_PASSED)):
             (self.outputs / f"{name}.out").write_text(output, encoding="utf-8")
         (self.outputs / "FailedDaemonTests.status").write_text("1")
         (self.tmp / "sdk").mkdir()
@@ -258,6 +270,13 @@ class SuiteSkipTest(unittest.TestCase):
                       done.stdout)
         self.assertIn("::error title=Swift suite no result::SidebarMultiViewHomeTests", done.stdout)
         self.assertIn("required tests did not run", done.stdout)
+
+    def test_every_test_skipped_under_a_passed_suite_line_is_no_result(self):
+        done = self.suite("MotionRootSpeedProbeTests", "SidebarMultiViewPressTests")
+        self.assertNotEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertEqual(self.row(done.stdout, "MotionRootSpeedProbeTests"), "no result (0 ran)")
+        self.assertIn("::error title=Swift suite no result::MotionRootSpeedProbeTests", done.stdout)
+        self.assertNotIn("suites passed", done.stdout)
 
     def test_a_live_daemon_suite_without_its_cmux_tui_is_no_result(self):
         for name in ("FirstLaunchTests", "PartlyDaemonTests"):
