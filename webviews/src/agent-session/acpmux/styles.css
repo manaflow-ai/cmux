@@ -674,8 +674,9 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-question-mark[data-chosen][data-multi]{border-color:transparent;background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 16%,transparent);color:var(--agent-text)}
 .acpmux-question-other{align-items:center}
 .acpmux-question-other .acpmux-question-mark{margin-top:0}
-.acpmux-question-other input{flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--cmux-caret, var(--agent-text))}
-.acpmux-question-other input::placeholder{color:var(--agent-muted)}
+.acpmux-question-other :is(input,textarea){flex:1;min-width:0;height:22px;padding:0;border:0;outline:none;background:none;color:var(--agent-text);font:inherit;caret-color:var(--cmux-caret, var(--agent-text))}
+.acpmux-question-other :is(input,textarea)::placeholder{color:var(--agent-muted)}
+.acpmux-question-other textarea{height:auto;min-height:1lh;resize:none;field-sizing:content}
 .acpmux-question-preview{flex:1 1 280px;display:flex;flex-direction:column;gap:6px;min-width:0;margin:10px 0;padding:10px;border-radius:10px;background:color-mix(in srgb,var(--agent-text) 4%,var(--agent-page-bg,var(--acpmux-base)))}
 .acpmux-question-preview-label{color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height);letter-spacing:var(--text-caption--letter-spacing)}
 .acpmux-question-preview pre{margin:0;overflow:auto;white-space:pre;font:var(--text-detail)/1.45 var(--font-mono,ui-monospace,SFMono-Regular,Menlo,monospace);color:var(--agent-text)}
