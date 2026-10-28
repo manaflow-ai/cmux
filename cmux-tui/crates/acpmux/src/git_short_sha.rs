@@ -32,7 +32,7 @@ pub fn choose(git: Option<&str>, env: Option<&str>) -> (String, Option<String>) 
         }
         // Cut a longer value to git's length so an archive build and a
         // checkout build of one commit embed the same build id.
-        (None, Some(env)) => (env[..env.len().min(SHORT_LEN)].to_owned(), None),
+        (None, Some(env)) => (env.get(..SHORT_LEN).unwrap_or(env).to_owned(), None),
         (None, None) => ("nogit".to_owned(), None),
     }
 }

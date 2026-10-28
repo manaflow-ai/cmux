@@ -63,6 +63,7 @@ use std::sync::{Arc, Mutex as StdMutex};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
+use crate::no_panic::JsonExt;
 use crate::rpc::RpcError;
 
 /// The upgrade request header that carries a ticket's secret at redeem.
@@ -336,7 +337,7 @@ impl Pairing {
             .rev()
             .map(|d| {
                 let mut v = d.to_value();
-                v["connections"] = json!(inner.open.get(&d.id).copied().unwrap_or(0));
+                v.set("connections", json!(inner.open.get(&d.id).copied().unwrap_or(0)));
                 v
             })
             .collect();

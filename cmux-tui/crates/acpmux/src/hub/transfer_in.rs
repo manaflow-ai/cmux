@@ -124,7 +124,7 @@ fn drop_receives(transfer_id: &str) {
         let name = entry.file_name().to_string_lossy().into_owned();
         if name.starts_with("in-")
             && receive_manifest(&entry.path())
-                .is_ok_and(|(manifest, _)| manifest.field("transferId") == transfer_id)
+                .is_ok_and(|(manifest, _)| *manifest.field("transferId") == transfer_id)
         {
             let _ = cmux_blocking::fs::remove_dir_all(entry.path());
         }

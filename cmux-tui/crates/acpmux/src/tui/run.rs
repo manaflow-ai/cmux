@@ -246,7 +246,10 @@ pub(super) fn make_app(
         .chain(std::iter::once(&tui.skill_prefix))
     {
         anyhow::ensure!(
-            p.chars().count() == 1 && !p.chars().next().unwrap().is_whitespace(),
+            {
+                let mut chars = p.chars();
+                chars.next().is_some_and(|c| !c.is_whitespace()) && chars.next().is_none()
+            },
             "TUI prefixes must each be one non-space character"
         );
     }
