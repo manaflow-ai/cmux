@@ -258,7 +258,7 @@ export function ProjectChooser({
             }}
             inline
           />
-          {shown.length === 0 && !typedPath && (query.trim() || !onNoProject) && (
+          {shown.length === 0 && !typedPath && (
             <div className="acpmux-project-empty">
               {t(query.trim() ? "project.none" : "project.noneYet")}
             </div>

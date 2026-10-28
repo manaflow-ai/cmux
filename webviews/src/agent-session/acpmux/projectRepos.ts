@@ -204,7 +204,12 @@ export function projectRows<T extends { cwd: string; label: string; repo?: Proje
     ...(project.repo ? { repo: project.repo } : {}),
     project,
   }));
-  return groupByRepo(folders, current).map((group) => group.lead.project);
+  // Scratch folders stay available to the searchable project menu, but do not become
+  // ordinary New Tab project rows. Keep the selected scratch checkout visible so a
+  // current chat never loses its project context.
+  return groupByRepo(folders, current)
+    .filter((group) => !group.lead.scratch || group.lead.id === current)
+    .map((group) => group.lead.project);
 }
 
 /// The projects in the order they were last used: those a chat used, newest chat first, then the

@@ -184,6 +184,8 @@ test("one row per repository: every clone and lane checkout of one GitHub reposi
     ["Projects", 1],
     ["cmux", 6],
     ["leo-workspace", 1],
+    ["cmux-live-block.noindex", 1],
+    ["scratch", 1],
   ]);
   const cmuxRow = groups[1]!;
   // The main clone leads; the rest are its branches, newest first.
@@ -199,13 +201,18 @@ test("one row per repository: every clone and lane checkout of one GitHub reposi
   expect(belowCheckout(cmuxRow.members.find((member) => member.label === "webviews")!)).toBe("webviews");
 });
 
-test("scratch folders in no repository and the home folder are left out unless current", () => {
+test("scratch folders stay searchable while the unfiltered list leaves them out", () => {
   const ids = (current?: string) => groupByRepo(picker, current).flatMap((group) => group.members.map((m) => m.id));
-  expect(ids(leo)).not.toContain(`${leo}/cmux-live-block.noindex`);
+  expect(ids(leo)).toContain(`${leo}/cmux-live-block.noindex`);
   expect(ids(leo)).not.toContain("/Users/leo");
-  expect(ids(leo)).not.toContain("/Users/leo/Library/Caches/x.noindex/scratch");
+  expect(ids(leo)).toContain("/Users/leo/Library/Caches/x.noindex/scratch");
   expect(ids("/Users/leo")).toContain("/Users/leo");
   expect(ids(`${leo}/cmux-live-block.noindex`)).toContain(`${leo}/cmux-live-block.noindex`);
+  const groups = groupByRepo(picker, leo);
+  expect(shownRepoRows(groups, "", new Set(), leo).map((row) => row.group.name)).not.toContain(
+    "cmux-live-block.noindex",
+  );
+  expect(shownRepoRows(groups, "scratch", new Set(), leo).map((row) => row.group.name)).toContain("scratch");
 });
 
 test("a lane checkout's guess joins only an unambiguous repository of that name", () => {
@@ -265,6 +272,11 @@ test("the flat pickers list each repository once, by its lead, and no scratch fo
     "/Users/me/Projects/checkouts/cmux/lane-a",
     "/Users/me/notes",
   ]);
+  expect(projectRows(projects, "/Users/me/Projects/cmux-live-block.noindex").map((project) => project.cwd)).toEqual([
+    "/Users/me/Projects/cmux-live-block.noindex",
+    "/Users/me/Projects/cmux",
+    "/Users/me/notes",
+  ]);
 });
 
 test("projects a chat used come first, newest chat first; the rest keep their order", () => {
@@ -276,7 +288,7 @@ test("projects a chat used come first, newest chat first; the rest keep their or
 // ("leo--ask-cost-dollar" lived in `checkouts/cmux/`, "cmux-new-tab-order.noindex"). A main checkout,
 // three Git worktrees (the host read their `.git` files), a second clone of the same GitHub
 // repository, a `.noindex` folder, the lane mirror, and lane checkouts the host said nothing about.
-test("one row per repository with its worktrees under it, and no scratch rows", () => {
+test("one row per repository with its worktrees under it, while flat rows omit scratch", () => {
   const p = "/Users/me/Projects";
   const app = { name: "app", github: "acme/app" };
   const worktree = (id: string, branch: string): RepoFolder => ({
@@ -302,6 +314,8 @@ test("one row per repository with its worktrees under it, and no scratch rows", 
   const groups = groupByRepo(fixture);
   expect(groups.map((group) => [group.name, group.lead.id])).toEqual([
     ["app", `${p}/app`],
+    ["app-new-tab-order.noindex", `${p}/app-new-tab-order.noindex`],
+    ["hooks", `${p}/.wt-mirrors/acme/app.git/hooks`],
     ["notes", `${p}/notes`],
   ]);
   expect(groups[0]!.members.slice(1).map(worktreeName)).toEqual([
