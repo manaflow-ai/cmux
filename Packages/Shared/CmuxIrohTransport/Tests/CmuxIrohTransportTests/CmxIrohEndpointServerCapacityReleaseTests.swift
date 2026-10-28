@@ -46,23 +46,6 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         }
     }
 
-    private static func waitForRecordedCount(
-        _ recorder: EndpointServerRecorder,
-        _ expected: Int
-    ) async -> Bool {
-        // Admission recording runs in a separate handler task from the close
-        // watcher. Retry finite clock-bounded windows so a loaded runner can
-        // absorb a scheduling stall without turning a real leak into a hang.
-        for _ in 0 ..< 4 {
-            let deadline = ContinuousClock().now.advanced(by: .seconds(1))
-            while ContinuousClock().now < deadline {
-                if await recorder.recordedCount() >= expected { return true }
-                try? await Task.sleep(for: .milliseconds(1))
-            }
-        }
-        return await recorder.recordedCount() >= expected
-    }
-
     private static func makeSupervisor(
         endpoint: TestAcceptingIrohEndpoint,
         keyByte: UInt8
@@ -145,14 +128,7 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         // The close signal is delivered while the replacement handler is
         // still between promotion and its recording step, so wait for the
         // second admission event instead of sampling the actor immediately.
-        let recordedReplacement: Bool
         if replacementAdmitted {
-            recordedReplacement = await Self.waitForRecordedCount(recorder, 2)
-        } else {
-            recordedReplacement = false
-        }
-        #expect(recordedReplacement)
-        if recordedReplacement {
             #expect(await recorder.next().identity == clientIdentity)
         }
         #expect(await recorder.recordedCount() == 2)
@@ -232,14 +208,7 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
             )
             replacementAdmitted = false
         }
-        let recordedReplacement: Bool
         if replacementAdmitted {
-            recordedReplacement = await Self.waitForRecordedCount(recorder, 3)
-        } else {
-            recordedReplacement = false
-        }
-        #expect(recordedReplacement)
-        if recordedReplacement {
             #expect(await recorder.next().identity == deadClientIdentity)
         }
         #expect(await recorder.recordedCount() == 3)
@@ -328,6 +297,7 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         _ = try await supervisor.activate()
         let blocker = EndpointServerHandlerBlocker()
         let recorder = EndpointServerRecorder()
+        let newcomerAdmissions = AsyncStream<CmxIrohPeerIdentity>.makeStream()
         let server = CmxIrohEndpointServer(
             supervisor: supervisor,
             maximumConnections: 1,
@@ -342,6 +312,10 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
                 identity: await connection.remoteIdentity(),
                 generation: generation
             )
+            let identity = await connection.remoteIdentity()
+            if identity == newcomerIdentity {
+                newcomerAdmissions.continuation.yield(identity)
+            }
             // The handler never unwinds on its own, like a serve loop that has
             // not yet observed the failed connection.
             await blocker.wait()
@@ -359,37 +333,41 @@ struct CmxIrohEndpointServerCapacityReleaseTests {
         // not when the parked handler eventually returns.
         await occupant.close(errorCode: 0, reason: "transport_reported_loss")
 
-        // The close event is delivered before the server actor necessarily
-        // runs its watcher. Allow a bounded transient rejection while that
-        // release is being scheduled, then retry with a fresh connection. A
-        // daemon that never releases the slot exhausts this bounded loop.
-        var admittedNewcomer: TestIrohConnection?
-        for _ in 0 ..< 8 {
-            let newcomer = TestIrohConnection(
-                remoteIdentity: newcomerIdentity,
-                bidirectionalStreams: []
-            )
-            await endpoint.enqueue(newcomer)
-            let deadline = ContinuousClock().now.advanced(by: .seconds(1))
-            while ContinuousClock().now < deadline {
-                let admittedCount = await recorder.recordedCount()
-                let newcomerCloseCount = await newcomer.observedCloseCallCount()
-                if admittedCount == 2 || newcomerCloseCount > 0 { break }
-                try? await Task.sleep(for: .milliseconds(1))
-            }
-            if await recorder.recordedCount() == 2 {
-                admittedNewcomer = newcomer
-                break
-            }
-            #expect(
-                await newcomer.observedCloseCallCount() > 0,
-                "newcomer neither admitted nor rejected within the bounded wait"
-            )
+        let newcomer = TestIrohConnection(
+            remoteIdentity: newcomerIdentity,
+            bidirectionalStreams: []
+        )
+        let newcomerCloseStream = await newcomer.closeEvents()
+        await endpoint.enqueue(newcomer)
+
+        enum NewcomerOutcome: Sendable {
+            case admitted(CmxIrohPeerIdentity)
+            case rejected(String)
         }
-        #expect(await recorder.recordedCount() == 2)
-        if let admittedNewcomer {
-            #expect(await admittedNewcomer.observedCloseCallCount() == 0)
-            #expect(await recorder.next().identity == newcomerIdentity)
+        let outcome = await withTaskGroup(of: NewcomerOutcome.self) { group in
+            group.addTask {
+                for await identity in newcomerAdmissions.stream {
+                    return .admitted(identity)
+                }
+                return .rejected("admission stream ended")
+            }
+            group.addTask {
+                for await close in newcomerCloseStream {
+                    return .rejected(close.reason)
+                }
+                return .rejected("close stream ended")
+            }
+            let first = await group.next() ?? .rejected("no admission outcome")
+            group.cancelAll()
+            return first
+        }
+        switch outcome {
+        case let .admitted(identity):
+            #expect(identity == newcomerIdentity)
+            #expect(await newcomer.observedCloseCallCount() == 0)
+            #expect(await recorder.recordedCount() == 2)
+        case let .rejected(reason):
+            Issue.record("newcomer was rejected after transport close: \(reason)")
         }
 
         await blocker.releaseAll()
