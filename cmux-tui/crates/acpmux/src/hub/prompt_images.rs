@@ -359,6 +359,12 @@ pub(crate) fn validated_display_parts(
                 out.insert(key.into(), Value::Number(value.into()));
             }
         }
+        // The app's composer put this attachment in the prompt's text: the web transcript draws
+        // a prompt in its recorded order only when it was placed. Only `true` is kept; a prompt
+        // without it (the old unplaced shape, or one from an older app) never gains it.
+        if object.get("placed") == Some(&Value::Bool(true)) {
+            out.insert("placed".into(), Value::Bool(true));
+        }
         let start = object.get("start").and_then(Value::as_u64);
         let end = object.get("end").and_then(Value::as_u64);
         if start.is_some() != end.is_some()
@@ -383,7 +389,7 @@ pub(crate) fn validated_display_parts(
 
 fn copy_display_fields(part: &mut Value, display: &Value) {
     let Some(object) = display.as_object() else { return };
-    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf"] {
+    for key in ["name", "mimeType", "size", "pageCount", "start", "end", "companionOf", "placed"] {
         if let Some(value) = object.get(key) {
             part[key] = value.clone();
         }

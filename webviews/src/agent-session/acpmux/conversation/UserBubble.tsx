@@ -74,8 +74,18 @@ export function UserBubble({
     const kept = imageOriginals(row);
     return recordedPromptParts(row)?.filter((part) => !isImageOriginal(part, kept));
   }, [row]);
+  // A prompt whose attachments the composer placed draws in its recorded order, each attachment
+  // where it was put, the last part included. Placed: the pane marked it so (`placed`, acpmux
+  // keeps it; inlinePrompt.ts), or text follows an attachment, which the old shape never has.
+  // The old shape (its text, then its pastes, then its attachments), and a prompt with nothing
+  // to read beside its attachments, keep the legacy bands above the bubble.
   const firstMedia = orderedParts?.findIndex((part) => part.kind !== "text") ?? -1;
-  const hasInterleaved = firstMedia >= 0 && orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text");
+  const placed = orderedParts?.some((part) => part.kind !== "text" && part.placed === true) ?? false;
+  const hasInterleaved =
+    firstMedia >= 0 &&
+    (placed
+      ? orderedParts!.some((part) => !isStripMedia(part))
+      : orderedParts!.slice(firstMedia + 1).some((part) => part.kind === "text"));
   const strip = useComposerSettings().attachmentView === "strip" && hasInterleaved;
   const stripMedia = strip ? orderedParts!.filter(isStripMedia) : [];
   const shownParts = strip ? orderedParts!.filter((part) => !isStripMedia(part)) : orderedParts;
