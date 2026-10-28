@@ -108,22 +108,39 @@ export async function papercutPane(
     ready?: string;
     /// Test-only Vite plugins, kept optional so existing papercut lanes stay unchanged.
     vitePlugins?: PluginOption[];
+    /// Attach only the newest records so the prompt index has older pages to discover.
+    page?: number;
   },
 ) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
+  const attachPage = options.page ?? events.length;
   const methods: string[] = [];
-  const answer = (method: string): unknown => {
+  const answer = (method: string, params: Record<string, any> = {}): unknown => {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
         return { sessions: [session] };
       case "_acpmux/attach":
-        return { session, lastSeq: events.length, events, hasMore: false };
-      case "_acpmux/events":
-        return { events: [], hasMore: false, lastSeq: events.length };
+        return {
+          session,
+          lastSeq: events.length,
+          events: events.slice(-attachPage),
+          hasMore: attachPage < events.length,
+        };
+      case "_acpmux/events": {
+        const kinds = Array.isArray(params.kinds) ? params.kinds : undefined;
+        const matching = events.filter(
+          (event) =>
+            !kinds || kinds.some((kind: string) => kind === "all" || kind === "transcript" || kind === event.kind),
+        );
+        const limit = Number(params.limit ?? 5000);
+        const before = matching.filter((event) => event.seq < (params.beforeSeq ?? Infinity));
+        const page = before.slice(Math.max(0, before.length - limit));
+        return { events: page, hasMore: before.length > limit, lastSeq: events.length };
+      }
       default:
         return null;
     }

@@ -7,7 +7,7 @@
 // reads one history both ways and compares.
 import { expect, test } from "bun:test";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
-import { turnKey } from "../src/agent-session/acpmux/threadMinimap/model";
+import { minimapTurns, turnKey } from "../src/agent-session/acpmux/threadMinimap/model";
 import { opensTurn } from "../src/agent-session/acpmux/turnStart";
 import {
   EarlierPrompts,
@@ -234,6 +234,16 @@ test("loadThrough materializes an indexed prompt through history paging", async 
   // The index method has no view or scroll handle; only the normal transcript page changed here.
   expect(pane.reads.some((params) => params.kinds?.includes("transcript"))).toBe(true);
   expect(pane.client.loadThrough.toString()).not.toContain("scrollTop");
+});
+
+test("earlier indexed rows lead minimap turns with unloaded index -1", () => {
+  const loaded = [prompt(10, "Question 10"), { ...prompt(10), id: "assistant-10", kind: "assistant", text: "Answer" }];
+  const indexed = [prompt(2, "Question 2"), prompt(6, "Question 6")];
+  const result = minimapTurns(loaded, "s", undefined, undefined, indexed);
+  expect(result.turns.slice(0, 2).map((turn) => turn.index)).toEqual([-1, -1]);
+  expect(result.turns.slice(0, 2).map((turn) => turn.prompt)).toEqual(["Question 2", "Question 6"]);
+  expect(result.turns[2]!.index).toBe(0);
+  expect(result.ticks).toHaveLength(3);
 });
 
 // The transcript's own reading of one history against the rail's: a chat with steers, prompts sent
