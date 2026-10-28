@@ -1,0 +1,156 @@
+import CmuxNextSettings
+import Foundation
+
+/// The browser an agent drives when it names none (#26648): the one nearest
+/// its caller (`caller`, ControlCaller), never the person's focused tab in
+/// another window. Nearest is, in order: a browser in the caller's own
+/// workspace, then one in a workspace of its sidebar group, then one in
+/// another workspace of its window, each nearest in the sidebar first. In a
+/// workspace, the person's focused tab wins when it is a browser there, then
+/// a browser a pane shows (the column right of the caller's chat first, then
+/// by column distance), then any browser tab, the newest in its pane.
+///
+/// `browser.page.*` without `tab` runs on this tab, `system.identify` and
+/// `snapshot.get` report it (`browser`), and the cmux CLI and MCP server put
+/// it in place of a `current` browser selector. A call that names no caller,
+/// or one the topology does not show, keeps the focused tab.
+struct BrowserCallerTarget: Sendable, Equatable {
+    var workspace: ControlWorkspaceInfo
+    var screen: ControlScreenInfo
+    var pane: ControlPaneInfo
+    var tab: ControlTabInfo
+
+    /// The browser nearest `location`, nil when none is in its workspace, group or window.
+    static func resolve(near location: ControlCallerLocation, in topology: ControlTopology) -> Self? {
+        for workspace in nearbyWorkspaces(of: location.workspace, in: topology) {
+            if let found = browser(in: workspace, near: workspace.id == location.workspace.id ? location : nil, topology: topology) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    /// `params`' caller's browser: nil when the call names no caller the topology shows, else the
+    /// nearest browser, or `not_found` when none is near it (an agent never falls through to the
+    /// person's focused tab in another window).
+    static func resolve(params: [String: JSONValue], in topology: ControlTopology) throws -> Self? {
+        guard let caller = try ControlCaller(params), let location = ControlCallerLocation.resolve(caller, in: topology) else { return nil }
+        guard let found = resolve(near: location, in: topology) else { throw notFound(near: location) }
+        return found
+    }
+
+    static func notFound(near location: ControlCallerLocation) -> ControlError {
+        ControlError(code: "not_found",
+                     message: ControlStrings.format("control.error.noBrowserNearCaller",
+                                                    "No browser in workspace %@ or its window; list every tab with `cmux browser page tabs --all` and name one (`cmux browser tab_… <verb>`)",
+                                                    location.workspace.publicID),
+                     data: ["workspace": .string(location.workspace.publicID)])
+    }
+
+    /// `browser` for `system.identify` and `snapshot.get`: where the caller's browser is.
+    var json: JSONValue {
+        ["tab": .string(tab.id), "pane": .string(pane.id), "screen": .string(screen.id), "workspace": .string(workspace.publicID),
+         "session": .optional(workspace.sessionID), "url": .optional(tab.url)]
+    }
+
+    /// `own` first, then the workspaces of its sidebar group, then the rest of its window, each by
+    /// sidebar distance from `own` (above before below on a tie). A group outside any window keeps
+    /// to its own members; no other window's workspace is ever near.
+    static func nearbyWorkspaces(of own: ControlWorkspaceInfo, in topology: ControlTopology) -> [ControlWorkspaceInfo] {
+        let order = topology.windows.first { $0.workspaceIDs.contains(own.id) }?.workspaceIDs
+        let others = topology.workspaces.filter { $0.id != own.id }
+        guard let order, let at = order.firstIndex(of: own.id) else {
+            return [own] + (own.groupID.map { group in others.filter { $0.groupID == group } } ?? [])
+        }
+        let position = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let windowed = others.compactMap { workspace in position[workspace.id].map { (workspace, $0) } }
+        func nearest(_ rows: [(ControlWorkspaceInfo, Int)]) -> [ControlWorkspaceInfo] {
+            rows.sorted { (abs($0.1 - at), $0.1) < (abs($1.1 - at), $1.1) }.map(\.0)
+        }
+        let sameGroup = { (workspace: ControlWorkspaceInfo) in own.groupID != nil && workspace.groupID == own.groupID }
+        return [own] + nearest(windowed.filter { sameGroup($0.0) }) + nearest(windowed.filter { !sameGroup($0.0) })
+    }
+
+    /// The browser of `workspace` to drive; `location` orders its panes from the caller's chat.
+    static func browser(in workspace: ControlWorkspaceInfo, near location: ControlCallerLocation?, topology: ControlTopology) -> Self? {
+        let panes = orderedPanes(of: workspace, near: location)
+        func found(_ tab: ControlTabInfo, _ screen: ControlScreenInfo, _ pane: ControlPaneInfo) -> Self {
+            Self(workspace: workspace, screen: screen, pane: pane, tab: tab)
+        }
+        if let focused = topology.focus.tabID {
+            for (screen, pane) in panes {
+                if let tab = pane.tabs.first(where: { $0.id == focused }), isBrowser(tab) { return found(tab, screen, pane) }
+            }
+        }
+        // A browser a pane shows: its own selected tab, or a mirrored one it lists.
+        for (screen, pane) in panes {
+            guard let selected = pane.selectedTabID else { continue }
+            if let tab = pane.tabs.first(where: { $0.id == selected }), isBrowser(tab) { return found(tab, screen, pane) }
+            // A mirrored tab is reported where it lives, so its path names its own pane.
+            if pane.mirroredTabIDs.contains(selected), let shown = locate(selected, in: topology), isBrowser(shown.tab) { return shown }
+        }
+        for (screen, pane) in panes {
+            if let tab = pane.tabs.last(where: isBrowser) { return found(tab, screen, pane) }
+        }
+        return nil
+    }
+
+    /// The tab `id` with the workspace, screen and pane it lives in.
+    private static func locate(_ id: String, in topology: ControlTopology) -> Self? {
+        for workspace in topology.workspaces {
+            for screen in workspace.screens {
+                for pane in screen.panes {
+                    if let tab = pane.tabs.first(where: { $0.id == id }) { return Self(workspace: workspace, screen: screen, pane: pane, tab: tab) }
+                }
+            }
+        }
+        return nil
+    }
+
+    /// A browser tab the app shows a web page in (an internal page such as the Home chat is not one).
+    static func isBrowser(_ tab: ControlTabInfo) -> Bool { tab.kind == "browser" && tab.page == nil }
+
+    /// `workspace`'s panes: with `location`, the caller's screen first, the column right of its
+    /// chat first there, then by column distance from the chat; otherwise in screen order.
+    private static func orderedPanes(of workspace: ControlWorkspaceInfo, near location: ControlCallerLocation?)
+        -> [(ControlScreenInfo, ControlPaneInfo)] {
+        let panes = workspace.screens.flatMap { screen in screen.panes.map { (screen, $0) } }
+        guard let location else { return panes }
+        func rank(_ screen: ControlScreenInfo, _ pane: ControlPaneInfo) -> (Int, Int, Int) {
+            let distance = if let column = pane.column, let own = location.pane.column { abs(column - own) } else { Int.max }
+            return (screen.id == location.screen.id ? 0 : 1, pane.id == location.beside?.id ? 0 : 1, distance)
+        }
+        return panes.enumerated().sorted { lhs, rhs in
+            let (left, right) = (rank(lhs.element.0, lhs.element.1), rank(rhs.element.0, rhs.element.1))
+            return left != right ? left < right : lhs.offset < rhs.offset
+        }.map(\.element)
+    }
+}
+
+extension ControlRouter {
+    /// Aims a browser action (`browser back`, `browser screenshot-page`: it requires a focused
+    /// browser or browser page) that an agent or a cmux terminal runs without a target at the browser nearest
+    /// its caller (#26648), so it never acts on the person's focused browser in another window.
+    /// A pane-target action gets the pane when that pane shows the browser, else the tab. A caller
+    /// with no browser near it is refused; a run with a target or no caller is left as it is.
+    static func aimBrowserActionAtCaller(_ request: inout ControlActionRequest, action: ControlActionInfo,
+                                         topology: ControlTopology) throws {
+        let browserAction = action.requires.contains("browserFocused")
+            || (action.category == "browser" && action.requires.contains("webViewFocused"))
+        guard request.target == nil, browserAction,
+              request.callerAgentSession != nil || request.callerTerminal != nil || request.callerHomeChat else { return }
+        let caller = ControlCaller(agentSession: request.callerAgentSession, terminalID: request.callerTerminal,
+                                   homeChat: request.callerHomeChat)
+        guard let location = ControlCallerLocation.resolve(caller, in: topology) else { return }
+        guard let near = BrowserCallerTarget.resolve(near: location, in: topology) else {
+            throw BrowserCallerTarget.notFound(near: location)
+        }
+        if action.targets.contains("pane"), near.pane.selectedTabID == near.tab.id {
+            request.target = ControlTargetRef(kind: "pane", id: near.pane.id)
+        } else if action.targets.contains("tab") {
+            request.target = ControlTargetRef(kind: "tab", id: near.tab.id)
+        } else if action.targets.contains("pane") {
+            request.target = ControlTargetRef(kind: "pane", id: near.pane.id)
+        }
+    }
+}

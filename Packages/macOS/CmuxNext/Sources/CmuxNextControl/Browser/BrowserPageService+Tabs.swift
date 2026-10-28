@@ -40,12 +40,17 @@ extension BrowserPageService {
     }
 
     /// The app browser tabs of one workspace: the named browser tab's, else
+    /// that of the browser nearest the caller (`caller`, else its own), else
     /// the focused workspace's; `all: true` lists every workspace.
     static func tabList(_ call: ControlCall) throws -> JSONValue {
         let topology = call.snapshot.topology
         let params = call.request.params
         let all = params["all"]?.boolValue == true
         var workspaceID = topology.focus.workspaceID
+        if let caller = try ControlCaller(params), let location = ControlCallerLocation.resolve(caller, in: topology) {
+            // The workspace of the browser `page` drives for this caller, else its own.
+            workspaceID = (BrowserCallerTarget.resolve(near: location, in: topology)?.workspace ?? location.workspace).id
+        }
         if !all, let requested = params["tab"]?.stringValue, !requested.isEmpty {
             let anchor = try tab(call).id
             workspaceID = topology.workspaces.first { $0.screens.contains { $0.panes.contains { $0.tabs.contains { $0.id == anchor } } } }?.id

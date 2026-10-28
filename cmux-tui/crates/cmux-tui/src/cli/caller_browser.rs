@@ -1,0 +1,123 @@
+//! `current` as a browser selector means the browser nearest the caller
+//! (#26648): one in its own workspace, then in its sidebar group, then in
+//! its window, never the person's focused tab in another window. The daemon
+//! reads `current` as its active tab, which follows the person's focus, so an
+//! agent told to "use the cmux browser" drove whatever the person looked at
+//! elsewhere. The app knows the windows and reports that browser in
+//! `system.identify` (`browser`, BrowserCallerTarget in the app); the CLI
+//! and the MCP server name its tab in place of the `current` chain before
+//! the request leaves. A request with an explicit parent keeps it.
+
+use serde_json::{Map, Value, json};
+
+/// The selectors above a browser, which a `current` browser chain fills.
+const PARENTS: [&str; 4] = ["workspace", "screen", "pane", "tab"];
+
+/// Whether `params` names the `current` browser with nothing but `current`
+/// (or nothing) above it.
+pub(super) fn wants(params: &Map<String, Value>) -> bool {
+    params.get("browser").and_then(Value::as_str) == Some("current")
+        && PARENTS
+            .iter()
+            .all(|scope| params.get(*scope).is_none_or(|value| value.as_str() == Some("current")))
+}
+
+/// Puts the tab of the app's `browser` (from `system.identify`) in place of
+/// the `current` chain of `params`. `Ok(false)` leaves `params` as they are:
+/// the app does not place the caller, or it is an app from before #26648
+/// that reports no `browser`. An error when the caller has no browser near
+/// it, or that browser is in another session than the request's.
+pub(super) fn apply(params: &mut Map<String, Value>, identity: &Value) -> Result<bool, Value> {
+    let caller = &identity["caller"];
+    let workspace = caller.get("workspace").and_then(Value::as_str);
+    if caller.get("found").and_then(Value::as_bool) == Some(false) || workspace.is_none() {
+        return Ok(false);
+    }
+    let Some(browser) = identity.get("browser") else { return Ok(false) };
+    let Some(tab) = browser.get("tab").and_then(Value::as_str) else {
+        return Err(error(
+            "selector.not_found",
+            format!(
+                "no browser in workspace {} or its window; list every tab with \
+                 `cmux browser page tabs --all` and name one (`cmux browser tab_… <verb>`)",
+                workspace.unwrap_or_default()
+            ),
+            json!({"workspace": workspace}),
+        ));
+    };
+    if let Some(session) = browser.get("session").and_then(Value::as_str) {
+        return Err(error(
+            "selector.invalid",
+            format!(
+                "the browser nearest the caller ({tab}) is in session {session}; \
+                 name it there: `cmux --session {session} browser …`"
+            ),
+            json!({"tab": tab, "session": session}),
+        ));
+    }
+    for scope in ["workspace", "screen", "pane"] {
+        params.remove(scope);
+    }
+    params.insert("tab".into(), Value::String(tab.to_owned()));
+    Ok(true)
+}
+
+fn error(code: &str, message: String, details: Value) -> Value {
+    json!({"code": code, "message": message, "details": details, "retryable": false})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params(value: Value) -> Map<String, Value> {
+        value.as_object().cloned().expect("an object")
+    }
+
+    #[test]
+    fn only_a_current_browser_chain_is_the_callers() {
+        assert!(wants(&params(
+            json!({"workspace": "current", "tab": "current", "browser": "current"})
+        )));
+        assert!(wants(&params(json!({"browser": "current"}))));
+        assert!(!wants(&params(json!({"tab": "tab_x", "browser": "current"}))));
+        assert!(!wants(&params(json!({"workspace": "ws_x", "browser": "current"}))));
+        assert!(!wants(&params(json!({"browser": "browser_x"}))));
+        assert!(!wants(&params(json!({"browser": "focused"}))));
+    }
+
+    #[test]
+    fn the_nearest_browser_replaces_the_focused_chain() {
+        let mut chain =
+            params(json!({"workspace": "current", "tab": "current", "browser": "current"}));
+        let identity = json!({
+            "caller": {"workspace": "ws_mine", "tab": "tab_chat"},
+            "browser": {"tab": "tab_near", "pane": "pane_b", "workspace": "ws_mine", "session": null},
+        });
+        assert_eq!(apply(&mut chain, &identity), Ok(true));
+        assert_eq!(Value::Object(chain), json!({"tab": "tab_near", "browser": "current"}));
+    }
+
+    #[test]
+    fn a_caller_with_no_browser_near_it_is_refused_not_sent_to_the_focused_one() {
+        let mut chain =
+            params(json!({"workspace": "current", "tab": "current", "browser": "current"}));
+        let identity = json!({"caller": {"workspace": "ws_mine"}, "browser": null});
+        let error = apply(&mut chain, &identity).expect_err("no browser near the caller");
+        assert_eq!(error["code"], "selector.not_found");
+        let elsewhere = json!({"caller": {"workspace": "ws_mine"}, "browser": {"tab": "tab_r", "session": "m1"}});
+        assert_eq!(
+            apply(&mut chain, &elsewhere).expect_err("another session")["code"],
+            "selector.invalid"
+        );
+    }
+
+    #[test]
+    fn an_unplaced_caller_or_an_older_app_keeps_the_chain() {
+        let chain = params(json!({"workspace": "current", "tab": "current", "browser": "current"}));
+        let mut kept = chain.clone();
+        assert_eq!(apply(&mut kept, &json!({"caller": {"found": false}})), Ok(false));
+        assert_eq!(apply(&mut kept, &json!({"caller": {"workspace": "ws_mine"}})), Ok(false));
+        assert_eq!(kept, chain);
+    }
+}

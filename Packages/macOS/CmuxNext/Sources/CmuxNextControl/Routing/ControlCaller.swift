@@ -136,8 +136,9 @@ struct ControlCallerLocation: Sendable, Equatable {
                 })]
     }
 
-    /// `members` with `caller` and `beside` for `params`' caller, when the
-    /// topology shows it (`snapshot.get`, `system.identify`).
+    /// `members` with `caller`, `beside` and `browser` (the browser nearest
+    /// it, ``BrowserCallerTarget``) for `params`' caller, when the topology
+    /// shows it (`snapshot.get`, `system.identify`).
     static func annotate(_ members: inout [String: JSONValue], params: [String: JSONValue], topology: ControlTopology) throws {
         guard let caller = try ControlCaller(params) else { return }
         guard let location = resolve(caller, in: topology) else {
@@ -147,6 +148,8 @@ struct ControlCallerLocation: Sendable, Equatable {
         }
         members["caller"] = location.callerJSON
         members["beside"] = location.besideJSON
+        // The browser its `browser.page.*` and `current` browser commands drive (#26648).
+        members["browser"] = BrowserCallerTarget.resolve(near: location, in: topology)?.json ?? .null
     }
 }
 

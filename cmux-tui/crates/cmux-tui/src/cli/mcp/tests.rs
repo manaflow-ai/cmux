@@ -39,6 +39,9 @@ struct Fake {
     caller: Option<Value>,
     /// The app's `beside` with `caller`: the column right of the chat.
     beside: Value,
+    /// The app's `browser` with `caller`: the browser nearest it; unset
+    /// answers as an app from before #26648 (no `browser`).
+    browser: Option<Value>,
     /// What `Backend::focus` answers.
     focus: Option<Value>,
     /// The app's `computer_use.status` through `Backend::app_caller`; no
@@ -331,7 +334,13 @@ impl Backend for Fake {
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         self.sent.borrow_mut().push(json!({"kind": "caller"}));
-        Ok(self.caller.clone().map(|caller| json!({"caller": caller, "beside": self.beside})))
+        Ok(self.caller.clone().map(|caller| {
+            let mut identity = json!({"caller": caller, "beside": self.beside});
+            if let Some(browser) = &self.browser {
+                identity["browser"] = browser.clone();
+            }
+            identity
+        }))
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
