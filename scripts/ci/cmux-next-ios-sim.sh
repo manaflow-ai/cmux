@@ -21,12 +21,6 @@
 #           Each recording is replayed at the rate the program wrote it (capped
 #           at 50 Mbit/s), with screenshots during and after the flood.
 #   all     build, test and bench.
-#   uitest [FILTER]
-#           build, plus `xcodebuild test` of the app's XCUITests
-#           (CmuxMobileAppUITests, or the -only-testing FILTER such as
-#           CmuxMobileAppUITests/TabBarVisibilityUITests) on a new iPhone, with
-#           a screen recording of the run (screens/uitest.mp4) and the tests'
-#           screenshot attachments (uitest-attachments/).
 #   pair-e2e
 #           build, plus a tagged DEBUG cmux NEXT Mac app built here
 #           (reload.sh), and pairing by its QR code end to end
@@ -51,8 +45,7 @@ cmux_next_require_fleet cmux-next-ios-sim.sh "xcodebuild and an iOS simulator" "
   "cmux-ci run --class simulator --script scripts/ci/cmux-next-ios-sim.sh --ref SHA --arg bench --artifact artifacts/ios-sim/evidence.zip"
 
 mode="${1:-build}"
-case "$mode" in build|test|bench|all|pair-e2e|uitest) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all, pair-e2e or uitest, got '$mode'" >&2; exit 2 ;; esac
-ui_filter="${2:-CmuxMobileAppUITests}"
+case "$mode" in build|test|bench|all|pair-e2e) ;; *) echo "cmux-next-ios-sim.sh: MODE is build, test, bench, all or pair-e2e, got '$mode'" >&2; exit 2 ;; esac
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"
@@ -221,42 +214,6 @@ for root in json.load(sys.stdin).get("testNodes", []):
 ' > "$out/test-failures.txt" 2>/dev/null || true
   cat "$out/test-failures.txt"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
-fi
-
-# --- UI tests ---------------------------------------------------------------
-if [[ "$mode" == uitest ]]; then
-  t0=$SECONDS
-  # As the kit tests: a new iPhone in the default set (xcodebuild sees only that set), deleted by its UDID.
-  ui_udid="$(xcrun simctl create "cmux-next-ios-sim-ui-${CMUX_CI_STEP_KEY:-local}" "$device_type" "$runtime")"
-  xcrun simctl boot "$ui_udid"
-  xcrun simctl bootstatus "$ui_udid" -b >/dev/null
-  xcrun simctl ui "$ui_udid" appearance dark >/dev/null 2>&1 || true
-  xcrun simctl io "$ui_udid" recordVideo --codec h264 --force "$out/screens/uitest.mp4" >"$work/record.log" 2>&1 &
-  record_pid=$!
-  set +e
-  xcodebuild test -project cmux-next-ios/CmuxMobileApp.xcodeproj -scheme CmuxMobileApp -configuration Debug \
-    -destination "id=$ui_udid,arch=arm64" -only-testing:"$ui_filter" -parallel-testing-enabled NO \
-    -enableCodeCoverage NO -derivedDataPath "$work/dd-ui" -resultBundlePath "$work/ui.xcresult" \
-    CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
-    >"$work/uitest.log" 2>&1
-  test_status=$?
-  set -e
-  # SIGINT finishes the movie file; wait for recordVideo to write it.
-  kill -INT "$record_pid" 2>/dev/null || true
-  wait "$record_pid" 2>/dev/null || true
-  xcrun simctl shutdown "$ui_udid" >/dev/null 2>&1 || true
-  xcrun simctl delete "$ui_udid" >/dev/null 2>&1 || true
-  cp "$work/uitest.log" "$out/uitest.log"
-  grep -E "CMUX_MOBILE_|error:|Test Case .*(passed|failed)|TEST (SUCCEEDED|FAILED)" "$work/uitest.log" > "$out/uitest-lines.txt" || true
-  mkdir -p "$out/uitest-attachments"
-  xcrun xcresulttool export attachments --path "$work/ui.xcresult" --output-path "$out/uitest-attachments" >/dev/null 2>&1 || true
-  counts="$(xcrun xcresulttool get test-results summary --path "$work/ui.xcresult" --compact 2>/dev/null | python3 -c '
-import json, sys
-d = json.load(sys.stdin)
-print("passed %s, failed %s, skipped %s" % (d.get("passedTests"), d.get("failedTests"), d.get("skippedTests")))
-' || echo "no result bundle")"
-  grep -E "Test Case .*(passed|failed)|error:" "$out/uitest-lines.txt" | head -60 || true
-  note "- UI tests ($ui_filter): exit $test_status, $counts, $((SECONDS - t0)) s; screens/uitest.mp4"
 fi
 
 # --- Benchmarks -------------------------------------------------------------
