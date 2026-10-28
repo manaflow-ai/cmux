@@ -5,7 +5,9 @@
 //! (`peer_link.rs`).
 
 use crate::no_panic::LockExt;
-use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
+use crate::peer_link::{
+    Backoff, Link, LinkTimings, PeerState, SleepWatch, WAKE_PROBE, write_deadline,
+};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -64,6 +66,17 @@ pub enum PeerNotice {
         /// The link it came on (`Peer::link_epoch` when it was read).
         link: u64,
     },
+}
+
+/// How a backoff wait between attempts ended (`Peer::wait_backoff`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackoffWait {
+    /// The delay passed.
+    Done,
+    /// This computer slept through it: the attempt goes now.
+    Woke,
+    /// The peer was stopped.
+    Stopped,
 }
 
 pub struct Peer {
@@ -140,6 +153,8 @@ pub struct Peer {
     prompt_uploads: AtomicBool,
     /// The peer lists `uploadResume` (`hub/file_uploads.rs`).
     upload_resume: AtomicBool,
+    /// The peer lists `sessionAuth` (`hub/session_auth.rs`).
+    session_auth: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
     /// host that is not loopback (`carries_peer_token`). Logged once.
     withheld: AtomicBool,
@@ -159,6 +174,8 @@ pub struct Peer {
     settled: tokio::sync::watch::Sender<u64>,
     /// Connected, degraded or reconnecting, and since when (`peer_link.rs`).
     link: StdMutex<Link>,
+    /// Where each change of `state()` goes once the hub runs the peer (`report_states`).
+    states: StdMutex<Option<Arc<crate::peer_states::PeerStates>>>,
     timings: LinkTimings,
     /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
     pub(crate) cache_saved_at: AtomicU64,
@@ -216,6 +233,7 @@ impl Peer {
             send_attach: AtomicBool::new(false),
             prompt_uploads: AtomicBool::new(false),
             upload_resume: AtomicBool::new(false),
+            session_auth: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             presented: StdMutex::new(None),
             admitting: AtomicBool::new(false),
@@ -225,6 +243,7 @@ impl Peer {
             stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
             link: StdMutex::new(Link::default()),
+            states: StdMutex::new(None),
             timings: LinkTimings::from_env(),
             cache_saved_at: AtomicU64::new(0),
             purge_tombstones: Default::default(),
@@ -238,8 +257,41 @@ impl Peer {
         self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// Every change of the link's state goes through here, so each one sends its note
+    /// (`report_states`) from the code that made it: no timer, no polling, no repeats.
     fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
-        f(&mut self.link.lock().unwrap_or_else(|e| e.into_inner()))
+        let mut link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        let out = f(&mut link);
+        self.note_state(&link);
+        out
+    }
+
+    /// This instance speaks for its name in `states` (the hub's, `Hub::spawn_peer`) from now
+    /// on: its state now, then each change (`_acpmux/peer_state_changed`). Once it is replaced
+    /// or removed, `states` drops what it says.
+    pub fn report_states(&self, states: Arc<crate::peer_states::PeerStates>) {
+        let link = self.link.lock().unwrap_or_else(|e| e.into_inner());
+        states.register(&self.name, self.generation, self.observed(&link));
+        *self.states.lock_or_recover() = Some(states);
+    }
+
+    /// Called with `link` locked, so the notes go out in the order of the changes.
+    fn note_state(&self, link: &Link) {
+        // A stopped instance's link going down is not news: its replacement or its removal
+        // speaks for the name next.
+        if self.stop.load(Ordering::SeqCst) {
+            return;
+        }
+        let Some(states) = self.states.lock_or_recover().clone() else { return };
+        states.changed(&self.name, self.generation, self.observed(link));
+    }
+
+    fn observed(&self, link: &Link) -> crate::peer_states::Observed {
+        crate::peer_states::Observed {
+            state: link.state().wire(),
+            last_seen: link.last_seen,
+            error: self.last_error.lock_or_recover().clone(),
+        }
     }
 
     pub fn state(&self) -> PeerState {
@@ -591,6 +643,11 @@ impl Peer {
         self.upload_resume.load(Ordering::SeqCst)
     }
 
+    /// Whether the peer said at its last handshake that it answers `_acpmux/session/auth`.
+    pub fn supports_session_auth(&self) -> bool {
+        self.session_auth.load(Ordering::SeqCst)
+    }
+
     /// The WebSocket is open and the handshake has not finished.
     pub fn handshaking(&self) -> bool {
         self.open.load(Ordering::SeqCst) && !self.connected.load(Ordering::SeqCst)
@@ -759,6 +816,10 @@ impl Peer {
         };
         while !self.stop.load(Ordering::SeqCst) {
             let outcome = self.connect_once(&mut out_rx).await;
+            // Before the link goes down, so the state note of the drop names why.
+            if let Err(e) = &outcome {
+                *self.last_error.lock_or_recover() = Some(e.clone());
+            }
             // The epoch moves first: a handshake that marks the link ready checks it after,
             // so `connected` never stays true for a link that is gone.
             self.link_ended();
@@ -771,7 +832,6 @@ impl Peer {
                 backoff.reset();
             }
             if let Err(e) = outcome {
-                *self.last_error.lock_or_recover() = Some(e.clone());
                 let notice = PeerNotice::Disconnected(e);
                 let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
             }
@@ -780,9 +840,36 @@ impl Peer {
                 break;
             }
             let delay = backoff.next(crate::peer_link::jitter());
+            match self.wait_backoff(delay).await {
+                BackoffWait::Done => {}
+                // The network that failed before the sleep may take a moment to come back: the
+                // next attempts are quick ones again.
+                BackoffWait::Woke => backoff.reset(),
+                BackoffWait::Stopped => break,
+            }
+        }
+    }
+
+    /// Waits out one backoff delay. A wait that this
+    /// computer slept through ends at the wake, with the backoff started over: the delay ran on
+    /// the monotonic clock, which stood still, so the attempt would otherwise come up to a
+    /// minute after the wake, while the network that failed before the sleep is likely back.
+    async fn wait_backoff(&self, delay: Duration) -> BackoffWait {
+        let deadline = tokio::time::Instant::now() + delay;
+        let mut watch = SleepWatch::now();
+        loop {
+            let check = (tokio::time::Instant::now() + SleepWatch::EVERY).min(deadline);
             tokio::select! {
-                _ = tokio::time::sleep(delay) => {}
-                _ = self.stop_signal.notified() => break,
+                _ = tokio::time::sleep_until(check) => {
+                    if let Some(slept) = watch.check() {
+                        tracing::info!(peer = %self.name, "this computer slept {}s; reconnecting now", slept.as_secs());
+                        return BackoffWait::Woke;
+                    }
+                    if tokio::time::Instant::now() >= deadline {
+                        return BackoffWait::Done;
+                    }
+                }
+                _ = self.stop_signal.notified() => return BackoffWait::Stopped,
             }
         }
     }
@@ -955,13 +1042,23 @@ impl Peer {
             me.prompt_uploads.store(lists(crate::prompt_uploads::FEATURE), Ordering::SeqCst);
             let resume = lists(crate::hub::file_uploads::RESUME_FEATURE);
             me.upload_resume.store(resume, Ordering::SeqCst);
+            let auth = lists(crate::hub::session_auth::FEATURE);
+            me.session_auth.store(auth, Ordering::SeqCst);
             // The reader published the reply's list (`watch_key`), so Connected follows it.
             me.link_request_on(method::MUX_WATCH, json!({"enabled": true}), Some(link)).await?;
-            me.with_link(|l| l.ready(crate::store::now_ms()));
-            // Connected only now. `run` moves the epoch on before it clears `connected`, so a
-            // link that dropped meanwhile is seen here and never left reading connected.
-            me.connected.store(true, Ordering::SeqCst);
-            if me.link_epoch() != link {
+            // Connected only now, and ready with it, so its state note follows `connected`.
+            // `run` moves the epoch on before it clears `connected` and takes the link down, so
+            // a link that dropped meanwhile is seen here: it is not made ready again, and never
+            // left reading connected.
+            let live = me.with_link(|l| {
+                let live = me.link_epoch() == link;
+                if live {
+                    me.connected.store(true, Ordering::SeqCst);
+                    l.ready(crate::store::now_ms());
+                }
+                live
+            });
+            if !live || me.link_epoch() != link {
                 me.connected.store(false, Ordering::SeqCst);
                 return Ok(());
             }
@@ -991,12 +1088,44 @@ impl Peer {
         let mut ticks: u64 = 0;
         let handshake_deadline = tokio::time::sleep(timings.handshake);
         tokio::pin!(handshake_deadline);
+        // After this computer slept, the link's monotonic timers say its last frame came moments
+        // ago, while its ssh tunnel has often died: a ping goes out at once, and the link is
+        // dropped (and redialed) when nothing answers within `WAKE_PROBE`, rather than after the
+        // ssh keepalive or the whole silence budget. Stops with the link.
+        let mut wake_watch = SleepWatch::now();
+        let mut wake_check = tokio::time::interval_at(
+            tokio::time::Instant::now() + SleepWatch::EVERY,
+            SleepWatch::EVERY,
+        );
+        wake_check.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut wake_probe: Option<tokio::time::Instant> = None;
+        // The clocks are read before every write too, not only on `wake_check`'s tick: after a wake
+        // the regular ping's tick may be served first, and its write must be held to the probe's
+        // deadline, never the whole send budget.
+        macro_rules! check_wake {
+            () => {
+                if let Some(slept) = wake_watch.check() {
+                    tracing::info!(peer = %self.name, "this computer slept {}s; checking the link", slept.as_secs());
+                    // One deadline for the ping to go out and its answer to come back.
+                    let deadline = tokio::time::Instant::now() + WAKE_PROBE;
+                    match tokio::time::timeout_at(deadline, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => wake_probe = Some(deadline),
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(WAKE_PROBE)),
+                    }
+                }
+            };
+        }
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(());
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
+                _ = wake_check.tick() => check_wake!(),
+                _ = tokio::time::sleep_until(wake_probe.unwrap_or_else(tokio::time::Instant::now)), if wake_probe.is_some() => {
+                    break Err(format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs()));
+                }
                 // Once only: a finished oneshot is not polled again.
                 stale = &mut stale_rx, if !stale_settled => {
                     stale_settled = true;
@@ -1015,10 +1144,12 @@ impl Peer {
                     if silent >= timings.ping_every {
                         self.with_link(Link::overdue);
                     }
-                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                    check_wake!();
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Ping(Vec::new().into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                     ticks += 1;
                     if ticks.is_multiple_of(health::HEALTH_EVERY) && self.link().is_ready() {
@@ -1029,6 +1160,7 @@ impl Peer {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
                     last_frame = tokio::time::Instant::now();
+                    wake_probe = None;
                     self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
@@ -1122,15 +1254,18 @@ impl Peer {
                     if epoch != self.link_epoch() {
                         continue;
                     }
+                    // Before the frame is marked: a link a wake check drops never had it.
+                    check_wake!();
                     // Marked before the write: a frame that is partly written may still run.
                     if let Some(key) = key {
                         self.on_wire.lock_or_recover().insert(key);
                     }
                     let text = line.trim_end_matches('\n').to_owned();
-                    match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
+                    let until = write_deadline(tokio::time::Instant::now(), budget, wake_probe);
+                    match tokio::time::timeout_at(until, sink.send(Frame::Text(text.into()))).await {
                         Ok(Ok(())) => {}
                         Ok(Err(e)) => break Err(e.to_string()),
-                        Err(_) => break Err(stopped_reading(budget)),
+                        Err(_) => break Err(write_late(budget, wake_probe)),
                     }
                 }
             }
@@ -1209,6 +1344,17 @@ fn connect_timed_out(after: Duration) -> String {
 
 fn stopped_reading(budget: Duration) -> String {
     format!("peer stopped reading (a send waited {}s)", budget.as_secs())
+}
+
+/// Why a write that timed out (`write_deadline`) dropped the link: a wake probe whose deadline
+/// passed, else the send budget.
+fn write_late(budget: Duration, wake_probe: Option<tokio::time::Instant>) -> String {
+    match wake_probe {
+        Some(probe) if probe <= tokio::time::Instant::now() => {
+            format!("no answer {}s after this computer woke", WAKE_PROBE.as_secs())
+        }
+        _ => stopped_reading(budget),
+    }
 }
 
 /// The default WebSocket port of an `ssh://` peer.

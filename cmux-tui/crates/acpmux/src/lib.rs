@@ -25,6 +25,7 @@ pub mod agent_tools;
 pub mod attach;
 pub mod author;
 pub mod beads;
+pub mod bg_run;
 pub mod byo_endpoint;
 pub mod capabilities;
 pub mod catalog;
@@ -79,6 +80,7 @@ pub mod pairing;
 pub mod path_canon;
 pub mod peer;
 pub mod peer_link;
+pub mod peer_states;
 pub mod placement;
 #[cfg(not(unix))]
 mod platform;

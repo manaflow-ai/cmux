@@ -24,6 +24,11 @@ use router_owner::{ensure_router, release_router};
 pub(crate) mod login_placement;
 #[cfg(target_os = "macos")]
 pub(crate) mod login_session;
+// Reports to the Cloud agent's socket, which only Cloud machines (Linux) have; decided on
+// every Unix so its tests run on the Mac too.
+#[cfg(unix)]
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+mod cloud_handoff;
 mod notify;
 mod persist_retry;
 #[cfg(windows)]
@@ -359,7 +364,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     })));
     // Agents outlive this daemon unless the user opts out for this release.
     // `ACPMUX_IDLE_CHILD_SECS`: how long an unused session harness lives
-    // (default 300; 0 keeps every harness running).
+    // (default 120, `hub::IDLE_CHILD`; 0 keeps every harness running).
     if let Some(secs) =
         std::env::var("ACPMUX_IDLE_CHILD_SECS").ok().and_then(|v| v.parse::<u64>().ok())
     {
@@ -526,6 +531,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         });
     }
     tokio::spawn(notify::notify_loop(hub.clone()));
+    #[cfg(target_os = "linux")]
+    tokio::spawn(cloud_handoff::handoff_loop(hub.clone()));
 
     let shutdown = async {
         #[cfg(unix)]

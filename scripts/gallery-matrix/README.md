@@ -105,6 +105,39 @@ a fifth is printed with the lower value. Rows only go down: download a run's `ga
 artifacts and run `bun ready-budgets.ts --from <dir>` to lower every row the run beat. It never
 raises a row; `--add` writes rows for slow states that have none, a raise the diff shows.
 
+## Geometry audit
+
+`geometry-audit.ts` captures the declared fixtures from `geometry-baseline.json`, freezes active
+animations after play settles, and records DOM rectangles/computed styles next to each screenshot.
+`geometry-lint.ts` requires the screenshot hash, source-under-test SHA, dimensions/device scale,
+coordinate space, capture tuple and semantic groups. It compares only declared peers. Missing
+or unsupported evidence fails; it never treats a rectangle bottom as a text baseline or native
+view frames as accessibility frames.
+
+The first measured baseline covers Session Info's top-block label column, in both appearances.
+Its existing 2px drift was observed at the baseline revision; the baseline records that debt with
+its reason and maximum. Other surfaces and true text-baseline/native AX checks are explicit
+coverage gaps, not passing checks. Add measured selectors/rules as each audit surface is captured.
+Baseline debt changes require review; lint never regenerates or raises it automatically.
+
+Geometry is a lane-run audit, rather than a CI gate. Run it on a fleet worker after building the
+gallery; the output directory is disposable so a failed rerun cannot reuse old evidence. This
+one-liner captures the gallery and runs the lint at the checked-out source SHA:
+
+```sh
+cmux-ci test --setup webviews --timeout 1800 -- bash -lc '
+  set -euo pipefail
+  cd webviews
+  bun install --frozen-lockfile
+  CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery" bun run gallery:build
+  cd ../scripts/gallery-matrix
+  bun install --frozen-lockfile
+  ./node_modules/.bin/playwright install --with-deps --only-shell chromium
+  CMUX_GALLERY_IN_VM=1 bun geometry-audit.ts --gallery-dir "$RUNNER_TEMP/gallery" \
+    --output-dir "$RUNNER_TEMP/geometry" --expected-sha "$(git rev-parse HEAD)"
+'
+```
+
 ## How geometry is measured
 
 - Rules compare CSS px (native points), including tokens, tolerances and reported deltas.
