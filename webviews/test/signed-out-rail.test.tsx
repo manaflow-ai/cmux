@@ -216,6 +216,42 @@ test("a signed-out harness offers Log In, never its models", async () => {
   expect(sent).toEqual([]);
 });
 
+// Leo 2026-10-26: "if user picks a model they don't have api key, we offer them to add credits or add
+// their own api key". After Log In, the signed-out tab offers Add API Key… for the harness's provider
+// and Add Credits…; neither starts a chat.
+test("a signed-out harness also offers Add API Key and Add Credits", async () => {
+  const asked: string[] = [];
+  const { sent, catalog } = await mount({
+    harness: "claude",
+    signIn: {
+      signedOut: { codex: "codex login" },
+      logIn: () => undefined,
+      access: { addKey: (harness) => asked.push(`key:${harness}`), addCredits: () => asked.push("credits") },
+    },
+  });
+  const codex = catalog.harnesses.find((entry) => entry.id === "codex")!;
+  await act(async () => {
+    openQuickPicker();
+  });
+  await act(async () => tabFor(codex.name)!.click());
+  const items = () => [
+    ...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .acpmux-quick-item"),
+  ];
+  expect(items().map((item) => item.textContent)).toEqual(
+    expect.arrayContaining(["Log In", "Add API Key…", "Add Credits…"]),
+  );
+  const labels = items().map((item) => item.textContent);
+  expect(labels.indexOf("Log In")).toBeLessThan(labels.indexOf("Add API Key…"));
+  await act(async () => items().find((item) => item.textContent === "Add API Key…")!.click());
+  await act(async () => {
+    openQuickPicker();
+  });
+  await act(async () => tabFor(codex.name)!.click());
+  await act(async () => items().find((item) => item.textContent === "Add Credits…")!.click());
+  expect(asked).toEqual(["key:codex", "credits"]);
+  expect(sent).toEqual([]);
+});
+
 test("a search never lists a signed-out harness's models", async () => {
   const { sent } = await mount({
     harness: "claude",

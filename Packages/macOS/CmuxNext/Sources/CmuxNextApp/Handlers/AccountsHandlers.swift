@@ -11,7 +11,13 @@ import Foundation
 enum AccountsHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        registry.bind("accounts.show", run: { _ in try services.settingsWindow.show(section: .accounts) })
+        registry.bind("accounts.show", run: { invocation in
+            try services.settingsWindow.show(section: .accounts)
+            // A model the person cannot use (the agent pane's Add API Key…): open that provider's key field.
+            if let raw = invocation["provider"]?.stringValue, let provider = AIProvider(rawValue: raw), provider.acceptsPastedKey {
+                services.accounts.model.pasteTarget = provider
+            }
+        })
         registry.bind("accounts.refresh", run: { _ in services.accounts.model.refresh() })
         registry.bind("accounts.reauthenticate", run: { invocation in
             let provider = try provider(invocation)

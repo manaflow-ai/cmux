@@ -3,6 +3,7 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { AccessOffer } from "../accessOffer";
 import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
@@ -72,6 +73,9 @@ export type TurnActions = {
     find: () => Promise<ChatAccount | "on" | undefined>;
     use: (routeId: string) => Promise<void>;
   };
+  /// Add Credits… and Add API Key… on a turn the cmux model router refused for want of credits
+  /// (accessOffer.ts, failureCopy.ts `needs-credits`); the app runs them on the person's click.
+  access?: AccessOffer;
   /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
   /// the chat offers it now; undefined while the chat is not connected.
   queuedMessages?: () => QueuedMessageActionsValue | undefined;

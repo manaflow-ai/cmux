@@ -1,4 +1,5 @@
 // The composer's model picker's props, the combos it lands, and its height bounds (ModelPicker.tsx).
+import type { AccessOffer } from "./accessOffer";
 import type { AcpmuxSnapshot } from "./model";
 import type { Choice, Combo } from "./ComposerPickers";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -83,6 +84,8 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
+  /// A signed-out harness's other ways in, Add API Key… and Add Credits… after Log In (accessOffer.ts).
+  access?: AccessOffer;
   /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
   /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
   /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the

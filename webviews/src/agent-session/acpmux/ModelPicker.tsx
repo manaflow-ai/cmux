@@ -404,6 +404,7 @@ export function ModelPicker(props: ModelPickerProps) {
     catalogRefresh,
     signedOut,
     onLogIn,
+    access,
     usage,
     quick,
     detail,
@@ -848,6 +849,9 @@ export function ModelPicker(props: ModelPickerProps) {
         ...(signedOutHere && loginFor(entry) && onLogIn
           ? { logIn: () => onLogIn(entry.acpmuxHarness ?? entry.id, loginFor(entry)!) }
           : {}),
+        ...(signedOutHere && access
+          ? { addKey: () => access.addKey(entry.acpmuxHarness ?? entry.id), addCredits: access.addCredits }
+          : {}),
       });
     }
     const rail = railByHarness(list, harness ?? current?.id, props.profiles, (id) => signedOut?.[id] !== undefined);
@@ -879,6 +883,7 @@ export function ModelPicker(props: ModelPickerProps) {
     props.model,
     t,
     onLogIn,
+    access,
     props.profiles,
     signedOut,
   ]);
@@ -1408,6 +1413,25 @@ export function ModelPicker(props: ModelPickerProps) {
                         <span className="acpmux-menu-label flex-1 truncate">{t("harness.logIn")}</span>
                       </button>
                     )}
+                    {access &&
+                      (
+                        [
+                          ["access.addKey", () => access.addKey(selected.acpmuxHarness ?? selected.id)],
+                          ["access.addCredits", access.addCredits],
+                        ] as const
+                      ).map(([key, run]) => (
+                        <button
+                          type="button"
+                          key={key}
+                          className={`acpmux-mp-row acpmux-mp-access ${modelRow} ${rowFill(false)}`}
+                          onClick={() => {
+                            run();
+                            close();
+                          }}
+                        >
+                          <span className="acpmux-menu-label flex-1 truncate">{t(key)}</span>
+                        </button>
+                      ))}
                   </>
                 ) : selectedOther && blockedProfile(selected) ? (
                   <div className={emptyNote}>

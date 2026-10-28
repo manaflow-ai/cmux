@@ -1,4 +1,5 @@
 import { createContext, useContext } from "react";
+import type { AccessOffer } from "./accessOffer";
 
 /// The harnesses this Mac's acpmux last found signed out (`_acpmux/harness/health`, cx-ae9eb),
 /// by acpmux harness id, each with its login command ("" when acpmux names none). The model
@@ -8,6 +9,8 @@ export type SignIn = {
   signedOut: Readonly<Record<string, string>>;
   /// Runs `login` for `harness` in a terminal tab; the pane checks again when it is back.
   logIn(harness: string, login: string): void;
+  /// Add API Key… and Add Credits… beside Log In (accessOffer.ts); absent where the pane cannot run them.
+  access?: AccessOffer;
 };
 
 export const SignInContext = createContext<SignIn | undefined>(undefined);

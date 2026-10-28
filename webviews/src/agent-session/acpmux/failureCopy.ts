@@ -7,6 +7,7 @@ export type FailureKind =
   | "trust-pending"
   | "trust-untrusted"
   | "no-team-account"
+  | "needs-credits"
   | "rate-limited"
   | "unreachable"
   | "invalid-key"
@@ -34,6 +35,11 @@ export type FailureRoute = {
 /// way out is an account added for the team, with the `cr add <agent>` the refusal names.
 const NO_TEAM_ACCOUNT = /needs a team account on this machine|account is shared with this Cloud machine's team/i;
 const ADD_COMMAND = /\bcr add (?:codex|claude|opencode)\b/;
+/// The cmux model router refused the call for want of credits or a plan (backend inference/route.ts:
+/// 402 `inference.plan_required` or `credits.insufficient`). Its Messages endpoint passes on only the
+/// message text, so the router's own words are the signal: "AI models need cmux credits, your own API
+/// key, or a paid plan" and "Not enough cmux credits for this call".
+const NEEDS_CREDITS = /\bcmux credits\b|inference\.plan_required|credits\.insufficient/i;
 const RATE =
   /\b(?:429|529)\b|rate.?limit|too many requests|overloaded|at capacity|no non-exhausted|usage limit|quota|\b503\b|service unavailable/i;
 const UNREACHABLE =
@@ -110,6 +116,8 @@ export function failureKind(message: string | undefined, route?: FailureRoute, c
   if (/\btrust\.untrusted\b/i.test(message)) return "trust-untrusted";
   // Before capacity and sign-in: neither waiting, another model nor a sign-in fixes it.
   if (NO_TEAM_ACCOUNT.test(message) && ADD_COMMAND.test(message)) return "no-team-account";
+  // Before capacity and keys: the router's words name an API key and its 402 reads as quota.
+  if (NEEDS_CREDITS.test(message)) return "needs-credits";
   if (DISK_FULL.test(message)) return "disk-full";
   // Capacity and network first: their messages often mention authentication or keys in passing.
   if (RATE.test(message)) return "rate-limited";
@@ -186,6 +194,8 @@ export function failureCopy(t: Translate, message: string | undefined, route?: F
       return t("trust.notTrustedNoPrompts");
     case "no-team-account":
       return t("turn.failure.noTeamAccount", { harness, command: (message && ADD_COMMAND.exec(message)?.[0]) ?? "" });
+    case "needs-credits":
+      return t("turn.failure.needsCredits", { harness });
     case "rate-limited":
       return t("turn.failure.rateLimited", { harness });
     case "unreachable":

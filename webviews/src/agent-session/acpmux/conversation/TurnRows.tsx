@@ -37,6 +37,7 @@ import { failureCopy, failureKind, failureRecovery, type FailureRoute } from "..
 import { experimentArm } from "../../../experiments/experiment";
 import { turnErrorCard } from "./turnErrorCard.experiment";
 import { codeRouterOffer } from "./codeRouterOffer.experiment";
+import { accessOfferLook } from "./accessOffer.experiment";
 import { CodeRouterAction, useCodeRouterChoice } from "./CodeRouterOffer";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
 
@@ -426,6 +427,7 @@ function TurnFailure({
   const t = useT();
   const [copied, setCopied] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const { access } = useContext(TurnActionsContext);
   const kind = failureKind(message, route, code);
   const sentence = failureCopy(t, message, route, code);
   const arm = experimentArm(turnErrorCard);
@@ -433,7 +435,38 @@ function TurnFailure({
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
   const offersSwitch =
     switchModel &&
-    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
+    ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth", "needs-credits"].includes(
+      kind,
+    );
+  // The cmux model router refused the turn for want of credits (accessOffer.ts; Leo 2026-10-26: "we
+  // offer them to add credits or add their own api key"), placed by the `access-offer` arm. As
+  // buttons, the arm's first one is the card's one filled button; as links, Retry keeps it.
+  const accessOffer = kind === "needs-credits" ? access : undefined;
+  const accessArm = experimentArm(accessOfferLook);
+  const accessLeads = accessOffer !== undefined && accessArm !== "link";
+  const accessButtons = accessOffer && accessLeads && (
+    <>
+      {(accessArm === "key-first"
+        ? ([
+            ["access.addKey", () => accessOffer.addKey(route?.harness)],
+            ["access.addCredits", accessOffer.addCredits],
+          ] as const)
+        : ([
+            ["access.addCredits", accessOffer.addCredits],
+            ["access.addKey", () => accessOffer.addKey(route?.harness)],
+          ] as const)
+      ).map(([key, run], index) => (
+        <button
+          type="button"
+          key={key}
+          className={`cv-turn-auth-action${index === 0 ? " cv-turn-error__primary" : ""}`}
+          onClick={run}
+        >
+          {t(key)}
+        </button>
+      ))}
+    </>
+  );
   // Retry is the way out, or the second one after Switch model; never for a sign-in or trust failure.
   const offersRetry = recovery !== undefined && retry !== undefined;
   // The way out goes first and reads as the card's one filled button.
@@ -449,7 +482,7 @@ function TurnFailure({
   const switchButton = offersSwitch && (
     <button
       type="button"
-      className={`cv-turn-auth-action${switchFirst && !offerLeads ? " cv-turn-error__primary" : ""}`}
+      className={`cv-turn-auth-action${switchFirst && !offerLeads && !accessLeads ? " cv-turn-error__primary" : ""}`}
       onClick={switchModel}
     >
       {t("turn.failure.switchModel")}
@@ -470,9 +503,26 @@ function TurnFailure({
               <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-error__offer-link" />
             </>
           )}
+          {accessOffer && accessArm === "link" && (
+            <>
+              {" "}
+              <button type="button" className="cv-turn-error__offer-link" onClick={accessOffer.addCredits}>
+                {t("access.addCredits")}
+              </button>
+              {" · "}
+              <button
+                type="button"
+                className="cv-turn-error__offer-link"
+                onClick={() => accessOffer.addKey(route?.harness)}
+              >
+                {t("access.addKey")}
+              </button>
+            </>
+          )}
         </span>
       </span>
       <span className="cv-turn-error__actions">
+        {accessButtons}
         {offerLeads && (
           <CodeRouterAction choice={codeRouter} retry={retry} className="cv-turn-auth-action cv-turn-error__primary" />
         )}
@@ -480,7 +530,7 @@ function TurnFailure({
         {offersRetry && (
           <button
             type="button"
-            className={`cv-turn-auth-action${switchFirst || offerLeads ? "" : " cv-turn-error__primary"}`}
+            className={`cv-turn-auth-action${switchFirst || offerLeads || accessLeads ? "" : " cv-turn-error__primary"}`}
             onClick={retry}
           >
             {t("turn.retry")}

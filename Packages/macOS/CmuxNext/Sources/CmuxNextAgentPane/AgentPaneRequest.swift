@@ -85,8 +85,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page asked the app to run a user facing action.
-    case runAction(String)
+    /// The new tab page asked the app to run a user facing action. `arguments`: what the page may
+    /// name for it (``AgentPaneModel/pageArguments(for:_:)``), checked before the action runs.
+    case runAction(String, arguments: [String: String] = [:])
     /// The new-tab project picker asked for the explicit Browse… fallback.
     case browseProject
     /// "Choose Folder…" (`workspace.chooseFolder`): the native folder sheet that sets the

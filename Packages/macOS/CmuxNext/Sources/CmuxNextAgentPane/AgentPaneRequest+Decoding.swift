@@ -380,7 +380,9 @@ extension AgentPaneRequest {
             }
         case "action.run":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128 {
-                self = .runAction(id)
+                // Only a provider name rides along (Add API Key…'s Accounts row); the model checks it.
+                let provider = (params?["provider"] as? String).flatMap { $0.count <= 32 ? $0 : nil }
+                self = .runAction(id, arguments: provider.map { ["provider": $0] } ?? [:])
             } else {
                 self = .unsupported(method)
             }
