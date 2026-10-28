@@ -91,7 +91,9 @@ struct CloudMachineCreateFlow {
     /// Creates a machine; `startedByPerson` is true for the person's own
     /// gesture in this app (click, menu, palette, key). Returns the machine
     /// record (contract 1.2). `askedBy`: the agent chat that asked, if one did.
-    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
+    /// `key`: the creation's own idempotency key, so its Retry is the same create
+    /// (the backend answers the first machine for it); a fresh one when none.
+    func create(name: String?, startedByPerson: Bool, askedBy: String? = nil, key: String? = nil, gate: Gate = .allowed) async throws -> JSONValue {
         if case .upgrade(let need) = gate {
             if startedByPerson { _ = await confirm(.upgrade(need)) }
             throw Failure.upgradeRequired(need.reason)
@@ -101,7 +103,7 @@ struct CloudMachineCreateFlow {
         if confirmed { guard await confirm(.agentRequest(machine)) else { throw Failure.declined } }
         var args: [String: JSONValue] = ["size": .object(["cpu": .number(Double(machine.cpu)), "memory_mb": .number(Double(machine.memoryMB)), "disk_mb": .number(Double(machine.diskMB))])]
         if let name = machine.name { args["name"] = .string(name) }
-        let key = newKey()
+        let key = key ?? newKey()
         var approved: String?
         var attempt = 0
         // The first call, then at most `retries` same-key calls after the

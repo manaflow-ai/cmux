@@ -25,16 +25,24 @@ extension CloudService {
         return machines
     }
 
-    /// One `cloud.machine.create` through ``CloudMachineCreateFlow``.
-    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
+    /// One `cloud.machine.create` through ``CloudMachineCreateFlow``, with the request's one
+    /// idempotency key (cmuxterm-hq#4709): the creation's Retry sends the same key to the same
+    /// team, so a create whose answer was lost answers its first machine instead of making a second.
+    func appServerCreate(name: String?, startedByPerson: Bool, askedBy: String?, creation: CloudMachineCreation?, request: CloudMachineRequest,
+                         onSent: @escaping @MainActor @Sendable () async -> Void) async throws -> CloudMachine {
         let approvals = CloudApprovalAnswer(call: sessionCall())
         let ops = appOps
-        // The team the relay's create bills: the install token's team claim,
-        // captured now, when the person starts or confirms this create.
-        let team = MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? ""
+        let pinned = creation?.request ?? request
+        // The team the relay's create bills: the install token's team claim, captured now. A Retry
+        // stays with the first send's team, and is refused if the token now bills another one.
+        let team = try Self.appServerTeam(current: MacInstallIdentity.team(ofToken: try await installIdentity.installToken()) ?? "", request: pinned)
+        let sent: @MainActor @Sendable () async -> Void = { [weak creation] in
+            creation?.markRequestSent(team: team)
+            await onSent()
+        }
         let flow = CloudMachineCreateFlow(
             run: { op, args, key, origin in
-                await onSent()
+                await sent()
                 return try await ops(op, args, key, origin)
             },
             confirm: { [weak self] prompt in await self?.confirmCreate?(prompt) ?? false },
@@ -46,9 +54,20 @@ extension CloudService {
                 try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
             }
         )
-        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate)
+        // A request already sent once (its Retry) goes to the server's lookup of its key, past the local plan gate.
+        let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, key: pinned.idempotencyKey,
+                                           gate: pinned.wasSent ? .allowed : createGate)
         guard let machine = CloudMachine(next: record) else { throw CloudAppOpFailure(code: "cmux.cloud.bad_response", message: "cloud.machine.create answered no machine") }
         return machine
+    }
+
+    /// The team an app-server create goes to: the install token's team `current`, or, once
+    /// `request` was sent, the team of its first send, which `current` must still be: the key is
+    /// scoped per team, so the same key in another team would be a second machine.
+    static func appServerTeam(current: String, request: CloudMachineRequest) throws -> String {
+        guard request.wasSent, let first = request.team else { return current }
+        guard first == current else { throw ActionFailure(message: CloudStrings.createRetryOtherTeam) }
+        return first
     }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
