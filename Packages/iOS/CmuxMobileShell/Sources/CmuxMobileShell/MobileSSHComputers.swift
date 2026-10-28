@@ -154,6 +154,7 @@ public final class MobileSSHComputers {
     /// disconnected them or declined a first-connect question.
     @ObservationIgnored private var autoConnectSuppressed: Set<UUID> = []
     @ObservationIgnored private var autoConnectTasks: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var autoConnectGenerations: [UUID: UUID] = [:]
     /// The latest queued write of a host's persisted auto-connect pause flag.
     @ObservationIgnored private var autoConnectPauseWrite: Task<Void, Never>?
     /// Counts pause-flag changes per host so only the newest write restores
@@ -395,12 +396,22 @@ public final class MobileSSHComputers {
     @discardableResult
     public func autoConnect(hostID: UUID) -> Task<Void, Never>? {
         guard canAutoConnect(hostID: hostID) else { return nil }
+        let generation = UUID()
         let task = Task { [weak self] in
             guard let self, !Task.isCancelled else { return }
             await self.connectAndList(hostID: hostID)
-            if !Task.isCancelled { self.autoConnectTasks[hostID] = nil }
         }
+        autoConnectGenerations[hostID] = generation
         autoConnectTasks[hostID] = task
+        // This observer is deliberately independent of the returned task: it
+        // clears ownership even when the caller cancels before the task's
+        // first turn. The generation check protects a replacement auto-open.
+        Task { @MainActor [weak self] in
+            _ = await task.value
+            guard let self, self.autoConnectGenerations[hostID] == generation else { return }
+            self.autoConnectGenerations[hostID] = nil
+            self.autoConnectTasks[hostID] = nil
+        }
         return task
     }
 
@@ -544,6 +555,7 @@ public final class MobileSSHComputers {
         // Revoke every resource's ownership before the first suspension. A
         // reconnect during slow teardown must not be removed by this close.
         autoConnectTasks.removeValue(forKey: hostID)?.cancel()
+        autoConnectGenerations[hostID] = nil
         connectionAttempts.cancel(hostID: hostID)
         // Keep the provider alive until its terminal/browser detach callbacks
         // have run; tmux pane teardown calls back through a weak provider.
@@ -1275,6 +1287,7 @@ extension MobileSSHComputers {
                 dataBase64: base64PNG
             ))
         case .ended:
+            browserGenerations[panelID] = nil
             guard browserSessions.removeValue(forKey: panelID) != nil else { return }
             let retry = browserPanelsWithFrames.remove(panelID) != nil
             sink?.sshBrowserStreamEnded(panelID: panelID, retry: retry)
