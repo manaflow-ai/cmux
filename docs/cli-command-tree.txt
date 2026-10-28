@@ -430,8 +430,6 @@ command  capture-pane  aliases=-
   arg  --window  kind=option  completion=custom
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
-command  chief  aliases=-
-  arg  arguments  kind=argument  completion=-
 command  claude-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  claude-teams  aliases=-
@@ -615,6 +613,7 @@ command  help  aliases=-
   arg  arguments  kind=argument  completion=-
 command  hooks  aliases=-
   arg  --agent  kind=option  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,gemini,grok,hermes-agent,kimi,kiro,muse,omp,opencode,pi,qoder,rovo,rovodev)
+  arg  --global  kind=flag  completion=-
   arg  --project  kind=flag  completion=-
   arg  --yes  kind=flag  completion=-
   arg  arguments  kind=argument  completion=list(agy,amp,antigravity,campfire,codebuddy,codex,copilot,cursor,factory,feed,gemini,grok,hermes-agent,kimi,kiro,muse,omp,opencode,pi,qoder,rovo,rovodev,setup,uninstall)

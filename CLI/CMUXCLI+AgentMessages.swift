@@ -230,9 +230,11 @@ extension CMUXCLI {
 
     // MARK: - Hooks
 
-    /// Handles `hooks <claude|codex> inbox-*`. Returns false for any other
+    /// Handles `hooks <claude|codex|kiro> inbox-*`. Returns false for any other
     /// hook subcommand. Every path fails open: a missing surface, a disabled
-    /// integration or a socket error prints the agent's no-op answer.
+    /// integration or a socket error prints the agent's no-op answer. Kiro's
+    /// no-op answer is empty output, because Kiro adds a prompt-submit hook's
+    /// stdout to the model context.
     func runAgentInboxHookIfMatched(
         agent: String,
         commandArgs: [String],
@@ -242,17 +244,55 @@ extension CMUXCLI {
               subcommand.hasPrefix("inbox-") else { return false }
         let env = ProcessInfo.processInfo.environment
         let input = Self.agentInboxHookInput()
-        let disabledKey = agent == "claude" ? "CMUX_CLAUDE_HOOKS_DISABLED" : "CMUX_CODEX_HOOKS_DISABLED"
-        // Headless `claude -p` and `codex exec` runs share the pane's surface
-        // id with the interactive session there; they must not claim its
-        // messages.
-        let headlessKey = agent == "claude" ? "CMUX_CLAUDE_HEADLESS" : "CMUX_CODEX_HEADLESS"
-        let headless = env[headlessKey] == "1"
+        let disabledKey = "CMUX_\(agent.uppercased())_HOOKS_DISABLED"
+        let kiroPID = agent == "kiro"
+            ? (kiroCLIAncestorPID() ?? agentPIDFromHookEnvironment(agentName: agent, env: env))
+            : nil
+        let isGlobalKiroHook = agent == "kiro" && env["CMUX_KIRO_GLOBAL_HOOK"] == "1"
+        // Headless `claude -p`, `codex exec` and `kiro-cli chat --no-interactive`
+        // runs share the pane's surface id with the interactive session there;
+        // they must not claim its messages.
+        let headlessKey: String? = switch agent {
+        case "claude": "CMUX_CLAUDE_HEADLESS"
+        case "codex": "CMUX_CODEX_HEADLESS"
+        default: nil
+        }
+        let headless = headlessKey.map { env[$0] == "1" } ?? (agent == "kiro" && kiroHookIsHeadlessOrNested())
         guard let surfaceId = env["CMUX_SURFACE_ID"], !surfaceId.isEmpty, env[disabledKey] != "1", !headless else {
-            if subcommand != "inbox-wait" { print("{}") }
+            if subcommand != "inbox-wait", agent != "kiro" { print("{}") }
+            return true
+        }
+        if isGlobalKiroHook,
+           let kiroPID,
+           !kiroHookMatchesActiveSurface(surfaceId: surfaceId, pid: kiroPID, client: client) {
+            return true
+        }
+        if isGlobalKiroHook, kiroPID == nil {
             return true
         }
         switch (agent, subcommand) {
+        case ("kiro", "inbox-drain"):
+            // Kiro adds this stdout to the context of the prompt just sent.
+            let text = Self.agentInboxClaim(
+                surfaceId: surfaceId,
+                via: "kiro.prompt-submit",
+                markDeliveredRead: false,
+                agentPID: kiroPID,
+                client: client
+            )
+            if !text.isEmpty { print(text) }
+        case ("kiro", "inbox-stop"):
+            // Kiro Stop: `decision: block` starts another turn with the reason.
+            let text = Self.agentInboxClaim(
+                surfaceId: surfaceId,
+                via: "kiro.stop",
+                markDeliveredRead: true,
+                agentPID: kiroPID,
+                client: client
+            )
+            if !text.isEmpty { print(Self.agentInboxStopOutput(text: text)) }
+        case ("kiro", _):
+            break
         case ("claude", "inbox-wait"):
             runClaudeInboxWait(surfaceId: surfaceId, input: input, client: client, env: env)
         case (_, "inbox-drain"):
@@ -262,6 +302,7 @@ extension CMUXCLI {
                 surfaceId: surfaceId,
                 via: "\(agent).prompt-submit",
                 markDeliveredRead: false,
+                agentPID: nil,
                 client: client
             )
             print(Self.agentInboxPromptSubmitOutput(text: text))
@@ -272,6 +313,7 @@ extension CMUXCLI {
                 surfaceId: surfaceId,
                 via: "codex.stop",
                 markDeliveredRead: true,
+                agentPID: nil,
                 client: client
             )
             print(Self.agentInboxStopOutput(text: text))
@@ -279,6 +321,25 @@ extension CMUXCLI {
             print("{}")
         }
         fflush(stdout)
+        return true
+    }
+
+    /// Confirms that a live Kiro process still resolves to the hook's surface.
+    /// The surface id is inherited by child processes, so it is not sufficient
+    /// on its own to identify the active Kiro session.
+    private func kiroHookMatchesActiveSurface(
+        surfaceId: String,
+        pid: Int,
+        client: SocketClient
+    ) -> Bool {
+        guard let result = try? client.sendV2(
+            method: "agent.resolve_delivery_target",
+            params: ["pid": pid, "pid_resolution": "corroborated"],
+            responseTimeout: 1
+        ),
+        result["surface_id"] as? String == surfaceId else {
+            return false
+        }
         return true
     }
 
@@ -409,15 +470,20 @@ extension CMUXCLI {
         surfaceId: String,
         via: String,
         markDeliveredRead: Bool,
+        agentPID: Int?,
         client: SocketClient
     ) -> String {
+        var params: [String: Any] = [
+            "surface_id": surfaceId,
+            "via": via,
+            "mark_delivered_read": markDeliveredRead,
+        ]
+        if let agentPID {
+            params["agent_pid"] = agentPID
+        }
         guard let payload = try? client.sendV2(
             method: "agent.message.claim",
-            params: [
-                "surface_id": surfaceId,
-                "via": via,
-                "mark_delivered_read": markDeliveredRead,
-            ],
+            params: params,
             responseTimeout: 3
         ) else { return "" }
         return payload["text"] as? String ?? ""

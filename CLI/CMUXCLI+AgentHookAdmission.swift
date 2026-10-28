@@ -229,6 +229,14 @@ extension CMUXCLI {
            let inferredPID = inferredAgentPID() {
             environment[pidEnvironmentKey] = String(inferredPID)
         }
+        // On Kiro CLI V3 the hook's parent pid is not the kiro-cli process. Resolve
+        // only from this live, local hook's own ancestry, never a relayed or
+        // recorded pid that may name a reused local process.
+        if agent == "kiro", !client.isRelayBacked, resolvesProcessRoute, runsInHookProcess,
+           environment[pidEnvironmentKey] != nil,
+           let kiroCLI = kiroCLIAncestorPID() {
+            environment[pidEnvironmentKey] = String(kiroCLI)
+        }
         guard client.isRelayBacked else {
             let routeWasAlreadySnapshotted =
                 environment[Self.agentHookRouteSnapshotEnvironmentKey] == "1"

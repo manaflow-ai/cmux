@@ -25,7 +25,7 @@ extension TerminalController {
         case "agent.message.list":
             result = await agentMessageList(params: params)
         case "agent.message.claim":
-            result = agentMessageClaim(params: params)
+            result = await agentMessageClaim(params: params)
         case "agent.message.ack":
             result = agentMessageAck(params: params)
         case "agent.message.mark_read":
@@ -244,9 +244,25 @@ extension TerminalController {
 
     /// Used by synchronous hooks (prompt submit, Codex stop): hands over every
     /// queued message for the caller's surface.
-    private nonisolated func agentMessageClaim(params: [String: Any]) -> V2CallResult {
+    private nonisolated func agentMessageClaim(params: [String: Any]) async -> V2CallResult {
         guard let surfaceId = Self.agentMessageSurfaceUUID(params["surface_id"]) else {
             return Self.agentMessageMissingSurface()
+        }
+        if let rawPID = params["agent_pid"] as? Int,
+           let pid = pid_t(exactly: rawPID) {
+            let isCurrentAgent = await MainActor.run {
+                guard let target = AppDelegate.shared?.liveAgentDeliveryTarget(forAgentPID: pid) else {
+                    return false
+                }
+                guard target.surfaceId.uuidString == surfaceId else { return false }
+                return AppDelegate.shared?.liveKiroAgentProcessMatchesSurface(
+                    pid: pid,
+                    surfaceID: target.surfaceId
+                ) == true
+            }
+            guard isCurrentAgent else {
+                return .ok(["messages": [], "text": ""])
+            }
         }
         let store = AgentMessageCenter.store
         if params["mark_delivered_read"] as? Bool == true {
