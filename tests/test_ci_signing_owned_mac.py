@@ -58,6 +58,8 @@ CLAIM = "scripts/ci/signing-runner-claim.sh"
 NEEDS_OUTPUT = re.compile(r"needs\.([\w-]+)\.outputs\.([\w-]+)")
 STEP_OUTPUT = re.compile(r"steps\.([\w-]+)\.outputs\.")
 KEYCHAIN_DELETE = re.compile(r"signing-keychain\.sh\s+delete\b")
+# Status functions that let a step run after an earlier step failed.
+RUNS_AFTER_FAILURE = re.compile(r"\b(?:always|failure|cancelled)\s*\(")
 
 
 def workflows() -> dict[str, dict]:
@@ -127,6 +129,14 @@ def check(documents: dict[str, dict]) -> tuple[list[str], int]:
                 failures.append(f"{label}: routed to owned Macs without a step that runs {CLAIM}")
             elif first_secret is not None and first_secret < claim:
                 failures.append(f"{label}: step {first_secret} names a secret before the claim step ({claim})")
+            else:
+                if steps[claim].get("if") is not None or str(steps[claim].get("continue-on-error", "false")) != "false":
+                    failures.append(f"{label}: the claim step must run unconditionally and fail the job "
+                                    "(no `if`, no continue-on-error)")
+                for index, step in enumerate(steps[claim + 1:], claim + 1):
+                    if "secrets." in json.dumps(step) and RUNS_AFTER_FAILURE.search(str(step.get("if", ""))):
+                        failures.append(f"{label}: step {index} names a secret and runs after a failed claim "
+                                        f"(if: {step.get('if')})")
             if "secrets." in json.dumps(job.get("env") or {}):
                 failures.append(f"{label}: job-level env names a secret, which every step (the claim's too) holds")
             text = json.dumps(steps)
@@ -169,6 +179,11 @@ class SigningOwnedMacTests(unittest.TestCase):
                                                 {**good, "steps": [good["steps"][1], good["steps"][0], good["steps"][2]]}),
             "without an `if: always()` step": ("release.yml", "build-sign-notarize",
                                                {**good, "steps": good["steps"][:2]}),
+            "must run unconditionally": ("release.yml", "build-sign-notarize",
+                                         {**good, "steps": [{"run": CLAIM, "continue-on-error": True}, *good["steps"][1:]]}),
+            "runs after a failed claim": ("release.yml", "build-sign-notarize",
+                                          {**good, "steps": [good["steps"][0], {**good["steps"][1], "if": "always()"},
+                                                             good["steps"][2]]}),
             "a re-run could stay": ("release.yml", "build-sign-notarize",
                                     {**good, "runs-on": "${{ needs.pick.outputs.owned || 'blacksmith-6vcpu-macos-26' }}"}),
         }
